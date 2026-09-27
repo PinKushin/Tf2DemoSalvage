@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**201 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**229 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -80,22 +80,22 @@ m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonu
 
 ### DT_TFPlayer
 
-**4 of 44** mentioned.
+**5 of 44** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsMiniBoss, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHelpmeButtonPressTime, m_flInspectTime, m_flKartNextAvailableBoost, m_flMvMLastDamageTime, m_flTauntYaw, m_flVehicleReverseTime, m_hGrapplingHookTarget, m_hHighFivePartner, m_hItem, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartHealth, m_iKartState, m_iPlayerSkinOverride, m_iSpawnCounter, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
+m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHelpmeButtonPressTime, m_flInspectTime, m_flKartNextAvailableBoost, m_flMvMLastDamageTime, m_flTauntYaw, m_flVehicleReverseTime, m_hGrapplingHookTarget, m_hHighFivePartner, m_hItem, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartHealth, m_iKartState, m_iPlayerSkinOverride, m_iSpawnCounter, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
 ```
 
 ### DT_TFPlayerShared
 
-**11 of 66** mentioned.
+**12 of 66** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bCarryingObject, m_bFeignDeathReady, m_bHasPasstimeBall, m_bIsTargetedForPasstimePass, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flCloakMeter, m_flDuckTimer, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flHypeMeter, m_flInvisChangeCompleteTime, m_flMovementStunTime, m_flNextNoiseMakerTime, m_flRuneCharge, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hDisguiseWeapon, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iAirDash, m_iCritMult, m_iDecapitations, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iMovementStunAmount, m_iMovementStunParity, m_iNextMeleeCrit, m_iRevengeCrits, m_iSpawnRoomTouchCount, m_iStunFlags, m_iStunIndex, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nAirDucked, m_nArenaNumChanges, m_nDisguiseSkinOverride, m_nHalloweenBombHeadStage, m_nNumHealers, m_nPlayerState, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
+m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bCarryingObject, m_bFeignDeathReady, m_bHasPasstimeBall, m_bIsTargetedForPasstimePass, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flCloakMeter, m_flDuckTimer, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flHypeMeter, m_flInvisChangeCompleteTime, m_flMovementStunTime, m_flNextNoiseMakerTime, m_flRuneCharge, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hDisguiseWeapon, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iAirDash, m_iCritMult, m_iDecapitations, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iMovementStunAmount, m_iMovementStunParity, m_iNextMeleeCrit, m_iRevengeCrits, m_iSpawnRoomTouchCount, m_iStunFlags, m_iStunIndex, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nAirDucked, m_nArenaNumChanges, m_nDisguiseSkinOverride, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
 ```
 
 ### DT_TFLocalPlayerExclusive
@@ -147,11 +147,10 @@ Not declared in this SDK.
 | table | unread | declared |
 |---|---|---|
 | `DT_Local` | 31 | 37 |
-| `DT_BaseObject` | 24 | 26 |
-| `DT_TFPlayerResource` | 22 | 26 |
 | `DT_TFObjectiveResource` | 20 | 20 |
-| `DT_TFPlayerScoringDataExclusive` | 20 | 20 |
+| `DT_TFPlayerResource` | 20 | 26 |
 | `DT_HL2Local` | 19 | 19 |
+| `DT_TFPlayerScoringDataExclusive` | 19 | 20 |
 | `DT_SmokeStack` | 18 | 18 |
 | `DT_LocalPlayerExclusive` | 17 | 19 |
 | `DT_BaseHumanoid` | 16 | 16 |
@@ -170,6 +169,7 @@ Not declared in this SDK.
 | `DT_SteamJet` | 11 | 11 |
 | `DT_AI_BaseNPC` | 10 | 11 |
 | `DT_BaseBeam` | 10 | 15 |
+| `DT_BaseObject` | 10 | 26 |
 | `DT_PointCamera` | 10 | 10 |
 | `DT_World` | 10 | 10 |
 | `DT_EntityDissolve` | 9 | 10 |
@@ -183,6 +183,6 @@ Not declared in this SDK.
 | `DT_TFPasstimeLogic` | 8 | 8 |
 | `DT_DynamicLight` | 7 | 7 |
 | `DT_EnvTonemapController` | 7 | 7 |
-| `DT_ObjectSentrygun` | 7 | 8 |
 | `DT_SporeExplosion` | 7 | 7 |
 | `DT_SporeTrail` | 7 | 7 |
+| `DT_BaseFlex` | 6 | 6 |

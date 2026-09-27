@@ -52,13 +52,14 @@ public sealed class ViewerMenuTests
     [Test]
     public void Strip_AfterTheMove_StillHasBothTopLevelMenusInOrder()
     {
-        // File then View, which is the order every Windows application uses and the order the
-        // accessibility tree reports. A move that rebuilt the strip could reorder them silently.
+        // File, then View, then Hud (D193's picker) — the order every Windows application uses for
+        // File/View, then the newest top-level menu after. A move that rebuilt the strip could
+        // reorder them silently.
         using MainForm form = new();
 
         form.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
             .Select(item => item.Name)
-            .ShouldBe([MainForm.FileMenuId, MainForm.ViewMenuId]);
+            .ShouldBe([MainForm.FileMenuId, MainForm.ViewMenuId, MainForm.HudMenuId]);
     }
 
     [Test]
@@ -101,6 +102,21 @@ public sealed class ViewerMenuTests
             .Count(property => property.PropertyType == typeof(bool) && property.Name != nameof(DebugModes.Any));
 
         debug.DropDownItems.Count.ShouldBe(modes);
+    }
+
+    [Test]
+    public void HudMenu_WithNoHudsInstalled_HasOnlyTf2Default()
+    {
+        // The test bin's own custom/ folder never has a HUD in it, so the picker's only entry is
+        // TF2's stock HUD (D193) — never the machine's tf/custom, which this must not read at all.
+        using MainForm form = new();
+
+        ToolStripMenuItem hud = form.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
+            .Single(item => item.Name == MainForm.HudMenuId);
+
+        hud.DropDownItems.Count.ShouldBe(1);
+        ((ToolStripMenuItem)hud.DropDownItems[0]).Checked.ShouldBeTrue(
+            "TF2 default is the only entry and nothing else was chosen");
     }
 
     /// <summary>Every menu identifier the form publishes for tests and automation.</summary>

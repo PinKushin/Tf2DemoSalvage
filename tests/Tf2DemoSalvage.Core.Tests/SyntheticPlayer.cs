@@ -438,8 +438,143 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>Player 1 holding medigun 30 that heals player 2, and player 2 with no weapon.</summary>
+    /// <param name="charge">The medigun's `DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithMedigun(float charge)
+    {
+        const int MedigunClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Table("bcc", "DT_BaseCombatCharacter")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
+        tables.Add(new SendTable("DT_TFWeaponMedigunDataNonLocal", NeedsDecoder: true, [NoScaleFloat("m_flChargeLevel")]));
+        tables.Add(new SendTable("DT_WeaponMedigun", NeedsDecoder: true,
+        [
+            UnsignedInt("m_hHealingTarget", bits: 21),
+            Table("NonLocalTFWeaponMedigunData", "DT_TFWeaponMedigunDataNonLocal"),
+        ]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(MedigunClassId, "CWeaponMedigun", "DT_WeaponMedigun")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(30),
+            }),
+            Entity(decoder, PlayerClassId, 2, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, MedigunClassId, 30, new Dictionary<string, PropertyValue>
+            {
+                ["DT_WeaponMedigun.m_hHealingTarget"] = LoadoutHandle(2),
+                ["DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel"] = PropertyValue.FromFloat(charge),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A handle: the slot with a serial above it — `NUM_ENT_ENTRY_BITS` is 11 — so the decoder has to mask.</summary>
     private static PropertyValue LoadoutHandle(int entity) => PropertyValue.FromInt(entity | (7 << 11));
+
+    /// <summary>The recorder with `m_Shared.m_nPlayerState` (tf_player_shared.cpp:543) and `m_bIsMiniBoss` (c_tf_player.cpp:3779).</summary>
+    /// <param name="playerState">`TF_STATE_*`.</param>
+    /// <param name="miniBoss">`m_bIsMiniBoss`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithPlayerState(int playerState, bool miniBoss)
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_TFPlayer"
+                    ? table with
+                    {
+                        Properties =
+                        [
+                            .. table.Properties,
+                            Table("playershared", "DT_TFPlayerShared"),
+                            UnsignedInt("m_bIsMiniBoss", bits: 1),
+                            Table("TFSendHealersDataTable", "DT_TFSendHealersDataTable"),
+                        ],
+                    }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true, [UnsignedInt("m_nPlayerState", bits: 3)]));
+        tables.Add(new SendTable("DT_TFSendHealersDataTable", NeedsDecoder: true, [UnsignedInt("m_nActiveWpnClip", bits: 8)]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_nPlayerState"] = PropertyValue.FromInt(playerState),
+                ["m_bIsMiniBoss"] = PropertyValue.FromInt(miniBoss ? 1 : 0),
+                ["m_nActiveWpnClip"] = PropertyValue.FromInt(6),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 
     /// <summary>The recorder (slot 0, entity 1) with what the HUD reads: its own health, its `m_iHideHUD`, the resource's maxima.</summary>
     /// <param name="health">`DT_BasePlayer.m_iHealth`.</param>
@@ -700,6 +835,107 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>A demo carrying one player (the builder) and one `CObjectSentrygun`, every field of the object set to a distinctive value.</summary>
+    public static byte[] DemoWithBuilding()
+    {
+        const int BuilderClassId = PlayerClassId;
+        const int SentrygunClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable(
+                "DT_BaseObject",
+                NeedsDecoder: true,
+                [
+                    Int("m_iHealth", bits: 16), Int("m_iMaxHealth", bits: 16), UnsignedInt("m_bHasSapper", bits: 1),
+                    UnsignedInt("m_iObjectType", bits: 8), UnsignedInt("m_bBuilding", bits: 1), UnsignedInt("m_bPlacing", bits: 1),
+                    UnsignedInt("m_bCarried", bits: 1), UnsignedInt("m_bMiniBuilding", bits: 1), UnsignedInt("m_bDisabled", bits: 1),
+                    UnsignedInt("m_hBuilder", bits: 21), UnsignedInt("m_iUpgradeLevel", bits: 3), UnsignedInt("m_iUpgradeMetal", bits: 10),
+                    UnsignedInt("m_iUpgradeMetalRequired", bits: 10), UnsignedInt("m_iObjectMode", bits: 2),
+                    UnsignedInt("m_bDisposableBuilding", bits: 1), NoScaleFloat("m_flPercentageConstructed"),
+                    VectorXy("m_vecOrigin", bits: 32), Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                    Table("baseclass", "DT_BaseEntity"), Table("m_Collision", "DT_CollisionProperty"),
+                ]),
+            new SendTable("DT_CollisionProperty", NeedsDecoder: true,
+            [
+                NoScaleVector("m_vecMins"), NoScaleVector("m_vecMaxs"), UnsignedInt("m_nSolidType", bits: 3), UnsignedInt("m_usSolidFlags", bits: 10),
+            ]),
+            new SendTable(
+                "DT_ObjectSentrygun",
+                NeedsDecoder: true,
+                [
+                    Int("m_iAmmoShells", bits: 16), Int("m_iAmmoRockets", bits: 16), Table("baseclass", "DT_BaseObject"),
+                ]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(SentrygunClassId, "CObjectSentrygun", "DT_ObjectSentrygun"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, BuilderClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, SentrygunClassId, 55, new Dictionary<string, PropertyValue>
+            {
+                ["m_iHealth"] = PropertyValue.FromInt(111),
+                ["m_iMaxHealth"] = PropertyValue.FromInt(150),
+                ["m_bHasSapper"] = PropertyValue.FromInt(1),
+                ["m_iObjectType"] = PropertyValue.FromInt(2), // OBJ_SENTRYGUN
+                ["m_bBuilding"] = PropertyValue.FromInt(1),
+                ["m_bPlacing"] = PropertyValue.FromInt(0),
+                ["m_bCarried"] = PropertyValue.FromInt(1),
+                ["m_bMiniBuilding"] = PropertyValue.FromInt(0),
+                ["m_bDisabled"] = PropertyValue.FromInt(1),
+
+                // A handle is the slot in the low 11 bits and a serial above; entity 1's serial is 0.
+                ["m_hBuilder"] = PropertyValue.FromInt(1),
+                ["m_iUpgradeLevel"] = PropertyValue.FromInt(3),
+                ["m_iUpgradeMetal"] = PropertyValue.FromInt(197),
+                ["m_iUpgradeMetalRequired"] = PropertyValue.FromInt(200),
+                ["m_iObjectMode"] = PropertyValue.FromInt(1),
+                ["m_bDisposableBuilding"] = PropertyValue.FromInt(1),
+                ["m_flPercentageConstructed"] = PropertyValue.FromFloat(0.75f),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(128.5f, -64.25f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(32.75f),
+                ["m_iAmmoShells"] = PropertyValue.FromInt(140),
+                ["m_iAmmoRockets"] = PropertyValue.FromInt(6),
+                ["m_vecMins"] = PropertyValue.FromVector(-20f, -20f, 0f),
+                ["m_vecMaxs"] = PropertyValue.FromVector(20f, 20f, 66f),
+                ["m_nSolidType"] = PropertyValue.FromInt(2), // SOLID_BBOX
+                ["m_usSolidFlags"] = PropertyValue.FromInt(4), // FSOLID_NOT_SOLID
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
     /// <summary>A decoder over the default schema, which the encoder also needs.</summary>
     public static EntityDecoder Decoder()
     {
@@ -879,6 +1115,135 @@ internal static class SyntheticPlayer
             SyntheticDemo.Packet(
                 SyntheticDemo.DefaultProtocol,
                 tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>
+    /// A schema whose <c>CTFPlayerResource</c> also carries the scoreboard's own fields —
+    /// connected, valid, alive, score, total score, deaths, ping and active dominations — on top
+    /// of the team and class <see cref="SchemaWithResource"/> already declares.
+    /// </summary>
+    /// <remarks>
+    /// A rebuild of <see cref="SchemaWithResource"/>'s own tables rather than an edit to it, the
+    /// same reasoning as <see cref="SchemaWithConditions"/>: appending to a table every other
+    /// fixture shares would shift flattened indices under tests that never asked for these fields.
+    /// </remarks>
+    public static DemoSchema SchemaWithScoreboard()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+
+        return new DemoSchema(
+            [
+                .. baseline.Tables,
+
+                // Every array's own sub-table declared BEFORE the table that references it,
+                // matching SchemaWithResource's own order exactly.
+                ArrayTable("m_iTeam"),
+                ArrayTable("m_iPlayerClass"),
+                // bits: 2, not 1 — ArrayTable's elements are SIGNED (`Int`), and a 1-bit signed
+                // field can only hold -1 and 0; writing 1 into it corrupts the whole entity's
+                // decode, not just this property.
+                ArrayTable("m_bConnected", bits: 2),
+                ArrayTable("m_bValid", bits: 2),
+                ArrayTable("m_bAlive", bits: 2),
+                ArrayTable("m_iScore", bits: 10),
+                ArrayTable("m_iTotalScore", bits: 10),
+                ArrayTable("m_iDeaths", bits: 10),
+                ArrayTable("m_iPing", bits: 10),
+                ArrayTable("m_iActiveDominations", bits: 5),
+                new SendTable("DT_TFPlayerResource", NeedsDecoder: true,
+                [
+                    Table("m_iTeam", "m_iTeam"),
+                    Table("m_iPlayerClass", "m_iPlayerClass"),
+                    Table("m_bConnected", "m_bConnected"),
+                    Table("m_bValid", "m_bValid"),
+                    Table("m_bAlive", "m_bAlive"),
+                    Table("m_iScore", "m_iScore"),
+                    Table("m_iTotalScore", "m_iTotalScore"),
+                    Table("m_iDeaths", "m_iDeaths"),
+                    Table("m_iPing", "m_iPing"),
+                    Table("m_iActiveDominations", "m_iActiveDominations"),
+                ]),
+            ],
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(ResourceClassId, "CTFPlayerResource", "DT_TFPlayerResource"),
+            ]);
+    }
+
+    /// <summary>
+    /// A demo carrying only a <c>CTFPlayerResource</c>, stating every field
+    /// <c>CTFClientScoreBoardDialog::UpdatePlayerList</c> reads for each slot.
+    /// </summary>
+    /// <param name="players">Each connected or valid slot's resource fields.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="players"/> is null.</exception>
+    /// <remarks>
+    /// **A camera entity carries the only position, at an index no scoreboard slot uses.** The
+    /// scoreboard's own loop reads the resource for every slot that is connected or valid, whether
+    /// or not that slot has a positioned <c>CTFPlayer</c> this tick — this fixture's resource slots
+    /// carry no position at all, the same as a spectator or a mid-connect player. A frame is only
+    /// recorded when the packet moved something, so one positioned entity is what makes the frame
+    /// exist for <see cref="Core.Scene.DemoTimeline.ScoreboardPlayersAt"/> to find, exactly as
+    /// <see cref="DemoWithBuilding"/> pairs its building with a player entity for the same reason.
+    /// </remarks>
+    public static byte[] DemoWithScoreboard(
+        params (int EntityIndex, bool Connected, bool Valid, int Team, bool Alive, int Score, int TotalScore, int Deaths, int Ping, int PlayerClass, int ActiveDominations)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+
+        const int CameraEntityIndex = 90;
+
+        DemoSchema schema = SchemaWithScoreboard();
+        EntityDecoder decoder = new(
+            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> arrays = [];
+
+        foreach ((int entityIndex, bool connected, bool valid, int team, bool alive, int score, int totalScore, int deaths, int ping, int playerClass, int activeDominations) in players)
+        {
+            string slot = entityIndex.ToString("D3", CultureInfo.InvariantCulture);
+            arrays[$"m_bConnected.{slot}"] = PropertyValue.FromInt(connected ? 1 : 0);
+            arrays[$"m_bValid.{slot}"] = PropertyValue.FromInt(valid ? 1 : 0);
+            arrays[$"m_iTeam.{slot}"] = PropertyValue.FromInt(team);
+            arrays[$"m_bAlive.{slot}"] = PropertyValue.FromInt(alive ? 1 : 0);
+            arrays[$"m_iScore.{slot}"] = PropertyValue.FromInt(score);
+            arrays[$"m_iTotalScore.{slot}"] = PropertyValue.FromInt(totalScore);
+            arrays[$"m_iDeaths.{slot}"] = PropertyValue.FromInt(deaths);
+            arrays[$"m_iPing.{slot}"] = PropertyValue.FromInt(ping);
+            arrays[$"m_iPlayerClass.{slot}"] = PropertyValue.FromInt(playerClass);
+            arrays[$"m_iActiveDominations.{slot}"] = PropertyValue.FromInt(activeDominations);
+        }
+
+        // Ascending entity index, because entities are delta-coded and the encoder writes
+        // ascending gaps (the same reasoning DemoWithResource's own comment gives).
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, ResourceClassId, ResourceEntityIndex, arrays),
+            Entity(decoder, PlayerClassId, CameraEntityIndex, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+        ];
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
                 new PacketEntitiesMessage(
                     MaxEntries: 64,
                     IsDelta: false,
@@ -1631,9 +1996,110 @@ internal static class SyntheticPlayer
     private static SendProperty NoScaleFloat(string name) =>
         new(SendPropType.Float, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
 
+    // `SendPropVector` with `SPROP_NOSCALE`: three 32-bit floats as they are.
+    private static SendProperty NoScaleVector(string name) =>
+        new(SendPropType.Vector, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
+
     private static SendProperty VectorXy(string name, int bits) =>
         new(SendPropType.VectorXY, name, 0, string.Empty, -16384f, 16384f, bits, 0);
 
     private static SendProperty Table(string name, string referenced) =>
         new(SendPropType.DataTable, name, 0, referenced, 0f, 0f, 0, 0);
+
+    private static SendProperty String(string name) =>
+        new(SendPropType.String, name, 0, string.Empty, 0f, 0f, 0, 0);
+
+    /// <summary>A demo whose single snapshot carries RED and BLU team entities, each with a score.</summary>
+    /// <param name="redScore">RED's `m_iScore`.</param>
+    /// <param name="blueScore">BLU's `m_iScore`.</param>
+    /// <param name="redRoundsWon">RED's `m_iRoundsWon`.</param>
+    /// <param name="blueRoundsWon">BLU's `m_iRoundsWon`.</param>
+    /// <param name="redPlayers">`player_array` entity indices for RED; empty when not asserted.</param>
+    /// <param name="bluePlayers">`player_array` entity indices for BLU; empty when not asserted.</param>
+    public static byte[] DemoWithTeams(
+        int redScore,
+        int blueScore,
+        int redRoundsWon = 0,
+        int blueRoundsWon = 0,
+        IReadOnlyList<int>? redPlayers = null,
+        IReadOnlyList<int>? bluePlayers = null)
+    {
+        const int TeamClassId = 2;
+        const int PlayerArraySlots = 4;
+        redPlayers ??= [];
+        bluePlayers ??= [];
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables =
+        [
+            .. baseline.Tables,
+            new SendTable(
+                "DT_Team",
+                NeedsDecoder: true,
+                [
+                    UnsignedInt("m_iTeamNum", bits: 5), Int("m_iScore", bits: 32),
+                    Int("m_iRoundsWon", bits: 8), String("m_szTeamname"),
+                    Table("player_array", "player_array"),
+                ]),
+            new SendTable("DT_TFTeam", NeedsDecoder: true, [Table("baseclass", "DT_Team")]),
+            new SendTable("player_array", NeedsDecoder: true,
+                [.. Enumerable.Range(0, PlayerArraySlots).Select(slot => UnsignedInt(slot.ToString("D3", CultureInfo.InvariantCulture), bits: 11))]),
+        ];
+
+        DemoSchema schema = new(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(TeamClassId, "CTFTeam", "DT_TFTeam"),
+            ]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+            }),
+            Entity(decoder, TeamClassId, 2, PlayerArrayEntity(2, redScore, redRoundsWon, "Red", redPlayers)),
+            Entity(decoder, TeamClassId, 3, PlayerArrayEntity(3, blueScore, blueRoundsWon, "Blue", bluePlayers)),
+        ];
+
+        static Dictionary<string, PropertyValue> PlayerArrayEntity(int teamNum, int score, int roundsWon, string name, IReadOnlyList<int> players)
+        {
+            Dictionary<string, PropertyValue> data = new()
+            {
+                ["m_iTeamNum"] = PropertyValue.FromInt(teamNum),
+                ["m_iScore"] = PropertyValue.FromInt(score),
+                ["m_iRoundsWon"] = PropertyValue.FromInt(roundsWon),
+                ["m_szTeamname"] = PropertyValue.FromString(name),
+            };
+
+            for (int slot = 0; slot < players.Count; slot++)
+            {
+                data[$"player_array.{slot:D3}"] = PropertyValue.FromInt(players[slot]);
+            }
+
+            return data;
+        }
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 }

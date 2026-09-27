@@ -142,8 +142,6 @@ public sealed class DeathNoticeItem
 /// <remarks>
 /// Every rule is the two files' own; each method names its source. The strings are the engine's buffers: a name is 64 bytes
 /// of UTF-8, an info text 32 characters, an icon name 32 bytes.
-/// **Not yet ported:** `CTFStreakNotice` — `AddStreakMsg` and `AddStreakEndedMsg` do nothing until it is — and the three
-/// sounds (`Game.Domination`, `Game.Nemesis`, `Game.Revenge`, `Game.PenetrationKill`).
 /// </remarks>
 public sealed class TfHudDeathNotice : VguiPanel, IHudElement
 {
@@ -233,6 +231,23 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
     /// <summary>`hud_deathnotice_time`, default 6 (hud_basedeathnotice.cpp:31).</summary>
     public float NoticeTime { get; set; } = 6f;
 
+    /// <summary>Plays a `game_sounds.txt` script for this feed and the streak banner it owns — see <see cref="HudSoundEmitter"/>.</summary>
+    public HudSoundEmitter? SoundEmitter
+    {
+        get => _soundEmitter;
+        set
+        {
+            _soundEmitter = value;
+
+            if (Streak is { } streak)
+            {
+                streak.SoundEmitter = value;
+            }
+        }
+    }
+
+    private HudSoundEmitter? _soundEmitter;
+
     /// <summary>`m_DeathNotices`, oldest first.</summary>
     public IReadOnlyList<DeathNoticeItem> Notices => _notices;
 
@@ -277,7 +292,7 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         // `m_pStreakNotice = new CTFStreakNotice( "KillStreakNotice" )`, a sibling on the viewport.
         if (Streak is null && Parent is { } viewport)
         {
-            Streak = new TfStreakNotice(viewport);
+            Streak = new TfStreakNotice(viewport) { SoundEmitter = SoundEmitter };
         }
     }
 
@@ -1049,6 +1064,15 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
             multipleKillers = true;
         }
 
+        int penetrations = e.Values.ContainsKey("playerpenetratecount") ? e.GetInt("playerpenetratecount") : 0;
+
+        // "This happens too frequently in Coop/TD" (tf_hud_deathnotice.cpp:887): forced off in MvM. Before the rivalry
+        // sounds, as :894 is.
+        if (penetrations > 0 && !fired.Rules.MannVsMachine)
+        {
+            SoundEmitter?.Invoke("Game.PenetrationKill");
+        }
+
         int deathFlags = e.GetInt("death_flags");
 
         if (!objectDestroyed)
@@ -1060,21 +1084,25 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
             if ((deathFlags & DeathDomination) != 0)
             {
                 AddAdditionalMsg(fired, killerIndex, victimIndex, dominating);
+                PlayRivalrySounds(fired, killerIndex, victimIndex, domination: true);
             }
 
             if ((deathFlags & DeathAssisterDomination) != 0 && assisterIndex > 0)
             {
                 AddAdditionalMsg(fired, assisterIndex, victimIndex, dominating);
+                PlayRivalrySounds(fired, assisterIndex, victimIndex, domination: true);
             }
 
             if ((deathFlags & DeathRevenge) != 0)
             {
                 AddAdditionalMsg(fired, killerIndex, victimIndex, revenge);
+                PlayRivalrySounds(fired, killerIndex, victimIndex, domination: false);
             }
 
             if ((deathFlags & DeathAssisterRevenge) != 0 && assisterIndex > 0)
             {
                 AddAdditionalMsg(fired, assisterIndex, victimIndex, revenge);
+                PlayRivalrySounds(fired, assisterIndex, victimIndex, domination: false);
             }
         }
         else
@@ -1083,7 +1111,6 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         }
 
         DeathNoticeItem item = _notices[index];
-        int penetrations = e.Values.ContainsKey("playerpenetratecount") ? e.GetInt("playerpenetratecount") : 0;
 
         CustomKill(fired, item, custom, penetrations, multipleKillers);
 
@@ -1159,7 +1186,7 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
     /// <summary>`AddStreakMsg` (tf_hud_deathnotice.cpp:1547): past the type's minimum and with a display time, to the banner.</summary>
     private void AddStreakMsg(HudGameEvent fired, TfStreakType type, int player, int streak, int increment)
     {
-        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTime <= 0)
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || (int)banner.DisplayTime <= 0)
         {
             return;
         }
@@ -1170,7 +1197,7 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
     /// <summary>`AddStreakEndedMsg` (tf_hud_deathnotice.cpp:1563).</summary>
     private void AddStreakEndedMsg(HudGameEvent fired, TfStreakType type, int killer, int victim, int streak)
     {
-        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTime <= 0)
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || (int)banner.DisplayTime <= 0)
         {
             return;
         }
@@ -1431,6 +1458,38 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
                 break;
             }
         }
+    }
+
+    /// <summary>`CTFHudDeathNotice::PlayRivalrySounds` (tf_hud_deathnotice.cpp:724): only when the recorder is a side of it.</summary>
+    /// <param name="fired">The event, for the local player's index.</param>
+    /// <param name="killer">The domination's or revenge's killer (or its assister, entity index).</param>
+    /// <param name="victim">Its victim.</param>
+    /// <param name="domination">True for a domination, false for a revenge.</param>
+    private void PlayRivalrySounds(HudGameEvent fired, int killer, int victim, bool domination)
+    {
+        int local = fired.LocalPlayerIndex;
+
+        if (killer != local && victim != local)
+        {
+            return;
+        }
+
+        string sound;
+
+        if (!domination)
+        {
+            sound = "Game.Revenge";
+        }
+        else if (killer == local)
+        {
+            sound = "Game.Domination";
+        }
+        else
+        {
+            sound = "Game.Nemesis";
+        }
+
+        SoundEmitter?.Invoke(sound);
     }
 
     /// <summary>`AddAdditionalMsg` (tf_hud_deathnotice.cpp:1526): a domination or revenge line after the kill.</summary>

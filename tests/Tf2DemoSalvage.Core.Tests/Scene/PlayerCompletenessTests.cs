@@ -199,8 +199,12 @@ public sealed class PlayerCompletenessTests
         // The target ID's inputs: a disguise worn as player 7 at 90 health, a kill streak, and a half-charged unique medigun.
         DisguiseTarget = 7,
         DisguiseHealth = 90,
+        PlayerState = 3,
+        IsMiniBoss = true,
+        ActiveWeaponClip = 6,
         KillStreak = 4,
         Medigun = (0.5f, 6, 29),
+        ActiveMedigun = (3, 0.5f),
 
         // `GetFOV`'s inputs: a sniper zooming from 90 to 20 over 0.1 s, begun at 12.5 s. Zero is each one's "unset".
         Fov = 20,

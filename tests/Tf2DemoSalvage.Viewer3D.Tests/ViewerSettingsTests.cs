@@ -97,6 +97,24 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Load_NoFile_HasNoChosenHud()
+    {
+        // No HUD chosen means TF2's stock HUD (D193) - the picker's starting point on a fresh install.
+        ViewerSettings.Load(Path.Combine(_folder, "absent.cfg")).ChosenHud.ShouldBeNull();
+    }
+
+    [Test]
+    public void SaveThenLoad_KeepsTheChosenHud()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        string hud = Path.Combine(_folder, "custom", "frag_hud");
+
+        new ViewerSettings { ChosenHud = hud }.Save(file).ShouldBeNull();
+
+        ViewerSettings.Load(file).ChosenHud.ShouldBe(hud);
+    }
+
+    [Test]
     public void SaveThenLoad_KeepsTheViewmodelFieldOfView()
     {
         // **TF2 lets a player change this, so this viewer does too** — the standing rule in
@@ -273,6 +291,40 @@ public sealed class ViewerSettingsTests
         // 999 is not a texture size this program has; taking it would ask the decoder for a mip
         // that does not exist.
         ViewerSettings.Parse("texture_quality 999").TextureQuality.ShouldBe(TextureQuality.Full);
+    }
+
+    [Test]
+    public void Parse_HudCvars_AreRead()
+    {
+        ViewerSettings settings = ViewerSettings.Parse(
+            """
+            hud_deathnotice_time 10
+            cl_hud_killstreak_display_time 4.5
+            cl_hud_killstreak_display_fontsize 2
+            cl_hud_killstreak_display_alpha 255
+            hud_saytext_time 20
+            cl_chatfilters 4
+            """);
+
+        settings.HudDeathNoticeTime.ShouldBe(10f);
+        settings.KillStreakDisplayTime.ShouldBe(4.5f, "a float cvar: tf_hud_deathnotice.cpp:569 reads GetFloat()");
+        settings.KillStreakDisplayFontSize.ShouldBe(2);
+        settings.KillStreakDisplayAlpha.ShouldBe(255);
+        settings.SayTextTime.ShouldBe(20f);
+        settings.ChatFilters.ShouldBe(4);
+    }
+
+    [Test]
+    public void Parse_NoHudCvars_KeepsValvesDefaults()
+    {
+        ViewerSettings settings = ViewerSettings.Parse("texture_quality 256");
+
+        settings.HudDeathNoticeTime.ShouldBe(6f);
+        settings.KillStreakDisplayTime.ShouldBe(3f);
+        settings.KillStreakDisplayFontSize.ShouldBe(0);
+        settings.KillStreakDisplayAlpha.ShouldBe(120);
+        settings.SayTextTime.ShouldBe(12f);
+        settings.ChatFilters.ShouldBe(63);
     }
 
     [Test]

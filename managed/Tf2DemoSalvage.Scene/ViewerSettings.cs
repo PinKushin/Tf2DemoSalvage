@@ -267,6 +267,14 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ScreenshotFolderCommand = "cl_screenshot_folder";
 
+    /// <summary>Command name for the chosen HUD.</summary>
+    /// <remarks>
+    /// **This viewer's own name, not Valve's** — TF2 has no equivalent, because it cannot switch
+    /// HUDs without deleting one from <c>custom/</c> (D193's departure). No cvar prefix fits, so it
+    /// keeps the picker's own vocabulary rather than borrowing one that would look like Valve's.
+    /// </remarks>
+    public const string ChosenHudCommand = "hud_chosen";
+
     /// <summary>Command name for the viewmodel's field of view.</summary>
     /// <remarks>
     /// **TF2 lets a player change this, so this viewer does too** — the standing rule in
@@ -327,6 +335,24 @@ public sealed record ViewerSettings
 
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
+
+    /// <summary>`hud_deathnotice_time`, default 6 (`hud_basedeathnotice.cpp:31`) — see <see cref="Hud.TfHudDeathNotice.NoticeTime"/>.</summary>
+    public const string HudDeathNoticeTimeCommand = "hud_deathnotice_time";
+
+    /// <summary>`cl_hud_killstreak_display_time`, default 3 — see <see cref="Hud.TfStreakNotice.DisplayTime"/>.</summary>
+    public const string KillStreakDisplayTimeCommand = "cl_hud_killstreak_display_time";
+
+    /// <summary>`cl_hud_killstreak_display_fontsize`, default 0 — see <see cref="Hud.TfStreakNotice.FontSize"/>.</summary>
+    public const string KillStreakDisplayFontSizeCommand = "cl_hud_killstreak_display_fontsize";
+
+    /// <summary>`cl_hud_killstreak_display_alpha`, default 120 — see <see cref="Hud.TfStreakNotice.DisplayAlpha"/>.</summary>
+    public const string KillStreakDisplayAlphaCommand = "cl_hud_killstreak_display_alpha";
+
+    /// <summary>`hud_saytext_time`, default 12 (`hud_basechat.cpp:37`) — see <see cref="Hud.TfHudChat.SayTextTime"/>.</summary>
+    public const string SayTextTimeCommand = "hud_saytext_time";
+
+    /// <summary>`cl_chatfilters`, default 63, every filter on (`hud_basechat.cpp:39`) — see <see cref="Hud.TfHudChat.FilterFlags"/>.</summary>
+    public const string ChatFiltersCommand = "cl_chatfilters";
 
     /// <summary>The narrowest the viewmodel field of view may be — <c>view.cpp:111</c>.</summary>
     /// <remarks>
@@ -438,6 +464,13 @@ public sealed record ViewerSettings
     /// would refuse a setting that becomes valid the moment a drive is plugged in.
     /// </remarks>
     public string? ScreenshotFolder { get; init; }
+
+    /// <summary>The HUD the picker chose — a folder or <c>.vpk</c> under the program's own <c>custom/</c>, or null for TF2's stock HUD (D193).</summary>
+    /// <remarks>
+    /// Read by <c>MainForm</c> at startup as the fallback when <c>--hud</c> was not passed, and
+    /// written back whenever the picker changes the choice, so it survives the next launch.
+    /// </remarks>
+    public string? ChosenHud { get; init; }
 
     /// <summary>How full screen is entered.</summary>
     /// <remarks>
@@ -674,6 +707,24 @@ public sealed record ViewerSettings
     /// <summary>The crosshair's cvars, at TF2's defaults until a config says otherwise.</summary>
     public CrosshairSettings Crosshair { get; init; } = new();
 
+    /// <summary>`hud_deathnotice_time` — see <see cref="HudDeathNoticeTimeCommand"/>.</summary>
+    public float HudDeathNoticeTime { get; init; } = 6f;
+
+    /// <summary>`cl_hud_killstreak_display_time` — see <see cref="KillStreakDisplayTimeCommand"/>.</summary>
+    public float KillStreakDisplayTime { get; init; } = 3f;
+
+    /// <summary>`cl_hud_killstreak_display_fontsize` — see <see cref="KillStreakDisplayFontSizeCommand"/>.</summary>
+    public int KillStreakDisplayFontSize { get; init; }
+
+    /// <summary>`cl_hud_killstreak_display_alpha` — see <see cref="KillStreakDisplayAlphaCommand"/>.</summary>
+    public int KillStreakDisplayAlpha { get; init; } = 120;
+
+    /// <summary>`hud_saytext_time` — see <see cref="SayTextTimeCommand"/>.</summary>
+    public float SayTextTime { get; init; } = 12f;
+
+    /// <summary>`cl_chatfilters` — see <see cref="ChatFiltersCommand"/>.</summary>
+    public int ChatFilters { get; init; } = 63;
+
     /// <summary>`demo_fov_override`, in degrees; zero or less for none.</summary>
     /// <remarks>
     /// **Settable because the game lets a player set it, which is the whole rule** (D69,
@@ -869,6 +920,38 @@ public sealed record ViewerSettings
             },
         };
 
+        // **The kill feed, streak banner and chat cvars, from the user's own config** — read the same way as the
+        // crosshair's above: they belong to the config that set them.
+        if (ReadNumber(values, HudDeathNoticeTimeCommand) is { } deathNoticeTime)
+        {
+            settings = settings with { HudDeathNoticeTime = deathNoticeTime };
+        }
+
+        if (ReadNumber(values, KillStreakDisplayTimeCommand) is { } killStreakTime)
+        {
+            settings = settings with { KillStreakDisplayTime = killStreakTime };
+        }
+
+        if (Read(values, KillStreakDisplayFontSizeCommand) is { } killStreakFontSize)
+        {
+            settings = settings with { KillStreakDisplayFontSize = killStreakFontSize };
+        }
+
+        if (Read(values, KillStreakDisplayAlphaCommand) is { } killStreakAlpha)
+        {
+            settings = settings with { KillStreakDisplayAlpha = killStreakAlpha };
+        }
+
+        if (ReadNumber(values, SayTextTimeCommand) is { } sayTextTime)
+        {
+            settings = settings with { SayTextTime = sayTextTime };
+        }
+
+        if (Read(values, ChatFiltersCommand) is { } chatFilters)
+        {
+            settings = settings with { ChatFilters = chatFilters };
+        }
+
         // `demo_fov_override` as set, zero included: `GetFOV` clamps it only once it is above zero (`c_baseplayer.cpp:2438`).
         if (ReadNumber(values, DemoFieldOfViewCommand) is { } demoFov)
         {
@@ -882,6 +965,12 @@ public sealed record ViewerSettings
             !string.IsNullOrWhiteSpace(folder))
         {
             settings = settings with { ScreenshotFolder = folder };
+        }
+
+        if (values.TryGetValue(ChosenHudCommand, out string? hud) &&
+            !string.IsNullOrWhiteSpace(hud))
+        {
+            settings = settings with { ChosenHud = hud };
         }
 
         if (Read(values, VerticalSyncCommand) is { } sync)
@@ -1153,6 +1242,14 @@ public sealed record ViewerSettings
             ScreenshotFolderCommand,
             ScreenshotFolder is { Length: > 0 } where ? $"\"{where}\"" : string.Empty,
             ScreenshotFolder is null);
+        text.AppendLine();
+        text.AppendLine("// The HUD the picker chose, a folder or .vpk under this program's own");
+        text.AppendLine("// custom/ folder. Empty draws TF2's stock HUD (D193).");
+        Setting(
+            text,
+            ChosenHudCommand,
+            ChosenHud is { Length: > 0 } hud ? $"\"{hud}\"" : string.Empty,
+            ChosenHud is null);
         text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");

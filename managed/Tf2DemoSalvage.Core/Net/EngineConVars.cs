@@ -144,6 +144,18 @@ public static class EngineConVars
         new("cl_showpos", "0", Replicated: false, Cheat: false),
         new("cl_drawleaf", "-1", Replicated: false, Cheat: true),
         new("cl_first_person_uses_world_model", "0", Replicated: false, Cheat: false),
+
+        // **Tournament mode, so `IsInTournamentMode` can be modelled instead of taken as off.**
+        // All three `FCVAR_REPLICATED`, none `FCVAR_CHEAT` — a server sets them, not a player.
+        // src/game/shared/teamplayroundbased_gamerules.cpp:202 and :227,
+        // src/game/shared/tf/tf_gamerules.cpp:797.
+        new("mp_tournament", "0", Replicated: true, Cheat: false),
+        new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
+        new("mp_winlimit", "0", Replicated: true, Cheat: false),
+
+        // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
+        new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),
+        new("mp_tournament_blueteamname", "BLU", Replicated: true, Cheat: false),
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =

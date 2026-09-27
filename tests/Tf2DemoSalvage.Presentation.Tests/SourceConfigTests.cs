@@ -273,6 +273,7 @@ public sealed class SourceConfigTests
         KeyBindings.ActionOf("+jump").ShouldBe(ViewerAction.SwitchCameraMode);
         KeyBindings.ActionOf("+moveup").ShouldBe(ViewerAction.FlyUp);
         KeyBindings.ActionOf("+speed").ShouldBe(ViewerAction.FlyWalk);
+        KeyBindings.ActionOf("+showscores").ShouldBe(ViewerAction.ShowScores);
     }
 
     [Test]

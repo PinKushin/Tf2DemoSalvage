@@ -247,6 +247,18 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_Shared.m_iDisguiseHealth` (:582): the health a disguise shows.</summary>
     public int? DisguiseHealth { get; init; }
 
+    /// <summary>`m_Shared.m_nPlayerState` (tf_player_shared.cpp:543, sent to everyone): `TF_STATE_ACTIVE` 0 … `TF_STATE_DYING` 3.</summary>
+    public int? PlayerState { get; init; }
+
+    /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
+    public bool IsMiniBoss { get; init; }
+
+    /// <summary>
+    /// `m_nActiveWpnClip` (tf_player.cpp:760): the active weapon's clip, sent only to the medics healing this player
+    /// (`SendProxy_SendHealersDataTable`, :505) — so a medic's recording carries his heal target's; null otherwise.
+    /// </summary>
+    public int? ActiveWeaponClip { get; init; }
+
     /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
     public int? KillStreak { get; init; }
 
@@ -256,6 +268,13 @@ public readonly record struct ScenePlayer(
     /// every point-of-view demo.
     /// </summary>
     public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
+
+    /// <summary>
+    /// The medigun in hand, when the active weapon is one: its `m_hHealingTarget` (`GetHealTarget`, what `MedicGetHealTarget`
+    /// returns — tf_player_shared.cpp:13021) and its `m_flChargeLevel`, which `CWeaponMedigun::ClientThink` hands the heal
+    /// target's `SetHealer` (tf_weapon_medigun.cpp:2299). Both are sent to everyone, so every medic in view has one.
+    /// </summary>
+    public (int? HealTarget, float Charge)? ActiveMedigun { get; init; }
 
     /// <summary>`m_iFOV` (player.cpp:8186, sent to everyone): the zoomed field of view, 0 for none.</summary>
     public int? Fov { get; init; }
@@ -456,6 +475,12 @@ public readonly record struct TimelinePhases(
 /// null before one arrived.
 /// </param>
 /// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
+/// <param name="Buildings">Every Engineer building, or null when there is none.</param>
+/// <param name="Teams">Every `CTFTeam` (RED, BLU, and any others sent), or null when there is none.</param>
+/// <param name="ScoreboardPlayers">
+/// Every player slot the scoreboard's `UpdatePlayerList` would list, or null when there is no
+/// resource entity. See <see cref="SceneScoreboardPlayer"/>.
+/// </param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -463,7 +488,10 @@ public readonly record struct TimelineFrame(
     int? RoundState = null,
     SceneGameRules Rules = default,
     int? ServerTick = null,
-    IReadOnlyList<SceneRoundTimer>? RoundTimers = null);
+    IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
+    IReadOnlyList<SceneBuilding>? Buildings = null,
+    IReadOnlyList<SceneTeam>? Teams = null,
+    IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -490,6 +518,18 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 
     /// <summary>`m_nGameType` (tf_gamerules.cpp:1486); `IsInArenaMode()` is <see cref="GameTypeArena"/>.</summary>
     public int GameType { get; init; }
+
+    /// <summary>`GetCurrentMatchGroup()`: `m_nMatchGroupType` (tf_gamerules.cpp:1536), `k_eTFMatchGroup_Invalid` (-1) unsent.</summary>
+    public int MatchGroup { get; init; } = -1;
+
+    /// <summary>
+    /// `IsCompetitiveMode()` (tf_gamerules.cpp:2214): the match group's description is competitive or casual — of the
+    /// registered groups, ladder 6v6 (2), casual 12v12 (7) and the event placeholder (8; tf_match_description_*.cpp).
+    /// </summary>
+    public bool IsCompetitiveMode => MatchGroup is 2 or 7 or 8;
+
+    /// <summary>`GetRoundsPlayed()`: `m_nRoundsPlayed` (teamplayroundbased_gamerules.cpp:116).</summary>
+    public int RoundsPlayed { get; init; }
 
     /// <summary>`IsInKothMode()`: `m_bPlayingKoth` (:1507).</summary>
     public bool Koth { get; init; }
@@ -768,6 +808,9 @@ public sealed class DemoTimeline
     /// <summary>A `team_round_timer`.</summary>
     private const string RoundTimerClass = "CTeamRoundTimer";
 
+    /// <summary>A team entity — `DT_TFTeam`, which inherits `DT_Team` (`tf_team.cpp:43`, `team.cpp:40`).</summary>
+    private const string TeamClass = "CTFTeam";
+
     /// <summary>Every round timer, as the time panel reads it; null when there is none, which costs no allocation.</summary>
     private static List<SceneRoundTimer>? RoundTimers(EntityStateTable entities)
     {
@@ -798,6 +841,127 @@ public sealed class DemoTimeline
         return timers;
     }
 
+    /// <summary>`CObjectSentrygun` (tf_obj_sentrygun.cpp:131).</summary>
+    private const string SentrygunClass = "CObjectSentrygun";
+
+    /// <summary>`CObjectDispenser` (tf_obj_dispenser.cpp:86).</summary>
+    private const string DispenserClass = "CObjectDispenser";
+
+    /// <summary>`CObjectTeleporter` (tf_obj_teleporter.cpp:85).</summary>
+    private const string TeleporterClass = "CObjectTeleporter";
+
+    /// <summary>
+    /// Every Engineer building `CTargetID::UpdateID`'s object branch reads (tf_hud_target_id.cpp:719);
+    /// null when there is none, which costs no allocation.
+    /// </summary>
+    private static List<SceneBuilding>? Buildings(EntityStateTable entities)
+    {
+        List<SceneBuilding>? buildings = null;
+
+        foreach (EntityState building in entities.OfClass(SentrygunClass)
+            .Concat(entities.OfClass(DispenserClass))
+            .Concat(entities.OfClass(TeleporterClass)))
+        {
+            (buildings ??= []).Add(new SceneBuilding(building.EntityIndex)
+            {
+                Health = building.Integer("DT_BaseObject.m_iHealth") ?? 0,
+                MaxHealth = building.Integer("DT_BaseObject.m_iMaxHealth") ?? 0,
+                ObjectType = building.Integer("DT_BaseObject.m_iObjectType") ?? 0,
+                ObjectMode = building.Integer("DT_BaseObject.m_iObjectMode") ?? 0,
+                Team = building.Integer("DT_BaseEntity.m_iTeamNum"),
+                BuilderEntityIndex = EntityState.Slot(building.Integer("DT_BaseObject.m_hBuilder")),
+                Sapped = building.Integer("DT_BaseObject.m_bHasSapper") is > 0,
+                Disabled = building.Integer("DT_BaseObject.m_bDisabled") is > 0,
+                Building = building.Integer("DT_BaseObject.m_bBuilding") is > 0,
+                Placing = building.Integer("DT_BaseObject.m_bPlacing") is > 0,
+                Carried = building.Integer("DT_BaseObject.m_bCarried") is > 0,
+                MiniBuilding = building.Integer("DT_BaseObject.m_bMiniBuilding") is > 0,
+                DisposableBuilding = building.Integer("DT_BaseObject.m_bDisposableBuilding") is > 0,
+                UpgradeLevel = building.Integer("DT_BaseObject.m_iUpgradeLevel") ?? 0,
+                UpgradeMetal = building.Integer("DT_BaseObject.m_iUpgradeMetal") ?? 0,
+                UpgradeMetalRequired = building.Integer("DT_BaseObject.m_iUpgradeMetalRequired") ?? 0,
+                PercentageConstructed = building.Number("DT_BaseObject.m_flPercentageConstructed") ?? 0f,
+                SentryAmmoShells = building.Integer("DT_ObjectSentrygun.m_iAmmoShells"),
+                SentryAmmoRockets = building.Integer("DT_ObjectSentrygun.m_iAmmoRockets"),
+                DispenserAmmoMetal = building.Integer("DT_ObjectDispenser.m_iAmmoMetal"),
+                TeleporterState = building.Integer("DT_ObjectTeleporter.m_iState"),
+                TeleporterRechargeTime = building.Number("DT_ObjectTeleporter.m_flRechargeTime"),
+                TeleporterRechargeDuration = building.Number("DT_ObjectTeleporter.m_flCurrentRechargeDuration"),
+                Mins = building.Vector("DT_CollisionProperty.m_vecMins"),
+                Maxs = building.Vector("DT_CollisionProperty.m_vecMaxs"),
+                SolidType = building.Integer("DT_CollisionProperty.m_nSolidType") ?? 0,
+                SolidFlags = building.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0,
+                Position = building.Origin(),
+            });
+        }
+
+        return buildings;
+    }
+
+    /// <summary>Every team entity, as `CTFHudMatchStatus` reads scores; null when there is none, which costs no allocation.</summary>
+    private static List<SceneTeam>? Teams(EntityStateTable entities)
+    {
+        List<SceneTeam>? teams = null;
+
+        foreach (EntityState team in entities.OfClass(TeamClass))
+        {
+            (teams ??= []).Add(new SceneTeam(team.Integer("DT_Team.m_iTeamNum") ?? 0)
+            {
+                Score = team.Integer("DT_Team.m_iScore") ?? 0,
+                RoundsWon = team.Integer("DT_Team.m_iRoundsWon") ?? 0,
+                Name = team.Text("DT_Team.m_szTeamname") ?? string.Empty,
+                Players = team.TeamPlayers(),
+            });
+        }
+
+        return teams;
+    }
+
+    /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): how many resource slots to walk.</summary>
+    private const int MaxPlayerSlots = 101;
+
+    /// <summary>
+    /// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list — connected or
+    /// valid, whether or not the slot has a positioned entity this tick (`tf_clientscoreboard.cpp:1284-1286`);
+    /// null when there is no resource entity, which costs no allocation.
+    /// </summary>
+    private static List<SceneScoreboardPlayer>? ScoreboardPlayers(EntityStateTable entities)
+    {
+        if (entities.OfClass(ResourceClass).FirstOrDefault() is not { } resource)
+        {
+            return null;
+        }
+
+        List<SceneScoreboardPlayer>? players = null;
+
+        for (int playerIndex = 1; playerIndex <= MaxPlayerSlots; playerIndex++)
+        {
+            string slot = playerIndex.ToString("D3", CultureInfo.InvariantCulture);
+            bool connected = resource.Integer($"m_bConnected.{slot}") is > 0;
+            bool valid = resource.Integer($"m_bValid.{slot}") is > 0;
+
+            if (!connected && !valid)
+            {
+                continue;
+            }
+
+            (players ??= []).Add(new SceneScoreboardPlayer(playerIndex)
+            {
+                Connected = connected,
+                Valid = valid,
+                Team = resource.Integer($"m_iTeam.{slot}"),
+                Alive = resource.Integer($"m_bAlive.{slot}") is > 0,
+                Score = resource.Integer($"m_iScore.{slot}") ?? 0,
+                TotalScore = resource.Integer($"m_iTotalScore.{slot}") ?? 0,
+                Deaths = resource.Integer($"m_iDeaths.{slot}") ?? 0,
+                Ping = resource.Integer($"m_iPing.{slot}") ?? 0,
+                PlayerClass = resource.Integer($"m_iPlayerClass.{slot}"),
+                ActiveDominations = resource.Integer($"m_iActiveDominations.{slot}") ?? 0,
+            });
+        }
+
+        return players;
+    }
 
     private static readonly string[] TeamProperties =
     [
@@ -2898,8 +3062,17 @@ public sealed class DemoTimeline
                     OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
+                    PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
+                    IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
+                    ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),
                     Medigun = MedigunOf(player, entities),
+                    ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)
+                        && heldWeapon.ClassName == "CWeaponMedigun"
+                            ? (EntityState.Slot(heldWeapon.Integer("DT_WeaponMedigun.m_hHealingTarget")),
+                                heldWeapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
+                                    ?? heldWeapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel") ?? 0f)
+                            : null,
                     Fov = player.Integer("DT_BasePlayer.m_iFOV"),
                     FovStart = player.Integer("DT_BasePlayer.m_iFOVStart"),
                     FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),
@@ -2928,6 +3101,8 @@ public sealed class DemoTimeline
                 Setup = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bInSetup") is > 0,
                 StopWatch = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_bStopWatch") is > 0,
                 GameType = gameRules?.Integer("DT_TFGameRules.m_nGameType") ?? 0,
+                RoundsPlayed = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_nRoundsPlayed") ?? 0,
+                MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
                 BlueKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hBlueKothTimer")),
@@ -2937,15 +3112,18 @@ public sealed class DemoTimeline
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
             IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
+            IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
+            IReadOnlyList<SceneTeam>? teams = Teams(entities);
+            IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers));
         }
 
         Backfill(frames);
@@ -5282,6 +5460,18 @@ public sealed class DemoTimeline
     /// <summary>Every `team_round_timer` at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneRoundTimer> RoundTimersAt(int tick) => FrameAt(tick)?.RoundTimers ?? [];
+
+    /// <summary>Every Engineer building at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneBuilding> BuildingsAt(int tick) => FrameAt(tick)?.Buildings ?? [];
+
+    /// <summary>Every `CTFTeam` at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneTeam> TeamsAt(int tick) => FrameAt(tick)?.Teams ?? [];
+
+    /// <summary>Every player slot the scoreboard would list at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneScoreboardPlayer> ScoreboardPlayersAt(int tick) => FrameAt(tick)?.ScoreboardPlayers ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>

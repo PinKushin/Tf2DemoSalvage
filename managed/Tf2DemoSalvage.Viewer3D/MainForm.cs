@@ -131,6 +131,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the View menu, which has to be opened to reach its items.</summary>
     public const string ViewMenuId = "ViewMenu";
 
+    /// <summary>Automation id of the Hud menu — the picker over the program's own <c>custom/</c> folder (D193).</summary>
+    public const string HudMenuId = "HudMenu";
+
     /// <summary>Accessible names of the menu entries, which is how automation reaches them.</summary>
     /// <remarks>
     /// **A WinForms menu item exposes no AutomationId.** Its accessible object does not implement
@@ -923,7 +926,11 @@ internal class MainForm : Form, IFrameSteps
 
         _settings = _launch.Settings;
         _spectator.Spectating = _launch.Spectate;
-        _chosenHud = _launch.Hud;
+
+        // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
+        // launch option is for one run; the settings file is what the picker changes and expects to
+        // stick without being passed again every time.
+        _chosenHud = _launch.Hud ?? _settings.ChosenHud;
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -1205,13 +1212,18 @@ internal class MainForm : Form, IFrameSteps
                 SetDebugMode: SetDebugMode,
                 SetSpecular: SetSpecular,
                 SetPhong: SetPhong,
-                Screenshot: CaptureViewportToFile),
+                Screenshot: CaptureViewportToFile,
+                SetChosenHud: SetChosenHud),
             _settings,
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
             // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
             // six of them on keys TF2 binds to something else.
-            _bindings);
+            _bindings,
+
+            // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
+            // imported into the program, not what is in their TF2 install.
+            HudCatalog.Options(ProgramCustomFolder));
 
         MenuStrip menu = _menu.Strip;
 
@@ -1769,7 +1781,7 @@ internal class MainForm : Form, IFrameSteps
         // **Assigned only when something was actually read**, which is what the old body did by
         // returning early. `LoadFrom` answers null rather than handing back its own defaults, so an
         // unreadable config cannot quietly replace the bindings this form already has.
-        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog) is { } loaded)
+        if (_console.LoadFrom(_maps.GameFolder(), _loggers, _configLog, ProgramCustomFolder) is { } loaded)
         {
             _bindings = loaded;
         }
@@ -6337,6 +6349,67 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
+    /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
+    /// <remarks>
+    /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
+    /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
+    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>).
+    /// </remarks>
+    private int? IdTargetNow(HudState state, int tick)
+    {
+        if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
+            || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
+            || FirstPersonCamera() is not { } eye)
+        {
+            return null;
+        }
+
+        List<BulletTarget> targets = [];
+        Dictionary<int, int> teams = [];
+
+        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        {
+            if ((player.LifeState ?? Alive) == Alive)
+            {
+                targets.Add(new BulletTarget(player.EntityIndex, new Vector3(player.X, player.Y, player.Z), ((player.Flags ?? 0) & Ducking) != 0));
+                teams[player.EntityIndex] = player.Team ?? 0;
+            }
+        }
+
+        // A standing building's `SOLID_BBOX`: its origin plus the networked collision box; a blueprint is `FSOLID_NOT_SOLID`.
+        List<IdTargetBox> boxes = [];
+
+        foreach (Core.Scene.SceneBuilding building in timeline.BuildingsAt(tick))
+        {
+            if (building is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
+            {
+                boxes.Add(new IdTargetBox(
+                    building.EntityIndex,
+                    building.Team ?? 0,
+                    new Vector3(at.X + mins.X, at.Y + mins.Y, at.Z + mins.Z),
+                    new Vector3(at.X + maxs.X, at.Y + maxs.Y, at.Z + maxs.Z)));
+            }
+        }
+
+        IdTargetTraces traces = new(
+            targets,
+            teams,
+            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
+            HitboxesOrUntested,
+            boxes);
+        (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
+
+        return IdTargetTrace.GetIdTarget(
+            new Vector3(eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
+            new Vector3(x, y, z),
+            state.LocalIndex,
+            state.Team,
+            isObserver: false,
+            observerTarget: 0,
+            traces.Solid,
+            traces.Shot);
+    }
+
     /// <summary>A player's hitboxes against a ray, as <see cref="PlayerBulletTrace.ClipRayToEntity"/> asks for them.</summary>
     /// <remarks>
     /// **A miss is a full-length trace, 1, not "untested"**: `ClipRayToHitboxes` (engine.dll `0x180190a40`) returns true for
@@ -6985,10 +7058,35 @@ internal class MainForm : Form, IFrameSteps
     /// first element that reads the local player lands.
     /// </remarks>
     /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch; the
-    /// picker over our `custom/` folder will set it at runtime, and the HUD's files are remade on the next frame.
+    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch, the
+    /// remembered choice from settings is the fallback, and the picker sets it at runtime; the HUD's files are remade
+    /// the next time <see cref="HudArchives"/> is asked, which is every frame — no restart needed.
     /// </summary>
-    private readonly string? _chosenHud;
+    private string? _chosenHud;
+
+    /// <summary>Where the picker looks for HUDs: this program's OWN <c>custom/</c> folder, never `tf/custom` (D193).</summary>
+    private static string ProgramCustomFolder { get; } =
+        System.IO.Path.Combine(AppContext.BaseDirectory, "custom");
+
+    /// <summary>Changes the HUD and remembers the choice, hot-swapped with no restart.</summary>
+    /// <param name="hud">A folder or `.vpk` under <see cref="ProgramCustomFolder"/>, or null for TF2's stock HUD.</param>
+    /// <remarks>
+    /// **The rebuild is not done here.** <see cref="HudArchives"/> already compares the stored choice
+    /// against what it last built and remakes itself when they differ, so setting the field is the
+    /// whole swap; the next frame's <see cref="VguiHud"/> reads through the new archives.
+    /// </remarks>
+    private void SetChosenHud(string? hud)
+    {
+        _chosenHud = hud;
+        _settings = _settings with { ChosenHud = hud };
+
+        string? failure = _settings.Save();
+
+        if (failure is not null)
+        {
+            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
+        }
+    }
 
     /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
     private GameArchives? HudArchives()
@@ -7043,6 +7141,7 @@ internal class MainForm : Form, IFrameSteps
             _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
                 ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
+            _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
         }
 
         int hudTick = _transport.CurrentTick;
@@ -7058,6 +7157,17 @@ internal class MainForm : Form, IFrameSteps
 
         _vguiHud.Viewport.Scripts = _hudScripts;
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
+        _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
+        _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
+        _vguiHud.DeathNotice.NoticeTime = _settings.HudDeathNoticeTime;
+        _vguiHud.Chat.SayTextTime = _settings.SayTextTime;
+        _vguiHud.Chat.FilterFlags = _settings.ChatFilters;
+
+        if (_vguiHud.DeathNotice.Streak is { } streak)
+        {
+            (streak.DisplayTime, streak.FontSize, streak.DisplayAlpha) =
+                (_settings.KillStreakDisplayTime, _settings.KillStreakDisplayFontSize, _settings.KillStreakDisplayAlpha);
+        }
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
@@ -7066,6 +7176,9 @@ internal class MainForm : Form, IFrameSteps
         {
             RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
             Fov = ViewFovNow().World,
+
+            // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
+            WorldToScreen = ViewMatrix(),
         };
 
         // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,
@@ -7084,11 +7197,23 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        _vguiHud.Frame(
-            hudState,
-            hudEvents,
-            hudReset,
-            hudMessages);
+        hudState = hudState with { IdTarget = IdTargetNow(hudState, hudTick) };
+
+        _hudReplaying = hudReset;
+
+        try
+        {
+            _vguiHud.Frame(
+                hudState,
+                hudEvents,
+                hudReset,
+                hudMessages,
+                _console.IsHeld(ViewerAction.ShowScores));
+        }
+        finally
+        {
+            _hudReplaying = false;
+        }
         _vguiTools.Frame(
             _vguiClock.Elapsed.TotalSeconds,
             _clock.LastFrameSeconds,
@@ -7310,6 +7435,31 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
+
+    /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
+    private bool _hudReplaying;
+
+    /// <summary>
+    /// Wired into the HUD as its <c>HudSoundEmitter</c>: resolves a `game_sounds.txt` name the same way a world sound
+    /// does (<see cref="HudSounds"/>) and hands it to the presenter, at the current tick, from the local player.
+    /// </summary>
+    /// <param name="scriptName">The script the HUD element asked for.</param>
+    /// <remarks>
+    /// **Silent while a seek replays the events before it.** They fired before the tick the viewer landed on, so the
+    /// sounds they ask for were over before then — the notices are rebuilt, and a burst of every kill in the window is not.
+    /// </remarks>
+    private void PlayHudSound(string scriptName)
+    {
+        if (_hudReplaying)
+        {
+            return;
+        }
+
+        if (_sound.Scripts is { } scripts && HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
+        {
+            _sound.Emit(sound);
+        }
+    }
 
     /// <summary>The registered game systems, told about every level load and teardown.</summary>
     /// <remarks>

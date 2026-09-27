@@ -35,6 +35,11 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
 
     private readonly Dictionary<(string ServerClass, int PlayerClass), (int MaxClip1, int PrimaryAmmo, bool NamesAmmo)> _weapons = [];
     private readonly Dictionary<int, int[]> _ammoMax = [];
+    private readonly Dictionary<int, int?> _classHealth = [];
+    private KeyValuesTree? _objects;
+
+    // `g_ObjectInfos`' names, in `ObjectType_t` order (tf_shareddefs.cpp).
+    private static readonly string[] ObjectNames = ["OBJ_DISPENSER", "OBJ_TELEPORTER", "OBJ_SENTRYGUN", "OBJ_ATTACHMENT_SAPPER"];
     private readonly Dictionary<(string ServerClass, int PlayerClass), (bool DrawCrosshair, IReadOnlyList<Hud.HudTexture> Icons)> _hud = [];
 
     /// <summary>A weapon's script: its `clip_size` and its primary ammo type.</summary>
@@ -145,6 +150,66 @@ public sealed class TfWeaponData(Func<string, byte[]?> read)
         }
 
         return maxima[ammo];
+    }
+
+    /// <summary>`TFPlayerClassData_t::m_nMaxHealth`: the class script's <c>"health"</c> — what `GetDisguiseMaxHealth` returns.</summary>
+    /// <param name="playerClass">1 Scout through 9 Engineer.</param>
+    /// <returns>The health, or null when the class has no script (`GetDisguiseMaxHealth`'s fallback is the caller's).</returns>
+    public int? ClassMaxHealth(int playerClass)
+    {
+        if (playerClass < 1 || playerClass >= ClassFiles.Length)
+        {
+            return null;
+        }
+
+        if (!_classHealth.TryGetValue(playerClass, out int? health))
+        {
+            health = WeaponScript.Read(read, "playerclasses/" + ClassFiles[playerClass]) is { } script
+                ? Int(KeyValuesTree.Load(script.Text.ToArray(), script.Name, _ => null).Find("health")?.Value, 0)
+                : null;
+            _classHealth[playerClass] = health;
+        }
+
+        return health;
+    }
+
+    /// <summary>`GetObjectInfo( type )` as the target ID reads it (tf_shareddefs.cpp:1452, `scripts/objects.txt`).</summary>
+    /// <param name="objectType">`OBJ_DISPENSER` 0, `OBJ_TELEPORTER` 1, `OBJ_SENTRYGUN` 2, `OBJ_ATTACHMENT_SAPPER` 3.</param>
+    /// <param name="mode">`GetObjectMode()`.</param>
+    /// <returns>
+    /// `m_AltModes[mode].pszStatusName` and `.pszModeName`, and `m_iNumAltModes` — `iIndex - 1` over the `AltModeN` blocks
+    /// (:1533), and mode 0's status name the object's own (:1537).
+    /// </returns>
+    public (string? StatusName, string? ModeName, int NumAltModes) ObjectInfo(int objectType, int mode)
+    {
+        if (objectType < 0 || objectType >= ObjectNames.Length)
+        {
+            return (null, null, 0);
+        }
+
+        _objects ??= read("scripts/objects.txt") is { } bytes ? KeyValuesTree.Load(bytes, "scripts/objects.txt", _ => null) : null;
+
+        if (_objects?.Find(ObjectNames[objectType]) is not { } info)
+        {
+            return (null, null, 0);
+        }
+
+        int count = 0;
+
+        if (info.Find("AltModes") is { } altModes)
+        {
+            while (altModes.Find("AltMode" + count.ToString(CultureInfo.InvariantCulture)) is not null)
+            {
+                count++;
+            }
+
+            count--;
+        }
+
+        KeyValuesTree? altMode = info.Find("AltModes")?.Find("AltMode" + mode.ToString(CultureInfo.InvariantCulture));
+        string? statusName = mode == 0 ? info.Find("StatusName")?.Value : altMode?.Find("StatusName")?.Value;
+
+        return (statusName, altMode?.Find("ModeName")?.Value, Math.Max(count, 0));
     }
 
     /// <summary>`KeyValues::GetInt`: the value's leading integer, or the default when the key is absent.</summary>

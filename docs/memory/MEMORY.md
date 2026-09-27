@@ -144,4 +144,6 @@
 - [Modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md) — his custom HUD and cfg; era clients are stock.
 - [Auto-exposure settles](auto-exposure-settles.md) — D192; on by default, captures wait; HUDs before post-processing.
 - [Read the HDR set](read-the-hdr-set.md) — TF2 default is HDR; every paired lighting input reads its HDR half; sRGB only for pictures.
+- [Review subagents deeply](review-subagents-deeply.md) — full-context briefs, line-by-line review, no nested hand-offs.
 - [Announce before launching](announce-before-launching.md) — say a desktop-taking run is starting before the call, never after.
+- [$TEMP is shared across worktrees](temp-is-shared-across-worktrees.md) — name logs per run; trust the exit code and trx.

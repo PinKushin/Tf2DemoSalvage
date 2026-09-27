@@ -13,9 +13,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// and in the HUD — and shows it outside freeze cam, outside KOTH (whose timers are their own element) unless waiting for
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
-/// **Not modelled:** the round counter, team status, player lists and avatars, match doors, round sign, countdown and
-/// rank-up labels; `if_large`, which needs the match group's size; `IsInTournamentMode`, a server cvar the demo does not
-/// carry, taken as off; the freeze-cam screenshot test; and an open viewport panel.
+/// **Not modelled:** team status, player lists and avatars, match doors, round sign and rank-up labels; `if_large`, which
+/// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel. The round counter is its own
+/// panel, <see cref="TfRoundCounterPanel"/> — see its remarks for what it leaves out.
 /// </remarks>
 public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
@@ -24,8 +24,14 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )`: parented to the viewport, its time panel made up front.</summary>
     /// <param name="viewport">The viewport.</param>
     public TfHudMatchStatus(VguiPanel viewport)
-        : base(viewport, "HudMatchStatus") =>
+        : base(viewport, "HudMatchStatus")
+    {
+        RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
+    }
+
+    /// <summary>`m_pRoundCounter`.</summary>
+    public TfRoundCounterPanel RoundCounter { get; }
 
     /// <summary>`m_pTimePanel`.</summary>
     public TfHudTimeStatus TimePanel { get; }
@@ -57,6 +63,10 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         _usedMatchHud = ShouldUseMatchHud(state);
         TimePanel.UseMatchHud = _usedMatchHud;
+        RoundCounter.UseMatchHud = _usedMatchHud;
+
+        // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
+        RoundCounter.Visible = _usedMatchHud;
         LoadControlSettings("resource/UI/HudMatchStatus.res", context, _usedMatchHud ? ["if_match"] : null);
     }
 
@@ -77,6 +87,12 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         }
 
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
+
+        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474).
+        if (state.TournamentMode && state.Rules.WaitingForPlayers)
+        {
+            display = false;
+        }
 
         if (display)
         {
@@ -101,6 +117,49 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         else
         {
             TimePanel.Visible = false;
+        }
+    }
+
+    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for that this port models (:302-303).</summary>
+    /// <remarks>
+    /// `teamplay_round_start` and `show_match_summary` are also listened for in the engine, but their only handling here
+    /// is `ShowRoundSign`/the match-doors animation — 3D model panels, out of this port's scope (see the class remarks).
+    /// `teamplay_round_start` is included anyway so a later pass has somewhere to dispatch it; it is presently a no-op.
+    /// </remarks>
+    public static IReadOnlySet<string> ListensFor { get; } =
+        new HashSet<string>(["restart_timer_time", "teamplay_round_start"], StringComparer.Ordinal);
+
+    /// <summary>`FireGameEvent` (:547), restricted to the 2D countdown label.</summary>
+    /// <param name="fired">The event.</param>
+    public void HandleGameEvent(HudGameEvent fired)
+    {
+        ArgumentNullException.ThrowIfNull(fired);
+
+        if (!ShouldUseMatchHud(HudViewport.Of(this)?.State ?? default))
+        {
+            return;
+        }
+
+        if (fired.Event.Name == "restart_timer_time")
+        {
+            HandleCountdown(fired.Event.GetInt("time"), fired.Rules.RoundsPlayed);
+        }
+
+        // `teamplay_round_start`: `ShowRoundSign` when rounds have already been played — out of scope, so nothing 2D
+        // happens here (see `ListensFor`'s remarks).
+    }
+
+    /// <summary>`HandleCountdown` (:614), minus `ShowRoundSign` and `ShowMatchStartDoors` — both 3D model panels.</summary>
+    /// <param name="time">`event->GetInt( "time" )`: seconds left on the restart countdown.</param>
+    /// <param name="roundsPlayed">`TFGameRules()->GetRoundsPlayed()`.</param>
+    private void HandleCountdown(int time, int roundsPlayed)
+    {
+        SetDialogVariable("countdown", time);
+
+        // `case 10:` — on the first round `ShowMatchStartDoors`, a 3D model panel not modelled here; after it the 2D countdown.
+        if (time == 10 && roundsPlayed != 0)
+        {
+            HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
         }
     }
 }

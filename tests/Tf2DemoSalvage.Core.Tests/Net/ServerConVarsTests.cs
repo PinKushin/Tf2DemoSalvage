@@ -99,15 +99,15 @@ public sealed class ServerConVarsTests
     {
         ServerConVars server = new();
 
-        server.Apply(Message(("mp_tournament", "1")));
+        server.Apply(Message(("mp_forcecamera", "1")));
 
-        server.Value("mp_tournament").ShouldBe("1");
+        server.Value("mp_forcecamera").ShouldBe("1");
     }
 
     [Test]
     public void Value_ForANameNeitherDeclaredNorSent_IsNull()
     {
-        new ServerConVars().Value("mp_tournament").ShouldBeNull();
+        new ServerConVars().Value("mp_forcecamera").ShouldBeNull();
     }
 
     /// <summary>That the movement speeds a jump server changes are all reachable.</summary>
@@ -158,9 +158,9 @@ public sealed class ServerConVarsTests
     {
         ServerConVars server = new();
 
-        server.Apply(Message(("mp_tournament", "1")));
+        server.Apply(Message(("mp_forcecamera", "1")));
 
-        Should.Throw<KeyNotFoundException>(() => server.Number("mp_tournament"));
+        Should.Throw<KeyNotFoundException>(() => server.Number("mp_forcecamera"));
     }
 
     /// <summary>That what the server changed can be reported, for the mod question.</summary>
@@ -175,7 +175,7 @@ public sealed class ServerConVarsTests
         ServerConVars server = new();
 
         server.Apply(Message(
-            ("sv_maxspeed", "1000"), ("mp_tournament", "1"), ("sv_specspeed", "6")));
+            ("sv_maxspeed", "1000"), ("mp_forcecamera", "1"), ("sv_specspeed", "6")));
 
         server.Changed.ShouldBe(["sv_maxspeed", "sv_specspeed"], ignoreOrder: true);
     }

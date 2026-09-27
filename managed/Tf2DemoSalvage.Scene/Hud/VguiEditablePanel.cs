@@ -100,6 +100,11 @@ public class VguiEditablePanel : VguiPanel
     public void SetDialogVariable(string name, float value) =>
         SetDialogVariable(name, value.ToString("F6", System.Globalization.CultureInfo.InvariantCulture));
 
+    /// <summary>`m_pDialogVariables->GetString( name )`: read back what <see cref="SetDialogVariable(string, string)"/> stored.</summary>
+    /// <param name="name">The variable.</param>
+    /// <returns>The value, or null when unset.</returns>
+    public string? DialogVariable(string name) => _dialogVariables?.GetValueOrDefault(name);
+
     /// <summary>`ForceSubPanelsToUpdateWithNewDialogVariables` (EditablePanel.cpp:1036): this panel and its direct children.</summary>
     private void ForceSubPanelsToUpdateWithNewDialogVariables()
     {
@@ -239,6 +244,7 @@ public static class VguiControlFactory
         ["CIconPanel"] = () => new VguiIconPanel(null, null),
         ["CTFProgressBar"] = () => new TfProgressBar(null, null),
         ["CAvatarImagePanel"] = () => new VguiAvatarImagePanel(null, null),
+        ["SectionedListPanel"] = () => new VguiSectionedListPanel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>

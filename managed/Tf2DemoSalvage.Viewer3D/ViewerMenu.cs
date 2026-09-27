@@ -22,6 +22,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SetSpecular">Add cubemap reflections.</param>
 /// <param name="SetPhong">Add specular highlights to materials asking for <c>$phong</c>.</param>
 /// <param name="Screenshot">Write a picture of the viewport.</param>
+/// <param name="SetChosenHud">Choose a HUD from the picker — a folder or <c>.vpk</c>, or null for TF2's stock HUD (D193).</param>
 /// <remarks>
 /// **Delegates rather than a reference to the form, and that is the point of the split.** A menu
 /// that holds a <c>MainForm</c> is a menu for that one window; a menu that holds fourteen actions
@@ -49,7 +50,8 @@ internal readonly record struct ViewerMenuActions(
     Action<Func<DebugModes, bool, DebugModes>, bool> SetDebugMode,
     Action<bool> SetSpecular,
     Action<bool> SetPhong,
-    Action Screenshot);
+    Action Screenshot,
+    Action<string?> SetChosenHud);
 
 /// <summary>The viewer's main menu: the strip, and the items whose state is read elsewhere.</summary>
 /// <remarks>
@@ -112,17 +114,31 @@ internal sealed class ViewerMenu : IDisposable
     /// <summary>The texture-quality items, by level, so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<TextureQuality, ToolStripMenuItem> TextureQualityItems { get; }
 
+    /// <summary>The HUD picker's items, by path (<see cref="StockHudKey"/> for TF2's stock HUD), so one can be checked and the rest cleared.</summary>
+    public IReadOnlyDictionary<string, ToolStripMenuItem> HudItems { get; }
+
+    /// <summary>The key <see cref="HudItems"/> uses for TF2's stock HUD, whose real path is null — and a dictionary key cannot be.</summary>
+    public const string StockHudKey = "";
+
     /// <summary>Builds the whole menu.</summary>
     /// <param name="actions">What each item asks the viewer to do.</param>
     /// <param name="settings">The saved settings, for the items that open already checked.</param>
     /// <param name="bindings">Which key performs which action, so no shortcut is written in here.</param>
+    /// <param name="hudOptions">
+    /// The HUD picker's entries — "TF2 default" plus every HUD found in the program's own
+    /// <c>custom/</c> folder (D193). Null or empty builds no HUD menu at all.
+    /// </param>
     /// <remarks>
     /// **Initial checked state comes from settings, not from the form**, so the menu can be built
     /// before anything else exists. Three items open checked because their feature is on by
     /// default — drawing the world, drawing entities and reflections — and those are literals rather
     /// than settings because they are not saved.
     /// </remarks>
-    public ViewerMenu(ViewerMenuActions actions, ViewerSettings settings, KeyBindings bindings)
+    public ViewerMenu(
+        ViewerMenuActions actions,
+        ViewerSettings settings,
+        KeyBindings bindings,
+        IReadOnlyList<Content.Assets.HudOption>? hudOptions = null)
     {
         ArgumentNullException.ThrowIfNull(bindings);
 
@@ -563,6 +579,50 @@ internal sealed class ViewerMenu : IDisposable
 
         Strip.Items.Add(file);
         Strip.Items.Add(view);
+
+        // **The HUD picker (D193).** One item per HUD found in the program's own custom/ folder,
+        // plus "TF2 default" — never anything from the game's own tf/custom, which stays the
+        // parity reference every test reads. Checked as a group, like the full-screen mode items.
+        Dictionary<string, ToolStripMenuItem> hudItems = [];
+
+        HudItems = hudItems;
+
+        if (hudOptions is { Count: > 0 })
+        {
+            ToolStripMenuItem hudMenu = new("&Hud")
+            {
+                Name = MainForm.HudMenuId,
+                AccessibleName = "Hud",
+            };
+
+            foreach (Content.Assets.HudOption option in hudOptions)
+            {
+                string? path = option.Path;
+
+                ToolStripMenuItem item = new(option.Name)
+                {
+                    Name = "Hud" + (path ?? "Default").GetHashCode(StringComparison.Ordinal),
+                    AccessibleName = "Hud " + option.Name,
+                    Checked = string.Equals(settings.ChosenHud, path, StringComparison.Ordinal),
+                };
+
+                item.Click += (_, _) =>
+                {
+                    foreach (ToolStripMenuItem other in hudItems.Values)
+                    {
+                        other.Checked = false;
+                    }
+
+                    item.Checked = true;
+                    actions.SetChosenHud(path);
+                };
+
+                hudItems.Add(path ?? StockHudKey, item);
+                hudMenu.DropDownItems.Add(item);
+            }
+
+            Strip.Items.Add(hudMenu);
+        }
     }
 
     /// <summary>Disposes the strip and every item it built.</summary>
@@ -600,6 +660,11 @@ internal sealed class ViewerMenu : IDisposable
         DebugMenu.Dispose();
         SurfaceColours.Dispose();
         FullScreen.Dispose();
+
+        foreach (ToolStripMenuItem item in HudItems.Values)
+        {
+            item.Dispose();
+        }
 
         Strip.Dispose();
     }

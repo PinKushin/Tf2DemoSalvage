@@ -146,6 +146,10 @@ public sealed class ConfigConsole
         ViewerAction.FlyUp,
         ViewerAction.FlyDown,
         ViewerAction.FlyWalk,
+
+        // `+showscores`/`-showscores`: the scoreboard shows only while the key is down, the same
+        // shape as the flight keys — see `TfClientScoreBoardDialog`.
+        ViewerAction.ShowScores,
     };
 
     /// <summary>Whether a key drives anything this console holds down.</summary>
@@ -551,6 +555,7 @@ public sealed class ConfigConsole
     /// <param name="installedGameFolder">Where TF2 is, or null if it was not found.</param>
     /// <param name="loggers">For the config reader's own diagnostics.</param>
     /// <param name="config">The config log.</param>
+    /// <param name="ownCustomRoot">The program's own <c>custom/</c> folder, or null (D193).</param>
     /// <returns>The bindings, or null when nothing was loaded and the caller should keep its own.</returns>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
@@ -569,7 +574,7 @@ public sealed class ConfigConsole
     /// unbound list exists for the same reason from the other side.
     /// </remarks>
     public KeyBindings? LoadFrom(
-        string? installedGameFolder, ILoggerFactory loggers, ILogger config)
+        string? installedGameFolder, ILoggerFactory loggers, ILogger config, string? ownCustomRoot = null)
     {
         ArgumentNullException.ThrowIfNull(loggers);
         ArgumentNullException.ThrowIfNull(config);
@@ -578,19 +583,19 @@ public sealed class ConfigConsole
         {
             string? game = installedGameFolder ?? Tf2ConfigFiles.DefaultGameFolder;
 
-            if (game is null)
-            {
-                config.LogInformation(
-                    "{Message}", "no TF2 install found; using the built-in bindings");
-                return null;
-            }
-
-            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, loggers.LogTo());
+            // **The program's own custom/ folder is checked even with no TF2 install found** (D193):
+            // a config a player pasted in there does not depend on the game being installed at all.
+            // `Tf2ConfigFiles.Read` already treats a null/empty gameFolder as "nothing from the
+            // game", so passing `game` through unconditionally is enough.
+            IReadOnlyList<string> configs = Tf2ConfigFiles.Read(game, loggers.LogTo(), ownCustomRoot);
 
             if (configs.Count == 0)
             {
                 config.LogInformation(
-                    "{Message}", $"no configs under {game}; using the built-in bindings");
+                    "{Message}",
+                    game is null
+                        ? "no TF2 install found and no configs under the program's own custom/; using the built-in bindings"
+                        : $"no configs under {game}; using the built-in bindings");
                 return null;
             }
 

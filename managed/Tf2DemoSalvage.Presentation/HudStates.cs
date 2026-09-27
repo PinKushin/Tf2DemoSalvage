@@ -17,8 +17,8 @@ public static class HudStates
     /// <remarks>
     /// `C_BasePlayer::GetLocalPlayer()` is the recorder on a POV demo and SourceTV's own client — a spectator with no
     /// health — otherwise. `GetHealth` is the player's own `m_iHealth`; `GetMaxHealth` the resource's `m_iMaxHealth`;
-    /// `GetMaxBuffedHealth` (tf_player_shared.cpp:2235) the resource's `m_iMaxBuffedHealth` × `tf_max_health_boost`
-    /// (1.5, `FCVAR_DEVELOPMENTONLY`, so fixed on retail) floored to a 5. `curtime` is the tick times the interval.
+    /// `GetMaxBuffedHealth` is <see cref="HudState.GetMaxBuffedHealth"/> over the resource's `m_iMaxBuffedHealth`. `curtime`
+    /// is the tick times the interval.
     /// </remarks>
     /// <param name="scripts">The weapon and class scripts, or null where no install is open.</param>
     /// <param name="hooks">The attribute hooks, or null likewise.</param>
@@ -59,6 +59,18 @@ public static class HudStates
             ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
             RoundState = timeline.RoundStateAt(tick),
             RoundTimers = timeline.RoundTimersAt(tick),
+            Teams = timeline.TeamsAt(tick),
+            Buildings = timeline.BuildingsAt(tick),
+
+            // `IsInTournamentMode()`/`mp_tournament_stopwatch.GetBool()`/`mp_winlimit.GetInt()` —
+            // replicated cvars, so the server's value (or Valve's declared default) rather than
+            // anything this project would otherwise have to take as off.
+            TournamentMode = timeline.ServerConVars.Number("mp_tournament") != 0f,
+            TournamentStopwatch = timeline.ServerConVars.Number("mp_tournament_stopwatch") != 0f,
+            WinLimit = (int)timeline.ServerConVars.Number("mp_winlimit"),
+            TournamentRedTeamName = timeline.ServerConVars.Value("mp_tournament_redteamname") ?? string.Empty,
+            TournamentBlueTeamName = timeline.ServerConVars.Value("mp_tournament_blueteamname") ?? string.Empty,
+            ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
         };
     }
 
@@ -88,8 +100,6 @@ public static class HudStates
     /// <remarks>An unsent maximum is `TF_HEALTH_UNDEFINED`, 1, as `GetArrayValue` answers.</remarks>
     public static HudState From(ScenePlayer local, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null)
     {
-        int buffing = local.MaxHealthForBuffing ?? 1;
-
         return new HudState(
             InGame: true,
             HasLocalPlayer: true,
@@ -97,7 +107,7 @@ public static class HudStates
             Health: local.EntityHealth ?? 0,
             Alive: (local.LifeState ?? 0) == 0,
             MaxHealth: local.MaxHealth ?? 1,
-            MaxBuffedHealth: (int)MathF.Floor(buffing * 1.5f / 5f) * 5,
+            MaxBuffedHealth: HudState.GetMaxBuffedHealth(local.MaxHealthForBuffing ?? 1, local.MaxHealth ?? 1, local.EntityHealth ?? 0),
             CurTime: (float)(tick * ScenePropTrack.Tf2TickInterval),
             Team: local.Team ?? 0,
             Ammo: scripts is not null && hooks is not null ? TfAmmo.For(local, scripts, hooks) : default,

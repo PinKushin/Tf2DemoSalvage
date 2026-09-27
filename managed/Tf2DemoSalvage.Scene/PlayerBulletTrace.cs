@@ -153,6 +153,14 @@ public static class PlayerBulletTrace
                SegmentHitsBox(start, start + delta, player.Origin + HullMin, player.Origin + Top(player));
     }
 
+    /// <summary>A segment against a player's collision hull — what `MASK_SOLID` stops on for a player.</summary>
+    /// <param name="player">The player.</param>
+    /// <param name="start">The segment's start.</param>
+    /// <param name="end">The segment's end.</param>
+    /// <returns>The fraction the segment enters the hull at, 0 from inside, or null when it misses.</returns>
+    public static float? ClipRayToHull(BulletTarget player, Vector3 start, Vector3 end) =>
+        SegmentHitsBox(start, end, player.Origin + HullMin, player.Origin + Top(player));
+
     /// <summary>The top of a player's collision hull, ducked or not.</summary>
     private static Vector3 Top(BulletTarget player) => player.Ducked ? DuckHullMax : HullMax;
 

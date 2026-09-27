@@ -81,9 +81,6 @@ public sealed class PlayerResourceConformanceTests
         // round-based map the scoreboard number players remember is m_iRoundsWon, while m_iScore is
         // the generic team score the base class carries. Reporting one as the other is wrong in a
         // way that looks entirely plausible.
-        //
-        // The roster is networked too, so team membership does not have to be inferred by walking
-        // player entities and reading their team number.
         string team = SourceSdk.Text("src/game/client/c_team.cpp").ShouldNotBeNull();
 
         foreach (string field in new[] { "m_iTeamNum", "m_iScore", "m_iRoundsWon", "m_szTeamname" })
@@ -91,17 +88,10 @@ public sealed class PlayerResourceConformanceTests
             team.ShouldContain($"RECVINFO({field})");
         }
 
-        // The gap, with its control, so this marker fails when the team entity is read (D45).
-        SchemaGap.AnyProductionAssemblyMentions(SchemaGap.KnownPresent).ShouldBeTrue(
-            "the search cannot find a name that is demonstrably compiled in");
-
-        SchemaGap.AnyProductionAssemblyMentions("m_iRoundsWon").ShouldBeFalse(
-            "team standing is now decoded — replace this marker with a parity test against the " +
-            "RECVINFO list above");
-
-        Assert.Ignore(
-            "team standing is not decoded. Score and rounds won are separate fields on the team " +
-            "entity (c_team.cpp:33) — on a round-based map the number players remember is " +
-            "m_iRoundsWon — and the roster is networked rather than needing to be inferred.");
+        // Score and rounds won are decoded (Tf2DemoSalvage.Core.Scene.SceneTeam) and read distinctly
+        // — DemoTimeline.Teams reads DT_Team.m_iScore into SceneTeam.Score and DT_Team.m_iRoundsWon
+        // into SceneTeam.RoundsWon separately, per SceneTeamTests. The roster (the player array) is
+        // NOT decoded — team membership is still inferred by walking player entities — so that part
+        // of this gap remains open.
     }
 }

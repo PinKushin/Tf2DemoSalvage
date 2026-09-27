@@ -73,6 +73,10 @@ public sealed class CvarNameConformanceTests
             "action also clears REVERSE, which the engine cannot express at all (D97). There is no " +
             "command of Valve's that means what this one means.",
 
+        ["hud_chosen"] =
+            "D193's deliberate departure: TF2 installs a HUD by it being the one in `custom/` and has " +
+            "no convar that picks among several, so there is no name of Valve's to adopt.",
+
         ["texture_quality"] =
             "PROVISIONAL — the one entry here that is a question rather than an answer. Valve ships " +
             "`mat_picmip` (default -1, archived) for texture quality, so unlike every other name " +

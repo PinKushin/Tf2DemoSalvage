@@ -29,6 +29,24 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="ServerTime">`gpGlobals->curtime` on the server's clock — the one networked times such as a timer's end are on.</param>
 /// <param name="RoundState">`State_Get()`: `m_iRoundState`, or null with no game rules.</param>
 /// <param name="RoundTimers">Every `team_round_timer`.</param>
+/// <param name="IdTarget">`C_TFPlayer::GetIDTarget()` — <c>m_iIDEntIndex</c>, precomputed by whoever runs the crosshair
+/// world/entity trace (<see cref="Tf2DemoSalvage.Scene.Hud.IdTargetTrace"/>); null when nothing has computed it yet, in
+/// which case <see cref="Tf2DemoSalvage.Scene.Hud.TfMainTargetId"/> treats it as "no target" rather than guessing.</param>
+/// <param name="Teams">Every `CTFTeam`.</param>
+/// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
+/// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
+/// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
+/// <param name="TournamentRedTeamName">`mp_tournament_redteamname` (tf_gamerules.cpp:782): "RED" unless the server set it.</param>
+/// <param name="TournamentBlueTeamName">`mp_tournament_blueteamname` (:783): "BLU" unless the server set it.</param>
+/// <param name="WorldToScreen">
+/// `engine->WorldToScreenMatrix()`: the view's world-to-clip matrix, row-major with the translation in the last row (this
+/// project's convention — <c>FreeCamera.ToMatrix</c>); null where no view is drawn.
+/// </param>
+/// <param name="Buildings">Every Engineer building — `cl_entitylist` for the target ID's object branch.</param>
+/// <param name="ScoreboardPlayers">
+/// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
+/// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -54,8 +72,49 @@ public readonly record struct HudState(
     IReadOnlyDictionary<int, string>? Names = null,
     float ServerTime = 0f,
     int? RoundState = null,
-    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null)
+    IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
+    int? IdTarget = null,
+    IReadOnlyList<Core.Scene.SceneTeam>? Teams = null,
+    bool TournamentMode = false,
+    bool TournamentStopwatch = false,
+    int WinLimit = 0,
+    IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null,
+    IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null,
+    float[]? WorldToScreen = null,
+    string TournamentRedTeamName = "RED",
+    string TournamentBlueTeamName = "BLU")
 {
+    /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
+    /// <param name="index">The entity index.</param>
+    public Core.Scene.SceneBuilding? Building(int index)
+    {
+        foreach (Core.Scene.SceneBuilding building in Buildings ?? [])
+        {
+            if (building.EntityIndex == index)
+            {
+                return building;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// `CTFPlayerShared::GetMaxBuffedHealth` (tf_player_shared.cpp:2235) on the client: `tf_max_health_boost` (1.5,
+    /// `FCVAR_DEVELOPMENTONLY`) of the buffing base floored to a 5, never below the larger of the max and current health.
+    /// </summary>
+    /// <param name="maxHealthForBuffing">`GetMaxHealthForBuffing()` — or, for a disguise, `GetDisguiseMaxHealth()` (:2299).</param>
+    /// <param name="maxHealth">`GetMaxHealth()`.</param>
+    /// <param name="health">`GetHealth()`.</param>
+    /// <returns>The overheal maximum.</returns>
+    public static int GetMaxBuffedHealth(int maxHealthForBuffing, int maxHealth, int health)
+    {
+        int roundDown = (int)MathF.Floor(maxHealthForBuffing * 1.5f / 5f) * 5;
+
+        // "Don't allow overheal total to be less than the buffable + unbuffable max health or the current health" (:2258).
+        return Math.Max(roundDown, Math.Max(maxHealth, health));
+    }
+
     /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
     public const int RoundStateStalemate = 7;
 
@@ -68,6 +127,21 @@ public readonly record struct HudState(
             if (timer.EntityIndex == index)
             {
                 return timer;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>`GetGlobalTFTeam( iTeamNum )`: the team by its team number, or null.</summary>
+    /// <param name="teamNumber">2 for RED, 3 for BLU.</param>
+    public Core.Scene.SceneTeam? TeamStanding(int teamNumber)
+    {
+        foreach (Core.Scene.SceneTeam team in Teams ?? [])
+        {
+            if (team.TeamNumber == teamNumber)
+            {
+                return team;
             }
         }
 
@@ -97,11 +171,16 @@ public interface IHudElement
     /// <summary>`m_iHiddenBits`.</summary>
     public int HiddenBits { get; }
 
-    /// <summary>`ShouldDraw` (hud.cpp:288): not hidden by <see cref="HudVisibility.IsHidden"/>.</summary>
+    /// <summary>`m_HudRenderGroups`: "global" from the constructor (hud.cpp:245), plus whatever the element registers.</summary>
+    public IReadOnlyList<string> RenderGroups => HudVisibility.GlobalOnly;
+
+    /// <summary>`GetRenderGroupPriority` (hud.cpp:372): 0 unless the element overrides it.</summary>
+    public int RenderGroupPriority => 0;
+
+    /// <summary>`CHudElement::ShouldDraw` (hud.cpp:288): not hidden by <see cref="HudVisibility.IsHidden"/>, nor locked out.</summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether to draw.</returns>
-    /// <remarks>Render groups are not modelled: TF registers every element in "global", which nothing locks.</remarks>
-    public bool ShouldDraw(HudState state) => !HudVisibility.IsHidden(state, HiddenBits);
+    public bool ShouldDraw(HudState state) => HudVisibility.ShouldDraw(state, this);
 }
 
 /// <summary>`CHud`'s visibility rule and the `HIDEHUD_` bits (game/shared/shareddefs.h:206).</summary>
@@ -137,6 +216,38 @@ public static class HudVisibility
     /// <summary>`HIDEHUD_MATCH_STATUS`.</summary>
     public const int HideMatchStatus = 1 << 17;
 
+    /// <summary>Only "global", which `CHudElement`'s constructor registers every element in.</summary>
+    public static IReadOnlyList<string> GlobalOnly { get; } = ["global"];
+
+    /// <summary>`CHudElement::ShouldDraw` (hud.cpp:288): not hidden, and no group of its locked against it.</summary>
+    /// <param name="state">The game state.</param>
+    /// <param name="element">The element.</param>
+    /// <returns>Whether to draw.</returns>
+    public static bool ShouldDraw(HudState state, IHudElement element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (IsHidden(state, element.HiddenBits))
+        {
+            return false;
+        }
+
+        if (element is not VguiPanel panel || HudViewport.Of(panel) is not { } viewport)
+        {
+            return true;
+        }
+
+        foreach (string group in element.RenderGroups)
+        {
+            if (viewport.IsRenderGroupLockedFor(element, group))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>`CHud::IsHidden` (hud.cpp:951).</summary>
     /// <param name="state">The game state.</param>
     /// <param name="hudFlags">The element's hidden bits.</param>
@@ -169,6 +280,7 @@ public static class HudVisibility
 public sealed class HudViewport : VguiEditablePanel
 {
     private readonly List<IHudElement> _elements = [];
+    private readonly Dictionary<string, List<IHudElement>> _lockers = new(StringComparer.Ordinal);
     private bool _teamSent;
 
     private const string AnimationManifest = "scripts/hudanimations_manifest.txt";
@@ -189,6 +301,9 @@ public sealed class HudViewport : VguiEditablePanel
 
     /// <summary>An item's full name as its description shows it, by definition and quality — or null where nothing names items.</summary>
     public Func<int?, int, string?>? ItemName { get; set; }
+
+    /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
+    public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }
 
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
@@ -270,6 +385,68 @@ public sealed class HudViewport : VguiEditablePanel
                 panel.Visible = element.ShouldDraw(state);
             }
         }
+    }
+
+    /// <summary>`CHud::LockRenderGroup` (hud.cpp:1016): an element joins the group's lockers once.</summary>
+    /// <param name="group">The group's name.</param>
+    /// <param name="locker">The element hiding lower-priority ones.</param>
+    public void LockRenderGroup(string group, IHudElement locker)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+        ArgumentNullException.ThrowIfNull(locker);
+
+        if (!_lockers.TryGetValue(group, out List<IHudElement>? lockers))
+        {
+            _lockers[group] = lockers = [];
+        }
+
+        if (!lockers.Contains(locker))
+        {
+            lockers.Add(locker);
+        }
+    }
+
+    /// <summary>`CHud::UnlockRenderGroup` (hud.cpp:1065).</summary>
+    /// <param name="group">The group's name.</param>
+    /// <param name="locker">The element releasing its lock.</param>
+    public void UnlockRenderGroup(string group, IHudElement locker)
+    {
+        ArgumentNullException.ThrowIfNull(group);
+
+        if (_lockers.TryGetValue(group, out List<IHudElement>? lockers))
+        {
+            lockers.Remove(locker);
+        }
+    }
+
+    /// <summary>
+    /// `CHud::IsRenderGroupLockedFor` (hud.cpp:1104): the queue's head — the highest-priority locker — hides an element
+    /// of strictly lower priority.
+    /// </summary>
+    /// <param name="element">The element asking.</param>
+    /// <param name="group">One of its groups.</param>
+    /// <returns>Whether that group hides it.</returns>
+    /// <remarks>**Interpolated:** of lockers of equal top priority the first to lock is the head; a heap's order among ties is its own.</remarks>
+    public bool IsRenderGroupLockedFor(IHudElement element, string group)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (!_lockers.TryGetValue(group, out List<IHudElement>? lockers) || lockers.Count == 0)
+        {
+            return false;
+        }
+
+        IHudElement head = lockers[0];
+
+        foreach (IHudElement locker in lockers)
+        {
+            if (locker.RenderGroupPriority > head.RenderGroupPriority)
+            {
+                head = locker;
+            }
+        }
+
+        return !ReferenceEquals(head, element) && head.RenderGroupPriority > element.RenderGroupPriority;
     }
 
     private static void SetLocalTeam(VguiPanel panel, int team)
