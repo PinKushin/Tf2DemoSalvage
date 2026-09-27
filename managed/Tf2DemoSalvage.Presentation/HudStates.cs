@@ -59,6 +59,7 @@ public static class HudStates
             ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
             RoundState = timeline.RoundStateAt(tick),
             RoundTimers = timeline.RoundTimersAt(tick),
+            ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
         };
     }
 

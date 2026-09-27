@@ -32,6 +32,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="IdTarget">`C_TFPlayer::GetIDTarget()` — <c>m_iIDEntIndex</c>, precomputed by whoever runs the crosshair
 /// world/entity trace (<see cref="Tf2DemoSalvage.Scene.Hud.IdTargetTrace"/>); null when nothing has computed it yet, in
 /// which case <see cref="Tf2DemoSalvage.Scene.Hud.TfMainTargetId"/> treats it as "no target" rather than guessing.</param>
+/// <param name="ScoreboardPlayers">
+/// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
+/// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
+/// </param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -58,7 +62,8 @@ public readonly record struct HudState(
     float ServerTime = 0f,
     int? RoundState = null,
     IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
-    int? IdTarget = null)
+    int? IdTarget = null,
+    IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null)
 {
     /// <summary>`GR_STATE_STALEMATE` (teamplayroundbased_gamerules.h:69).</summary>
     public const int RoundStateStalemate = 7;
