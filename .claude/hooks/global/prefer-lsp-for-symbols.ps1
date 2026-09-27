@@ -61,7 +61,8 @@ function Test-CppSymbolPattern([string]$pattern) {
     if ([string]::IsNullOrWhiteSpace($pattern)) { return $false }
     if ($pattern -match '(FUN_|DAT_|0x[0-9a-fA-F]|\+0x)') { return $false }
     $normalised = $pattern -replace '\\\|', '|'
-    # Prose: three or more plain lowercase words in a row, with no code token anywhere.
+    # Prose - a message or comment searched as text: three words separated by spaces.
+    if ($normalised -match "[A-Za-z']+ +[A-Za-z']+ +[A-Za-z']+") { return $false }
     if ($normalised -cnotmatch $cppToken) {
         # A bare alternation of identifiers (`minigame|premade`) is still a symbol hunt.
         return $normalised -match '^\s*\w{3,}(\s*\|\s*\w{3,})+\s*$'
@@ -94,7 +95,8 @@ if ($null -ne $toolInput.pattern -and $null -eq $toolInput.command) {
     if ($m.Success) {
         $gArgs = $m.Groups['args'].Value
         $inSdk = $cmd -match '(?i)source-sdk-2013'
-        if ($gArgs -match $cppWhere -or $inSdk) {
+        # An escaped quote in the pattern means a string-literal search (a cvar name, a localization key) - text.
+        if (($gArgs -match $cppWhere -or $inSdk) -and $gArgs -notmatch '\\"') {
             $q = [regex]::Match($gArgs, '"(?<p>[^"]*)"|''(?<p>[^'']*)''')
             if ($q.Success -and (Test-CppSymbolPattern $q.Groups['p'].Value)) { Deny $cppReason }
         }

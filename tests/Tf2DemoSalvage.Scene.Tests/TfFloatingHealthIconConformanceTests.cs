@@ -60,11 +60,11 @@ public sealed class TfFloatingHealthIconConformanceTests
     [Test]
     public void Think_FloatingHealthDisabled_MakesNoIcon()
     {
-        (TfMainTargetId id, HudViewport viewport) = Built();
+        (_, HudViewport viewport) = Built();
 
-        id.DisableFloatingHealth = true;
-        viewport.Think(Playing(realTime: 0f));
-        viewport.Think(Playing(realTime: 0.1f));
+        HudConVars disabled = TestConVars.Of(("tf_hud_target_id_disable_floating_health", "1"));
+        viewport.Think(Playing(realTime: 0f) with { ConVars = disabled });
+        viewport.Think(Playing(realTime: 0.1f) with { ConVars = disabled });
 
         viewport.FindChildByName("HealthIcon").ShouldBeNull();
     }

@@ -115,14 +115,14 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`m_iTargetEntIndex`.</summary>
     public int TargetIndex { get; private protected set; }
 
-    /// <summary>`tf_hud_target_id_alpha`: 100.</summary>
-    public int BackgroundAlpha { get; set; } = 100;
+    /// <summary>`tf_hud_target_id_alpha.GetInt()`.</summary>
+    private protected int BackgroundAlpha =>HudViewport.ConVarsOf(this).GetInt("tf_hud_target_id_alpha");
 
-    /// <summary>`tf_hud_target_id_disable_floating_health`: 0.</summary>
-    public bool DisableFloatingHealth { get; set; }
+    /// <summary>`tf_hud_target_id_disable_floating_health.GetBool()`.</summary>
+    private bool DisableFloatingHealth => HudViewport.ConVarsOf(this).GetBool("tf_hud_target_id_disable_floating_health");
 
-    /// <summary>`tf_hud_target_id_offset`: 0 — the `.res` Y offset, in 480-high units.</summary>
-    public int YOffset { get; set; }
+    /// <summary>`tf_hud_target_id_offset.GetInt()`: the `.res` Y offset, in 480-high units.</summary>
+    private int YOffset => HudViewport.ConVarsOf(this).GetInt("tf_hud_target_id_offset");
 
     /// <summary>The name line as set.</summary>
     public string TargetName { get; private protected set; } = string.Empty;
@@ -343,8 +343,8 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
             if (_killStreakIcon is not null)
             {
-                // `cl_hud_minmode` 0.
-                _killStreakIcon.X = XRes(9) + wideExtra;
+                // `int nKSBuffer = ( cl_hud_minmode.GetBool() ) ? 6 : 9;` (:653).
+                _killStreakIcon.X = XRes(HudViewport.ConVarsOf(this).GetBool("cl_hud_minmode") ? 6 : 9) + wideExtra;
             }
         }
 

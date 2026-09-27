@@ -1,5 +1,4 @@
 using System;
-using System.Globalization;
 
 using Tf2DemoSalvage.Core.Net;
 
@@ -9,21 +8,25 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `ConVarRef` as the HUD reads one (src/public/tier1/convar.h:506-590): one lookup by name instead of a
 /// <see cref="HudState"/> field per console variable.
 /// </summary>
-/// <param name="Find">
-/// `g_pCVar->FindVar( name )->GetString()` (convar.cpp:1269): the value in force — for a replicated var the server's, off
-/// the demo — or null when nothing set it, which falls to Valve's declared default in <see cref="EngineConVars"/>.
-/// </param>
-public readonly record struct HudConVars(Func<string, string?>? Find)
+/// <param name="Find">The demo's replicated values (the server's), or null where it sent none.</param>
+/// <param name="Client">The watcher's own values — their TF2 configs, then this viewer's settings — or null where unset.</param>
+public readonly record struct HudConVars(Func<string, string?>? Find, Func<string, string?>? Client = null)
 {
     /// <summary>`CEmptyConVar() : ConVar( "", "0" )` (convar.cpp:1246): what a ref to an unregistered name reads.</summary>
     private const string EmptyConVarValue = "0";
 
-    /// <summary>`GetString()`.</summary>
+    /// <summary>`GetString()`: a `FCVAR_REPLICATED` var holds the server's value, any other the client's own.</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>The value in force, else the declared default, else "0".</returns>
-    public string GetString(string name) =>
-        Find?.Invoke(name) ??
-        (EngineConVars.TryByName(name, out EngineConVar? declared) ? declared.Default : EmptyConVarValue);
+    public string GetString(string name)
+    {
+        if (!EngineConVars.TryByName(name, out EngineConVar? declared))
+        {
+            return Find?.Invoke(name) ?? Client?.Invoke(name) ?? EmptyConVarValue;
+        }
+
+        return (declared.Replicated ? Find?.Invoke(name) : Client?.Invoke(name)) ?? declared.Default;
+    }
 
     /// <summary>`GetFloat()`: `m_fValue = ( float )atof( value )` (convar.cpp:792).</summary>
     /// <param name="name">The ConVar's engine name.</param>

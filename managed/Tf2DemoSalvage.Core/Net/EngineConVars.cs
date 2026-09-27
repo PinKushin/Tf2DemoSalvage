@@ -165,6 +165,21 @@ public static class EngineConVars
         new("training_can_pickup_dispenser", "1", Replicated: true, Cheat: false),
         new("training_can_pickup_tele_entrance", "1", Replicated: true, Cheat: false),
         new("training_can_pickup_tele_exit", "1", Replicated: true, Cheat: false),
+
+        // The HUD's client cvars: the watcher's config sets them, never the demo.
+        new("hud_deathnotice_time", "6", Replicated: false, Cheat: false),                     // tf/hud_basedeathnotice.cpp:31
+        new("hud_saytext_time", "12", Replicated: false, Cheat: false),                        // hud_basechat.cpp:37
+        new("cl_chatfilters", "63", Replicated: false, Cheat: false),                          // hud_basechat.cpp:39
+        new("cl_hud_minmode", "0", Replicated: false, Cheat: false),                           // tf/clientmode_tf.cpp:288
+        new("cl_hud_killstreak_display_time", "3", Replicated: false, Cheat: false),           // tf/tf_hud_deathnotice.cpp:53
+        new("cl_hud_killstreak_display_fontsize", "0", Replicated: false, Cheat: false),       // tf/tf_hud_deathnotice.cpp:54
+        new("cl_hud_killstreak_display_alpha", "120", Replicated: false, Cheat: false),        // tf/tf_hud_deathnotice.cpp:55
+        new("tf_use_match_hud", "1", Replicated: false, Cheat: false),                         // tf/tf_hud_match_status.cpp:33
+        new("tf_hud_show_servertimelimit", "0", Replicated: false, Cheat: false),              // tf/tf_hud_objectivestatus.cpp:42
+        new("cl_hud_playerclass_use_playermodel", "1", Replicated: false, Cheat: false),       // tf/tf_hud_playerstatus.cpp:39
+        new("tf_hud_target_id_disable_floating_health", "0", Replicated: false, Cheat: false), // tf/tf_hud_target_id.cpp:72
+        new("tf_hud_target_id_alpha", "100", Replicated: false, Cheat: false),                 // tf/tf_hud_target_id.cpp:73
+        new("tf_hud_target_id_offset", "0", Replicated: false, Cheat: false),                  // tf/tf_hud_target_id.cpp:74
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =

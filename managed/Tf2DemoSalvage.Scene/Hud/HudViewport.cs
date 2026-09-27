@@ -372,6 +372,11 @@ public sealed class HudViewport : VguiEditablePanel
         return null;
     }
 
+    /// <summary>The ConVars a panel reads — global in the engine, so any panel's view of them is the viewport's.</summary>
+    /// <param name="panel">The panel.</param>
+    /// <returns>The lookup; the SDK defaults when the panel has no viewport.</returns>
+    public static HudConVars ConVarsOf(VguiPanel panel) => (Of(panel)?.State ?? default).ConVars;
+
     /// <summary>`CHud::Think`: every element's panel shown or hidden by its `ShouldDraw`.</summary>
     /// <param name="state">The game state.</param>
     public void Think(HudState state)

@@ -541,4 +541,40 @@ public sealed class ConfigConsoleConformanceTests
         intent.Up.ShouldBe(0f);
         intent.Walk.ShouldBeFalse();
     }
+
+    [Test]
+    public void Load_AClientCvarLine_SetsIt()
+    {
+        // `name value` on a line that names a ConVar sets it; later lines win, as for binds.
+        ConfigConsole console = new();
+
+        console.Load("tf_hud_target_id_alpha 40\ntf_hud_target_id_alpha \"55\"");
+
+        console.ConVar("tf_hud_target_id_alpha").ShouldBe("55");
+    }
+
+    [Test]
+    public void Load_AReplicatedCvarLine_IsRefused()
+    {
+        // FCVAR_REPLICATED is "server setting enforced on clients" (iconvar.h); the client's config cannot set it.
+        ConfigConsole console = new();
+
+        console.Load("mp_tournament 1");
+
+        console.ConVar("mp_tournament").ShouldBeNull();
+    }
+
+    [Test]
+    public void KeyDown_AnAliasThatSetsACvar_SetsIt()
+    {
+        // A cvar set inside an alias body takes effect when the alias runs, not when it is defined.
+        ConfigConsole console = new();
+
+        console.Load("alias minhud \"cl_hud_minmode 1\"\nbind \"m\" \"minhud\"");
+        console.ConVar("cl_hud_minmode").ShouldBeNull();
+
+        console.KeyDown("m");
+
+        console.ConVar("cl_hud_minmode").ShouldBe("1");
+    }
 }

@@ -4103,6 +4103,16 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
+    /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
+    private Func<string, string?>? _clientConVars;
+
+    /// <summary>
+    /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
+    /// Source's command-line cvars do, else the watcher's TF2 configs; null for the SDK default.
+    /// </summary>
+    private string? ClientConVar(string name) =>
+        _settings.ConVars.TryGetValue(name, out string? value) ? value : _console.ConVar(name);
+
     /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
     /// <remarks>
     /// **Was `_flyWatch` and `_lastFrameAt`, two fields whose docs never mentioned each other**
@@ -7160,21 +7170,16 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
-        _vguiHud.DeathNotice.NoticeTime = _settings.HudDeathNoticeTime;
-        _vguiHud.Chat.SayTextTime = _settings.SayTextTime;
-        _vguiHud.Chat.FilterFlags = _settings.ChatFilters;
-
-        if (_vguiHud.DeathNotice.Streak is { } streak)
-        {
-            (streak.DisplayTime, streak.FontSize, streak.DisplayAlpha) =
-                (_settings.KillStreakDisplayTime, _settings.KillStreakDisplayFontSize, _settings.KillStreakDisplayAlpha);
-        }
+        _clientConVars ??= ClientConVar;
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
         // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
-        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings) with
+        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings);
+
+        hudState = hudState with
         {
+            ConVars = hudState.ConVars with { Client = _clientConVars },
             RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
             Fov = ViewFovNow().World,
 

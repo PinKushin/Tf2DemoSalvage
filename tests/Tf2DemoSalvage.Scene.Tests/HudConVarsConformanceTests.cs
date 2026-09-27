@@ -43,6 +43,20 @@ public sealed class HudConVarsConformanceTests
         new HudConVars(_ => " 3.5abc").GetFloat("mp_winlimit").ShouldBe(3.5f, "atof reads the leading number (convar.cpp:792)");
 
     [Test]
+    public void GetInt_ClientVarSetByTheWatchersConfig_IsTheConfigsValue() =>
+        new HudConVars(_ => "99", Client: name => name == "tf_hud_target_id_alpha" ? "40" : null)
+            .GetInt("tf_hud_target_id_alpha").ShouldBe(40, "a client var is the watcher's; the demo does not set it");
+
+    [Test]
+    public void GetInt_ClientVarTheConfigNeverSet_IsTheSdkDefault() =>
+        new HudConVars(_ => "99", Client: _ => null).GetInt("tf_hud_target_id_alpha").ShouldBe(100);
+
+    [Test]
+    public void GetBool_ReplicatedVarSetByTheWatchersConfig_IsTheServersValue() =>
+        new HudConVars(_ => "0", Client: _ => "1").GetBool("mp_tournament")
+            .ShouldBeFalse("FCVAR_REPLICATED: the server's value is enforced on the client");
+
+    [Test]
     public void GetBool_HalfValue_IsFalse() =>
         // `GetBool() { return !!GetInt(); }` (convar.h:520): 0.5 truncates to 0.
         new HudConVars(_ => "0.5").GetBool("mp_tournament").ShouldBeFalse();

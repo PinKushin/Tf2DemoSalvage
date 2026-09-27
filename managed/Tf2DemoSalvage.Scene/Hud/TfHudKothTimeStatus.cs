@@ -36,9 +36,6 @@ public sealed class TfHudKothTimeStatus : VguiEditablePanel, IHudElement
     /// <summary>`m_pRedPanel`.</summary>
     public TfHudTimeStatus RedPanel { get; }
 
-    /// <summary>`tf_use_match_hud`: 1.</summary>
-    public bool UseMatchHud { get; set; } = true;
-
     /// <inheritdoc/>
     public override string ClassName => "CTFHudKothTimeStatus";
 
@@ -112,7 +109,7 @@ public sealed class TfHudKothTimeStatus : VguiEditablePanel, IHudElement
         }
     }
 
-    private bool ShouldUseMatchHud(HudState state) => !state.Rules.MannVsMachine && UseMatchHud;
+    private static bool ShouldUseMatchHud(HudState state) => TfHudMatchStatus.ShouldUseMatchHud(state);
 
     /// <summary>`UpdateActiveTeam` (:1008).</summary>
     private void UpdateActiveTeam(HudState state)

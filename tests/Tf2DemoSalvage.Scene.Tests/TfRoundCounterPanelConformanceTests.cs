@@ -78,12 +78,13 @@ public sealed class TfRoundCounterPanelConformanceTests
     {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport) { UseMatchHud = useMatchHud };
+        TfHudMatchStatus status = new(viewport);
 
-        viewport.Think(state with { ObserverMode = ObserverModes.None });
+        state = (state with { ObserverMode = ObserverModes.None }).WithMatchHud(useMatchHud);
+        viewport.Think(state);
         status.PerformApplySchemeSettings(context);
 
-        viewport.Think(state with { ObserverMode = ObserverModes.None });
+        viewport.Think(state);
         VguiLayout.SolveTraverse(viewport, context);
         VguiLayout.SolveTraverse(viewport, context);
 

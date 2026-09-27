@@ -39,15 +39,13 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public override string ClassName => "CTFHudMatchStatus";
 
-    /// <summary>`tf_use_match_hud`: 1.</summary>
-    public bool UseMatchHud { get; set; } = true;
-
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus | HudVisibility.HideMatchStatus;
 
     /// <summary>`ShouldUseMatchHUD()` (:43): `tf_use_match_hud`, never in Mann vs. Machine.</summary>
     /// <param name="state">The game state.</param>
-    public bool ShouldUseMatchHud(HudState state) => !state.Rules.MannVsMachine && UseMatchHud;
+    public static bool ShouldUseMatchHud(HudState state) =>
+        !state.Rules.MannVsMachine && state.ConVars.GetBool("tf_use_match_hud");
 
     /// <summary>`CTFHudMatchStatus::ShouldDraw` (:417): always during the match summary, else `CHudElement`'s.</summary>
     /// <param name="state">The game state.</param>
