@@ -168,6 +168,68 @@ public sealed class CModelPanelConformanceTests
         VguiModelPanel.ScaleFovByWidthRatio(70f, 1f).ShouldBe(70f, 1e-4, "a 4:3 panel keeps its field of view");
     }
 
+    [Test]
+    public void SetupModel_StartFramed_FitsTheHeaderBoundsIntoTheFieldOfView()
+    {
+        // Bounds ±10 × ±20 × 0..40, fov 54 on 640×480: the widest corner's `fabs( z / tanY − x )` is 63.73, ×1.1 is 70.110,
+        // less the framed origin's x of 110 (:862); y and z are minus the framed origin's (:863-864). Symmetric, so centred.
+        VguiModelPanel framed = Framed(startFramed: true);
+
+        framed.UpdateModel();
+
+        VguiModelPanelModelInfo info = framed.ModelInfo.ShouldNotBeNull();
+        info.OriginOffset.X.ShouldBe(-39.88959f, 1e-3);
+        (info.OriginOffset.Y, info.OriginOffset.Z).ShouldBe((-5f, -25f));
+        info.ViewportOffset.X.ShouldBe(0f, 1e-3);
+        info.ViewportOffset.Y.ShouldBe(0f, 1e-3);
+    }
+
+    [Test]
+    public void SetupModel_NotStartFramed_KeepsTheResOrigin()
+    {
+        VguiModelPanel framed = Framed(startFramed: false);
+
+        framed.UpdateModel();
+
+        framed.ModelInfo!.OriginOffset.ShouldBe((110f, 5f, 5f));
+    }
+
+    [Test]
+    public void DrawnModelName_AnHwmModelNamed_IsThePlainOneBecauseUseHWMorphModelsIsFalse() =>
+        Framed(startFramed: false).DrawnModelName.ShouldBe("models/plain.mdl", "UseHWMorphModels returns false (baseplayer_shared.cpp:104)");
+
+    private static VguiModelPanel Framed(bool startFramed)
+    {
+        PropModels.SkinnedModel labelled = SyntheticSkinnedModel.With("ref");
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.WithOneBone() with { Sequences = labelled.Sequences, Groups = labelled.Groups };
+        PropModels.ModelFrames frames = new([], new Dictionary<int, (int, int, float)>(), [], [], HeaderBounds: new StudioBox(-10f, -20f, 0f, 10f, 20f, 40f), Skinned: model);
+        VguiContext context = Context();
+        HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
+        VguiModelPanel panel = new(viewport, "Framed", new FramesCache(frames)) { Wide = 640, Tall = 480 };
+
+        panel.ApplySettings(
+            KeyValuesTree.Load(Encoding.UTF8.GetBytes($$"""
+                "Framed"
+                {
+                    "fieldName" "Framed" "wide" "640" "tall" "480" "start_framed" "{{(startFramed ? 1 : 0)}}"
+                    "model" { "modelname" "models/plain.mdl" "modelname_hwm" "models/plain_hwm.mdl" "animation" { "name" "ref" "sequence" "ref" "default" "1" } }
+                }
+                """), "framed.res", _ => null),
+            context);
+
+        return panel;
+    }
+
+    /// <summary>Every path answers the given frames.</summary>
+    private sealed class FramesCache(PropModels.ModelFrames frames) : IMdlCache
+    {
+        public PropModels.ModelFrames? FindMdl(string path) => frames;
+
+        public int FindBodygroup(string modelPath, string group) => -1;
+
+        public int SetBodygroup(string modelPath, int group, int value, int body) => body;
+    }
+
     private static HudGameEvent Event(string name, SceneGameRules rules, params (string Key, object? Value)[] values)
     {
         Dictionary<string, object?> fields = [];

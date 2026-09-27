@@ -563,7 +563,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
     /// <summary><c>CalcFovY</c> (<c>mathlib_base.cpp:3893</c>): the vertical fov a horizontal one implies at an
     /// aspect ratio. Ported for <see cref="LookAtBounds"/>, which is the only caller in this project — everywhere
     /// else derives a vertical field of view through <c>FreeCamera</c>'s own projection instead.</summary>
-    private static float CalcFovY(float fovXDegrees, float aspect)
+    internal static float CalcFovY(float fovXDegrees, float aspect)
     {
         if (fovXDegrees is < 1f or > 179f)
         {
