@@ -456,6 +456,7 @@ public readonly record struct TimelinePhases(
 /// null before one arrived.
 /// </param>
 /// <param name="RoundTimers">Every `team_round_timer`, or null when there is none.</param>
+/// <param name="Buildings">Every Engineer building, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -463,7 +464,8 @@ public readonly record struct TimelineFrame(
     int? RoundState = null,
     SceneGameRules Rules = default,
     int? ServerTick = null,
-    IReadOnlyList<SceneRoundTimer>? RoundTimers = null);
+    IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
+    IReadOnlyList<SceneBuilding>? Buildings = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -798,6 +800,56 @@ public sealed class DemoTimeline
         return timers;
     }
 
+    /// <summary>`CObjectSentrygun` (tf_obj_sentrygun.cpp:131).</summary>
+    private const string SentrygunClass = "CObjectSentrygun";
+
+    /// <summary>`CObjectDispenser` (tf_obj_dispenser.cpp:86).</summary>
+    private const string DispenserClass = "CObjectDispenser";
+
+    /// <summary>`CObjectTeleporter` (tf_obj_teleporter.cpp:85).</summary>
+    private const string TeleporterClass = "CObjectTeleporter";
+
+    /// <summary>
+    /// Every Engineer building `CTargetID::UpdateID`'s object branch reads (tf_hud_target_id.cpp:719);
+    /// null when there is none, which costs no allocation.
+    /// </summary>
+    private static List<SceneBuilding>? Buildings(EntityStateTable entities)
+    {
+        List<SceneBuilding>? buildings = null;
+
+        foreach (EntityState building in entities.OfClass(SentrygunClass)
+            .Concat(entities.OfClass(DispenserClass))
+            .Concat(entities.OfClass(TeleporterClass)))
+        {
+            (buildings ??= []).Add(new SceneBuilding(building.EntityIndex)
+            {
+                Health = building.Integer("DT_BaseObject.m_iHealth") ?? 0,
+                MaxHealth = building.Integer("DT_BaseObject.m_iMaxHealth") ?? 0,
+                ObjectType = building.Integer("DT_BaseObject.m_iObjectType") ?? 0,
+                ObjectMode = building.Integer("DT_BaseObject.m_iObjectMode") ?? 0,
+                Team = building.Integer("DT_BaseEntity.m_iTeamNum"),
+                BuilderEntityIndex = EntityState.Slot(building.Integer("DT_BaseObject.m_hBuilder")),
+                Sapped = building.Integer("DT_BaseObject.m_bHasSapper") is > 0,
+                Disabled = building.Integer("DT_BaseObject.m_bDisabled") is > 0,
+                Building = building.Integer("DT_BaseObject.m_bBuilding") is > 0,
+                Placing = building.Integer("DT_BaseObject.m_bPlacing") is > 0,
+                Carried = building.Integer("DT_BaseObject.m_bCarried") is > 0,
+                MiniBuilding = building.Integer("DT_BaseObject.m_bMiniBuilding") is > 0,
+                DisposableBuilding = building.Integer("DT_BaseObject.m_bDisposableBuilding") is > 0,
+                UpgradeLevel = building.Integer("DT_BaseObject.m_iUpgradeLevel") ?? 0,
+                UpgradeMetal = building.Integer("DT_BaseObject.m_iUpgradeMetal") ?? 0,
+                UpgradeMetalRequired = building.Integer("DT_BaseObject.m_iUpgradeMetalRequired") ?? 0,
+                PercentageConstructed = building.Number("DT_BaseObject.m_flPercentageConstructed") ?? 0f,
+                SentryAmmoShells = building.Integer("DT_ObjectSentrygun.m_iAmmoShells"),
+                SentryAmmoRockets = building.Integer("DT_ObjectSentrygun.m_iAmmoRockets"),
+                DispenserAmmoMetal = building.Integer("DT_ObjectDispenser.m_iAmmoMetal"),
+                TeleporterState = building.Integer("DT_ObjectTeleporter.m_iState"),
+                Position = building.Origin(),
+            });
+        }
+
+        return buildings;
+    }
 
     private static readonly string[] TeamProperties =
     [
@@ -2937,15 +2989,16 @@ public sealed class DemoTimeline
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
             IReadOnlyList<SceneRoundTimer>? roundTimers = RoundTimers(entities);
+            IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings));
         }
 
         Backfill(frames);
@@ -5282,6 +5335,10 @@ public sealed class DemoTimeline
     /// <summary>Every `team_round_timer` at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneRoundTimer> RoundTimersAt(int tick) => FrameAt(tick)?.RoundTimers ?? [];
+
+    /// <summary>Every Engineer building at a tick.</summary>
+    /// <param name="tick">The demo tick.</param>
+    public IReadOnlyList<SceneBuilding> BuildingsAt(int tick) => FrameAt(tick)?.Buildings ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
