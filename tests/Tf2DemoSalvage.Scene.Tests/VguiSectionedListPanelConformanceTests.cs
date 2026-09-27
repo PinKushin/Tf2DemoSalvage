@@ -24,7 +24,7 @@ public sealed class VguiSectionedListPanelConformanceTests
         list.Paint(surface, null!);
 
         // Header at y=5, tall 19: text centred at (19-12)/2 = 3, so y = 8. Row at y = 5+19 = 24, tall 20: (20-12)/2 = 4, so y = 28.
-        surface.Runs.Select(run => run.Text).ShouldBe(["Name", "ab"]);
+        string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("Nameab");
         surface.Glyphs[0].ShouldBe("N@5,8");
         surface.Glyphs[^2].ShouldBe("a@11,28");
         list.GetItemData(itemId)?["name"].ShouldBe("ab");
@@ -110,7 +110,7 @@ public sealed class VguiSectionedListPanelConformanceTests
 
         list.Paint(surface, null!);
 
-        surface.Runs.Select(run => run.Text).ShouldBe(["Empty"]);
+        string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("Empty");
     }
 
     [Test]
@@ -125,7 +125,7 @@ public sealed class VguiSectionedListPanelConformanceTests
 
         list.Paint(surface, null!);
 
-        surface.Runs.ShouldBeEmpty();
+        surface.Glyphs.ShouldBeEmpty();
     }
 
     [Test]
@@ -143,7 +143,61 @@ public sealed class VguiSectionedListPanelConformanceTests
 
         list.Paint(surface, null!);
 
-        surface.Runs.Select(run => run.Text).ShouldBe(["A"]);
+        string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("A");
+    }
+
+    [Test]
+    public void AddSection_WithSortFunc_PaintsItemsInSortedOrder()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+
+        list.AddSection(1, "s", (panel, id1, id2) =>
+            string.CompareOrdinal(panel.GetItemData(id1)!["a"], panel.GetItemData(id2)!["a"]) < 0);
+        list.AddColumnToSection(1, "a", "A", 0, 40);
+
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "30" });
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "10" });
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "20" });
+
+        list.Paint(surface, null!);
+
+        // Ascending by "a" (10, 20, 30), not insertion order (30, 10, 20) — skip the single-glyph "A" header.
+        string.Concat(surface.Glyphs.Skip(1).Select(glyph => glyph[0])).ShouldBe("102030");
+    }
+
+    [Test]
+    public void AddSection_WithNoSortFunc_PaintsItemsInInsertionOrder()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "A", 0, 40);
+
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "30" });
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "10" });
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "20" });
+
+        list.Paint(surface, null!);
+
+        string.Concat(surface.Glyphs.Skip(1).Select(glyph => glyph[0])).ShouldBe("301020");
+    }
+
+    [Test]
+    public void Paint_ACellWiderThanItsColumn_EndsInAnEllipsis()
+    {
+        VguiSectionedListPanel list = Build(out TextRecorder surface);
+
+        list.AddSection(1, "s");
+        list.AddColumnToSection(1, "a", "A", 0, 10);
+        list.AddColumnToSection(1, "b", "B", 0, 40);
+        list.AddItem(1, new Dictionary<string, string> { ["a"] = "-", ["b"] = "abcdefghij" });
+
+        list.Paint(surface, null!);
+
+        // Column b: width 40 less the 2px gap is a draw width of 38. "ab" (20 wide) fits; adding "c" plus the ellipsis
+        // (10 + 10 + 12 = 32 <= 38, but the next check at "c" itself: 20 + 10 + 12 = 42 > 38) and the remaining text
+        // still doesn't fit beside it, so VguiTextImage's RecalculateEllipsesPosition truncates after "ab".
+        surface.Glyphs[^5..].ShouldBe(["a@15,28", "b@25,28", ".@35,28", ".@39,28", ".@43,28"]);
     }
 
     private static VguiSectionedListPanel Build(out TextRecorder surface)

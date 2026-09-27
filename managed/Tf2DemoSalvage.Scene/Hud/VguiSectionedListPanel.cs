@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 
@@ -29,6 +28,13 @@ public enum SectionedListColumn
     ColumnRight = 0x10,
 }
 
+/// <summary>`SectionSortFunc_t` (SectionedListPanel.h:30): `bool (*)(SectionedListPanel *list, int itemID1, int itemID2)`.</summary>
+/// <param name="list">The panel — Valve's callback reads other items through it, e.g. <see cref="VguiSectionedListPanel.GetItemData"/>.</param>
+/// <param name="itemId1">The item being inserted.</param>
+/// <param name="itemId2">The item already placed that it is being compared against.</param>
+/// <returns>Whether <paramref name="itemId1"/> belongs before <paramref name="itemId2"/>.</returns>
+public delegate bool SectionedListSortFunc(VguiSectionedListPanel list, int itemId1, int itemId2);
+
 /// <summary>`vgui::SectionedListPanel` (vgui2/vgui_controls/SectionedListPanel.cpp): sections of columned rows, such as the scoreboard.</summary>
 /// <remarks>
 /// The drawing half, ported the way <see cref="VguiRichText"/> ports `RichText`: `AddSection` (:1195, :1204, :1213),
@@ -37,14 +43,22 @@ public enum SectionedListColumn
 /// `SetSectionDrawDividerBar`/`SetSectionAlwaysVisible`/`SetSectionMinimumHeight` (:1407-:1460), `SetImageList` (:2160),
 /// `GetSectionTall` (:2184), and the layout and paint that `LayoutPanels` (:942) and `CItemButton`/`SectionedListPanelHeader`'s
 /// own `PerformLayout`/`Paint` (:107, :81, :297, :536) do between them for a row-and-column list with no real child panels.
-/// A section keeps its items in the order they were added — Valve's `m_SortedItems` re-sorts by each section's
-/// `SectionSortFunc_t`; sorting is not modelled, so items paint in insertion order.
+/// `ReSortList` (:843): a lazy, per-section stable insertion sort — every item, in the order Valve's `m_Items` holds them
+/// (here, the order <see cref="AddItem"/> gave them, since removal never reuses an ID), is inserted into the sorted list
+/// just before the first existing item in its section for which the section's `SectionSortFunc_t` answers true, or at
+/// the section's end when none does. It reruns, not incrementally, whenever `m_bSortNeeded` — `AddItem`, `ModifyItem`,
+/// `RemoveItem`, `DeleteAllItems`, or a colour override, all of which can change what a comparison reads — is set, the
+/// same way `PerformLayout` reruns it before `LayoutPanels` (:895). A section with no `sortFunc` keeps insertion order.
+/// Each cell draws through a <see cref="VguiTextImage"/>, the way `CItemButton`/`SectionedListPanelHeader` draw through a
+/// `TextImage` (:297-:470, :107-:180): `SetText`, `SetDrawWidth` to the column's content width, `SetPos`, `Paint` — so a
+/// cell too wide for its column truncates with `TextImage`'s own ellipsis (`RecalculateEllipsesPosition`), not an
+/// approximation of it. The alignment math (`ComputeAlignment`, mirrored in <see cref="DrawCell"/>) still measures the
+/// image's *full, untruncated* width, exactly as `TextImage::GetContentSize` does — the ellipsis shortens what is drawn,
+/// never what centring or right-alignment measures.
 /// **Not modelled:** mouse and keyboard selection, the edit mode and its sub-panel, the context and edit menus, drag and
 /// drop, the scroll bar's own drawing (only its value offsets `y`, as `LayoutPanels` reads `m_pScrollBar->GetValue()`),
-/// per-section sort functions, actual images (a `COLUMN_IMAGE` cell tracks an image index but draws nothing unless an
-/// image list is set and asked for a texture), the header's "draw over the next blank header" column merge, and Valve's
-/// ellipsis truncation (`TextImage::ResizeImageToContentMaxWidth`) — a cell too wide for its column is clipped to whole
-/// characters here with no ellipsis, which is an interpolation of the real behaviour, not a citation of it.
+/// actual images (a `COLUMN_IMAGE` cell tracks an image index but draws nothing unless an image list is set and asked
+/// for a texture), and the header's "draw over the next blank header" column merge.
 /// </remarks>
 public class VguiSectionedListPanel : VguiPanel
 {
@@ -56,8 +70,11 @@ public class VguiSectionedListPanel : VguiPanel
     private const int ColumnDataGap = 2;
 
     private readonly List<Section> _sections = [];
+    private readonly Dictionary<int, Item> _items = [];
+    private readonly List<int> _itemOrder = [];
     private readonly List<Item> _sortedItems = [];
     private int _nextItemId;
+    private bool _sortNeeded;
 
     /// <summary>`SectionedListPanel( parent, name )`.</summary>
     /// <param name="parent">The parent, or null.</param>
@@ -131,18 +148,20 @@ public class VguiSectionedListPanel : VguiPanel
     /// <summary>`AddSection`: a section keyed by <paramref name="sectionId"/>, holding its own columns.</summary>
     /// <param name="sectionId">The section's ID — not an index; sections are found by this value.</param>
     /// <param name="name">The header's name (Valve's `Panel` name; unused for drawing here).</param>
-    public void AddSection(int sectionId, string name)
+    /// <param name="sortFunc">`SectionSortFunc_t`: orders this section's items; null keeps insertion order.</param>
+    public void AddSection(int sectionId, string name, SectionedListSortFunc? sortFunc = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _sections.Add(new Section(sectionId));
+        _sections.Add(new Section(sectionId, sortFunc));
+        _sortNeeded = true;
     }
 
-    /// <summary>`RemoveAllSections` (:1227): every section and item gone.</summary>
+    /// <summary>`RemoveAllSections` (:1227): every section gone; items stay, but paint nothing until re-sectioned.</summary>
     public void RemoveAllSections()
     {
         _sections.Clear();
-        _sortedItems.Clear();
+        _sortNeeded = true;
     }
 
     /// <summary>`AddColumnToSection` (:1264).</summary>
@@ -192,7 +211,7 @@ public class VguiSectionedListPanel : VguiPanel
         return true;
     }
 
-    /// <summary>`AddItem` (:1315): a new item, appended to the paint order.</summary>
+    /// <summary>`AddItem` (:1315): a new item, added to `m_Items` — its place in paint order awaits the next sort.</summary>
     /// <param name="sectionId">The section it belongs to.</param>
     /// <param name="data">Its cell data, keyed by column name.</param>
     /// <returns>The new item's ID.</returns>
@@ -201,9 +220,10 @@ public class VguiSectionedListPanel : VguiPanel
         ArgumentNullException.ThrowIfNull(data);
 
         int itemId = _nextItemId++;
-        Item item = new(itemId, sectionId, new Dictionary<string, string>(data, StringComparer.Ordinal));
 
-        _sortedItems.Add(item);
+        _items[itemId] = new Item(itemId, sectionId, new Dictionary<string, string>(data, StringComparer.Ordinal));
+        _itemOrder.Add(itemId);
+        _sortNeeded = true;
         return itemId;
     }
 
@@ -216,41 +236,55 @@ public class VguiSectionedListPanel : VguiPanel
     {
         ArgumentNullException.ThrowIfNull(data);
 
-        int index = _sortedItems.FindIndex(item => item.Id == itemId);
-
-        if (index < 0)
+        if (!_items.ContainsKey(itemId))
         {
             return false;
         }
 
-        _sortedItems[index] = _sortedItems[index] with { SectionId = sectionId, Data = new Dictionary<string, string>(data, StringComparer.Ordinal) };
+        _items[itemId] = new Item(itemId, sectionId, new Dictionary<string, string>(data, StringComparer.Ordinal));
+        _sortNeeded = true;
         return true;
     }
 
     /// <summary>`RemoveItem` (:1465).</summary>
     /// <param name="itemId">The item.</param>
     /// <returns>Whether it was found and removed.</returns>
-    public bool RemoveItem(int itemId) => _sortedItems.RemoveAll(item => item.Id == itemId) > 0;
+    public bool RemoveItem(int itemId)
+    {
+        if (!_items.Remove(itemId))
+        {
+            return false;
+        }
+
+        _itemOrder.Remove(itemId);
+        _sortNeeded = true;
+        return true;
+    }
 
     /// <summary>`DeleteAllItems` (:1884): every item gone; sections stay.</summary>
-    public void ClearItems() => _sortedItems.Clear();
+    public void ClearItems()
+    {
+        _items.Clear();
+        _itemOrder.Clear();
+        _sortNeeded = true;
+    }
 
     /// <summary>`GetItemData` (:1954).</summary>
     /// <param name="itemId">The item.</param>
     /// <returns>Its data, or null when the item does not exist.</returns>
-    public IReadOnlyDictionary<string, string>? GetItemData(int itemId) => _sortedItems.Find(item => item.Id == itemId)?.Data;
+    public IReadOnlyDictionary<string, string>? GetItemData(int itemId) => _items.TryGetValue(itemId, out Item? item) ? item.Data : null;
 
     /// <summary>`GetItemSection` (:1966).</summary>
     /// <param name="itemId">The item.</param>
     /// <returns>Its section ID, or -1 when the item does not exist.</returns>
-    public int GetItemSection(int itemId) => _sortedItems.Find(item => item.Id == itemId)?.SectionId ?? -1;
+    public int GetItemSection(int itemId) => _items.TryGetValue(itemId, out Item? item) ? item.SectionId : -1;
 
     /// <summary>`IsItemIDValid` (:1977).</summary>
     /// <param name="itemId">The item.</param>
-    public bool IsItemIdValid(int itemId) => _sortedItems.Exists(item => item.Id == itemId);
+    public bool IsItemIdValid(int itemId) => _items.ContainsKey(itemId);
 
     /// <summary>`GetItemCount` (:1993).</summary>
-    public int ItemCount => _sortedItems.Count;
+    public int ItemCount => _items.Count;
 
     /// <summary>`SetItemFgColor` (:1346): overrides the row's default and bright colours for this item alone.</summary>
     /// <param name="itemId">The item.</param>
@@ -330,7 +364,8 @@ public class VguiSectionedListPanel : VguiPanel
     /// <inheritdoc/>
     /// <remarks>
     /// `LayoutPanels` (:942) and each header's/item's own `PerformLayout`/`Paint`, collapsed into one pass since no
-    /// sub-panels exist here: a section's header (if any items are in it, or it is always visible), then its rows.
+    /// sub-panels exist here: `ReSortList` first if anything changed since the last paint (`PerformLayout` :895), then
+    /// each section's header (if any items are in it, or it is always visible) followed by its rows.
     /// </remarks>
     public override void Paint(IVguiSurface surface, VguiContext context)
     {
@@ -339,6 +374,11 @@ public class VguiSectionedListPanel : VguiPanel
         if (HeaderFont is null && RowFont is null)
         {
             return;
+        }
+
+        if (_sortNeeded)
+        {
+            ReSortList();
         }
 
         int sectionTall = GetSectionTall(surface);
@@ -386,14 +426,49 @@ public class VguiSectionedListPanel : VguiPanel
         }
     }
 
+    /// <summary>`ReSortList` (:843): rebuilt from scratch, each item stably insertion-sorted into its section.</summary>
+    private void ReSortList()
+    {
+        _sortedItems.Clear();
+
+        foreach (Section section in _sections)
+        {
+            int sectionStart = _sortedItems.Count;
+
+            foreach (int itemId in _itemOrder)
+            {
+                if (!_items.TryGetValue(itemId, out Item? item) || item.SectionId != section.Id)
+                {
+                    continue;
+                }
+
+                if (section.SortFunc is { } sortFunc)
+                {
+                    int insertionPoint = sectionStart;
+
+                    while (insertionPoint < _sortedItems.Count && !sortFunc(this, itemId, _sortedItems[insertionPoint].Id))
+                    {
+                        insertionPoint++;
+                    }
+
+                    _sortedItems.Insert(insertionPoint, item);
+                }
+                else
+                {
+                    _sortedItems.Add(item);
+                }
+            }
+        }
+
+        _sortNeeded = false;
+    }
+
     private void PaintSectionHeader(IVguiSurface surface, Section section, int x, int y, int wide, int tall)
     {
         if (HeaderFont is not { } font)
         {
             return;
         }
-
-        surface.DrawSetTextFont(font);
 
         (byte, byte, byte, byte) color = section.FgColor ?? HeaderTextColor;
         int textY = y + Math.Max(0, (tall - surface.GetFontTall(font)) / 2);
@@ -403,7 +478,7 @@ public class VguiSectionedListPanel : VguiPanel
         {
             if (!column.Flags.HasFlag(SectionedListColumn.HeaderImage))
             {
-                DrawCell(surface, column.Text, column.Flags, xpos, column.Width, isFirstColumn: false, x, textY, color);
+                DrawCell(surface, font, column.Text, column.Flags, xpos, column.Width, isFirstColumn: false, x, textY, color);
             }
 
             xpos += column.Width;
@@ -431,8 +506,6 @@ public class VguiSectionedListPanel : VguiPanel
             surface.DrawFilledRect(x, y, x + wide, y + tall);
         }
 
-        surface.DrawSetTextFont(font);
-
         int textY = y + Math.Max(0, (tall - surface.GetFontTall(font)) / 2);
         int xpos = 0;
 
@@ -450,19 +523,31 @@ public class VguiSectionedListPanel : VguiPanel
             (byte, byte, byte, byte) color = item.FgColor
                 ?? (column.Flags.HasFlag(SectionedListColumn.ColumnBright) ? BrightTextColor : RowTextColor);
 
-            DrawCell(surface, text, column.Flags, xpos, column.Width, isFirstColumn: i == 0, x, textY, color);
+            DrawCell(surface, font, text, column.Flags, xpos, column.Width, isFirstColumn: i == 0, x, textY, color);
             xpos += column.Width;
         }
     }
 
-    /// <summary>The per-column placement `CItemButton::PerformLayout`/`SectionedListPanelHeader::PerformLayout` compute (:450-:470).</summary>
+    /// <summary>
+    /// The per-column placement `CItemButton::PerformLayout`/`SectionedListPanelHeader::PerformLayout` compute (:450-:470),
+    /// then a <see cref="VguiTextImage"/> drawn the way `CItemButton`/`SectionedListPanelHeader` draw their `TextImage`:
+    /// text and font set, `SetDrawWidth` to the column's content width (so a too-wide cell truncates with an ellipsis),
+    /// positioned, and painted. The alignment above still measures the FULL text width — Valve's `GetContentSize` does
+    /// not shorten for the ellipsis either, so a right-aligned cell's edge is where the untruncated text would end.
+    /// </summary>
     private static void DrawCell(
-        IVguiSurface surface, string text, SectionedListColumn flags, int columnX, int columnWidth, bool isFirstColumn, int panelX, int textY, (byte, byte, byte, byte) color)
+        IVguiSurface surface,
+        VguiFontAmalgam font,
+        string text,
+        SectionedListColumn flags,
+        int columnX,
+        int columnWidth,
+        bool isFirstColumn,
+        int panelX,
+        int textY,
+        (byte, byte, byte, byte) color)
     {
         int maxWidth = isFirstColumn ? columnWidth - (ColumnDataIndent + ColumnDataGap) : columnWidth - ColumnDataGap;
-
-        text = Clip(surface, text, Math.Max(0, maxWidth));
-
         int textWidth = MeasureWidth(surface, text);
         int cellX;
 
@@ -483,9 +568,12 @@ public class VguiSectionedListPanel : VguiPanel
             cellX = columnX;
         }
 
-        surface.DrawSetTextColor(color);
-        surface.DrawSetTextPos(panelX + cellX, textY);
-        surface.DrawPrintText(text);
+        VguiTextImage image = new(font) { Color = color };
+
+        image.SetText(text, localize: null);
+        image.SetDrawWidth(Math.Max(0, maxWidth));
+        image.SetPos(panelX + cellX, textY);
+        image.Paint(surface);
     }
 
     private static int MeasureWidth(IVguiSurface surface, string text)
@@ -500,43 +588,26 @@ public class VguiSectionedListPanel : VguiPanel
         return width;
     }
 
-    /// <summary>Not Valve's `TextImage::ResizeImageToContentMaxWidth` ellipsis — whole characters dropped from the end, no mark.</summary>
-    private static string Clip(IVguiSurface surface, string text, int maxWidth)
-    {
-        if (maxWidth <= 0 || MeasureWidth(surface, text) <= maxWidth)
-        {
-            return text;
-        }
-
-        int end = text.Length;
-
-        while (end > 0 && MeasureWidth(surface, text[..end]) > maxWidth)
-        {
-            end--;
-        }
-
-        return text[..end];
-    }
-
     private Section? FindSection(int sectionId) => _sections.Find(section => section.Id == sectionId);
 
     private void SetItem(int itemId, Func<Item, Item> update)
     {
-        int index = _sortedItems.FindIndex(item => item.Id == itemId);
-
-        if (index >= 0)
+        if (_items.TryGetValue(itemId, out Item? item))
         {
-            _sortedItems[index] = update(_sortedItems[index]);
+            _items[itemId] = update(item);
+            _sortNeeded = true;
         }
     }
 
     /// <summary>`SectionedListPanel::column_t`.</summary>
     private readonly record struct Column(string Name, string Text, SectionedListColumn Flags, int Width);
 
-    /// <summary>`SectionedListPanel::section_t`, minus its header sub-panel and sort function.</summary>
-    private sealed class Section(int id)
+    /// <summary>`SectionedListPanel::section_t`, minus its header sub-panel.</summary>
+    private sealed class Section(int id, SectionedListSortFunc? sortFunc)
     {
         public int Id { get; } = id;
+
+        public SectionedListSortFunc? SortFunc { get; } = sortFunc;
 
         public List<Column> Columns { get; } = [];
 
