@@ -215,6 +215,7 @@ public sealed class PlayerCompletenessTests
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
         WeaponAccountId = 1234u,
+        DeathTime = 77.25f,
         WeaponQuality = 6,
         HasTheFlag = true,
         Medigun = (0.5f, 6, 29),

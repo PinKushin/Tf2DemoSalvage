@@ -20,6 +20,7 @@ public sealed class ScenePlayerClassHudTests
         player.WeaponAccountId.ShouldBe(0x80000123u);
         player.WeaponQuality.ShouldBe(11);
         player.HasTheFlag.ShouldBeTrue("m_hItem names entity 31, a CCaptureFlag");
+        player.DeathTime.ShouldBe(SyntheticPlayer.DeathTime, "DT_LocalPlayerExclusive.m_flDeathTime (c_baseplayer.cpp:254)");
     }
 
     [Test]
@@ -34,5 +35,6 @@ public sealed class ScenePlayerClassHudTests
         item.EntityIndex.ShouldBe(30);
         item.DefinitionIndex.ShouldBe(13);
         item.Quality.ShouldBe(11);
+        item.ChargeBeginTime.ShouldBe(3.5f, "DT_PipebombLauncherLocalData.m_flChargeBeginTime (tf_weapon_pipebomblauncher.cpp:44)");
     }
 }

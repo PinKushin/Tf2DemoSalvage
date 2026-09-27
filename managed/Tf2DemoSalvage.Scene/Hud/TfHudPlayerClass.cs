@@ -508,7 +508,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
     /// `dynamic_cast&lt; CTFWeaponBase* &gt;( GetEntityForLoadoutSlot( slot ) )` (tf_player_shared.cpp:11928): in a wearable
     /// slot a matching wearable answers first and fails the cast; otherwise the first weapon whose slot matches.
     /// </summary>
-    private static SceneItem? WeaponForLoadoutSlot(ScenePlayer player, int slot, Content.Assets.ItemSchema schema)
+    internal static SceneItem? WeaponForLoadoutSlot(ScenePlayer player, int slot, Content.Assets.ItemSchema schema)
     {
         int playerClass = player.PlayerClass ?? ClassUndefined;
         IReadOnlyList<SceneItem> items = player.Items ?? [];
@@ -613,7 +613,7 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
     /// `m_bMotionCloak` (tf_player_shared.cpp:7022): the first `TF_WEAPON_INVIS` among the weapons, `HasMotionCloak` —
     /// `CALL_ATTRIB_HOOK_INT( iMode, set_weapon_mode ) == INVIS_MOTION_CLOAK` (tf_weapon_invis.h:22-26, :66-68).
     /// </summary>
-    private static bool HasMotionCloak(ScenePlayer player, HudViewport? viewport)
+    internal static bool HasMotionCloak(ScenePlayer player, HudViewport? viewport)
     {
         if (viewport?.WeaponAttribute is not { } hook)
         {

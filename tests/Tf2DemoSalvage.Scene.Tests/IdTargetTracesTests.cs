@@ -65,6 +65,24 @@ public sealed class IdTargetTracesTests
     public void Solid_ABuildingAboveTheRay_IsMissed() =>
         Traces(worldFraction: 1f, withSentry: true, sentryBottom: 50f).Solid(Start, End, 0).Entity.ShouldBe(2);
 
+    [Test]
+    public void Solid_AnEntitySpaceBoxTurnedNinetyDegrees_IsMetOnItsTurnedExtent()
+    {
+        // A dropped weapon's box, 60 long on its own X, yawed 90° at x 40: in the world it is 8 deep on X (36..44) and 60
+        // wide on Y. A ray 20 off the axis meets it only because it is turned; unturned it would be 8 wide on Y and missed.
+        IdTargetBox weapon = new(60, 0, new Vector3(-30f, -4f, -2f), new Vector3(30f, 4f, 6f), new Vector3(40f, 20f, 40f), new Vector3(0f, 90f, 0f));
+        IdTargetTraces traces = new([], new Dictionary<int, int>(), (_, _) => 1f, (_, _, _) => null, [weapon]);
+
+        IdTraceHit hit = traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 0);
+
+        (hit.Entity, hit.IsPlayer).ShouldBe((60, false));
+        traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 60).Entity.ShouldBeNull();
+
+        IdTargetTraces unturned = new([], new Dictionary<int, int>(), (_, _) => 1f, (_, _, _) => null, [weapon with { Angles = Vector3.Zero }]);
+
+        unturned.Solid(new Vector3(0f, 0f, 40f), new Vector3(100f, 0f, 40f), 0).Entity.ShouldBeNull("unturned, 8 wide on Y, 20 off the ray");
+    }
+
     private static IdTargetTraces Traces(float worldFraction, System.Func<int, float?>? hitboxes = null, bool withSentry = false, float sentryBottom = 0f) =>
         new(
             [new BulletTarget(2, new Vector3(100f, 0f, 0f), false), new BulletTarget(3, new Vector3(200f, 0f, 0f), false)],

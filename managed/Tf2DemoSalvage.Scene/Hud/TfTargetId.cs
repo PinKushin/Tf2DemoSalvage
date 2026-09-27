@@ -18,7 +18,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// tick past losing it unless the target kept a retain field of view, then `IsValidIDTarget` (:340), then `UpdateID`
 /// (:719) fills the labels. `PerformLayout` (:599) sizes to the labels, plus the health panel when it is drawn inside.
 /// `IsValidIDTarget` makes, shows and deletes the floating health icon (<see cref="TfFloatingHealthIcon"/>).
-/// **Not modelled here:** flags, dropped weapons and revive markers as targets (none is decoded); `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
+/// **Not modelled here:** `m_bIsCoaching`; Steam avatars — `tf_hud_target_id_show_avatars` 2 asks the Steam friends list, which a
 /// recording does not carry; the arena class-layout offset; and `IsHealthBarVisible`'s MvM regeneration case. The moveable
 /// sub-panel's pick-up prompt, including <see cref="CanPickupBuilding"/> in full, IS modelled.
 /// </remarks>
@@ -391,13 +391,14 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         ScenePlayer? player = state.Player(index);
         SceneBuilding? building = state.Building(index);
+        SceneIdEntity? generic = state.IdEntity(index);
 
-        if (player is null && building is null)
+        if (player is null && building is null && generic is null)
         {
             return false;
         }
 
-        int targetTeam = player?.Team ?? building?.Team ?? 0;
+        int targetTeam = player?.Team ?? building?.Team ?? generic?.Team ?? 0;
         int hideEnemyHealth = (int)LocalAttribute(local, "hide_enemy_health");
         bool inSameTeam = InSameDisguisedTeam(local, targetTeam, player);
         bool spy = state.PlayerClass == ClassSpy && hideEnemyHealth == 0;
@@ -496,6 +497,10 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         {
             valid = true;
         }
+        else if (generic is { } entity && IsVisibleToTargetId(state, local, entity))
+        {
+            valid = true;
+        }
         else
         {
             UpdateFloatingHealthIconVisibility(state, visible: false);
@@ -544,8 +549,9 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
 
         ScenePlayer? player = state.Player(TargetIndex);
         SceneBuilding? building = state.Building(TargetIndex);
+        SceneIdEntity? generic = state.IdEntity(TargetIndex);
 
-        if (player is null && building is null)
+        if (player is null && building is null && generic is null)
         {
             return;
         }
@@ -555,9 +561,10 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         float health = 0f;
         float maxHealth = 1f;
         int maxBuffedHealth = 0;
-        int targetTeam = player?.Team ?? building?.Team ?? 0;
+        int targetTeam = player?.Team ?? building?.Team ?? generic?.Team ?? 0;
         string? actionIcon = null;
         string? actionCommand = null;
+        (byte, byte, byte, byte) colorName = _labelColorDefault;
 
         TargetHealth.Building = false;
         TargetHealth.SetLevel(-1);
@@ -601,6 +608,34 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
                 };
             }
         }
+        else if (generic is { } entity && IsVisibleToTargetId(state, local, entity))
+        {
+            // "Generic" (:926). A flag never gets here: it is `FSOLID_NOT_SOLID` (entity_capture_flag.cpp:607), so no ID trace
+            // stops on one, and its "%d Points" line (:930-934) cannot show.
+            if (entity.Kind == SceneIdEntityKind.DroppedWeapon)
+            {
+                (id, data, colorName) = DroppedWeaponId(state, entity);
+
+                if (GetDroppedWeaponInRange(state, local) is not null)
+                {
+                    actionIcon = "obj_weapon_pickup";
+                    actionCommand = "+use_action_slot_item";
+                }
+            }
+            else if (local.Team == entity.Team)
+            {
+                (health, maxHealth, maxBuffedHealth) = (entity.Health, entity.MaxHealth, entity.MaxHealth);
+
+                // "Display respawn timer on revive markers by hacking bountymode's player level display" (:985).
+                if (entity.OwnerEntityIndex is { } ownerIndex && state.Player(ownerIndex) is { } owner)
+                {
+                    float respawn = TfRespawnWave.GetNextRespawnWave(state, entity.Team ?? 0, owner) - state.ServerTime;
+
+                    TargetHealth.SetLevel((int)respawn);
+                    id = state.Names?.GetValueOrDefault(ownerIndex) ?? string.Empty;
+                }
+            }
+        }
 
         // "fixup for health being 1 when dead".
         if (player is { IsAlive: false })
@@ -622,9 +657,10 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
                 _layoutOnUpdate = true;
             }
 
-            if (subPanel.Visible)
+            if (subPanel.Visible && actionCommand is not null)
             {
-                subPanel.SetDialogVariable("movekey", state.KeyLookupBinding?.Invoke("+attack2") ?? string.Empty);
+                // `Key_LookupBinding( pszActionCommand )` (:1034).
+                subPanel.SetDialogVariable("movekey", state.KeyLookupBinding?.Invoke(actionCommand) ?? string.Empty);
             }
 
             if (_moveableIcon is not null)
@@ -638,13 +674,126 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
             }
         }
 
-        SetLabels(id, data);
+        SetLabels(id, data, colorName);
 
         if (_bgPanel is not null)
         {
             _bgPanel.LocalTeam = targetTeam;
             _bgPanel.SetAnimationValue("alpha", (float)BackgroundAlpha);
         }
+    }
+
+    /// <summary>`IsVisibleToTargetID()`: a dropped weapon's `CanPickupDroppedWeapon` (tf_dropped_weapon.cpp:473), a marker's true (tf_revive.h:58).</summary>
+    private bool IsVisibleToTargetId(HudState state, ScenePlayer local, SceneIdEntity entity) =>
+        entity.Kind == SceneIdEntityKind.ReviveMarker || CanPickupDroppedWeapon(state, local, entity);
+
+    /// <summary>`CTFPlayer::CanPickupDroppedWeapon` (tf_player_shared.cpp:14723).</summary>
+    private bool CanPickupDroppedWeapon(HudState state, ScenePlayer local, SceneIdEntity weapon)
+    {
+        HudViewport? viewport = HudViewport.Of(this);
+
+        if (!weapon.ItemValid || viewport?.Items is not { } schema || weapon.ItemDefinition is not { } definition)
+        {
+            return false;
+        }
+
+        int playerClass = local.PlayerClass ?? 0;
+
+        if (playerClass == ClassSpy
+            && (local.Conditions.Has(PlayerConditions.Disguised)
+                || PlayerInvisibility.Percent(local, state.ServerTime, TfHudPlayerClass.HasMotionCloak(local, viewport)) > 0f))
+        {
+            return false;
+        }
+
+        if (local.Conditions.Has(ConditionTaunting) || !local.IsAlive)
+        {
+            return false;
+        }
+
+        // `GetActiveTFWeapon()->CanPickupOtherWeapon()`: true but for a bow mid-draw (tf_weapon_compound_bow.h:81).
+        SceneItem? active = null;
+
+        foreach (SceneItem item in local.Items ?? [])
+        {
+            if (item.IsWeapon && item.EntityIndex == local.ActiveWeapon)
+            {
+                active = item;
+            }
+        }
+
+        if (active is null || (active.ClassName == "CTFCompoundBow" && active.ChargeBeginTime != 0f))
+        {
+            return false;
+        }
+
+        // `CanBeUsedByClass` is `LoadoutSlot` answering a slot; `IsValidPickupWeaponSlot` (tf_item_constants.h:152) is 0-2.
+        int slot = schema.LoadoutSlot(definition, playerClass);
+
+        return slot is >= 0 and <= 2 && TfHudPlayerClass.WeaponForLoadoutSlot(local, slot, schema) is not null;
+    }
+
+    /// <summary>`CTFPlayer::GetDroppedWeaponInRange` (tf_player_shared.cpp:14754), its trace precomputed.</summary>
+    private SceneIdEntity? GetDroppedWeaponInRange(HudState state, ScenePlayer local)
+    {
+        const float PickupRange = 150f; // TF_WEAPON_PICKUP_RANGE (tf_shareddefs.h:2697)
+
+        if (state.WeaponPickupTraceHit is not { } hit || state.IdEntity(hit) is not { Kind: SceneIdEntityKind.DroppedWeapon } weapon
+            || !CanPickupDroppedWeapon(state, local, weapon) || state.EyePosition is not { } eye || weapon.Position is not { } at)
+        {
+            return null;
+        }
+
+        // "too far?"
+        float dx = eye.X - at.X;
+        float dy = eye.Y - at.Y;
+        float dz = eye.Z - at.Z;
+
+        return (dx * dx) + (dy * dy) + (dz * dz) > PickupRange * PickupRange ? null : weapon;
+    }
+
+    /// <summary>`UpdateID`'s dropped-weapon lines (:937-976): the item's name, its owner, and the rarity color.</summary>
+    private (string Id, string Data, (byte, byte, byte, byte) ColorName) DroppedWeaponId(HudState state, SceneIdEntity weapon)
+    {
+        HudViewport? viewport = HudViewport.Of(this);
+        string name = viewport?.ItemName?.Invoke(weapon.ItemDefinition, weapon.ItemQuality) ?? string.Empty;
+        string id;
+
+        if (weapon.ItemDefinition is { } definition && viewport?.Items?.ItemClass(definition) == "tf_weapon_medigun")
+        {
+            // `%.0f`: the CRT rounds an exact half to even.
+            string charge = Math.Round(weapon.ChargeLevel * 100f, MidpointRounding.ToEven).ToString("F0", CultureInfo.InvariantCulture);
+
+            id = VguiLocalize.ConstructString("%s1 (%s2%)", IdChars, name, charge);
+        }
+        else
+        {
+            id = VguiLocalize.ConstructString("%s1", IdChars, name);
+        }
+
+        // `GetPlayerByAccountID` (econ_item_view.cpp:1955): the first player by index whose Steam ID answers with it.
+        // "Bots will not work here, so don't fill this out."
+        int? owner = null;
+
+        foreach (ScenePlayer player in state.Players ?? [])
+        {
+            if (state.AccountIds?.GetValueOrDefault(player.EntityIndex) is { } account && account != 0u && account == weapon.AccountId
+                && (owner is null || player.EntityIndex < owner))
+            {
+                owner = player.EntityIndex;
+            }
+        }
+
+        if (owner is not { } ownerIndex)
+        {
+            return (id, string.Empty, _labelColorDefault);
+        }
+
+        string data = VguiLocalize.ConstructString(Find("#TF_WhoDropped"), IdChars, state.Names?.GetValueOrDefault(ownerIndex) ?? string.Empty);
+        string colorName = weapon.ItemDefinition is { } rated ? viewport?.Items?.RarityColor(rated) ?? "TanLight" : "TanLight";
+        (byte, byte, byte, byte) color = viewport?.Context?.Scheme is { } scheme ? scheme.GetColor(colorName, (255, 255, 255, 255)) : _labelColorDefault;
+
+        return (id, data, color);
     }
 
     /// <summary>`CTFPlayer::CanPickupBuilding` (tf_player_shared.cpp:12421), ported in full.</summary>
@@ -1131,7 +1280,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     }
 
     /// <summary>The labels' text and colours, and a layout when either changed width (:1066).</summary>
-    private protected void SetLabels(string id, string data)
+    private protected void SetLabels(string id, string data, (byte, byte, byte, byte)? colorName = null)
     {
         if (_nameLabel is null || _dataLabel is null)
         {
@@ -1142,7 +1291,7 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
         (int dataWide, _) = _dataLabel.GetContentSize();
 
         _nameLabel.Visible = id.Length > 0;
-        _nameLabel.FgColor = _labelColorDefault;
+        _nameLabel.FgColor = colorName ?? _labelColorDefault;
         _dataLabel.Visible = data.Length > 0;
         _dataLabel.FgColor = _labelColorDefault;
 

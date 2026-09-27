@@ -314,6 +314,12 @@ public readonly record struct ScenePlayer(
     /// <summary>The active weapon's `m_iAccountID` (econ_item_view.cpp:187): whose item it is; null with none held or unsent.</summary>
     public uint? WeaponAccountId { get; init; }
 
+    /// <summary>
+    /// `GetDeathTime()`: `m_flDeathTime`, `DT_LocalPlayerExclusive` (c_baseplayer.cpp:254) — so 0 for anyone but the recorder,
+    /// whose client entity is zeroed when allocated (c_baseentity.cpp:3840) and never receives it.
+    /// </summary>
+    public float DeathTime { get; init; }
+
     /// <summary>The active weapon's `m_iEntityQuality` (econ_item_view.cpp:188).</summary>
     public int? WeaponQuality { get; init; }
 
@@ -542,6 +548,7 @@ public readonly record struct TimelinePhases(
 /// Every player slot the scoreboard's `UpdatePlayerList` would list, or null when there is no
 /// resource entity. See <see cref="SceneScoreboardPlayer"/>.
 /// </param>
+/// <param name="IdEntities">Every dropped weapon and revive marker, or null when there is none.</param>
 public readonly record struct TimelineFrame(
     int Tick,
     IReadOnlyList<ScenePlayer> Players,
@@ -552,7 +559,8 @@ public readonly record struct TimelineFrame(
     IReadOnlyList<SceneRoundTimer>? RoundTimers = null,
     IReadOnlyList<SceneBuilding>? Buildings = null,
     IReadOnlyList<SceneTeam>? Teams = null,
-    IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null);
+    IReadOnlyList<SceneScoreboardPlayer>? ScoreboardPlayers = null,
+    IReadOnlyList<SceneIdEntity>? IdEntities = null);
 
 /// <summary>What the client's HUD asks of `TFGameRules()` and the logic entities at one tick.</summary>
 /// <param name="MannVsMachine">`IsMannVsMachineMode()`: `m_bPlayingMannVsMachine` (tf_gamerules.h:606).</param>
@@ -588,6 +596,18 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// registered groups, ladder 6v6 (2), casual 12v12 (7) and the event placeholder (8; tf_match_description_*.cpp).
     /// </summary>
     public bool IsCompetitiveMode => MatchGroup is 2 or 7 or 8;
+
+    /// <summary>`m_flNextRespawnWave[ RED ]`, `[ BLU ]` (teamplayroundbased_gamerules.cpp:97), server time.</summary>
+    public (float Red, float Blue) NextRespawnWave { get; init; }
+
+    /// <summary>`m_TeamRespawnWaveTimes[ RED ]`, `[ BLU ]` (:98): -1, the constructor's (:425), until the map sets one.</summary>
+    public (float Red, float Blue) TeamRespawnWaveTimes { get; init; } = (-1f, -1f);
+
+    /// <summary>
+    /// `CTFRobotDestructionLogic`'s `m_flRedTeamRespawnScale`, `m_flBlueTeamRespawnScale` (tf_logic_robot_destruction.cpp:1440-1441),
+    /// or null with no such logic.
+    /// </summary>
+    public (float Red, float Blue)? RobotDestructionRespawnScale { get; init; }
 
     /// <summary>`GetRoundsPlayed()`: `m_nRoundsPlayed` (teamplayroundbased_gamerules.cpp:116).</summary>
     public int RoundsPlayed { get; init; }
@@ -989,6 +1009,51 @@ public sealed class DemoTimeline
         return buildings;
     }
 
+    /// <summary>
+    /// Every dropped weapon and revive marker — the entities whose `IsVisibleToTargetID` can answer true
+    /// (tf_dropped_weapon.cpp:473, tf_revive.h:58); null when there is none, which costs no allocation.
+    /// </summary>
+    private static List<SceneIdEntity>? IdEntities(EntityStateTable entities)
+    {
+        List<SceneIdEntity>? found = null;
+
+        foreach (EntityState weapon in entities.OfClass("CTFDroppedWeapon"))
+        {
+            (found ??= []).Add(IdEntity(weapon, SceneIdEntityKind.DroppedWeapon) with
+            {
+                ItemValid = weapon.Integer("DT_ScriptCreatedItem.m_bInitialized") is > 0,
+                ItemDefinition = weapon.ItemDefinitionIndex(),
+                ItemQuality = weapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality") ?? 0,
+                AccountId = unchecked((uint)(weapon.Integer("DT_ScriptCreatedItem.m_iAccountID") ?? 0)),
+                ChargeLevel = weapon.Number("DT_TFDroppedWeapon.m_flChargeLevel") ?? 0f,
+            });
+        }
+
+        foreach (EntityState marker in entities.OfClass("CTFReviveMarker"))
+        {
+            (found ??= []).Add(IdEntity(marker, SceneIdEntityKind.ReviveMarker) with
+            {
+                Health = marker.Integer("DT_TFReviveMarker.m_iHealth") ?? 0,
+                MaxHealth = marker.Integer("DT_TFReviveMarker.m_iMaxHealth") ?? 0,
+                OwnerEntityIndex = EntityState.Slot(marker.Integer("DT_TFReviveMarker.m_hOwner")),
+            });
+        }
+
+        return found;
+    }
+
+    /// <summary>What every <see cref="SceneIdEntity"/> shares: team, placement and collision.</summary>
+    private static SceneIdEntity IdEntity(EntityState entity, SceneIdEntityKind kind) => new(entity.EntityIndex, kind)
+    {
+        Team = entity.Integer("DT_BaseEntity.m_iTeamNum"),
+        Position = entity.Origin(),
+        Angles = entity.Angles(),
+        Mins = entity.Vector("DT_CollisionProperty.m_vecMins"),
+        Maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs"),
+        SolidType = entity.Integer("DT_CollisionProperty.m_nSolidType") ?? 0,
+        SolidFlags = entity.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0,
+    };
+
     /// <summary>Every team entity, as `CTFHudMatchStatus` reads scores; null when there is none, which costs no allocation.</summary>
     private static List<SceneTeam>? Teams(EntityStateTable entities)
     {
@@ -1132,6 +1197,7 @@ public sealed class DemoTimeline
         {
             Quality = item.Integer("DT_ScriptCreatedItem.m_iEntityQuality"),
             IsDisguiseWearable = item.Integer("DT_TFWearable.m_bDisguiseWearable") is > 0,
+            ChargeBeginTime = item.Number("DT_PipebombLauncherLocalData.m_flChargeBeginTime") ?? 0f,
         };
 
     /// <summary>`m_Shared.GetDisguiseWeapon()`'s item (tf_hud_playerstatus.cpp:457), or null.</summary>
@@ -3179,6 +3245,7 @@ public sealed class DemoTimeline
                     DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
                     DisguiseWeaponItem = DisguiseWeaponItem(player, entities),
                     Decapitations = player.Integer("DT_TFPlayerShared.m_iDecapitations"),
+                    DeathTime = player.Number("DT_LocalPlayerExclusive.m_flDeathTime") ?? 0f,
                     PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
                     Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
@@ -3244,6 +3311,13 @@ public sealed class DemoTimeline
                 InTraining = gameRules?.Integer("DT_TFGameRules.m_bIsInTraining") is > 0,
                 WinningTeam = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_iWinningTeam"),
                 MapHolidayType = gameRules?.Integer("DT_TFGameRules.m_nMapHolidayType") ?? 0,
+                NextRespawnWave = (gameRules?.Number("m_flNextRespawnWave.002") ?? 0f, gameRules?.Number("m_flNextRespawnWave.003") ?? 0f),
+                TeamRespawnWaveTimes = (gameRules?.Number("m_TeamRespawnWaveTimes.002") ?? -1f, gameRules?.Number("m_TeamRespawnWaveTimes.003") ?? -1f),
+                // `GetRobotDestructionLogic()`, which player destruction's logic also registers as (it derives from it).
+                RobotDestructionRespawnScale = entities.OfClass("CTFRobotDestructionLogic").Concat(entities.OfClass(PlayerDestructionClass)).FirstOrDefault() is { } robotLogic
+                    ? (robotLogic.Number("DT_TFRobotDestructionLogic.m_flRedTeamRespawnScale") ?? 0f,
+                        robotLogic.Number("DT_TFRobotDestructionLogic.m_flBlueTeamRespawnScale") ?? 0f)
+                    : null,
             };
 
             int? serverTick = entities.PacketTick > 0 ? entities.PacketTick : null;
@@ -3251,15 +3325,16 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneBuilding>? buildings = Buildings(entities);
             IReadOnlyList<SceneTeam>? teams = Teams(entities);
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
+            IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities);
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
                 frames[^1] = new TimelineFrame(
-                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers);
+                    frames[^1].Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities);
                 continue;
             }
 
-            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers));
+            frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
         }
 
         Backfill(frames);
@@ -5608,6 +5683,11 @@ public sealed class DemoTimeline
     /// <summary>Every player slot the scoreboard would list at a tick.</summary>
     /// <param name="tick">The demo tick.</param>
     public IReadOnlyList<SceneScoreboardPlayer> ScoreboardPlayersAt(int tick) => FrameAt(tick)?.ScoreboardPlayers ?? [];
+
+    /// <summary>Every dropped weapon and revive marker at a tick.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The entities, empty when there is none.</returns>
+    public IReadOnlyList<SceneIdEntity> IdEntitiesAt(int tick) => FrameAt(tick)?.IdEntities ?? [];
 
     /// <summary>The recording player's team at a tick, or <c>null</c> when there is no local player.</summary>
     /// <param name="tick">The moment being asked about.</param>
