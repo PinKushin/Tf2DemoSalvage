@@ -91,7 +91,21 @@ if ([string]::IsNullOrWhiteSpace($tool)) { exit 0 }
 # the exact restore, and it reports which test reddened. There is no question for it to get wrong,
 # and a mangled restore or a misreported count is checkable from the caller (the file's diff, the
 # test count). So the allowed set is per agent type, not global. Recorded as Tf2DemoSalvage D177.
+#
+# OPUS FOR IMPLEMENTATION, 2026-09-28. The owner, after a day of sonnet subagents porting whole HUD
+# classes: "if you are using subagents for real code work like this they should probably be other opus
+# 5.5 models, the hook was made with the idea that subagents were only doing very very basic work, like
+# creating a single known method, or a single known branch to look at. not doing full implementation
+# work like this". What he saw: every sonnet first pass under-ported ("narrowed", "stated unavailable",
+# "deferred", all of which turned out portable) and needed two or three review rounds at 500-700k
+# tokens each - the tokens-per-GOOD-outcome measure from 2026-09-06 again. So opus is allowed on Agent,
+# chosen by the caller for full implementation work; sonnet stays the choice for a bounded, known task.
+# The model must still be NAMED - an omitted one is still refused - and Workflow keeps its own check.
+# Recorded as Tf2DemoSalvage D196.
 $allowed = @('sonnet')
+if ($tool -eq 'Agent') {
+    $allowed = @('sonnet', 'opus')
+}
 if ($tool -eq 'Agent' -and $toolInput.subagent_type -eq 'sabotage-verifier') {
     $allowed = @('sonnet', 'haiku')
 }
@@ -111,14 +125,15 @@ if ($tool -eq 'Agent') {
     # this is here to catch, so it is denied rather than allowed.
     if ([string]::IsNullOrWhiteSpace($model)) {
         Deny(("Blocked: the Agent call names no model, so it would inherit this session's - " +
-              "which is the expensive one. Subagents run on sonnet here. Pass model: 'sonnet'."))
+              "which is the expensive one. Name it: model 'sonnet' for a bounded task, 'opus' for full " +
+              "implementation work."))
     }
 
     if ($allowed -notcontains $model.ToLowerInvariant()) {
-        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on sonnet, and only " +
-              "the sabotage-verifier may also run on haiku (2026-09-15). 'haiku' elsewhere is refused " +
-              "since 2026-09-12: its answers had to be redone, which costs more than sonnet. If a task " +
-              "genuinely needs a bigger model, say so and the owner will run it."))
+        Deny(("Blocked: subagent model '$model' is not allowed - subagents run on sonnet for a bounded, " +
+              "known task and opus for full implementation work (2026-09-28); only the sabotage-verifier " +
+              "may run on haiku (2026-09-15), and it may not run on opus. 'haiku' elsewhere is refused " +
+              "since 2026-09-12: its answers had to be redone."))
     }
 
     exit 0

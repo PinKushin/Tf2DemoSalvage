@@ -294,37 +294,38 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
-    public void Parse_HudCvars_AreRead()
+    public void Parse_ClientCvars_AreKeptAsWritten()
     {
         ViewerSettings settings = ViewerSettings.Parse(
             """
             hud_deathnotice_time 10
             cl_hud_killstreak_display_time 4.5
-            cl_hud_killstreak_display_fontsize 2
-            cl_hud_killstreak_display_alpha 255
-            hud_saytext_time 20
-            cl_chatfilters 4
+            cl_chatfilters "4"
             """);
 
-        settings.HudDeathNoticeTime.ShouldBe(10f);
-        settings.KillStreakDisplayTime.ShouldBe(4.5f, "a float cvar: tf_hud_deathnotice.cpp:569 reads GetFloat()");
-        settings.KillStreakDisplayFontSize.ShouldBe(2);
-        settings.KillStreakDisplayAlpha.ShouldBe(255);
-        settings.SayTextTime.ShouldBe(20f);
-        settings.ChatFilters.ShouldBe(4);
+        settings.ConVars["hud_deathnotice_time"].ShouldBe("10");
+        settings.ConVars["cl_hud_killstreak_display_time"].ShouldBe("4.5");
+        settings.ConVars["cl_chatfilters"].ShouldBe("4");
     }
 
     [Test]
-    public void Parse_NoHudCvars_KeepsValvesDefaults()
+    public void Parse_AReplicatedOrUndeclaredCvar_IsNotKept()
     {
-        ViewerSettings settings = ViewerSettings.Parse("texture_quality 256");
+        // A replicated var is the server's; an undeclared name is not a ConVar this viewer reads.
+        ViewerSettings settings = ViewerSettings.Parse("mp_tournament 1\nnot_a_cvar 3");
 
-        settings.HudDeathNoticeTime.ShouldBe(6f);
-        settings.KillStreakDisplayTime.ShouldBe(3f);
-        settings.KillStreakDisplayFontSize.ShouldBe(0);
-        settings.KillStreakDisplayAlpha.ShouldBe(120);
-        settings.SayTextTime.ShouldBe(12f);
-        settings.ChatFilters.ShouldBe(63);
+        settings.ConVars.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Parse_ALaunchOptionOverAFile_WinsAndKeepsTheRest()
+    {
+        ViewerSettings file = ViewerSettings.Parse("hud_saytext_time 20\ncl_chatfilters 4");
+
+        ViewerSettings launched = ViewerSettings.Parse("hud_saytext_time \"5\"", onto: file);
+
+        launched.ConVars["hud_saytext_time"].ShouldBe("5");
+        launched.ConVars["cl_chatfilters"].ShouldBe("4");
     }
 
     [Test]

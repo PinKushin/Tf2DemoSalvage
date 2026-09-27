@@ -243,8 +243,12 @@ public readonly record struct ModelInstance(
 /// A rigid entity is the one-bone case. Animation adds a matrix per bone and a weight per vertex;
 /// nothing about the packing changes.
 /// </remarks>
-public sealed class EntityModelSet : IModelBodygroups
+public sealed class EntityModelSet : Hud.IMdlCache
 {
+    /// <inheritdoc/>
+    public PropModels.ModelFrames? FindMdl(string path) =>
+        _frames.TryGetValue(path, out PropModels.ModelFrames? frames) ? frames : null;
+
     /// <summary>What was posed and how, reported under `props` as the prop loader does.</summary>
     private readonly ILogger _props;
 
@@ -3502,11 +3506,7 @@ public sealed class EntityModelSet : IModelBodygroups
             _skinning[entity] = buffer;
         }
 
-        for (int bone = 0; bone < accessor.Count; bone++)
-        {
-            StudioBones.Concatenate(
-                accessor.Bone(bone), bones[bone].PoseToBone.Span, buffer[bone]);
-        }
+        BoneSkinning.Fill(bones, accessor, buffer);
 
         return buffer;
     }

@@ -77,8 +77,9 @@ public sealed class TfHudKothTimeStatusConformanceTests
     {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudKothTimeStatus koth = new(viewport) { UseMatchHud = useMatchHud };
+        TfHudKothTimeStatus koth = new(viewport);
 
+        state = state.WithMatchHud(useMatchHud);
         viewport.Think(state);
         koth.PerformApplySchemeSettings(context);
         viewport.Think(state);

@@ -63,14 +63,17 @@ public sealed class TfStreakNotice : VguiEditablePanel
         _label = new TfExLabel(this, "SplashLabel");
     }
 
-    /// <summary>`cl_hud_killstreak_display_time`, as the cvar holds it: read `GetInt` (truncated) in some places and `GetFloat` in another.</summary>
-    public float DisplayTime { get; set; } = 3f;
+    /// <summary>`cl_hud_killstreak_display_time.GetFloat()`, as `IsCurrentStreakHigherPriority` reads it.</summary>
+    private float DisplayTime => HudViewport.ConVarsOf(this).GetFloat("cl_hud_killstreak_display_time");
 
-    /// <summary>`cl_hud_killstreak_display_fontsize`.</summary>
-    public int FontSize { get; set; }
+    /// <summary>`cl_hud_killstreak_display_time.GetInt()`, as `AddStreakMsg` and `Paint` read it.</summary>
+    internal int DisplayTimeInt => HudViewport.ConVarsOf(this).GetInt("cl_hud_killstreak_display_time");
 
-    /// <summary>`cl_hud_killstreak_display_alpha`.</summary>
-    public int DisplayAlpha { get; set; } = 120;
+    /// <summary>`cl_hud_killstreak_display_fontsize.GetInt()`.</summary>
+    private int FontSize => HudViewport.ConVarsOf(this).GetInt("cl_hud_killstreak_display_fontsize");
+
+    /// <summary>`cl_hud_killstreak_display_alpha.GetInt()`.</summary>
+    private int DisplayAlpha => HudViewport.ConVarsOf(this).GetInt("cl_hud_killstreak_display_alpha");
 
     /// <summary>`m_nCurrStreakCount`.</summary>
     public int CurrentStreakCount { get; private set; }
@@ -264,7 +267,7 @@ public sealed class TfStreakNotice : VguiEditablePanel
 
         HudState state = HudViewport.Of(this)?.State ?? default;
         // `clamp( cl_hud_killstreak_display_time.GetInt(), 1, 100 )` (tf_hud_deathnotice.cpp:161).
-        int displayTime = Math.Clamp((int)DisplayTime, 1, 100);
+        int displayTime = Math.Clamp(DisplayTimeInt, 1, 100);
 
         if (_lastMessageTime + displayTime < state.RealTime)
         {

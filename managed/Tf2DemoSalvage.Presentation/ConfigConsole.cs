@@ -5,6 +5,7 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Logging;
 using Tf2DemoSalvage.Scene;
 
@@ -62,6 +63,7 @@ public sealed class ConfigConsole
 
     private readonly Dictionary<string, string> _aliases = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _conVars = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ViewerAction, Button> _buttons = [];
 
     /// <summary>What this viewer had on each key before any config ran.</summary>
@@ -728,9 +730,29 @@ public sealed class ConfigConsole
             _binds[tokens[1]] = tokens[2];
             Bound++;
             _claimed = null;
+            return;
         }
 
-        // Everything else is a cvar, an exec, or a game command. Not ours, and not an error.
+        // Everything else is a cvar, an exec, or a game command; only a cvar is kept.
+        SetConVar(tokens);
+    }
+
+    /// <summary>A client ConVar's value as the configs last set it, or null when none did.</summary>
+    /// <param name="name">The ConVar's engine name.</param>
+    /// <returns>The value, or null.</returns>
+    public string? ConVar(string name) => _conVars.GetValueOrDefault(name);
+
+    /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
+    private bool SetConVar(IReadOnlyList<string> tokens)
+    {
+        if (tokens.Count < 2 || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared) || declared.Replicated)
+        {
+            return false;
+        }
+
+        _conVars[declared.Name] = tokens[1];
+
+        return true;
     }
 
     /// <summary>Runs a command line, expanding aliases, in press or release direction.</summary>
@@ -795,6 +817,11 @@ public sealed class ConfigConsole
             {
                 // No key, deliberately — see the remark above.
                 Run(body, key: null, depth + 1);
+                continue;
+            }
+
+            if (SetConVar(tokens))
+            {
                 continue;
             }
 

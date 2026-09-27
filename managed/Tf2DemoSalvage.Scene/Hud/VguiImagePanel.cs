@@ -92,6 +92,9 @@ public class VguiImagePanel : VguiPanel
     /// <summary>`m_DrawColor`: white until set.</summary>
     public (byte Red, byte Green, byte Blue, byte Alpha) DrawColor { get; set; } = (255, 255, 255, 255);
 
+    /// <summary>The image name last set, before the scheme turns it into <see cref="Image"/>.</summary>
+    public string? ImageName => _imageName;
+
     /// <summary>`SetImage( const char * )`: the scheme loads it at the next scheme pass.</summary>
     /// <param name="imageName">The image, under `vgui/`.</param>
     public void SetImage(string imageName)

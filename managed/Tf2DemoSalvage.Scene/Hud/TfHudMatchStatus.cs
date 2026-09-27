@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -13,7 +14,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// and in the HUD — and shows it outside freeze cam, outside KOTH (whose timers are their own element) unless waiting for
 /// players, and not during the match summary. `tf_use_match_hud` (1) and not Mann vs. Machine loads its `.res` with
 /// `if_match`.
-/// **Not modelled:** team status, player lists and avatars, match doors, round sign and rank-up labels; `if_large`, which
+/// The match doors and the round sign are <see cref="VguiModelPanel"/>s driven by the countdown, the round start and the
+/// match summary, with the doors' team lists and names. **Not modelled:** team status; the Steam avatars' pictures; and the
+/// rank-up message, whose rating is the local player's GC shared-object cache (`YieldingGetPlayerRatingDataBySteamID`,
+/// tf_rating_data.cpp:22-41) — Steam's GC, never in a demo — so it is never set; `if_large`, which
 /// needs the match group's size; the freeze-cam screenshot test; and an open viewport panel. The round counter is its own
 /// panel, <see cref="TfRoundCounterPanel"/> — see its remarks for what it leaves out.
 /// </remarks>
@@ -21,14 +25,92 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 {
     private bool _usedMatchHud;
 
-    /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )`: parented to the viewport, its time panel made up front.</summary>
+    /// <summary>`CTFHudMatchStatus( "HudMatchStatus" )` (:268): parented to the viewport, its panels made up front.</summary>
     /// <param name="viewport">The viewport.</param>
-    public TfHudMatchStatus(VguiPanel viewport)
+    /// <param name="mdlCache">The models the two model panels draw.</param>
+    public TfHudMatchStatus(VguiPanel viewport, IMdlCache mdlCache)
         : base(viewport, "HudMatchStatus")
     {
+        MatchStartModelPanel = new VguiModelPanel(this, "MatchDoors", mdlCache);
         RoundCounter = new TfRoundCounterPanel(this);
         TimePanel = new TfHudTimeStatus(this, "ObjectiveStatusTimePanel");
+        RoundSignModel = new VguiModelPanel(this, "RoundSignModel", mdlCache);
+
+        // (:287-298). The leader avatars are `CAvatarImagePanel`s, whose picture Steam serves; the demo carries no image.
+        BlueTeamPanel = new VguiEditablePanel(this, "BlueTeamPanel");
+        PlayerListBlue = new VguiSectionedListPanel(BlueTeamPanel, "BluePlayerList");
+        BlueLeaderAvatarImage = new VguiAvatarImagePanel(BlueTeamPanel, "BlueLeaderAvatar");
+        BlueLeaderAvatarBg = new VguiEditablePanel(BlueTeamPanel, "BlueLeaderAvatarBG");
+        BlueTeamImage = new VguiImagePanel(BlueTeamPanel, "BlueTeamImage");
+        BlueTeamName = new TfExLabel(BlueTeamPanel, "BlueTeamLabel");
+        RedTeamPanel = new VguiEditablePanel(this, "RedTeamPanel");
+        PlayerListRed = new VguiSectionedListPanel(RedTeamPanel, "RedPlayerList");
+        RedLeaderAvatarImage = new VguiAvatarImagePanel(RedTeamPanel, "RedLeaderAvatar");
+        RedLeaderAvatarBg = new VguiEditablePanel(RedTeamPanel, "RedLeaderAvatarBG");
+        RedTeamImage = new VguiImagePanel(RedTeamPanel, "RedTeamImage");
+        RedTeamName = new TfExLabel(RedTeamPanel, "RedTeamLabel");
+
+        // tf_hud_match_status.h:128-131.
+        DeclareAnimationVar("avatar_width", VguiPanelVarType.Whole, "34");
+        DeclareAnimationVar("spacer", VguiPanelVarType.ProportionalInt, "5");
+        DeclareAnimationVar("name_width", VguiPanelVarType.ProportionalInt, "136");
+        DeclareAnimationVar("horiz_inset", VguiPanelVarType.ProportionalInt, "4");
     }
+
+    /// <summary>`m_pBlueTeamPanel`.</summary>
+    public VguiEditablePanel BlueTeamPanel { get; }
+
+    /// <summary>`m_pPlayerListBlue`.</summary>
+    public VguiSectionedListPanel PlayerListBlue { get; }
+
+    /// <summary>`m_pBlueLeaderAvatarImage`.</summary>
+    public VguiAvatarImagePanel BlueLeaderAvatarImage { get; }
+
+    /// <summary>`m_pBlueLeaderAvatarBG`.</summary>
+    public VguiEditablePanel BlueLeaderAvatarBg { get; }
+
+    /// <summary>`m_pBlueTeamImage`.</summary>
+    public VguiImagePanel BlueTeamImage { get; }
+
+    /// <summary>`m_pBlueTeamName`.</summary>
+    public TfExLabel BlueTeamName { get; }
+
+    /// <summary>`m_pRedTeamPanel`.</summary>
+    public VguiEditablePanel RedTeamPanel { get; }
+
+    /// <summary>`m_pPlayerListRed`.</summary>
+    public VguiSectionedListPanel PlayerListRed { get; }
+
+    /// <summary>`m_pRedLeaderAvatarImage`.</summary>
+    public VguiAvatarImagePanel RedLeaderAvatarImage { get; }
+
+    /// <summary>`m_pRedLeaderAvatarBG`.</summary>
+    public VguiEditablePanel RedLeaderAvatarBg { get; }
+
+    /// <summary>`m_pRedTeamImage`.</summary>
+    public VguiImagePanel RedTeamImage { get; }
+
+    /// <summary>`m_pRedTeamName`.</summary>
+    public TfExLabel RedTeamName { get; }
+
+    /// <summary>`g_PR->GetTeamColor` for TF (c_tf_playerresource.cpp:59-62): `COLOR_RED`, `COLOR_BLUE` (shareddefs.h:565-566).</summary>
+    /// <param name="team">The team.</param>
+    /// <returns>Its colour; `COLOR_TF_SPECTATOR` teams are never listed here.</returns>
+    public static (byte, byte, byte, byte) TeamColor(int team) => team == TeamBlue ? Blue : Red;
+
+    private static readonly (byte, byte, byte, byte) Red = (255, 64, 64, 255);
+    private static readonly (byte, byte, byte, byte) Blue = (153, 204, 255, 255);
+
+    private VguiFontAmalgam? _playerListFont;
+
+    /// <summary>`m_pMatchStartModelPanel`: the versus doors.</summary>
+    public VguiModelPanel MatchStartModelPanel { get; }
+
+    /// <summary>`m_pRoundSignModel`: the round banner.</summary>
+    public VguiModelPanel RoundSignModel { get; }
+
+    /// <summary>Plays a `game_sounds.txt` script — the match-start sound (:718).</summary>
+    public HudSoundEmitter? SoundEmitter { get; set; }
 
     /// <summary>`m_pRoundCounter`.</summary>
     public TfRoundCounterPanel RoundCounter { get; }
@@ -39,15 +121,13 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public override string ClassName => "CTFHudMatchStatus";
 
-    /// <summary>`tf_use_match_hud`: 1.</summary>
-    public bool UseMatchHud { get; set; } = true;
-
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideMiscStatus | HudVisibility.HideMatchStatus;
 
     /// <summary>`ShouldUseMatchHUD()` (:43): `tf_use_match_hud`, never in Mann vs. Machine.</summary>
     /// <param name="state">The game state.</param>
-    public bool ShouldUseMatchHud(HudState state) => !state.Rules.MannVsMachine && UseMatchHud;
+    public static bool ShouldUseMatchHud(HudState state) =>
+        !state.Rules.MannVsMachine && state.ConVars.GetBool("tf_use_match_hud");
 
     /// <summary>`CTFHudMatchStatus::ShouldDraw` (:417): always during the match summary, else `CHudElement`'s.</summary>
     /// <param name="state">The game state.</param>
@@ -68,7 +148,153 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         // `SetPanelsVisible` (:339): `m_pRoundCounter->SetVisible( ShouldUseMatchHUD() )`.
         RoundCounter.Visible = _usedMatchHud;
         LoadControlSettings("resource/UI/HudMatchStatus.res", context, _usedMatchHud ? ["if_match"] : null);
+
+        // (:386-395): the lists made again, the "Default" font proportional, and filled.
+        InitPlayerList(PlayerListBlue);
+        InitPlayerList(PlayerListRed);
+        _playerListFont = context.GetFont("Default", proportional: true);
+        UpdatePlayerList(state);
+        UpdateTeamInfo(state);
     }
+
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
+    /// <summary>`TFPlayerSortFunc` (:759): "score" — which `UpdatePlayerList` never sets — then the higher player index.</summary>
+    /// <param name="list">The list.</param>
+    /// <param name="itemId1">The item placed.</param>
+    /// <param name="itemId2">The item compared against.</param>
+    /// <returns>Whether the first sorts before the second.</returns>
+    public static bool PlayerSortFunc(VguiSectionedListPanel list, int itemId1, int itemId2)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+
+        int Int(int item, string key) =>
+            list.GetItemData(item)?.GetValueOrDefault(key) is { } value ? PanelLayout.Atoi(value) : 0;
+
+        int score1 = Int(itemId1, "score");
+        int score2 = Int(itemId2, "score");
+
+        if (score1 != score2)
+        {
+            return score1 > score2;
+        }
+
+        // "if score is the same, use player index to get deterministic sort".
+        return Int(itemId1, "playerIndex") > Int(itemId2, "playerIndex");
+    }
+
+    /// <summary>`InitPlayerList` (:782): one always-visible section of avatar, spacer and a name column filling the rest.</summary>
+    private void InitPlayerList(VguiSectionedListPanel list)
+    {
+        const int ColumnDataIndent = 6; // SectionedListPanel::COLUMN_DATA_INDENT
+
+        list.ClearItems();
+        list.RemoveAllSections();
+        list.AddSection(0, "Players", PlayerSortFunc);
+        list.SetSectionAlwaysVisible(0, true);
+        list.SetSectionDrawDividerBar(0, false);
+
+        int avatarWidth = GetInt("avatar_width");
+        int spacerWidth = GetInt("spacer");
+        int nameWidth = GetInt("name_width");
+
+        list.AddColumnToSection(0, "avatar", string.Empty, SectionedListColumn.ColumnImage | SectionedListColumn.ColumnRight, avatarWidth);
+        list.AddColumnToSection(0, "spacer", string.Empty, SectionedListColumn.None, spacerWidth);
+
+        // "the player avatar is always a fixed size, so as we change resolutions we need to vary the size of the name column".
+        int extraSpace = list.Wide - avatarWidth - spacerWidth - nameWidth - (2 * ColumnDataIndent);
+
+        list.AddColumnToSection(0, "name", string.Empty, SectionedListColumn.None, nameWidth + extraSpace);
+    }
+
+    /// <summary>`UpdatePlayerList` (:805): every connected RED and BLU slot of the player resource, in its team's list.</summary>
+    /// <param name="state">The frame.</param>
+    /// <remarks>
+    /// `UpdatePlayerAvatar` (:859) gives a row its Steam avatar's image index; the picture is Steam's, and no image draws in a
+    /// list cell here, so no "avatar" is set.
+    /// </remarks>
+    public void UpdatePlayerList(HudState state)
+    {
+        PlayerListRed.ClearItems();
+        PlayerListBlue.ClearItems();
+
+        // `if ( !g_TF_PR ) return;`
+        if (state.ScoreboardPlayers is not { } resource)
+        {
+            return;
+        }
+
+        foreach (SceneScoreboardPlayer slot in resource.OrderBy(slot => slot.EntityIndex))
+        {
+            if (!slot.Connected)
+            {
+                continue;
+            }
+
+            VguiSectionedListPanel? list = slot.Team switch
+            {
+                TeamBlue => PlayerListBlue,
+                TeamRed => PlayerListRed,
+                _ => null,
+            };
+
+            if (list is null)
+            {
+                continue;
+            }
+
+            int itemId = list.AddItem(0, new Dictionary<string, string>
+            {
+                ["playerIndex"] = slot.EntityIndex.ToString(CultureInfo.InvariantCulture),
+                ["name"] = state.Names?.GetValueOrDefault(slot.EntityIndex) ?? string.Empty,
+            });
+
+            list.SetItemFgColor(itemId, TeamColor(slot.Team ?? 0));
+            list.SetItemBgColor(itemId, (120, 120, 120, 80));
+            list.SetItemBgHorizFillInset(itemId, GetInt("horiz_inset"));
+
+            if (_playerListFont is { } font)
+            {
+                list.SetItemFont(itemId, font);
+            }
+        }
+
+        PlayerListRed.SetSectionFgColor(0, TeamColor(TeamRed));
+        PlayerListBlue.SetSectionFgColor(0, TeamColor(TeamBlue));
+    }
+
+    /// <summary>`UpdateTeamInfo` (:900): each team panel's name, and the party leaders' avatars when both sides are premade.</summary>
+    /// <param name="state">The frame.</param>
+    public void UpdateTeamInfo(HudState state)
+    {
+        foreach (SceneTeam team in state.Teams ?? [])
+        {
+            (string variable, VguiEditablePanel? panel) = team.TeamNumber switch
+            {
+                TeamRed => ("redteamname", RedTeamPanel),
+                TeamBlue => ("blueteamname", BlueTeamPanel),
+                _ => (string.Empty, (VguiEditablePanel?)null),
+            };
+
+            panel?.SetDialogVariable(variable, TfTeamNames.Localized(team.TeamNumber, state, Find));
+        }
+
+        bool showAvatars = state.ScoreboardPlayers is not null && state.Rules.HasPremadeParties;
+
+        RedLeaderAvatarImage.Visible = showAvatars;
+        RedLeaderAvatarBg.Visible = showAvatars;
+        RedTeamName.Visible = showAvatars;
+        RedTeamImage.Visible = !showAvatars;
+
+        BlueLeaderAvatarImage.Visible = showAvatars;
+        BlueLeaderAvatarBg.Visible = showAvatars;
+        BlueTeamName.Visible = showAvatars;
+        BlueTeamImage.Visible = !showAvatars;
+    }
+
+    private string? Find(string token) =>
+        HudViewport.Of(this)?.Context?.Localize?.Invoke(token.StartsWith('#') ? token[1..] : token);
 
     /// <inheritdoc/>
     protected override void OnThink()
@@ -88,8 +314,9 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 
         bool display = state.ObserverMode != ObserverModes.FreezeCam;
 
-        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474).
-        if (state.TournamentMode && state.Rules.WaitingForPlayers)
+        // `IsInTournamentMode() && IsInWaitingForPlayers()` (:474); the former is `mp_tournament.GetBool()`
+        // (teamplayroundbased_gamerules.cpp:3488).
+        if (state.ConVars.GetBool("mp_tournament") && state.Rules.WaitingForPlayers)
         {
             display = false;
         }
@@ -120,16 +347,11 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
         }
     }
 
-    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for that this port models (:302-303).</summary>
-    /// <remarks>
-    /// `teamplay_round_start` and `show_match_summary` are also listened for in the engine, but their only handling here
-    /// is `ShowRoundSign`/the match-doors animation — 3D model panels, out of this port's scope (see the class remarks).
-    /// `teamplay_round_start` is included anyway so a later pass has somewhere to dispatch it; it is presently a no-op.
-    /// </remarks>
+    /// <summary>The events `CTFHudMatchStatus`'s constructor listens for (:303-305).</summary>
     public static IReadOnlySet<string> ListensFor { get; } =
-        new HashSet<string>(["restart_timer_time", "teamplay_round_start"], StringComparer.Ordinal);
+        new HashSet<string>(["teamplay_round_start", "restart_timer_time", "show_match_summary"], StringComparer.Ordinal);
 
-    /// <summary>`FireGameEvent` (:547), restricted to the 2D countdown label.</summary>
+    /// <summary>`FireGameEvent` (:547).</summary>
     /// <param name="fired">The event.</param>
     public void HandleGameEvent(HudGameEvent fired)
     {
@@ -140,26 +362,167 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
             return;
         }
 
-        if (fired.Event.Name == "restart_timer_time")
-        {
-            HandleCountdown(fired.Event.GetInt("time"), fired.Rules.RoundsPlayed);
-        }
+        SceneGameRules rules = fired.Rules;
 
-        // `teamplay_round_start`: `ShowRoundSign` when rounds have already been played — out of scope, so nothing 2D
-        // happens here (see `ListensFor`'s remarks).
+        switch (fired.Event.Name)
+        {
+            case "teamplay_round_start":
+                // "Drop the round sign right when the match starts on rounds > 1".
+                if (rules.RoundsPlayed > 0)
+                {
+                    ShowRoundSign(rules);
+                }
+
+                break;
+
+            case "restart_timer_time":
+                HandleCountdown(fired.Event.GetInt("time"), rules);
+                break;
+
+            case "show_match_summary":
+                ShowMatchSummary(rules);
+                break;
+
+            default:
+                break;
+        }
     }
 
-    /// <summary>`HandleCountdown` (:614), minus `ShowRoundSign` and `ShowMatchStartDoors` — both 3D model panels.</summary>
+    /// <summary>`show_match_summary` (:564-612): the team panels hidden, the doors refreshed and shut.</summary>
+    private void ShowMatchSummary(SceneGameRules rules)
+    {
+        BlueTeamPanel.Visible = false;
+        RedTeamPanel.Visible = false;
+
+        if (TfMatchGroupDescription.For(rules.MatchGroup) is not { } description)
+        {
+            return;
+        }
+
+        // "FIX: Refresh versus doors so late-joiners do not see the wrong skin".
+        if (description.RoundDoor is { } door)
+        {
+            SetDoors(door);
+        }
+
+        if (description.UsesPostRoundDoors)
+        {
+            HudViewport.Of(this)?.Animations?.StartAnimationSequence(
+                this,
+                rules.MapHasMatchSummaryStage && description.UseMatchSummaryStage
+                    ? "HudMatchStatus_ShowMatchWinDoors"
+                    : "HudMatchStatus_ShowMatchWinDoors_NoOpen");
+        }
+    }
+
+    /// <summary>`HandleCountdown` (:615).</summary>
     /// <param name="time">`event->GetInt( "time" )`: seconds left on the restart countdown.</param>
-    /// <param name="roundsPlayed">`TFGameRules()->GetRoundsPlayed()`.</param>
-    private void HandleCountdown(int time, int roundsPlayed)
+    /// <param name="rules">The game rules at the event.</param>
+    private void HandleCountdown(int time, SceneGameRules rules)
     {
         SetDialogVariable("countdown", time);
 
-        // `case 10:` — on the first round `ShowMatchStartDoors`, a 3D model panel not modelled here; after it the 2D countdown.
-        if (time == 10 && roundsPlayed != 0)
+        switch (time)
         {
-            HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
+            case 2:
+                // "Drop the round sign with 2 seconds to go on the 1st round".
+                if (rules.RoundsPlayed == 0)
+                {
+                    ShowRoundSign(rules);
+                }
+
+                break;
+
+            case 10:
+                if (rules.RoundsPlayed == 0)
+                {
+                    ShowMatchStartDoors(rules);
+                }
+                else
+                {
+                    HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowCountdown");
+                }
+
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    /// <summary>`ShowMatchStartDoors` (:646).</summary>
+    /// <remarks>
+    /// The rank-up message (:677-709) needs the local player's GC rating, which playback never has — so with sticky ranks the
+    /// labels are shown and no message is set. The team lists (:657-658) and the class menus (:712-713) are not ported.
+    /// </remarks>
+    private void ShowMatchStartDoors(SceneGameRules rules)
+    {
+        if (TfMatchGroupDescription.For(rules.MatchGroup) is not { RoundDoor: { } door } description)
+        {
+            return;
+        }
+
+        HudState state = HudViewport.Of(this)?.State ?? default;
+
+        UpdatePlayerList(state);
+        UpdateTeamInfo(state);
+        SetDoors(door);
+        HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudMatchStatus_ShowMatchStartDoors");
+
+        SetControlVisible("RankUpLabel", description.UsesStickyRanks);
+        SetControlVisible("RankUpShadowLabel", description.UsesStickyRanks);
+
+        if (description.MatchStartSound is { } sound)
+        {
+            SoundEmitter?.Invoke(sound);
+        }
+    }
+
+    /// <summary>The doors' model, logo bodygroup and skin (:660-667).</summary>
+    private void SetDoors((int Skin, int LogoBodyGroup) door)
+    {
+        if (!MatchStartModelPanel.HasModel)
+        {
+            MatchStartModelPanel.UpdateModel();
+        }
+
+        MatchStartModelPanel.SetBodyGroup("logos", door.LogoBodyGroup);
+        MatchStartModelPanel.UpdateModel();
+        MatchStartModelPanel.SetSkin(door.Skin);
+    }
+
+    /// <summary>`ShowRoundSign` (:726).</summary>
+    private void ShowRoundSign(SceneGameRules rules)
+    {
+        if (RoundSignModel.ModelInfo is not { } info
+            || TfMatchGroupDescription.For(rules.MatchGroup)?.RoundStartBanner is not { } banner)
+        {
+            return;
+        }
+
+        (int skin, int bodyGroup) = banner(rules.RoundsPlayed);
+
+        if (!RoundSignModel.HasModel)
+        {
+            RoundSignModel.UpdateModel();
+        }
+
+        // "Change the skin and bodygroup to be correct for the mode and round", then "Make the model actually update".
+        RoundSignModel.SetBodyGroup("logos", bodyGroup);
+        info.Skin = skin;
+        RoundSignModel.SetPanelDirty();
+        RoundSignModel.UpdateModel();
+
+        // "Play the sign drop anim".
+        HudViewport.Of(this)?.Animations?.StartAnimationSequence(this, "HudTournament_ShowRoundSign");
+    }
+
+    /// <summary>`SetControlVisible( name, visible, bRecurseDown = true )`.</summary>
+    private void SetControlVisible(string name, bool visible)
+    {
+        if (FindChildByName(name, recurseDown: true) is { } control)
+        {
+            control.Visible = visible;
         }
     }
 }
@@ -341,11 +704,23 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
                 bar.Percentage = totalTime == 0 ? 0f : ((float)totalTime - timeRemaining) / totalTime;
             }
 
-            // `tf_hud_show_servertimelimit` is 0, so the server time limit stays hidden.
+            // "Optional display of mp_timelimit on HUD" (tf_time_panel.cpp:741).
             if (_serverTimeLabel is not null && _serverTimeBg is not null)
             {
-                _serverTimeLabel.Visible = false;
-                _serverTimeBg.Visible = false;
+                int serverTimeLimit = state.ConVars.GetInt("mp_timelimit") * 60;
+                bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0
+                    && !state.Rules.Setup
+                    && !state.Rules.WaitingForPlayers
+                    && timer.MaxLength > 0 // `IsRoundMaxTimerSet()` (teamplay_round_timer.h:82)
+                    && serverTimeLimit != 0;
+
+                _serverTimeLabel.Visible = display;
+                _serverTimeBg.Visible = display;
+
+                if (display)
+                {
+                    SetDialogVariable("servertimeleft", ServerTimeLeft(state));
+                }
             }
         }
 
@@ -532,11 +907,43 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
 
         if (_serverTimeLabel is not null && _serverTimeBg is not null)
         {
-            // "This appears in the same space after SetUp and WaitingForPlayers is gone" — off with the cvar's 0.
-            _serverTimeLabel.Visible = false;
-            _serverTimeBg.Visible = false;
+            // "This appears in the same space after SetUp and WaitingForPlayers is gone" (tf_time_panel.cpp:593).
+            bool display = state.ConVars.GetInt("tf_hud_show_servertimelimit") != 0 && !inSetup && !waiting;
+
+            _serverTimeLabel.Visible = display;
+            _serverTimeBg.Visible = display;
         }
     }
+
+    /// <summary>The `servertimeleft` text (tf_time_panel.cpp:770-806) from `GetTimeLeft()` (teamplayroundbased_gamerules.cpp:1226).</summary>
+    private string ServerTimeLeft(HudState state)
+    {
+        const int Chars = 128;
+
+        if (state.ConVars.GetInt("mp_timelimit") * 60 == 0)
+        {
+            return VguiLocalize.ConstructString(Find("TF_HUD_ServerNoTimeLimit"), Chars);
+        }
+
+        float timeLimit = state.ConVars.GetInt("mp_timelimit") * 60;
+        int timeLeft = Math.Max((int)(state.Rules.MapResetTime + timeLimit - state.CurTime), 0);
+
+        if (timeLeft == 0)
+        {
+            return VguiLocalize.ConstructString(Find("TF_HUD_ServerChangeOnRoundEnd"), Chars);
+        }
+
+        int hours = timeLeft / 3600;
+        string minutes = ((timeLeft % 3600) / 60).ToString("00", CultureInfo.InvariantCulture);
+        string seconds = (timeLeft % 60).ToString("00", CultureInfo.InvariantCulture);
+
+        return hours == 0
+            ? VguiLocalize.ConstructString(Find("TF_HUD_ServerTimeLeftNoHours"), Chars, minutes, seconds)
+            : VguiLocalize.ConstructString(
+                Find("TF_HUD_ServerTimeLeft"), Chars, hours.ToString(CultureInfo.InvariantCulture), minutes, seconds);
+    }
+
+    private string? Find(string token) => HudViewport.Of(this)?.Context?.Localize?.Invoke(token);
 
     /// <summary>`CheckClockLabelLength` (:412): a label wider than its text box grows about its centre; wider than its background, the background hides.</summary>
     private static void CheckClockLabelLength(VguiLabel label, VguiPanel background)

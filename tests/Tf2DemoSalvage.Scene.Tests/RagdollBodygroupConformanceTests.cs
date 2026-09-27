@@ -240,7 +240,7 @@ public sealed class RagdollBodygroupConformanceTests
         /// **By number rather than by name**, so the assertion does not also depend on
         /// `FindBodygroup` resolving a string — one mechanism per test.
         /// </remarks>
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => itemDefinitionIndex switch
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => itemDefinitionIndex switch
         {
             Hat => new ItemBodygroups(new Dictionary<string, int>(), false, HeadGroup, 1),
 

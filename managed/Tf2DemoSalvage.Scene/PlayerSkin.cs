@@ -40,4 +40,10 @@ public static class PlayerSkin
     /// error later — it is a transcription of the INTENT with a case the engine does not have.
     /// </remarks>
     public static int ForTeam(int? team) => team == SceneTeams.Blu ? 1 : 0;
+
+    /// <summary>`C_TFPlayer::AdjustSkinIndexForZombie` (c_tf_player.cpp:7731): +22 for a spy's mask skins, else +4.</summary>
+    /// <param name="playerClass">The class drawn.</param>
+    /// <param name="skin">The base skin, 0 to 3.</param>
+    /// <returns>The zombie skin.</returns>
+    public static int AdjustSkinIndexForZombie(int? playerClass, int skin) => skin + (playerClass == Disguise.SpyClass ? 22 : 4);
 }

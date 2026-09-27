@@ -501,6 +501,23 @@ public class VguiPanel
         }
     }
 
+    /// <summary>
+    /// `Panel::OnCommand` (Panel.cpp:3960): "performlayout" and "reloadscheme" invalidate the layout; anything else goes
+    /// to the action-signal targets, which no HUD panel here registers.
+    /// </summary>
+    /// <param name="command">The command, as `FireCommand` (AnimationController.cpp:763) hands it.</param>
+    public virtual void OnCommand(string command)
+    {
+        if (string.Equals(command, "performlayout", StringComparison.OrdinalIgnoreCase))
+        {
+            InvalidateLayout();
+        }
+        else if (string.Equals(command, "reloadscheme", StringComparison.OrdinalIgnoreCase))
+        {
+            InvalidateLayout(reloadScheme: true);
+        }
+    }
+
     /// <summary>`FindChildByName( name, bRecurseDown )` (Panel.cpp): each child in order, and with recursion its subtree before the next.</summary>
     /// <param name="name">The child's name, compared without case.</param>
     /// <param name="recurseDown">Whether to search below the direct children.</param>

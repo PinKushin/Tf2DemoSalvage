@@ -67,11 +67,6 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
     /// <summary>`m_ChatLine`: never shown; its font sizes the history.</summary>
     public VguiRichText ChatLine { get; }
 
-    /// <summary>`cl_chatfilters`: 63, every filter on.</summary>
-    public int FilterFlags { get; set; } = 63;
-
-    /// <summary>`hud_saytext_time` (hud_basechat.cpp:37): how long a line stays before its idle fade.</summary>
-    public float SayTextTime { get; set; } = 12f;
 
     /// <summary>Plays a `game_sounds.txt` script — see <see cref="HudSoundEmitter"/>.</summary>
     public HudSoundEmitter? SoundEmitter { get; set; }
@@ -388,7 +383,7 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
 
             History.InsertColorChange(color);
             History.InsertString(text[start..Math.Min(end, text.Length)]);
-            History.InsertFade(SayTextTime, HistoryIdleFadeTime);
+            History.InsertFade(HudViewport.ConVarsOf(this).GetFloat("hud_saytext_time"), HistoryIdleFadeTime);
 
             if (i == ranges.Count - 1)
             {
@@ -428,8 +423,10 @@ public sealed class TfHudChat : VguiEditablePanel, IHudElement
     }
 
     /// <summary>`CHudChat::GetFilterFlags`: `cl_chatfilters`, less team changes in arena.</summary>
-    private int GetFilterFlags(HudState state) =>
-        state.Rules.GameType == SceneGameRules.GameTypeArena ? FilterFlags & ~ChatFilterTeamChange : FilterFlags;
+    private static int GetFilterFlags(HudState state) =>
+        state.Rules.GameType == SceneGameRules.GameTypeArena
+            ? state.ConVars.GetInt("cl_chatfilters") & ~ChatFilterTeamChange
+            : state.ConVars.GetInt("cl_chatfilters");
 
     /// <summary>`CHudChat::GetFilterForString`: a name change is filtered as one.</summary>
     private static int FilterForString(string text)

@@ -84,6 +84,18 @@ public sealed class TfAmmoConformanceTests
     public void For_NoActiveWeapon_IsNothing() =>
         TfAmmo.For(Scout("CTFScatterGun", null) with { ActiveWeapon = 99 }, Scripts(), Hooks).ShouldBe(default);
 
+    // `TF_COND_RUNE_STRENGTH` 90 and `TF_COND_RUNE_HASTE` 91 (tf_shareddefs.h:780-781); `TF_AMMO_GRENADES3` is 6.
+    [TestCase(0, 1, 32)]
+    [TestCase(1 << 91 - 64, 1, 64)]
+    [TestCase((1 << 90 - 64) | (1 << 91 - 64), 1, 32)]
+    [TestCase(1 << 91 - 64, 6, 2)]
+    public void MaxAmmo_TheHasteRune_DoublesItAfterTheGrenadeFloor(int conditionsWord2, int ammoType, int expected)
+    {
+        ScenePlayer scout = Scout("CTFScatterGun", null) with { Conditions = new PlayerConditions(0, 0, conditionsWord2, 0, 0) };
+
+        TfAmmo.MaxAmmo(scout, 1, ammoType, Scripts(), Hooks.OnPlayer).ShouldBe(expected, "GetCarryingRuneType is the first rune in order (tf_player_shared.cpp:11498)");
+    }
+
     private static TfWeaponData Scripts() => new(path => Files.TryGetValue(path, out string? text) ? Encoding.UTF8.GetBytes(text) : null);
 
     private static ScenePlayer Scout(string weapon, int? definition) =>

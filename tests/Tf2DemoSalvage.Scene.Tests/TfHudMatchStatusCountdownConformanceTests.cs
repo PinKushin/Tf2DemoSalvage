@@ -67,9 +67,9 @@ public sealed class TfHudMatchStatusCountdownConformanceTests
     {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport) { UseMatchHud = useMatchHud };
+        TfHudMatchStatus status = new(viewport, new EntityModelSet());
 
-        viewport.Think(default(HudState) with { ObserverMode = ObserverModes.None });
+        viewport.Think((default(HudState) with { ObserverMode = ObserverModes.None }).WithMatchHud(useMatchHud));
         status.PerformApplySchemeSettings(context);
         return status;
     }

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>The part of `vgui::ISurface` a panel draws through.</summary>
@@ -19,6 +21,24 @@ public interface IVguiSurface
     /// <summary>`PopMakeCurrent`.</summary>
     /// <param name="panel">The panel pushed.</param>
     public void PopMakeCurrent(VguiPanel panel);
+
+    /// <summary>
+    /// `IMatSystemSurface::Begin3DPaint( left, top, right, bottom, false )` … `End3DPaint()` around a model draw: the models,
+    /// under their own camera, drawn into the current panel's rectangle at this point in the paint order.
+    /// </summary>
+    /// <param name="left">Left, relative to the current panel.</param>
+    /// <param name="top">Top.</param>
+    /// <param name="right">Right.</param>
+    /// <param name="bottom">Bottom.</param>
+    /// <param name="camera">The view-projection, row-major with the translation in the last row.</param>
+    /// <param name="models">The posed, lit models.</param>
+    /// <param name="particles">The particles rendered after them under the same camera, or null for none.</param>
+    /// <remarks>A surface that draws no 3D ignores it.</remarks>
+    public void Paint3D(
+        int left, int top, int right, int bottom, float[] camera, IReadOnlyList<ModelInstance> models,
+        IReadOnlyList<ParticleBatch>? particles = null)
+    {
+    }
 
     /// <summary>`DrawSetColor`.</summary>
     /// <param name="color">The colour.</param>

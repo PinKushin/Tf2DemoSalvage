@@ -66,7 +66,7 @@ public sealed class HudProbe : IProbe
 
         output.WriteLine($"state: {state}");
         VguiSurfaceHost host = new(archives.Read, archives.FullPathOnDisk, new NoFonts(), _ => (64, 64));
-        VguiHud hud = new(host);
+        VguiHud hud = new(host, new EntityModelSet());
 
         hud.Viewport.Scripts = new TfWeaponData(archives.Read);
 
@@ -91,7 +91,8 @@ public sealed class HudProbe : IProbe
         output.WriteLine(
             $"teams: RED {state.TeamStanding(2)?.Score.ToString(CultureInfo.InvariantCulture) ?? "(none)"} " +
             $"BLU {state.TeamStanding(3)?.Score.ToString(CultureInfo.InvariantCulture) ?? "(none)"} " +
-            $"(tournament {state.TournamentMode}, stopwatch {state.TournamentStopwatch}, winlimit {state.WinLimit})");
+            $"(tournament {state.ConVars.GetBool("mp_tournament")}, stopwatch {state.ConVars.GetBool("mp_tournament_stopwatch")}, " +
+            $"winlimit {state.ConVars.GetInt("mp_winlimit")})");
         output.WriteLine(
             $"round counter: shown {hud.MatchStatus.RoundCounter.Visible}, round dots blue/red visible " +
             $"{hud.MatchStatus.RoundCounter.BlueRoundIndicators.Count(indicator => indicator.Visible)}/{hud.MatchStatus.RoundCounter.RedRoundIndicators.Count(indicator => indicator.Visible)}, " +

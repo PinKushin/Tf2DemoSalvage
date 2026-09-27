@@ -17,4 +17,13 @@ public sealed record SceneUserMessage(int Tick, int Type, ReadOnlyMemory<byte> B
 
     /// <summary>`TextMsg`.</summary>
     public const int TextMsg = 5;
+
+    /// <summary>
+    /// `PlayerPickupWeapon`, which the client turns into `localplayer_pickup_weapon` (clientmode_tf.cpp:2469). Its id moves
+    /// between eras, so it is kept by the name the reader registered for the id.
+    /// </summary>
+    public const string PlayerPickupWeapon = "PlayerPickupWeapon";
+
+    /// <summary>The registered name, where the message is kept by name rather than by a stable id.</summary>
+    public string? Name { get; init; }
 }

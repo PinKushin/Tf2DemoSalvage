@@ -119,6 +119,18 @@ public sealed class PlayerInfoTests
     }
 
     [Test]
+    public void Parse_FriendsId_IsTheLittleEndianWordAt72()
+    {
+        // `friendsID` (cdll_int.h), which `C_BasePlayer::GetSteamID` (c_baseplayer.cpp:2885) turns into the account ID
+        // the HUD compares an item's `m_iAccountID` against. 72, not 69: `guid` is 33 bytes and the word is aligned.
+        byte[] data = Record();
+        BitConverter.GetBytes(0x01020304u).CopyTo(data, 72);
+
+        PlayerInfo.Parse(data, entityIndex: 1).FriendsId.ShouldBe(0x01020304u);
+        PlayerInfo.Parse(Record(), entityIndex: 1).FriendsId.ShouldBe(0u, "a bot's is zero, and GetSteamID then fails");
+    }
+
+    [Test]
     public void Parse_ShortRecord_IsRejected()
     {
         // A truncated record would otherwise read whatever follows it as a steam id.

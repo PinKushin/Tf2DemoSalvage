@@ -32,11 +32,9 @@ namespace Tf2DemoSalvage.Scene;
 ///   project does not read, and substituting `FL_ONGROUND` would be a different condition wearing
 ///   the same name.
 /// - **Halloween ghost mode**, the third model branch — a separate cosmetic mode.
-/// - **`nSkin += 2` for invulnerability** and **`AdjustSkinIndexForZombie`**, `GetSkin` steps 4 and
-///   5. Both set `bCheckSpyMask = false`, so they SUPPRESS the mask offset: an übered disguised spy
-///   draws with a mask offset here where the engine draws none.
-/// - **`m_nDisguiseSkinOverride`** and **`m_iDisguiseBody`**, both carried by the recording and both
-///   changing a disguise's appearance beyond class and team.
+/// - **`nSkin += 2` for invulnerability**, `GetSkin` step 4, which also suppresses the mask offset: an
+///   übered disguised spy draws with a mask offset here where the engine draws none.
+/// - **`m_iDisguiseBody`**, carried by the recording and changing a disguise's appearance beyond class and team.
 /// - **`m_hDisguiseWeapon`**, the weapon a disguise appears to hold. Carried, unread; the spy will
 ///   hold their own weapon.
 /// </remarks>
@@ -88,13 +86,23 @@ public static class Disguise
     /// teammate always sees the mask; an enemy sees it only when the disguise is itself a spy —
     /// because that is the case where the model being drawn HAS mask families to offset into.
     /// </remarks>
-    public static int VisibleSkin(ScenePlayer player)
+    /// <param name="viewerHalloweenVision">`IsLocalPlayerUsingVisionFilterFlags( TF_VISION_FILTER_HALLOWEEN )` for the recorder.</param>
+    public static int VisibleSkin(ScenePlayer player, bool viewerHalloweenVision = false)
     {
         int team = IsDisguisedToUs(player) && player.DisguiseTeam is { } disguiseTeam
             ? disguiseTeam
             : player.Team ?? SceneTeams.Red;
 
         int skin = PlayerSkin.ForTeam(team);
+
+        // `if ( BRenderAsZombie() ) AdjustSkinIndexForZombie( iClass, nSkin )`, the disguise's class when disguised, and
+        // "no spy masks for zombies" (c_tf_player.cpp:7836-7847).
+        if (RendersAsZombie(player, viewerHalloweenVision))
+        {
+            int? zombieClass = player.Conditions.Has(PlayerConditions.Disguised) ? player.DisguiseClass : player.PlayerClass;
+
+            return PlayerSkin.AdjustSkinIndexForZombie(zombieClass, skin);
+        }
 
         if (!player.Conditions.Has(PlayerConditions.Disguised))
         {
@@ -118,6 +126,31 @@ public static class Disguise
         }
 
         return skin;
+    }
+
+    /// <summary>`C_TFPlayer::BRenderAsZombie` (c_tf_player.cpp:7751-7779).</summary>
+    /// <param name="player">The player drawn.</param>
+    /// <param name="viewerHalloweenVision">Whether the local player — the recorder — has Halloween vision.</param>
+    /// <returns>Whether the player draws in a zombie skin.</returns>
+    public static bool RendersAsZombie(ScenePlayer player, bool viewerHalloweenVision)
+    {
+        if (!viewerHalloweenVision)
+        {
+            return false;
+        }
+
+        if (player.Conditions.Has(PlayerConditions.Disguised))
+        {
+            // Teammates see the mask, and so does anyone looking at an enemy disguised as a spy (:7765-7771).
+            if (!player.IsEnemy || player.DisguiseClass == SpyClass)
+            {
+                return false;
+            }
+
+            return player.DisguiseSkinOverride == 1;
+        }
+
+        return player.PlayerSkinOverride == 1;
     }
 
     /// <summary>The body part TF2 shows a disguised spy's mask on.</summary>

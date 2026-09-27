@@ -424,6 +424,9 @@ internal class MainForm : Form, IFrameSteps
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
+    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
+    private string? _panelModelsPrecached;
+
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
@@ -4103,6 +4106,16 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
+    /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
+    private Func<string, string?>? _clientConVars;
+
+    /// <summary>
+    /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
+    /// Source's command-line cvars do, else the watcher's TF2 configs; null for the SDK default.
+    /// </summary>
+    private string? ClientConVar(string name) =>
+        _settings.ConVars.TryGetValue(name, out string? value) ? value : _console.ConVar(name);
+
     /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
     /// <remarks>
     /// **Was `_flyWatch` and `_lastFrameAt`, two fields whose docs never mentioned each other**
@@ -6349,19 +6362,26 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`FL_DUCKING`.</summary>
     private const int Ducking = 1 << 1;
 
+    /// <summary>`SOLID_VPHYSICS`.</summary>
+    private const int SolidVphysics = 6;
+
+    /// <summary>Each dropped weapon model's collide, read once.</summary>
+    private readonly Dictionary<string, Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide?> _modelCollides = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
     /// <remarks>
     /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
     /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
-    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>).
+    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>). The same traces answer `GetDroppedWeaponInRange`'s
+    /// (tf_player_shared.cpp:14761), `TF_WEAPON_PICKUP_RANGE` long.
     /// </remarks>
-    private int? IdTargetNow(HudState state, int tick)
+    private HudState WithIdTraces(HudState state, int tick)
     {
         if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
             || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
             || FirstPersonCamera() is not { } eye)
         {
-            return null;
+            return state with { IdTarget = null };
         }
 
         List<BulletTarget> targets = [];
@@ -6391,6 +6411,39 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
+        // A `SOLID_BBOX` — a revive marker, or a dropped weapon whose `VPhysicsInitNormal` failed (tf_dropped_weapon.cpp:113-116)
+        // — is its box, world-aligned; a `SOLID_VPHYSICS` weapon its model's collide, placed (`ClipRayToCollideable`).
+        foreach (Core.Scene.SceneIdEntity entity in timeline.IdEntitiesAt(tick))
+        {
+            if (entity is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
+            {
+                Vector3 origin = new(at.X, at.Y, at.Z);
+                StaticPropCollision? hull = null;
+
+                if (entity is { SolidType: SolidVphysics, Model: { } model } && _game is { } game)
+                {
+                    (float pitch, float yaw, float roll) = entity.Angles ?? (0f, 0f, 0f);
+
+                    hull = StaticPropCollision.From(
+                        [new BspStaticProp(model, at.X, at.Y, at.Z, pitch, yaw, roll, 1f, Solid: SolidVphysics)],
+                        path =>
+                        {
+                            if (!_modelCollides.TryGetValue(path, out Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide? known))
+                            {
+                                known = IvpMapWorld.ModelCollide(path, game, _mapLog);
+                                _modelCollides[path] = known;
+                            }
+
+                            return known;
+                        },
+                        _ => -1);
+                }
+
+                boxes.Add(new IdTargetBox(
+                    entity.EntityIndex, entity.Team ?? 0, origin + new Vector3(mins.X, mins.Y, mins.Z), origin + new Vector3(maxs.X, maxs.Y, maxs.Z), hull));
+            }
+        }
+
         IdTargetTraces traces = new(
             targets,
             teams,
@@ -6398,16 +6451,18 @@ internal class MainForm : Form, IFrameSteps
             HitboxesOrUntested,
             boxes);
         (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
+        Vector3 from = new(eye.Origin.X, eye.Origin.Y, eye.Origin.Z);
+        Vector3 forward = new(x, y, z);
 
-        return IdTargetTrace.GetIdTarget(
-            new Vector3(eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
-            new Vector3(x, y, z),
-            state.LocalIndex,
-            state.Team,
-            isObserver: false,
-            observerTarget: 0,
-            traces.Solid,
-            traces.Shot);
+        return state with
+        {
+            IdTarget = IdTargetTrace.GetIdTarget(
+                from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
+
+            // `EyePosition() + vecForward * TF_WEAPON_PICKUP_RANGE`, the same mask and filter as the ID trace.
+            WeaponPickupTraceHit = traces.Solid(from, from + (forward * 150f), state.LocalIndex).Entity,
+            EyePosition = (eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
+        };
     }
 
     /// <summary>A player's hitboxes against a ray, as <see cref="PlayerBulletTrace.ClipRayToEntity"/> asks for them.</summary>
@@ -7121,7 +7176,7 @@ internal class MainForm : Form, IFrameSteps
             path => HudArchives()?.FullPathOnDisk(path),
             _gdi,
             material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
-        _vguiHud ??= new VguiHud(_vguiHost);
+        _vguiHud ??= new VguiHud(_vguiHost, _models);
         _vguiTools ??= new VguiTools(_vguiHost);
 
         if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
@@ -7142,6 +7197,8 @@ internal class MainForm : Form, IFrameSteps
                 ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
                 : null;
             _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
+            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
+            _vguiHud.Viewport.Items = items;
         }
 
         int hudTick = _transport.CurrentTick;
@@ -7156,24 +7213,35 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _vguiHud.Viewport.Scripts = _hudScripts;
+        _vguiHud.Viewport.ClassModels = _game.Classes;
+        _vguiHud.Viewport.ParticleSystems = _loaded?.Assets?.ParticleSystemsByName;
+        _vguiHud.Viewport.ParticleMaterials = _loaded?.Assets?.ParticleMaterials;
+
+        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
+        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
+        // a model that failed to load, which must not happen sixty times a second.
+        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
+
+        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
+        {
+            _panelModelsPrecached = panelModels;
+            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
+        }
         _vguiHud.Crosshair.Settings = _settings.Crosshair;
         _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
         _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
-        _vguiHud.DeathNotice.NoticeTime = _settings.HudDeathNoticeTime;
-        _vguiHud.Chat.SayTextTime = _settings.SayTextTime;
-        _vguiHud.Chat.FilterFlags = _settings.ChatFilters;
-
-        if (_vguiHud.DeathNotice.Streak is { } streak)
-        {
-            (streak.DisplayTime, streak.FontSize, streak.DisplayAlpha) =
-                (_settings.KillStreakDisplayTime, _settings.KillStreakDisplayFontSize, _settings.KillStreakDisplayAlpha);
-        }
+        _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
+        _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
+        _clientConVars ??= ClientConVar;
 
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
         // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
-        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks) with
+        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings);
+
+        hudState = hudState with
         {
+            ConVars = hudState.ConVars with { Client = _clientConVars },
             RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
             Fov = ViewFovNow().World,
 
@@ -7197,7 +7265,7 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        hudState = hudState with { IdTarget = IdTargetNow(hudState, hudTick) };
+        hudState = WithIdTraces(hudState, hudTick);
 
         _hudReplaying = hudReset;
 

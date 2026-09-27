@@ -57,7 +57,8 @@ public interface IPlayerAppearance
     /// machine with no TF2 should draw, and is why this degrades to <c>None</c> rather than
     /// throwing.
     /// </remarks>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex);
+    /// <param name="team">The wearer's team — `pOwner->GetTeamNumber()` (econ_entity.cpp:2083).</param>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team);
 
     /// <summary>What a compiled scene does to whoever it animates, for a taunt (B351).</summary>
     /// <param name="scene">The scene's filename, as the <c>Scenes</c> string table spells it.</param>
@@ -222,17 +223,21 @@ public sealed record GameAppearance(
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
 
     /// <inheritdoc/>
-    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex)
+    /// <remarks>
+    /// `UpdateBodygroups` (econ_entity.cpp:2041-2045) reads `GetModifiedBodyGroup( 0, ... )` — the base visuals block
+    /// alone — and the override for the owner's team (:2083).
+    /// </remarks>
+    public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team)
     {
         if (Items is null)
         {
             return ItemBodygroups.None;
         }
 
-        (int group, int state) = Items.WorldmodelBodygroupOverrideFor(itemDefinitionIndex);
+        (int group, int state) = Items.WorldmodelBodygroupOverrideFor(itemDefinitionIndex, team);
 
         return new ItemBodygroups(
-            Items.PlayerBodygroupsFor(itemDefinitionIndex),
+            Items.BasePlayerBodygroupsFor(itemDefinitionIndex),
             Items.HidesBodygroupsWhenDeployedOnly(itemDefinitionIndex),
             group,
             state);
@@ -308,6 +313,7 @@ public static class PlayerProps
     /// for, because only the model set has the <c>.mdl</c> and only it knows which index a part's
     /// name has on this model.
     /// </param>
+    /// <param name="viewerHalloweenVision">Whether the recorder has Halloween vision, for `BRenderAsZombie` (c_tf_player.cpp:7754).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **<paramref name="into"/> is read as well as written, and the order is the reason it is a
@@ -320,7 +326,8 @@ public static class PlayerProps
         IReadOnlyList<ScenePlayer> players,
         IList<SceneProp> into,
         IPlayerAppearance appearance,
-        IModelBodygroups bodygroups)
+        IModelBodygroups bodygroups,
+        bool viewerHalloweenVision = false)
     {
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(into);
@@ -420,14 +427,11 @@ public static class PlayerProps
                     // team, not a value the server sends for players. Props are the opposite case:
                     // a capture point's skin comes from ownership on the server and must be read.
                     //
-                    // Not reproduced: the client's two skin OVERRIDES applied straight after —
-                    // AdjustSkinIndexForZombie for Halloween, and the gold ragdoll from
-                    // TF_DMG_CUSTOM_GOLD_WRENCH.
                     // **Via the disguise, which changes both the team and the family.**
                     // `C_TFPlayer::GetSkin` (`c_tf_player.cpp:7801`) substitutes the disguise team
                     // for an enemy and then adds a mask offset; `Disguise.VisibleSkin` carries
                     // those branches, with the ones it does not implement named at its declaration.
-                    Skin = Disguise.VisibleSkin(player),
+                    Skin = Disguise.VisibleSkin(player, viewerHalloweenVision),
 
                     // **The other half of the mask, and the half that was missing.** `GetSkin`
                     // above decides WHICH mask is painted; the mask MESH is a body part, and at
@@ -668,7 +672,7 @@ public static class PlayerProps
             // Stryker restore all
 
             body = Bodygroup(
-                item, player.ActiveWeapon == prop.EntityIndex, appearance, bodygroups, model, body);
+                item, player.ActiveWeapon == prop.EntityIndex, appearance, bodygroups, model, body, player.Team ?? 0);
         }
 
         return body;
@@ -681,6 +685,7 @@ public static class PlayerProps
     /// <param name="bodygroups">The model, for turning a part's NAME into its index.</param>
     /// <param name="model">The wearer's model path.</param>
     /// <param name="body">The body so far.</param>
+    /// <param name="team">The wearer's team, for the override's visuals block (econ_entity.cpp:2083).</param>
     /// <returns>The body with this item applied.</returns>
     /// <remarks>
     /// **Extracted so a corpse and a living player cannot disagree** (B395). `CreateTFRagdoll`
@@ -698,12 +703,13 @@ public static class PlayerProps
         IPlayerAppearance appearance,
         IModelBodygroups bodygroups,
         string model,
-        int body)
+        int body,
+        int team)
     {
         ArgumentNullException.ThrowIfNull(appearance);
         ArgumentNullException.ThrowIfNull(bodygroups);
 
-        ItemBodygroups groups = appearance.BodygroupsOf(item);
+        ItemBodygroups groups = appearance.BodygroupsOf(item, team);
 
             // `if ( bHideBodygroupsDeployedOnly && pPlayer->GetActiveWeapon() != pWpn ) continue;`
         // (`tf_weaponbase.cpp:6226`). All eight shipped items that set the flag are weapons, so

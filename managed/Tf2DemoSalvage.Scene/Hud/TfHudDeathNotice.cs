@@ -228,8 +228,8 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
         DeclareAnimationVar("LocalPlayerColor", VguiPanelVarType.Color, "65 65 65 255");
     }
 
-    /// <summary>`hud_deathnotice_time`, default 6 (hud_basedeathnotice.cpp:31).</summary>
-    public float NoticeTime { get; set; } = 6f;
+    /// <summary>`hud_deathnotice_time.GetFloat()` (hud_basedeathnotice.cpp:31).</summary>
+    private float NoticeTime => HudViewport.ConVarsOf(this).GetFloat("hud_deathnotice_time");
 
     /// <summary>Plays a `game_sounds.txt` script for this feed and the streak banner it owns — see <see cref="HudSoundEmitter"/>.</summary>
     public HudSoundEmitter? SoundEmitter
@@ -1186,7 +1186,7 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
     /// <summary>`AddStreakMsg` (tf_hud_deathnotice.cpp:1547): past the type's minimum and with a display time, to the banner.</summary>
     private void AddStreakMsg(HudGameEvent fired, TfStreakType type, int player, int streak, int increment)
     {
-        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || (int)banner.DisplayTime <= 0)
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTimeInt <= 0)
         {
             return;
         }
@@ -1197,7 +1197,7 @@ public sealed class TfHudDeathNotice : VguiPanel, IHudElement
     /// <summary>`AddStreakEndedMsg` (tf_hud_deathnotice.cpp:1563).</summary>
     private void AddStreakEndedMsg(HudGameEvent fired, TfStreakType type, int killer, int victim, int streak)
     {
-        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || (int)banner.DisplayTime <= 0)
+        if (Streak is not { } banner || streak < TfStreakNotice.MinStreakForType(type, fired.Rules.MannVsMachine) || banner.DisplayTimeInt <= 0)
         {
             return;
         }

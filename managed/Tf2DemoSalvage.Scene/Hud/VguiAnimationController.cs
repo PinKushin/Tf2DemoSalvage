@@ -15,8 +15,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// (:903) fires due messages, each event once a frame per parent (:698), then steps every active animation from the
 /// value it had when it began (:815). Values go through the panel's own properties for position, size and colours and
 /// through `RequestInfo`/`SetInfo` for everything else — so an int or bool variable, which reports as an int, starts
-/// from 0. **Not modelled:** `PlaySound` (reported through <see cref="SoundPlayed"/>), `FireCommand` (no panel here takes
-/// a command), `SetInputEnabled` (no input), `CanAnimate` (only `HudScope` refuses).
+/// from 0. **Not modelled:** `PlaySound` (reported through <see cref="SoundPlayed"/>), `SetInputEnabled` (no input), `CanAnimate` (only `HudScope` refuses).
 /// </remarks>
 public sealed class VguiAnimationController : VguiPanel
 {
@@ -725,8 +724,12 @@ public sealed class VguiAnimationController : VguiPanel
                 case CommandType.SetString:
                     FindSiblingByName(due.Event)?.SetInfo(due.Variable, new VguiKeyValue(VguiKeyValueType.Text, Text: due.Variable2), Context);
                     break;
+                case CommandType.FireCommand:
+                    // `msg.parent->OnCommand( ... )` (AnimationController.cpp:761-765).
+                    parent.OnCommand(due.Variable);
+                    break;
                 default:
-                    // `FireCommand` and `SetInputEnabled`: no panel here takes a command or input.
+                    // `SetInputEnabled`: no panel here takes input.
                     break;
             }
         }

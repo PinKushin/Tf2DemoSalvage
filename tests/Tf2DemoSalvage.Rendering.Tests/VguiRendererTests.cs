@@ -20,4 +20,26 @@ public sealed class VguiRendererTests
         (data[40], data[41], data[47]).ShouldBe((-1f, 0f, 40f / 255f), "bottom-left");
         data[4].ShouldBe(1f, "red");
     }
+
+    [Test]
+    public void Steps_AModelBetweenQuadsOfOneTexture_SplitsTheRunAtItsPlaceInPaintOrder()
+    {
+        // Three quads of one texture would be one run; a 3D paint recorded after the first cuts it in two around itself.
+        VguiQuad quad = new("t", 0f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 255, 255, 255, 255, 255, 255, 255);
+        VguiModelDraw panel = new(1, 0, 0, 10, 10, new float[16], []);
+
+        VguiRenderer.Steps([quad, quad, quad], [panel]).ShouldBe([(-1, 0, 1), (0, 0, 0), (-1, 1, 3)]);
+    }
+
+    [Test]
+    public void Steps_AModelAfterEveryQuad_ComesLast()
+    {
+        VguiQuad quad = new("t", 0f, 0f, 1f, 1f, 0f, 0f, 1f, 1f, 255, 255, 255, 255, 255, 255, 255);
+
+        VguiRenderer.Steps([quad], [new VguiModelDraw(1, 0, 0, 10, 10, new float[16], [])]).ShouldBe([(-1, 0, 1), (0, 0, 0)]);
+    }
+
+    [Test]
+    public void Steps_OnlyAModel_DrawsIt() =>
+        VguiRenderer.Steps([], [new VguiModelDraw(0, 0, 0, 10, 10, new float[16], [])]).ShouldBe([(0, 0, 0)]);
 }

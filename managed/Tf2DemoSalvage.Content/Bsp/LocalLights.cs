@@ -49,6 +49,10 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="SpotOuter">`stopdot2`: the cosine outside which it is dark.</param>
 /// <param name="SpotExponent">`exponent`: shapes the penumbra between the two.</param>
 /// <param name="Spot">Whether it is a spotlight; the cone is read only then.</param>
+/// <param name="Directional">
+/// Whether it is `MATERIAL_LIGHT_DIRECTIONAL`: unattenuated, lighting along <paramref name="Direction"/> (the way it
+/// travels). Only a model panel's lights make one; a map's directional light is the sun.
+/// </param>
 /// <remarks>
 /// **The attenuation terms are normalised on the way out**, so a consumer never has to know about
 /// vrad's all-zero rule. A light with all three below `EQUAL_EPSILON` leaves here with
@@ -68,7 +72,8 @@ public readonly record struct LocalLight(
     float SpotInner = 0f,
     float SpotOuter = 0f,
     float SpotExponent = 0f,
-    bool Spot = false);
+    bool Spot = false,
+    bool Directional = false);
 
 /// <summary>Everything lighting a point: the bounce cube, and the direct lights near it.</summary>
 /// <param name="Cube">The leaf's ambient cube — bounce, plus the dim surface lights vrad folded in.</param>

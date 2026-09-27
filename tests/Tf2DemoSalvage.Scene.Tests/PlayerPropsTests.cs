@@ -348,7 +348,7 @@ public sealed class PlayerPropsTests
 
         // Nothing, so these tests keep measuring what they were written to measure — the wardrobe
         // half is `PlayerBodygroupWiringTests`, with a stub of its own.
-        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex) => ItemBodygroups.None;
+        public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
     }
 
     [Test]

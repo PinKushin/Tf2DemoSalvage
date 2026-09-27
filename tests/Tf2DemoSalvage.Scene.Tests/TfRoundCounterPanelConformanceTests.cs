@@ -52,7 +52,7 @@ public sealed class TfRoundCounterPanelConformanceTests
     [Test]
     public void PerformLayout_NoWinLimit_LeavesEveryIndicatorHidden() =>
         // `LayoutPanels` returns without positioning, but `VisibleCondition(images, 0)` still hides every one.
-        Thought(Playing() with { WinLimit = 0 }).BlueRoundIndicators.ShouldAllBe(indicator => !indicator.Visible);
+        Thought(Playing() with { ConVars = default }).BlueRoundIndicators.ShouldAllBe(indicator => !indicator.Visible);
 
     private const int TeamRed = 2;
     private const int TeamBlue = 3;
@@ -72,18 +72,19 @@ public sealed class TfRoundCounterPanelConformanceTests
     private static SceneTeam Team(int number, int score) => new(number) { Score = score };
 
     private static HudState Playing() =>
-        new(true, true, 0, 125, true, CurTime: 10f, WinLimit: 4, Teams: [Team(TeamRed, 1), Team(TeamBlue, 3)]);
+        new(true, true, 0, 125, true, CurTime: 10f, ConVars: TestConVars.Of(("mp_winlimit", "4")), Teams: [Team(TeamRed, 1), Team(TeamBlue, 3)]);
 
     private static TfRoundCounterPanel Thought(HudState state, bool useMatchHud = true)
     {
         VguiContext context = Context();
         HudViewport viewport = new() { Wide = 640, Tall = 480, Context = context };
-        TfHudMatchStatus status = new(viewport) { UseMatchHud = useMatchHud };
+        TfHudMatchStatus status = new(viewport, new EntityModelSet());
 
-        viewport.Think(state with { ObserverMode = ObserverModes.None });
+        state = (state with { ObserverMode = ObserverModes.None }).WithMatchHud(useMatchHud);
+        viewport.Think(state);
         status.PerformApplySchemeSettings(context);
 
-        viewport.Think(state with { ObserverMode = ObserverModes.None });
+        viewport.Think(state);
         VguiLayout.SolveTraverse(viewport, context);
         VguiLayout.SolveTraverse(viewport, context);
 

@@ -42,7 +42,7 @@ public sealed class PlayerBodygroupConformanceTests
     [Test]
     public void PlayerBodygroups_ForAHat_NameTheGroupsItHides()
     {
-        Read().PlayerBodygroupsFor(100).ShouldBe(
+        Read().BasePlayerBodygroupsFor(100).ShouldBe(
             new Dictionary<string, int> { ["hat"] = 1 });
     }
 
@@ -54,7 +54,7 @@ public sealed class PlayerBodygroupConformanceTests
     [Test]
     public void PlayerBodygroups_ForAnItemHidingTwoParts_NameBoth()
     {
-        Read().PlayerBodygroupsFor(101).ShouldBe(
+        Read().BasePlayerBodygroupsFor(101).ShouldBe(
             new Dictionary<string, int> { ["hat"] = 1, ["headphones"] = 1 });
     }
 
@@ -66,7 +66,7 @@ public sealed class PlayerBodygroupConformanceTests
     [Test]
     public void PlayerBodygroups_AreInheritedFromAPrefab()
     {
-        Read().PlayerBodygroupsFor(102).ShouldBe(
+        Read().BasePlayerBodygroupsFor(102).ShouldBe(
             new Dictionary<string, int> { ["hat"] = 1 });
     }
 
@@ -79,7 +79,7 @@ public sealed class PlayerBodygroupConformanceTests
     [Test]
     public void PlayerBodygroups_WhenTheItemAndItsPrefabDisagree_TakeTheItems()
     {
-        Read().PlayerBodygroupsFor(103).ShouldBe(
+        Read().BasePlayerBodygroupsFor(103).ShouldBe(
             new Dictionary<string, int> { ["hat"] = 0 });
     }
 
@@ -90,7 +90,7 @@ public sealed class PlayerBodygroupConformanceTests
     [Test]
     public void PlayerBodygroups_ForAnItemThatDeclaresNone_AreEmpty()
     {
-        Read().PlayerBodygroupsFor(999).ShouldBeEmpty();
+        Read().BasePlayerBodygroupsFor(999).ShouldBeEmpty();
     }
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));

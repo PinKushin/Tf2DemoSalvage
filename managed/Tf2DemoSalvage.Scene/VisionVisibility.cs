@@ -56,6 +56,9 @@ public static class VisionVisibility
     /// </remarks>
     public const string OptInAttribute = "vision opt in flags";
 
+    /// <summary>`TF_VISION_FILTER_HALLOWEEN` (shareddefs.h:978).</summary>
+    public const int HalloweenFlag = 1 << 1;
+
     /// <summary>Drops the items the person watching has no vision for.</summary>
     /// <param name="scene">Everything the timeline says exists at this tick.</param>
     /// <param name="viewer">The watcher's vision, from <see cref="ViewerFlags"/>.</param>

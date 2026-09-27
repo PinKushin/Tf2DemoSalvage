@@ -65,6 +65,22 @@ public sealed class IdTargetTracesTests
     public void Solid_ABuildingAboveTheRay_IsMissed() =>
         Traces(worldFraction: 1f, withSentry: true, sentryBottom: 50f).Solid(Start, End, 0).Entity.ShouldBe(2);
 
+    [Test]
+    public void Solid_AVphysicsWeapon_IsClippedAgainstItsHullNotItsBox()
+    {
+        // The hull is the one-ledge box at x 100 yawed 90° (±9.84 along world x); the bounding box sits elsewhere entirely.
+        StaticPropCollision hull = StaticPropCollision.From(
+            [new Content.Bsp.BspStaticProp("models/w.mdl", 100f, 0f, 40f, 0f, 90f, 0f, 1f, Solid: 6)],
+            _ => StaticPropCollisionConformanceTests.Collide(),
+            _ => -1);
+        IdTargetBox weapon = new(60, 0, new Vector3(500f, 500f, 500f), new Vector3(510f, 510f, 510f), hull);
+        IdTargetTraces traces = new([], new Dictionary<int, int>(), (_, _) => 1f, (_, _, _) => null, [weapon]);
+
+        (traces.Solid(new Vector3(0f, 0f, 40f), new Vector3(200f, 0f, 40f), 0).Entity).ShouldBe(60);
+        traces.Solid(new Vector3(0f, 12f, 40f), new Vector3(200f, 12f, 40f), 0).Entity.ShouldBe(60, "39.37 wide along y once yawed");
+        traces.Solid(new Vector3(0f, 45f, 40f), new Vector3(200f, 45f, 40f), 0).Entity.ShouldBeNull("past the hull");
+    }
+
     private static IdTargetTraces Traces(float worldFraction, System.Func<int, float?>? hitboxes = null, bool withSentry = false, float sentryBottom = 0f) =>
         new(
             [new BulletTarget(2, new Vector3(100f, 0f, 0f), false), new BulletTarget(3, new Vector3(200f, 0f, 0f), false)],

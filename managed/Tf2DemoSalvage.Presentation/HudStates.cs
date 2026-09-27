@@ -22,7 +22,12 @@ public static class HudStates
     /// </remarks>
     /// <param name="scripts">The weapon and class scripts, or null where no install is open.</param>
     /// <param name="hooks">The attribute hooks, or null likewise.</param>
-    public static HudState For(DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null)
+    /// <param name="bindings">
+    /// The viewer's key bindings, or null where none is open. `Key_LookupBinding( "+attack2" )` (tf_hud_target_id.cpp:1034)
+    /// for the target ID's moveable sub-panel — see <see cref="HudState.KeyLookupBinding"/>.
+    /// </param>
+    public static HudState For(
+        DemoTimeline? timeline, int tick, TfWeaponData? scripts = null, AttributeHooks? hooks = null, KeyBindings? bindings = null)
     {
         if (timeline is null)
         {
@@ -54,6 +59,7 @@ public static class HudStates
             LocalIndex = timeline.RecorderEntityIndex ?? 0,
             Players = players,
             Names = Names(timeline),
+            AccountIds = AccountIds(timeline),
 
             // The server's clock, which a timer's end time is on: the last `net_Tick`.
             ServerTime = (timeline.ServerTickAt(tick) ?? tick) * interval,
@@ -61,18 +67,21 @@ public static class HudStates
             RoundTimers = timeline.RoundTimersAt(tick),
             Teams = timeline.TeamsAt(tick),
             Buildings = timeline.BuildingsAt(tick),
-
-            // `IsInTournamentMode()`/`mp_tournament_stopwatch.GetBool()`/`mp_winlimit.GetInt()` —
-            // replicated cvars, so the server's value (or Valve's declared default) rather than
-            // anything this project would otherwise have to take as off.
-            TournamentMode = timeline.ServerConVars.Number("mp_tournament") != 0f,
-            TournamentStopwatch = timeline.ServerConVars.Number("mp_tournament_stopwatch") != 0f,
-            WinLimit = (int)timeline.ServerConVars.Number("mp_winlimit"),
-            TournamentRedTeamName = timeline.ServerConVars.Value("mp_tournament_redteamname") ?? string.Empty,
-            TournamentBlueTeamName = timeline.ServerConVars.Value("mp_tournament_blueteamname") ?? string.Empty,
+            IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
+
+            // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).
+            ConVars = new HudConVars(timeline.ServerConVars.Value),
+            KeyLookupBinding = bindings is null ? null : command => KeyLookupBinding(bindings, command),
         };
     }
+
+    /// <summary>
+    /// `engine->Key_LookupBinding( command )` over the viewer's own table (D101): the key bound to the command, or null
+    /// when the command is not one the viewer names or nothing is bound to it.
+    /// </summary>
+    private static string? KeyLookupBinding(KeyBindings bindings, string command) =>
+        KeyBindings.ActionOf(command) is { } action && bindings.KeyFor(action) is { Length: > 0 } key ? key : null;
 
     /// <summary>`GetPlayerName` by entity index: the `userinfo` name of whoever last held the slot.</summary>
     /// <remarks>
@@ -89,6 +98,20 @@ public static class HudStates
         }
 
         return names;
+    }
+
+    /// <summary>Each slot's `userinfo` `friendsID`, which `C_BasePlayer::GetSteamID` (c_baseplayer.cpp:2878) makes an account ID from.</summary>
+    /// <remarks>**Interpolated** as <see cref="Names"/> is: a slot held in turn answers with the later player throughout.</remarks>
+    private static Dictionary<int, uint> AccountIds(DemoTimeline timeline)
+    {
+        Dictionary<int, uint> accounts = [];
+
+        foreach (Core.Net.PlayerInfo player in timeline.Roster.Values)
+        {
+            accounts[player.EntityIndex] = player.FriendsId;
+        }
+
+        return accounts;
     }
 
     /// <summary>The state for a local player at a tick.</summary>

@@ -821,6 +821,76 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ReapplyCamera();
     }
 
+    /// <summary>
+    /// One vgui panel's 3D paint — `CPotteryWheelPanel::Paint` (matsys_controls/potterywheelpanel.cpp:842) between
+    /// `Begin3DPaint` and `End3DPaint` — drawn at its place in the HUD's paint order.
+    /// </summary>
+    /// <param name="draw">The panel's rectangle, camera and models.</param>
+    /// <remarks>
+    /// `Begin3DPaint` (vguimatsurface `CMatSystemSurface_Begin3DPaint`, 0x180008db0) sets the viewport to the whole panel,
+    /// unclipped; `CPotteryWheelPanel::Paint` then clears depth — colour only for a render texture, which the HUD's panels
+    /// are not (`render_texture` 0) — and draws with its own camera, depth tested. `End3DPaint` puts the HUD's full-screen
+    /// viewport back.
+    /// **Interpolated:** the whole depth buffer is cleared where Source's `ClearBuffers` clears the viewport; nothing after the
+    /// HUD begins reads the world's depth, and every later panel clears its own, so what is drawn is the same.
+    /// </remarks>
+    private void DrawPanelModels(VguiModelDraw draw)
+    {
+        if (_world is null || draw.Wide <= 0 || draw.Tall <= 0)
+        {
+            return;
+        }
+
+        Viewport panel = new(draw.X, draw.Y, draw.Wide, draw.Tall, 0f, 1f);
+
+        _context.RSSetViewports(1, in panel);
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        _world.SetCamera(_device, _context, draw.Camera, _worldCamera?.Colours ?? false, _specular, _fullbright, _debug, _phong);
+        _context.OMSetDepthStencilState(_depthOn, 0);
+
+        foreach (ModelInstance instance in draw.Models)
+        {
+            if (instance.Bones is { Count: > 0 } bones)
+            {
+                _world.SetBones(_context, bones);
+            }
+
+            _world.DrawModel(
+                _context,
+                instance.ModelPath,
+                instance.Matrix,
+                _world.ModelBatches(instance.ModelPath, instance.Frame),
+                instance.Light,
+                instance.Sun,
+                instance.Blend,
+                instance.Bones?.Count ?? 0,
+                instance.SkinSwap,
+                ModelPass.EntireModel,
+                instance.BodyParts,
+                instance.Body,
+                instance.Mirrored,
+                origin: instance.Origin,
+                locals: instance.Locals,
+                overrideMaterial: instance.MaterialOverride,
+                paint: instance.Paint,
+                burn: instance.Burn,
+                urine: instance.Urine);
+        }
+
+        // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
+        // (basemodel_panel.cpp:904-912).
+        _panelParticles.Clear();
+        Drawable(draw.Particles ?? [], _panelParticles);
+        DrawParticleBatches(_panelParticles, draw.Camera);
+
+        // `End3DPaint`: the HUD's own viewport, depth off, and the world's camera constant back for next frame.
+        Viewport whole = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in whole);
+        _context.OMSetDepthStencilState(_depthOff, 0);
+        ReapplyCamera();
+    }
+
     /// <summary>When the viewmodel pass last reported, so it cannot report per frame.</summary>
     private long _viewmodelReportedAt;
 
@@ -1361,7 +1431,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
-        if (vgui is { Quads.Count: > 0 } && _vguiResolve is not null)
+        if (vgui is not null && (vgui.Quads.Count > 0 || vgui.Models.Count > 0) && _vguiResolve is not null)
         {
             Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in vguiViewport);
@@ -1369,7 +1439,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _context.OMSetDepthStencilState(_depthOff, 0);
 
             _vgui ??= VguiRenderer.Create(_device, _context);
-            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height);
+            _vgui.Draw(_device, _context, vgui, _vguiResolve, _width, _height, DrawPanelModels);
 
             // VGUI sets an alpha blend and the world expects none, so it is put back rather than
             // left for whatever draws first next frame to discover.
@@ -1752,7 +1822,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ArgumentNullException.ThrowIfNull(batches);
 
         _particleBatches.Clear();
+        Drawable(batches, _particleBatches);
+    }
 
+    /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
+    private void Drawable(
+        IReadOnlyList<ParticleBatch> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> into)
+    {
         foreach (ParticleBatch batch in batches)
         {
             if (batch.Corners.Count == 0 || batch.Material.Sheet is not { } sheet)
@@ -1769,7 +1846,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 _particleSheets[sheet] = view;
             }
 
-            _particleBatches.Add((view, batch.Material.Blend, batch.Corners));
+            into.Add((view, batch.Material.Blend, batch.Corners));
         }
     }
 
@@ -1783,9 +1860,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **One renderer reused across them**, because the corners are re-uploaded per batch anyway and
     /// a renderer per material would mean a shader and a layout per material for no gain.
     /// </remarks>
-    private void DrawParticleBatches(float[] viewProjection)
+    private void DrawParticleBatches(float[] viewProjection) => DrawParticleBatches(_particleBatches, viewProjection);
+
+    /// <summary>Draws the given batches under one camera — the world's, or a model panel's.</summary>
+    private void DrawParticleBatches(
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> batches,
+        float[] viewProjection)
     {
-        if (_particleBatches.Count == 0)
+        if (batches.Count == 0)
         {
             return;
         }
@@ -1794,7 +1876,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         foreach ((ComPtr<ID3D11ShaderResourceView> sheet,
                   SpriteBlend blend,
-                  IReadOnlyList<DetailSpriteVertex> corners) in _particleBatches)
+                  IReadOnlyList<DetailSpriteVertex> corners) in batches)
         {
             _particleSprites.SetSheet(sheet);
             _particleSprites.SetBlend(blend);
@@ -1807,6 +1889,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>One uploaded texture per particle material, kept for the map's lifetime.</summary>
     private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _particleSheets = [];
+
+    /// <summary>One model panel's batches, reused.</summary>
+    private readonly List<(
+        ComPtr<ID3D11ShaderResourceView> Sheet,
+        SpriteBlend Blend,
+        IReadOnlyList<DetailSpriteVertex> Corners)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(

@@ -244,7 +244,7 @@ public sealed class TfHudScoreboardTests
         // never the server's `m_szTeamname`.
         TfClientScoreBoardDialog dialog = Localized();
 
-        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
+        dialog.UpdateTeamInfo(Teams() with { ConVars = default });
 
         (dialog.DialogVariable("redteamscore"), dialog.DialogVariable("redteamname"), dialog.DialogVariable("redteamplayercount"))
             .ShouldBe(("3", "Red Team", "2 players"));
@@ -280,7 +280,7 @@ public sealed class TfHudScoreboardTests
     {
         TfClientScoreBoardDialog dialog = Localized();
 
-        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false, Rules = new SceneGameRules(true, 0, false) });
+        dialog.UpdateTeamInfo(Teams() with { ConVars = default, Rules = new SceneGameRules(true, 0, false) });
 
         dialog.DialogVariable("redteamname").ShouldBe("Defenders");
     }
@@ -291,7 +291,7 @@ public sealed class TfHudScoreboardTests
         // `if ( !pwzName ) pwzName = L"RED"` (:190-194); a missing count format constructs nothing.
         TfClientScoreBoardDialog dialog = new(null);
 
-        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
+        dialog.UpdateTeamInfo(Teams() with { ConVars = default });
 
         (dialog.DialogVariable("redteamname"), dialog.DialogVariable("blueteamname"), dialog.DialogVariable("redteamplayercount"))
             .ShouldBe(("RED", "BLU", string.Empty));
@@ -302,7 +302,7 @@ public sealed class TfHudScoreboardTests
     {
         TfClientScoreBoardDialog dialog = new(null);
 
-        dialog.UpdateTeamInfo(Teams() with { TournamentMode = false });
+        dialog.UpdateTeamInfo(Teams() with { ConVars = default });
 
         (dialog.RedTeamName.Visible, dialog.BlueTeamName.Visible).ShouldBe((false, false));
     }
@@ -329,9 +329,8 @@ public sealed class TfHudScoreboardTests
 
     private static HudState Teams() => new(true, true, 0, 0, true)
     {
-        TournamentMode = true,
-        TournamentRedTeamName = "Cats",
-        TournamentBlueTeamName = "Dogs",
+        ConVars = TestConVars.Of(
+            ("mp_tournament", "1"), ("mp_tournament_redteamname", "Cats"), ("mp_tournament_blueteamname", "Dogs")),
         Teams =
         [
             new(TfClientScoreBoardDialog.TeamRed) { Score = 3, Name = "SentRed", Players = [1, 2] },

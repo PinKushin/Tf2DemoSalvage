@@ -240,6 +240,29 @@ public static class IvpMapWorld
         return byIndex;
     }
 
+    /// <summary>One model's first solid from the install — what `VPhysicsInitNormal` gives an entity (<see cref="FirstSolid"/>).</summary>
+    /// <param name="model">The model's path.</param>
+    /// <param name="game">The install.</param>
+    /// <param name="log">Where an unreadable collide is reported.</param>
+    /// <returns>The solid, or null when it has none.</returns>
+    public static IvpStaticPropCollide? ModelCollide(string model, GameContent game, ILogger log)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+
+        return FirstSolid(model, file =>
+        {
+            try
+            {
+                return game.Archives.Read(file);
+            }
+            catch (Exception failure) when (failure is IOException or InvalidDataException)
+            {
+                log.LogWarning(failure, "reading {File} for a model's collide", file);
+                return null;
+            }
+        }, log);
+    }
+
     /// <summary>A model's first solid and its first <c>solid</c> block's surface property, or null when it has no collide.</summary>
     /// <remarks>**A `.phy` is a stranger's file (D32)**: one that will not read costs that model its collision, and is reported.</remarks>
     private static IvpStaticPropCollide? FirstSolid(string model, Func<string, byte[]?> read, ILogger log)

@@ -423,6 +423,46 @@ public sealed class ParticleEffects
             Gather(running.Effect, eye, right, up, materials);
         }
 
+        return Batches(materials);
+    }
+
+    /// <summary>
+    /// Builds the quads of effects someone else owns — a model panel's `m_particleList`, rendered by
+    /// `CBaseModelPanel::PostPaint3D` (basemodel_panel.cpp:904-912) — the way <see cref="Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>
+    /// builds this scene's.
+    /// </summary>
+    /// <param name="effects">The effects to draw.</param>
+    /// <param name="eye">Where that camera is.</param>
+    /// <param name="right">That camera's right vector.</param>
+    /// <param name="up">That camera's up vector.</param>
+    /// <param name="materials">Every particle material, by its normalised name.</param>
+    /// <returns>One batch per material, reused between frames.</returns>
+    public IReadOnlyList<ParticleBatch> Build(
+        IEnumerable<ParticleEffect> effects,
+        Vector3 eye,
+        Vector3 right,
+        Vector3 up,
+        IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
+        ArgumentNullException.ThrowIfNull(effects);
+        ArgumentNullException.ThrowIfNull(materials);
+
+        foreach (List<DetailSpriteVertex> corners in _byMaterial.Values)
+        {
+            corners.Clear();
+        }
+
+        foreach (ParticleEffect effect in effects)
+        {
+            Gather(effect, eye, right, up, materials);
+        }
+
+        return Batches(materials);
+    }
+
+    /// <summary>This frame's non-empty material groups as batches.</summary>
+    private List<ParticleBatch> Batches(IReadOnlyDictionary<string, ParticleMaterial> materials)
+    {
         _batches.Clear();
 
         foreach ((string named, List<DetailSpriteVertex> corners) in _byMaterial)

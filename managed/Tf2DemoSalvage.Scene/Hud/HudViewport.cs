@@ -33,11 +33,6 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// world/entity trace (<see cref="Tf2DemoSalvage.Scene.Hud.IdTargetTrace"/>); null when nothing has computed it yet, in
 /// which case <see cref="Tf2DemoSalvage.Scene.Hud.TfMainTargetId"/> treats it as "no target" rather than guessing.</param>
 /// <param name="Teams">Every `CTFTeam`.</param>
-/// <param name="TournamentMode">`TeamplayRoundBasedRules()->IsInTournamentMode()`: `mp_tournament.GetBool()` (teamplayroundbased_gamerules.cpp:3488).</param>
-/// <param name="TournamentStopwatch">`mp_tournament_stopwatch.GetBool()` (tf_gamerules.cpp:797) — stopwatch mode within a tournament match.</param>
-/// <param name="WinLimit">`mp_winlimit.GetInt()` (teamplayroundbased_gamerules.cpp:227): the round counter's own win limit, 0 for none.</param>
-/// <param name="TournamentRedTeamName">`mp_tournament_redteamname` (tf_gamerules.cpp:782): "RED" unless the server set it.</param>
-/// <param name="TournamentBlueTeamName">`mp_tournament_blueteamname` (:783): "BLU" unless the server set it.</param>
 /// <param name="WorldToScreen">
 /// `engine->WorldToScreenMatrix()`: the view's world-to-clip matrix, row-major with the translation in the last row (this
 /// project's convention — <c>FreeCamera.ToMatrix</c>); null where no view is drawn.
@@ -47,6 +42,22 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// Every player slot `CTFClientScoreBoardDialog::UpdatePlayerList` would list, off the player
 /// resource — see <see cref="Tf2DemoSalvage.Core.Scene.SceneScoreboardPlayer"/>.
 /// </param>
+/// <param name="ConVars">
+/// Every console variable the HUD reads, by name — `ConVarRef` / `cvar->FindVar` rather than a field per var. A
+/// replicated var reads the server's value off the demo; one nothing set reads Valve's declared default.
+/// </param>
+/// <param name="KeyLookupBinding">
+/// `engine->Key_LookupBinding( command )` (e.g. tf_hud_target_id.cpp:1034's "+attack2"): the key bound to a command in
+/// the viewer's own binding table (D101), or null when nothing is bound — shown as no key rather than a guessed one.
+/// Null as a whole where no bindings are open.
+/// </param>
+/// <param name="AccountIds">Each player's `userinfo` `friendsID` by entity index — see <see cref="AccountId"/>.</param>
+/// <param name="IdEntities">Every dropped weapon and revive marker — `cl_entitylist` for the target ID's generic branch.</param>
+/// <param name="WeaponPickupTraceHit">
+/// What `GetDroppedWeaponInRange`'s trace stops on (tf_player_shared.cpp:14761): `TF_WEAPON_PICKUP_RANGE` from the local
+/// eye, `MASK_SOLID | CONTENTS_DEBRIS` — precomputed by whoever runs the ID trace, null when nothing was hit or run.
+/// </param>
+/// <param name="EyePosition">The local player's `EyePosition()`, or null where no first-person eye is known.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -75,15 +86,40 @@ public readonly record struct HudState(
     IReadOnlyList<Core.Scene.SceneRoundTimer>? RoundTimers = null,
     int? IdTarget = null,
     IReadOnlyList<Core.Scene.SceneTeam>? Teams = null,
-    bool TournamentMode = false,
-    bool TournamentStopwatch = false,
-    int WinLimit = 0,
     IReadOnlyList<Core.Scene.SceneBuilding>? Buildings = null,
     IReadOnlyList<Core.Scene.SceneScoreboardPlayer>? ScoreboardPlayers = null,
     float[]? WorldToScreen = null,
-    string TournamentRedTeamName = "RED",
-    string TournamentBlueTeamName = "BLU")
+    HudConVars ConVars = default,
+    Func<string, string?>? KeyLookupBinding = null,
+    IReadOnlyDictionary<int, uint>? AccountIds = null,
+    IReadOnlyList<Core.Scene.SceneIdEntity>? IdEntities = null,
+    int? WeaponPickupTraceHit = null,
+    (float X, float Y, float Z)? EyePosition = null)
 {
+    /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The entity.</returns>
+    public Core.Scene.SceneIdEntity? IdEntity(int index)
+    {
+        foreach (Core.Scene.SceneIdEntity entity in IdEntities ?? [])
+        {
+            if (entity.EntityIndex == index)
+            {
+                return entity;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// `C_BasePlayer::GetSteamID( &amp;id ).GetAccountID()` (c_baseplayer.cpp:2878) by entity index: the `userinfo` `friendsID`,
+    /// and 0 — the default `CSteamID`'s account — where there is none or it is 0, as `GetSteamID` then fails.
+    /// </summary>
+    /// <param name="index">The entity index.</param>
+    /// <returns>The account ID.</returns>
+    public uint AccountId(int index) => AccountIds?.GetValueOrDefault(index) ?? 0u;
+
     /// <summary>`cl_entitylist->GetEnt` for a building: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
     public Core.Scene.SceneBuilding? Building(int index)
@@ -305,6 +341,24 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( player, value, name )`: a player's attributes applied to a value; null where no schema is open.</summary>
     public Func<Core.Scene.ScenePlayer, string, float, float>? PlayerAttribute { get; set; }
 
+    /// <summary>
+    /// `CALL_ATTRIB_HOOK_FLOAT( value, name )` on one of the player's weapons — `AttributeHooks.OnWeapon`; null where no
+    /// schema is open.
+    /// </summary>
+    public Func<Core.Scene.ScenePlayer, Core.Scene.SceneItem, string, float, float>? WeaponAttribute { get; set; }
+
+    /// <summary>`GetItemSchema()`: `items_game.txt`, for an item's per-class slot and rarity color; null where none is open.</summary>
+    public Content.Assets.ItemSchema? Items { get; set; }
+
+    /// <summary>`g_pParticleSystemMgr`'s definitions by name — the map's `.pcf` systems; null before a map loads.</summary>
+    public IReadOnlyDictionary<string, Content.Assets.ParticleSystem>? ParticleSystems { get; set; }
+
+    /// <summary>The particle materials by normalised name; null before a map loads.</summary>
+    public IReadOnlyDictionary<string, ParticleMaterial>? ParticleMaterials { get; set; }
+
+    /// <summary>`GetPlayerClassData( class )->GetModelName()` (tf_playermodelpanel.cpp:225): the class scripts' models; null where no install is open.</summary>
+    public Content.Assets.PlayerClassModels? ClassModels { get; set; }
+
     /// <summary>The weapon and class scripts, for what a weapon's script tells the HUD; null where no install is open.</summary>
     public TfWeaponData? Scripts { get; set; }
 
@@ -349,6 +403,14 @@ public sealed class HudViewport : VguiEditablePanel
     /// <summary>This frame's game state — what an element's `OnThink` reads of the local player and `gpGlobals`.</summary>
     public HudState State { get; private set; }
 
+    /// <summary>The ConVars in force now, before the frame's think: they exist before any `.res` is loaded.</summary>
+    /// <param name="conVars">This frame's ConVars.</param>
+    public void SetConVars(HudConVars conVars) => State = State with { ConVars = conVars };
+
+    /// <summary>The state once this frame's packets are read — what the render stage's thinks and paint see.</summary>
+    /// <param name="state">The state.</param>
+    public void SetState(HudState state) => State = state;
+
     /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
     /// <param name="panel">The panel.</param>
     /// <returns>The viewport.</returns>
@@ -364,6 +426,11 @@ public sealed class HudViewport : VguiEditablePanel
 
         return null;
     }
+
+    /// <summary>The ConVars a panel reads — global in the engine, so any panel's view of them is the viewport's.</summary>
+    /// <param name="panel">The panel.</param>
+    /// <returns>The lookup; the SDK defaults when the panel has no viewport.</returns>
+    public static HudConVars ConVarsOf(VguiPanel panel) => (Of(panel)?.State ?? default).ConVars;
 
     /// <summary>`CHud::Think`: every element's panel shown or hidden by its `ShouldDraw`.</summary>
     /// <param name="state">The game state.</param>
@@ -447,6 +514,24 @@ public sealed class HudViewport : VguiEditablePanel
         }
 
         return !ReferenceEquals(head, element) && head.RenderGroupPriority > element.RenderGroupPriority;
+    }
+
+    /// <summary>
+    /// `gHUD.RemoveHudElement( p ); delete p;` (tf_hud_itemeffectmeter.cpp:95-96): the element leaves the HUD's list, and the
+    /// deleted panel leaves the viewport and its build group.
+    /// </summary>
+    /// <param name="element">The element, parented here.</param>
+    public void RemoveHudElement(VguiPanel element)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        if (element is IHudElement hudElement)
+        {
+            _elements.Remove(hudElement);
+        }
+
+        OwnGroup.PanelRemoved(element);
+        element.SetParent(null);
     }
 
     private static void SetLocalTeam(VguiPanel panel, int team)

@@ -237,6 +237,7 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string DetailFadeCommand = "cl_detailfade";
 
+
     /// <summary>`cl_interp`, default "0.1" (`cdll_bounded_cvars.cpp`).</summary>
     public const string InterpCommand = "cl_interp";
 
@@ -335,24 +336,6 @@ public sealed record ViewerSettings
 
     /// <summary>The convar that swaps the local medic's beam for its `_targeted` variant.</summary>
     public const string HealTargetMarkerCommand = "hud_medichealtargetmarker";
-
-    /// <summary>`hud_deathnotice_time`, default 6 (`hud_basedeathnotice.cpp:31`) — see <see cref="Hud.TfHudDeathNotice.NoticeTime"/>.</summary>
-    public const string HudDeathNoticeTimeCommand = "hud_deathnotice_time";
-
-    /// <summary>`cl_hud_killstreak_display_time`, default 3 — see <see cref="Hud.TfStreakNotice.DisplayTime"/>.</summary>
-    public const string KillStreakDisplayTimeCommand = "cl_hud_killstreak_display_time";
-
-    /// <summary>`cl_hud_killstreak_display_fontsize`, default 0 — see <see cref="Hud.TfStreakNotice.FontSize"/>.</summary>
-    public const string KillStreakDisplayFontSizeCommand = "cl_hud_killstreak_display_fontsize";
-
-    /// <summary>`cl_hud_killstreak_display_alpha`, default 120 — see <see cref="Hud.TfStreakNotice.DisplayAlpha"/>.</summary>
-    public const string KillStreakDisplayAlphaCommand = "cl_hud_killstreak_display_alpha";
-
-    /// <summary>`hud_saytext_time`, default 12 (`hud_basechat.cpp:37`) — see <see cref="Hud.TfHudChat.SayTextTime"/>.</summary>
-    public const string SayTextTimeCommand = "hud_saytext_time";
-
-    /// <summary>`cl_chatfilters`, default 63, every filter on (`hud_basechat.cpp:39`) — see <see cref="Hud.TfHudChat.FilterFlags"/>.</summary>
-    public const string ChatFiltersCommand = "cl_chatfilters";
 
     /// <summary>The narrowest the viewmodel field of view may be — <c>view.cpp:111</c>.</summary>
     /// <remarks>
@@ -707,23 +690,9 @@ public sealed record ViewerSettings
     /// <summary>The crosshair's cvars, at TF2's defaults until a config says otherwise.</summary>
     public CrosshairSettings Crosshair { get; init; } = new();
 
-    /// <summary>`hud_deathnotice_time` — see <see cref="HudDeathNoticeTimeCommand"/>.</summary>
-    public float HudDeathNoticeTime { get; init; } = 6f;
-
-    /// <summary>`cl_hud_killstreak_display_time` — see <see cref="KillStreakDisplayTimeCommand"/>.</summary>
-    public float KillStreakDisplayTime { get; init; } = 3f;
-
-    /// <summary>`cl_hud_killstreak_display_fontsize` — see <see cref="KillStreakDisplayFontSizeCommand"/>.</summary>
-    public int KillStreakDisplayFontSize { get; init; }
-
-    /// <summary>`cl_hud_killstreak_display_alpha` — see <see cref="KillStreakDisplayAlphaCommand"/>.</summary>
-    public int KillStreakDisplayAlpha { get; init; } = 120;
-
-    /// <summary>`hud_saytext_time` — see <see cref="SayTextTimeCommand"/>.</summary>
-    public float SayTextTime { get; init; } = 12f;
-
-    /// <summary>`cl_chatfilters` — see <see cref="ChatFiltersCommand"/>.</summary>
-    public int ChatFilters { get; init; } = 63;
+    /// <summary>Every declared client ConVar this file or a <c>+name value</c> launch option set, as written.</summary>
+    /// <remarks>Read through the HUD's ConVar lookup, which falls back to Valve's default (<c>EngineConVars</c>).</remarks>
+    public ConVarValues ConVars { get; init; } = ConVarValues.None;
 
     /// <summary>`demo_fov_override`, in degrees; zero or less for none.</summary>
     /// <remarks>
@@ -920,36 +889,21 @@ public sealed record ViewerSettings
             },
         };
 
-        // **The kill feed, streak banner and chat cvars, from the user's own config** — read the same way as the
-        // crosshair's above: they belong to the config that set them.
-        if (ReadNumber(values, HudDeathNoticeTimeCommand) is { } deathNoticeTime)
+        // **Every declared client ConVar, kept as written** for the HUD's lookup; a replicated one is the server's.
+        Dictionary<string, string>? conVars = null;
+
+        foreach ((string name, string value) in values)
         {
-            settings = settings with { HudDeathNoticeTime = deathNoticeTime };
+            if (EngineConVars.TryByName(name, out EngineConVar? declared) && !declared.Replicated)
+            {
+                conVars ??= new(settings.ConVars, StringComparer.OrdinalIgnoreCase);
+                conVars[declared.Name] = value;
+            }
         }
 
-        if (ReadNumber(values, KillStreakDisplayTimeCommand) is { } killStreakTime)
+        if (conVars is not null)
         {
-            settings = settings with { KillStreakDisplayTime = killStreakTime };
-        }
-
-        if (Read(values, KillStreakDisplayFontSizeCommand) is { } killStreakFontSize)
-        {
-            settings = settings with { KillStreakDisplayFontSize = killStreakFontSize };
-        }
-
-        if (Read(values, KillStreakDisplayAlphaCommand) is { } killStreakAlpha)
-        {
-            settings = settings with { KillStreakDisplayAlpha = killStreakAlpha };
-        }
-
-        if (ReadNumber(values, SayTextTimeCommand) is { } sayTextTime)
-        {
-            settings = settings with { SayTextTime = sayTextTime };
-        }
-
-        if (Read(values, ChatFiltersCommand) is { } chatFilters)
-        {
-            settings = settings with { ChatFilters = chatFilters };
+            settings = settings with { ConVars = new ConVarValues(conVars) };
         }
 
         // `demo_fov_override` as set, zero included: `GetFOV` clamps it only once it is above zero (`c_baseplayer.cpp:2438`).
@@ -1022,6 +976,7 @@ public sealed record ViewerSettings
         {
             settings = settings with { ThreeDimensionalSky = sky };
         }
+
 
         // **Zero is accepted and negative is not**, which is the same rule the frame rate limit
         // keeps and for the same reason: `low.cfg` ships `cl_detaildist 0` and it means "draw no

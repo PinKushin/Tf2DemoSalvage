@@ -67,15 +67,25 @@ public class VguiEditablePanel : VguiPanel
     /// <summary>`LoadControlSettings( resourceName )`: the file read through the context, `#base` merged.</summary>
     /// <param name="path">The `.res` file.</param>
     /// <param name="context">The scheme, screen and filesystem.</param>
-    /// <remarks>A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found".</remarks>
+    /// <remarks>
+    /// A missing file is an empty one: `BuildGroup::LoadControlSettings` only prints "not found". A file read from disk
+    /// has its `_minmode` keys promoted under `cl_hud_minmode` (BuildGroup.cpp:953-960), for every panel alike.
+    /// </remarks>
     /// <param name="conditions">`pConditions`: the condition blocks to promote, such as `if_match`.</param>
     public void LoadControlSettings(string path, VguiContext context, IReadOnlyList<string>? conditions = null)
     {
         ArgumentNullException.ThrowIfNull(context);
 
         Func<string, byte[]?> read = context.Read ?? (_ => null);
+        byte[]? bytes = read(path);
+        KeyValuesTree resource = KeyValuesTree.Load(bytes ?? [], path, read);
 
-        LoadControlSettings(KeyValuesTree.Load(read(path) ?? [], path, read), context, conditions);
+        if (bytes is not null && HudViewport.ConVarsOf(this).GetBool("cl_hud_minmode"))
+        {
+            resource.ProcessResolutionKeys("_minmode");
+        }
+
+        LoadControlSettings(resource, context, conditions);
     }
 
     /// <summary>`SetDialogVariable( name, const char * )`.</summary>
@@ -151,6 +161,10 @@ public sealed class VguiBuildGroup(VguiEditablePanel parent)
             _panels.Add(panel);
         }
     }
+
+    /// <summary>`PanelRemoved`: a deleted panel leaves the group, so a later `.res` never finds it by name.</summary>
+    /// <param name="panel">The panel.</param>
+    internal void PanelRemoved(VguiPanel panel) => _panels.Remove(panel);
 
     /// <summary>`ApplySettings` (:1234): each block to the first registered panel of its name, else a new control.</summary>
     /// <param name="resource">The blocks.</param>
@@ -237,14 +251,18 @@ public static class VguiControlFactory
         ["Label"] = () => new VguiLabel(null, null),
         ["ImagePanel"] = () => new VguiImagePanel(null, null),
         ["ScalableImagePanel"] = () => new VguiScalableImagePanel(null, null),
+        ["ProgressBar"] = () => new VguiProgressBar(null, null),
+        ["ContinuousProgressBar"] = () => new VguiContinuousProgressBar(null, null),
 
         // client.dll's own, registered by its `DECLARE_BUILD_FACTORY` at load.
         ["CExLabel"] = () => new TfExLabel(null, null),
         ["CTFImagePanel"] = () => new TfImagePanel(null, null),
+        ["CTFClassImage"] = () => new TfClassImage(null, null),
         ["CIconPanel"] = () => new VguiIconPanel(null, null),
         ["CTFProgressBar"] = () => new TfProgressBar(null, null),
         ["CAvatarImagePanel"] = () => new VguiAvatarImagePanel(null, null),
         ["SectionedListPanel"] = () => new VguiSectionedListPanel(null, null),
+        ["CTFParticlePanel"] = () => new TfParticlePanel(null, null),
     };
 
     /// <summary>`InstancePanel`: a new control of that class, or null when none is registered.</summary>

@@ -115,7 +115,7 @@ public sealed class TfHudPlayerHealthConformanceTests
     public void PlayerStatus_IsHiddenByHealthAndDeath()
     {
         HudViewport viewport = new();
-        TfHudPlayerStatus status = new(viewport);
+        TfHudPlayerStatus status = new(viewport, new EntityModelSet());
         HudState alive = new(true, true, 0, 100, true, 125, 185, 1f);
 
         viewport.Think(alive);

@@ -103,7 +103,53 @@ public sealed record EconAttributeWire(
 /// <param name="DefinitionIndex">`m_iItemDefinitionIndex`, or null when unsent.</param>
 /// <param name="Wire">Its networked attribute inputs.</param>
 /// <param name="IsWeapon">Whether it came from `m_hMyWeapons` — `PROVIDER_WEAPON`, which never provides to another weapon.</param>
-public sealed record SceneItem(int EntityIndex, string? ClassName, int? DefinitionIndex, EconAttributeWire Wire, bool IsWeapon);
+public sealed record SceneItem(int EntityIndex, string? ClassName, int? DefinitionIndex, EconAttributeWire Wire, bool IsWeapon)
+{
+    /// <summary>`m_iEntityQuality` (econ_item_view.cpp:188), or null when unsent.</summary>
+    public int? Quality { get; init; }
+
+    /// <summary>`CTFWearable::m_bDisguiseWearable` (tf_item_wearable.cpp:33): worn only while disguised.</summary>
+    public bool IsDisguiseWearable { get; init; }
+
+    /// <summary>
+    /// A pipebomb launcher's (and so a bow's) `m_flChargeBeginTime`, `DT_PipebombLauncherLocalData`
+    /// (tf_weapon_pipebomblauncher.cpp:44) — its owner's alone; 0 when unsent or not charging.
+    /// </summary>
+    public float ChargeBeginTime { get; init; }
+
+    /// <summary>`m_iPrimaryAmmoType` (`DT_LocalWeaponData`, its owner's alone), or null when unsent.</summary>
+    public int? PrimaryAmmoType { get; init; }
+
+    /// <summary>`m_flEffectBarRegenTime` (tf_weaponbase.cpp:180, `DT_LocalTFWeaponData`): when the effect bar is full, server clock.</summary>
+    public float EffectBarRegenTime { get; init; }
+
+    /// <summary>`m_flEnergy` (tf_weaponbase.cpp:219): an energy weapon's charge.</summary>
+    public float Energy { get; init; }
+
+    /// <summary>`m_nKillComboClass` (tf_weaponbase.cpp:223): the class of the last kills in a combo.</summary>
+    public int KillComboClass { get; init; }
+
+    /// <summary>`m_nKillComboCount` (tf_weaponbase.cpp:224): how many kills of that class, 0..3.</summary>
+    public int KillComboCount { get; init; }
+
+    /// <summary>A knife's `m_bKnifeExists` (tf_weapon_knife.cpp:38): false while an icicle has melted.</summary>
+    public bool KnifeExists { get; init; }
+
+    /// <summary>A knife's `m_flKnifeMeltTimestamp` (:40), server clock.</summary>
+    public float KnifeMeltTimestamp { get; init; }
+
+    /// <summary>A knife's `m_flKnifeRegenerateDuration` (:39).</summary>
+    public float KnifeRegenerateDuration { get; init; }
+
+    /// <summary>A charged SMG's `m_flMinicritCharge` (tf_weapon_smg.cpp:42), 0..100.</summary>
+    public float MinicritCharge { get; init; }
+
+    /// <summary>A rocket pack's `m_bEnabled` (tf_weapon_rocketpack.cpp:44): `IsEnabled()`.</summary>
+    public bool RocketPackEnabled { get; init; }
+
+    /// <summary>A powerup bottle's `m_usNumCharges` (tf_item_powerup_bottle.cpp:33): `GetNumCharges()`.</summary>
+    public int NumCharges { get; init; }
+}
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>
 public static class EconAttributes

@@ -152,10 +152,42 @@ public static class EngineConVars
         new("mp_tournament", "0", Replicated: true, Cheat: false),
         new("mp_tournament_stopwatch", "1", Replicated: true, Cheat: false),
         new("mp_winlimit", "0", Replicated: true, Cheat: false),
+        new("mp_timelimit", "0", Replicated: true, Cheat: false), // multiplay_gamerules.cpp:86
 
         // src/game/shared/tf/tf_gamerules.cpp:782-783, which C_TFTeam::UpdateTeamName shows in a tournament.
         new("mp_tournament_redteamname", "RED", Replicated: true, Cheat: false),
         new("mp_tournament_blueteamname", "BLU", Replicated: true, Cheat: false),
+
+        // `GetNextRespawnWave` and `GetRespawnWaveMaxLength` (teamplayroundbased_gamerules.cpp:200,233; c_baseplayer.cpp:112-113,
+        // the non-CSTRIKE branch): what a revive marker's respawn time is built from.
+        new("mp_respawnwavetime", "10.0", Replicated: true, Cheat: false),
+        new("mp_disable_respawn_times", "0", Replicated: true, Cheat: false),
+        new("spec_freeze_time", "4.0", Replicated: true, Cheat: true),
+        new("spec_freeze_traveltime", "0.4", Replicated: true, Cheat: true),
+
+        // `CTFPlayerShared::IsLoser` (tf_player_shared.cpp:127,13656): a cheat that forces every player's loser state.
+        new("tf_always_loser", "0", Replicated: true, Cheat: true),
+
+        // `CTFPlayer::CanPickupBuilding`'s training-mode branch (tf_gamerules.cpp:699-702): server-set, not a player's.
+        new("training_can_pickup_sentry", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_dispenser", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_tele_entrance", "1", Replicated: true, Cheat: false),
+        new("training_can_pickup_tele_exit", "1", Replicated: true, Cheat: false),
+
+        // The HUD's client cvars: the watcher's config sets them, never the demo.
+        new("hud_deathnotice_time", "6", Replicated: false, Cheat: false),                     // tf/hud_basedeathnotice.cpp:31
+        new("hud_saytext_time", "12", Replicated: false, Cheat: false),                        // hud_basechat.cpp:37
+        new("cl_chatfilters", "63", Replicated: false, Cheat: false),                          // hud_basechat.cpp:39
+        new("cl_hud_minmode", "0", Replicated: false, Cheat: false),                           // tf/clientmode_tf.cpp:288
+        new("cl_hud_killstreak_display_time", "3", Replicated: false, Cheat: false),           // tf/tf_hud_deathnotice.cpp:53
+        new("cl_hud_killstreak_display_fontsize", "0", Replicated: false, Cheat: false),       // tf/tf_hud_deathnotice.cpp:54
+        new("cl_hud_killstreak_display_alpha", "120", Replicated: false, Cheat: false),        // tf/tf_hud_deathnotice.cpp:55
+        new("tf_use_match_hud", "1", Replicated: false, Cheat: false),                         // tf/tf_hud_match_status.cpp:33
+        new("tf_hud_show_servertimelimit", "0", Replicated: false, Cheat: false),              // tf/tf_hud_objectivestatus.cpp:42
+        new("cl_hud_playerclass_use_playermodel", "1", Replicated: false, Cheat: false),       // tf/tf_hud_playerstatus.cpp:39
+        new("tf_hud_target_id_disable_floating_health", "0", Replicated: false, Cheat: false), // tf/tf_hud_target_id.cpp:72
+        new("tf_hud_target_id_alpha", "100", Replicated: false, Cheat: false),                 // tf/tf_hud_target_id.cpp:73
+        new("tf_hud_target_id_offset", "0", Replicated: false, Cheat: false),                  // tf/tf_hud_target_id.cpp:74
     ];
 
     private static readonly Dictionary<string, EngineConVar> ByEngineName =
