@@ -252,10 +252,15 @@ gates.
    item effect meters. The meters are ported whole: `TfItemEffectMeterManager`, the cloak meter, every weapon
    specialisation, the rune and item-attribute meters, on `ContinuousProgressBar`. Two readings to know: a demo's
    client never runs the charged SMG's `SecondaryAttack`, so its `m_flMinicritStartTime` stays 0; and the manager's
-   `Update` runs after the HUD think — `CHud::Think` is reached from `HudProcessInput` (hud.cpp:1003) and
-   `ClientThink` from `FRAME_RENDER_START`'s `SimulateEntities` (cdll_client_int.cpp:2005, :2207, :2279); the host's
-   order of those two stages is in the closed engine and not yet read from its disassembly. The attribute meter's
-   re-lookup ticks every 100 ms of real time (`AddTickSignal`, :1661).
+   `Update` runs in the render stage. The host frame, read in the x64 `engine.dll` (`tf2enginex64`, functions renamed
+   there, D174): `_Host_RunFrame` 0x1801a4570 calls `_Host_RunFrame_Input` 0x1801a5b90, whose `ClientDLL_ProcessInput`
+   0x18006ed60 calls `IBaseClientDLL` slot 10, `HudProcessInput`, and so `CHud::Think` (hud.cpp:1003); then
+   `_Host_RunFrame_Client` 0x1801a5860, whose `CL_ReadPackets` 0x18008d1f0 reads the frame's packets (entity data,
+   game events, user messages); later `_Host_RunFrame_Render` 0x1801a5d30 → `SCR_UpdateScreen` 0x1800e8b40 →
+   `ClientDLL_FrameStageNotify` 0x18006e640 with `FRAME_RENDER_START` (5), whose `SimulateEntities` runs
+   `ClientThink` and the meters' `Update` (cdll_client_int.cpp:2005, :2207, :2279). So `VguiHud.Frame` thinks the
+   HUD on the LAST frame's state, then dispatches the packet-driven events, then updates the meters. The attribute
+   meter's re-lookup ticks every 100 ms of real time (`AddTickSignal`, :1661).
 5. Match-start doors and round sign: done, `VguiModelPanel` (CModelPanel), with the doors' team lists and party names.
    The rank-up message needs the GC's rating cache (tf_rating_data.cpp:22-41), never in a demo. The door slam is
    `TfParticlePanel` (CTFParticlePanel).

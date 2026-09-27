@@ -407,6 +407,10 @@ public sealed class HudViewport : VguiEditablePanel
     /// <param name="conVars">This frame's ConVars.</param>
     public void SetConVars(HudConVars conVars) => State = State with { ConVars = conVars };
 
+    /// <summary>The state once this frame's packets are read — what the render stage's thinks and paint see.</summary>
+    /// <param name="state">The state.</param>
+    public void SetState(HudState state) => State = state;
+
     /// <summary>The viewport a panel sits under, for its `OnThink` to read <see cref="State"/>; null when it has none.</summary>
     /// <param name="panel">The panel.</param>
     /// <returns>The viewport.</returns>
