@@ -901,6 +901,7 @@ public sealed class DemoTimeline
                 Score = team.Integer("DT_Team.m_iScore") ?? 0,
                 RoundsWon = team.Integer("DT_Team.m_iRoundsWon") ?? 0,
                 Name = team.Text("DT_Team.m_szTeamname") ?? string.Empty,
+                Players = team.TeamPlayers(),
             });
         }
 

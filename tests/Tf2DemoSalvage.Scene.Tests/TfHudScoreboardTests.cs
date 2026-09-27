@@ -189,6 +189,59 @@ public sealed class TfHudScoreboardTests
         red.ShouldBe(2);
     }
 
+    [Test]
+    public void UpdateTeamInfo_RedAndBlueTeams_SetsScoreNameAndPluralizedCount()
+    {
+        TfClientScoreBoardDialog dialog = new(null);
+        SceneTeam[] teams =
+        [
+            new(TfClientScoreBoardDialog.TeamRed) { Score = 3, Name = "Red", Players = [1, 2] },
+            new(TfClientScoreBoardDialog.TeamBlue) { Score = 5, Name = "Blue", Players = [3] },
+        ];
+
+        dialog.UpdateTeamInfo(teams, tournamentMode: false, mannVsMachine: false);
+
+        dialog.DialogVariable("redteamscore").ShouldBe("3");
+        dialog.DialogVariable("redteamname").ShouldBe("Red");
+        dialog.DialogVariable("redteamplayercount").ShouldBe("2 players");
+        dialog.DialogVariable("blueteamscore").ShouldBe("5");
+        dialog.DialogVariable("blueteamname").ShouldBe("Blue");
+        dialog.DialogVariable("blueteamplayercount").ShouldBe("1 player");
+    }
+
+    [Test]
+    public void UpdateTeamInfo_NotTournamentMode_HidesBothTeamNameLabels()
+    {
+        TfClientScoreBoardDialog dialog = new(null);
+
+        dialog.UpdateTeamInfo([], tournamentMode: false, mannVsMachine: false);
+
+        dialog.RedTeamName.Visible.ShouldBeFalse();
+        dialog.BlueTeamName.Visible.ShouldBeFalse();
+    }
+
+    [Test]
+    public void UpdateTeamInfo_TournamentModeNotMvm_ShowsBothTeamNameLabels()
+    {
+        TfClientScoreBoardDialog dialog = new(null);
+
+        dialog.UpdateTeamInfo([], tournamentMode: true, mannVsMachine: false);
+
+        dialog.RedTeamName.Visible.ShouldBeTrue();
+        dialog.BlueTeamName.Visible.ShouldBeTrue();
+    }
+
+    [Test]
+    public void UpdateTeamInfo_TournamentModeAndMvm_HidesBothTeamNameLabels()
+    {
+        TfClientScoreBoardDialog dialog = new(null);
+
+        dialog.UpdateTeamInfo([], tournamentMode: true, mannVsMachine: true);
+
+        dialog.RedTeamName.Visible.ShouldBeFalse();
+        dialog.BlueTeamName.Visible.ShouldBeFalse();
+    }
+
     private static Dictionary<string, string> Row(int playerIndex, int score, int connected) => new(System.StringComparer.Ordinal)
     {
         ["playerIndex"] = playerIndex.ToString(System.Globalization.CultureInfo.InvariantCulture),

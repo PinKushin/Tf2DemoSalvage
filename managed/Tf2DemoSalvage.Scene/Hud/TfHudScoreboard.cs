@@ -36,9 +36,10 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// the bot ping icon branch (:1398-1409) is not modelled; ping is always a plain number.
 /// </description></item>
 /// <item><description>
-/// `UpdateTeamInfo`'s team score and name (`C_TFTeam::Get_Score`/`Get_Localized_Name`, :980-1062) — this project
-/// has not decoded a `CTFTeam` entity's own score; only the player counts, which come straight off
-/// <see cref="SceneScoreboardPlayer"/>, are set.
+/// `C_TFTeam::UpdateTeamName`'s tournament-mode name overrides (`c_tf_team.cpp:111` onward) — party-leader and
+/// event-team names need `CTF_PlayerResource::HasPremadeParties`/`GetEventTeamStatus`, neither modelled here, so
+/// <see cref="Core.Scene.SceneTeam.Name"/> (the server's own `m_szTeamname`) is used as-is for `redteamname`/
+/// `blueteamname`, and premade-party leader avatars are not drawn at all.
 /// </description></item>
 /// <item><description>
 /// `m_nExtraSpace` (:907), which widens the name column to fill whatever space avatars and a hidden scrollbar
@@ -92,6 +93,12 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     /// <summary>`m_pPlayerListRed`.</summary>
     public VguiSectionedListPanel PlayerListRed { get; }
 
+    /// <summary>`m_pRedTeamName` (`CExLabel( this, "RedTeamLabel", "" )`, :179).</summary>
+    public TfExLabel RedTeamName { get; }
+
+    /// <summary>`m_pBlueTeamName` (`CExLabel( this, "BlueTeamLabel", "" )`, :180).</summary>
+    public TfExLabel BlueTeamName { get; }
+
     /// <summary>`CTFClientScoreBoardDialog( IViewPort *pViewPort )`: both lists made up front, so the `.res` finds them by name.</summary>
     /// <param name="parent">The parent.</param>
     public TfClientScoreBoardDialog(VguiPanel? parent)
@@ -99,6 +106,8 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
     {
         PlayerListBlue = new VguiSectionedListPanel(this, "BluePlayerList");
         PlayerListRed = new VguiSectionedListPanel(this, "RedPlayerList");
+        RedTeamName = new TfExLabel(this, "RedTeamLabel");
+        BlueTeamName = new TfExLabel(this, "BlueTeamLabel");
     }
 
     /// <inheritdoc/>
@@ -220,6 +229,54 @@ public sealed class TfClientScoreBoardDialog : VguiEditablePanel
 
         return (blue, red);
     }
+
+    /// <summary>
+    /// `UpdateTeamInfo` (:980-1062): `redteamscore`/`blueteamscore`, `redteamname`/`blueteamname`, the pluralized
+    /// `redteamplayercount`/`blueteamplayercount`, and the `m_pRedTeamName`/`m_pBlueTeamName` labels' tournament-mode
+    /// visibility (:1029-1037). Party-leader avatars (:1038-1054) are not modelled — see remarks.
+    /// </summary>
+    /// <param name="teams">Every `CTFTeam` this tick, off <see cref="Core.Scene.SceneTeam"/>.</param>
+    /// <param name="tournamentMode">`mp_tournament.GetBool()`.</param>
+    /// <param name="mannVsMachine">`TFGameRules()->IsMannVsMachineMode()`.</param>
+    public void UpdateTeamInfo(IReadOnlyList<Core.Scene.SceneTeam>? teams, bool tournamentMode, bool mannVsMachine)
+    {
+        foreach (Core.Scene.SceneTeam team in teams ?? [])
+        {
+            (string scoreVar, string countVar, string nameVar) = team.TeamNumber switch
+            {
+                TeamRed => ("redteamscore", "redteamplayercount", "redteamname"),
+                TeamBlue => ("blueteamscore", "blueteamplayercount", "blueteamname"),
+                _ => (string.Empty, string.Empty, string.Empty),
+            };
+
+            if (scoreVar.Length == 0)
+            {
+                continue;
+            }
+
+            int count = team.Players.Count;
+
+            // `#TF_ScoreBoard_Player` for exactly one, else `#TF_ScoreBoard_Players` — both take `%s1` as the count.
+            string format = Find(count == 1 ? "#TF_ScoreBoard_Player" : "#TF_ScoreBoard_Players")
+                ?? (count == 1 ? "%s1 player" : "%s1 players");
+
+            SetDialogVariable(countVar, VguiLocalize.ConstructString(format, IdChars, count.ToString(CultureInfo.InvariantCulture)));
+            SetDialogVariable(scoreVar, team.Score);
+            SetDialogVariable(nameVar, team.Name);
+        }
+
+        bool showTournamentName = tournamentMode && !mannVsMachine;
+
+        RedTeamName.Visible = showTournamentName;
+        BlueTeamName.Visible = showTournamentName;
+    }
+
+    // `ConstructString_safe`'s destination buffer size (:1013) — how many characters a formatted string may reach.
+    private const int IdChars = 1024;
+
+    /// <summary>`g_pVGuiLocalize->Find`: a leading '#' is skipped when there is one.</summary>
+    private string? Find(string token) =>
+        HudViewport.Of(this)?.Context?.Localize?.Invoke(token.StartsWith('#') ? token[1..] : token);
 
     /// <summary>`UpdatePlayerList` (:1244-1641): rebuilds both lists from this tick's scoreboard slots.</summary>
     /// <param name="players">Every scoreboard slot this tick.</param>
