@@ -311,6 +311,42 @@ public sealed class ItemSchema
     /// <summary>The <c>colors</c> section: each definition's <c>color_name</c> (econ_item_schema.cpp:357).</summary>
     private readonly Dictionary<string, string> _colorNames = new(StringComparer.Ordinal);
 
+    /// <summary>`m_vecItemLevelingData`: each `item_levels` block's levels, in file order (econ_item_schema.cpp:6178).</summary>
+    private readonly Dictionary<string, List<(uint Level, uint Score)>> _itemLevels = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>`m_mapKillEaterScoreTypes`' `level_data` by score type (econ_item_schema.cpp:6209).</summary>
+    private readonly Dictionary<uint, string> _killEaterLevelData = [];
+
+    /// <summary>`GetKillEaterScoreTypeLevelingDataName( type )` (econ_item_schema.cpp:6370), or null for an unknown type.</summary>
+    /// <param name="scoreType">The kill eater score type.</param>
+    /// <returns>The `item_levels` block name, or null.</returns>
+    public string? KillEaterLevelingDataName(uint scoreType) => _killEaterLevelData.GetValueOrDefault(scoreType);
+
+    /// <summary>
+    /// `GetItemLevelForScore( block, score )` (econ_item_schema.cpp:6325): the first level whose `score` exceeds
+    /// <paramref name="score"/>, else the last; null for an unknown or empty block.
+    /// </summary>
+    /// <param name="block">The `item_levels` block.</param>
+    /// <param name="score">The score.</param>
+    /// <returns>The level's number, or null.</returns>
+    public uint? ItemLevelForScore(string block, uint score)
+    {
+        if (!_itemLevels.TryGetValue(block, out List<(uint Level, uint Score)>? levels) || levels.Count == 0)
+        {
+            return null;
+        }
+
+        foreach ((uint level, uint required) in levels)
+        {
+            if (score < required)
+            {
+                return level;
+            }
+        }
+
+        return levels[^1].Level;
+    }
+
     private ItemSchema()
     {
     }
@@ -396,6 +432,17 @@ public sealed class ItemSchema
                     sectionChild = key;
                     entry = read.Begin(section, key);
 
+                    // `BInitItemLevels` / `BInitKillEaterScoreTypes` (econ_item_schema.cpp:6185, :6216): true subkeys only.
+                    if (value is null && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase))
+                    {
+                        read._itemLevels[key] = [];
+                    }
+                    else if (value is null && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // `GetString( "level_data", "KillEaterRank" )` (:6226); `atoi` of the name (:6218).
+                        read._killEaterLevelData[unchecked((uint)GetInt(key, 0))] = "KillEaterRank";
+                    }
+
                     // The top-level `attributes` section: each child is one definition, keyed by
                     // its index as text — the same spelling `instancebaseline` entries use.
                     // Stryker disable once : removing TryParse leaves 'index' undeclared in ternary, CS0165
@@ -454,6 +501,26 @@ public sealed class ItemSchema
                     && string.Equals(section, "colors", StringComparison.OrdinalIgnoreCase)
                     && string.Equals(key, "color_name", StringComparison.OrdinalIgnoreCase):
                     read._colorNames[sectionChild] = value;
+                    break;
+
+                // `CItemLevelingDefinition::BInitFromKV` (econ_item_schema.cpp:7096): the level is `atoi` of the name.
+                case 3 when entry is null && value is null
+                    && read._itemLevels.TryGetValue(sectionChild, out List<(uint Level, uint Score)>? levels)
+                    && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase):
+                    levels.Add((unchecked((uint)GetInt(key, 0)), 0u));
+                    break;
+
+                case 4 when entry is null && value is not null
+                    && string.Equals(key, "score", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "item_levels", StringComparison.OrdinalIgnoreCase)
+                    && read._itemLevels.TryGetValue(sectionChild, out List<(uint Level, uint Score)>? scored) && scored.Count > 0:
+                    scored[^1] = (scored[^1].Level, unchecked((uint)GetInt(value, 0)));
+                    break;
+
+                case 3 when entry is null && value is not null
+                    && string.Equals(key, "level_data", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(section, "kill_eater_score_types", StringComparison.OrdinalIgnoreCase):
+                    read._killEaterLevelData[unchecked((uint)GetInt(sectionChild, 0))] = value;
                     break;
 
                 case 3 when entry is not null:

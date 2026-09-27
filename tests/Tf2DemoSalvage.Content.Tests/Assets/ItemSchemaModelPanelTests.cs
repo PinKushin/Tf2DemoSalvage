@@ -90,6 +90,45 @@ public sealed class ItemSchemaModelPanelTests
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
 
+    private const string Levels = """
+        "items_game"
+        {
+            "item_levels"
+            {
+                "KillEaterRank" { "0" { "score" "10" } "1" { "score" "25" } "2" { "score" "45" } }
+                "KillEater_Kills" { "0" { "score" "5" } }
+                "Empty" { }
+            }
+            "kill_eater_score_types"
+            {
+                "0" { "type_name" "Kills" }
+                "7" { "type_name" "Ubers" "level_data" "KillEater_Kills" }
+            }
+        }
+        """;
+
+    [Test]
+    public void ItemLevelForScore_BelowEachThreshold_IsTheFirstLevelNotReached()
+    {
+        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes(Levels));
+
+        schema.ItemLevelForScore("KillEaterRank", 9).ShouldBe(0u);
+        schema.ItemLevelForScore("KillEaterRank", 10).ShouldBe(1u, "score < required, strictly (econ_item_schema.cpp:6336)");
+        schema.ItemLevelForScore("KillEaterRank", 1000).ShouldBe(2u, "past every threshold: the last level (:6340)");
+        schema.ItemLevelForScore("Empty", 1).ShouldBeNull();
+        schema.ItemLevelForScore("Missing", 1).ShouldBeNull();
+    }
+
+    [Test]
+    public void KillEaterLevelingDataName_ByScoreType_IsItsLevelDataOrKillEaterRank()
+    {
+        ItemSchema schema = ItemSchema.Read(Encoding.UTF8.GetBytes(Levels));
+
+        schema.KillEaterLevelingDataName(0).ShouldBe("KillEaterRank", "GetString( \"level_data\", \"KillEaterRank\" ) (:6226)");
+        schema.KillEaterLevelingDataName(7).ShouldBe("KillEater_Kills");
+        schema.KillEaterLevelingDataName(3).ShouldBeNull();
+    }
+
     [Test]
     public void AnimSlot_FromTheWeaponTypeTable_IsItsIndex()
     {

@@ -57,13 +57,43 @@ public sealed record TfItemView(int DefinitionIndex, int Quality, IReadOnlyDicti
     }
 
     /// <summary>
-    /// `GetItemStyle()` (econ_item_view.cpp:731): `item style override` first. **Partly ported:** `style changes on
-    /// strange level` (:747-776) needs `item_levels`, which the schema does not read yet; the SOC branch (:779) reads an
-    /// inventory the viewer subscribes to (:853), and a demo has none.
+    /// `GetItemStyle()` (econ_item_view.cpp:731): `item style override`, then `style changes on strange level` — the
+    /// `kill eater` score's level in its score type's `item_levels` block, capped at the attribute (:747-776). The SOC
+    /// branch (:779) reads an inventory the viewer subscribes to (:853), and a demo has none.
     /// </summary>
     /// <param name="schema">The schema.</param>
     /// <returns>The style, or null for <c>INVALID_STYLE_INDEX</c>.</returns>
-    public int? Style(ItemSchema schema) => Attribute(schema, "item style override") is { } style ? (int)style.Value : null;
+    public int? Style(ItemSchema schema)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+
+        // `style_index_t` is a uint8: the float truncates into it.
+        if (Attribute(schema, "item style override") is { } style)
+        {
+            return (byte)style.Value;
+        }
+
+        // `FindAttribute( pAttr, &uint32 )` reads the raw 32 bits.
+        if (Attribute(schema, "style changes on strange level") is not { } maxStyle)
+        {
+            return null;
+        }
+
+        if (Attribute(schema, "kill eater") is not { } score)
+        {
+            return 0;
+        }
+
+        uint scoreType = Attribute(schema, "kill eater score type") is { } type ? (uint)type.Value : 0u;
+        string block = schema.KillEaterLevelingDataName(scoreType) ?? "KillEaterRank";
+
+        if (schema.ItemLevelForScore(block, unchecked((uint)score.RawBits)) is not { } level)
+        {
+            return 0;
+        }
+
+        return (byte)Math.Min(level, unchecked((uint)maxStyle.RawBits));
+    }
 }
 
 /// <summary>
