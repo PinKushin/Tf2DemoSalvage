@@ -738,6 +738,16 @@ internal static class SyntheticPlayer
         params (int EntityIndex, IReadOnlyDictionary<string, PropertyValue> Values)[] players) =>
         Demo(origin, tick, serverTick: null, players);
 
+    /// <summary>A demo whose one packet at tick 10 carries these messages, after the usual signon.</summary>
+    /// <param name="messages">The messages.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithMessages(params INetMessage[] messages) =>
+        SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(Schema()),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 10, messages));
+
     /// <summary>A demo whose snapshot follows a `net_Tick` naming the server's own tick.</summary>
     /// <param name="tick">The demo's tick for the snapshot.</param>
     /// <param name="serverTick">`gpGlobals->tickcount` on the recording server.</param>
