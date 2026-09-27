@@ -48,10 +48,28 @@ public sealed class IdTargetTracesTests
         hit.Entity.ShouldBe(3);
     }
 
-    private static IdTargetTraces Traces(float worldFraction, System.Func<int, float?>? hitboxes = null) =>
+    [Test]
+    public void Solid_ABuildingBeforeThePlayers_HitsItsBox()
+    {
+        // A sentry's SOLID_BBOX, x 50..70: `CONTENTS_SOLID`, which both masks stop on.
+        IdTraceHit hit = Traces(worldFraction: 1f, withSentry: true).Solid(Start, End, 0);
+
+        (hit.Entity, hit.IsPlayer, hit.Team, hit.DidHitNonWorldEntity).ShouldBe((55, false, 2, true));
+    }
+
+    [Test]
+    public void Shot_ABuildingBeforeThePlayers_HitsItsBoxToo() =>
+        Traces(worldFraction: 1f, withSentry: true).Shot(Start, End, 0).Entity.ShouldBe(55);
+
+    [Test]
+    public void Solid_ABuildingAboveTheRay_IsMissed() =>
+        Traces(worldFraction: 1f, withSentry: true, sentryBottom: 50f).Solid(Start, End, 0).Entity.ShouldBe(2);
+
+    private static IdTargetTraces Traces(float worldFraction, System.Func<int, float?>? hitboxes = null, bool withSentry = false, float sentryBottom = 0f) =>
         new(
             [new BulletTarget(2, new Vector3(100f, 0f, 0f), false), new BulletTarget(3, new Vector3(200f, 0f, 0f), false)],
             new Dictionary<int, int> { [2] = 3, [3] = 2 },
             (_, _) => worldFraction,
-            (entity, _, _) => hitboxes?.Invoke(entity) ?? (entity == 2 ? 0.09f : 0.19f));
+            (entity, _, _) => hitboxes?.Invoke(entity) ?? (entity == 2 ? 0.09f : 0.19f),
+            withSentry ? [new IdTargetBox(55, 2, new Vector3(50f, -20f, sentryBottom), new Vector3(70f, 20f, 66f))] : null);
 }

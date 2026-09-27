@@ -34,6 +34,10 @@ public sealed class SceneBuildingTests
             DispenserAmmoMetal = null,
             TeleporterState = null,
             Position = (128.5f, -64.25f, 32.75f),
+            Mins = (-20f, -20f, 0f),
+            Maxs = (20f, 20f, 66f),
+            SolidType = 2,
+            SolidFlags = 4,
         });
     }
 }

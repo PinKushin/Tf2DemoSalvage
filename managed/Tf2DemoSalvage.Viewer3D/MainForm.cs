@@ -6376,11 +6376,27 @@ internal class MainForm : Form, IFrameSteps
             }
         }
 
+        // A standing building's `SOLID_BBOX`: its origin plus the networked collision box; a blueprint is `FSOLID_NOT_SOLID`.
+        List<IdTargetBox> boxes = [];
+
+        foreach (Core.Scene.SceneBuilding building in timeline.BuildingsAt(tick))
+        {
+            if (building is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
+            {
+                boxes.Add(new IdTargetBox(
+                    building.EntityIndex,
+                    building.Team ?? 0,
+                    new Vector3(at.X + mins.X, at.Y + mins.Y, at.Z + mins.Z),
+                    new Vector3(at.X + maxs.X, at.Y + maxs.Y, at.Z + maxs.Z)));
+            }
+        }
+
         IdTargetTraces traces = new(
             targets,
             teams,
             (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
-            HitboxesOrUntested);
+            HitboxesOrUntested,
+            boxes);
         (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
 
         return IdTargetTrace.GetIdTarget(

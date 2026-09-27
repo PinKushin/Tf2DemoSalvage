@@ -878,6 +878,10 @@ public sealed class DemoTimeline
                 TeleporterState = building.Integer("DT_ObjectTeleporter.m_iState"),
                 TeleporterRechargeTime = building.Number("DT_ObjectTeleporter.m_flRechargeTime"),
                 TeleporterRechargeDuration = building.Number("DT_ObjectTeleporter.m_flCurrentRechargeDuration"),
+                Mins = building.Vector("DT_CollisionProperty.m_vecMins"),
+                Maxs = building.Vector("DT_CollisionProperty.m_vecMaxs"),
+                SolidType = building.Integer("DT_CollisionProperty.m_nSolidType") ?? 0,
+                SolidFlags = building.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0,
                 Position = building.Origin(),
             });
         }

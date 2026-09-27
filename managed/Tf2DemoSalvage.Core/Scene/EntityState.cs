@@ -2521,6 +2521,12 @@ public sealed class EntityState
     /// </remarks>
     public int? RagdollForceBone() => Integer($"{RagdollTable}.m_nForceBone");
 
+    /// <summary>A whole three-component vector property, or null when this entity sent none of that shape.</summary>
+    /// <param name="key">The flattened property name.</param>
+    /// <returns>The vector.</returns>
+    public (float X, float Y, float Z)? Vector(string key) =>
+        _properties.TryGetValue(key, out PropertyValue at) && at.Kind == PropertyValueKind.Vector ? at.AsVector : null;
+
     /// <summary>One of the corpse table's vectors, in whichever shape its era sent.</summary>
     /// <param name="name">The property name on <c>DT_TFRagdoll</c>.</param>
     /// <returns>The vector, or null when this entity sent none.</returns>

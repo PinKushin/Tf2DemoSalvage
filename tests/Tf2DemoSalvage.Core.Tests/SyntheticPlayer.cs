@@ -855,8 +855,12 @@ internal static class SyntheticPlayer
                     UnsignedInt("m_iUpgradeMetalRequired", bits: 10), UnsignedInt("m_iObjectMode", bits: 2),
                     UnsignedInt("m_bDisposableBuilding", bits: 1), NoScaleFloat("m_flPercentageConstructed"),
                     VectorXy("m_vecOrigin", bits: 32), Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
-                    Table("baseclass", "DT_BaseEntity"),
+                    Table("baseclass", "DT_BaseEntity"), Table("m_Collision", "DT_CollisionProperty"),
                 ]),
+            new SendTable("DT_CollisionProperty", NeedsDecoder: true,
+            [
+                NoScaleVector("m_vecMins"), NoScaleVector("m_vecMaxs"), UnsignedInt("m_nSolidType", bits: 3), UnsignedInt("m_usSolidFlags", bits: 10),
+            ]),
             new SendTable(
                 "DT_ObjectSentrygun",
                 NeedsDecoder: true,
@@ -905,6 +909,10 @@ internal static class SyntheticPlayer
                 ["m_vecOrigin[2]"] = PropertyValue.FromFloat(32.75f),
                 ["m_iAmmoShells"] = PropertyValue.FromInt(140),
                 ["m_iAmmoRockets"] = PropertyValue.FromInt(6),
+                ["m_vecMins"] = PropertyValue.FromVector(-20f, -20f, 0f),
+                ["m_vecMaxs"] = PropertyValue.FromVector(20f, 20f, 66f),
+                ["m_nSolidType"] = PropertyValue.FromInt(2), // SOLID_BBOX
+                ["m_usSolidFlags"] = PropertyValue.FromInt(4), // FSOLID_NOT_SOLID
             }),
         ];
 
@@ -1987,6 +1995,10 @@ internal static class SyntheticPlayer
     // `SendPropTime` is `SPROP_NOSCALE` (1 << 2): the float's 32 bits as they are.
     private static SendProperty NoScaleFloat(string name) =>
         new(SendPropType.Float, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
+
+    // `SendPropVector` with `SPROP_NOSCALE`: three 32-bit floats as they are.
+    private static SendProperty NoScaleVector(string name) =>
+        new(SendPropType.Vector, name, 1 << 2, string.Empty, 0f, 0f, 32, 0);
 
     private static SendProperty VectorXy(string name, int bits) =>
         new(SendPropType.VectorXY, name, 0, string.Empty, -16384f, 16384f, bits, 0);

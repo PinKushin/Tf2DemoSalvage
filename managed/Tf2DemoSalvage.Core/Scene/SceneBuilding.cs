@@ -92,6 +92,21 @@ public readonly record struct SceneBuilding(int EntityIndex)
     /// <summary>`DT_ObjectTeleporter.m_flCurrentRechargeDuration` (:52); null for anything but a teleporter.</summary>
     public float? TeleporterRechargeDuration { get; init; }
 
+    /// <summary>`m_Collision.m_vecMins`: the bounding box `UTIL_SetSize` set (e.g. tf_obj_sentrygun.cpp:2149), origin-relative.</summary>
+    public (float X, float Y, float Z)? Mins { get; init; }
+
+    /// <summary>`m_Collision.m_vecMaxs`.</summary>
+    public (float X, float Y, float Z)? Maxs { get; init; }
+
+    /// <summary>`m_Collision.m_nSolidType` (collisionproperty.cpp:388): `SOLID_BBOX` 2 for a standing building, 0 unsent.</summary>
+    public int SolidType { get; init; }
+
+    /// <summary>`m_Collision.m_usSolidFlags` (:389): `FSOLID_NOT_SOLID` (4) while a blueprint is placed (tf_obj.cpp:881).</summary>
+    public int SolidFlags { get; init; }
+
+    /// <summary>Whether a trace can stop on it: some solid type, and not `FSOLID_NOT_SOLID`.</summary>
+    public bool IsSolid => SolidType != 0 && (SolidFlags & 4) == 0;
+
     /// <summary>The world position, when the entity has sent one.</summary>
     public (float X, float Y, float Z)? Position { get; init; }
 }

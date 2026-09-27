@@ -57,7 +57,9 @@ public sealed class BuildingProbe : IProbe
                     $"health {building.Health}/{building.MaxHealth} level {building.UpgradeLevel} metal {building.UpgradeMetal}/{building.UpgradeMetalRequired} " +
                     $"building {building.Building} placing {building.Placing} carried {building.Carried} mini {building.MiniBuilding} " +
                     $"sapped {building.Sapped} disabled {building.Disabled} pct {building.PercentageConstructed:0.##} " +
-                    $"shells {building.SentryAmmoShells} rockets {building.SentryAmmoRockets} metalammo {building.DispenserAmmoMetal} teleport {building.TeleporterState}");
+                    $"shells {building.SentryAmmoShells} rockets {building.SentryAmmoRockets} metalammo {building.DispenserAmmoMetal} teleport {building.TeleporterState} " +
+                    $"recharge {building.TeleporterRechargeTime:0.##}/{building.TeleporterRechargeDuration:0.##} box {building.Mins}..{building.Maxs} " +
+                    $"solid {building.SolidType}/{building.SolidFlags}");
 
                 if (last.TryGetValue(building.EntityIndex, out string? previous) && previous == state)
                 {
