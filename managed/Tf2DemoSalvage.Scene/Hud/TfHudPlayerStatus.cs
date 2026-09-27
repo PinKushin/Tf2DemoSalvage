@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Hud;
 
@@ -43,12 +46,86 @@ public sealed class TfHealthPanel(VguiPanel? parent, string? name) : VguiPanel(p
 /// health, grows the bonus image with overheal or with health under `HealthDeathWarning` of the maximum (then tinted
 /// `HealthDeathWarningColor`, as is the cross), and sets `Health` and `MaxHealth` — the maximum only when at least 5 is
 /// missing. Entering overheal starts `HudHealthBonusPulse`, entering the warning `HudHealthDyingPulse`, each stopping the
-/// other; hiding the glow stops both. **Not modelled yet:** the condition icons (every one is hidden each think until
-/// conditions are read), the Halloween wheel and the player level.
+/// other; hiding the glow stops both. `OnThink` (:942) then turns the condition icons back on: `CTFBuffInfo::Update`
+/// and the vaccinator/soldier-buff/rune/parachute table (`m_vecBuffInfo`, :663–688) each cycle's first active buff of
+/// its class, then the six bleed/debuff panels by `SetPlayerHealthImagePanelVisibility` (:909). **Not modelled:** the
+/// Halloween wheel of doom (`UpdateHalloweenStatus`, :1013 — no `TFGameRules()` in this reader) and the player level
+/// (no source in the decoded state yet).
 /// </remarks>
 public class TfHudPlayerHealth : VguiEditablePanel
 {
     private const string ResFile = "resource/UI/HudPlayerHealth.res";
+
+    /// <summary>`TF_TEAM_BLUE` (tf_shareddefs.h), against `HudState.Team`.</summary>
+    private const int TeamBlue = 3;
+
+    // Condition numbers `tf_shareddefs.h` gives that `Core.Scene.PlayerConditions` does not yet name — cited by line so
+    // a later addition there can replace these rather than duplicate them.
+    private const int CondStunned = 15; // :705 — any stun; `m_pSlowedImage` regardless of `iStunFlags`.
+    private const int CondOffenseBuff = 16; // :706
+    private const int CondBleeding = 25; // :715
+    private const int CondDefenseBuff = 26; // :716
+    private const int CondMadMilk = 27; // :717
+    private const int CondRegenOnDamageBuff = 29; // :719
+    private const int CondMarkedForDeath = 30; // :720
+    private const int CondMarkedForDeathSilent = 48; // :738
+    private const int CondMedigunUberBulletResist = 58; // :748
+    private const int CondMedigunUberBlastResist = 59; // :749
+    private const int CondMedigunUberFireResist = 60; // :750
+    private const int CondMedigunSmallBulletResist = 61; // :751
+    private const int CondMedigunSmallBlastResist = 62; // :752
+    private const int CondMedigunSmallFireResist = 63; // :753
+    private const int CondParachuteActive = 80; // :770
+    private const int CondRuneStrength = 90; // :780
+    private const int CondRuneHaste = 91; // :781
+    private const int CondRuneRegen = 92; // :782
+    private const int CondRuneResist = 93; // :783
+    private const int CondRuneVampire = 94; // :784
+    private const int CondRuneReflect = 95; // :785
+    private const int CondRunePrecision = 96; // :786
+    private const int CondRuneAgility = 97; // :787
+    private const int CondGrapplingHookBleeding = 101; // :791
+    private const int CondRuneKnockout = 103; // :793
+    private const int CondRuneKing = 109; // :799
+    private const int CondRunePlague = 110; // :800
+    private const int CondRuneSupernova = 111; // :801
+    private const int CondPasstimePenaltyDebuff = 119; // :809
+    private const int CondGas = 123; // :813
+
+    /// <summary>`m_vecBuffInfo` (:663–688), in construction order — each row a `CTFBuffInfo`.</summary>
+    /// <remarks>
+    /// Index into <see cref="ConditionImages"/> starting at 8 (<c>PlayerStatus_MedicUberBulletResistImage</c>).
+    /// <see cref="BuffClass"/> is `m_eClass`: two rows sharing one class (the vaccinator's uber/small pair) mean only
+    /// the first found active draws — `OnThink`'s `m_vecActiveClasses` skip (:972).
+    /// </remarks>
+    private static readonly BuffInfo[] BuffInfos =
+    [
+        new(CondMedigunUberBulletResist, BuffClass.BulletResist, "../HUD/defense_buff_bullet_blue", "../HUD/defense_buff_bullet_red"),
+        new(CondMedigunUberBlastResist, BuffClass.BlastResist, "../HUD/defense_buff_explosion_blue", "../HUD/defense_buff_explosion_red"),
+        new(CondMedigunUberFireResist, BuffClass.FireResist, "../HUD/defense_buff_fire_blue", "../HUD/defense_buff_fire_red"),
+        new(CondMedigunSmallBulletResist, BuffClass.BulletResist, "../HUD/defense_buff_bullet_blue", "../HUD/defense_buff_bullet_red"),
+        new(CondMedigunSmallBlastResist, BuffClass.BlastResist, "../HUD/defense_buff_explosion_blue", "../HUD/defense_buff_explosion_red"),
+        new(CondMedigunSmallFireResist, BuffClass.FireResist, "../HUD/defense_buff_fire_blue", "../HUD/defense_buff_fire_red"),
+        new(CondOffenseBuff, BuffClass.SoldierOffense, "../Effects/soldier_buff_offense_blue", "../Effects/soldier_buff_offense_red"),
+        new(CondDefenseBuff, BuffClass.SoldierDefense, "../Effects/soldier_buff_defense_blue", "../Effects/soldier_buff_defense_red"),
+        new(CondRegenOnDamageBuff, BuffClass.SoldierHealOnHit, "../Effects/soldier_buff_healonhit_blue", "../Effects/soldier_buff_healonhit_red"),
+        new(CondRuneStrength, BuffClass.RuneStrength, "../Effects/powerup_strength_hud", "../Effects/powerup_strength_hud"),
+        new(CondRuneHaste, BuffClass.RuneHaste, "../Effects/powerup_haste_hud", "../Effects/powerup_haste_hud"),
+        new(CondRuneRegen, BuffClass.RuneRegen, "../Effects/powerup_regen_hud", "../Effects/powerup_regen_hud"),
+        new(CondRuneResist, BuffClass.RuneResist, "../Effects/powerup_resist_hud", "../Effects/powerup_resist_hud"),
+        new(CondRuneVampire, BuffClass.RuneVampire, "../Effects/powerup_vampire_hud", "../Effects/powerup_vampire_hud"),
+        new(CondRuneReflect, BuffClass.RuneReflect, "../Effects/powerup_reflect_hud", "../Effects/powerup_reflect_hud"),
+        new(CondRunePrecision, BuffClass.RunePrecision, "../Effects/powerup_precision_hud", "../Effects/powerup_precision_hud"),
+        new(CondRuneAgility, BuffClass.RuneAgility, "../Effects/powerup_agility_hud", "../Effects/powerup_agility_hud"),
+        new(CondRuneKnockout, BuffClass.RuneKnockout, "../Effects/powerup_knockout_hud", "../Effects/powerup_knockout_hud"),
+        new(CondRuneKing, BuffClass.RuneKing, "../Effects/powerup_king_hud", "../Effects/powerup_king_hud"),
+        new(CondRunePlague, BuffClass.RunePlague, "../Effects/powerup_plague_hud", "../Effects/powerup_plague_hud"),
+        new(CondRuneSupernova, BuffClass.RuneSupernova, "../Effects/powerup_supernova_hud", "../Effects/powerup_supernova_hud"),
+        new(CondParachuteActive, BuffClass.Parachute, "../HUD/hud_parachute_active", "../HUD/hud_parachute_active"),
+    ];
+
+    /// <summary>Where <see cref="BuffInfos"/> starts in <see cref="ConditionImages"/> / <see cref="_conditionImages"/>.</summary>
+    private const int BuffImagesOffset = 8;
 
     // The constructor's (:641–689) condition and buff images, in its order; every one is hidden at each think.
     private static readonly string[] ConditionImages =
@@ -171,10 +248,95 @@ public class TfHudPlayerHealth : VguiEditablePanel
             {
                 image.Visible = false;
             }
+
+            UpdateConditionIcons(state);
         }
 
         _nextThink = state.CurTime + 0.05f;
     }
+
+    /// <summary>The second half of `OnThink` (:962–1004): the buff table, then the six bleed/debuff panels.</summary>
+    /// <param name="state">The state, for <c>Conditions</c>, <c>Team</c> and <c>RealTime</c>.</param>
+    private void UpdateConditionIcons(HudState state)
+    {
+        PlayerConditions cond = state.Conditions;
+        bool blue = state.Team == TeamBlue;
+
+        // `color_offset`/`color_fade` (:952): a 5-step cycle over wall-clock realtime, 0.1 s per step.
+        int colorOffset = (int)(state.RealTime * 10f) % 5;
+        byte colorFade = (byte)(160 + (colorOffset * 10));
+
+        // "just above the health '+'", nudged over 25 (:955–959).
+        int xOffset = HealthImage.X + 25;
+
+        List<BuffClass> activeClasses = [];
+
+        for (int i = 0; i < BuffInfos.Length; i++)
+        {
+            BuffInfo info = BuffInfos[i];
+
+            if (activeClasses.Contains(info.Class))
+            {
+                continue;
+            }
+
+            VguiImagePanel panel = _conditionImages[BuffImagesOffset + i];
+
+            if (cond.Has(info.Condition))
+            {
+                panel.SetImage(blue ? info.BlueImage : info.RedImage);
+            }
+
+            SetVisibility(cond, info.Condition, panel, ref xOffset, (255, 255, 255, colorFade));
+
+            if (panel.Visible)
+            {
+                activeClasses.Add(info.Class);
+            }
+        }
+
+        // The old, non-buff-table panels (:986–1003) — bleeding and its hook variant share a starting X on purpose,
+        // "draw this on top of bleeding" — the hook icon never advances the shared offset.
+        int bloodX = xOffset;
+        SetVisibility(cond, CondBleeding, _conditionImages[0], ref xOffset, (colorFade, 0, 0, 255));
+        SetVisibility(cond, CondGrapplingHookBleeding, _conditionImages[1], ref bloodX, (255, 255, 255, 255));
+        SetVisibility(cond, CondMadMilk, _conditionImages[4], ref xOffset, (colorFade, colorFade, colorFade, 255));
+        SetVisibility(cond, CondMarkedForDeath, _conditionImages[2], ref xOffset, ((byte)(255 - colorFade), (byte)(245 - colorFade), (byte)(245 - colorFade), 255));
+        SetVisibility(cond, CondMarkedForDeathSilent, _conditionImages[3], ref xOffset, ((byte)(125 - colorFade), (byte)(255 - colorFade), (byte)(255 - colorFade), 255));
+
+        // Same target panel as marked-for-death-silent — Valve's own row (:1001), not a typo carried over by accident.
+        SetVisibility(cond, CondPasstimePenaltyDebuff, _conditionImages[3], ref xOffset, ((byte)(125 - colorFade), (byte)(255 - colorFade), (byte)(255 - colorFade), 255));
+        SetVisibility(cond, CondStunned, _conditionImages[6], ref xOffset, (colorFade, colorFade, 0, 255));
+        SetVisibility(cond, CondGas, _conditionImages[5], ref xOffset, (colorFade, colorFade, colorFade, 255));
+    }
+
+    /// <summary>`SetPlayerHealthImagePanelVisibility` (:909): shown, tinted and moved to <paramref name="xOffset"/> only
+    /// the frame it turns on — every panel starts this think already hidden, so this is exactly once per active condition.</summary>
+    private static void SetVisibility(PlayerConditions cond, int condition, VguiImagePanel panel, ref int xOffset, (byte, byte, byte, byte) color)
+    {
+        if (!cond.Has(condition) || panel.Visible)
+        {
+            return;
+        }
+
+        panel.Visible = true;
+        panel.DrawColor = color;
+        panel.X = xOffset;
+        xOffset += 100;
+    }
+
+    /// <summary>`BuffClass_t` (tf_hud_playerstatus.h) — which buffs share a slot, so only the first active one draws.</summary>
+    private enum BuffClass
+    {
+        BulletResist, BlastResist, FireResist,
+        SoldierOffense, SoldierDefense, SoldierHealOnHit,
+        RuneStrength, RuneHaste, RuneRegen, RuneResist, RuneVampire, RuneReflect, RunePrecision, RuneAgility,
+        RuneKnockout, RuneKing, RunePlague, RuneSupernova,
+        Parachute,
+    }
+
+    /// <summary>One `CTFBuffInfo` (:663–688) — a condition, its class, and its team-coloured image pair.</summary>
+    private readonly record struct BuffInfo(int Condition, BuffClass Class, string BlueImage, string RedImage);
 
     /// <summary>`SetHealth` (:736).</summary>
     /// <param name="health">The health.</param>
@@ -312,8 +474,32 @@ public sealed class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHu
 
 /// <summary>`CTFHudPlayerStatus` (tf_hud_playerstatus.cpp:1057): the element `HudPlayerStatus`, holding the health panel.</summary>
 /// <remarks>
-/// Hidden by `HIDEHUD_HEALTH | HIDEHUD_PLAYERDEAD`. **Not modelled yet:** `HudPlayerClass` (the class portrait), and
-/// `ShouldDraw`'s extra refusals — ghost mode, a minigame, the match summary.
+/// Hidden by `HIDEHUD_HEALTH | HIDEHUD_PLAYERDEAD`.
+///
+/// **Not modelled, and why:**
+///
+/// <list type="bullet">
+/// <item><description>
+/// <c>CTFHudPlayerClass</c> (<c>HudPlayerClass</c>, :89–562) — the class portrait. Its 2D path
+/// (<c>m_pClassImage</c>/<c>m_pClassImageBG</c>, team-coloured `../hud/class_&lt;class&gt;&lt;team&gt;` with a
+/// `_cloak`/`_halfcloak` suffix from <c>GetPercentInvisible</c>, and <c>m_pSpyImage</c>/<c>m_pSpyOutlineImage</c> faded
+/// by the <c>localplayer_changedisguise</c> event) is portable and unimplemented here — it is genuinely missing, not
+/// a 3D-panel casualty. <c>m_pPlayerModelPanel</c> (<c>CTFPlayerModelPanel</c>, gated by
+/// <c>cl_hud_playerclass_use_playermodel</c>, on by default) IS the casualty: it renders the player's actual model,
+/// carried weapon and worn cosmetics into a `vgui::Panel`-hosted 3D view (`UpdateModelPanel`, :412), and this project
+/// has no VGUI panel that hosts a 3D render target — the whole reason the 2D class image exists as its fallback is
+/// the convar the engine ships already defaulting away from it. Porting only the 2D path would show it EXCEPT on a
+/// default-configured client, backwards from what a viewer aiming for parity should default to; better to leave the
+/// whole element off and say so than draw a picture nobody with default settings sees.
+/// </description></item>
+/// <item><description>
+/// `ShouldDraw`'s extra refusals (:1087) — `TF_COND_HALLOWEEN_GHOST_MODE`, an active minigame
+/// (`CTFMinigameLogic`), and the match summary. The last has a source already
+/// (<c>HudState.Rules.ShowMatchSummary</c>) but nothing here consumes it — `IHudElement` carries only
+/// <see cref="IHudElement.HiddenBits"/>, no per-tick draw refusal, and adding one is a `HudViewport`/`IHudElement`
+/// change past this element's own scope.
+/// </description></item>
+/// </list>
 /// </remarks>
 public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
 {
