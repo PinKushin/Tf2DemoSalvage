@@ -495,13 +495,6 @@ public sealed class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHu
 /// default-configured client, backwards from what a viewer aiming for parity should default to; better to leave the
 /// whole element off and say so than draw a picture nobody with default settings sees.
 /// </description></item>
-/// <item><description>
-/// `ShouldDraw`'s extra refusals (:1087) — `TF_COND_HALLOWEEN_GHOST_MODE`, an active minigame
-/// (`CTFMinigameLogic`), and the match summary. The last has a source already
-/// (<c>HudState.Rules.ShowMatchSummary</c>) but nothing here consumes it — `IHudElement` carries only
-/// <see cref="IHudElement.HiddenBits"/>, no per-tick draw refusal, and adding one is a `HudViewport`/`IHudElement`
-/// change past this element's own scope.
-/// </description></item>
 /// </list>
 /// </remarks>
 public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
@@ -517,4 +510,16 @@ public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
 
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideHealth | HudVisibility.HidePlayerDead;
+
+    /// <summary>
+    /// `CTFHudPlayerStatus::ShouldDraw` (:1087): not as a Halloween ghost, nor under the match summary, then
+    /// `CHudElement::ShouldDraw`. **Not modelled:** an active minigame (`CTFMinigameLogic`), which is not decoded.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <returns>Whether it draws.</returns>
+    public bool ShouldDraw(HudState state) =>
+        !state.Conditions.Has(ConditionHalloweenGhostMode) && !state.Rules.ShowMatchSummary && HudVisibility.ShouldDraw(state, this);
+
+    /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE` (tf_shareddefs.h:767).</summary>
+    private const int ConditionHalloweenGhostMode = 77;
 }
