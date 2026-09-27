@@ -22,7 +22,7 @@ public sealed class TfPlayerModelPanelConformanceTests
         {
             "items"
             {
-                "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_scattergun.mdl" }
+                "13" { "item_slot" "primary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_scattergun.mdl" "static_attrs" { "weapon_uses_stattrak_module" "models/weapons/c_models/stattrack.mdl" } }
                 "23" { "item_slot" "secondary" "baseitem" "1" "used_by_classes" { "scout" "1" } "model_player" "models/weapons/w_pistol.mdl" }
                 "50"
                 {
@@ -39,6 +39,10 @@ public sealed class TfPlayerModelPanelConformanceTests
                 "261" { "name" "set item tint rgb 2" }
                 "1000" { "name" "player skin override" }
                 "134" { "name" "attach particle effect" }
+                "834" { "name" "paintkit_proto_def_index" "stored_as_integer" "1" }
+                "214" { "name" "kill eater" "stored_as_integer" "1" }
+                "724" { "name" "weapon_stattrak_module_scale" }
+                "2001" { "name" "weapon_uses_stattrak_module" }
             }
             "attribute_controlled_attached_particles" { "cosmetic_unusual_effects" { "13" { "system" "superrare_burning1" } } }
         }
@@ -186,7 +190,7 @@ public sealed class TfPlayerModelPanelConformanceTests
     }
 
     /// <summary>A system that emits every step, drawn as sprites, with no material key — the materials' "" entry.</summary>
-    private static ParticleSystem System(string name) => new(
+    private static ParticleSystem Emitter(string name) => new(
         name,
         [new ParticleFunction("emit_continuously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal) { ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 66d) })],
         [new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal) { ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 1d), ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 1d) })],
@@ -201,7 +205,7 @@ public sealed class TfPlayerModelPanelConformanceTests
 
         foreach (string name in names)
         {
-            systems[name] = System(name);
+            systems[name] = Emitter(name);
         }
 
         panel.ParticleSystems = systems;
@@ -246,6 +250,48 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
 
         panel.ParticleSystemNames[0].ShouldBe("superrare_burning1", "SYSTEM_HEAD: a misc item matches the HEAD row first (:1439)");
+    }
+
+    private const string StatTrak = "models/weapons/c_models/stattrack.mdl";
+
+    [Test]
+    public void RenderStatTrack_AStrangePaintkittedWeapon_DrawsItsModuleScaledOnTheWeapon()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun, StatTrak);
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13,
+            new EconAttributeValue(834, 350),
+            new EconAttributeValue(214, 12),
+            new EconAttributeValue(724, BitConverter.SingleToInt32Bits(0.5f))));
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        // tf_playermodelpanel.cpp:550-616, :1508-1511, :1567-1574: bone-merged onto the weapon, every axis halved.
+        ModelInstance module = System.Linq.Enumerable.Single(surface.Draws.ShouldHaveSingleItem().Models, model => model.ModelPath == StatTrak);
+        module.Bones.ShouldNotBeNull()[0][0].ShouldBe(0.5f, 0.0001f);
+        module.SkinSwap.ShouldBeNull("the fake has no skin table; the skin is the team's (:1276)");
+        panel.StatTrackModel.Skin.ShouldBe(0, "RED (:1276)");
+    }
+
+    [Test]
+    public void RenderStatTrack_ANotStrangeWeapon_DrawsNoModule()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun, StatTrak);
+        GiveParticles(panel);
+
+        panel.SetToPlayerClass(1);
+        panel.AddCarriedItem(Item(13, new EconAttributeValue(834, 350)));
+        panel.HoldItemInSlot(ItemSchema.LoadoutSlotPrimary);
+
+        VguiModelPanelConformanceTests.RecordingModelSurface surface = new();
+        panel.Paint(surface, VguiModelPanelConformanceTests.Context());
+
+        panel.StatTrackModel.Disabled.ShouldBeTrue("quality 6 and no kill eater: not strange (:557-575)");
+        surface.Draws.ShouldHaveSingleItem().Models.ShouldNotContain(model => model.ModelPath == StatTrak);
     }
 
     /// <summary>Models by path with the activities the panel asks for, and bodygroups as radix-16 digits.</summary>

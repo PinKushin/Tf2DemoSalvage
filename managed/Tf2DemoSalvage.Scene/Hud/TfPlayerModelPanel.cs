@@ -386,6 +386,8 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         CurrentSlotIndex = schema.LoadoutSlot(item.DefinitionIndex, CurrentClassIndex);
 
+        UpdateStatTrack(schema, item);
+
         // "update poseparam" (:733).
         IReadOnlyList<(string Name, float Value)> poses = schema.PlayerPoseParametersFor(item.DefinitionIndex, Team);
 
@@ -400,6 +402,60 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         {
             SetPoseParameterByName("r_hand_grip", 0f);
         }
+    }
+
+    /// <summary>`m_StatTrackModel` (tf_playermodelpanel.h:218): disabled until a StatTrak weapon is held.</summary>
+    public VguiMdl StatTrackModel { get; } = new() { Disabled = true };
+
+    /// <summary>`m_flStatTrackScale`.</summary>
+    public float StatTrackScale { get; private set; } = 1f;
+
+    /// <summary>`g_KillEaterAttr`'s score attributes (econ_item_constants.cpp:486-496).</summary>
+    private static readonly string[] KillEaterScores =
+        ["kill eater", "kill eater 2", "kill eater 3", "kill eater user 1", "kill eater user 2", "kill eater user 3"];
+
+    /// <summary>`AE_STRANGE` (econ_item_constants.h).</summary>
+    private const int QualityStrange = 11;
+
+    /// <summary>
+    /// `SwitchHeldItemTo`'s StatTrak half (:550-616): a paintkitted weapon with `weapon_uses_stattrak_module`
+    /// (`GetStattrak`, econ_item_interface.cpp:483), if strange, shows that module, scaled by
+    /// `weapon_stattrak_module_scale`, in `ACT_IDLE`'s place (sequence 1).
+    /// </summary>
+    /// <remarks>
+    /// `IsErrorModel` (:589) is the module failing to load; here an unloaded module simply draws nothing until the cache
+    /// has it, and it is precached with the rest.
+    /// </remarks>
+    private void UpdateStatTrack(ItemSchema schema, TfItemView held)
+    {
+        StatTrackModel.Disabled = true;
+        StatTrackModel.Path = null;
+
+        if (held.Attribute(schema, "paintkit_proto_def_index") is null
+            || schema.DefinitionStringAttribute(held.DefinitionIndex, "weapon_uses_stattrak_module") is not { Length: > 0 } module)
+        {
+            return;
+        }
+
+        bool strange = held.Quality == QualityStrange;
+
+        foreach (string score in KillEaterScores)
+        {
+            strange |= held.Attribute(schema, score) is not null;
+        }
+
+        if (!strange)
+        {
+            return;
+        }
+
+        // `m_flStatTrackScale = (float&)unFloatAsUint32` from `weapon_stattrak_module_scale`, else 1 (:581-586).
+        StatTrackScale = held.Attribute(schema, "weapon_stattrak_module_scale") is { } scale ? scale.Value : 1f;
+
+        StatTrackModel.Path = module;
+        StatTrackModel.Disabled = false;
+        StatTrackModel.Sequence = 1;
+        StatTrackModel.Paint = ItemPaint.Tint(held.Attributes, schema, held.ForceBlueTeam);
     }
 
     /// <summary>`EquipRequiredLoadoutSlot` (:773), reached only from a taunt's forced slot.</summary>
@@ -764,6 +820,12 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         SetSkin(skin);
 
+        // "Set the StatTrack model skin" (:1273-1278).
+        if (!StatTrackModel.Disabled)
+        {
+            StatTrackModel.Skin = Team == TeamRed ? 0 : 1;
+        }
+
         foreach ((string path, TfItemView item) in _dynamicAssetsLoaded)
         {
             SetMDLSkinForTeam(GetMergeMDL(path), GetPreviewItem(item), Team);
@@ -941,7 +1003,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
 
         // `pEconItem` is reassigned every iteration (:1485), so a pass that runs on past an up-to-date match ends on
         // whatever the LAST slot answered — null when that slot has no match.
-        (TfItemView Item, ParticleSlot System)? picked = null;
+        (TfItemView Item, ParticleSlot System, int Position)? picked = null;
 
         for (int index = 0; index < MergeModelSlot.Length; index++)
         {
@@ -953,7 +1015,7 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
                 continue;
             }
 
-            picked = (found, slot);
+            picked = (found, slot, position);
 
             // "this fixes multiple unusual cosmetics with same default loadout to update their particles" (:1491).
             if (_particleSystems[(int)slot] is not { IsUpdateToDate: true })
@@ -962,9 +1024,25 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
             }
         }
 
-        if (picked is { } chosen)
+        if (picked is not { } chosen)
         {
-            UpdateCosmeticParticles(studioHdr, worldMatrix, chosen.System, chosen.Item);
+            return;
+        }
+
+        UpdateCosmeticParticles(studioHdr, worldMatrix, chosen.System, chosen.Item);
+
+        if (CurrentSlotIndex == chosen.Position)
+        {
+            RenderStatTrack(renderContext, mdlHandle);
+        }
+    }
+
+    /// <summary>`RenderStatTrack` (:1539-1581): the module bone-merged onto the weapon, scaled, and drawn.</summary>
+    private void RenderStatTrack(VguiRenderContext renderContext, string weaponPath)
+    {
+        if (!StatTrackModel.Disabled)
+        {
+            DrawBoneMergedOnto(renderContext, StatTrackModel, weaponPath, StatTrackScale);
         }
     }
 
@@ -1188,6 +1266,11 @@ public sealed class TfPlayerModelPanel : VguiBaseModelPanel
         foreach (string path in _pendingLoads)
         {
             yield return path;
+        }
+
+        if (!StatTrackModel.Disabled && StatTrackModel.Path is { } module)
+        {
+            yield return module;
         }
     }
 

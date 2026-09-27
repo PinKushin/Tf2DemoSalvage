@@ -1554,6 +1554,18 @@ public sealed class ItemSchema
         return found;
     }
 
+    /// <summary>
+    /// A STRING attribute an item definition carries (`CAttribute_String`), nearest definition first — such as
+    /// `weapon_uses_stattrak_module` (econ_item_interface.cpp:492). A demo networks attribute values as 32 bits, so a
+    /// string attribute only ever comes from the definition.
+    /// </summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="name">The attribute's name.</param>
+    /// <returns>The value, or null.</returns>
+    public string? DefinitionStringAttribute(int definitionIndex, string name) =>
+        Inherited(definitionIndex, entry => entry.DefinitionAttributes.Find(
+            each => string.Equals(each.Name, name, StringComparison.OrdinalIgnoreCase)).Value);
+
     /// <summary>`CALL_ATTRIB_HOOK_FLOAT` over an item definition's attributes.</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
     /// <param name="attributeClass">The hook's class, such as <c>set_weapon_mode</c>.</param>

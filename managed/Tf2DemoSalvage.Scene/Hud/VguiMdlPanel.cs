@@ -349,6 +349,60 @@ public class VguiMdlPanel : VguiPotteryWheelPanel
         PostPaint3D(renderContext);
     }
 
+    /// <summary>
+    /// <c>CMDL::SetupBonesWithBoneMerge</c> onto an already-drawn merge model, each bone then scaled
+    /// (<c>MatrixScaleBy</c>), and <c>CMDL::Draw</c> — a second-level merge, as
+    /// <c>CTFPlayerModelPanel::RenderStatTrack</c> (tf_playermodelpanel.cpp:1539-1581) draws a StatTrak module on the weapon.
+    /// </summary>
+    /// <param name="renderContext">What is drawn this frame.</param>
+    /// <param name="mdl">The model to draw.</param>
+    /// <param name="parentPath">The drawn merge model it bone-merges onto.</param>
+    /// <param name="scale">The factor every bone matrix's axes are scaled by.</param>
+    /// <returns>Whether it was drawn.</returns>
+    protected bool DrawBoneMergedOnto(VguiRenderContext renderContext, VguiMdl mdl, string parentPath, float scale)
+    {
+        ArgumentNullException.ThrowIfNull(renderContext);
+        ArgumentNullException.ThrowIfNull(mdl);
+
+        if (mdl.Path is not { } path || MdlCache.FindMdl(path) is not { Skinned: { } model } frames
+            || !_entities.TryGetValue(parentPath, out AnimatingEntity? parent))
+        {
+            return false;
+        }
+
+        AnimatingEntity merged = EntityFor(path, model);
+
+        if (merged.Pose is SkeletonPose pose)
+        {
+            pose.Sequence = mdl.Sequence;
+        }
+
+        merged.Follows = parent;
+        merged.SetupBones(FullBoneMask, CycleTime);
+
+        float[][] skinned = new float[merged.Bones.Count][];
+
+        for (int bone = 0; bone < skinned.Length; bone++)
+        {
+            // `MatrixScaleBy( flScale, matrix )`: the three axis columns, not the origin.
+            float[] boneToWorld = merged.Bones.Bone(bone).ToArray();
+
+            for (int row = 0; row < 3; row++)
+            {
+                boneToWorld[(row * 4) + 0] *= scale;
+                boneToWorld[(row * 4) + 1] *= scale;
+                boneToWorld[(row * 4) + 2] *= scale;
+            }
+
+            skinned[bone] = new float[12];
+            StudioBones.Concatenate(boneToWorld, model.Bones[bone].PoseToBone.Span, skinned[bone]);
+        }
+
+        renderContext.Models.Add(Drawn(path, frames, mdl, skinned));
+
+        return true;
+    }
+
     /// <summary><c>virtual void PrePaint3D( IMatRenderContext* )</c> (<c>mdlpanel.h:136</c>): empty here.</summary>
     /// <param name="renderContext">What is drawn this frame so far.</param>
     protected virtual void PrePaint3D(VguiRenderContext renderContext)
