@@ -1260,7 +1260,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
                         burn: instance.Burn,
-                        urine: instance.Urine);
+                        urine: instance.Urine,
+
+                        // A baked static prop's colour mesh (B426).
+                        bakedColours: instance.BakedColours);
 
                     // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
                     // model's decal meshes after its own (B415).
@@ -1367,7 +1370,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
                         burn: instance.Burn,
-                        urine: instance.Urine);
+                        urine: instance.Urine,
+                        bakedColours: instance.BakedColours);
                 }
 
                 WorldRenderer.ResetBlend(_context);

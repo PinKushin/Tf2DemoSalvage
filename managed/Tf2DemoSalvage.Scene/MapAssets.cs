@@ -475,8 +475,11 @@ public sealed class MapAssets
     /// <summary>Each drawn static prop's corners in <see cref="Props"/>, by its index in the map's lump — for its decals (B421).</summary>
     public IReadOnlyDictionary<int, PlacedProp> PlacedProps { get; init; } = new Dictionary<int, PlacedProp>();
 
-    /// <summary>The static props with no baked colours, drawn as models and lit per draw (B426).</summary>
+    /// <summary>Every static prop, drawn as a model (B426, D198).</summary>
     public IReadOnlyList<Core.Scene.SceneProp> StaticModels { get; init; } = [];
+
+    /// <summary>The baked static props' colours per corner, by their model draw's entity index (B426).</summary>
+    public IReadOnlyDictionary<int, float[]> StaticModelColours { get; init; } = new Dictionary<int, float[]>();
 
     /// <summary>
     /// Materials that replace a whole model's own, keyed by their VMT path (B325).
@@ -1315,6 +1318,8 @@ public sealed class MapAssets
         // viewer log looked populated while the half being investigated was silent.
         Dictionary<int, PlacedProp> placedProps = [];
         List<Core.Scene.SceneProp> staticModels = [];
+        Dictionary<int, float[]> staticColours = [];
+        Dictionary<string, PropModels.ModelFrames> staticFrames = new(StringComparer.OrdinalIgnoreCase);
 
         IReadOnlyList<PropVertex> props = PropModels.Load(
             factory.CreateLogger("props"),
@@ -1326,7 +1331,9 @@ public sealed class MapAssets
             refusedLighting,
             lightAt,
             placedProps,
-            staticModels);
+            staticModels,
+            staticColours,
+            staticFrames);
 
         // **Read once and shared, because two consumers ask the same lump different questions.**
         // The 2D sky wants `worldspawn`'s `skyname` and the grass wants its `detailmaterial`;
@@ -1537,6 +1544,14 @@ public sealed class MapAssets
             }
         }
 
+        // **The static props' own models, read once by the prop loader** (B426). The engine loads them at
+        // level load from the lump's model dictionary whatever the demo precaches, and the model draw finds
+        // geometry only here — a static prop whose model the demo never named drew nothing without this.
+        foreach ((string path, PropModels.ModelFrames frames) in staticFrames)
+        {
+            models.TryAdd(path, frames);
+        }
+
         // **The two whole-model overrides, appended after everything that indexes the table** — a
         // corpse's gold and ice, which no map and no model names, so nothing above would ever pull
         // them in (B325).
@@ -1733,6 +1748,7 @@ public sealed class MapAssets
             RefusedPropLighting = refusedLighting,
             PlacedProps = placedProps,
             StaticModels = staticModels,
+            StaticModelColours = staticColours,
             LocalReflections = table.LocalReflections,
             PlacedCubemaps = LoadPlacedCubemaps(assets, map, pak, maximumTextureSize),
             Phong = table.Phong,

@@ -96,6 +96,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // one whose frames were baked. A baked model carries zeroes and is not skinned.
             float3 bones   : TEXCOORD8;
             float3 weights : TEXCOORD9;
+
+            // **A baked static prop's colour mesh, a second stream** (B426) — the engine's per-placement
+            // colour mesh, bound beside the model's shared vertices for `engine.dll` `0x1800f1bd0`'s draw
+            // of a prop with baked colours. Every other draw binds one white element at stride zero, so
+            // this multiplies by one.
+            float3 baked   : TEXCOORD11;
         };
 
         struct VsOut
@@ -707,7 +713,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.uv2 = float2(dot(coordinate, secondTransform0), dot(coordinate, secondTransform1));
             output.luv = input.luv;
             output.a = input.a;
-            output.vc = input.vc;
+            output.vc = input.vc * input.baked;
 
             // The normal is in the model's own space, so it turns with the model. Rotation only:
             // the translation would move a direction, and the scale cancels once it is normalised.
@@ -2175,6 +2181,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 AlignedByteOffset = sizeof(float) * 24,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+
+            // The baked colour stream, slot 1 (B426).
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 11,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                InputSlot = 1,
+                AlignedByteOffset = 0,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -2296,7 +2313,62 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
             _wireframeFor = wireframe,
+            _device = device,
+            _whiteColour = ColourStream(device, [1f, 1f, 1f]),
         };
+    }
+
+    /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>
+    private ComPtr<ID3D11Device> _device;
+
+    /// <summary>One white colour, bound at stride zero on slot 1 for every draw without a colour mesh (B426).</summary>
+    private ComPtr<ID3D11Buffer> _whiteColour;
+
+    /// <summary>Each baked static prop's colour stream, by the colour array it was built from (B426).</summary>
+    private readonly Dictionary<float[], ComPtr<ID3D11Buffer>> _colourStreams = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>An immutable vertex buffer of red, green, blue triples.</summary>
+    private static ComPtr<ID3D11Buffer> ColourStream(ComPtr<ID3D11Device> device, float[] colours)
+    {
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)(colours.Length * sizeof(float)),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        fixed (float* first = colours)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, in initial, ref buffer));
+        }
+
+        return buffer;
+    }
+
+    /// <summary>Binds a colour stream to slot 1: a baked prop's own, or the white element at stride zero.</summary>
+    private void BindColours(ComPtr<ID3D11DeviceContext> context, float[]? colours)
+    {
+        uint offset = 0;
+
+        if (colours is null)
+        {
+            uint none = 0;
+            context.IASetVertexBuffers(1, 1, ref _whiteColour, in none, in offset);
+            return;
+        }
+
+        if (!_colourStreams.TryGetValue(colours, out ComPtr<ID3D11Buffer> stream))
+        {
+            stream = ColourStream(_device, colours);
+            _colourStreams[colours] = stream;
+        }
+
+        uint stride = sizeof(float) * 3;
+        context.IASetVertexBuffers(1, 1, ref stream, in stride, in offset);
     }
 
     /// <summary>Whether every pass draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
@@ -3272,6 +3344,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         context.IASetInputLayout(_layout);
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+
+        // The layout reads slot 1 on every draw; only a baked static prop binds a colour mesh there (B426).
+        BindColours(context, null);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
@@ -5781,6 +5856,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _camera.Dispose();
         _model.Dispose();
         ReleaseModelBuffers();
+        _whiteColour.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
@@ -6009,6 +6085,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         _modelBuffers.Clear();
+
+        // A baked prop's colour stream is per placement of a model, so it goes with the models (B426).
+        foreach (ComPtr<ID3D11Buffer> stream in _colourStreams.Values)
+        {
+            stream.Dispose();
+        }
+
+        _colourStreams.Clear();
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
@@ -6095,6 +6179,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The jarate multiplier for this ENTITY, or null for white (B336). Feeds <c>YellowLevel</c>,
     /// whose result two <c>Equals</c> proxies copy into <c>$color2</c> and <c>$selfillumtint</c>.
     /// </param>
+    /// <param name="bakedColours">
+    /// A baked static prop's colour mesh in the model buffer's order, or null (B426). Bound as a second
+    /// stream and multiplied into the vertex colour; the caller passes no cube and no lamps with it.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -6124,7 +6212,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         string? overrideMaterial = null,
         (float Red, float Green, float Blue)? paint = null,
         float burn = 0f,
-        (float Red, float Green, float Blue)? urine = null)
+        (float Red, float Green, float Blue)? urine = null,
+        float[]? bakedColours = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -6167,6 +6256,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // One bind per model instance, which is what per-model meshes cost and what the engine pays
         // too. It buys the buffer never being rebuilt, which was 200 ms a time.
         context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
+
+        // **A baked static prop's colour mesh beside the shared vertices** (B426, `engine.dll` `0x1800f1bd0`),
+        // unbound again at the end so no later draw reads it.
+        BindColours(context, bakedColours);
 
         SetModel(context, matrix, light, sun, blend, bones, locals);
 
@@ -6649,6 +6742,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} drew NOTHING in the " +
                 $"{pass} pass: {batches.Count} batches offered, {filteredByPass} filtered by the " +
                 $"pass, {filteredByBody} by body {body}");
+        }
+
+        if (bakedColours is not null)
+        {
+            BindColours(context, null);
         }
     }
 

@@ -242,6 +242,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <paramref name="phong"/>: a corpse's gold is applied at the bind, so the only instrument that
     /// can see it working is one that renders with and without it and compares pixels (B325).
     /// </param>
+    /// <param name="bakedColours">A baked static prop's colour mesh, per vertex, or null (B426).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -264,7 +265,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool phong = true,
         bool specular = true,
         (float X, float Y, float Z)? origin = null,
-        string? overrideMaterial = null)
+        string? overrideMaterial = null,
+        float[]? bakedColours = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -314,7 +316,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
-            origin: origin, overrideMaterial: overrideMaterial);
+            origin: origin, overrideMaterial: overrideMaterial, bakedColours: bakedColours);
     }
 
     /// <summary>

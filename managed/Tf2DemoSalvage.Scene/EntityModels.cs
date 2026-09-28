@@ -106,6 +106,9 @@ public readonly record struct FiredAnimationEvent(
 /// Which entity this instance is, or −1 when it was built by hand (B356). A per-model diagnostic
 /// keyed without it cannot tell two of the same model apart.
 /// </param>
+/// <param name="BakedColours">
+/// A baked static prop's colour mesh in its model buffer's order, or null for a model lit per draw (B426).
+/// </param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -223,7 +226,13 @@ public readonly record struct ModelInstance(
     // **−1 rather than 0, because 0 is the worldspawn** and a test or viewmodel that builds an
     // instance by hand must not claim to be it. Anything reading this must treat −1 as "unidentified"
     // rather than grouping every such instance together — the same fault, one value along.
-    int EntityIndex = -1);
+    int EntityIndex = -1,
+
+    // **A baked static prop's colour mesh** (B426): red, green, blue per vertex of the model's buffer, in
+    // the buffer's order, overbright applied. `engine.dll` `0x1800f1bd0` draws a prop with baked colours
+    // with them and with no cube and no local lights. Null for everything else — and null is the switch
+    // B424 needs: a prop whose colours are dropped for a frame is drawn with full lighting instead.
+    float[]? BakedColours = null);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -492,6 +501,76 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </remarks>
     private readonly Dictionary<string, IReadOnlyList<IReadOnlyDictionary<int, int>>> _swaps =
         new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Per packed model, which corner of its geometry each vertex of its buffer is, every frame end to end.</summary>
+    /// <remarks>
+    /// **The buffer groups corners by material, so its order is not the geometry's**, and a per-placement
+    /// colour stream indexed by buffer vertex has to be laid out in this order (B426).
+    /// </remarks>
+    private readonly Dictionary<string, int[]> _packedOrder = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Each baked static prop's colours in its model buffer's order, built once per entity.</summary>
+    private readonly Dictionary<int, float[]?> _bakedByEntity = [];
+
+    /// <summary>
+    /// Each baked static prop's `.vhv` colours, by entity index — red, green, blue per corner of its model's
+    /// geometry, overbright already applied — set when a map is read (B426).
+    /// </summary>
+    /// <remarks>
+    /// `engine.dll` `0x1800f1bd0`: a static prop with baked colours is drawn with its per-placement colour
+    /// mesh and no ambient cube and no local lights. An entity found here draws that way; one that is not
+    /// is lit per draw.
+    /// </remarks>
+    public IReadOnlyDictionary<int, float[]> StaticPropColours
+    {
+        get;
+        set
+        {
+            field = value;
+            _bakedByEntity.Clear();
+        }
+    } = new Dictionary<int, float[]>();
+
+    /// <summary>A baked static prop's colours in its model buffer's order, or null when it has none.</summary>
+    /// <remarks>
+    /// Null also when the colours do not cover the model's corners — a geometry this set packed differently
+    /// from the one the colours were read against — which is refused, said once, and falls to full lighting.
+    /// </remarks>
+    private float[]? BakedColoursOf(SceneProp prop)
+    {
+        if (!StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner))
+        {
+            return null;
+        }
+
+        if (_bakedByEntity.TryGetValue(prop.EntityIndex, out float[]? built))
+        {
+            return built;
+        }
+
+        built = null;
+
+        if (_packedOrder.TryGetValue(prop.ModelPath, out int[]? order) &&
+            _raw.TryGetValue(prop.ModelPath, out IReadOnlyList<PropVertex>? corners) &&
+            byCorner.Length == corners.Count * 3)
+        {
+            built = new float[order.Length * 3];
+
+            for (int at = 0; at < order.Length; at++)
+            {
+                Array.Copy(byCorner, order[at] * 3, built, at * 3, 3);
+            }
+        }
+        else
+        {
+            _render.LogWarning(
+                "{Message}",
+                $"baked colours for {prop.ModelPath} (entity {prop.EntityIndex}) do not cover its packed geometry; lit per draw instead");
+        }
+
+        _bakedByEntity[prop.EntityIndex] = built;
+        return built;
+    }
 
     /// <summary>Where a model's light should be sampled, in world space.</summary>
     private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
@@ -4640,6 +4719,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
         _frames.Clear();
         _swaps.Clear();
         _raw.Clear();
+        _packedOrder.Clear();
+        _bakedByEntity.Clear();
 
         _entities.Clear();
         _entityModels.Clear();
@@ -4735,6 +4816,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
                     _swaps[prop.ModelPath] = families;
                 }
 
+            List<int> order = [];
+
             for (int slot = 0; slot < model.Geometry.Count; slot++)
             {
                 IReadOnlyList<PropVertex> corners = model.Geometry[slot];
@@ -4762,6 +4845,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 Dictionary<(int Material, int Slot, int Part, int Model), List<WorldVertex>>
                     byMaterial = [];
 
+                // Which corner each grouped vertex came from, in the same grouping (B426).
+                Dictionary<(int Material, int Slot, int Part, int Model), List<int>> cornersOf = [];
+
                 for (int index = 0; index < corners.Count; index++)
                 {
                     PropVertex corner = corners[index];
@@ -4778,7 +4864,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
                     {
                         into = [];
                         byMaterial[key] = into;
+                        cornersOf[key] = [];
                     }
+
+                    cornersOf[key].Add(index);
 
                     // **Model space, untouched.** The shader's model matrix places it.
                     //
@@ -4831,6 +4920,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
                         MaterialSlot: group.Key.Slot));
 
                     _vertices.AddRange(group.Value);
+                    order.AddRange(cornersOf[group.Key]);
                 }
 
                 // **Whether the alternatives survived packing, said once per model.** A model whose
@@ -4857,6 +4947,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
 
             }
+
+            _packedOrder[prop.ModelPath] = [.. order];
 
             // **A model's own bounding box, logged for every model.** Whether a model stands up is
             // not answerable from an overhead camera - a squat prop looks the same lying down, so
@@ -5247,6 +5339,17 @@ public sealed class EntityModelSet : Hud.IMdlCache
             SunLight? sun = lit.Sun;
             IReadOnlyList<LocalLight> locals = lit.Locals;
 
+            // **A baked static prop draws its colour mesh and nothing else** (B426): `engine.dll` `0x1800f1bd0`
+            // gives a prop with baked colours no ambient cube and no local lights — the colours ARE its light.
+            float[]? baked = BakedColoursOf(prop);
+
+            if (baked is not null)
+            {
+                light = null;
+                sun = null;
+                locals = [];
+            }
+
             // **The point the cube was sampled at, carried so the RENDERER can choose a cubemap
             // from it** (B170). `ModelLighting.For` already resolved where this model is — via the
             // model's own `illumposition` — and the reflection needs the same answer. Taking it
@@ -5632,7 +5735,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 // `FullyOpaque` and `Normal`, so a cloaked spy drew solid and nothing could fade.
                 Alpha: fx.Blend,
                 RenderMode: prop.Pose.RenderMode,
-                EntityIndex: prop.EntityIndex));
+                EntityIndex: prop.EntityIndex,
+                BakedColours: baked));
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's

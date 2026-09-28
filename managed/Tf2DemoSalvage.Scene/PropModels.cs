@@ -215,6 +215,36 @@ public static class PropModels
             },
             ClassName: "prop_static");
 
+    /// <summary>Hands one placement to the model draw, with its baked colours when it has them (B426).</summary>
+    private static void StaticModelOf(
+        BspStaticProp placement,
+        int index,
+        LoadedModel model,
+        PropLighting lighting,
+        ICollection<SceneProp> drawnAsModels,
+        IDictionary<int, float[]>? bakedColours)
+    {
+        SceneProp prop = StaticModel(placement, index);
+        drawnAsModels.Add(prop);
+
+        if (lighting.Colours is null || bakedColours is null)
+        {
+            return;
+        }
+
+        // Red, green, blue per corner of the model's geometry, through the same lookup the merged world
+        // copies used — the strip group's vertex (`LightingVertex`), the count check and the overbright.
+        float[] colours = new float[model.Corners.Count * 3];
+
+        for (int at = 0; at < model.Corners.Count; at++)
+        {
+            (colours[at * 3], colours[(at * 3) + 1], colours[(at * 3) + 2]) = Colour(
+                lighting.Colours, model.Meshes[at], model.Vertices[at], null, model.Corners[at]);
+        }
+
+        bakedColours.Add(prop.EntityIndex, colours);
+    }
+
     /// <summary>Loads a map's props and places them.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
@@ -235,6 +265,14 @@ public static class PropModels
     /// <param name="drawnAsModels">
     /// When supplied, collects each placement without baked colours as a model draw instead of merging it
     /// into the returned corners (B426).
+    /// </param>
+    /// <param name="bakedColours">
+    /// When supplied, collects each baked placement's colours per corner, keyed by its model draw's entity
+    /// index (B426).
+    /// </param>
+    /// <param name="modelsRead">
+    /// When supplied, collects every model a placement names, read once here, for the model draw to find by
+    /// path (B426) — the engine loads a static prop's model at level load, whatever the demo precaches.
     /// </param>
     /// <param name="props">
     /// Where loading reports what it refused, and what it could not paint. <b>Required, and first,
@@ -282,7 +320,9 @@ public static class PropModels
         ICollection<string>? refusedLighting = null,
         Func<float, float, float, PointLighting>? lightAt = null,
         IDictionary<int, PlacedProp>? placedAt = null,
-        ICollection<SceneProp>? drawnAsModels = null)
+        ICollection<SceneProp>? drawnAsModels = null,
+        IDictionary<int, float[]>? bakedColours = null,
+        IDictionary<string, ModelFrames>? modelsRead = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(pak);
@@ -352,6 +392,11 @@ public static class PropModels
                     props,
                     placement.Model, pak, archives, materialTable, materialIndices, load);
                 loaded[placement.Model] = model;
+
+                if (model is not null)
+                {
+                    modelsRead?.TryAdd(placement.Model, model.Frames);
+                }
             }
 
             if (model is null)
@@ -432,12 +477,12 @@ public static class PropModels
                 placedAt.Add(index, new PlacedProp(shape, transform));
             }
 
-            // **An unbaked prop is a model draw, lit every frame** (B426, D198): `engine.dll` `0x1800f1bd0`
-            // with the handle's cube and local lights from `FUN_1801ba590`. A baked one keeps its `.vhv`
-            // colours below with no cube and no locals, which is what that draw does with colour meshes.
-            if (drawnAsModels is not null && lighting.Colours is null)
+            // **Every static prop is a model draw** (B426, D198): `engine.dll` `0x1800f1bd0`. An unbaked one
+            // is lit every frame with the handle's cube and local lights (`FUN_1801ba590`); a baked one carries
+            // its per-placement colour mesh — the `.vhv` colours per corner — and takes no cube and no locals.
+            if (drawnAsModels is not null)
             {
-                drawnAsModels.Add(StaticModel(placement, index));
+                StaticModelOf(placement, index, model, lighting, drawnAsModels, bakedColours);
                 modelled++;
                 placed++;
                 continue;
