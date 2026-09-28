@@ -8,225 +8,113 @@ metadata:
   modified: 2026-09-09T03:56:11.229Z
 ---
 
-**Owner's rule, stated 2026-08-17: nothing should ever be described as closed and unavailable. It
-is never unavailable.**
+**Owner: nothing should ever be described as closed and unavailable. It is never unavailable.**
 
-**Why:** every time this project has written that something is unknowable, the claim was false and it
-cost a real defect. It is never a neutral note — it is an instruction to future readers to stop
-looking, and they do.
-
-**Four memories were merged into this one on 2026-08-27** — `closed-source-check-the-public-api`,
-`tf2-game-code-is-in-the-sdk`, `shipped-data-is-a-source` and `binaries-answer-what-the-sdk-cannot`.
-Each was a different *place to look*, and having them as separate entries meant the search order was
-never in one piece. Their headings are kept below. **Four more were folded in on 2026-09-04** —
-about the same failure one step earlier, before any search has even started: measuring our own data
-before reading Valve's, re-deriving a denominator the project had already generated, blaming an
-algorithm for a hop nobody measured, and suspecting a correct implementation because the wrong side
-of the comparison was never checked.
+**Why:** every "unknowable" claim made here was false and cost a real defect — it's an instruction to
+future readers to stop looking, and they do.
 
 ## The order to check, and say which one you checked
 
-1. **`source-sdk-2013`** — including `utils/`, which holds the compilers and is where the lighting
-   answers live, and `src/game/*/tf`, which is TF2 itself.
-2. **Its public headers and the callers of the closed part** — `src/public/`, interface
-   declarations, and the call sites in `vbsp`, `vrad`, `stdshaders` and the game DLLs.
-3. **The game's own shipped data** — VMTs, `.res` files, `cvarlist.log`, VPK contents.
-4. **The shipped binaries** — a raw PE scan reads tables no source contains.
-5. **A decompiler**, which the owner considers a normal tool to reach for readily.
+1. `source-sdk-2013` — including `utils/` (compilers, lighting) and `src/game/*/tf` (TF2 itself).
+2. Public headers and callers of the closed part — `src/public/`, interface declarations, call sites
+   in `vbsp`/`vrad`/`stdshaders`/the game DLLs.
+3. The game's own shipped data — VMTs, `.res` files, `cvarlist.log`, VPK contents.
+4. Shipped binaries — a raw PE scan reads tables no source contains.
+5. A decompiler — a normal tool, reach for it readily.
 
-If after that it is genuinely not in hand, write down *what was searched* rather than *that it
-cannot be known*.
+If genuinely not in hand after that, write down what was SEARCHED, not that it cannot be known.
 
-## The four that were wrong
+## Four claims that were wrong, all in this project
 
-- `BspAmbientLight.Nearest` carried *"The engine blends a leaf's samples in `LightcacheGetDynamic`,
-  which is in the closed engine — the weighting is not in `source-sdk-2013` and cannot be
-  transcribed."* The function is `Mod_LeafAmbientColorAtPos`, published in
-  `utils/vrad/leaf_ambient_lighting.cpp`, and it is an inverse-squared-distance weighted average.
-  Nobody had looked. It made one capture point on cp_process draw at 0.10 while its mirror image on
-  a symmetric map drew at 0.39.
-- *"TF2 is closed"* was written in three places and checked in none — see below.
-- `$modblend` was filed as needing a decompiler. It is declared in three shipped VMTs and read by a
-  commented-out proxy — see below.
-- **The sound mixer is genuinely closed and its cvar's MEANING still was not** (2026-08-22). The
-  claim in hand was that `snd_mixahead` is how far ahead the mixer renders. Half right, and the
-  useful half was missing: `game/server/sceneentity.cpp` reads it through a function called
-  `GetSoundSystemLatency()`, with `SOUND_SYSTEM_LATENCY_DEFAULT (0.1f)` as the fallback, to align
-  lipsync with speech that will not be heard for 100 ms. It is a fixed pipeline DELAY the engine
-  schedules around, not a target and not a clamp.
+- Ambient light blending was called "closed engine, cannot be transcribed" — it's published in
+  `utils/vrad/leaf_ambient_lighting.cpp`, an inverse-squared-distance weighted average, unread.
+- "TF2 is closed" was written in three places, checked in none (see below).
+- `$modblend` was filed as needing a decompiler — declared in three shipped VMTs, read by a
+  commented-out proxy (see below).
+- **The sound mixer is genuinely closed and its cvar's MEANING still wasn't found without decompiling**
+  — `snd_mixahead` turned out to be a fixed pipeline DELAY (`GetSoundSystemLatency()`,
+  `sceneentity.cpp`), not a target or clamp — settled by grepping the CALLER of the closed component,
+  no decompiler needed. **When the implementation is closed, grep for its CALLERS.**
 
-**That last one adds a case the rule did not cover: a closed component's behaviour can be documented
-by published code that merely CONSUMES it.** `snd_dma.cpp` is not in the SDK and never will be, so
-"the mixer is closed" was true — and answering the actual question needed no decompiler at all,
-because a game-side caller had to reason about the engine's latency and wrote down what it is. When
-the implementation is closed, grep for its CALLERS.
-
-**The compounding danger is a defensible-sounding substitute.** The nearest-sample comment did not
-merely admit ignorance; it argued that nearest was "a decision this project can defend" and that a
-blend would be "a guess wearing parity's clothes". That reasoning is what kept it in place. Worse,
-nearest is not a coarse approximation of the real answer: vrad's `CompressAmbientSampleList` deletes
-every sample the blend can already predict, so the stored set only reconstructs the original lighting
-when interpolated, and taking the nearest reads back an arbitrary survivor of that thinning.
+**The compounding danger is a defensible-sounding substitute** — a comment arguing a wrong shortcut
+was "a decision this project can defend" is what kept it in place.
 
 ---
 
 ## `closed-source-check-the-public-api` — a black box has a surface
 
-**Hitting a closed-source component in `source-sdk-2013` is not the end of the search.** The
-engine, `materialsystem` and the client are not published, but every one of them is *used* by code
-that is — through headers in `src/public/`, interface declarations, and the call sites in `vbsp`,
-`vrad`, `stdshaders` and the game DLLs.
-
-**Go to the public API first.** What a black box exposes, and what its callers do with it, is
-usually enough to reverse what is needed — because a demo or a BSP only ever exercises that public
-surface anyway. If the private implementation mattered, the file format would not be readable by
-anything but the engine.
-
-The alternative failure is treating "closed" as "unknowable" and falling back to guessing, or to
-copying another implementation's workaround, which imports that implementation's bugs along with its
-behaviour.
-
-**When a grep lands in a closed component, immediately search `src/public/` for the interface, the
-constants, and the callers.** Constants especially:
-`NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`, `m_DepthBias_Decal` and the bump basis were all public
-even though the code consuming them is not. See [[read-the-encoder-not-the-decoder]] and
-[[research-before-code]].
+**Hitting a closed component in `source-sdk-2013` is not the end of the search.** The engine,
+materialsystem, and client are unpublished but USED by published code through `src/public/`
+interfaces and call sites in `vbsp`/`vrad`/`stdshaders`/the game DLLs. Go to the public API first —
+what a black box exposes, and what its callers do, is usually enough. Constants like
+`NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`, `m_DepthBias_Decal`, the bump basis were all public even
+though the consuming code isn't. See [[read-the-encoder-not-the-decoder]], [[research-before-code]].
 
 ---
 
 ## `tf2-game-code-is-in-the-sdk` — 1,318 files nobody had looked for
 
-**`source-sdk-2013` carries TF2's game code.** 1,318 files across `src/game/shared/tf`,
-`src/game/client/tf` and `src/game/server/tf`. Verified 2026-08-16. Concretely:
+**`source-sdk-2013` carries TF2's game code** — 1,318 files across `game/{shared,client,server}/tf`,
+including all 125 HUD sources, `tf_shareddefs.h`'s full condition enum, übercharge material names,
+and 55 files of econ/item schema. This project had recorded the opposite in THREE places, none
+checked.
 
-- **All 125 HUD sources**, `tf_hud_deathnotice.cpp` (the kill feed) among them.
-- **`tf_shareddefs.h`** — the full `TF_COND_*` player-condition enumeration with values
-  (`TF_COND_INVULNERABLE = 5`, `TF_COND_BURNING = 22`, …), and `TF_CLASS_UNDEFINED` /
-  `TF_FIRST_NORMAL_CLASS` at lines 205 and 198.
-- **`c_tf_player.cpp:395,398`** — the übercharge material names, `models/effects/invulnfx_blue.vmt`
-  and `invulnfx_red.vmt`.
-- **`game/shared/econ/`**, 55 files: the item schema, the attribute system, `CEconStyleInfo`,
-  paint-kit definitions, per-team attached models.
-
-**This project had recorded the opposite in three separate places** — `docs/CONFORMANCE.md`, the
-client-system conformance batch and the entity batch — and none of them had checked. One of them
-named a decompiler as the next step for a constant that is an ordinary `#define`.
-
-**The mechanism of the error is the part worth carrying forward.** The search looked in
-`client/replay/`, found a reference with no definition, and concluded the definition existed nowhere.
-**An absence found by a search is a fact about the search.** Third instance of that shape in this
-project — see also the level-name filter in `docs/findings/24-reference-capture.md` and the "Econ"
-substring count that briefly reported 405 matches inside words like "second".
-
-**The cost is invisible, which is why it lasted.** Nothing was blocked; work was just deferred as
-expensive when it was cheap. Anything else previously waved off with "TF2 is closed" is worth
-reopening — the item system, the HUD and the material overrides all were, and are now specified.
+**The mechanism worth carrying forward:** a search looked in one subdirectory, found a reference with
+no definition, concluded the definition existed nowhere. **An absence found by a search is a fact
+about the search.** Third instance of this shape in the project.
 
 ---
 
 ## `shipped-data-is-a-source` — the game's data explains itself
 
-**The source menu lists the SDK, the Rust parser, the wiki and a decompiler. It is missing the
-game's own shipped data**, and that fifth source settled two questions this project had filed as
-closed. Both on 2026-08-16, within an hour of each other.
+**The source menu is missing the game's own shipped data**, and it settles questions filed as closed.
 
-- **`$modblend`** was the standing worked example for "the SDK cannot answer this, decompile it". No
-  decompiler needed. It is declared in three shipped VMTs and read by **nothing in TF2** — the only
-  consumer is an `Equals` proxy **commented out four lines below it** in the same file. No published
-  shader declares it, and it is absent from 21 TF2 binaries across six eras including all five
-  `stdshader_*.dll` (re-verified 2026-08-19 with a positive control, because the claim rests on an
-  absence). Correct implementation here is nothing.
+- **`$modblend`**, the standing "needs a decompiler" example — declared in three shipped VMTs, read
+  by nothing (an `Equals` proxy commented out four lines below), absent from 21 binaries across six
+  eras with a positive control confirmed. It was never a shader parameter — a proxy resolves `srcVar1`
+  by NAME, so any VMT key becomes a material var. It's an artist-authored variable holding a constant
+  for a proxy that's commented out. **Don't call it dead or generalise from it** — `$vertexcolor` is a
+  real engine flag, live elsewhere in Source, merely unreachable from a DX9 world face; `$modblend` is
+  a name someone typed, a different category entirely.
+- **Game event field widths/signedness**, "outside the SDK" — documented in a comment block atop
+  `modevents.res`.
+- **`tf/cvarlist.log`** — 3,668 convars/concommands with defaults, flags, help text, covering
+  `engine.dll`/`materialsystem.dll`/`vguimatsurface.dll`, none in the SDK. It's a dump, not a
+  declaration (an `FCVAR_ARCHIVE` convar the user changed may be captured as if default) — cross-check
+  against a registration where one exists.
 
-  **It was never a shader parameter.** A proxy resolves `srcVar1` by NAME on the material —
-  `pMaterial->FindVar( pSrcVar1, &foundVar, true )` (`functionproxy.cpp:210`,
-  `imaterial.h:484`) — and any key written into a VMT becomes a material var. So `$modblend` is an
-  **artist-authored variable** holding a constant for the `Equals` proxy that is commented out
-  beside it. No shader declares it because none ever could; no binary names it because none would.
-  All three declaring materials are TF2 content and two are MvM (2012), so it is not inherited
-  boilerplate either.
+**Why it's skipped:** data doesn't feel like a source, but Valve's data files carry prose explaining
+their own format. When the question is about a format the GAME reads, read what the game ships.
 
-  **Do not call it dead, and do not generalise from it.** "Dead" was the old wording and the owner
-  corrected it: a parameter this game ignores may be live elsewhere in the Source family. That is
-  true for `$vertexcolor` — a `MATERIAL_VAR_*` flag, engine-level, consumed by `cable_dx6.cpp` and
-  the fixed-function `decal.cpp`, merely unreachable from a DX9 `LightmappedGeneric` world face. It
-  is NOT true for `$modblend`, which is a name someone typed. The distinction is flag versus
-  authored key, and it decides whether "unimplemented" means anything.
-- **Game event field widths and signedness** were "outside the SDK, `GameEventManager` is closed".
-  They are in the comment block atop `game/mod_hl2mp/resource/modevents.res`: `short` is 16-bit
-  **signed**, `long` 32-bit signed, `bool` 1 bit unsigned. Signedness had been assumed, and getting
-  it backwards yields a plausible number rather than an error.
-
-**Why it gets skipped: data does not feel like a source.** The habit is to look for code, and a
-`.res` or `.vmt` reads as content rather than as documentation — but Valve's data files carry prose
-explaining their own format, written for the people who author them. **When the question is about a
-format the GAME reads, read what the game ships.** When it is about engine behaviour, the code
-sources still apply.
-
-**A third instance, 2026-08-26: `tf/cvarlist.log`.** The game ships a plain-text dump of **3,668
-convars and concommands with their defaults, flags and help strings**, in fixed columns:
-
-```
-fps_max                                  : 400      :                  : Frame rate limiter, cannot be set while connected to a server.
-engine_no_focus_sleep                    : 50       : , "a"            :
-```
-
-Look one up with `grep -E "^<name> +:"` — anchored and with the colon, or `fps_max` matches inside
-other convars' help text and `volume` matches eleven others. It covers everything registered in
-`engine.dll`, `materialsystem.dll` and `vguimatsurface.dll`, none of which are in `source-sdk-2013`.
-
-**It is a dump, not a declaration**, so an `FCVAR_ARCHIVE` convar the user has changed could be
-captured as if it were the default. Cross-check against a registration where one exists; where none
-does, this beats scanning PE strings by a wide margin. Detail in
-`docs/findings/40-the-game-ships-its-own-cvar-list.md`.
-
-Practical notes for doing it:
-
-- VMTs live inside VPKs. `grep -a` works directly on the `.vpk`, and `dd` around the byte offset from
-  `grep -abo` gives readable context without unpacking anything.
-- Extracting `$`-prefixed strings from `bin/stdshader_dx9.dll` yields **515** parameter names — a
-  usable denominator for what the shipped shaders actually accept, no decompiler involved.
+Practical: VMTs live in VPKs — `grep -a` works directly on the `.vpk`; extracting `$`-prefixed
+strings from a shader DLL gives a usable parameter denominator without a decompiler.
 
 ---
 
 ## `binaries-answer-what-the-sdk-cannot` — and read them with a byte scan
 
-**"Not in the source" is not "not knowable".** On 2026-08-11 six TF2 clients and three engines
-were read, and they answered five questions the corpus and the SDK together could not: every
-unnamed user message id, the per-era table lengths, `VOICE_MAX_PLAYERS` at three dates, the demo
-header layout, and which protocol transitions Valve's own engine treats as breaking.
+**"Not in the source" is not "not knowable."** Six clients and three engines answered five questions
+the corpus/SDK together couldn't: unnamed message ids, per-era table lengths, a constant across
+dates, the header layout, breaking protocol transitions.
 
-Valve publishes *some* source, and the sdk2013 drop describes a build years newer than its name — it
-contains `RDTeamPointsChanged`, which the March 2013 client does not have anywhere. **A shipped
-binary is the only artifact that is exactly one build.**
+- `Register("Name", size)` compiles to `push size; push offset name` on x86 — the whole table is a
+  literal sequence, findable by byte scan.
+- **Ghidra's analysis is not the reliable instrument** — found a table in two eras, missed it entirely
+  in a third (strings present, zero code references), and silently drops undefined strings.
+- **The reliable instrument is a raw PE scan**: find `68 <imm32>` where the immediate is a printable
+  string's address, sort by offset, cluster. No disassembly, nothing to fail.
+- Disable Ghidra's Decompiler Parameter ID analyzer for a 10x+ speedup on scan-only work.
+- x64 binaries are useless for this (args in registers, no push to find) — the 32-bit client still
+  ships.
+- Date any build without launching it: `grep -a "Exe build"` on `engine.dll`.
 
-- `usermessages->Register("Name", size)` on x86 compiles to `push size; push offset name`, so the
-  whole table is a literal sequence in `.text`. Same for any registration API.
-- **Ghidra's analysis is not the reliable instrument.** It found the table in 2007/2009 and missed
-  it entirely in the 2011 client — strings present, zero code references. It also silently drops
-  strings it never defined as data, which cost an hour of believing the 2007 table lacked `Fade`
-  and `VGUIMenu`.
-- **The reliable instrument is a raw PE scan**: find `68 <imm32>` in an executable section where
-  the immediate is the address of a printable string, sort by offset, cluster. No disassembly, so
-  nothing to fail. `D:\ghidra-proj\scripts\scan_usermsg.py`. It reproduced the Ghidra result at
-  identical addresses and then read the three Ghidra could not.
-- Disable Ghidra's **Decompiler Parameter ID** analyzer (`FastAnalysis.java` prescript). It
-  decompiles every function to infer signatures and is essentially the entire runtime — 20+ min
-  down to ~1.5 min on a 4 MB DLL.
-- x64 binaries are useless for this: arguments go in registers, there is no push to find. The
-  32-bit client still ships alongside.
-- Date any build without launching it: `grep -a "Exe build"` on `engine.dll`, and `StartRecording`
-  writes the protocol constants as literals.
-
-Everything runs under `D:\ghidra-proj`, outside every git tree, and only constants come back — the
-paths are in [[where-the-game-and-clients-live]] and the rule is a global memory,
-`never-decompile-into-a-repo`.
+Everything runs under `D:\ghidra-proj`, outside every git tree; only constants come back. See
+[[where-the-game-and-clients-live]].
 
 ---
 
-**An absence measured any of these ways needs a positive control in the same sweep.** A grep
-returning zero has been a fact about the grep three times in this project — "it is closed" is an
-absence claim about a search nobody ran. See [[instrument-bugs-outnumber-decoder-bugs]] and
-[[the-denominator-decides-what-can-be-lost]].
+**An absence measured any of these ways needs a positive control in the same sweep.** See
+[[instrument-bugs-outnumber-decoder-bugs]], [[the-denominator-decides-what-can-be-lost]].
 
 Related: [[fixtures-are-the-weak-point]], [[a-default-is-not-a-constant]].
 
@@ -234,72 +122,36 @@ Related: [[fixtures-are-the-weak-point]], [[a-default-is-not-a-constant]].
 
 ## `read-the-spec-before-measuring-our-data`
 
-**A visual defect means read the SDK for that feature FIRST. Not after the theories run out.**
+**A visual defect means read the SDK for that feature FIRST, not after theories run out.** Measuring
+this project's own data can only find data that's wrong — it can't find a feature never implemented,
+and every number will look correct the whole time. One session: six correct measurements of a model,
+four wrong renderer theories about wall stripes, before anyone asked the BSP what they were —
+answered in minutes once the right file was opened.
 
-**Why:** measuring this project's own data can only find data that is wrong. It cannot find a
-feature that was never implemented, because every number will be correct — and it will look like
-progress the whole time. One session, one capture point:
+**The tell that this is skipped: a series of measurements that all come back correct.** Three in a
+row means the question is wrong, not the data — stop and go read.
 
-- Six measurements of the model — bodygroup tags, vertex spans, `.vvd` fixups, `.vtx`/`.mdl`
-  pairing, material indices, instance census. Every one correct. The model was never wrong.
-- Four renderer theories about the wall stripes before anyone asked the BSP what they were.
-- The answers, each found in minutes once the right file was opened:
-  `stdshaders/unlittwotexture_ps2x.fxc` (two textures MULTIPLIED, alpha forced to 1),
-  `imaterialsystem.h:180` (MATERIAL_CULLMODE_CCW, so front faces are clockwise),
-  `imaterial.h:369` (`$nocull` is MATERIAL_VAR_NOCULL, a per-material flag).
+**How to apply:** name the responsible shader/subsystem, open Valve's file for it, THEN measure the
+gap between it and this project.
 
-The owner had already made this a standing rule, in CLAUDE.md and in
-[[parity-is-the-search-not-the-defence]], and had to repeat it. That is the actual failure: the rule
-was known and applied late.
-
-**How to apply.** On any "it looks wrong" report, before writing a probe or a log:
-
-1. Name the shader or subsystem responsible — the VMT's shader name, the material flag, the engine
-   routine.
-2. Open Valve's file for it. `F:/src/source-sdk-2013`, `stdshaders/` for shaders, `public/` for the
-   flags and enums. Reading published source is not decompilation.
-3. Only then measure, and measure the gap between what that file says and what this project does.
-
-**The tell that this is being skipped:** a series of measurements that all come back correct. Three
-in a row means the question is wrong, not the data. Stop and go read.
-
-Related: the entry below on measuring every hop is the same discipline for OUR chain; this one is
-for the part of the chain that is Valve's and was never built.
+Related: the entry below on measuring every hop is the same discipline for OUR chain; this one is for
+the Valve part of the chain that was never built.
 
 ---
 
 ## `measure-every-hop-before-blaming-one`
 
-**When a change does not take effect, enumerate the hops it travels and measure each one. The bug is
-always in the hop nobody measured.**
-
-**Why:** bodygroups on the capture point hologram. Three hops were measured and all correct — the
-model offers 4 alternatives, the demo carries bodies 0/2/3, the packer produced "9 batches spanning
-4 alternatives" — and the picture still showed one sign on every point. Three correct measurements
-proved only that the fault was in the fourth hop, which was the one never looked at: the value
-arriving at `DrawModel`.
-
-The same shape recurred all session:
-
-- The overlay stripes: four renderer theories, all killed by measurement, and the answer was in the
-  BSP's face list the whole time.
-- The player pose: decode, matrix maths and Euler conversion all verified against the SDK, and the
-  fault was a substring lookup one layer above them.
-- Doors: a submodel geometry reader was nearly built before counting showed the faces were already
-  in the world buffer.
+**When a change doesn't take effect, enumerate the hops it travels and measure each one. The bug is
+always in the hop nobody measured.** Three hops measured correct, and the picture was still wrong —
+the fault was in the fourth, unmeasured hop.
 
 **One symptom can have several INDEPENDENT causes, and fixing one proves nothing about the
-diagnosis.** "The viewmodel does not appear" had five: not loaded, not uploaded, wrong sequence,
-wrong owner, wrong posing mechanism. Each was real, each was fixed correctly, and after each fix the
-screen looked exactly the same as before — so every fix read as a failed hypothesis when it was not.
-A pipeline with N stages can be broken at N of them at once, and it usually is when the whole
-pipeline is new. **Verify a fix at its own stage** (was the model in the packed set? did the upload
-happen?) rather than at the far end, or a run of correct work looks like a run of wrong guesses.
+diagnosis.** A missing viewmodel had five separate causes; each was fixed correctly and the screen
+looked identical after each, reading as a failed hypothesis when it wasn't. **Verify a fix at its own
+stage**, not at the far end.
 
-**How to apply:** write the chain down — file, decode, pack, instance, draw — and put a number on
-each link before touching code. A hop that "obviously works" is exactly the one to instrument,
-because the hops that obviously work are the ones nobody instrumented. And prefer measuring the
-LAST hop first: it is closest to the symptom and cheapest to read.
+**How to apply:** write the chain down (file, decode, pack, instance, draw), put a number on each
+link. Prefer measuring the LAST hop first — closest to the symptom, cheapest to read.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[read-the-map-before-the-renderer]].
 
@@ -307,237 +159,100 @@ Related: [[instrument-bugs-outnumber-decoder-bugs]], [[read-the-map-before-the-r
 
 ## `suspect-the-input-not-the-algorithm`
 
-> **"When a perfect algorithm keeps giving a wrong answer, suspect the input and the identity of the
-> thing you're measuring — not the algorithm."**
+*"When a perfect algorithm keeps giving a wrong answer, suspect the input and the identity of the
+thing you're measuring — not the algorithm."*
 
-Supplied by the owner (written by another AI) after a day spent proving it the hard way.
+A map checksum implemented correctly from Valve's description on the FIRST attempt didn't match. A
+day was spent rewriting the correct implementation five different ways before decompiling the engine
+confirmed the original was right all along — **the actual faults were both on the OTHER side of the
+comparison**: chasing the wrong field, and the engine omitting `CRC32_Final` (its number is the
+complement of standard CRC32).
 
-Measured 2026-08-28. A map checksum was implemented from Valve's published description on the first
-attempt and was **correct from the first attempt**. It did not match. What followed: a whole-file
-variant, a file-order variant, five lump-count ceilings, an exhaustive sweep of every single extra
-lump exclusion, a padding-inclusive variant, every lump alone, and finally a decompilation of the
-2007 `engine.dll` — which confirmed the original implementation exactly. Two write-ups were committed
-blaming the wrong thing: first the map files, then the byte selection.
+**Why single-variable search can't find this:** with two faults present, every test changing one
+thing and holding the rest fails, reading as evidence against the variable under test. Widening the
+TARGET ("what if the answer I want is a different number?") cost one line and was available from hour
+one.
 
-The actual faults were both on the other side of the comparison. **The field was the wrong one** —
-`svc_ServerInfo` carries two checksum-shaped values and the code had chased the wrong one, with its
-own comment saying that branch was *"flagged rather than trusted"*. And **the engine omits
-`CRC32_Final`**, so its number is the complement of a standard CRC32.
-
-**Why single-variable search cannot find this.** With two faults present, every test that changes one
-thing and holds the rest fails — and each failure reads as evidence against the variable being
-tested. That is how a correct implementation gets rewritten and a correct conclusion gets abandoned.
-Widening the TARGET instead — "what if the answer I want is a different number?" — cost one line and
-was available from the first hour.
-
-**How to apply:** before optimising or rewriting a computation that will not match, spend one cheap
-check on each of: is this the right input file, is this the right FIELD, and is the expected value
-transformed on its way to me (endianness, complement, offset, sign). Then, if it still fails, ask
-whether TWO things could be wrong — because the one-at-a-time discipline that is right for a single
-fault is exactly what conceals a pair. See [[instrument-bugs-outnumber-decoder-bugs]] and
-[[the-denominator-decides-what-can-be-lost]].
+**How to apply:** before rewriting a computation that won't match, check: right input file, right
+FIELD, is the expected value transformed (endianness, complement, offset, sign)? If it still fails,
+ask whether TWO things are wrong.
 
 ---
 
 ## `absent-from-the-sdk-is-not-unreadable` — ask which binary implements it
 
-Asked to implement ragdoll physics, I checked `F:/src/source-sdk-2013/src/vphysics`, found only the
-public headers, and wrote a decision saying the integrator "is this project's own". The owner:
-
-> "remember you have the decomp so no nothing is ours"
-
-`vphysics.dll` ships with the game at `bin/x64/`. It is 1.4 MB and it is what Ghidra is for.
-
-**Why:** *not in the published source* is not *not readable*. `CLAUDE.md` says the four sources are
-**a menu, not a ladder**, and that a decompiler is *"a normal tool — reach for it readily"* whose
-only hard rule is that its output stays outside every git tree. Filing a closed component as
-own-design silently converts a parity project into an approximation, and it does it in a document
-that then reads as authoritative.
-
-The same reasoning had also let me concede that `.phy` collision hulls "must be approximated" because
-Havok's format is compressed. Compressed is not unknowable — the code that reads it is in the same
-binary.
+Asked to implement ragdoll physics, checking only the public headers led to writing that the
+integrator "is this project's own". Owner: *"remember you have the decomp so no nothing is ours."*
+`vphysics.dll` ships with the game — that's what Ghidra is for. Filing a closed component as
+own-design silently converts a parity project into an approximation.
 
 **How to apply:** before writing that anything is ours to design, ask which binary implements it. If
 the game ships it, decompile it. Reserve "ours" for something no shipped artefact contains at all.
-Prefer published source where it holds the answer — `ragdoll_shared.cpp` is published and gives
-construction and read-back — but the boundary of the SDK is not the boundary of what can be read.
-Related: [[where-the-game-and-clients-live]], [[a-filed-design-choice-may-not-be-one]].
 
 ---
 
 ## `shipped-data-settles-what-closed-code-cannot` — ask what the content would have to mean
 
-**A question the closed engine would answer can often be settled by what Valve AUTHORED instead.**
-Measured 2026-09-04 on B328.
+403 materials carry a DirectX-gated block with no registered shader of that name in the SDK — looked
+like a decompiler question. It wasn't: under "the block doesn't apply", Valve authored a bump map
+that draws on NO hardware at all — not a tenable reading, so the block applies.
 
-403 shipped materials carry a block named `LightmappedGeneric_DX9`, and **no shader is registered
-under that name anywhere in `source-sdk-2013`** — only helper types and functions carry the
-spelling. The material system that would resolve it is closed. So "does this block apply?" looked
-like a decompiler question.
+**General form: ask what the content would have to mean for your reading to be true.** Shipped assets
+are made by people who tested them.
 
-It was not. One file answers it:
+**The mistake this corrected:** these blocks were written off as "low-end fallbacks" from reading
+block NAMES alone — inside, they declared keys ONLY there (`$bumpmap` in 89 materials, `$envmap` in
+49), so ignoring the block loses them outright. Census two things: what a container contains, AND
+what's declared solely inside it.
 
-```
-"LightmappedGeneric"
-{
-	"$basetexture" "Tile/tilefloor018a"
-	 "LightmappedGeneric_DX9"
-	{
-		"$bumpmap" "tile/tilefloor018a_normal"
-		"$envmap"  "env_cubemap"
-	}
-}
-```
-
-Under "the block does not apply", Valve authored a bump map that draws on **no hardware at all**.
-That is not a tenable reading of shipped content, so the block applies. The argument is about the
-ASSET's authorship, not about the code, and it is as decisive here as reading the function would
-have been.
-
-**The general form: ask what the content would have to mean for your reading to be true.** Shipped
-assets are made by people who tested them; a reading that makes an artist's work invisible is
-usually the wrong reading.
-
-### And the mistake this corrected: a name is not evidence about its contents
-
-These blocks were first written off — in a risk entry, in a finding, and in a source comment — as
-"all low-end fallbacks", safe to ignore. That came from reading the block NAMES and knowing that a
-fallback is what runs on weaker hardware. Nothing inside one had been looked at.
-
-Inside `LightmappedGeneric_DX9`: `$bumpmap` in 89 materials, `$envmap` in 49, `$parallaxmap` in 8 —
-**and every one of those declares the key ONLY there**, so ignoring the block loses it outright.
-
-Two columns, not one, when censusing a container: **what it contains**, and **what is declared
-solely inside it**. The first says how much is in there; only the second says what skipping it
-costs. See [[instrument-bugs-outnumber-decoder-bugs]] — same family, different disguise.
-
-### The honest scope, which was nearly overstated
-
-The fix changes **nothing on TF2's own content**: `cp_process_final` reports the same 55 of 412
-materials carrying a cubemap before and after. Every affected material is Half-Life 2 content TF2
-mounts — `TILE/TILEFLOOR018A_C17`, `MODELS/PROPS_VEHICLES/CAR002A_01`. It was done anyway, because a
-divergence is a defect whatever it costs, and it will matter to a community map built on HL2 assets
-— a population this corpus contains none of.
-
-"403 materials fixed" would have been true and misleading. Report the population the change reaches,
-not the population that declares the key.
+**Honest scope:** the fix changed nothing on TF2's own content (all affected materials are mounted
+HL2 assets) — report the population the change reaches, not the population that declares the key.
 
 ---
 
 ## `a-valve-comment-can-be-stale` — a comment is a claim about the code, not about the game
 
-`gamebspfile.h` says *"All detail prop sprites must lie in the material detail/detailsprites"*. That
-sentence was quoted in this project's own source and used to hardcode the material. **All 234
-installed TF2 maps override it** through `worldspawn`'s `detailmaterial`, and only 49 name that one:
-`_trainyard` on 42 maps, `_2fort` on 38, `_sawmill` on 32. Both reference maps were wrong —
-`koth_harvest_final` wants `_harvest`, `cp_granary` wants `_granary` — so every grass capture ever
-taken here used the wrong texture (B364).
+An SDK comment named a specific default material for detail sprites; 234 installed TF2 maps override
+it via `worldspawn`, and only 49 name the SDK's default — every grass capture ever taken used the
+wrong texture (B364).
 
-**Why:** the comment is true per map — one sheet at a time, dictionary entries are sub-rectangles of
-it, nothing in the lump names a material. Every structural claim holds; only the literal NAME is
-wrong, and the name is the half that gets transcribed into a constant. The override lives in a
-different file (`detailobjectsystem.cpp:1516`) from the comment (`public/gamebspfile.h`), so reading
-the struct never meets it.
+**Why:** the comment is true per-map (structural claims hold), only the literal NAME is wrong, and
+the name is the half transcribed into a constant. The override lives in a different file from the
+comment, so reading the struct never meets it.
 
-**How to apply:** when an SDK comment names a specific constant — a material, a path, a limit —
-treat that as a lead, not a fact, and ask the shipped data how many maps or models actually use it.
-The symptom is invisible by construction: the wrong sheet still draws grass, the wrong path still
-resolves, and the code is doing exactly what the comment promised.
-
-See [[a-default-is-not-a-constant]] and [[the-base-is-not-the-behaviour]] — same shape, different
-source.
+**How to apply:** when an SDK comment names a specific constant, treat it as a lead — ask the shipped
+data how many maps/models actually use it. Symptom is invisible: the wrong asset still draws, doing
+exactly what the comment promised. See [[a-default-is-not-a-constant]], [[the-base-is-not-the-behaviour]].
 
 ---
 
 ## `settle-a-constant-in-the-disassembly` — shape from the decompiler, identity from the instructions
 
-**Two wrong conclusions in one session, 2026-09-06/07, and both were made in the DECOMPILED C rather
-than in the disassembly.**
+**Two wrong conclusions from reading DECOMPILED C rather than disassembly:** a constant taken for π
+because its neighbour genuinely is 2π (it was actually an epsilon, four bytes away); a decompiler
+local reused for two unrelated SSA values, read as one.
 
-- **`DAT_1800eea1c` was taken for π** because its neighbour `DAT_1800eea18` genuinely is 2π — already
-  established elsewhere in the same document as the 2π disable test. It is `1.0e-16`, an is-it-zero
-  epsilon. A whole conclusion was written up and committed off it: that a TF2 ragdoll never reaches
-  the general constraint path. It does.
-- **`uVar6` was read as "the mask from `_UNK_1800ff104`"** in one expression and as a comparison
-  result three lines later. Ghidra reuses a local name for unrelated SSA values, and nothing on the
-  page says which is which.
+**The tool:** `DisasmWithData.java` — disassembly with every memory operand resolved to its actual
+contents on the same line, so an address can't alias.
 
-**The owner asked how to fix it, so it is a tool and a trigger rather than an intention.**
+**The rule: any claim about which memory a value came from is settled in the disassembly, never a
+decompiler local** (Ghidra's invented name). Decompiled C is still right for CONTROL FLOW and
+expression shape — shape from the decompiler, identity from the disassembly.
 
-### The tool
+**Except a floating-point sum's GROUPING, which is identity too** — doubles aren't associative; the
+decompiler reorders commutative operands freely and prints a flat chain, so anything ported bit for
+bit (a sum, a dot, a Newton step) must come from the INSTRUCTION order, verified by a test whose
+inputs round differently under each grouping.
 
-`D:\ghidra-proj\scripts\DisasmWithData.java` — disassembly with every memory operand resolved to its
-four lanes, printed on the same line as the instruction that reads it:
+**The trigger:** a sentence naming a `DAT_`/`_UNK_` symbol, or reaching for a value because it's
+ADJACENT to one already known (weaker, earlier tell) — that's the moment to run the script, not after
+the paragraph is written.
 
-```
-1800386df  MOVAPS XMM4,xmmword ptr [0x1800ff130]   ; 1800ff130 = {00000000/0.0, …, ffffffff/NaN}
-1800387f5  MULPS  XMM7,xmmword ptr [0x180124f70]   ; 180124f70 = {3f800000/1.0, 1.0, 1.0, 3f000000/0.5}
-```
+**A field's WRITER is also a disassembly search, not a decompiler one** — a field filed as "no
+writer" in three places had one, found by grepping instructions for a store to its offset; the
+decompiled C showed the write as an assignment to a differently-named local, invisible to text
+search.
 
-```bash
-JAVA_HOME="…jdk-21…" "/d/ghidra_12.1.2_PUBLIC/support/analyzeHeadless.bat" "D:\ghidra-proj" \
-  tf2vphysics -process vphysics.dll -noanalysis \
-  -scriptPath "D:\ghidra-proj\scripts" -postScript DisasmWithData.java <addressHex>
-```
-
-**`DisasmAt.java` already printed the instructions and was not enough.** It prints Ghidra's symbol —
-`DAT_1800ff130` — and not its contents, so settling a constant still meant a separate `DumpFloats`
-run. A separate run is exactly the step that gets skipped in favour of remembering, which is how the
-π mistake happened. Thirteen lines of output now carry every constant a whole function touches.
-
-### The rule
-
-**Any claim about which memory a value came from, or what a constant is, is settled in the
-disassembly.** The address is IN the instruction, so it cannot alias. A decompiler local cannot
-carry that claim, because the name is Ghidra's invention.
-
-Decompiled C is still the right thing to read for CONTROL FLOW and for the shape of an expression.
-The split is: shape from the decompiler, identity from the disassembly.
-
-**Except a floating-point sum's grouping, which is identity, not shape** (2026-09-12). Ghidra printed
-`FUN_180070bc0` as `p.z·m[i,2] + p.x·m[i,0] + p.y·m[i,1] + t[i]`, it was ported exactly so, and the
-instructions `ADDSD` the `x` and `y` products first and add `z` to that. Doubles are not associative:
-`(0.1 + 0.2) + 2.2` is `2.5`, `(2.2 + 0.1) + 0.2` is `2.5000000000000004`. The decompiler reorders
-commutative operands freely and prints a flat chain, so **anything ported bit for bit — a sum, a dot,
-a Newton step — comes from the instruction order**, and gets one test whose inputs round differently
-under each grouping, found by search rather than guessed.
-
-### The trigger, so it is not a resolution to forget
-
-**The tell is a sentence naming a `DAT_` or `_UNK_` symbol, or saying "the mask from X".** That is
-the moment to run the script — not after the paragraph is written.
-
-A second tell, weaker but earlier: reaching for a value because it is *adjacent* to one already
-known. Adjacency is the case where dumping feels most redundant and is most likely to be wrong —
-`1800eea18` and `1800eea1c` are four bytes apart and are 2π and 1e-16.
-
-### It paid immediately
-
-The question it was built for — what fills `geom+0x2d0`, the vector whose lane 0 multiplies every
-ragdoll limit clamp — took two calls and no guessing:
-
-```
-1800386df  MOVAPS XMM4,[0x1800ff130]      XMM4 = {0,0,0,~0}
-1800387c3  MOVAPS XMM13,XMM4
-180038816  MOVUPS [R15+0x110],XMM7        geom+0x110 = the bisector m
-180038822  ANDPS  XMM4,XMM7               XMM4 = {0,0,0, m.w}
-180038825  ANDNPS XMM13,XMM0              XMM13 = {XMM0.x, XMM0.y, XMM0.z, 0}
-18003882e  ORPS   XMM13,XMM4              XMM13 = {XMM0.x, XMM0.y, XMM0.z, m.w}
-18003884f  MOVUPS [R15+0x2d0],XMM13
-```
-
-Three scalars inserted lane by lane, plus the bisector's fourth component. The decompiler had
-suggested that shape; the disassembly established it.
-
-**A field's WRITER is a disassembly search, not a decompiler one, 2026-09-15.** `cp+0x60` — the third factor of IVP's
-friction-cone budget — was searched for specifically on 2026-09-14 and filed in three places as having no writer, with
-"possibly arena-zeroed" as the leading guess. It has one: `FUN_180083a60` writes it every time a contact is weighed. What
-found it was `GrepDisasm.java` over `+ 0x60],XMM`, the store as an instruction. **The decompiled C of that function shows
-the write as a plain assignment to a differently-named local pointer, so no text search of decompiled output was ever
-going to match.** Before concluding a field has no writer, grep the instructions for a store to its offset.
-
-Related: the `an-empty-search-needs-a-control` and `print-a-value-somebody-can-recognise` sections
-of [[instrument-bugs-outnumber-decoder-bugs]] are the same discipline pointed at instruments rather
-than at reading — report the value that was USED, carried from where it was produced, never one
-recalled or recomputed by a second route.
+Related: [[instrument-bugs-outnumber-decoder-bugs]]#an-empty-search-needs-a-control and
+#print-a-value-somebody-can-recognise — report the value that was USED, carried from where produced,
+never recalled or recomputed by a second route.
