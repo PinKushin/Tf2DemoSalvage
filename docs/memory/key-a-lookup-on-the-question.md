@@ -11,8 +11,9 @@ metadata:
 Storing every case as a diff from resolved case zero is tempting (halves storage) and makes case zero
 load-bearing for every case, failing two ways:
 
-**B229:** a mesh's skin family zero resolved to −1 (unresolvable) while family 1 was fine
-(`cp_fulgur` places a model at skins 1 and 12 of 15, packing only those textures) — 19,274 triangles
+**B229:** a mesh's skin family zero resolved to −1 (unresolvable) while family 1 was fine —
+Valve's own comment (`utils/motionmapper/motionmapper.h:134`) says `g_skinref[skin][skinref]` returns
+the texture index (`cp_fulgur` places a model at skins 1 and 12 of 15, packing only those textures) — 19,274 triangles
 drew in the missing-material chequer on a map the game renders perfectly. **The derived key need not
 be unique either** — two meshes sharing texture X at family zero but differing above it collide
 silently.

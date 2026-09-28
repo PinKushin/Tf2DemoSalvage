@@ -25,7 +25,8 @@ Class ids are sized `floor(log2(count)) + 1`. A `ceil`-based implementation pass
 fixtures used two classes, where `ceil` and `floor` agree (as at every exact power of two). A real
 demo's 362 classes needed 9 bits; `ceil` said 10. **Fixtures and the corpus measure different
 things** — a fixture built from the SDK's write path proves the decoder matches THAT reading, not
-that the reading is right; only a real demo does, and it wins when they disagree.
+that the reading is right; only a real demo does, and it wins when they disagree. Entity decoding
+passed every fixture and desynchronised inside `CTFPlayer` on real files (RISKS B12).
 
 ## A fixture that parses to NOTHING is the common failure, not one that throws
 

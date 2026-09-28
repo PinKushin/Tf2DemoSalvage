@@ -38,12 +38,13 @@ Related: [[bone-merge-sends-no-position]], [[output-level-assertion-or-it-is-not
 ## `a-restarted-timer-is-not-a-lifetime`
 
 **Finding where a timeout is SET isn't finding how long it lasts** — read the per-frame think too.
-`cl_ragdoll_fade_time` defaults to 15 and `CreateTFRagdoll` calls `StartFadeOut(cl_ragdoll_fade_time)`
-— cited confidently, wrongly. The think re-arms it every frame the corpse is on screen, at **a third**
-of the convar:
+`cl_ragdoll_fade_time` defaults to 15 (`c_tf_player.cpp:514`) and `CreateTFRagdoll` calls
+`StartFadeOut(cl_ragdoll_fade_time)` — cited confidently, wrongly. The think re-arms it every frame
+the corpse is on screen, at **a third** of the convar:
 ```cpp
 if ( IsRagdollVisible() ) { StartFadeOut( cl_ragdoll_fade_time.GetFloat() * 0.33f ); return; }
 ```
+(`c_tf_player.cpp:1532-1545`).
 So a watched corpse never fades; one out of view expires 5 seconds later. Both halves of "15 seconds"
 are wrong. **A lifetime depending on visibility is a CAMERA question**, can't be baked into a
 timeline computed once.
@@ -80,7 +81,8 @@ Related: [[output-level-assertion-or-it-is-not-done]], [[wire-faithful-is-not-st
 
 **Before reusing a helper for a rule the engine states twice, check both agree — including the
 `default` branch.** Team-to-skin exists twice in TF2: `C_TFPlayer::GetSkin` (switch, `default: nSkin
-= 0` = RED) and `C_TFRagdoll::CreateTFRagdoll` (`if RED else BLU` = BLU with no team). Identical for
+= 0` = RED, `c_tf_player.cpp:7807-7817`) and `C_TFRagdoll::CreateTFRagdoll` (`if RED else BLU` = BLU
+with no team, `c_tf_player.cpp:712-719`). Identical for
 RED/BLU, diverge at the edge — calling `PlayerSkin.ForTeam` from the ragdoll looked like DRY and was a
 divergence (B315).
 

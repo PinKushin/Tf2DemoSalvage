@@ -21,7 +21,7 @@ shader) never calls it. A polygon offset in Source is a property of the SHADER �
 bullet holes and sprays, not overlays.
 
 **Why it kept winning:** a cited constant reads as settled in a way an empirical refutation does not.
-The arithmetic (published same-day, unread) settles it: window depth z ≈ 1 − N/d, so offset Δz moves
+The arithmetic (published B70 the same day, unread) settles it: window depth z ≈ 1 − N/d, so offset Δz moves
 a surface Δd ≈ Δz·d²/N — at `VIEW_NEARZ` 7, a marking 500 units out tests as though at 236.
 
 **How to apply:** before matching a Valve constant, find the code that READS it and which surfaces

@@ -60,10 +60,12 @@ is weak).
 ### A fifth diagnosis: the check is right and the CLAIM about it is wrong
 
 Sometimes the guard works, the sabotage is fair, and what's refuted is the sentence written above the
-guard about what it catches. A citation-checking script correctly resolved a reverted citation to
-someone ELSE's still-live entry — the check catches a citation resolving nowhere, narrower and still
-useful; the false half was the header's overclaim. **Ask whether a test could exist that reddens** —
-if no, correct the sentence, not the check.
+guard about what it catches. `build/assert-risk-citations.sh` was written after renaming B386 to B389
+across nine files, with a header claiming it "is the check that would have caught that miss" —
+sabotage (revert one citation to B386) passed, because the other session's own B386 entry exists, so
+a stale citation resolves, at somebody else's bug. The check catches a citation resolving nowhere,
+narrower and still useful; the false half was the header's overclaim. **Ask whether a test could
+exist that reddens** — if no, correct the sentence, not the check.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[boundaries-find-what-tests-cannot]],
 [[state-the-assumptions-the-owner-can-falsify]].
@@ -73,7 +75,7 @@ Related: [[instrument-bugs-outnumber-decoder-bugs]], [[boundaries-find-what-test
 ## `a-sabotage-can-change-behaviour-without-testing-the-claim`
 
 **A sabotage that changes behaviour is not automatically one that tests the claim.** B313: the claim
-was that masking an entity handle resolves a dangling handle to a real, different entity. The
+was that masking an entity handle resolves a dangling handle to a real, different entity (B231). The
 sabotage made a guard irrefutably true (`is var` always matches), returning null for every input —
 reddening the HAPPY PATH while the actual invalid-handle test stayed green. **It also exposed the test
 couldn't have failed anyway** — masking landed on an empty slot, giving the same null as correct code
@@ -82,14 +84,14 @@ for a different reason. Fix: put a bystander at the masked slot so masking and r
 **For an absence claim, the wrong answer must be REACHABLE** — same shape as the empty-search rule
 applied to a dereference.
 
-**Read which sabotage a subagent actually performed, not which one was asked for** — inverting a
-condition (swapping two branches) proves something different from disabling it (forcing one branch
-always); a test reading only the flag's PRESENCE survives inversion, one reading its EFFECT survives
-neither. **Say what the sabotaged code must DO, not which line to touch.**
+**Read which sabotage a subagent actually performed, not which one was asked for** (B269) —
+inverting a condition (swapping two branches) proves something different from disabling it (forcing
+one branch always); a test reading only the flag's PRESENCE survives inversion, one reading its
+EFFECT survives neither. **Say what the sabotaged code must DO, not which line to touch.**
 
-**A sabotage also tells you what a test was actually measuring** — severing a timestamp's stamping
-left two "covering" tests green, because both asserted on a histogram measured beside the stamping
-rather than through it.
+**A sabotage also tells you what a test was actually measuring** (B273) — severing a timestamp's
+stamping left two "covering" tests green, because both asserted on a histogram measured beside the
+stamping rather than through it.
 
 ---
 
@@ -107,8 +109,8 @@ bug. Build fixtures with slack, and say how much in the comment.
 ## `predictions-must-not-sit-on-a-boundary`
 
 **A test prediction computed in exact decimal, measured on a float path, must not land on an integer
-boundary.** Twice, both times the code was right: a window computation landed at 2.9999998, flooring
-to 2 not the "expected" 3; a fraction computation similarly floored one short. **Pick inputs whose
+boundary.** Twice, both times the code was right: B307's window computation landed at 2.9999998,
+flooring to 2 not the "expected" 3; B309's fraction computation similarly floored one short. **Pick inputs whose
 answer lands mid-frame** so rounding can't reach a neighbour. Tell: a predicted value that's a round
 number, especially a frame index with fraction exactly 0 or 1. Assert the fraction as well as the
 index to make the prediction two numbers, immune to accidental satisfaction.
@@ -118,7 +120,7 @@ index to make the prediction two numbers, immune to accidental satisfaction.
 ## `a-duplicated-guard-cannot-be-tested` — fix the input, never the assertion
 
 **A test for a guard redundant with a downstream guard cannot fail, and no assertion fixes it.**
-Deleting a guard clause reddened nothing, because the downstream function ALSO handles the invalid
+Measured building B353. Deleting a guard clause reddened nothing, because the downstream function ALSO handles the invalid
 case identically — the clause is behaviourally dead in the engine too. **Fix is to the INPUT**: give
 the test a value where the guarded and unguarded paths would actually disagree. **Keep the guard**
 (it's where Valve writes it) but document it as redundant, not load-bearing.
@@ -140,8 +142,8 @@ ordering-among-equals test needs 17+ items** — delete the tiebreak and watch i
 ## `sample-between-the-knots` — every curve agrees at its own control points
 
 **Never assert a curve's shape at one of its own control points** — at a knot, every interpolation
-scheme (Hermite, lerp, cosine) is forced to return the stored value. A test sampling exactly at the
-middle control point stayed green replacing a Hermite spline with a lerp, along with six of eight
+scheme (Hermite, lerp, cosine) is forced to return the stored value. B348: a test sampling exactly at
+the middle control point stayed green replacing a Hermite spline with a lerp, along with six of eight
 "covering" tests that never called the function at all.
 
 **How to apply:** sample at a fraction with no special relationship to control points; compute the
@@ -182,15 +184,15 @@ test needs a sensitivity control in the same file.
 the answer is "a test would have to change the whole run", it's an option, not a variable.** An
 autoplay env var had exactly ONE reference in the entire repo (its own declaration); no test, script
 or CI job set it, and its ordering requirement broke three times before being caught by launching the
-viewer and reading the log.
+viewer and reading the log (B223, D118).
 
 **The trap:** the reasoning FOR the design is sound at every step ("a system reading it couldn't be
 tested without setting it for the whole run" → "the WINDOW should read the environment") — correct,
 and answers a different question than whether the SETTING is tested.
 
 **How to apply:** make it an option/config command, keep the env var working alongside for
-compatibility. Count references before trusting a design — a locally defensible choice can still
-leave a feature with zero observers.
+compatibility (D118). Count references before trusting a design — a locally defensible choice can
+still leave a feature with zero observers.
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[measure-the-output-not-the-capability]],
 [[logs-are-the-debugger]], [[one-place-or-it-drifts]].

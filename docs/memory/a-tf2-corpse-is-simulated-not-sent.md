@@ -15,7 +15,7 @@ client ragdoll path into the client's own `IPhysicsEnvironment`. `DT_TFRagdoll` 
 
 **Why it matters:** two ragdoll families exist and only one is on the wire. `C_ServerRagdoll`/
 `DT_Ragdoll` networks per-element `m_ragPos`/`m_ragAngles` (`ragdoll.cpp:423`) and owns no physics
-objects (`GetElement` returns `NULL` unconditionally). **TF2's death ragdoll is not that family** —
+objects (`GetElement` returns `NULL` unconditionally, `ragdoll.cpp:646`). **TF2's death ragdoll is not that family** —
 a demo hands us position, force and force bone; every pose after frame one is client-computed.
 
 **How to apply:** no "read the pose off the wire" shortcut exists, and no sequence-picking finishes

@@ -10,7 +10,9 @@ don't understand it well enough to change it.**
 
 Owner's analogy: *"if you were to just randomly come across quakes fast inverse square root function,
 you would immediately notice it isnt a perfect approximation and probably call it a bug, try to fix
-it, but that would be wrong and bad to do... im sure theres a bunch of that in valves code."*
+it, but that would be wrong and bad to do... im sure theres a bunch of that in valves code."* Every
+local signal on `0x5f3759df` says defect — a magic constant, a truncated Newton iteration — and the
+thing it buys (a reciprocal square root per vertex per frame) appears nowhere in the function.
 
 Valve hires extremely well; TF2's rough edges are ACCRETION (features bolted beside old ones), which
 looks different from a bad decision (D46).
@@ -21,7 +23,7 @@ looks different from a bad decision (D46).
 - When Valve's value misbehaves, suspect our variables first — a decal bias was declared wrong twice
   because our depth buffer was the wrong format, both times.
 - Things here that looked wrong and weren't: an enum instead of a float, a bias in buffer units not
-  world distance, an overlay's face list including 45° faces, a packed field.
+  world distance, an overlay's face list including 45° faces (B134), a packed field (B135).
 - If it still looks wrong after the trade is sought and not found, write it down rather than change
   it — a wrong conclusion kept with what killed it is worth more than a silent "correction".
 

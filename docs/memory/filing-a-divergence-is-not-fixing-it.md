@@ -47,8 +47,11 @@ See [[nothing-is-closed]], [[parity-is-the-search-not-the-defence]].
 
 **Grep for "not implemented", "not reproduced", "is a gap" before planning parity work** — a stale one
 costs twice (work looks undone; the checking reader discovers the DOCUMENT was wrong). Found four
-false in one pass: implemented features whose doc comments still claimed otherwise, including one type
-with no production caller at all discovered by the same grep.
+false in one pass: a sequence-layer comment claiming no implementation when B307 had just fixed a
+branch of it; B82 filed as "open" (a halo or canteen sitting at the wearer's feet) when attachment
+parenting already reads and applies it; a flag claimed unread eighty lines above the branch that
+reads it; and a type claimed unimplemented, discovered by the same grep to have no production caller
+at all.
 
 **Why:** a comment is written when the gap is real; nothing re-reads it when the gap closes. Search
 in the same session you plan from. Mirror of the entry below (impossibility claims expiring), opposite
@@ -56,8 +59,9 @@ sign.
 
 ## `a-measurement-recorded-as-a-conclusion-expires`
 
-Three OPEN RISKS entries were stale in one session, all the same way: a substitution already built; a
-count claim wrong by orders of magnitude; a timing number outdated. None was wrong WHEN WRITTEN —
+Three OPEN RISKS entries were stale in one session, all the same way: B157 described a substitution
+already built; B254 said "every prop the tick carries is posed" when nine of 567 are; B258 quoted
+"sample 2.0ms" against a measured 0.3. None was wrong WHEN WRITTEN —
 what they share is a MEASUREMENT written down as a CONCLUSION. "Sample is 2.0ms" is a fact about one
 build on one day; "sample is the biggest cost, fix it next" is a RANKING that expires the moment
 either number moves, silently.
@@ -70,8 +74,9 @@ session to re-derive a fixed problem with the authority of a written record.
 - Re-measure before believing a ranking, especially "this is where the frame is".
 - Separate the reading of the engine from the ranking of the work — one can die while the other stays
   correct.
-- A counter reporting one of two exits reads as a failure of the whole — check both exits are counted
-  ([[instrument-bugs-outnumber-decoder-bugs]]).
+- A counter reporting one of two exits reads as a failure of the whole — B254's "0.3 hidden by pvs"
+  looked like an idle cull, but the frustum half simply returns first without counting; check both
+  exits are counted ([[instrument-bugs-outnumber-decoder-bugs]]).
 
 See [[read-the-trx-total-not-the-console]].
 

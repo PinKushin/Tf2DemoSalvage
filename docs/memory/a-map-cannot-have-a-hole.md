@@ -19,7 +19,8 @@ about Valve's data.
 **How to apply:** name the reading and give it a denominator before reporting a gap. Here:
 `LUMP_BRUSHES` declares 2,722 solid brushes, `LUMP_PHYSCOLLIDE` yields 2,671 ledges, vbsp writes one
 convex per referenced brush — the physics reading was complete; the gap was in the CAMERA's reading,
-which stops on displacement base brushes vphysics deliberately has no collision for.
+which stops on displacement base brushes vphysics deliberately has no collision for. The probe's own
+seed defaults were wrong here too (D149).
 
 **A COUNT can be complete while the geometry is wrong-placed** (B400, 2026-09-12) — the 2,722-vs-2,671
 measurement stayed correct while every ledge was rotated 180° about X (rotation preserves counts,

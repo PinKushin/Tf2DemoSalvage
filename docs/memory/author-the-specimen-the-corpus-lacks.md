@@ -41,7 +41,8 @@ corpus recording reports 1 (440/440 on `z1800`) — every comparison agreed whil
 fields. Same shape as `m_flPlaybackRate` (every animation played at rate 1).
 
 **Tell: a default that is the IDENTITY of the operation it feeds** (1 for a multiplier, 0 for an
-offset, empty for a concatenated list). If the engine's own initialiser sets that value, no
+offset, empty for a concatenated list). Grep the field, check what the engine's own initialiser sets
+it to (`c_tf_player.cpp:577`) — if that's the identity, no
 measurement of ordinary content can find the gap — author the specimen instead
 (`SyntheticPlayer.Demo`, a property dictionary through the real container/schema). Use values distinct
 from each other AND the default; test the default's own claim separately with a null-input control.

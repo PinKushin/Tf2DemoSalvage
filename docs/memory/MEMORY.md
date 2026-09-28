@@ -60,7 +60,7 @@
 - [A picture is assertable](a-picture-is-assertable.md) — no reference image needed.
 - [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — a bone guard vetoed mustSkin.
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are client-predicted; [a loop is state](a-loop-is-state-not-an-event.md), not an event.
-- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89/143/148/172; [Valve's shape](valve-shape-beyond-parity.md); [never assume it's broken](never-assume-valve-is-broken.md).
+- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89, D143, D148, D172; [Valve's shape](valve-shape-beyond-parity.md); [never assume it's broken](never-assume-valve-is-broken.md).
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; do not "fix" it.
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — the TFM enforces, not the file.

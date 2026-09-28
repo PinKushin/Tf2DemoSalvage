@@ -124,7 +124,8 @@ subsystems on one line is a hazard in the log's design, not just the reader.
 ## `a-defect-that-survives-its-cause-is-in-the-instrument` — the census that outlived its own cause
 
 **A control that removes the cause and doesn't change the reading is evidence about the
-INSTRUMENT.** A census reported every skeleton collapsed, even with all animation layers disabled —
+INSTRUMENT.** Hunting upside-down players (B298), a census reported every skeleton collapsed, even
+with all animation layers disabled —
 because it read the SKINNING palette (a mixture of placement and bind offset), not bone position.
 
 - Pick the variable the symptom is about ("upside down" is not size).
@@ -137,7 +138,7 @@ because it read the SKINNING palette (a mixture of placement and bind offset), n
 
 **Adding a diagnostic is half the work — read it on a real run, in the same session, or it isn't an
 instrument yet.** A sound-output report sat unread for days; reading it cost one launch and the line
-was simply absent — the whole sound path had been dead. An unread instrument is worse than none: the
+was simply absent — the whole sound path had been dead (B228). An unread instrument is worse than none: the
 intent to measure gets remembered as a measurement.
 
 - Check the instrument ran before believing what it says — an absent line means "never reached" as
@@ -185,14 +186,15 @@ between two timestamps, printing every bucket plus an `unaccounted` residual) sa
 
 **How to apply:** read the phase ledger FIRST before optimising any named counter. The residual
 column is the important one. Accumulate per-frame stall totals rather than logging only the single
-worst case.
+worst case. **This was a repeat (B163)** — the exact counter named there had already been fixed once,
+and a whole session's first half was spent re-optimising it instead of reading the ledger.
 
 ---
 
 ## `print-what-was-added-not-how-many` — a rising count reads as success either way
 
-**When new work makes a number go up, print the NAMES of what it added, not the number.** A demoman
-corpse's drawn-item count going 4→24 looked exactly like success (four corpses, five items each).
+**When new work makes a number go up, print the NAMES of what it added, not the number.** B320: a
+demoman corpse's drawn-item count going 4→24 looked exactly like success (four corpses, five items each).
 Printing model names showed all four were his WEAPONS, holstered ones included — the scan walked
 every bone-merged child instead of the econ wearable list.
 
@@ -202,7 +204,7 @@ every bone-merged child instead of the econ wearable list.
 
 ## `it-ran-and-it-mattered-are-two-claims` — a counter that proves execution cannot prove effect
 
-**A counter proving a stage RAN cannot say it changed anything.** `IkLocks.Applied` reported 88 locks
+**A counter proving a stage RAN cannot say it changed anything.** B311: `IkLocks.Applied` reported 88 locks
 running — useless, since a lock whose remembered position already equals the sequence's foot solves
 to the same place, indistinguishable from never running. Adding the distance settled it: `88 moved,
 furthest 3.81 units`.
@@ -215,8 +217,11 @@ a second derivation of either is free to be wrong.
 ## `look-for-the-instrument-before-building-one` — grep the logs before writing a counter
 
 **Three times in one session a measurement about to be built already existed** — answered by
-existing log lines nobody had read. Building a second instrument makes the two answers independent,
-and when they differ nothing says which is right.
+existing log lines nobody had read: B254's "every prop is posed" by `posed N of M selected` in the
+moment cost log; B258's "sample is 2.0ms" by `--measure`, one flag, returning 0.3; B262's "count
+second-cull rejections" by an `opaque draw order: 152 of 152 kept` line already printed every run.
+Building a second instrument makes the two answers independent, and when they differ nothing says
+which is right.
 
 **How to apply:** grep the logs for the quantity before writing a counter; read the WHOLE line, not
 just the part you came for. See [[filing-a-divergence-is-not-fixing-it]].
@@ -288,7 +293,7 @@ accessor exposing the simulated tip. Ask what the output CAN CARRY before assert
 **A COUNTER placed upstream of the work measures intent, not the work** (B347) — an increment fired
 as soon as a caller had the inputs, before handing off to the code that does the actual write.
 Sabotaging the write reddened nothing. **The number the caller reports must be carried out of the code
-that did the work.**
+that did the work** — the fix B243 already states, applied one layer further in.
 
 **Same session's contrast:** a conformance test matched two macro spellings and missed a third,
 making 251 send tables invisible — reporting a table the SDK genuinely declares as "no such send
@@ -304,7 +309,7 @@ each wrong: "TF2's game code is not public" (1,318 files under `game/{shared,cli
 `$modblend` "needs a decompiler" (declared in three shipped VMTs); `moveparent` "will never appear in
 a SENDINFO" (it's a `SENDINFO_NAME`); haptics "nothing hints at it" (`haptic_msgs.cpp` registers all
 six); the container "established by measurement" (`demoformat.h` declares the whole header);
-`ScenePose.Hidden` "read by no renderer" (read one layer up, with a passing test).
+`ScenePose.Hidden` "read by no renderer, so `EF_NODRAW` is ignored" (B133) (read one layer up, with a passing test).
 
 **The sixth is worth studying — the search was scoped to OUR OWN code and still wrong the same way.**
 Searching only the renderer for `Hidden` found zero — true, and opposite of what it meant: hidden
@@ -338,9 +343,10 @@ scan names it), not only a synthetic one.
 
 ### A truncated search is an empty search with a plausible tail
 
-A `grep | head -6` cut off the seventh line, which was the actual call site — "no call site" led to a
-duplicate call added to production. Same shape twice more: a `head -8` histogram hid a third of the
-mass; a `sed` line-range on a KeyValues block missed a declaration a few lines past the range.
+A `grep | head -6` cut off the seventh line, which was the actual call site (B279) — "no call site"
+led to a duplicate call added to production. Same shape twice more: a `head -8` histogram hid a third
+of the mass; a `sed` line-range on a KeyValues block missed a declaration a few lines past the range
+(B415).
 
 **Never cap a search whose ABSENCE you're about to act on.** If a result must be short, count first
 (`grep -c`), then slice.
@@ -380,7 +386,7 @@ a genuinely-working stage. Detail sprites (B360): directory found the lump, read
 builder made quads, material resolved, world log said all triangles drawn, blend census listed the
 material as translucent. The hillside was bare — the gap was between the last two: the opaque batcher
 skipped translucent materials, but the sorted translucent list was built from world batches only,
-never prop batches.
+never prop batches (five of eleven translucent prop batches on harvest issued by nothing, B362).
 
 **A chain of correct counts is not a chain of custody** — the last link (was a draw call actually
 ISSUED) is the one nobody instruments. Confirm with a picture, camera pointed from the data.
@@ -402,14 +408,17 @@ line per (type, orientation) pair.
 ## `print-a-value-somebody-can-recognise` — a name a human knows is the control a count cannot be
 
 **When a decode produces a value the world has a NAME for, print the value.** A count says the code
-ran; a recognisable value says it ran correctly. Implementing TF2's paint, printing hex colours
-against known paint names ("Pink as Hell", "Radigan Conagher Brown") confirmed correctness in a way
-"12 painted of 51 items" never could — the same count would have been equally true of a bit-reinterpretation
-bug.
+ran; a recognisable value says it ran correctly. Implementing TF2's paint (`ItemTintColor`, B330),
+printing hex colours against known paint names ("Pink as Hell", "Radigan Conagher Brown") confirmed
+correctness in a way "12 painted of 51 items" never could — the same count would have been equally
+true of a bit-reinterpretation bug (reinterpreting the attribute's bits instead of truncating gives
+`0x4B67B53B` for `0xE7B53B`, still "a colour", still non-zero, still counts as 12).
 
 **Corollary: a rare branch shows up in real data or not at all.** Two paints came back as Valve's old
-team-colour sentinel constants, live in a 2026 match — a synthetic test only covers a branch if
-someone thought of it; running the probe on real demos proved it's REACHED.
+team-colour sentinel constants (`RGB_INT_RED`/`RGB_INT_BLUE`), live in a 2026 match — the attribute's
+value 1 selects two constants rather than encoding a colour (`GetModifiedRGBValue`,
+`econ_item_view.cpp:1612-1615`); a synthetic test only covers a branch if someone thought of it;
+running the probe on real demos proved it's REACHED.
 
 **A probe that resolved an entity index WITHOUT a tick, and named its subject from a literal** (B389):
 printed a full animation table headed "scout.mdl" for an entity that was actually a door at that

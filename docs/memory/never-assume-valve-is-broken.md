@@ -11,8 +11,8 @@ metadata:
 **Never explain a shortfall by assuming Valve's engine has the same flaw.** After concluding that
 blood decals on moving players "miss in TF2 too", owner: *"Never assume valve does something weird
 like not drawing blood decals correctly, it's probably going to be wrong."* Correct: `CL_QueueEvent`
-delays every temp entity by `GetClientInterpAmount()` so effects fire on the pose they were sent for;
-we fired on arrival.
+(`engine.dll` `0x1801f9bc0`) delays every temp entity by `GetClientInterpAmount()` so effects fire on
+the pose they were sent for; we fired on arrival.
 
 **Why:** concluding the engine is broken ends the search — feels like parity, is really an unread
 branch.

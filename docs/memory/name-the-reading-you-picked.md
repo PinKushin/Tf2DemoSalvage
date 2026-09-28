@@ -10,9 +10,9 @@ reading was taken and why, in the same commit.**
 
 "A top down map view" was implemented as an orthographic projection — an ordinary reading, but a
 projection had been chosen where only a viewpoint was asked for, unrecorded. Nine days later that
-choice had produced a second projection, a wrong depth bias, a height cut that isn't a height, a
-reflection gap, and two reverted reconciliation attempts — because the first reading read as a
-requirement, not a decision.
+choice had produced a second projection, a wrong depth bias (B135), a height cut that isn't a height
+(B136), a reflection gap with no eye vector (B126), and two reverted reconciliation attempts —
+because the first reading read as a requirement, not a decision.
 
 Owner: *"the ortho cam is probably mostly my fault, i didnt really know the design completely at
 first, and didnt ecpress that the first cam should be like valves cam."*

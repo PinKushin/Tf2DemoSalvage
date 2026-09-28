@@ -14,7 +14,7 @@ Source splits material variables three ways, each declared somewhere unrelated:
 |---|---|---|
 | Shader parameter | `SHADER_PARAM(...)` in `stdshaders/*.cpp` | `$detail`, `$bumpmap`, `$envmap` |
 | Material flag | `MATERIAL_VAR_*`, `imaterial.h:355` | `$translucent`, `$alphatest` |
-| Standard var | `ShaderMaterialVars_t`, `BaseShader.h:32` | `$color`, `$alpha`, `$basetexture` |
+| Standard var | `ShaderMaterialVars_t`, `BaseShader.h:31` | `$color`, `$alpha`, `$basetexture` |
 
 `SdkCoverageTests`'s denominator builds from all three — **wrong twice, both times accusing correct
 code**, once knowing only shader parameters (flagged flags as undeclared) and once also knowing flags
@@ -22,7 +22,8 @@ but not standard vars (flagged `$color`/`$color2`/`$alpha`).
 
 Standard var names are interpolated, not read (`s_StandardParams` lives in closed
 `CBaseShader.cpp`) — four of thirteen confirmed by string in shipped code
-(`FindVar("$alpha")` etc.).
+(`FindVar("$alpha")` in `alphamaterialproxy.cpp:42`, `FindVar("$color")` in
+`thermalmaterialproxy.cpp:50`, `"$color2"` in `item_import.cpp:1328`, `$basetexture` everywhere).
 
 **Why:** a generated denominator never goes stale across the axes it models — a MISSING axis reads as
 a defect in the code, with a citation attached, not a gap in the instrument.
@@ -61,14 +62,15 @@ material would fold paint into load-time material state and pass every arithmeti
 both hats the same colour.
 
 **TF2's paint needs the PAIR, plus a variable table:** `ItemTintColor` writes ZERO for an unpainted
-item, deliberately, so the next proxy (`SelectFirstIfNonZero`) falls back to the material's own
-colour; `$colortint_tmp` is not a shader constant, so the proxy chain needs a small named-variable
-table alive for the bind, seeded from the material. `IsZero` checks all three channels, so pure black
-paint is indistinguishable from no paint (Valve's behaviour, reproduce it). `$color` and `$color2`
-stay separate — the chain replaces only the second.
+item, deliberately, and is left there (`econ_wearable.cpp:465-543`), so the next proxy
+(`SelectFirstIfNonZero`) falls back to the material's own colour; `$colortint_tmp` is not a shader
+constant, so the proxy chain needs a small named-variable table alive for the bind, seeded from the
+material. `IsZero` checks all three channels (`mathproxy.cpp:1050`), so pure black paint is
+indistinguishable from no paint (Valve's behaviour, reproduce it). `$color` and `$color2` stay
+separate — the chain replaces only the second.
 
 **`$blendtintbybasealpha`** confines modulation to the base texture's alpha region; without it a
 painted hat dyes end-to-end. **Self-illumination wins over both** — a pixel-shader limit, not an art
-decision.
+decision (`skin_dx9_helper.cpp:269`).
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[parity-is-the-search-not-the-defence]].

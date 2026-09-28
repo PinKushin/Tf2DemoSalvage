@@ -67,10 +67,14 @@ Owner, mid-refactor: *"and how does valve handle these timings?"* — design (a 
 survived unchanged; the justification didn't. Before: "I'd rather not merge these two clocks... B209
 has open pacing questions" — an argument from our own code. After: **Valve keeps six distinct time
 quantities, each named by what it obeys** (`realtime` follows `host_timescale`, `Plat_FloatTime`
-doesn't, `frametime`/`absoluteframetime` paused vs. not) — merging them would BE the divergence.
+doesn't, `frametime`/`absoluteframetime` paused vs. not — the free camera flies by `absoluteframetime`
+at `view.cpp:153`, `cl_showfps` reads it too at `vgui_fpspanel.cpp:166`) — merging them would BE the
+divergence.
 
 **Why beyond this case:** a design defended by taste gets undone by the next person's taste; one
-defended by citation is a fact someone must argue with. Full write-up: `docs/findings/39-the-engines-frame-clocks.md`.
+defended by citation is a fact someone must argue with. It also validated something already there —
+B174 had independently arrived at the same answer with no citation. Full write-up:
+`docs/findings/39-the-engines-frame-clocks.md`.
 
 ## `decide-home-and-parity-before-writing` — both answers, before the code, in the commit
 

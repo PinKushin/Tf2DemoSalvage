@@ -49,8 +49,8 @@ The prior belief was that a default sits in `.rdata` immediately *before* its na
 order), confirmed on `engine-live-x86.dll` 2026-08-22 for `snd_refdist`(36), `snd_refdb`(60),
 `snd_mixahead`(0.1). **It worked there and is not the rule**: the default sits beside its *pointer*
 in the initialiser, not beside its *name* in the pool. A second case (2026-08-27) pools four sound
-convar names with no literal between any of them; `snd_gain_min`'s default sits 300KB away, reachable
-only via the pointer. File-offset-to-VA deltas also differ per section (names `+0x10001800`, default
+convar names with no literal between any of them; `snd_gain_min`'s default is at `0x102E9E18`, 300KB
+away, reachable only via the pointer. File-offset-to-VA deltas also differ per section (names `+0x10001800`, default
 strings `+0x10001A00`) — calibrate on a known pair first.
 
 Cautions that still hold: confirm direction with a known value first; a help string ("Music volume")

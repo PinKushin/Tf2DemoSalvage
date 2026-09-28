@@ -25,7 +25,8 @@ need logs."*
 | MISSING | absent, unimplemented, or REFUSED — count each kind apart |
 
 Conflating MISSING's kinds is its own bug — "never compiled" and "exists but unused" are unrelated
-events sharing one `null`, which cost four wasted hypotheses once. Prefer one line stating a whole
+events sharing one `null` (`PropModels` returned one for both), which cost four wasted hypotheses on
+the props they belonged to (B83). Prefer one line stating a whole
 picture over one per event; name individual items for MISSING, since a count says something's wrong
 and a name says what to look at.
 
@@ -64,8 +65,10 @@ ends an investigation; an absent one invites a measurement.
 `IsEnabled` as always-`true` matches on message text; the level is captured and never asserted, so
 it's free to change, while production discards anything below its configured minimum before
 formatting. **The level is the ONLY thing deciding whether the line exists, and the one thing the
-unit test ignores.** For any log line that's an INSTRUMENT, assert it at the real application level,
-launched with real config.
+unit test ignores.** The line lost this way was the instrument this page describes — the one B191
+(a log line taking a machine-wide mutex) and B163 (freezes with no frame-rate drop) were both found
+with. For any log line that's an INSTRUMENT, assert it at the real application level, launched with
+real config.
 
 ---
 
@@ -92,7 +95,8 @@ omitting it is silent and check output once.
 was exactly ONE caller in the whole repo, and it passed nothing, muting an entire static-prop path
 since it was written. **Count the callers before writing that comment.** The log LOOKED populated
 (a different path, 20 lines away, had a real logger) — a grep for "did the subsystem say anything"
-answers yes while half is silent; ask "did THIS call site's lines arrive".
+answers yes while half is silent; ask "did THIS call site's lines arrive". Cost: four hypotheses on
+B229, one read as evidence about the geometry when it was evidence about the sink.
 
 ---
 

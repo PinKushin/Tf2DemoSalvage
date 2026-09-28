@@ -23,8 +23,8 @@ made (`CLAUDE.md` already says commit after any bounded chunk). "Should I revert
 - `git restore`/`git checkout --` discard unrecoverable, unreviewed work.
 
 **Watch the direction:** both reverts here moved AWAY from Valve's values, which is a defect by
-definition (D46) — a depth buffer format and an overlay clip direction were both our own wrong
-choices, mistaken for a bad Valve value. When an experiment with a Valve value looks wrong, test
+definition (D46) — a depth buffer format (D48) and an overlay clip direction (B134) were both our own
+wrong choices, mistaken for a bad Valve value. When an experiment with a Valve value looks wrong, test
 "what else of ours diverges and is distorting it" before concluding the value is wrong.
 
 Related: [[a-filed-design-choice-may-not-be-one]], [[name-the-reading-you-picked]],

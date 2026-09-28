@@ -13,9 +13,10 @@ metadata:
 property set is `m_hOuter, m_nSequence, m_iState, m_fEffects, m_flSimulationTime,
 m_flNextPrimaryAttack, m_flNextSecondaryAttack, m_iBuildState`.
 
-**Why:** `CBaseCombatWeapon::Equip` calls `FollowEntity`, which sets `EF_BONEMERGE` (`0x001`) and
-explicitly zeroes local origin/angles. A merged entity has no transform of its own — bones match the
-parent's by NAME using the parent's matrices. Sending an origin would send zero.
+**Why:** `CBaseCombatWeapon::Equip` calls `FollowEntity`, which sets `EF_BONEMERGE` (`0x001`,
+`public/const.h:284`) and explicitly zeroes local origin/angles (`baseentity_shared.cpp:2360`). A
+merged entity has no transform of its own — bones match the parent's by NAME using the parent's
+matrices. Sending an origin would send zero.
 
 **How to apply — the telling field differs by entity type:** a `CTFWearable` sends `moveparent`
 (`m_hMoveParent` via `SENDINFO_NAME`) and no `m_fEffects`; a carried `CTFRocketLauncher` sends
@@ -27,7 +28,7 @@ only after `EF_BONEMERGE` says the entity is merged.
 
 **Handles are not entity indices:** index is the low 11 bits (`MAX_EDICT_BITS`);
 `INVALID_NETWORKED_EHANDLE_VALUE` must be tested against the whole value — its low 11 bits look like
-an ordinary slot (2047).
+an ordinary slot (2047, `recvproxy.cpp:90`).
 
 Merge itself is `StudioBones.Remap`. Filed B63, `docs/findings/22-bone-merged-attachments.md`. Model
 resolution is a separate gap: [[negative-model-indices-are-dynamic]].

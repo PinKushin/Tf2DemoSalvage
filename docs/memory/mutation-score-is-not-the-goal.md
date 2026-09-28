@@ -32,13 +32,13 @@ reaches the code at all, different from a test failing to notice a change ([[mos
 ## Expect a lower score here than normal
 
 - Much of the code is renderers, killable only by change-detector tests this project won't write.
-- A large part is exercised only by real demos, which live in the un-mutatable corpus project
+- A large part is exercised only by real demos, which live in the un-mutatable corpus project (B34)
   (1,136 mutants show as NoCoverage for this reason alone).
 - Safe mode removes whole methods when one mutant fails to compile (1,827 CompileError mutants
   concentrated in renderer files on one run).
 
 **Read survivors by FILE, never the percentage** — 149 of 242 survivors sat in three files on one
-run; the aggregate percentage hides that entirely.
+run; the aggregate percentage hides that entirely (RISKS.md B35).
 
 ## The gate cannot see a quarter of the code
 

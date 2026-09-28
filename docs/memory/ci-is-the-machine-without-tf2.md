@@ -42,8 +42,8 @@ The crash needed *a map fetch in flight when the window closes* — happens when
 installed, TF2 or no TF2. A risk entry had wrongly stated "the local machine takes no fetch path" as
 fact; the fix was written from that story, called fixed, failed identically next run.
 
-**"Gate green" isn't a reason to push — it doesn't measure coverage.** Same day: new branches shipped
-with no test, Core branch coverage fell 85.2%→84.7% against an 85% floor; the gate (count floors only)
+**"Gate green" isn't a reason to push — it doesn't measure coverage.** Same day: B395's new branches
+shipped with no test, Core branch coverage fell 85.2%→84.7% against an 85% floor; the gate (count floors only)
 passed regardless. Before pushing code with new branches under a coverage floor, ask which instrument
 would notice — if only CI, that's a reason to look, not assume.
 

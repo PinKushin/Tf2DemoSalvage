@@ -10,7 +10,7 @@ metadata:
 
 **A random draw and a reproducible replay aren't in tension in Source; assuming otherwise cost a
 visible divergence.** `CParticleCollection::RandomInt` is a table lookup keyed on the particle's own
-id plus a per-operator offset — a particle's lifetime is a pure function of that particle,
+id plus a per-operator offset (`particles.h:1782`) — a particle's lifetime is a pure function of that particle,
 independent of frame rate or draw order. Replaying gives the same answer with nothing stored.
 
 **What went wrong (B373, D152):** `Lifetime Random` was implemented as the MIDPOINT of min/max, citing

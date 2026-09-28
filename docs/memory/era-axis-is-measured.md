@@ -26,7 +26,7 @@ static dating needs no launch. Archive.org serves single-member downloads from a
 7z (solid, can't partially decompress — fails as HTTP 200 with zero bytes; check size, not status).
 Detail: D30.
 
-**What each era changes:** ≤14 no string-table compression flag, 6-bit schema bit-count, no
+**What each era changes:** ≤14 no string-table compression flag, 6-bit schema bit-count (B23), no
 `dem_stringtables`; ≤15 5-bit message type, old `SendPropType` numbering; 16 first with replay flag;
 ≤22 13-bit `svc_Prefetch`; ≤23 fixed rather than varint lengths.
 

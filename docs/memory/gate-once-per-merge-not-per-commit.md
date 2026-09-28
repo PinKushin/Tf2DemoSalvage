@@ -21,7 +21,8 @@ didn't, and each run owns the working tree, stalling other edits.
 - Never stop a gate halfway — a stopped gate orphans its test tree; `pwsh build/reap-dotnet.ps1`
   after.
 - **A fresh worktree lacks `celt.dll`/`speex.dll`** (gitignored native audio builds) — phase 1 dies at
-  Audio. Owner: *"if you didnt touch audio, then dont worry about audio run everything else."* Run the
+  Audio. Owner, on the B404/B405 merge: *"if you didnt touch audio, then dont worry about audio run
+  everything else."* Run the
   remaining assemblies by hand and say so, or `cp -n` the DLLs from the main checkout (no-clobber copy
   is exempted from the write hook — *"copy is nondestructive, so, is allowed as a script"*; never a
   bash `cp` for him, his terminal is PowerShell).
