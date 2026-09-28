@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 
@@ -52,7 +53,8 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         IvpRagdollWorld world = new(
             Timestep, slab ? new Vector3(0f, -GravityInches, 0f) : new Vector3(0f, 0f, -GravityInches), surfaces);
 
-        if (surfaces.ObjectMaterial(slab ? "frictionless" : "default") is not { } material)
+        // `real`: Valve's own default surface in the slab scenes, in place of the tests' frictionless one.
+        if (surfaces.ObjectMaterial(slab && !arguments.Contains("real") ? "frictionless" : "default") is not { } material)
         {
             output.WriteLine("control: the surface did not parse");
             return;

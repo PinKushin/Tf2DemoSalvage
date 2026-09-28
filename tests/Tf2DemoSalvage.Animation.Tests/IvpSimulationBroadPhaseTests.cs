@@ -390,7 +390,8 @@ public sealed class IvpSimulationBroadPhaseTests
     /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
     private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)
     {
-        IvpSimulation simulation = Simulation();
+        // Frictionless and inelastic, as the binary's own twin of this scene runs (`vphysics-virtual-terrain-drop boxes`).
+        IvpSimulation simulation = new(Environment(friction: 0d, elasticity: 0d), (0f, 0f, 0f), () => 0f);
 
         // **Offset, so a corner of one lands inside the other's face.** Exactly aligned cubes meet corner to corner — a point–point
         // contact at zero distance, whose normal has no direction — and the impact spends itself on spin.
@@ -427,8 +428,14 @@ public sealed class IvpSimulationBroadPhaseTests
             // The cube's bounding radius, as `FUN_180078b90` takes one from a surface — its corner.
             Radius = Half * System.MathF.Sqrt(3f),
             InverseMass = 1f,
-            // A solid cube's: I = m·s²/6 with side 8 and unit mass. A looser inertia lets a corner hit spend its push on spin.
-            InverseInertia = (6f / 64f, 6f / 64f, 6f / 64f),
+            Mass = 1f,
+
+            // **The live engine's cube, not a textbook one** (`vphysics-virtual-terrain-drop`'s IMPACT trace, 2026-09-28): 7.542 per
+            // kilogram and a surface deviation of 5.681. *A solid box's m·s²/6 (10.667) stood here*, and with Valve's own material it
+            // was the "friction/damping instability" these tests were kept frictionless to avoid.
+            Inertia = (IvpTerrainBasin.BodyInertia / IvpTerrainBasin.BodyMass, IvpTerrainBasin.BodyInertia / IvpTerrainBasin.BodyMass, IvpTerrainBasin.BodyInertia / IvpTerrainBasin.BodyMass),
+            InverseInertia = (IvpTerrainBasin.BodyMass / IvpTerrainBasin.BodyInertia, IvpTerrainBasin.BodyMass / IvpTerrainBasin.BodyInertia, IvpTerrainBasin.BodyMass / IvpTerrainBasin.BodyInertia),
+            Offset08 = IvpTerrainBasin.BodyDeviation,
             Damping = 0f,
             RotationDamping = 0f,
             RestAnchorOrientation = (0f, 0f, 0f, 1f),
@@ -438,15 +445,15 @@ public sealed class IvpSimulationBroadPhaseTests
             Ledges = IvpTestCube.Ledges(Half),
         };
 
-    private static IvpImpactEnvironment Environment() => Environment(friction: 0d, elasticity: 0d);
+    private static IvpImpactEnvironment Environment() => Environment(friction: 0.8d, elasticity: 0.25d);
 
     /// <remarks>
     /// Valve's own "default" surface (scripts/surfaceproperties.txt, confirmed live against the shipped vphysics.dll
-    /// by `vphysics-materials parse`) is friction 0.8, elasticity 0.25 - not every collision's frictionless, perfectly
-    /// inelastic pair here. Kept as an explicit override rather than <see cref="Environment()"/>'s own default: the
-    /// other tests in this file were authored and tuned against 0/0, and forcing the real values onto all of them at
-    /// once surfaces a second, separate divergence (a friction/damping instability, B369) that needs its own fix
-    /// rather than riding along with this one.
+    /// by `vphysics-materials parse`) is friction 0.8, elasticity 0.25, and <see cref="Environment()"/> is that. *The tests were
+    /// once kept at 0/0 for a "friction/damping instability" (B369)*; it was the fixture's body, a textbook inertia and no
+    /// deviation, and with the live engine's cube (<see cref="Body"/>) every drop rests under the real material, as the twins show
+    /// (`vphysics-virtual-terrain-drop slab real`, `ledges real`, 2026-09-28). The driven-together scene alone stays at 0/0, as its
+    /// binary twin runs.
     /// </remarks>
     private static IvpImpactEnvironment Environment(double friction, double elasticity) =>
         new()
