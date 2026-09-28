@@ -1095,6 +1095,14 @@ the look counter `0→1→2→3→0` at the same events, collide A at length 0.0
 *Not established:* whether the two scenes' later trajectories match the binary tick for tick (compared only through the first
 impacts), and the other nine broad-phase tests' behaviour against the binary — they pass, but none has a probe twin.
 
+**2026-09-28, a first try at the tick-for-tick check, and why it is not one.** `vphysics-virtual-terrain-drop` (the binary) was put
+beside a copy of this test stepped as the probe steps. The binary's velocity at tick 13 is −83.51 in/s, 14 PSIs of gravity at
+1/66 s; the copy's was −77.55, 13 PSIs. That lag is the instrument's: it calls `IvpSimulation.Advance` directly and skips
+`CPhysicsEnvironment::Simulate`'s frame dispatch and clock read, the same seam `vphysics-drop` / `ivp-phy-drop` found three
+first-tick differences in (findings 51, *A same-input differential*). **The check needs a production-path probe for the terrain
+scene** — the map world's virtual mesh through the environment seam — which does not exist yet. The PSI rate itself is
+confirmed: the binary gains 5.965 in/s per PSI, 393.7 × 1/66, with a 0.015 simulation timestep set.
+
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 
 **In plain terms first, per the owner's own framing**: the cube should land on the displacement and stay there — "it should
