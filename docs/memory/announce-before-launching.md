@@ -8,8 +8,13 @@ metadata:
   modified: 2026-09-26T18:48:51.191Z
 ---
 
-Announce a run that takes the desktop — gate phase 2 (UI suite), phase 3 (playback check), any viewer launch — in text BEFORE the tool call that starts it. Never report it as "running" after the call has already returned.
+Announce a desktop-taking run (gate phase 2/UI suite, phase 3/playback check, any viewer launch) in
+text BEFORE the call that starts it. Never report it as "running" after the call already returned.
 
-**Why:** 2026-09-26 the owner watched 37 viewers crash on screen before any message said gate 2 had started, and took it for gate 1 launching the real app. The call was a foreground call that ran two minutes before returning; "running now" arrived after the fact. Owner: "you dont say you a doing something after its done".
+**Why:** 2026-09-26 the owner watched 37 viewers crash on screen before any message said gate 2 had
+started, and mistook it for gate 1. The foreground call ran two minutes before returning; "running
+now" arrived after the fact. Owner: *"you dont say you a doing something after its done"*.
 
-**How to apply:** one line before the call ("Starting gate phase 2 — viewers will open"). Also relevant: only phase 2 uses the real application; phase 1 is unit/integration only, phase 3 will fold into the UI suite. See [[take-the-desktop-lock-dont-defer]].
+**How to apply:** one line before the call ("Starting gate phase 2 — viewers will open"). Also: only
+phase 2 uses the real application; phase 1 is unit/integration only; phase 3 will fold into the UI
+suite. See [[take-the-desktop-lock-dont-defer]].

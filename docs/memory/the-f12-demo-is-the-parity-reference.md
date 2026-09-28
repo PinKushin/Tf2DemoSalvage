@@ -8,116 +8,60 @@ metadata:
   modified: 2026-08-26T03:43:52.579Z
 ---
 
-## This was broken a second time, and the trigger is BOOTING, not comparing
+## The trigger is BOOTING, not comparing
 
-**2026-08-28.** Asked to boot the viewer so the owner could look at new culling work, I picked
-`20171113_2240_cp_badlands_red_blu.dem` — a file neither of us had ever examined — because the map
-name matched something he had mentioned. He then reported roller doors drawing as grey rock. I
-diagnosed it as a culling regression twice, was corrected twice, wrote a log to settle it, and only
-after switching to f12 did he say: *"yea this is showing everything fine. so its poreexisting not a
-regressions, and another example of why you use the FUCKING RIGHT REFERENCE"*.
+Booting the viewer on an unfamiliar map (name matched something mentioned in passing) led to a
+reported defect being diagnosed as a regression twice, corrected twice, and only after switching to
+f12 did the owner say it was pre-existing: *"another example of why you use the FUCKING RIGHT
+REFERENCE."*
 
-**Everything below already said this**, including a measured precedent of the identical mistake. The
-document did not fail; the trigger did. So state it as a trigger rather than as advice:
-
-> **Any launch the owner is going to LOOK at uses f12, unless he named a different demo in that
-> message.** Not "when comparing" — when booting. By the time a comparison is recognised as one, the
-> wrong subject is already on screen.
-
-The tell that it has happened again: the owner describing a defect in terms you cannot place — "the
-roller doors", "the gates" — on a map whose normal neither of you knows. That is not a bug report
-yet; it is a request to load f12.
+**Any launch the owner is going to LOOK AT uses f12, unless he named a different demo.** Not "when
+comparing" — when booting. By the time a comparison is recognised as one, the wrong subject is
+already on screen. Tell: the owner describing a defect on a map neither of you knows well.
 
 ## The rule is HOLD THE SUBJECT, not "always f12"
 
-The owner, clarifying:
+Owner: *"its not a hard rule forever, if you play another demo enough then i can use it for checks
+too, but the problem comes when you change demos in the middle... i dont realize immedietly that im
+watching a different demo."*
 
-> "its not a hard rule forever, if you play another demo enough then i can use it for checks too, but
-> the problem comes when you change demos in the middle, expecially when its basically the same map
-> so i dont realize immedietly that im watching a different demo"
+**The defect is the SWAP, not the choice.** Announce the demo by name every time it changes, in the
+message. A SIMILAR-looking map is the dangerous case (two near-identical map compiles), not the safe
+one — an obvious swap gets noticed, a subtle one doesn't.
 
-**The defect is the SWAP, not the choice.** A comparison has a subject, and changing it mid-way
-destroys the comparison whether or not the replacement is a good demo. Two consequences:
-
-- **Announce the demo by name every time it changes**, in the message — not buried in a tool call
-  nobody reads.
-- **A similar-looking map is the DANGEROUS case, not the safe one.** `cp_process_final` and
-  `cp_process_f12` look near-identical, and nothing on screen says which is loaded, so a silent
-  substitution is invisible exactly when it matters most. An obvious swap gets noticed; this one
-  does not.
-
-**Familiarity is earned, not fixed.** Any demo watched enough becomes usable as a reference. f12 is
-today's answer because it is the one with the hours in it — so a second reference is added by using
-one repeatedly and deliberately, never by picking a fresh file per check.
-
-**The MAP counts as the subject too, and changing it is the expensive half.** The owner:
-
-> "not changing the map would have saved up 30 mins of unneeded right now debug work though, which
-> is another reason not to change the comparison map, for parity"
-
-Every map has its own normal — which props are where, which doors exist, what the lighting looks
-like. Swapping maps discards all of it and every oddity becomes a candidate defect, because there is
-no remembered baseline to measure against. Keep the map fixed for the same reason as the demo, and
-more strongly: a demo change with the map held is survivable, a map change is not.
+**Familiarity is earned, not fixed** — any demo watched enough becomes a reference. **The MAP counts
+as the subject too, and changing it is the expensive half** — every map has its own normal, and
+swapping discards the remembered baseline.
 
 ## Why f12 is the one today
 
-**For any check that compares against previous behaviour, use a `cp_process_f12` demo.** The owner,
-2026-08-25:
+Owner: *"we use the f_12 demo for parity to the old code checks, because that is the demo i know the
+best outside of my era specimins."* On a UI question the owner's eye is the instrument, and it only
+works on a subject he knows — a random demo only ever gets "something looks off", where an evening
+goes.
 
-> "we use the f_12 demo for parity to the old code checks, because that is the demo i know the best
-> outside of my era specimins"
-
-`tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem` and `-2026-08-08-2207.dem`. The matching
-`cp_process_f12.bsp` is already in the TF2 install, put there deliberately so the real client can
-play it.
-
-**Why it matters, and it is not a preference about demos.** On a UI question the owner's eye is the
-instrument — anything about a picture that cannot be verified by looking is a question for them, not
-a claim. An instrument only works on a subject it knows: they can say "that door is wrong" about
-`cp_process_f12` because they have watched it many times. On a demo picked at random they can only
-say "something looks off", which is where an evening goes.
-
-**Measured, the same day.** I picked `etf2l-12030-stv-2020-07-23.dem` for a before/after check
-because it was the first STV in the folder. Five defects were reported, read as regressions from a
-large refactor, and six hypotheses were investigated and falsified. None of it was the refactor. The
-demo was simply one the owner had never examined — and one the live TF2 client refuses outright
-(B201, schema drift). **Choosing the subject badly cost more than the whole investigation.**
+**Measured:** picking an unfamiliar demo for a before/after check produced five "regressions",
+six falsified hypotheses, none of it the refactor — the demo was simply unexamined AND one the live
+TF2 client refuses outright (B201, schema drift).
 
 **How to apply:**
-
-- **Parity, before/after, "did I break it" — use f12.** A comparison is only as good as the
-  observer's familiarity with the subject.
-- **Era questions — use the gcor specimens**, which are the owner's own period recordings and the
-  only demos dated exactly.
-- **A demo neither of you knows is for finding NEW defects**, never for judging a change. It cannot
-  distinguish "this broke" from "this was always like that".
-- **Before reporting a regression from an unfamiliar demo, run the OLD build on the same file.** One
-  launch would have ended that evening at the start.
+- Parity/before-after/"did I break it" — use f12.
+- Era questions — use the gcor specimens (dated exactly).
+- An unfamiliar demo is for finding NEW defects, never judging a change.
+- Before reporting a regression from an unfamiliar demo, run the OLD build on the same file first.
 
 ## `z1800.dem` is DAYTIME harvest, and that is why it is the founding specimen
 
-**2026-09-05.** Verifying detail props (grass), I reached for
-`demostf-koth_harvest_event-1491260.dem` because the map name matched, and spent four captures on a
-Halloween night map where nothing on the ground is legible. The owner:
+Picking a Halloween-night map for a grass-visibility check burned four captures on illegible terrain.
+Owner: *"idk why you were not using the z1800 demo, its daytime harvest... process_f12 is good too,
+since it stresses different than the harvest which is mostly static according to you."*
 
-> "idk why you were not using the z1800 demo, its daytime harvest, but granary, and process_f12 is
-> good too, since it stresses different than the harvest which is mostly static according to you"
+- `z1800.dem` is harvest in DAYLIGHT — the file for anything needing to be SEEN on that map.
+- Pick the map by what it STRESSES, using a census already taken (harvest and granary exercise
+  opposite halves of a feature). When a measurement says two maps differ in kind, verify on both.
+- Say what a map is "mostly" from the data, not impression.
 
-Three things in that, all worth keeping:
-
-- **`tools/corpus/demos/z1800.dem` is harvest in daylight.** For anything that has to be SEEN on
-  harvest, it is the file — the event map is the same geometry under a night sky and a purple fog.
-- **Pick the map by what it stresses, using the census you just took.** Harvest is 20,117 fixed
-  detail sprites against 8,582 screen-aligned; `cp_granary` is 324 against 19,189. Those exercise
-  opposite halves of the same feature, and the owner reached for that split from a number I had
-  reported to him a moment earlier. When a measurement says two maps differ in kind, verify on both.
-- **Say what the map is "mostly" from the data**, not from an impression — he quoted my own figure
-  back ("according to you"), which only works because the figure was in the message.
-
-**And wait for the viewer.** It takes 20-30 seconds to boot and load a map, so an `ls` issued right
-after launching reports the capture missing and reads exactly like a crash. Wait on the FILE
-(`until [ -f … ]`), never on a listing. See [[point-the-camera-from-the-data]].
+Wait on the FILE (`until [ -f … ]`), never a listing — the viewer takes 20-30s to boot.
 
 Related: [[ask-which-input-differs-before-bisecting]], [[a-picture-is-assertable]],
 [[record-both-points-of-view]], [[author-the-specimen-the-corpus-lacks]],

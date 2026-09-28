@@ -8,18 +8,13 @@ metadata:
   modified: 2026-08-14T17:54:32.668Z
 ---
 
-**A demos.tf recording starts at an arbitrary server tick, not at zero or near it.** On
-`demostf-cp_process_f12-2026-08-07.dem` the first packet command is already past 20000.
+**A demos.tf recording starts at an arbitrary server tick, not zero.** A probe stopped at "tick
+20000" walked **0 of 106226 commands** on a file whose first packet command is already past 20000,
+reporting an empty world with no error. Worse, a prior probe called `PropsAt(20000)` on the same file
+and got back **197 props** — a plausible answer to a tick the demo doesn't contain, driving a wrong
+conclusion for a whole round of work.
 
-**Why:** a probe written to stop at "tick 20000" walked **0 of 106226 commands** and reported an
-empty world with no error. Worse, the probe before it called `PropsAt(20000)` on the same file and
-got back **197 props**, one of them a weapon — a completely plausible answer to a tick the demo does
-not contain. That number drove a wrong conclusion for a whole round of work.
-
-**How to apply:** derive the tick from the file — `first + (last - first) / 2` over the packet
-commands — and print how many commands were actually walked alongside any per-tick count. A count
-without a walked-commands number cannot distinguish "few of these exist" from "I looked nowhere".
-
-Same family as [[instrument-bugs-outnumber-decoder-bugs]] and
-[[measure-the-output-not-the-capability]]: the tool answered confidently for a question it was never
-pointed at.
+**How to apply:** derive the tick from the file (`first + (last - first) / 2`) and print how many
+commands were actually walked alongside any per-tick count — a count without a walked-commands number
+can't distinguish "few exist" from "I looked nowhere". Same family as
+[[instrument-bugs-outnumber-decoder-bugs]], [[measure-the-output-not-the-capability]].

@@ -5,69 +5,28 @@ metadata:
   type: feedback
 ---
 
-**Two tiers, and applying either one everywhere is wrong.** Owner's rule, stated 2026-08-12
-during the migration off xunit.v3.
+**Two tiers; applying either everywhere is wrong.**
 
 | Test kind | Fixture lifetime | Parallelism |
 |---|---|---|
-| Unit, integration | `[FixtureLifeCycle(LifeCycle.InstancePerTestCase)]` — per-test isolation | In-process, `[assembly: Parallelizable]` |
-| UI | **Shared fixture**, NUnit's default | **None in-process.** Parallelise with CI matrices instead |
+| Unit, integration | `InstancePerTestCase` — per-test isolation | In-process, `[assembly: Parallelizable]` |
+| UI | Shared fixture (NUnit default) | None in-process — CI matrices instead |
 
-**Per-test isolation is what makes in-process parallelism safe**, so for unit and integration
-suites the two go together — that is the whole reason to want it, not a stylistic preference. The
-xUnit behaviour being migrated away from (a new class instance per test) is the right behaviour
-for those projects, and restoring it there is correct.
+**Per-test isolation makes in-process parallelism safe** for unit/integration — that's the whole
+reason to want it. A UI fixture holds a launched app + driver, the expensive part — sharing across a
+fixture's tests is the point; per-test construction pays the launch cost repeatedly. In-process
+parallelism is UNSAFE for UI tests (one desktop; a second run stealing focus mid-click delivers the
+click elsewhere) — parallelise across CI matrix legs (separate machines), never threads.
 
-**A UI fixture is the opposite case.** It holds a launched application and an attached driver, and
-that setup is the expensive part of the test — sharing one instance across the fixture's tests is
-the point. Per-test construction pays the launch cost again for every test.
+**This project isn't expected to need the matrix** — one main window, small enough to run serially.
 
-In-process parallelism is not merely slow for UI tests, it is unsafe: they drive a single desktop,
-and a second run stealing focus mid-click does not fail the click, it delivers it into whatever is
-now in front. **Parallelise UI tests across CI matrix legs** — separate machines or VMs, each with
-its own desktop — never across threads in one process.
+## The shared fixture also FINDS a class of bug
 
-**Why this needs writing down:** a mechanical migration invites one assembly-wide attribute
-applied uniformly, and either uniform choice is wrong for half the suite. The first draft of this
-entry made exactly that mistake in the safe-looking direction, banning per-test isolation
-everywhere, which would have quietly serialised a 770-test suite.
-
-**This project is not expected to need the matrix.** That mechanism is PBJ's, where there are
-pages to split across legs. Tf2DemoSalvage is a one-page application - a main window holding
-everything, plus perhaps an options dialog - so its UI suite should stay small enough to run
-serially on one desktop. Do not build matrix scaffolding here before there is something to split;
-the rule above is about what NOT to do in-process, not an instruction to shard.
-
-## The shared fixture is also what FINDS a class of bug
-
-Stronger than the cost argument, and measured 2026-08-12.
-
-The viewer's action row ended up above the play bar, and the cause was that leaving full screen
-re-added the transport bar with `Controls.Add` — which appends, and docking order is collection
-order, so it swapped with the action row and stayed swapped for the rest of the session.
-
-**The layout test passed alone and failed in a full run.** With a per-test application it would
-have passed always: a freshly launched window has never been full screen, so the state that caused
-the bug would never exist when the assertion ran.
-
-So for UI suites the shared fixture is not merely cheaper — **per-test isolation actively hides
-state-leak defects**, and a long-lived UI is made of exactly that kind of state. Order dependence
-between UI tests is usually treated as a defect in the tests; here it was the tests correctly
-detecting residue from an earlier operation, which is a real bug a user would hit by pressing F11
-once.
-
-**The point is not that a per-test fixture cannot reach it — it is what reaching it would cost.**
-The same bug is findable with a fresh application per test, but only by stuffing the whole
-sequence into one test: enter full screen, leave it, then assert the layout. Do that for every
-interaction that might leave residue and the suite becomes a handful of long tests, each doing
-several things and each naming only one of them when it fails.
-
-A shared fixture buys that sequence coverage **incidentally**. Tests stay one-thing-each, and the
-combinations still get exercised because they run against the same living application.
-
-Both are worth having, for different reasons. Incidental coverage FINDS the unknown case — it is
-what surfaced this one. An explicit sequence inside the test PINS the known case, so it stays
-caught whatever order the tests run in later. The full-screen round trip now appears inside the
-layout test for the second reason, having been discovered by the first.
+A layout bug (leaving full screen re-added a control via `Controls.Add`, appending and swapping dock
+order) passed alone and failed only in a full run — a per-test application would never reach the
+state that caused it. **Per-test isolation actively hides state-leak defects**, and a long-lived UI
+is made of exactly that kind of state. The same bug is findable with per-test isolation only by
+stuffing the whole sequence into one test — a shared fixture buys that sequence coverage
+incidentally, keeping tests one-thing-each while combinations still get exercised.
 
 See also [[tests-before-codecs]].

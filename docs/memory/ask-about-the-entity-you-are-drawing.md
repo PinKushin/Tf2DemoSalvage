@@ -8,43 +8,30 @@ metadata:
   modified: 2026-09-09T03:55:25.791Z
 ---
 
-**When a rule is about "the thing being shown", resolve that thing through the single accessor that
-knows which it is — never through a plausible neighbour.**
+**When a rule is about "the thing being shown", resolve it through the single accessor that knows
+which it is — never a plausible neighbour.**
 
-**Why:** `SpectatorView.Effective` decides whether the camera may stay in first person, and it asked
-`Target(tick)`. `Target` is `SpectatorTarget.Choose` — the lowest entity index on a playing team —
-which is correct for a SourceTV recording and **wrong for a point-of-view one**, where the camera is
-the RECORDER's own and the recorder is usually somebody else. So the recorder died, another player
-was alive, the rule was told "alive", and the viewer stayed in first person drawing a dead man's
-weapon (B225).
+`SpectatorView.Effective` asked `Target(tick)` = `SpectatorTarget.Choose` (lowest entity index on a
+playing team) — correct for SourceTV, **wrong for POV**, where the camera is the RECORDER's own and
+he's usually someone else. Recorder died, another player was alive, the rule was told "alive", viewer
+stayed first-person drawing a dead man's weapon (B225).
 
-`Followed(tick)` had resolved this correctly the whole time, and says so in its own remarks: *"Asked
-in one place so the two decisions cannot disagree."* The rule simply did not ask it. **The resolver
-existing is not the same as it being used** — that is [[one-place-or-it-drifts]] with the drift
-already prevented and the prevention bypassed.
+`Followed(tick)` had resolved this correctly all along, with its own comment: *"Asked in one place so
+the two decisions cannot disagree."* The rule simply didn't call it — the resolver existing isn't the
+same as being used ([[one-place-or-it-drifts]] with the drift already prevented and bypassed).
 
 **How to apply:**
-
-- Grep for every call to the neighbour before assuming yours is the only wrong one. There were two —
-  `Effective` and `Chase` — and fixing only the first would have dropped a POV demo out of the
-  recorder's eyes and landed it behind a stranger: a NEW visible defect manufactured by half a fix
+- Grep every call to the neighbour before assuming only yours is wrong — two callers here
+  (`Effective`, `Chase`); fixing only one would have manufactured a NEW visible defect
   ([[parity-is-the-search-not-the-defence]]).
-- Give the resolver a name that says which question it answers. `Target` and `Viewed` differ by one
-  concept and the difference was invisible at the call site.
+- Name the resolver for the question it answers — `Target` vs `Viewed` differ by one concept,
+  invisible at the call site.
 
-**The other half of this, and it nearly shipped a wrong fix.** The first theory was `m_iObserverMode`
-— the engine's own first-person test, genuinely missing, correctly implemented, with a conformance
-suite off the SDK. Every test passed. It explains **none** of the bug: across three POV demos,
-samples that are alive AND observing come to **zero**, because every observing sample is also dead
-and liveness already handled those. A column printing that count is the only reason it was caught.
-
-So: **a correct measurement can be about the wrong quantity.** Before reporting a fix, measure the
-population the fix actually changes — not the population the theory is about. If that number is
-zero, the theory is wrong however green the suite is. See [[instrument-bugs-outnumber-decoder-bugs]].
-
-**And read the log for the transition that did NOT happen.** A thirty-second run through a death
-logged one mode line and no fall to third person. That absence was sitting in the file the whole
-time; nobody had looked, because the demo had never run forward unattended until autoplay was fixed.
+**A correct measurement can be about the wrong quantity.** The first theory (`m_iObserverMode`,
+genuinely missing, correctly implemented, fully tested) explained NOTHING — across three POV demos,
+samples "alive AND observing" = zero, since every observing sample is dead and liveness already
+handled those. A column printing that count is what caught it — measure the population the fix
+actually changes, not the population the theory is about. See [[instrument-bugs-outnumber-decoder-bugs]].
 
 Related: [[key-a-lookup-on-the-question]], [[nothing-is-closed]],
-[[instrument-bugs-outnumber-decoder-bugs]], [[output-level-assertion-or-it-is-not-done]].
+[[output-level-assertion-or-it-is-not-done]].

@@ -8,41 +8,32 @@ metadata:
   modified: 2026-09-09T22:24:25.717Z
 ---
 
-**The owner, on why B382 became a large refactor instead of a small fix:**
+Owner, on why B382 became a large refactor instead of a small fix: *"these problems happened because
+we started top down and not bottom up i think."*
 
-> *"these problems happened because we started top down and not bottom up i think"*
+**Why:** the engine builds interpolation bottom-up — a dumb entry list knowing nothing about meaning,
+registration per member (`AddVar`, `c_baseentity.cpp:875`), then latching, only THEN pose selection.
+This project started at the
+top (one list of whole poses), so every engine fact learned afterward had to be retrofitted: one
+history per variable became a list with two search keys, a second latch clock became a side-table, an
+unconditional operation became a collapse plus a reconstruction field, a private method's call site
+got silently dropped by a later refactor. Six facts about small objects, each expressed as a property
+of a large one.
 
-**Why:** the engine builds interpolation bottom-up. `CInterpolatedVarArrayBase` is a dumb list of entries —
-a changetime and `m_nMaxCount` floats — that knows nothing about what the floats mean. `AddVar` registers
-one per networked member (`c_baseentity.cpp:875`); `OnLatchInterpolatedVariables` appends to each whose
-latch group fired (`:2814`); only above all of that does anything ask what pose to draw.
-
-This project started at the top: `ScenePropTrack.At` answered *"what pose should be drawn"* over one list
-of whole poses. Every engine fact learned afterwards had to be retrofitted into that one object — one
-history per variable became one list with two search KEYS, the second latch clock became a side-table,
-`AddToHead` being unconditional became a collapse plus `_heldUntil` to reconstruct the hold, the
-arrived-only history became a guard inside `At`, and `TimeFixup_Hermite` became a private method whose call
-site a later refactor dropped without a single warning. Six facts about small objects, each expressed as a
-property of a large one. The result was neither ours nor Valve's.
-
-**And it infected the tests, which is the part that is easy to miss.** Everything written for this area
-asserted on the drawn pose. So when the fix's own conformance test needed to detect a missing HISTORY
-ENTRY it could not: while a value is held the bracketing pair is degenerate, and the drawn pose is right
-whatever the history contains. **Three sweeps in a row were written and none could fail for the fault it
-named.** What worked was one exact value at the single tick where the bottom layer reaches the top.
+**It infected the tests too** — everything asserted on the drawn pose, so a conformance test needing
+to detect a missing HISTORY ENTRY couldn't: while a value is held the bracketing pair is degenerate,
+and the drawn pose is right regardless. Three sweeps in a row couldn't fail for the fault they named;
+what worked was one exact value at the single tick where the bottom layer reaches the top.
 
 **How to apply:**
-
-- Port the engine's smallest NAMED object first, with its own tests, before the thing that consumes it.
-- When a divergence is filed, ask which LAYER it belongs to before writing anything. A reset belongs on
-  the history; "assigned on receipt" belongs to the member, not to the sampler.
-- A top-level assertion is necessary and not sufficient — see
-  [[output-level-assertion-or-it-is-not-done]], which points the other way and is equally true.
-- The tell that a port went top-down: a fact about the engine can only be stated here as an extra KEY, an
-  extra side-table, or a guard inside the consumer.
+- Port the engine's smallest NAMED object first, with its own tests, before its consumer.
+- When a divergence is filed, ask which LAYER it belongs to before writing anything.
+- A top-level assertion is necessary and not sufficient — see [[output-level-assertion-or-it-is-not-done]].
+- Tell of a top-down port: a fact about the engine can only be stated as an extra key, a side-table,
+  or a guard inside the consumer.
 
 Related: [[an-unused-method-may-be-the-engines]],
-[[the-interpolation-pair-is-found-by-changetime#the-prune-keeps-two-stale-entries]],
+[[the-interpolation-pair-is-found-by-changetime]]#the-prune-keeps-two-stale-entries,
 [[parity-is-the-search-not-the-defence]], [[a-player-is-not-a-prop-track]],
 [[filing-a-divergence-is-not-fixing-it]].
 
@@ -50,111 +41,56 @@ Related: [[an-unused-method-may-be-the-engines]],
 
 ## `retaining-what-the-engine-deletes-breaks-its-invariants` — a deletion was holding something true
 
-**Every place this project keeps what the engine throws away, ask what the engine's deletion was
-holding true.** The retention is deliberate and correct — a client never seeks backwards, a viewer
-does — but a deletion is not only a deletion. It is also the reason some invariant held, and that
-reason leaves with the licensed difference while nothing announces it.
+**Wherever this project keeps what the engine throws away, ask what the engine's deletion was
+holding true.** The retention (a viewer never seeks backward, so keeping history is correct) is
+deliberate — but a deletion is also the reason some invariant held, and that reason leaves quietly.
 
-B386, 2026-09-10. `InterpolatedHistory` stores entries in one flat `List<float>` and sliced it at
-`index * _width`. Correct while every entry has the same width — which the engine guarantees, because
-`SetMaxCount` calls `ClearHistory()` (`interpolatedvar.h:1272`) and the old-width entries are simply
-gone. Our `Reset` deletes nothing, so a history that outlives a model change holds **two widths at
-once**, and a single stride is wrong for every entry after the change.
+B386: a history stored entries flat, sliced at `index * width` — correct only while every entry has
+the same width, which the engine guarantees: `SetMaxCount` calls `ClearHistory()`
+(`interpolatedvar.h:1272`). The width is the model's own, set in `c_baseanimating.cpp:1124`. This
+project's equivalent reset deletes nothing, so a history outliving a model change holds TWO widths at
+once.
 
-The width is the model's: `m_iv_flPoseParameter.SetMaxCount( hdr->GetNumPoseParameters() )`
-(`c_baseanimating.cpp:1124`). A class change moves it mid-match.
+**It fails two ways, only one loud:** width grew → throws (a headless capture dies before writing its
+PNG); width shrank → silently returns another entry's floats, no throw, no log, a pose built from
+wrong numbers. **A bounds guard is the wrong fix — it converts the loud half into the silent half.**
+Fix: carry each entry's own address/width rather than a fixed stride. See
+[[address-a-struct-by-name-not-from-its-end]].
 
-### It fails two ways and only one is loud
+**The viewer's log couldn't tell you a capture crashed** — no unhandled-exception handlers installed,
+so the runtime printed to stderr and the buffered log ended mid-frame looking like any normal run.
+Fixed (B402) by registering `Application.ThreadException` (requires `SetUnhandledExceptionMode` set
+FIRST or it's decoration), `AppDomain.UnhandledException`, `TaskScheduler.UnobservedTaskException`.
+**A crash inside `Dispose` reaches NONE of them** — it runs inside the window procedure, converted to
+`0xC000041D` with empty stderr; needed a marker naming each member as released.
 
-- **Width grew** — the offset runs past the end, `Slice` throws `ArgumentOutOfRangeException`, and a
-  headless `--shot` capture dies before writing its PNG.
-- **Width shrank** — the offset lands inside a neighbour's components. The read succeeds and returns
-  another entry's floats. No throw, no log, a pose built from the wrong numbers.
+The other two retentions in the same class, both deliberate: `Add(flushNewer: true)` records a flush
+tick instead of deleting (B384); `Reset` becomes a generation boundary instead of clearing
+(B382/B383).
 
-**So a bounds guard is the wrong fix**: it converts the loud half into the silent half. The fix was to
-carry each entry's address in an `_offsets` list, its own width being the distance to the next one.
-See [[address-a-struct-by-name-not-from-its-end]] — the same shape in a mapped buffer.
-
-### The viewer's log could not tell you a capture crashed — fixed 2026-09-12
-
-`Program.Main` used to install no `AppDomain.UnhandledException` or `Application.ThreadException`
-handler, so the runtime printed to stderr and the buffered log ended mid-frame looking like any other
-run. Forty-nine logs contained no trace of two reported crashes.
-
-**All three are registered now** (B402) — `Application.ThreadException`, `AppDomain.UnhandledException`
-and `TaskScheduler.UnobservedTaskException`, the last because a fire-and-forget `Task` that faults
-reaches neither of the others. Two caveats learned installing them:
-
-- **`ThreadException` fires only if the mode is set.** `Application.SetUnhandledExceptionMode(
-  UnhandledExceptionMode.CatchException)` must precede it or the handler is decoration; registering
-  it without the mode logged nothing on a run that crashed.
-- **A crash inside `Dispose` reaches NONE of them.** `Dispose` runs inside the window procedure
-  handling the close, so an exception leaving it is converted by user32 into
-  `STATUS_FATAL_USER_CALLBACK_EXCEPTION` (`0xC000041D`) with an empty stderr. Naming that one needed a
-  marker naming each member as it is released.
-
-**Read the process's stderr AND the exit code, not only the log.** A log that just stops is evidence
-of nothing; `0xC000041D` specifically means a throw crossed a native callback boundary. Related:
-[[logs-are-the-debugger]], [[ci-is-the-machine-without-tf2]].
-
-### Where else the same question is open
-
-The other two retentions in the same class, both deliberate and both documented:
-
-- `Add(flushNewer: true)` records a flush tick instead of deleting (B384).
-- `Reset` becomes a generation boundary instead of clearing (B382/B383).
-
-Each was checked here and neither carries a stride assumption, but the question is the one to ask of
-any future one: **what did the engine's delete make true, and what still assumes it?**
+Related: [[logs-are-the-debugger]], [[ci-is-the-machine-without-tf2]].
 
 ---
 
 ## `a-flat-array-is-addressed-by-a-width` — the stride belongs to the ENTRY, not the container
 
-**Components stored flat are addressed as `index * width`, so the width belongs to the ENTRY that was
-written, not to the container.** Treat it as the container's and every entry already held becomes
-unreadable the moment it changes: widening runs off the end and throws, narrowing silently returns the
-first half of a neighbour. The second has no symptom at all.
+**Components stored flat are addressed as `index * width`, so the width belongs to the ENTRY
+written, not the container.** Treating it as the container's makes every already-held entry
+unreadable the moment width changes.
 
-`InterpolatedHistory.SetMaxCount` did this. `m_flPoseParameter` is registered at width 1 and grown to
-the model's own count on `OnNewModel` (`c_baseanimating.cpp:1124`), so every animated entity does it
-once; it crashed the viewer about one run in three.
+**The mistake worth remembering is the FIX, not the bug.** The first fix was clearing entries,
+citing the engine's own `ClearHistory()` (`interpolatedvar.h:740`) and arguing "an entry whose layout
+no longer exists answers nothing" — **that sentence is a consequence of the defect dressed up as a
+fact about the data.** The layout does still exist, at the width it was written; only the fixed
+stride made it unreachable. A scrub back to before a width change must answer what a client at that
+moment held (D131), which clearing cannot do (the engine has no scrub feature to arbitrate the
+question). See [[the-base-is-not-the-behaviour]].
 
-### The mistake worth remembering is the FIX, not the bug
-
-The first fix was to clear the entries, citing the engine — `Reset()` opens with `ClearHistory()`
-(`interpolatedvar.h:740`) — and argued: *"an entry whose layout no longer exists answers nothing."*
-
-**That sentence is a consequence of the defect dressed up as a fact about the data.** The layout does
-still exist. It is the width the entry was written at, and only the FIXED stride made it unreachable.
-Carrying a per-entry offset keeps every old entry readable at its own width, and a peer session
-measured what the clearing version costs: a scrub back to before the width change stops finding the
-entries a client at that moment held.
-
-**So the reasoning inverted the dependency.** It read a limitation of the storage as a property of the
-subject, then quoted the engine to justify it. The engine could not arbitrate: it has no scrub, so
-`ClearHistory()` is the absence of the question rather than an answer to it —
-[[the-base-is-not-the-behaviour]] applied to a whole missing feature.
-
-**The test that settles it is about the REQUIREMENT, not the mechanism**: a client playing forward at
-tick 15 held those entries and blended them, so a scrub back to tick 15 must answer what that client
-answered. Written as `Bracket_ScrubbedBackToBeforeAWidening_...`, it fails against clearing and passes
-against per-entry offsets. Whenever a retention rule is invoked, ask which side of D131's line the
-change falls on: what is RETAINED is licensed, what is ANSWERED is not.
-
-### And the crash named its witness rather than its cause
-
-It killed the viewer about one run in three and the only stack anyone had came through
-`TakeAutomaticShot` — the frame that happened to sample first — so it was filed as an opening-sequence
-fault and a whole session was started against the wrong file. A plain playback run with no `--shot`
-produced the real stack immediately. **When a crash is intermittent, vary the entry point before
-believing the frame that reported it**: the first caller to touch shared state is the earliest witness,
-not the cause.
-
-**It was also latent until something else changed.** B385 put brush entities on the interpolation list,
-so `Bracket` began being called for a great many tracks it never had been. A dormant defect in shared
-state surfaces when a caller population grows, which makes the new caller look guilty.
+**The crash named its witness rather than its cause** — filed as an opening-sequence fault because
+every stack trace came through the capture code that happened to sample first; a plain playback run
+with no capture produced the real stack immediately. **When a crash is intermittent, vary the entry
+point before believing the frame that reported it.** It was also latent until B385 put brush entities
+on the interpolation list, growing the caller population enough to surface a dormant defect.
 
 Related: [[a-lazy-cache-makes-reading-a-write]], [[struct-padding-is-on-disk]],
-[[address-a-struct-by-name-not-from-its-end]], [[the-base-is-not-the-behaviour]],
 [[name-the-trade-before-fixing-valve]], [[a-filed-design-choice-may-not-be-one]].

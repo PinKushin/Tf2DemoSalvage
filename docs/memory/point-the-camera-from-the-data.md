@@ -8,19 +8,17 @@ metadata:
   modified: 2026-09-09T03:55:10.479Z
 ---
 
-Verifying a rendering change by screenshot fails when the camera is guessed. Eight captures on
-`koth_harvest_final` landed inside a barn, under the terrain, behind a wall, and on a rock face —
-each one costing a ~30 second viewer boot — before the `game-lumps` probe was taught to print the
-densest 512-unit cell of fixed-orientation detail sprites and three sample origins. The next capture
-was decisive.
+Verifying a rendering change by screenshot fails when the camera is guessed. Eight captures landed
+inside a barn, under terrain, behind a wall, on a rock face — each costing a ~30s viewer boot —
+before a probe was taught to print the densest cell of the relevant data plus sample origins. The next
+capture was decisive.
 
-**Why:** a map's layout is not recoverable from a picture of the wrong part of it, and a black or
-solid-coloured frame is indistinguishable from the feature being absent. Guessing also silently
-converts "the feature does not draw" into "I have not seen it yet".
+**Why:** a map's layout isn't recoverable from a picture of the wrong part of it; a black frame is
+indistinguishable from the feature being absent. Guessing silently converts "the feature doesn't draw"
+into "I haven't seen it yet".
 
-**How to apply:** before taking a capture to verify geometry, make the probe that reads the data
-print WHERE the data is — a bounding box, the densest cell, a few sample origins with their angles
-and lighting. Then set `TF2VIEW_CAMERA` from that. Also: the viewer takes 20-30 seconds to boot and
-load a map, so `ls` immediately after launching reports the file missing; wait on the file, never on
-a listing. Related: [[take-your-own-screenshot]],
-[[instrument-bugs-outnumber-decoder-bugs]], [[a-picture-is-assertable]].
+**How to apply:** before capturing to verify geometry, make the probe reading the data print WHERE it
+is — bounding box, densest cell, sample origins with angles. Set the camera from that. Also: the
+viewer takes 20-30s to boot, so `ls` right after launch reports the file missing — wait on the file,
+never a listing. Related: [[take-your-own-screenshot]], [[instrument-bugs-outnumber-decoder-bugs]],
+[[a-picture-is-assertable]].

@@ -8,37 +8,23 @@ metadata:
   modified: 2026-09-09T03:55:36.557Z
 ---
 
-`WorldRenderer.ApplyProxies` built its material-variable table only when the material carried
-`$colortint_base`:
+`WorldRenderer.ApplyProxies` built its material-variable table only when carrying `$colortint_base`.
+Implementing `YellowLevel` (writes `$yellow` on 7,570 materials, most unpainted) meant widening the
+gate to every material — looked like removing an accident.
 
-```csharp
-if (Tintable(materialIndex) is { } tintBase) { variables = new() { ["$colortint_base"] = tintBase }; }
-```
+**It was the mechanism.** With the table always present, `SelectFirstIfNonZero` on a material lacking
+`$colortint_base` read it as ZERO, took the wrong branch, overwrote modulation constants. Five
+reflection pixel tests went red. A comment beside the gate had already said so: *"a
+`SelectFirstIfNonZero` reading a missing variable as zero would paint every unpainted cosmetic
+black"* — read as about the seed, not the gate.
 
-Every variable proxy was gated on `variables is not null`. Implementing `YellowLevel` — which
-writes `$yellow` on 7,570 materials, most carrying no paint at all — meant widening that to every
-material. It looked like removing an accident of how the paint work happened to be written.
+**What the gate reproduced, in the engine, is a REFUSAL:** `CFunctionProxy::Init` calls
+`pMaterial->FindVar(name, &foundVar, false)` and returns false when undeclared; a proxy whose `Init`
+fails never binds. Correct rule: **a proxy whose named sources don't exist does not run** — now an
+explicit test in each handler.
 
-**It was the mechanism.** With the table always present, `SelectFirstIfNonZero` on a material with
-no `$colortint_base` read it as ZERO, took the other branch, and overwrote the modulation constants.
-Five reflection pixel tests went red — the fourth time that family has caught a change to this
-buffer, and the first time it caught a *removed* guard rather than an added constant.
-
-**The comment beside the gate said so and I read past it**: *"a `SelectFirstIfNonZero` reading a
-missing variable as zero would paint every unpainted cosmetic black"*. It described the value being
-missing, and I took it as being about the seed rather than about the gate.
-
-**What the gate was reproducing, in the engine, is a REFUSAL.** `CFunctionProxy::Init` calls
-`pMaterial->FindVar( name, &foundVar, false )` and returns false when the material does not declare
-the variable — and a proxy whose `Init` fails is never bound at all. So the correct rule is not "seed
-more variables" and not "gate the table"; it is **a proxy whose named sources do not exist does not
-run**, which is now the explicit test in each handler.
-
-**How to apply.** Before widening a condition to reach a new case, ask what the narrow version was
-REFUSING, not just what it was allowing — and look for the engine's own refusal, which is usually a
-failed `Init` or an early return rather than a value. Related: [[parity-is-the-search-not-the-defence]],
-where an invariant one system keeps turns out to be another's unstated precondition.
-
-**And keep the pixel tests that have nothing to do with the feature.** Nothing in the proxy or
-paint suites could see this; what failed was five reflection tests on weapon models, because they
-are the only ones that measure a whole draw rather than the value under construction.
+**How to apply:** before widening a condition, ask what the narrow version was REFUSING — look for
+the engine's own refusal (a failed `Init`, an early return), not just what it was allowing. Related:
+[[parity-is-the-search-not-the-defence]]. Keep pixel tests unrelated to the feature under change —
+nothing in the proxy/paint suites caught this; the reflection tests on weapon models did, because
+they measure a whole draw.

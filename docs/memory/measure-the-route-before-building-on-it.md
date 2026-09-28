@@ -8,40 +8,25 @@ metadata:
   modified: 2026-09-09T03:53:22.111Z
 ---
 
-**Before building on a route through the data, measure that the route arrives.** One query, first,
-costs minutes; discovering it from a symptom costs a rewrite.
+**Before building on a route through the data, measure that the route arrives** — one query costs
+minutes; discovering it from a symptom costs a rewrite.
 
-**Why:** the displacement-collision plan's step 2 was *"leaf → `LUMP_LEAFFACES` → faces →
-`dispinfo`"* — written from the format documentation and entirely reasonable. Measured on
-`cp_badlands` it reaches **zero** of the 1191 displacement faces. A displacement's base quad is not
-its terrain, so the compiler files it under no leaf at all; the narrowing has to be by BOUNDS.
+A collision plan's step ("leaf → `LUMP_LEAFFACES` → faces → `dispinfo`") reaches ZERO of
+`cp_badlands`' 1,191 displacement faces — a displacement's base quad isn't its terrain, so the
+compiler files it under no leaf at all; narrowing must be by BOUNDS. Had this been discovered as a
+symptom ("terrain collision does nothing"), it would look exactly like a wrong primitive.
 
-Had the narrowing been built first, the symptom would have been "terrain collision does nothing",
-which looks exactly like a wrong primitive — the expensive place to go looking.
+**The measurement needs a control** — zero displacement faces reached is also what a wrong offset
+produces. The same walk reached 12,654 flat faces, and 13,845 − 1,191 = 12,654 exactly, confirming
+it's the format, not the reader.
 
-**The measurement needs a control or it proves nothing about the format.** Zero displacement faces
-reached is also what a wrong `dleaf_t` offset produces. The same walk reached **12,654 flat faces**,
-and 13845 − 1191 = 12654 exactly, so every flat face is reachable and no displacement face is. That
-is the format, not the reader. See [[instrument-bugs-outnumber-decoder-bugs]].
+**How to apply:** when a plan says "A names B", write the query counting how many A actually name a
+B, on real data, first. Include the negative class as a control. Keep the measurement as a permanent
+test (`LeafDisplacementReachTests`) so nobody re-attempts the route.
 
-**How to apply:**
-
-- When a plan says "A names B", write the query that counts how many A actually name a B, and run it
-  on real data before writing anything else.
-- Include the negative class as the control — here, the faces that are NOT displacements.
-- Keep the measurement as a test rather than deleting it. `LeafDisplacementReachTests` asserts the
-  zero, so nobody re-attempts the route, and it says so the day a map does put them in leaves.
-- **A published tool is a source when the engine's own file is not.** `cmodel_disp.cpp` is not in the
-  SDK; `vrad` building its own displacement list rather than using leaves was the hint that leaves
-  were never the route.
-
-**The same session, from the other side:** two test premises were wrong about the MAP rather than
-about the code — a box dropped 512 units onto a vertex at z = 288 stops at 793, because the map
-stacks terrain above terrain; and the space just above a displacement vertex is usually inside the
-brush the terrain was carved from, so a brush trace correctly reports startsolid. Both times the
-code was right and the prediction was a guess about geometry nobody had looked at. **When a
-prediction about real data fails, ask whether the data is what you assumed before touching the
-code.** [[nothing-is-closed]] is the same rule for inputs.
+**Same session, other side:** two test premises were wrong about the MAP, not the code — a dropped
+box stopping mid-terrain, a brush trace correctly reporting `startsolid` inside carved geometry. Both
+times the code was right and the prediction was a guess about unlooked-at geometry.
 
 Related: [[nothing-is-closed]], [[a-filed-design-choice-may-not-be-one]],
 [[instrument-bugs-outnumber-decoder-bugs]].
@@ -50,34 +35,22 @@ Related: [[nothing-is-closed]], [[a-filed-design-choice-may-not-be-one]],
 
 ## `a-schema-key-nobody-reads-is-a-lead` — 747 on the left, zero on the right
 
-**The denominator method works on the game's shipped DATA, not just on its code, and it is cheaper
-there.** Take a key the game's own files declare, count it, then grep this repository for it:
-
-```bash
+**The denominator method works on the game's shipped DATA, cheaper than on its code.** Take a key
+the game's own files declare, count it, grep the repo for it:
+```
 grep -c '"player_bodygroups"' items_game.txt      # 747
 grep -rn "player_bodygroups" --include=*.cs .     # nothing
 ```
+That pairing found B352: cosmetics never removed the body parts they replace — every hat sat on hair
+it's modelled to cover, twelve players a frame, green suite.
 
-That pairing — a large number on the left and zero on the right — found **B352** on 2026-09-05: a
-player's cosmetics never removed the body parts they replace, so every hat sat on the hair it is
-modelled to cover. Twelve players a frame, in every modern demo, with a green suite.
+**Cheaper than the engine-method sweep** ([[parity-is-the-search-not-the-defence]]) — the denominator
+is a file, no citation matching, and the count states the stakes before a line is read.
 
-**Why it is cheaper than the engine-method sweep** ([[parity-is-the-search-not-the-defence]], and
-the `parity <filter> <class>` probe): the denominator is a file rather than a class, no citation
-matching is needed, and the count itself tells you how much is at stake. 747 items is a different
-finding from 2 items, before a line is read.
+**Get the key name from the FILE, never the C++ accessor** — `GetWorldmodelBodygroupOverride`
+suggested a wrong key name that returned zero and nearly filed an implemented feature as absent; the
+schema's real spelling returned 747.
 
-**Where the answers were:** `items_game.txt`, `modevents.res`, VMTs, `.res` files — see
-[[nothing-is-closed]].
-
-**Get the key name from the FILE, never from the C++ accessor.** `GetWorldmodelBodygroupOverride`
-suggested `use_model_bodygroup_override`, which returned zero and nearly filed an implemented-looking
-feature as absent; the schema spells it `wm_bodygroup_override`. The control that caught it was
-`player_bodygroups` returning 747 — [[instrument-bugs-outnumber-decoder-bugs]] applies to shipped data
-exactly as it does to a grep over source.
-
-**And check whether the mechanism can fire at all before filing a gap.** The same session found 102
-items declaring `additional_hidden_bodygroups` and none of them reachable: the style arm needs a
-subscribed Steam inventory, which a spectating live client also lacks. A precondition check costs one
-call chain and converts a plausible defect into a settled question — see
-[[a-filed-design-choice-may-not-be-one]].
+**Check whether the mechanism can fire at all before filing a gap** — 102 items declaring another
+attribute were unreachable because the feature needs a subscribed Steam inventory a spectating live
+client also lacks. A precondition check converts a plausible defect into a settled question.

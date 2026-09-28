@@ -8,709 +8,152 @@ metadata:
   modified: 2026-09-10T22:53:33.953Z
 ---
 
-**Three memories were merged into this one on 2026-08-27** — `a-floor-must-track-the-number-it-guards`,
-`a-skip-is-not-a-pass-or-a-failure` and `a-wrong-invocation-exits-zero`. They already cross-referenced
-each other in every direction, because they are one subject: **"Passed!" is not the result, and every
-number beside it can lie in a different way.** **Six more memories were folded in on 2026-09-04** —
-about running the gate honestly rather than just reading it honestly: not editing it mid-run, reaping
-the daemons it leaves behind, pushing on the right cadence and actually reading the CI run, keeping a
-probe out of the suite entirely, and reading a slow UI suite as a measurement of the app. Their names
-are kept as headings below.
+**"Passed!" is not the result, and every number beside it can lie a different way.**
 
 ## The trx total, not the console
 
-**`build/assert-test-count.sh` reads `total=` out of the `.trx`. The console prints a different,
-smaller number. Bump floors from the trx.**
-
-Measured on Content.Tests, 2026-08-22, same run:
-
-| source | number |
-|---|---|
-| console `Total:` | 623 (610 passed + 13 skipped) |
-| trx `<Counters total=>` | **638** |
-| trx `executed=` | 610 |
-
-The gap is `[Explicit]` tests, which are discovered and counted in the trx total but not run. The
-floors in `build/gate.sh` are therefore all trx numbers, and this is why the file's comments can say
-things like "613: SoundFormatProbe, `[Explicit]`" — an `[Explicit]` probe raises the floor even
-though it never executes.
-
-**Why it is worth knowing:** reading the console after adding 9 tests gave 623 against a floor of
-628, which looks exactly like *tests were silently lost* — the precise failure the floors exist to
-catch. Several minutes went into hunting a regression that was not there. The real count was 638,
-which is 628 + 9 conformance + 1 probe, matching to the unit.
-
-```bash
-bash build/assert-test-count.sh "**/content.trx" <old-floor> content
-```
-
-It prints `content: 638 executed, 0 failed (floor 628)` — that first number is the new floor. Run it
-rather than doing arithmetic on the console line.
-
----
+`build/assert-test-count.sh` reads `total=` from the `.trx`; the console prints a smaller number.
+**Floors are trx numbers.** Measured: console `Total: 623` vs. trx `total="638"` on the same run — the
+gap is `[Explicit]` tests, counted in the trx but not run. Reading the console after adding tests once
+looked exactly like a regression when there was none.
 
 ## `a-floor-must-track-the-number-it-guards`
 
-**A floor that has not been raised is not a guard.** `build/assert-test-count.sh` exists precisely to
-catch a truncated run, and its floors had drifted an order of magnitude behind the suites:
-
-| Assembly | Real count | Floor |
-|---|---|---|
-| Viewer | 352 | **34** |
-| Core | 1034 | 744 |
-| Corpus | 138 | 99 |
-
-A solution-wide run that reported **50 of Viewer's 350 tests** as a pass (B104) satisfied a floor of
-34 without complaint. The check was present, ran, printed a reassuring line, and meant nothing.
-Floors must be raised as the suite grows — [[mutation-score-is-not-the-goal]] is the same discipline
-applied to a different number.
-
-**Run one project at a time.** A solution-wide `dotnet test` writes one `.trx` per project all under
-the same file name, so no count check can tell them apart afterwards; and it runs test assemblies
-concurrently, which is the leading suspect for the truncation itself. `build/gate.sh` does the
-sequential, count-asserted run — use it rather than reading console lines.
-
-**`--filter` changes which tests EXIST, not merely which of them run.** NUnit's adapter includes
-`[Explicit]` tests when no filter is given and drops them as soon as any filter is present.
-Content.Tests reported **441 unfiltered and 436** with `--filter 'FullyQualifiedName!~UiTests'` — the
-five being diagnostic probes. That filter was the documented merge gate for months, so every
-`[Explicit]` test in the repository was quietly absent from it.
-
-Two invocations that look equivalent can therefore report different totals for two unrelated reasons.
-
----
+**A floor that hasn't been raised is not a guard.** Floors drifted an order of magnitude behind real
+suite sizes — a run that reported 50 of Viewer's 350 tests (B104) satisfied a floor of 34 without complaint.
+Run one project at a time (`build/gate.sh`): a solution-wide run writes one `.trx` per project under
+the same name, indistinguishable afterward, and runs assemblies concurrently (a leading suspect for
+truncation). `--filter` changes which tests EXIST (drops `[Explicit]` the moment any filter is
+present) — two invocations that look equivalent can report different totals for unrelated reasons.
 
 ## `a-skip-is-not-a-pass-or-a-failure`
 
-**A test whose precondition breaks does not fail. It skips — and a skip is invisible.**
+**A test whose precondition breaks doesn't fail — it skips, and a skip is invisible.** A corrupted
+hardcoded path made a test silently `Assert.Ignore` — a map went unread for an unknown time, with
+`Passed!` on the console and the trx total (which counts skips) satisfying the floor.
 
-Found for real on 2026-08-22. `BspModelsTests` looked up TF2's install path, found nothing because
-its hardcoded copy of that path was corrupt ([[edit-files-with-the-file-tools]]), and took its
-`Assert.Ignore` branch. The map had gone unread for an unknown length of time. Nothing anywhere
-reported it.
+- A guard clause is a claim — make it checkable: `GameInstall` plus `Skip` (D52, D109) is one shared
+  skip helper, not per-file duplicates.
+- When a suite's skip count is non-zero, find out which and why.
+- Suspect this whenever a test "has always passed" but you can't remember it producing output.
 
-**Why it survives every instrument this repo has:**
-
-- The console prints `Passed!` with no mention of it.
-- `build/assert-test-count.sh` reads the trx `total`, which **counts skipped tests**, so the floor
-  is satisfied.
-- Coverage does not move enough to notice.
-- The test is still there, still green, still named as if it measures something.
-
-This is the shape of [[measure-the-output-not-the-capability]] one level up: the *fallback branch*
-made a dead test look like a healthy one, exactly as a fallback in production makes a dead feature
-look implemented.
-
-- **A guard clause is a claim, so make it checkable.** The reason dozens of files could hide this is
-  that each stated its own precondition. `GameInstall` plus `Skip` (D52, D109) is one copy, so
-  everything that reads game data skips together — loudly and obviously — rather than one file
-  skipping alone. See [[output-level-assertion-or-it-is-not-done]] for how long that took to finish.
-- **When a suite's skip count is non-zero, find out which tests and why.** 13 skips in Content.Tests
-  is normal only once each one has been accounted for. An unexplained skip is a finding.
-- **Prefer a helper that returns null-for-absent over a caller-written `File.Exists`.** The check is
-  precisely where the silence gets in, so it belongs in one place that is itself tested.
-- Suspect this first whenever a test "has always passed" but you cannot remember it ever producing
-  output. Check `Skipped:` in the run before assuming the code path is covered.
-
-**The skip is still the right behaviour** — it is the only thing that keeps CI green on the machine
-without the game ([[ci-is-the-machine-without-tf2]]). What is wrong is a skip nobody accounted for.
-
----
+The skip is still correct behaviour (it's what keeps CI green without the game,
+[[ci-is-the-machine-without-tf2]]) — what's wrong is a skip nobody accounted for.
 
 ## `a-wrong-invocation-exits-zero`
 
-**A command that was invoked wrongly usually exits 0.** Printing a usage banner is not an error to
-the program that printed it, so "did it pass" and "did it run at all" collapse into the same answer.
+**A command invoked wrongly usually exits 0.** A wrapper script invoked by bare filename printed its
+own usage banner and exited 0 for weeks; `dotnet test … | tail` reports the PIPE's exit code, so a
+broken build read as green; `--filter` matching nothing exits 0 with no summary. **`run-exclusive.ps1`
+does not propagate the inner command's exit code** — a failed UI phase still exits 0; only the
+`Passed!`/`Failed!` line inside the output says so, and that line can itself be cut by a `| tail`.
 
-Three measured on this project, all of which cost real time:
+**General shape:** whenever a command's OUTPUT is read rather than its exit code, absence of expected
+output IS the failure signal. Assert on shape (a matching total, a required line), not status.
 
-- **`pwsh run-exclusive.ps1 dotnet test …`** — the script lives in the folder above the repositories,
-  not in this one, so `pwsh` cannot find the bare filename, prints its own usage banner and **exits 0**.
-  It was in `CLAUDE.md` in that form for weeks. Correct: the absolute path, as `CLAUDE.md`'s Commands
-  table spells it.
-- **`dotnet test … | tail`** — the pipeline's exit code is `tail`'s. A broken build came back exit 0
-  with an empty grep and read as green. Redirect to a file, then check `$?`.
-- **`dotnet test --filter` matching nothing** — exits 0 with no summary at all, so a renamed fixture
-  silently tests nothing.
-
-- **`run-exclusive.ps1` does not propagate the inner command's exit code.** Measured 2026-09-06: the
-  UI phase reported `Failed! - Failed: 1, Passed: 30, Skipped: 0, Total: 31` and the wrapper
-  **exited 0**. So the gate's second phase can never be judged by its status — only by reading the
-  `Passed!`/`Failed!` line. Worse, the same run was first read with `| tail -6`, which cut the line
-  naming the failing test and left only the summary; the stack trace above it was the only place
-  the test's name appeared.
-
-**The general shape: whenever a command's OUTPUT is being read rather than its exit code, the
-absence of expected output is the failure signal, and nothing reports it.** So assert on the shape —
-a total that matches a known floor, a line that must appear — rather than on the status.
-
-**And the corollary for a windowed suite: a person at the keyboard is an input to it.** The same run
-above failed `Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle` on its ten-second "no
-free-camera frame was drawn" timeout, and the cause was the owner: *"i probably hit space"*. The
-machine-wide lock stops another AGENT stealing the desktop; it cannot stop a human, and it is not
-meant to. So a single UI failure whose assertion is about the app still drawing is a candidate for
-exactly this before it is a candidate for a regression — re-run it before investigating, and say
-which of the two you are reporting.
-
-This is the same family as `--no-build` and as a stale binary: the run succeeds at doing nothing.
-
----
+**Corollary for a windowed suite: a human at the keyboard is an input to it** — a UI test timing out
+waiting for a frame may simply be the owner hitting a key. Re-run before investigating, say which
+you're reporting.
 
 ## `never-edit-a-running-script`
 
-**Do not edit a shell script while it is running.** `bash` does not load the file up front; it reads
-and executes by BYTE OFFSET, so an edit that changes the length shifts everything the interpreter
-has not reached yet. It resumes at the old offset in the new bytes.
+**Do not edit a shell script while it's running.** `bash` reads by BYTE OFFSET, so a length-changing
+edit shifts everything unread and resumes at the old offset in new bytes — silently skipping
+assemblies (exit 0) or running a word fragment as a command (`en: command not found`). **The trigger
+is updating a floor comment in the very script that's running** while its wait is used productively.
 
-Seen 2026-09-02, backgrounding `build/gate.sh` and editing a floor in it while it ran:
-
-```
-core: 1669 executed, 0 failed (floor 1668)
-cli: 74 executed, 0 failed (floor 74)
-
-[exited with code 0]
-```
-
-**Two of twelve assemblies, and exit code 0.** No error, no truncation warning, nothing that reads
-as wrong — the same family as the crashed test host that reports `Passed!` with a short total, and
-the `--filter` that matches nothing and exits clean. The gate's own count assertions cannot help:
-the ten runs that would have made them fire never executed.
-
-**The habit that causes it is backgrounding a long run and using the wait productively.** That is
-usually right; the exception is any file the running command is READING — the script itself, and
-anything it sources. Edit docs, edit source the next build will compile, but leave the script alone
-until it exits.
-
-**How to notice**: compare the number of assemblies reported against the number the gate runs. A run
-that stops early looks exactly like a run that succeeded, and this project already knows that shape
-from the entry above on reading the trx total — the rule there, count what came back, do not read the
-last line, is the same rule.
-
-### It happened again on 2026-09-04, with this memory already written
-
-Ten of twelve that time — the edit was further down the file — and the tell was a new one worth
-recognising:
-
-```
-corpus: 156 executed, 0 failed (floor 156)
-build/gate.sh: line 1042: en: command not found
-
-[exited with code 0]
-```
-
-**`en: command not found`.** The interpreter resumed at the old byte offset, which now landed in the
-middle of a word, and ran the tail of it as a command. So the second symptom, after a short list of
-assemblies, is a **nonsense command name that is a fragment of a real word** — `en` from `written`,
-say. It is one line in a hundred and it is followed by exit 0.
-
-**The trigger both times was the same and it is not carelessness in the moment.** A long gate is
-backgrounded, the wait is used productively, and one of the productive things is updating a floor in
-the very script that is running — which feels like documentation, because a floor comment IS
-documentation. It is not: it is the executing file.
-
-**So the rule is mechanical rather than a matter of care.** While a gate is in flight, `build/gate.sh`
-is off limits, floors included. Write the new floor down somewhere else and apply it after the run
-exits. Everything else — docs, source, tests — is fair game.
-
----
+**Rule is mechanical: while a gate is in flight, the gate script is off-limits, floors included.**
+Everything else (docs, source, tests) is fair game.
 
 ## `build-servers-outlive-the-build`
 
-**Every `dotnet build` and `dotnet test` leaves daemons running, by design, and nothing reaps
-them.** MSBuild's node reuse keeps worker nodes alive for the next build; the Roslyn compiler server
-(`VBCSCompiler`) does the same. Both outlive the process that spawned them.
+Every `dotnet build`/`test` leaves MSBuild node-reuse workers and the Roslyn compiler server running
+by design — measured ~1.4GB resident immediately after one gate run finished. Accumulates across
+sessions; the owner's periodic "needs a restart" symptom is consistent with this.
 
-**Measured 2026-08-25, immediately after one green `build/gate.sh` run, with nothing else
-building:**
+**How to apply:** `dotnet build-server shutdown` (the gate runs it via `trap ... EXIT`, covering
+failed runs too). Run by hand after ad-hoc `dotnet test` calls. **Shut down rather than disable** node
+reuse — it genuinely helps across a gate run's many projects. **Never `pkill -f`** — it matches the
+shell running the build script itself.
 
-| process | count | each | total |
-|---|---|---|---|
-| `dotnet` (MSBuild nodes) | 8 | ~110 MB | ~0.9 GB |
-| `VBCSCompiler` | 1 | 502 MB, 547 s CPU | 0.5 GB |
-
-**About 1.4 GB still resident with the gate long finished**, and it does not go away on its own.
-
-**Why it matters more than one run suggests: it accumulates.** Several agents build in this
-directory, sessions come and go, and each `dotnet test` adds to the pile. The owner's symptom —
-needing a restart every few days — is consistent with this, and it was the reason the cleanup got
-looked at at all.
-
-**The honest cost to a RUN is small, and overstating it sends the fix the wrong way.** The viewer
-stage measured 2m30s inside the gate against 2m18s standalone: twelve seconds. The reason to clean
-up is the memory a machine keeps handing over, not the speed.
-
-**How to apply:**
-
-- `dotnet build-server shutdown` is the reaper. `build/gate.sh` runs it from a `trap ... EXIT`, so a
-  gate that FAILS cleans up too — which is the run most likely to be followed by another.
-- Run it by hand after a batch of ad-hoc `dotnet test` calls. They leave nodes just as the gate does.
-- **Shut down rather than disable.** `MSBUILDDISABLENODEREUSE=1` stops them existing at all, but node
-  reuse genuinely helps ACROSS the eleven projects a gate run walks. The defect is persistence, not
-  reuse. Set it machine-wide only if the restarts continue after reaping is routine.
-- **Never `pkill -f`** for this: it matches the shell running it, and a build script's own command
-  line contains every pattern worth matching. That one has already cost an SSH session, exit 255,
-  looking exactly like a network drop.
-- A symptom worth recognising: `Get-Process dotnet` showing several ~110 MB processes with a start
-  time matching a build that finished long ago. They are idle, not stuck.
-
-**`build-server shutdown` turned out to cover one leak of three** (2026-09-12, owner: *"we have old
-dotnet processes too, you need to figure out why they keep being left over and fix it"*). Measured by
-a census of every `dotnet`/`testhost`/`VBCSCompiler` process with its parent and start time:
-
-| how processes were left | trap covers it? | measured |
-|---|---|---|
-| a gate that COMPLETES | yes | — |
-| a gate that is KILLED — a background task stopped, a terminal closed | **no**: the shell is terminated outright and the trap never runs; and `build-server shutdown` never stops a test host anyway | a `testhost` survived a stopped gate and locked `Tf2DemoSalvage.Animation.dll`, failing the next build with MSB3021 |
-| plain `dotnet build`/`test`/`run` outside the gate | **no**: no trap at all | a parentless `VBCSCompiler`, ten minutes after a standalone build |
-
-**`build/reap-dotnet.ps1` is the reaper now**, and the gate runs it at START as well as in its trap,
-because a killed run cannot clean up after itself but the next run can. It finds orphans by PARENTAGE,
-never by name: a process whose parent is gone, or whose parent's id is now held by something that
-started after it (ids are reused). It stops orphaned `dotnet`/`testhost` trees that mention this
-repository's path anywhere, orphaned MSBuild nodes started `/nodeReuse:false`, then runs
-`dotnet build-server shutdown`. A live run's processes all have living parents, so a concurrent gate is
-never touched. **Verified with a control:** an orphaned `dotnet` running a probe from this repository
-was reaped with its `conhost`, while an identical one with a live parent and the running gate were not.
-
-**Two traps from building it.** An orphan test process can finish before the check reaches it — the
-first dry run found nothing because both test processes had already exited, which proved nothing either
-way; the fix was to create, check and reap in one call. And PowerShell unrolls a collection returned
-from a function, so a one-process tree arrives as a bare object; `return , $tree` keeps it a list.
-
-**One observation against the bullet above:** every MSBuild node under a running gate's `dotnet test`
-showed `/nodeReuse:false`, so reuse ACROSS the gate's projects may not be happening at all. One census,
-not a rule — measure before changing `MSBUILDDISABLENODEREUSE` either way.
-
-- Run `pwsh build/reap-dotnet.ps1` after ad-hoc `dotnet` commands, and after stopping any run by force.
-
----
+**One leak of three:** a KILLED gate (a stopped background task, a closed terminal) skips the trap
+entirely — the shell dies outright. `build/reap-dotnet.ps1` finds orphans by PARENTAGE (never name),
+runs at gate START as well as in its trap, verified with a control (an orphaned process reaped, a live
+one untouched).
 
 ## `push-when-the-gate-is-green`
 
-**Push when the gate is green.** Owner, 2026-08-23: *"we need to push when the gate is green too"*.
+Owner: *"we need to push when the gate is green too"* — overrides the "push sparingly" default; a
+green gate IS the shareability signal. **Do not gate for its own sake** — a documentation-only change
+needs no gate. **Sub-branch pushes are crash insurance** and cost nothing (confirmed: no workflow
+triggers on non-main pushes) — except opening a PR, which has no branch filter and flips a branch from
+zero-cost to a full CI run on every push.
 
-**This overrides the global "push sparingly" default**, which says to hold local commits until a
-logical unit is finished. Here the gate passing *is* the signal — a green gate means the work is in
-a shareable state, so it goes up.
-
-**How to apply:** after `bash build/gate.sh` reports every project at or above its floor, commit and
-push. Run the UI suite first when the change could touch the window, since the gate deliberately
-excludes it.
-
-**Do not gate for the sake of it.** Same conversation, on running the gate after writing up a
-finding: *"you realize if you just found an issue and havent done anything to fix it, you dont have
-to run the gate before the commit, nothing has changed"*. The gate answers "did I break the code";
-a documentation-only change has not. Batch the gate with the code it guards.
-
-**Sub-branch pushes are crash insurance, and the owner asked for them explicitly** (2026-08-26):
-
-> *"push too, i dont mind pushes on subbranches, expecially when they get over 1k lines, because
-> losing this much work due to a crash would suck."*
-
-**The one thing to watch is CI volume**, also owner-stated: *"the only think to watch for, when
-pushing, is too many ci's running."* Measured against the workflows rather than guessed:
-
-| workflow | triggers | cost of a sub-branch push |
-|---|---|---|
-| `test.yml` | `push: [main]`, `pull_request` | **none** |
-| `codeql.yml` | `push: [main]`, `pull_request` | **none** |
-| `fuzz.yml`, `mutation.yml` | schedule + dispatch | none |
-
-**So a sub-branch push costs nothing at all** — nothing triggers on it. Confirmed 2026-08-26: one
-push to `main` produced exactly two runs (Test and CodeQL) and a sub-branch push produced none. That
-is what makes "push freely on sub-branches" free rather than merely tolerated.
-
-**The trap is opening a PR.** `pull_request` has **no branch filter**, so a PR flips that branch
-from zero cost to a full Test + CodeQL run on *every* push to it — and `test.yml`'s corpus job pulls
-Git LFS blobs against a 1 GiB/month tier. Do not open a PR on work in progress unless CI feedback is
-actually wanted.
-
-**Pushes to `main` are the expensive ones**, so batch those. `concurrency: cancel-in-progress`
-supersedes an in-flight run for the same ref, so rapid pushes do not stack — but each one restarts
-the LFS pull, which is the budget that actually binds.
-
-**A push to `main` is not finished until its run is read.** Measured 2026-08-26: two consecutive
-merges to `main` left the Test job RED and it went unnoticed for over an hour, because pushing felt
-like the end of the task. A green local gate says nothing about CI — that is the entire point of
-having CI — and this project's standing rule already goes further than a status tick (*"CI
-annotations count as build output"*). Not looking at all is worse than trusting the tick.
-
-**Both failures were things only CI could see, which is why the local gate stayed green:**
-
-- **Floor drift.** `build/gate.sh` and `.github/workflows/test.yml` carry the same numbers in two
-  places, and lowering one without the other fails only in CI. It happened twice in one session
-  (presentation and viewer). `CLAUDE.md` warns about this in those words, so the fix is mechanical:
-  after changing any floor, diff the two lists and confirm they agree.
-- **An environment-dependent test.** `WiringUiTests` asserted the viewer's log never says "no player
-  appearance" — true on a machine with TF2 installed, false on a runner without it, where the
-  appearance legitimately cannot build. **A test that passes locally and fails in CI is usually a
-  test asserting on the developer's machine**, and the fix is the assembly's existing
-  `ViewerSession.RequireTheGame()` gate rather than weakening the assertion.
-
-**A run can be ABSENT, and absent looks exactly like "not looked at yet".** Measured 2026-08-26: a
-merge pushed to `main` at 15:14 UTC produced **no workflow run at all**. Fifteen minutes later
-`gh run list --branch main` still showed the previous commit's run at the top — green, and about a
-different commit. Reading that list casually says "main is green".
-
-Everything checked out: `origin/main` and `gh api repos/{repo}/commits/main` both held the merge,
-all four workflows reported `state=active`, Actions permissions were `enabled`, and the repository
-is public so minutes are unlimited. The repository's own event list had no `PushEvent` for
-`refs/heads/main` at that time either.
-
-**The cause was a GitHub Actions outage, and checking that should have been the FIRST move, not the
-last.** The status page reported a major Actions outage beginning 15:11 UTC — upstream database
-failure, inbound traffic throttled. The push was at 15:14. A `workflow_dispatch` sixteen minutes
-later was accepted and then sat with **zero jobs** for forty minutes: accepted, never expanded.
-
-```bash
-curl -s https://www.githubstatus.com/api/v2/summary.json | jq '.components[] | select(.name=="Actions")'
-```
-
-**The order was backwards and it cost half a dozen tool calls.** Workflow states, Actions
-permissions, YAML validity, repository visibility, billing — every one came back healthy, which is
-what "the problem is not yours" looks like from the inside, one negative result at a time. **When an
-external service behaves impossibly, ask the service before auditing your own configuration.** The
-tell is a symptom no configuration could produce: a run created with zero jobs is not something a
-repository setting can express.
-
-**A run with `total_count: 0` jobs is the distinguishing observation.** A run waiting for a runner
-has jobs in `queued`; a run with none was never expanded, which is the provider's side of the line.
-
-**So verify by SHA, never by reading the top of the list:**
-
-```bash
-gh api "repos/{owner}/{repo}/actions/runs?head_sha=$(git rev-parse main)" --jq .total_count
-```
-
-`0` means no run exists; re-trigger with `gh workflow run <name> --ref main` rather than waiting.
-Every workflow that gates a merge should therefore carry `workflow_dispatch`, or there is no way to
-ask for the run that did not happen.
-
-**And use the FULL sha.** The first attempt at that query padded a short sha out to forty characters
-by hand; it returned `0` for a commit that does not exist, which is the same answer as the real
-problem and would have been believed. `$(git rev-parse main)` rather than anything typed.
-
-**How to apply:** after `git push origin main`, run the count query above, then
-`gh run list --branch main --limit 3`. If a run is still in flight, come back to it — do not report
-the work as landed until the run is read.
-
----
+**A push to main is not finished until its run is READ.** Two merges left the Test job red,
+unnoticed for an hour. **A run can be ABSENT** (a GitHub Actions outage produced zero-job runs,
+looking identical to "not looked at yet") — verify by SHA (`gh api .../runs?head_sha=$(git rev-parse
+main)`), not by reading the top of a run list, and use the FULL sha.
 
 ## `a-probe-is-a-script-not-a-test`
 
-**The owner, 2026-08-30:** *"btw, you can script a probe outside the test suite, having a bunch of
-probe tests just slows the suite down and putting in a suite and running the whole damn thing takes
-forever"*.
+Owner: *"you can script a probe outside the test suite, having a bunch of probe tests just slows the
+suite down."* A probe compiled into the test assembly is still discovered, compiled, and counted in
+the trx total even as `[Explicit]`; asking it a question costs a full VSTest host launch, and `const`
+parameters meant editing code just to change an input.
 
-**Why:** two costs, and the second is the one that hides.
-
-- **The suite pays for every probe it holds.** About sixty `*Probe` files sit across the test
-  projects. `[Explicit]` keeps a probe out of the RUN and out of nothing else — it is still
-  compiled, still discovered by the adapter on every `dotnet test`, and still counted in the
-  `.trx` total that `build/assert-test-count.sh` gates on.
-- **Asking a probe a question cost a test run.** `dotnet test --filter` builds an assembly
-  referencing NUnit, the adapter and Shouldly, starts a VSTest host to execute one case, and buries
-  the answer in `TestContext.Out`. Worse, the parameters were `const`, so the owner naming a second
-  tick window meant editing a constant and paying it all again.
-
-**How to apply:** a probe is a console program in `tools/Tf2DemoSalvage.Probe`, discovered by
-reflection from `IProbe` — adding one is adding a file.
-
-```bash
-dotnet run --project tools/Tf2DemoSalvage.Probe
-```
-
-Its parameters are command-line arguments, not constants; that is most of the point. `DemoCorpus`
-lives in the tool and `Tf2DemoSalvage.Corpus.Tests` consumes it, so the suite and the probes locate
-demos through one implementation — see [[one-place-or-it-drifts]].
-
-**This does not replace [[measure-the-output-not-the-capability]] or D38's rule that a measurement
-is not a test.** D38 already said a harness worth keeping asserts nothing and is `[Explicit]`; what
-it never said was where such a harness should live, so the answer defaulted to "in the suite" and
-sixty accumulated there while each one followed the rule. Anything with a right answer — decode,
-arithmetic, a rule read from the SDK — is still a synthetic test in `Core.Tests` or a layer's own
-suite.
-
-**Do not port sixty probes in one pass.** Several carry findings in their prose and several answer
-questions that are now closed; those should be deleted with the finding promoted to
-`docs/findings/`. A bulk move relocates prose without reading it, which is worse than leaving it.
-
-D126.
-
----
+**How to apply:** a probe is a console program discovered by reflection — adding one is adding a file,
+run via `dotnet run --project tools/.../Probe`. This doesn't replace [[measure-the-output-not-the-capability]]
+or D38's rule that a measurement is not a test — for anything with a right answer (decode, arithmetic,
+a rule read from the SDK), those stay in the suite. Don't bulk-port existing
+probes without reading them; some carry findings that should become `docs/findings/` entries instead
+(D126).
 
 ## `slow-ui-tests-measure-the-app`
 
-**A UI suite that got slow is telling you the application got slow.** UIA queries are served by the
-target's message loop, so a viewer spending 57 ms a frame answers `Find` at 57 ms granularity, and a
-five-second wait becomes a fifty-second one.
-
-Measured 2026-08-23: adding a second demo to the UI session took the suite from 12 s to 4m43. Three
-explanations were proposed and the first two were wrong —
-
-1. the demo decode (it was 0.4–0.8 s, not the 20 s of asset loading beside it);
-2. the log reader re-reading a 45 MB file on every poll (real, worth fixing, not the cause).
-
-**What settled it was `--logger "console;verbosity=normal"`, which prints a duration per test.**
-Every test running *before* the demo-switch test took under two seconds; every test *after* it took
-23–58 s. That pattern names the cause on its own: nothing about those tests changed, so the thing
-they share — the application — did. The render log then gave the number: **300 frames a second
-before the switches, 19 after**, paused, with posing and lighting at zero. Filed as B148.
-
-**Read the per-test durations before touching the tests.** A suite that slowed down is a measurement
-you already paid for; treating it as test flakiness throws the finding away and usually adds a
-timeout to hide it.
-
-See [[nothing-is-closed]] — this is that rule with the hops being phases of a load — and
-[[logs-are-the-debugger]], since the first wrong guess picked the one phase that already happened to
-be wrapped in a timer.
+**A UI suite that got slow is telling you the application got slow** — UIA queries are served by the
+target's message loop, so a laggy app makes a five-second wait become fifty. Adding a second demo took
+a suite from 12s to 4m43; per-test duration logging showed every test AFTER the demo-switch taking
+20-50s — pointing straight at the application (frame rate collapsed from 300fps to 19fps, paused,
+filed as B148). Read per-test durations before touching the tests; a slowdown is a measurement already paid for.
 
 ---
 
-Related: [[measure-the-output-not-the-capability]], [[instrument-bugs-outnumber-decoder-bugs]].
+**A filtered gate command can leave you reading a STALE number** — grepping only failure lines from a
+fresh run alongside a leftover file from a PREVIOUS run showed a floor-matching result that was
+actually one run behind. Redirect to a file THIS invocation names, read only that file.
 
-**A filtered gate command can leave you reading a STALE number, 2026-09-05.** Re-running the gate
-after adding one test, the command was:
+**A gate in flight owns the tree, and it still exits 0 on a mid-run edit** — a source edit landing
+between two projects' test runs means each measured a DIFFERENT tree, and the run reports success
+because nothing detects the split. **While a gate is in flight, do documentation/reading/planning,
+never a source edit.** This is the same rule D145 states for subagents from the other side — "the
+parent does not build or measure while one holds a source file." A probe run (which also builds) has
+the same hazard — two false "findings" were actually build error text matched by the grep, because
+source was edited mid-scan.
 
-```bash
-bash build/gate.sh 2>&1 | grep -E "executed, .* failed" | grep -v ", 0 failed" | head -3
-echo "--- scene ---"; grep -E "scene:" /tmp/gate-b350.txt | tail -1
-```
+**A commit nobody ran may be the editor's own button** — before auditing hooks or suspecting a peer
+session for an unexplained commit, ask the owner (a UI button clicked in an editor was the actual
+cause once).
 
-The first line prints only FAILURES, so a clean run prints nothing — fine on its own. The second
-line reads the file from the PREVIOUS run, and printed `scene: 522 executed, 0 failed (floor 522)`
-under a heading that read like this run's result. The floor was 523 by then and the suite had 523
-tests; both numbers on screen were one behind, and nothing about the output said so.
+## `the-viewer-suite-wants-the-gpu` — creates real Direct3D devices
 
-**Two separate faults, and either alone is enough:**
+A `Test Run Aborted` mid-suite once coincided with another app in exclusive fullscreen, didn't
+reproduce after. The count FLOOR is what made a truncated run visible at all.
 
-- **Filtering to failures makes success indistinguishable from a crashed run.** `CLAUDE.md` already
-  says not to filter the gate's output while iterating; this is the other reason — an empty result
-  is ambiguous, not reassuring.
-- **Reading a file the current command did not write.** The redirect target and the file grepped
-  must be the same path, and a run that redirects nowhere has no file to read.
+**Console vs. trx gap is not a constant** — grows with the number of skipped/Explicit tests; on one CI
+run it was eleven tests. Never compare a console `Total:` against a gate floor.
 
-**How to apply:** redirect the gate to a file THIS invocation names, then read that file. Never grep
-a `/tmp/gate-*.txt` from an earlier step in the same breath as a fresh run — the two look identical
-in the transcript and only one of them is about the code as it stands now.
+**A CI floor can't be checked against a run that uploads nothing** — both artifact-upload steps were
+gated on failure only, so no GREEN run ever produced a trx to confirm floors against, and floors
+drifted hundreds low for months. Fixed with `if: always()`.
 
----
+**Raising one file's floor is not raising the other's** — `build/gate.sh` and the CI workflow hold the
+same numbers in two files that merge independently and cleanly with no conflict. See
+[[one-place-or-it-drifts]].
 
-## `a-gate-in-flight-owns-the-tree` — an edit mid-run splits the measurement, and it still exits 0
+**Verify a floor by manipulation** — the floor PLUS ONE must fail, or the check measures nothing.
 
-**The gate builds and tests one project at a time, so a source edit part-way through splits the run
-in two.** Done on 2026-09-06: `EntityState.cs` was edited while `build/gate.sh` was between
-projects. `core.trx` was written at 16:15 and the edit landed at 16:16, so **Core was measured
-against the OLD tree** while `scene`, `audio`, `presentation`, `content` and `corpus` rebuilt Core
-as a dependency and were measured against the NEW one. `DemoTimeline.cs` then changed at 16:20,
-mid-corpus.
-
-**The run exited 0 and every count was above its floor.** That is the whole problem: nothing about
-the output says it measured two different trees, and a green gate is exactly what is used to decide
-a merge.
-
-**Why:** the gate's value is that it is one measurement of one tree. Editing under it produces a
-result that is neither a measurement of what was there before nor of what is there now, and it fails
-in the direction that matters — it can pass while the current tree is broken, because the project
-that would have caught it ran before the change.
-
-**How to apply:** while a gate is in flight, do documentation, reading and planning — never a source
-edit. If one happens anyway, say so and re-run rather than quietly using the result; the run is not
-evidence about the tree that exists. This is the same rule D145 states for subagents from the other
-side — *"the parent does not build or measure while one holds a source file"* — and the same family
-as [[edit-files-with-the-file-tools#insert-below-the-member-not-above-it]]'s note that a build break now costs whatever else is
-running.
-
-### Editing the SOURCE is a different rule from editing the SCRIPT, and weaker on purpose
-
-2026-09-04. `build/gate.sh` was untouched this time; the SOURCE was edited while the gate ran,
-mid-way through threading a parameter through four files. The gate reached
-`Tf2DemoSalvage.Rendering` after the first edits landed and before the last, found a tree that did
-not compile, and stopped:
-
-```
-content: 993 executed, 0 failed (floor 989)
-… error CS0103: The name '_tintBases' does not exist in the current context
-exit 1
-```
-
-**Nine of twelve, and this one at least exits 1** — the gate's own `run` fails when a project will
-not build, so it is louder than the byte-offset case. What it is not is a RESULT: the nine that
-passed were measured against a tree the other three never saw, so the run says nothing about the
-whole.
-
-The script is untouchable while it runs because a mid-line edit corrupts execution silently. Source
-is merely POINTLESS to edit while it runs — the gate measures whatever is on disk when it reaches
-each project, so an edit either arrives too late to be tested or splits the tree in half. Earlier
-runs in that session appeared to work only because the edits happened to finish before the gate
-reached those projects.
-
-### And a PROBE run is an instrument, so editing source under it fabricates findings
-
-Third variant, same afternoon. A scan was backgrounded — 139 `dotnet run --project …Probe -- vmt
-<material>` invocations, grepping each material's text for `transform` — while source was being
-edited in another window.
-
-`dotnet run` BUILDS. So the probe's output for each material became whichever build errors the tree
-had at that instant, and the grep matched them:
-
-```
-=== METAL/IBEAM001
-… error CS1573: Parameter 'BaseTransform' has no matching param tag …
-```
-
-**Two materials "found", both false**, and they look exactly like findings — a material name, then
-text containing the word searched for.
-
-The gate at least fails loudly when a project will not build. A probe does not: it exits zero per
-material and its output is prose, so a contaminated run reads as data. The real number came from a
-test run after a clean build — 21 of 412 — and disagreed with the scan entirely.
-
-**So the rule extends past the gate: while ANY backgrounded command builds this repo, the source is
-frozen.** Gate, probe, or a loop of either. Docs remain fair game, which is enough to stay busy.
-
-### A commit nobody ran may be the editor's own button
-
-**A commit appearing that this session did not run is not necessarily a hook or a rogue peer
-session.** On 2026-09-06 `68dd939f` landed mid-edit on `feat/ragdoll-bind-pose-frames`, with an
-accurate message describing half-finished work. The owner: *"i hit the github button at the top of
-t3 code not knowing what it did and it started a subagent that did that"*.
-
-**Why:** the search that followed went `git status` → `check-ignore` → `ls-files -v` → hooks config
-→ `ListAgents`, and none of them could have found it; there is no auto-commit hook in
-`~/.claude/hooks/` or `.claude/settings.json`, and the peer sessions listed were innocent.
-
-**How to apply:** when a commit appears that you did not make, ask the owner before auditing the
-hook configuration or suspecting a peer session — a UI button in the editor is the cheapest
-explanation and the one no amount of repository inspection reaches. Check `git log --format=%ad`
-for whether anything has landed SINCE, which is what says the actor stopped; the content itself was
-correct here and needed no undoing. The hazard is the same shape as the sections above: another
-actor writing the tree while a measurement runs.
-
----
-
-## `the-viewer-suite-wants-the-gpu` — an abort is not a decoder defect, and the floor is what sees it
-
-**`Tf2DemoSalvage.Viewer3D.Tests` creates real Direct3D devices**, unlike every other non-UI suite
-here. It takes no desktop and needs no `run-exclusive.ps1`, but it does want a GPU nobody else has
-taken exclusively.
-
-**Seen once, 2026-08-20: `Test Run Aborted` at 192 of 512.** Another application was in exclusive full
-screen at the time — a video player — which is a known way for device creation to fail. It did not
-reproduce in four clean runs afterwards and nothing was captured from the crash, so this is a
-plausible cause rather than an established one. Recorded because the alternative is a future session
-chasing it as a decoder defect.
-
-**What made it visible at all is the count floor.** The run printed a summary and stopped; only
-comparing 192 against the project's known 512 said anything was wrong. That is the whole argument for
-exact floors rather than comfortable ones.
-
-**How to apply:** before treating a viewer-suite abort as a code defect, ask what else was on the
-screen, then re-run. A genuine crash reproduces; this did not. And do not confuse it with flake in the
-ordinary sense — [[ui-tests-run-every-time]] and the standing rule that flake is a defect still hold
-for anything that fails rather than aborts.
-
-**One trap noticed while chasing it, and it is much bigger than first written:** the console logger
-and the `.trx` disagree on the total, and **not by a constant**. First seen as one on this suite
-(console 511, `<Counters total="512">`), and measured on 2026-08-21 as **eleven** on
-`Content.Tests` — console `Total: 601`, trx `total="612"`. The gap grows with the number of skipped
-and `[Explicit]` tests, which the two count differently.
-
-`assert-test-count.sh` reads the trx, so **the floor is right and the console line is not**.
-
-**How to apply:** never compare a console `Total:` against a gate floor. It reads as tests having
-vanished, and it cost a real detour — 601 against a floor of 606 looked like eleven tests lost while
-six had just been ADDED. Read the counters instead:
-
-```bash
-dotnet test tests/<project> --logger "trx;LogFileName=check.trx" && \
-  find . -name check.trx | head -1 | xargs grep -oE '<Counters[^/]*/>'
-```
-
-Same family as [[logs-are-the-debugger]]: two instruments reporting "total" and meaning
-different things, with nothing on either line saying which.
-
----
-
-## A CI floor cannot be checked against a run that uploads nothing, 2026-09-09
-
-**`.github/workflows/test.yml`'s floors had drifted further than the local gate's ever did — core
-226 low, content 293, scene 386, animation 211, viewer-ui 17, corpus 32, rendering 53 — and the
-cause was one word in a step nobody associates with floors.** Both `upload-artifact` steps were
-`if: failure()`, so **no GREEN run ever produced a `.trx`.** The file's own notes ask twice to
-"confirm against the next green run's .trx and tighten if it disagrees"; there was never one to
-read, so every number stayed the arithmetic it was first written as.
-
-**Fixed by `if: always()` on both uploads.** That is the root cause; the numbers are the symptom.
-
-**Two sources for the count, and they cost differently:**
-
-- The `.trx` artifact — authoritative, and downloadable **per job as soon as that job finishes**.
-- The check step's own line, `Core: 1825 executed, 0 failed (floor 1599)`, which prints in every
-  run — but `gh run view --job N --log` refuses while ANY job in the run is still going: *"run
-  34414373886 is still in progress; logs will be available when it is complete"*. With a 27-minute
-  UI suite in the same run, the artifact is the only thing readable for half an hour.
-
-**Measure a CI floor on CI.** The premise that CI totals sit below local ones because some cases
-enumerate from files a runner lacks is false and has now been disproved twice — a `.trx` total
-counts SKIPPED tests, so an ignored case still appears. Measured the same day, CI and the local
-gcor-only gate agreed on all twelve. **That agreement is a measured result, not a licence to copy
-the local numbers next time** — viewer-ui exists only on CI, and the corpus count is CI's by
-definition, since a local run sees `tools/corpus/local` too.
-
-**The console/trx gap is WIDER on CI than the local example above.** Same run: Audio printed
-`Total: 180` and its `.trx` said 183; Corpus printed 126 against 156. A floor set from the console
-line would sit thirty short and look entirely reasonable.
-
-### Raising one file's floor is not raising the other's, and git will not tell you
-
-`build/gate.sh` and `.github/workflows/test.yml` hold the same facts in two places, and **the two
-lines are in different files, so they merge independently and cleanly.** Measured this session: a
-branch raised gate.sh's core floor to 1831 and CI's copy stayed at 1599 — no conflict, no warning,
-and the CI copy is the one that protects `main`. See [[one-place-or-it-drifts]]. The standing fix is
-for the workflow to READ the floors rather than restate them; until it does, both files move
-together or neither does.
-
-### Verify a floor by manipulation, in a directory that holds one candidate
-
-`assert-test-count.sh` found the `.trx` by BASENAME (`find . -name core.trx | head -1`) from
-wherever it was invoked, so in a tree with several worktrees it handed back another tree's
-results — that happened to a parallel session and was believed. Removing the ambiguity beats
-detecting it:
-
-```bash
-gh run download <run-id> -n unit-trx -D "$scratch"      # one file per basename
-cd "$scratch" && bash <repo>/build/assert-test-count.sh '**/core.trx' 1825 at-floor      # passes
-cd "$scratch" && bash <repo>/build/assert-test-count.sh '**/core.trx' 1826 plus-one      # must fail
-```
-
-**The floor plus one MUST fail.** A number that passes at both is not a measurement of anything.
-
-### Fixed 2026-09-10, after it bit a second time — and it was written down here first
-
-**The hazard above was recorded, understood, and left in place, so the gate read a stranger's file
-again.** Two spun-off tasks were running in worktrees UNDER this repository, each with its own
-`tests/*/TestResults/core.trx`; `find .` reached all three and `head -1` took whichever the
-filesystem offered first:
-
-```
-.claude/worktrees/heuristic-sinoussi-774827/.../core.trx: total="1843"   <- the gate read this
-.claude/worktrees/vigorous-boyd-58fa93/.../core.trx:      total="1846"
-tests/Tf2DemoSalvage.Core.Tests/TestResults/core.trx:     total="1851"   <- this run's
-```
-
-The gate then failed against its own correct floor and the first two explanations reached for were
-both wrong — a stale build, then two gate runs colliding over `obj/`. **The dangerous direction is
-the other one**: a worktree holding MORE tests would have satisfied a floor this tree does not meet,
-silently, which is precisely the failure the script exists to prevent.
-
-**Two faults, and either alone is enough.** The search reached into `.claude/worktrees`, and
-`head -1` resolved an ambiguity it had no basis to resolve. Both are fixed: worktrees are pruned,
-and **several matches is now a refusal that names the files** rather than a guess. Verified by
-manipulation — a decoy `core.trx` at the repo root makes it exit 1 listing both paths, and removing
-the decoy restores the pass.
-
-**The lesson is not about globs.** This was filed as a known trap, with the words *"removing the
-ambiguity beats detecting it"* already in it, and nothing acted on the sentence — see
-[[filing-a-divergence-is-not-fixing-it]]. A hazard written down in a memory is not mitigated by
-having been written down.
+**A `find . -name X.trx` in a tree with multiple worktrees can silently read a stranger's file** — two
+spun-off tasks each left their own trx under `.claude/worktrees/`, and `head -1` picked one at random.
+Fixed: worktrees pruned from search, and multiple matches now REFUSE and name the files rather than
+guessing. This exact hazard was written down as a known trap once already and re-occurred — see
+[[filing-a-divergence-is-not-fixing-it]]; writing a hazard down doesn't mitigate it by itself.

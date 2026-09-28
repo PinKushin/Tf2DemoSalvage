@@ -8,33 +8,22 @@ metadata:
   modified: 2026-09-09T03:40:43.106Z
 ---
 
-**B131 was filed as a genuine architectural choice** — carry lightmap coordinates into the entity
-vertex format, or draw brushwork with the world shader and a per-instance transform — with the note
-"not attempted, and deliberately not guessed at". Closed 2026-08-21 by reading two files.
-
-`utils/vrad/vrad.cpp:703` lights **every** model's faces, not model zero alone, offsetting each by
-its `origin` keyvalue "into their in-use position". `C_BaseEntity::DrawBrushModel` says an unmoved
-brush entity is drawn by `view->DrawWorld` itself. So the engine does the second shape, and this
-project already had it: `WorldVertex` has always carried `LightU`/`LightV`/`LightStep` for every
-vertex and one shader has always served both paths. The stated cost of the first shape — "every
-model vertex then carries fields only brushwork uses" — was already paid years earlier.
+**B131 was filed as an architectural choice** — carry lightmap coordinates into the entity vertex
+format, or draw brushwork with the world shader and a per-instance transform — "not attempted,
+deliberately not guessed at". Closed 2026-08-21 by reading two files: `utils/vrad/vrad.cpp:703`
+lights **every** model's faces, offsetting by `origin`; `C_BaseEntity::DrawBrushModel` shows an
+unmoved brush entity is drawn by `view->DrawWorld` itself. The engine does the second shape, and this
+project already had it — `WorldVertex` always carried `LightU`/`LightV`/`LightStep`.
 
 **How to apply:**
-
-- **Re-read an old risk entry against the code before working from its framing.** The premises a
-  risk was filed under age; this one described a vertex format that had since gained the fields, and
-  the entry still read as authoritative.
-- **A dilemma in a risk entry is a signal the source has not been read yet.** Two plausible shapes
-  usually means nobody has looked at what the engine does. See
-  [[nothing-is-closed]].
-- **vrad lights brush entities where the mapper left them, once.** An opening door carries its
-  closed-position lighting. No relighting step; the transform moves the geometry and the light rides
-  on the vertices.
-- **The half that hides: a supplied ambient cube OVERWRITES the lightmap sample.** Correct
-  coordinates plus a cube still draws flat, so the fix is two edits and only one of them looks like
-  the fix. `ModelInstance.Light` is nullable for that reason — null means "lightmapped", not
-  "unlit". Assert both kinds in one test; either alone passes against a constant.
-  See [[output-level-assertion-or-it-is-not-done]].
+- Re-read an old risk entry against the code before trusting its framing — this one described a
+  vertex format that had since gained the fields.
+- A dilemma in a risk entry usually means the source hasn't been read ([[nothing-is-closed]]).
+- vrad lights brush entities where the mapper left them, once — an opening door carries its closed
+  lighting; no relighting step.
+- **The half that hides:** a supplied ambient cube OVERWRITES the lightmap sample, so correct
+  coordinates plus a cube still draws flat. `ModelInstance.Light` is nullable for that reason (null =
+  "lightmapped", not "unlit") — assert both kinds in one test ([[output-level-assertion-or-it-is-not-done]]).
 
 Related: [[read-the-map-before-the-renderer]], [[a-test-can-outlive-its-design]],
 [[wire-faithful-is-not-state-faithful]].
@@ -43,27 +32,19 @@ Related: [[read-the-map-before-the-renderer]], [[a-test-can-outlive-its-design]]
 
 ## `an-unrecoverable-input-is-not-an-open-choice` — draw it the way the engine draws it
 
-**When the engine's answer comes from something a demo cannot record, reproduce the MECHANISM and
-draw the input the way the engine draws it.** Do not convert it into a menu.
+**When the engine's answer comes from something a demo can't record, reproduce the MECHANISM,
+don't turn it into a menu.** Owner, 2026-09-04: *"you should of done it valves way, but too late for
+that."*
 
-The owner, 2026-09-04: *"you should of done it valves way, but too late for that."*
+`CreateTFRagdoll` decides death-animation vs. ragdoll physics with a `RandomFloat` on the recording
+client's own stream (`c_tf_player.cpp:829`), recorded nowhere. Reading "unrecoverable input" as
+"undecided behaviour" and offering three options (two not Valve's way) violates the standing rule:
+never ask which of Valve's way and another way to take.
 
-`CreateTFRagdoll` decides death-animation against ragdoll physics with a `RandomFloat` on the
-recording client's own stream (`c_tf_player.cpp:829`), recorded nowhere. I read "the value is
-unrecoverable" as "the behaviour is undecided" and offered three options, two of which were not
-Valve's way. **The standing decision forbids exactly that**: never ask which of Valve's way and
-another way to take.
+**Valve's way was the branch itself** — draw a random number (25%/75%), just seeded per corpse since
+this project can seek and the client couldn't. Distinguish from a real divergence
+([[parity-is-the-search-not-the-defence]], which is about deliberately doing something else): here
+the logic is decided, only the input is missing.
 
-**Valve's way was the branch itself.** The engine draws a random number, so we draw one — 25% death
-animation, 75% physics. That is not an approximation of the engine, it IS the engine, and it
-reproduces the distribution a viewer saw. The only forced adaptation is seeding the draw per corpse,
-because this project can seek and the client could not.
-
-**Distinguish this from a real divergence.** [[parity-is-the-search-not-the-defence]] is about
-deliberately doing something ELSE, which does need asking. An unrecoverable input is not that: the
-logic is decided, only the input is missing.
-
-**And a filed finding can carry the same mistake.** `PARITY-AUDIT.md` #4 said the branch was "a
-divergence to be ASKED about" — I followed the document rather than the rule, and the document was
-wrong. A note in the repo is not automatically the standard, which is the same lesson as the
-section above.
+A filed finding can carry the same mistake — `PARITY-AUDIT.md` #4 called this branch "a divergence to
+be ASKED about"; following the document over the rule was wrong.

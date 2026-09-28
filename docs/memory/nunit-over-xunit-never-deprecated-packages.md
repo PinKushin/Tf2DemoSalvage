@@ -8,26 +8,21 @@ metadata:
   modified: 2026-09-09T03:54:26.524Z
 ---
 
-**NUnit, not xUnit, for new .NET projects.** Owner-stated 2026-08-09. The deciding reason is
-documentation quality, not features. Tf2DemoSalvage is on xUnit and is being upgraded to v3
-rather than migrated, because migrating ~4400 test attributes is its own decision.
+**NUnit, not xUnit, for new .NET projects** — deciding reason is documentation quality, not features.
+Tf2DemoSalvage is on xUnit, being upgraded to v3 rather than migrated (migrating ~4400 attributes is
+its own decision).
 
-**A deprecated package version is a build warning, so it violates Zero Warnings.** xUnit v2 is
-deprecated and NuGet says so. This was missed here and caught in another repo the same week, when
-a different assistant tried to pull xUnit into WinAppDriver work.
+**A deprecated package is a build warning, violating Zero Warnings** — xUnit v2 is deprecated and
+NuGet says so; missed here, caught in a sibling repo the same week.
 
-**Why:** two specific mistakes caused it, and both look like diligence at the time.
+**Two mistakes cause this, both look like diligence:**
+1. Scaffolding a new project by copying an existing `.csproj` propagates whatever was pinned last
+   time.
+2. Inferring the framework from surrounding code (`[Fact]` everywhere) is an observation about the
+   past, not intent.
 
-1. **Scaffolding a new test project by copying an existing `.csproj`.** That is how xUnit v2
-   reached a second project in this repo — the new project built cleanly, so nothing objected.
-   Copying propagates whatever was pinned last time, deprecations included.
-2. **Inferring the framework from the code in front of you.** `[Fact]` everywhere reads as "this
-   repo uses xUnit", which is an observation about the past, not about intent. The owner's
-   standard was NUnit the whole time.
+**How to apply:** check the current standard, not the sibling project, before adding a test project.
+Check for deprecation before pinning any version. If a repo's existing framework differs from the
+standard, say so explicitly instead of quietly matching it.
 
-**How to apply:** before adding any test project, check the current standard rather than the
-sibling project. Before pinning any package version, check it is not deprecated. If a repo's
-existing framework differs from the standard, say so explicitly instead of quietly matching it —
-the cost of staying silent is a full migration later, and the owner priced that at a day.
-
-Related: [[tests-before-codecs]] for how strict this repo's analyzers already are.
+Related: [[tests-before-codecs]].

@@ -8,20 +8,18 @@ metadata:
   modified: 2026-09-11T14:13:06.438Z
 ---
 
-**Reproduce and re-check at the owner's own moment: his demo, his kind of moment, his camera.** Not the first tick
-where something wrong turns up.
+**Reproduce and re-check at the owner's own moment — his demo, his kind of moment, his camera** — not
+the first tick where something wrong turns up.
 
-B380 (2026-09-11): he reported the 2008 sticky launcher filling the screen on the SOURCETV demo, during
-what he thought was a reload or a charge. The fix was verified on the POV demo at the first sticky
-deploy, where a different wrong frame happened to show, and was written up as "FIXED". He asked *"did
-you actually look at the right ticks?"* They had not been. His moment turned out to be IDLE, which
-played today's `ref` pose; the first captures never reached idle at all.
+B380 (2026-09-11): he reported the 2008 sticky launcher filling the screen on the SourceTV demo,
+during what he thought was reload or charge. The fix was verified on the POV demo at the first sticky
+deploy (a different wrong frame) and written up "FIXED". He asked: *"did you actually look at the
+right ticks?"* — no. His moment was IDLE, playing today's `ref` pose; the first captures never
+reached idle.
 
-**Why:** a symptom that shares a look can come from a different sequence, tick or branch. A fix judged
-at the wrong moment can be real and still not be the fix for his report.
+**Why:** a symptom that looks alike can come from a different sequence, tick, or branch.
 
-**How to apply:** before any capture, write down which demo, which player, and which action he named.
-Then find those ticks with an instrument that can see that action. Here that meant
-`viewmodels` keyed on sequence and restart, not only model and item. Capture there, and say which moments
-were checked when reporting. Related: [[state-the-assumptions-the-owner-can-falsify]],
-[[instrument-bugs-outnumber-decoder-bugs]].
+**How to apply:** before any capture, write down which demo/player/action he named; find those ticks
+with an instrument that can see that action (here, `viewmodels` keyed on sequence and restart, not
+just model). State which moments were checked when reporting. Related:
+[[state-the-assumptions-the-owner-can-falsify]], [[instrument-bugs-outnumber-decoder-bugs]].

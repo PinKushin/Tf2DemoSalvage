@@ -8,121 +8,45 @@ metadata:
   modified: 2026-09-09T03:53:47.842Z
 ---
 
-**Almost everything this project reads from outside the repository lives on `F:` — the decompilation is the exception and lives on `D:`.** Written down because
-finding it costs a directory sweep of a large disk, and one such sweep timed out at two minutes.
+**Almost everything read from outside the repo lives on `F:` — the decompilation is the exception, on
+`D:`.**
 
 | What | Where |
 |---|---|
-| Live TF2 install | `F:\SteamLibrary\steamapps\common\Team Fortress 2` (game files under `…\tf`) |
-| Maps, including stock | `…\Team Fortress 2\tf\maps` — `koth_harvest_final.bsp` is a loose file, not in a VPK |
-| Source SDK 2013 | `F:\src\source-sdk-2013` — the `SourceSdk` test helper resolves this |
-| Period clients | `F:\tf2-builds\tf2-2007`, `tf2-2008`, `tf2-2011`, `tf2-2013` |
-| Probe builds | `F:\tf2-builds\probe-2011`, `probe-2013` |
-| Download and extract logs | `F:\tf2-builds\*.log`, `*.err` — how each build was obtained |
-| **A 380-demo competitive archive** | `D:\tf2-demo-archive` — ESEA seasons 29–31, ETF2L seasons 29/30/32, plus the owner's own |
+| Live TF2 install | `F:\SteamLibrary\steamapps\common\Team Fortress 2` |
+| Source SDK 2013 | `F:\src\source-sdk-2013` |
+| Period clients | `F:\tf2-builds\tf2-{2007,2008,2011,2013}` |
+| Probe builds | `F:\tf2-builds\probe-{2011,2013}` |
+| A 380-demo competitive archive | `D:\tf2-demo-archive` — real leagues, not the 53-demo corpus |
 
-**The archive is the population the corpus is a sample of, and it answers questions the corpus
-cannot.** `tools/corpus` holds 53 demos chosen for era coverage; this holds 380 from real leagues,
-which is what makes a rate meaningful. It settled two on 2026-08-21 in a couple of minutes, both by
-seeking 12 bytes per file rather than parsing anything:
+**The archive settles rate questions the small corpus can't** (e.g. header truncation rates by
+source), by seeking a few bytes per file rather than parsing. See [[a-header-written-last-is-absent]].
 
-- **ESEA demos declare zero ticks, 152 of 152**; ETF2L, 5 of 218. See
-  [[a-header-written-last-is-absent]].
-- **No demo anywhere has a negative tick, frame or signon length** — 0 of 380, and 0 of the 53 in
-  the corpus.
+**Period clients date the era axis exactly** — see [[era-axis-is-measured]],
+[[hl2sdk-branches-are-per-era-headers]], [[engine-accepts-authored-demos]].
 
-It is **not** in the repository and must not be; it is a reference set, like the SDK checkout.
-Reading a header field across all of it costs seconds:
+**A decompilation EXISTS on disk, outside the repo, on `D:`** — this entry once wrongly denied it;
+corrected after the owner said so. `D:\ghidra-proj` holds the Ghidra project, imported binaries per
+era (2007-live), custom scripts and driver scripts. The renderer/materialsystem ARE imported now —
+an earlier version of this entry said otherwise and nearly stopped a rendering-state question from
+being asked. **`ls D:\ghidra-proj\bin` is the check, and it takes a second** — a fact about what had
+been done was carried as a fact about what could be done
+([[filing-a-divergence-is-not-fixing-it]]).
 
-```bash
-find "D:/tf2-demo-archive" -name "*.dem" | while read -r f; do
-  od -An -td4 -j1060 -N4 "$f" | tr -d ' '
-done
-```
+**Decompile the LIVE client by default**; reach for a period build only for an era-specific question.
+The only `shaderapidx9.dll` under `F:\tf2-builds` is an old build — the live one is under the Steam
+install path.
 
-**The period clients are the instrument behind the era axis.** Each one's `version` output dates its
-build exactly, which is what turned protocol numbers into real dates
-([[era-axis-is-measured]], [[hl2sdk-branches-are-per-era-headers]]). They are also what proved
-the 2007 client will play files this project generated ([[engine-accepts-authored-demos]]).
+**Everything above stays outside every git tree.**
 
-**A decompilation EXISTS, on disk, outside the repository — and this entry used to deny it.**
-Corrected 2026-08-21 after the owner said so: *"i have the decomp on disk, i dont have it in repo"*
-and *"the decomp paths were supposed to be added to memory"*.
+**No test hardcodes any of this any more** — one shared helper resolves the game path and honours an
+env-var override first; ninety-four private copies were removed (D109) — see
+[[output-level-assertion-or-it-is-not-done]].
 
-**It is on `D:`, not `F:` — which is why every search of `F:` for it failed.**
+**Grep the SDK checkout; never fetch it a file at a time** — a whole-tree grep answers what a
+`WebFetch` answers only if you guessed the filename. Landmarks: `src/tier1/bitbuf.cpp`
+([[research-before-code]]), `src/public/bspfile.h`, `src/utils/vbsp/overlay.cpp`.
 
-| What | Where |
-|---|---|
-| Ghidra itself | `D:\ghidra_12.1.2_PUBLIC` (headless at `support\analyzeHeadless.bat`) |
-| Its settings dir | `D:\ghidra-settings` — must be passed as `_JAVA_OPTIONS=-Dapplication.settingsdir=…` |
-| The project | `D:\ghidra-proj\tf2engine.gpr` / `.rep`, project name **`tf2usermsg`** |
-| Imported binaries | `D:\ghidra-proj\bin\` — client 2007/2008/2009/2011/2013/live-x86/live-x64, engine 2007/2008/live-x86, server 2007/2008 |
-| Custom scripts | `D:\ghidra-proj\scripts\` — `DemoProtocolCheck`, `FindPacketEntities`, `FindEntityParse`, `FindDeletionLoop`, `UserMsgTable` |
-| Driver scripts | `D:\ghidra-proj\run-all.sh`, `run-engine.sh`, `run-usermsg.sh` |
-| Extracted results | `D:\ghidra-proj\out\`, plus `entityparse.txt`, `packetentities.txt`, `deletionloop.txt` at the root |
-
-**The binaries are ALSO on F: as ordinary game installs** — `F:\tf2-builds\{tf2-2007,tf2-2008,tf2-2011,tf2-2013,probe-2011,probe-2013}`, each with `bin\engine.dll` and most with `bin\shaderapidx9.dll`. Those are the source material; `D:\ghidra-proj\bin` holds the copies that were imported and analysed.
-
-**The renderer IS imported now, and this entry used to say it was not.** `D:\ghidra-proj\bin` holds `shaderapi-live-x86.dll` and `materialsystem-live-x86.dll`, with their own project at `D:\ghidra-proj\tf2shaderapi.gpr` — so a rendering-state question can be asked without a fresh import. The old text said "note what is NOT imported: `shaderapidx9.dll`, so a rendering-state question needs a fresh import first", which was true when written and was still being read as current on 2026-08-27, when it nearly stopped a question about redundant state binds from being asked at all.
-
-**Same shape as the decompilation-does-not-exist claim above**, one level down: a fact about what had been done was carried as a fact about what could be done. `ls D:\ghidra-proj\bin` is the check, and it takes a second — see [[filing-a-divergence-is-not-fixing-it]].
-
-**Decompile the LIVE client by default; reach for a period build only when the question is about
-that era.** Owner's direction, 2026-08-21: *"you shoiuld probably use the modern client for most
-decomps really, unless we are doing something that we need to check the old clients for, like why
-demos failed or something"*.
-
-The era builds exist to answer era questions — why a 2011 demo will not play, when a protocol
-changed, which message id moved. A question about how the renderer works today is answered by the
-binary that renders today, and picking a 2008 DLL for it means measuring a build nobody runs.
-
-It bites here in particular: **the only `shaderapidx9.dll` under `F:\tf2-builds` is the 2008 one**,
-so a sweep of that folder finds exactly the wrong binary and finds it easily. The live one is at
-`F:\SteamLibrary\steamapps\common\Team Fortress 2\bin\shaderapidx9.dll`.
-
-**The pattern for running it** is in `run-engine.sh`: set `_JAVA_OPTIONS`, call `analyzeHeadless` with the project directory and name, `-import` the DLL, `-scriptPath` the scripts folder, `-postScript` the analysis, and redirect both streams to a log with `</dev/null`. Output goes to `out/`.
-
-**Everything above stays outside every git tree, which is the rule and always was.**
-
-**What the old text got wrong, because the shape of the mistake matters.** It read:
-
-> "No decompiler output exists anywhere, and that is deliberate."
-
-The rule it was reasoning from is real and unchanged — decompiler output must never live inside a
-git tree, because a folder committed once lives in the history for ever and the projects are
-enormous. But "not in the repository" was written down as "does not exist", which is a different
-claim, and it was never checked. It then read as authoritative and cost a real lookup: a session
-searching for the engine's overlay and poly-offset code argued from this paragraph that no
-decompilation was available, while one was sitting on the disk.
-
-Same family as [[instrument-bugs-outnumber-decoder-bugs]] — an absence asserted rather than measured — with
-the extra sting that nothing was searched at all. **A rule about where something may live says
-nothing about whether it exists.**
-
-**No test hardcodes any of this any more, and none may.** `SdkReference.GameInstall` is the one
-place that knows where the game is and `SourceSdk` the one place that knows where the SDK is; both
-honour `TF2_FOLDER` / `SOURCE_SDK` first. All ninety-four private copies were removed on 2026-08-27
-(D109) — see [[output-level-assertion-or-it-is-not-done]], which is also where the reason lives: forty
-of them were a bare `F:` path with no override, so they measured nothing on any other machine and
-reported it as a skip.
-
-**This paragraph used to say the opposite** — that the path was hardcoded in `ArmsModelProbe`,
-`ClassScriptProbe` and `ControlPointMaterialProbe`, and that a helper "would be a tidy-up worth
-doing if a third form of the path appears". All three of those files are converted, and the third
-form had long since appeared. Kept rather than deleted because it is the failure mode this whole
-directory is about: a memory that names files goes stale silently, and this one would have sent the
-next session looking for something that is gone.
-
-**Grep the SDK checkout; never fetch it a file at a time.** `F:/src/source-sdk-2013` (sources under
-`src/`) is the whole tree, and a whole-tree grep answers in one call what a `WebFetch` answers only
-if you guessed the right filename. This was hunted for twice in one session before the owner said it
-existed, after fetching `bspfile.h` and `utils/vbsp/map.cpp` from GitHub one at a time in between.
-Landmarks: `src/tier1/bitbuf.cpp` ([[research-before-code]]), `src/public/bspfile.h`,
-`src/utils/vbsp/overlay.cpp`, `src/utils/common/bsplib.cpp`.
-
-**It does not contain the engine**, which is a real limit rather than a search failure. `vbsp` writes
-an overlay's `uv0`–`uv3` straight through from the VMF and nothing in the SDK reads them back, so the
-corner-to-texture-coordinate order is not answerable from source at all — that one was settled by
-measuring the corners in a real map. When a whole-tree grep comes back empty for a *consumer*, the
-answer is "engine-side, never released", and the next move is measurement or the decompiler above,
-not another fetch. See [[nothing-is-closed]] and [[fixtures-are-the-weak-point]].
+**It does not contain the engine** — a real limit, not a search failure (e.g. overlay UV ordering is
+engine-side, never released; settled by measuring a real map instead). See [[nothing-is-closed]],
+[[fixtures-are-the-weak-point]].

@@ -5,36 +5,24 @@ metadata:
   type: project
 ---
 
-**Loading a real TF2 config disabled three viewer controls, and honouring the config faithfully was
-the cause.**
+**Loading a real TF2 config disabled three viewer controls, and honouring it faithfully was the
+cause.** Two viewer actions have no TF2 equivalent, so no TF2 config can ever bind them — the config
+just reuses those keys for its own purposes, and the viewer's action loses its key with nothing put
+back.
 
-`ResetCamera` and `PlayPause` carry command names this project invented (`resetcamera`,
-`playpause`), because TF2 has no equivalent for either. So **no TF2 config can ever bind them** — it
-simply uses `f` and `k` for its own purposes, and the keys those actions lived on are taken away
-with nothing put back. `+speed` behaves the same in practice: TF2 has no sprint, so the command
-appears in essentially no config, while `bind "SHIFT" "+duck"` is completely ordinary.
+**Rule: a key whose imported binding does nothing in this program keeps whatever this program had on
+it.**
 
-**The rule: a key whose imported binding does nothing in this program keeps whatever this program
-had on it.**
+**The wrong-sounding-principled argument:** overriding a key the config explicitly binds elsewhere
+(e.g. duck) would be "the viewer claiming to know better than the file". Right about an actually-bound
+key, wrong in general — **a config cannot express a preference about a feature the game doesn't
+have.** Reading silence as a preference invents intent.
 
-**The argument that was wrong, and it sounded principled:** the player said Shift is duck, so
-overriding them is the viewer claiming to know better than the file it was told to obey. That is
-right about `+duck` and wrong in general, because **a config cannot express a preference about a
-feature the game does not have.** Reading its silence as one invents intent.
+**It must yield when the config REHOMES the action** — moving a viewer action to a different key
+alongside its existing binding means the old key must stop doing it, or two keys answer to one action.
 
-**Nothing is lost by falling back**, which is what makes it safe rather than a guess: the fallback
-applies only when the imported command does nothing here, so the key was inert either way.
+**Found by a diagnostic pointed at real data** (report actions no key reaches), not a test — no
+synthetic fixture binds the keys involved, since nobody writing one has a reason to unless reading a
+file from someone unaware of this program.
 
-**But it must yield when the config rehomes the action.** `CTRL` = `+speed` alongside `SHIFT` =
-`+duck` is a player *moving* fly-fast, not losing it — so Shift must stop doing it, or two keys
-answer to one action and a settings screen picks arbitrarily. A conformance test caught that as a
-wrong key rather than as a crash.
-
-**How it was found, which is the reusable part.** Not by a test — by a *diagnostic* added for a
-different purpose (report actions no key reaches) pointed at real data. It printed
-`no key reaches: ResetCamera, PlayPause, FlyFast` on the first run against a real install. No
-synthetic fixture could have shown it: every fixture was written by whoever wrote the parser, and
-none binds `f` or `k`, because there is no reason to unless you are reading a file written by
-somebody who had never heard of this program.
-
-See [[output-level-assertion-or-it-is-not-done]] and [[a-config-is-a-program]].
+See [[output-level-assertion-or-it-is-not-done]], [[a-config-is-a-program]].

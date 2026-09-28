@@ -8,38 +8,32 @@ metadata:
   modified: 2026-09-09T03:53:36.243Z
 ---
 
-`SoundPopulationProbe` reports **`footstep-like names: 0`** on both a solo POV recording and a full
-STV match. The population is ambience, physics impacts, doors, item pickups and voice lines.
+A sound census reports zero footstep-like names on both a solo recording and a full match — the
+population is ambience, physics impacts, doors, pickups, voice lines.
 
-**Why:** Source predicts footsteps and landings on the client, so they never travel. `svc_Sounds`
-carries what the SERVER chose to emit. The owner's own observation is the confirming detail: the
-fall-damage *voice line* is heard while the landing thud is not, because that one is server-sent.
+**Why:** Source predicts footsteps/landings client-side; they never travel. `svc_Sounds` carries only
+what the SERVER emitted — confirmed by the fall-damage voice line (server-sent, present) vs. the
+landing thud (client-predicted, absent). Also explains a count that looked wrong: a solo movement demo
+carries far fewer sounds than a real match, because one player alone triggers almost nothing
+server-side.
 
-This also explains a count that looked wrong: a solo movement demo carries **89** sounds across
-6,826 ticks, against 23,772 in a real match. The quiet one is quiet because one player alone
-triggers almost nothing server-side, not because the decode is losing anything.
-
-**How to apply:** before hunting a missing sound in the decode or the playback path, run the probe
-and ask whether the demo contains it at all.
+**How to apply:** before hunting a missing sound in decode/playback, run the probe and ask whether the
+demo contains it at all.
 
 ## The second half of this was WRONG, corrected 2026-09-02
 
-This entry used to end: *"reproducing footsteps would mean synthesising audio from movement, surface
-and speed — authoring rather than replay"*. **A footstep is not derived from movement. It is an
-animation event authored into the model at a fixed cycle.** Measured on
-`models/player/heavy_animations.mdl`: 44 events are number 7001 with options `left` or `right`,
-alternating through the walk and run cycles, and `C_TFPlayer::FireEvent` (`c_tf_player.cpp:9066`)
-answers them with a ground surface lookup and `UpdateStepSound`.
+Originally ended claiming footsteps "would mean synthesising audio from movement... authoring rather
+than replay." **Wrong — a footstep is an animation EVENT authored into the model at a fixed cycle**
+(measured on `models/player/heavy_animations.mdl`: 44 events numbered 7001 alternate `left`/`right`
+through the walk/run cycles, answered by `C_TFPlayer::FireEvent`, `c_tf_player.cpp:9066`, with a
+ground surface lookup and `UpdateStepSound`). So the inputs are the
+model's own data, the map's surface, and velocity — replay, like everything else. Stays open for its
+SIZE, not because it would be invention.
 
-So the inputs are the model's own data, the map's own surface and the player's velocity — replay,
-like everything else the viewer draws. It stays open for its SIZE (the event traversal plus a
-ground trace plus `surfaceproperties`), not because it would be invention.
-
-**The general fault: "we would have to synthesise it" is a claim about a mechanism you have not
-read yet.** The first half of this entry — that the demo carries no footstep sounds — was measured
-and is right. The second half was an inference about how the client makes them, written in the same
-confident register, and it parked the feature for the wrong reason. See
-[[filing-a-divergence-is-not-fixing-it]] and [[a-filed-design-choice-may-not-be-one]].
+**General fault: "we would have to synthesise it" is a claim about a mechanism you haven't read
+yet.** The first half (demo carries no footstep sounds) was measured and right; the second was an
+unread inference in the same confident register. See [[filing-a-divergence-is-not-fixing-it]],
+[[a-filed-design-choice-may-not-be-one]].
 
 Related: [[ask-whether-the-data-arrived]], [[instrument-bugs-outnumber-decoder-bugs]],
 [[measure-the-output-not-the-capability]].

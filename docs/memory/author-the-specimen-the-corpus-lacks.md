@@ -8,171 +8,86 @@ metadata:
   modified: 2026-09-09T03:53:07.420Z
 ---
 
-**When the corpus does not contain a case, write a demo that does.** This project can emit `.dem`
-files the engine accepts ([[engine-accepts-authored-demos]]), and that makes the writer a *testing*
-capability as much as a product one. A case no recording happens to contain is not automatically a
-case that cannot be tested.
+**When the corpus lacks a case, write a demo that does have it.** This project can emit `.dem` files
+the engine accepts ([[engine-accepts-authored-demos]]), making the writer a *testing* capability, not
+just a product one.
 
-**This is the inference that gets forgotten**, including by the assistant, on 2026-08-19: a test
-skipped because cp_process_final's own materials run no time-driven proxy, and the response was to
-hunt for a map that had one rather than to consider authoring the input. The owner had to point it
-out, and said explicitly that they will not always think of it at the right moment. So it is written
-down here rather than left to be re-derived.
+2026-08-19: a test was skipped for lacking a time-driven proxy material, and the response was to hunt
+for a map with one rather than author the input — owner pointed it out, said they won't always
+remember to. Written down so it's not re-derived.
 
-Where it applies, in rough order of value:
+Where it applies: era gaps (protocols 12–13, 17–23 have no specimen, D5); decoder branches real demos
+never take ([[most-of-a-decoder-is-untested]]); edge/malformed values with a known intended meaning;
+anything that would otherwise be an eternal skip.
 
-- **The era gaps.** Protocols 12–13 and 17–23 have no specimen and community demos are genuinely
-  rare (`docs/DECISIONS.md` D5). Anything currently flagged **interpolated** in `docs/findings/`
-  is a candidate.
-- **Messages the corpus never carries.** A decoder branch real demos never take is most of a
-  decoder ([[most-of-a-decoder-is-untested]]); an authored file can take it deliberately.
-- **Edge values and malformed input.** Adversarial bytes with a known intended meaning, which is
-  stronger than fuzzing alone because the expected result is known.
-- **Anything whose absence would otherwise be an eternal skip.** A test that can only ever skip is
-  a test that can never be wrong.
+**Two distinctions, not the same:** *cutting up* an existing demo was called "a little cheaty" and its
+code deleted same day. *Authoring* a specimen was endorsed outright — trimming vs. constructing an
+input you chose and can predict.
 
-**Two distinctions the owner has drawn, and they are not the same.** *Cutting up* an existing demo
-was called "a little cheaty" as a test, and the truncation code written for it was deleted the same
-day. *Authoring* a specimen to exercise a specific case was endorsed outright. The difference is
-between trimming someone else's recording and constructing an input whose contents you chose and can
-therefore predict.
+**Check whether a demo is needed at all first** — the 2026-08-19 case didn't (`MapAssets.Load` takes
+model list as a parameter directly). Reach for the writer only when the thing under test is the demo
+stream itself.
 
-**And check whether a demo is needed at all first.** The 2026-08-19 case did not need one:
-`MapAssets.Load` takes the entity model list as a parameter, so naming the capture point models
-exercised the path directly. Reach for the writer when the thing under test is the *demo stream*,
-not when it is something a demo merely happens to supply.
-
-Related: [[round-trip-needs-the-encoding-shape]] for what an authored file has to record beyond the
-values, [[fixtures-are-the-weak-point]] for why an authored input is still weaker evidence than
-a real one where a real one exists.
-
-**Four more memories were folded into this one on 2026-09-04**, all about the same boundary: what a
-corpus of ordinary play structurally cannot show, and the standing habits that follow from knowing
-it. Their names are kept as headings below.
+Related: [[round-trip-needs-the-encoding-shape]], [[fixtures-are-the-weak-point]].
 
 ---
 
 ## `a-default-valued-field-is-untestable-on-the-corpus`
 
-**A field whose default makes it a no-op cannot be tested on a corpus of ordinary play, ever.**
-Not "we have not found a demo yet" — the observation is impossible in principle, because the correct
-implementation and the missing one produce identical output at that value.
+**A field whose default makes it a no-op cannot be tested on ordinary play, ever** — not "no demo
+yet" but impossible in principle, since correct and missing implementations produce identical output
+at that value. `m_flHeadScale`/`m_flTorsoScale`/`m_flHandScale` (B312) all default to 1 and every
+corpus recording reports 1 (440/440 on `z1800`) — every comparison agreed while nothing read the
+fields. Same shape as `m_flPlaybackRate` (every animation played at rate 1).
 
-`m_flHeadScale`, `m_flTorsoScale`, `m_flHandScale` (B312): all three multiply a scale and default to
-**1**. Every recording in the corpus reports 1 — 440 of 440 on `z1800` — so every rendering
-comparison agreed and every count matched while nothing read the fields at all. The same shape as
-`m_flPlaybackRate`, decoded and retained and unit-tested while every animation played at rate 1.
-
-**The tell: a default that is the IDENTITY of whatever operation the field feeds.** 1 for a
-multiplier, 0 for an offset, empty for a list that is concatenated. Grep for the field, then ask what
-the engine's own initialiser sets it to (`c_tf_player.cpp:577` here) — if that value is the identity,
-no measurement of ordinary content can ever find the gap.
-
-**So author the specimen**, per the discussion above. `SyntheticPlayer.Demo` takes a property
-dictionary and writes a real demo through the real container and schema; the value comes back out of
-`DemoTimeline` having been through production's decode. That converts "correct by construction and
-citation" into "observed".
-
-**Use values that are distinct from each other AND from the default.** Equal values let a carry into
-the wrong field pass; the default is what every lost hop falls back to. Three fields, three numbers,
-none of them 1.
-
-**And test the DEFAULT's own claim separately.** A control asserting "nothing sent leaves it at 1"
-stays green through every sabotage of the carry, because its input is null on both sides — only a
-sabotage of the coalesce itself (`?? 0f`) reddens it. Two claims, two inputs.
-
----
+**Tell: a default that is the IDENTITY of the operation it feeds** (1 for a multiplier, 0 for an
+offset, empty for a concatenated list). Grep the field, check what the engine's own initialiser sets
+it to (`c_tf_player.cpp:577`) — if that's the identity, no
+measurement of ordinary content can find the gap — author the specimen instead
+(`SyntheticPlayer.Demo`, a property dictionary through the real container/schema). Use values distinct
+from each other AND the default; test the default's own claim separately with a null-input control.
 
 ## `measure-a-new-feature-on-a-second-demo`
 
-**Before calling a decode feature done, run its probe on a demo from another era.** One extra
-command, and it is the difference between "159 of 159" and finding that the same feature scores zero
-on everything older.
+**Before calling a decode feature done, run its probe on a demo from another era.** B319: a corpse's
+orientation reached through the player scored 159/159 on a 2026 SourceTV demo, 0/407 on `z1800` — the
+two demos name the field differently (`m_hPlayer`, packed ehandles, needing Resolve, vs.
+`m_iPlayerIndex`, entity indices, used as-is). **`m_iPlayerIndex` is not in the published SDK at
+all** — only a demo carries it ([[the-demo-dates-its-own-fields]], [[wire-names-are-strings]]).
 
-Measured (B319). A corpse's orientation is reached through the player it was, since `DT_TFRagdoll`
-sends no angles. Built and measured against a 2026 SourceTV demo: **159 of 159**. Run on `z1800`,
-which is a committed era specimen: **0 of 407**. The two demos name the field differently, and the
-values are not even the same kind:
-
-```
-DT_TFRagdoll.m_hPlayer        24587, 174093, 311301, …   packed ehandles, need Resolve
-DT_TFRagdoll.m_iPlayerIndex   2, 3, 4, 5, 6, …           entity indices, used as they stand
-```
-
-**`m_iPlayerIndex` is not in the published SDK at all** — not even kept as a `RECVINFO_NAME` alias.
-Reading the SDK could not have found it, and no amount of care about the modern name would have
-helped. Only a demo carries it. That is the whole premise of decoding off the embedded schema
-([[the-demo-dates-its-own-fields]], [[wire-names-are-strings]]).
-
-**The tell that a feature is under-measured is a perfect score on one file.** 159 of 159 reads as
-proof and is really a statement about one recording. Two demos of different eras cost one more
-command, and this project keeps era specimens precisely so that command exists.
-
-**And prefer a committed era specimen over another modern demo.** The gcor corpus is one file per
-era for this reason; picking a second 2026 match would have scored 159 of 159 again and taught
-nothing.
+**Tell of under-measurement: a perfect score on one file.** Prefer a committed era specimen over
+another modern demo — a second 2026 match would score 159/159 again and teach nothing.
 
 Related: [[era-axis-is-measured]], [[instrument-bugs-outnumber-decoder-bugs]], [[record-both-points-of-view]].
 
----
-
 ## `check-backwards-compat-on-old-demos`
 
-Owner, after the doubled-viewmodel bug: *"you know the demos have to be backwards compat to 07, we
-should probably check the 07 demo after this... thats why we should looks towards backwards compat
-immediately whenever we are using an old demo."*
+Owner, after the doubled-viewmodel bug: *"you know the demos have to be backwards compat to 07... we
+should probably check the 07 demo after this... we dont ui test every demo we have, and i dont look
+at every one before we commit."* The bug was a modern assumption (viewmodel = hands + separate gun)
+applied to a 2011 recording where it was one combined `v_` model.
 
-**Why:** the bug was a modern assumption — that a first-person weapon is always hands plus a
-separate gun — applied to a 2011 recording where it was one combined `v_` model. It survived because
-nothing exercises the era specimens end to end. The owner named the gap precisely: *"we dont ui test
-every demo we have, and i dont look at every one before we commit"*, so a rendering regression on an
-old file is invisible to both the suite and the eye.
-
-**How to apply:** when a change touches how something is drawn or resolved, ask what the oldest
-supported demo does with it, and open one. The era axis is measured — protocols 11, 14, 15, 16 and
-24, with matched POV/STV pairs — so the specimen exists. Related:
-[[a-player-has-two-viewmodels]], [[era-axis-is-measured]], [[record-both-points-of-view]],
-[[the-demo-dates-its-own-fields]].
-
-**A constraint on verifying era behaviour:** the period clients have **no internet connection**, so
-a modern item cannot be loaded in them to compare. Whether a modern-only symptom also occurs on an
-era demo often cannot be checked in the original client at all, and the answer has to come from the
-shipped data and the SDK instead.
-
----
+**How to apply:** when a change touches drawing or resolution, open the oldest supported demo. Era
+axis: protocols 11, 14, 15, 16, 24 with matched POV/STV pairs. Note: period clients have **no
+internet**, so a modern item can't be loaded in them for comparison — answers must come from shipped
+data and the SDK instead. Related: [[a-player-has-two-viewmodels]], [[era-axis-is-measured]],
+[[record-both-points-of-view]], [[the-demo-dates-its-own-fields]].
 
 ## `pov-demos-are-pvs-limited`
 
-A POV `.dem` is one client's **received** packet stream. The server transmits an entity to a client
-only when it passes the PVS check, so a POV recording physically cannot contain entities the
-recorder could not see. Fly the free camera to the other end of the map and the medkits, ammo packs
-and control points there were never in the file.
+A POV `.dem` is one client's **received** packet stream — the server transmits an entity only when it
+passes the PVS check, so a POV recording physically cannot contain entities the recorder couldn't
+see. Measured 2026-08-16, badlands POV vs. process STV, same viewer build: studio props peaked at 16
+vs. 94; `cap_point_base` never above 2 vs. 5 per frame — though the badlands timeline holds 5 cap
+points, 20 ammopacks, 14 medkits over the WHOLE recording, just never at once.
 
-Measured 2026-08-16 on `tf2-2013-build1729296-pov-cp_badlands.dem` (the UI-test demo) against
-`demostf-cp_process_f12-2026-08-08-2207.dem` (SourceTV), same build of the viewer:
+Valve's side: `FL_EDICT_PVSCHECK` is the default transmit state (`baseentity.cpp:4025,4096`) —
+entities opt OUT of PVS, not in.
 
-| | badlands POV | process STV |
-|---|---|---|
-| studio props drawn, peak | **16** | **94** |
-| `cap_point_base` in one frame | never above **2** | **5** |
-| `medkit_small` in one frame | up to 4 | 7 |
+**Why worth a memory:** imitates a regression perfectly ("all the props went away") and consumed a
+session bisecting skin retention, track identity, draw-loop counters — all healthy. The question that
+would have ended it: *which demo* — every earlier screenshot was SourceTV.
 
-The badlands timeline holds 5 cap points, 20 `ammopack_small` and 14 `medkit_small` **over the whole
-recording** — they exist, just never at once. That is the shape of a PVS-limited stream, not a
-decode gap.
-
-Valve's side: `FL_EDICT_PVSCHECK` is the default transmit state — `CBaseEntity::SetTransmitState`
-returns it at `game/server/baseentity.cpp:4025` and `UpdateTransmitState` falls through to it at
-`:4096`. Entities opt **out** of PVS (always-transmit); they do not opt in.
-
-**Why this is worth a memory: it imitates a regression perfectly.** It presented as "all the props
-went away — the cap point, the health packs, the ammo packs" and consumed a session of bisecting
-skin retention, track identity and the draw-loop skip counters, all of which were healthy. The one
-question that would have ended it immediately is *which demo*, because every earlier screenshot had
-been of a SourceTV recording.
-
-**So: verify rendering on an STV demo.** Use a POV demo only when the point is the recorder's own
-view. [[record-both-points-of-view]] is the same distinction from the writer's side.
-
-Related: [[instrument-bugs-outnumber-decoder-bugs]] — "no props here" was a fact about the input, not about
-the code, and a second demo was the control that showed it.
+**So verify rendering on an STV demo**; use POV only when the point is the recorder's own view.
+[[record-both-points-of-view]] is the same distinction from the writer's side. Related:
+[[instrument-bugs-outnumber-decoder-bugs]].

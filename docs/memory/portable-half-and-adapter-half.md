@@ -8,36 +8,22 @@ metadata:
   modified: 2026-09-09T03:55:17.070Z
 ---
 
-Asked for a shortcut guard, the owner added:
+Owner: *"try to use cross platform stuff so we wont have to change it if we change the front end"* —
+and, told it could live anywhere: *"it can go in the mainform, since it is view logic not domain, i
+just want what you use to hopefully be able to be copy pasted instead of needing to redo it from
+nothing."*
 
-> *"try to use cross platform stuff so we wont have to change it if we change the front end"*
+**Why:** not layering purity (`MainForm` is explicitly allowed) — a future front-end change should be
+a port, not a rewrite.
 
-and, when told it could live anywhere:
+**How to apply:** split view logic in two — the RULES (which keys a slider uses, how a drag maps to
+degrees) go in a plain `net10.0` project that **cannot** reference `System.Windows.Forms`, so the
+compiler enforces portability rather than a comment ([[a-partial-thin-view-is-worse-than-none]]:
+enforcement is the TFM, not the file); the ADAPTER (names the toolkit's types) stays tiny in the view.
 
-> *"it can go in the mainform, since it is view logic not domain, i just want what you use to
-> hopefully be able to be copy pasted instead of needing to redo it from nothing"*
+Worked example, B216: a key-mapping helper takes a STRING key name and never sees a toolkit `Keys` value —
+the whole binding stack (`ViewerAction`, `KeyBindings`, `ConfigConsole`) is already this shape.
 
-**Why:** the goal is not layering purity — they explicitly allowed `MainForm`. It is that a future
-front-end change should be a port, not a rewrite. "View logic, not domain" is a real category, and it
-still deserves to survive the view.
-
-**How to apply.** Split any piece of view logic in two:
-
-- **The rules** — which keys a slider uses, how a drag maps to degrees, what a readout says. These
-  are UI *conventions*, true in WinForms, Avalonia, WPF, GTK and HTML alike. Put them in
-  `Tf2DemoSalvage.Presentation`, which targets plain `net10.0` and therefore **cannot** reference
-  `System.Windows.Forms` — the compiler enforces the portability rather than a comment asking for it
-  (see [[a-partial-thin-view-is-worse-than-none]]: enforcement is the TFM, not the file).
-- **The adapter** — the part that names the toolkit's types. Keep it in the view and keep it tiny.
-  `MainForm.FocusKind()` is ten lines mapping WinForms controls onto a five-value `FocusedWidget`
-  enum; every toolkit has a text field, a slider, a list and a button.
-
-Worked example, B216: `WidgetKeys.Keeps(FocusedWidget, keyName)` holds the rules and takes a *string*
-key name, so it never sees a `Keys` value. The binding stack was already this shape —
-`ViewerAction`, `KeyBindings` and `ConfigConsole` are all in `Presentation` with keys as strings, and
-only `KeyNames` translates.
-
-**Check it by TFM, not by reading.** `grep -rl "System.Windows.Forms" managed --include=*.cs` over
-`Presentation` should match only prose in doc comments; if it compiles under `net10.0`, it is
-portable by construction. Related: [[ask-if-the-view-must-hold-it]],
-[[conformance-test-before-implementation]], [[no-hardcoded-controls-ever]].
+**Check it by TFM, not by reading:** `grep -rl "System.Windows.Forms" <portable project>` should match
+only prose in doc comments — if it compiles under `net10.0`, it's portable by construction. Related:
+[[ask-if-the-view-must-hold-it]], [[conformance-test-before-implementation]], [[no-hardcoded-controls-ever]].

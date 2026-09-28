@@ -8,22 +8,15 @@ metadata:
   modified: 2026-09-09T03:54:50.586Z
 ---
 
-**"Did the 2009 engine send this field?" is answered by the 2009 demo, not by the 2013 SDK and not
-by a decompiler.** Every demo embeds the SendTables that describe it, so each file carries the
-schema of the build that wrote it — including property widths and flags.
+**"Did the 2009 engine send this field?" is answered by the 2009 demo, not the SDK (one era's
+snapshot) and not a decompiler.** Every demo embeds the SendTables that describe it. A viewmodel-slot
+defect appearing only on older demos was raised as possibly needing a decompiler — it needed nothing:
+asserting the property's presence/width against each corpus demo's OWN schema covered 2007 through
+modern in a 150ms test.
 
-Raised on 2026-08-20 as possibly needing a decompiler, because the viewmodel-slot defect appeared
-only on older demos and `source-sdk-2013` is one era's snapshot. It needed nothing: asserting
-`DT_BaseViewModel.m_nViewModelIndex` present at 1 bit unsigned against each corpus demo's own schema
-covered 2007 through modern in a 150 ms test.
+**Why:** the SDK proves what one build did; a demo proves what the build that recorded it did, which
+is the actual question whenever a defect is era-shaped.
 
-**Why to apply:** the SDK proves what one build did. A demo proves what the build that recorded it
-did, which is the actual question whenever a defect is era-shaped. Reaching past that for
-[[nothing-is-closed]] or a decompiler is work for an answer already on disk.
-
-**How to apply:** when a property's existence, width or flags is in doubt for an era, write a
-conformance test that reads `Corpus.Schema(path)` for every demo and asserts on the `SendProperty`.
-It is schema-only, cached and cheap — no entity decode — so it does not offend the rule that corpus
-tests are slow ([[fixtures-are-the-weak-point]] still governs behaviour tests, which
-stay synthetic). Related: [[hl2sdk-branches-are-per-era-headers]] for headers the demo cannot carry,
-[[era-axis-is-measured]] for which builds exist.
+**How to apply:** when a property's existence/width/flags is in doubt for an era, write a conformance
+test reading the schema for every demo and asserting on it. It's schema-only, cached, cheap — no
+entity decode. Related: [[hl2sdk-branches-are-per-era-headers]], [[era-axis-is-measured]].

@@ -8,32 +8,26 @@ metadata:
   modified: 2026-09-09T03:53:59.858Z
 ---
 
-Any message whose fields do not end on a byte boundary has padding bits, and in Source those bits
-are **not zero**. `bf_write` composes its partial tail dword with `dword1 ^= (mask1 & (curData ^
-dword1))`, which preserves every bit outside the mask, and `StartWriting` never clears the buffer.
-So bits a write does not cover keep whatever was already there.
+Any message not ending on a byte boundary has padding bits, and in Source those bits are NOT zero —
+`bf_write` composes its tail dword preserving bits outside the mask, and never clears the buffer
+first. So bits a write doesn't cover keep whatever was already there.
 
-Measured on `dem_usercmd`, 2026-08-11: 385,236 commands, 99.8% ending three bits short of a byte,
-those bits taking every value from 0 to 7. **150,606 of the 199,929 non-zero pads — 75.3% — are
-bit-for-bit what the previous command wrote at the same absolute offsets.**
+Measured on `dem_usercmd`: 385,236 commands, 99.8% ending 3 bits short of a byte, and **75.3% of
+non-zero pads are bit-for-bit what the previous command wrote at the same offsets.**
 
-**Why:** it makes a byte-exact rewrite impossible from decoded values alone, and it fails in the
-worst available way — every field still decodes correctly, so nothing looks wrong until the rebuilt
-file is compared byte for byte. Same family as [[round-trip-needs-the-encoding-shape]]: information
-that is in the file but not in the values.
+**Why:** makes a byte-exact rewrite impossible from decoded values alone, and fails silently — every
+field still decodes correctly, nothing looks wrong until compared byte for byte with the original.
+Same family as [[round-trip-needs-the-encoding-shape]].
 
-**The correction is worth more than the finding.** The first write-up called this uninitialised
-process memory and described it as a leak. Non-zero and varying is consistent with several
-mechanisms, and the alarming one got asserted rather than tested — while a sentence in the same
-paragraph already said the distributions looked like leftovers from a previous longer write. The
-separating condition was cheap: buffer reuse predicts the previous command's bits at those offsets,
-foreign memory does not. Nothing escapes the file that the file did not already contain.
+**The correction matters more than the finding** — first written up as a leak/uninitialised memory,
+asserted rather than tested, though the SAME paragraph already noted the pattern looked like buffer
+reuse. Separating condition: buffer reuse predicts the previous command's bits at those offsets;
+foreign memory doesn't. Nothing escapes the file that the file didn't already contain.
 
-**How to apply:** when adding a codec for any bit-packed payload, read the residual bits into the
-record and write them back rather than letting the writer zero-pad, and put a corpus-wide
-round-trip property on it immediately — that is what caught this on the first run. When explaining
-*where* odd bytes come from, name the competing mechanisms and find the one measurement that
-separates them before writing any of it down. See [[fallbacks-do-not-make-guesses-safe]].
+**How to apply:** when adding a codec for a bit-packed payload, read residual bits into the record and
+write them back rather than zero-padding; put a corpus-wide round-trip property on it immediately —
+that's what caught this. When explaining where odd bytes come from, name competing mechanisms and
+find the one measurement that separates them before writing anything down. See
+[[fallbacks-do-not-make-guesses-safe]].
 
-Related: [[fixtures-are-the-weak-point]], [[read-the-encoder-not-the-decoder]],
-[[fixtures-are-the-weak-point]].
+Related: [[fixtures-are-the-weak-point]], [[read-the-encoder-not-the-decoder]].

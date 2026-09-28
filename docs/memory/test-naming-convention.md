@@ -8,35 +8,21 @@ metadata:
   modified: 2026-09-09T02:37:35.954Z
 ---
 
-Test methods use **`{Subject}_{Scenario}_{Expected}`**. Classes use `{TypeUnderTest}Tests`, and any
-class whose name contains `Conformance` must keep it — `docs/CONFORMANCE.md` selects those suites
-with `--filter 'FullyQualifiedName~Conformance'`.
+Test methods use `{Subject}_{Scenario}_{Expected}`. Classes use `{TypeUnderTest}Tests`; a class named
+`Conformance` must keep that (docs select suites by filtering the name).
 
-- **Subject** — the method under test when there is one (`Decode`, `Write`, `Parse`); otherwise the
-  operation, for tests that span layers (`RoundTrip`, `Trace`, `Dump`).
-- **Scenario** — the condition (`AtProtocol23`, `AfterAStopWithoutFlags`, `WithNoStopCommand`).
-- **Expected** — the predicted observation (`Is14Bits`, `InheritsSndStop`, `ReproducesBytes`).
+- **Subject** — the method under test (`Decode`) or the operation for cross-layer tests (`RoundTrip`).
+- **Scenario** — the condition (`AtProtocol23`).
+- **Expected** — the predicted observation (`Is14Bits`).
 
-**Why:** the repo had grown ~2,132 prose-named tests (`ASoundAfterAStopInheritsSndStopUnlessItSays
-Otherwise`) across 371 files, and no decision was ever recorded for it — checked 2026-08-19 against
-`docs/DECISIONS.md`, `CLAUDE.md` and every memory entry. It drifted: one early file used prose, each
-later file matched its neighbours because matching surrounding style is the default, and nobody
-compared the result against the written standard.
+**Why:** ~2,132 prose-named tests across 371 files drifted from no recorded decision — one early file
+set the style, later files matched neighbours. Owner's reason for converting: prose names make
+hand-debugging harder — a failing test naming the CLAIM but not the SUBJECT forces opening the file
+to learn what it touches; the new form says where to look on every red run.
 
-The owner's reason for converting is the deciding one and it is not aesthetic: **prose names make
-hand-debugging harder.** A failure reading `Failed TheTraceNamesEveryKindItWalksPast` names the
-CLAIM but not the SUBJECT, so the reader has to open the file to learn what it even touches.
-`Trace_EveryMessageKind_IsNamed` says where to look. That cost is paid on every red run.
-
-**How to apply:** write every new test in this form. Convert an existing file's names when you are
-already editing it. Two things make bulk conversion safe: nothing outside the test assemblies
-references a test method name (no `--filter` pins one, no Stryker config filters by test), and the
-count cannot silently FALL — `build/gate.sh` asserts a floor per project, so a rename that drops or
-merges a test reddens the gate immediately. **They are floors and not equalities**, which an earlier
-version of this entry got wrong: `build/assert-test-count.sh:13` says *"exact counts make every added
-test a red build"*, so adding tests passes and only a drop is caught. Read as "exact" it implies the
-gate must be edited before new tests can go green, which is the opposite of what happens.
-
-Do not attempt this with a regex. Choosing the subject, scenario and expectation requires reading
-what the test asserts; a mechanical transform produces names that are wrong in a way nobody will
-ever go back and fix. See [[edit-files-with-the-file-tools]].
+**How to apply:** write new tests in this form; convert a file's names when already editing it. Bulk
+conversion is safe because nothing outside test assemblies references a method name by string, and
+`build/gate.sh`'s floors are floors, not equalities — a rename that drops a test reddens the gate, but
+adding tests always passes. Do not attempt bulk conversion with a regex — choosing subject/scenario/
+expectation requires reading the assertion; a mechanical transform produces names nobody will fix.
+See [[edit-files-with-the-file-tools]].

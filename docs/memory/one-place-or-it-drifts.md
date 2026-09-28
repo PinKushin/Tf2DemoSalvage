@@ -8,131 +8,64 @@ metadata:
   modified: 2026-09-09T03:37:54.835Z
 ---
 
-Every fix should land in a **single place**. If a change needs the same information copied into two
-files, or two sites kept in step by hand, they will go out of sync.
+Every fix should land in a SINGLE place — copying information into two files, or keeping two sites in
+step by hand, drifts. Owner: *"if we run into a place we are having to copy or synchronize the
+information between files, they are going to get out of sync."* Said after watching exactly that:
+players all faced north because the wrong property was read in one method while a comment naming the
+correct one sat in another method of the same file.
 
-**Why:** stated by the owner directly — "pretty much every fix should be in a single place, if we
-run into a place we are having to copy or synchronize the information between files, they are going
-to get out of sync." Said after watching exactly that failure: players all faced north because
-`m_angRotation` was being read for them in `RecordProp`, while the comment naming
-`m_angEyeAngles` as TF2's real facing property sat in a different method of the same file. Two
-places, one of them right, and the wrong one was the one that ran.
+**How to apply:** put the fix where the data is PRODUCED, not at each point it's consumed. When a
+feature will be reached from two paths (a POV camera and a free camera), build one thing both call
+with a flag, not two implementations that agree today.
 
-**How to apply:** put the fix at the point the data is produced, not at each point it is consumed.
-The eye-angle fix is one line in `RecordProp` because the pose it writes already feeds the
-interpolator, `ScenePlayer` and the renderer — so position and angle cannot drift apart. Setting a
-`Yaw` field on `ScenePlayer` instead would have been the same behaviour with two sources of truth,
-and would have needed a second edit every time the angle logic changed.
+**The rule in the other direction: restating a CONVENTION is the defect.** B400: a coordinate map was
+spelled out again instead of calling the existing helper that already held it with its citation — and
+the restatement was the FORWARD map instead of its inverse, so every collision hull loaded rotated
+180°. The fix was to delete the restatement, not correct it.
 
-The corollary for design: when a feature will be reached from two paths (a POV camera and a free
-camera, say), build one thing that both call with a flag, not two implementations that agree today.
-
-**The same rule in the other direction: a restatement of a CONVENTION is the defect.** B400 was
-`IvpWorldCollision.ToSource` spelling the IVP axis map out again instead of calling
-`IvpTransform.SourcePosition`, which already held it with its citation — and the second copy was the
-forward map rather than its inverse, so every collision hull loaded rotated 180° about X. The fix
-was to delete the restatement, not to correct it.
-
-Related: [[logs-are-the-debugger]] is how the drift gets *found*, and
-[[fixtures-are-the-weak-point]] is why a second implementation cannot check the first.
+Related: [[logs-are-the-debugger]] (how drift gets found), [[fixtures-are-the-weak-point]] (why a
+second implementation can't check the first).
 
 ---
 
 ## `police-the-document-not-just-the-test` — the audit's last instruction is the one skipped
 
-**An audit that names three things to do gets two of them done.** Measured 2026-09-04.
+**An audit naming three things to do gets two done.** A conformance-gap test correctly deletes stale
+"not implemented" test rows when a feature lands, but its third instruction ("delete its section in
+docs too") was skipped four times — a reader planning off that doc would build a feature twice.
 
-`ConformanceGapAuditTests` exists to stop `docs/CONFORMANCE.md` claiming a feature is missing after
-it lands. It works: it went red the session `$normalmapalphaenvmapmask` was implemented, and its
-message says what to do — *"delete the test, its row here, **and its section in
-docs/CONFORMANCE.md**"*.
+**It immediately caught B128** — a parameter's section carried "Implemented 2026-08-21" in its BODY
+and "every model is dull" in its HEADING, nobody reads the body. **Fix: police the artefact, not the
+reminder.** A heading naming a parameter the production census confirms implemented is now a red
+test — two documents contradicting each other, one enforced.
+Headings only, never prose, are the claim (prose may discuss an implemented parameter without
+claiming it's missing). A structural control (asserting the section is found and non-trivial) stops
+a renamed heading from silently checking an empty list.
 
-The test went. The row went. **The section stayed. Four times** — `$phong`,
-`$normalmapalphaenvmapmask`, `$lightwarptexture` and `$rimlight`, all still filed under *"Not
-implemented, ordered by what it costs"* while all four are in the shader. A reader planning work off
-that list would have built one of them twice, which the file's own header records having already
-happened once.
-
-**The fix is to police the artefact rather than the reminder.** A heading under that section naming a
-parameter that `MaterialCensus.ImplementedParameters` contains is now a red test: two documents
-contradicting each other, one of them enforced for its own reasons. A heading may say IMPLEMENTED in
-as many words, which keeps the history without keeping the lie.
-
-**Two details that made it work rather than nag:**
-
-- **Headings only, never prose.** A section may discuss an implemented parameter — the
-  `$normalmapalphaenvmapmask` entry explains the mask it is mutually exclusive with — and that is
-  not a claim. What a heading says IS the claim.
-- **A structural control.** The section is located by its `## Not implemented` heading and the test
-  asserts it found more than two `###` entries, so a renamed heading fails loudly instead of
-  checking an empty list.
-
-**It immediately caught one nobody had noticed:** `$phong`'s section carried "Implemented
-2026-08-21, B128" in its BODY and "every model is dull" in its HEADING. The body was right and
-nobody reads it.
-
-**Generalises past this file.** Wherever a check tells a human to update prose, the prose is the part
-that will not get updated. Point the check at the prose. A stale "not implemented" list is a to-do
-list somebody will work from — that is the disease this treats, and
-[[the-denominator-decides-what-can-be-lost]] carries the same shape in the coverage report.
-
-### The loop closed on 2026-09-04, and both halves fired on the same run
-
-`$basetexturetransform` (B332) is the first gap where the audit's whole instruction was carried out.
-The gate reddened on `GapMarkers_WhoseFeatureNowWorks_AreReported` naming
-`TextureTransforms_AreNotParsed`, and the marker, its row and the `CONFORMANCE.md` section all went
-in that change.
-
-**Both checks covered the same feature from opposite ends.** The audit names the TEST to delete; the
-document police would have caught the SECTION had it been left. Before the second check existed,
-four firings in a row deleted the test and the row and left the prose — which is the failure the
-police was written for, and it is now redundant in the good way rather than the unused way.
-
-**And the pinned marker count came down 2 → 1 WITH the deletion**, not to make a run pass. That
-distinction is the entire reason the number is pinned, and it is worth stating in the comment beside
-it every time it moves.
+**Generalises past this file** — wherever a check tells a human to update prose, the prose is what
+won't get updated. Point the check at the prose. Same shape as
+[[the-denominator-decides-what-can-be-lost]]. The loop closed on B332, the first gap where the
+audit's whole instruction was carried out in one change.
 
 ---
 
 ## `a-fold-leaves-its-paths-behind` — rewrite the PATHS, not just the wiki links
 
-**A fold that rewrites the wiki links has done the easy half.** Measured 2026-09-10 while
-reconciling this directory with the assistant's copy: about 240 `docs/memory/<slug>.md` path
-citations in 136 files — source comments, `docs/RISKS.md`, `docs/DECISIONS.md`, findings,
-`CLAUDE.md`, a skill, CI and the gate script — named files that no longer existed. About 150 had been
-dangling since earlier folds; every one of those folds had rewritten its links and none its paths.
+**A fold that rewrites wiki links has done the easy half.** Reconciling this directory with a mirror,
+~240 file-path citations (source comments, docs, CI, gate scripts) named files that no longer existed
+after earlier folds — every prior fold rewrote its links and none its paths.
 
-**Why the paths are the half that gets missed:** a wiki link sits in the same directory as the file
-it names, so the grep that finds the file finds the link. A path in a C# comment is found by nothing
-once the file goes — and a citation that arrives nowhere is the harm `build/assert-risk-citations.sh`
-guards against for `B###` numbers.
+**Why paths get missed:** a wiki link sits in the same directory as the file it names, so a grep for
+the file finds the link too. A path in a C# comment is found by nothing once the file's gone.
 
 **The convention that keeps a fold citable:** the host keeps a section whose heading carries the
-folded slug in backticks — ``## `an-empty-search-needs-a-control` — …`` — so from outside this
-directory it is cited as `docs/memory/instrument-bugs-outnumber-decoder-bugs.md#an-empty-search-needs-a-control`.
-The file resolves, and the slug still greps to exactly one heading. Inside the directory it is a
-wiki link to the host plus the section's name.
+folded slug in backticks (`` ## `slug-name` — … ``), so it's cited externally as
+`docs/memory/host-file.md#slug-name`.
 
-**How to apply, before deleting a folded file:**
-
-- `grep -rn '<slug>' --exclude-dir=.git .` — every hit outside `docs/memory/` is a path to rewrite,
-  not only the wiki links inside it.
-- Word-diff the standalone against its new section first. A fold can drop a paragraph: five of the
-  43 checked that day had, and the standalone is the only copy left of what was lost.
-
-**And the frontmatter moves under you.** The assistant's memory tool rewrites a file's frontmatter
-each time it saves one — it quotes `description` and adds `node_type`, `originSessionId` and a
-`modified:` stamp — so after an edit on the assistant's side, the repo copy has to take that exact
-frontmatter or the two differ by a line. It also leaves a file alone, undecorated, when its
-`description` opens with a quoted phrase, because that is not valid YAML; quote the whole value
-(`"\"…\" …"`) instead.
-
-**Deleting the standalone copies in the OTHER directory is its own step, and it is the one that can
-lose content.** On 2026-09-12 the assistant's directory still held all 25 pre-fold files while the
-repo held the folded hosts; deleting them there without first copying the hosts across would have
-removed the only copy that side. The order is: verify each slug resolves to a `## \`slug\`` heading
-in a host, verify a distinctive line of the standalone appears in that host, delete, then copy every
-differing host over. Compare BODIES when checking, since the frontmatter is restamped on every save
-and will always differ.
+**Before deleting a folded file:**
+- `grep -rn '<slug>' --exclude-dir=.git .` — every hit outside `docs/memory/` is a path to rewrite.
+- Word-diff the standalone against its new section first — a fold can silently drop a paragraph.
+- The frontmatter is restamped on every save by the memory tool, so compare BODIES when checking
+  whether content survived, not frontmatter.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]].

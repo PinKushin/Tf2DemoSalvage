@@ -1,63 +1,46 @@
 # AI memory, mirrored into the repository
 
-These files are the working memory of the AI assistant used on this project — the
-non-obvious things learned while building it. They live here so they survive a machine
-wipe, a fresh install, or a move to another computer: clone the repo and the assistant
-picks up where it left off instead of relearning everything the expensive way.
+These files are the assistant's working memory — non-obvious things learned building this
+project. They live here so they survive a machine wipe or a move to another computer.
 
 ## Why this exists
 
-The assistant's own memory directory is outside the repository and local to one machine.
-Everything in it would be lost on a reinstall — including findings that cost real time to
-establish, like the fact that TF2 demos all end one byte short of a complete `dem_stop`
-header, or that Stryker fails inscrutably if `TargetFramework` is set in
-`Directory.Build.props`.
+The assistant's own memory directory is outside the repo and local to one machine; a
+reinstall would lose findings that cost real time to establish.
 
 ## The rule
 
-**Both copies must be updated together.** The authoritative location for the assistant is
-its own memory directory; this directory is the backup that makes it portable. A change
-written to only one of them is a bug — the local copy silently diverges, or the backup
-goes stale and restores something wrong.
+**Both copies must be updated together.** The assistant's own directory is authoritative;
+this one is the portable backup. Updating only one lets the local copy silently diverge or
+the backup go stale.
 
 ## No personal data in here
 
-**This directory is committed and this repository is intended to be public.** Anything
-personal or identifying — the owner's name, handles, machine details, account identifiers —
-belongs in the assistant's *global* memory (`~/.claude/memory/`), not here, and not in the
-project memory directory that mirrors here.
+**This directory is committed and the repository is public.** Anything personal or
+identifying belongs in the assistant's *global* memory (`~/.claude/memory/`), never here.
+This cost a history rewrite once, when a note naming the owner was committed before the
+distinction was drawn — purged rather than merely deleted, since deletion alone leaves it
+in every earlier commit.
 
-That rule cost a history rewrite to establish: a note recording the owner's shell preference,
-which named him, was committed here before the distinction was drawn. It was purged from
-history rather than merely deleted, because deleting a file leaves it in every earlier commit.
-Cheap while the repository had no remote; effectively permanent after a public push.
-
-The test to apply: *would this still be useful to a future assistant working on a different
-project?* If yes, it is probably a personal or cross-project preference and belongs globally.
-If it is only meaningful next to this codebase, it belongs here.
+Test: would this help a future assistant on a *different* project? If yes, it's global. If
+it's only meaningful next to this codebase, it belongs here.
 
 ## Checking the two copies agree
 
-**Byte for byte.** Measured 2026-09-10: both copies are LF. This section used to say the
-assistant's copy keeps Windows CRLF and to compare with line endings stripped; neither was true
-any more, and its example command had a raw carriage return pasted between its quotes where a
-`\r` belonged.
-
+**Byte for byte.**
 ```bash
 diff -r --exclude=README.md docs/memory "<the assistant's memory directory>"
 ```
+One difference arrives by design: the assistant's memory tool restamps frontmatter on every
+save, so this copy takes the same stamp in the same commit —
+[[a-fold-leaves-its-paths-behind]] has the details.
 
-**One difference arrives by design and moves:** the assistant's memory tool restamps a file's
-frontmatter whenever it saves it, so the copy here takes the same frontmatter in the same commit —
-`a-fold-leaves-its-paths-behind.md` has the details, and what else a fold breaks.
-
-`README.md` exists only here, by design: it explains the folder to someone reading the
-repository, which is not something the assistant's own memory directory needs.
+`README.md` exists only here — it explains the folder to a repository reader, which the
+assistant's own directory doesn't need.
 
 ## What is here
 
-`MEMORY.md` is the index: one line per entry. Each other file holds a single fact, with
-frontmatter naming its type:
+`MEMORY.md` is the index: one line per entry. Each other file holds a single fact, typed:
 
 | Type | Meaning |
 |---|---|
@@ -68,9 +51,7 @@ frontmatter naming its type:
 
 ## How to read them
 
-They are written as a briefing for a future AI instance that has read the code but was not
-present for the conversation. That means they are blunt, they record *why* rather than just
-what, and several of them document mistakes — a wrong inference about the corpus demo's
-age, a rule attributed to the owner that he never stated. Those are kept deliberately.
-A memory that records only conclusions and not the reasoning that corrected them is the
-kind that gets confidently repeated.
+Written as a briefing for a future AI instance that read the code but wasn't present for
+the conversation: blunt, records *why* not just what, and several document mistakes —
+kept deliberately, since a memory recording only conclusions is the kind that gets
+confidently repeated.

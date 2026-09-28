@@ -8,118 +8,66 @@ metadata:
   modified: 2026-09-09T03:42:10.861Z
 ---
 
-When a value varies by some selector — a skin family, a team, a language, a quality level — there is
-a tempting shortcut: resolve **case zero**, then express every other case as a *diff from* that
-resolved answer. It halves the storage and it reads as an optimisation.
+Storing every case as a diff from resolved case zero is tempting (halves storage) and makes case zero
+load-bearing for every case, failing two ways:
 
-It makes case zero load-bearing for every case, and it fails in two ways that look nothing alike.
+**B229:** a mesh's skin family zero resolved to −1 (unresolvable) while family 1 was fine —
+Valve's own comment (`utils/motionmapper/motionmapper.h:134`) says `g_skinref[skin][skinref]` returns
+the texture index (`cp_fulgur` places a model at skins 1 and 12 of 15, packing only those textures) — 19,274 triangles
+drew in the missing-material chequer on a map the game renders perfectly. **The derived key need not
+be unique either** — two meshes sharing texture X at family zero but differing above it collide
+silently.
 
-**Measured, 2026-08-29 (B229).** A `.mdl` mesh's `material` field is a **skinref**, and
-`g_skinref[skin][skinref]` returns the texture index — Valve's own comment, at
-`utils/motionmapper/motionmapper.h:134`. This project resolved family zero for each mesh and stored
-every other family as a swap FROM that resolved material index.
+**Why it survives testing:** the degenerate case (one skin family) is overwhelmingly common, and the
+table is the identity there.
 
-1. **Case zero can be unresolvable while the case you want is fine.** `cp_fulgur` places
-   `props_aquatic/pipe_256.mdl` at skins 1 and 12 of 15 and packs exactly those two textures — not
-   family zero's. Family zero resolved to −1, a swap keyed on −1 was refused, and 19,274 triangles
-   drew in the missing-material chequer on a map the game renders perfectly.
-2. **The derived key need not be unique.** "What does texture X become at skin 1" has *two* answers
-   the moment two meshes share texture X at family zero and differ above it. That fault was in the
-   code the whole time with no symptom, and its symptom would have been a mesh wearing a
-   neighbour's texture — plausible, and far harder to spot than magenta.
-
-**Why it survives testing:** the degenerate case is overwhelmingly common. Almost every model has
-one skin family, where the table is the identity and every reading agrees with every other. The
-control map had zero failures before and after the fix. See [[most-of-a-decoder-is-untested]].
-
-**How to apply:** key the lookup on the same input the engine keys on, and build the table for
-**every** case including zero, so nothing has a special case. Ask "is case zero privileged here?" —
-if the answer is only "it is the one that is always present", it is not privileged, it is assumed.
-Related: [[conformance-test-before-implementation]], [[a-constant-carries-no-scope]],
-[[valve-parity-is-the-first-principle]].
+**How to apply:** key the lookup on the same input the engine keys on; build the table for EVERY
+case including zero. Ask "is case zero privileged?" — if only because it's always present, it isn't
+privileged, it's assumed. Related: [[conformance-test-before-implementation]],
+[[a-constant-carries-no-scope]], [[valve-parity-is-the-first-principle]].
 
 ---
 
 ## `a-key-format-is-two-facts` — one wrong kills it, and `??` hides that it did
 
-**A string-built lookup key encodes several independent facts, and every one of them can be wrong on
-its own.** `m_iTeam.003` is three: the array's name, that it is indexed by ENTITY INDEX rather than
-by player slot, and that the number is zero-padded to three digits.
+**A string-built lookup key encodes several independent facts, each of which can be wrong alone.**
+`m_iTeam.003` is: the array name, indexed by ENTITY INDEX (not player slot), zero-padded to three
+digits. B313: a recorder line got two of three wrong, building `"m_iTeam.0"`, matching nothing for
+the life of the code — masked by `resource?.Integer(key) ?? OwnProperty()`, a dead lookup composed
+with a working fallback.
 
-B313, 2026-09-04: the player loop got all three right. The recorder's line, sixty lines away in the
-same file, got two of them wrong — it passed the slot and did not pad — so it built `"m_iTeam.0"`,
-which matches nothing, **every time, for the life of the code**.
-
-**A `??` fallback is what made it survive.** The line read `resource?.Integer(key) ?? OwnProperty()`,
-so a dead lookup and a working fallback compose into something that always answers. The code
-described a preference it never expressed
-([[a-fallback-that-makes-sound-hides-itself]]).
-
-**Confirm a key format against the DATA, not the code that writes it.** One grep settles it:
-
-```bash
-grep -o "m_iTeam\.[0-9]*" dump.txt | sort -u | head
-```
-
-**Then ask whether fixing it changes anything, and measure that too.** Here it did not — the
-fallback happened to give the same answer on this corpus — so it is a latent defect, and saying
-"latent" rather than "fixed a bug" is the honest report.
-
-**Two call sites building one key is the smell.** Extract the key, and the two cannot disagree; leave
-them apart and only one of them is ever exercised by the case that would notice.
+**Confirm a key format against the DATA**: `grep -o "m_iTeam\.[0-9]*" dump.txt | sort -u`. Then
+measure whether fixing it changes anything — here it didn't (the fallback happened to agree), so
+report it as a latent defect, not a fixed bug.
 
 ---
 
 ## `lookups-must-match-exactly` — a `Contains` match laid every player down
 
-**Look an asset up by exact name. A `Contains` match returns the first LONGER name that embeds the
-one you asked for, and it looks like a working lookup.**
+**Look up an asset by exact name — `Contains` returns the first LONGER name embedding the one asked
+for, and looks like a working lookup.** `PropModels.SkinnedModel.Find` used `Contains`, so
+`Stand_PRIMARY` matched `AttackStand_PRIMARY` (an upper-body layer meant to ADD to a base pose)
+instead of the real `stand_PRIMARY`. Played alone, it left every player near their reference pose —
+lying on its back. Four wrong diagnoses were filed first (up-axis, transposition, bone composition,
+blend grid) because a real animation WAS being applied, just the wrong one.
 
-**Why:** `PropModels.SkinnedModel.Find` used `Contains`, so asking a scout for `Stand_PRIMARY`
-returned sequence 9, `AttackStand_PRIMARY`, while the real `stand_PRIMARY` sat at 175 and was never
-reached. A TF2 attack sequence is an upper-body layer meant to be ADDED to a base pose; played alone
-as an absolute pose it leaves the skeleton near its reference — and a TF2 player's reference pose is
-authored lying on its back.
-
-Every player in the viewer lay down. Worn items sat at ankle height because `bip_head` was down
-there with them. The legs looked broken. Four confident diagnoses were filed and retracted first: an
-up-axis conversion, an axis transposition in the readers, a bone composition worth rewriting
-wholesale, and the blend grid. All four were wrong.
-
-The evidence looked self-contradictory precisely BECAUSE a real animation was being applied — the
-posed shape differed from the rest shape, which reads as "the pipeline works", while the model never
-stood up.
-
-**How to apply:** Valve's own `Studio_LookupSequence` compares with `stricmp`. Match exactly. And
-when a lookup is suspected, print what it RETURNED next to what was asked for — that one line
-settled this after hours of measuring things downstream of it. Related:
-[[logs-are-the-debugger]] and [[instrument-bugs-outnumber-decoder-bugs]].
-
-Posed Z spans for a scout, useful as a reference: reference pose 14, `AttackStand_PRIMARY` 23,
-`stand_PRIMARY` 59, `run_PRIMARY` 68. Standing is ~60 and nothing else is.
+**How to apply:** match exactly, like Valve's `Studio_LookupSequence` (`stricmp`). Print what a
+suspected lookup RETURNED next to what was asked — settled this after hours downstream. Related:
+[[logs-are-the-debugger]], [[instrument-bugs-outnumber-decoder-bugs]].
 
 ---
 
 ## `a-vector-keys-its-halves-differently` — elements key FLAT, the length keys by PATH
 
-`EntityStateTable` keys a decoded property by its PATH only when the flattener marked it
-element-scoped, and that mark is set for a **datatable** member named `lengthproxy` or all digits
-(`SchemaFlattener.cs:237`). A plain property never sets it. So one `SendPropUtlVector` is keyed two
-ways at once:
+`EntityStateTable` keys a decoded property by path only when element-scoped (a datatable member
+named `lengthproxy` or all digits); a plain property never sets it. So one vector is keyed two ways:
+sub-table elements as a path (`…m_AnimOverlay.000.m_nSequence`), plain-EHANDLE elements flat
+(`_ST_m_hActorList_16.000`), length via `lengthproxy`.
 
-- `m_AnimOverlay` elements ARE sub-tables → `…m_AnimOverlay.000.m_nSequence` (a path).
-- `m_hActorList` elements are plain `EHANDLE`s → `_ST_m_hActorList_16.000` (flat, table-prefixed).
-- Its length reaches its property THROUGH `lengthproxy` → `m_hActorList.lengthproxy.lengthprop16`.
+**How to apply:** don't copy a leading-dot match from one vector to another — it won't match the flat
+spelling. Match the member name without a leading dot; treat any key containing `lengthprop` as the
+count; take the index from the tail after the last `.`. Before believing an empty vector, decompile
+the demo and grep for the property name — the trace prints the flat spelling the reader must accept.
+1,824 scene playbacks reporting 0 actors was this, not a TF2 fact.
 
-**Why:** the element's flat name already carries its index, so the collision `ElementScoped` exists to
-prevent cannot happen for a plain-prop vector. Both spellings are correct.
-
-**How to apply:** when reading a networked vector, do NOT copy `EntityState.AnimationLayers`'s
-`"." + key` leading-dot match — it matches `.m_AnimOverlay.` and never `._ST_m_hActorList_16.`. Match
-the member name without a leading dot, treat any key containing `lengthprop` as the count, and take
-the index from the tail after the last `.`. Before believing an empty vector, decompile the demo
-(`Cli -t -e`) and grep for the property name: the trace prints the flat spelling, which is the one the
-reader must accept. 1,824 scene playbacks reporting 0 actors was this, not a fact about TF2.
-
-Related: [[instrument-bugs-outnumber-decoder-bugs]] and its `an-empty-search-needs-a-control` section,
-[[wire-names-are-strings]].
+Related: [[instrument-bugs-outnumber-decoder-bugs]]#an-empty-search-needs-a-control, [[wire-names-are-strings]].
