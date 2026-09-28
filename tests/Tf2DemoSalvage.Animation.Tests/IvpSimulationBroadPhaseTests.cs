@@ -39,6 +39,38 @@ public sealed class IvpSimulationBroadPhaseTests
         core.Objects.ShouldBe([collisionObject]);
     }
 
+    /// <remarks>
+    /// `object+0x78 &amp; 7` read out of the live engine (`vphysics-virtual-terrain-drop`'s EXAMINE `state1`): 0 for a static object,
+    /// 1 for the moving body. *1 stood here for a static object too.*
+    /// </remarks>
+    [Test]
+    public void Collide_AStaticCore_HasMovementStateZero()
+    {
+        IvpSimulation simulation = Simulation();
+        IvpRigidBody ground = Body((0d, 0d, 0d));
+        ground.Immovable = true;
+
+        simulation.Collide(ground, Material).MovementState.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An asleep body and a static object make no pair** — both states' low bits clear (<c>FUN_180098880</c>) — so a new body's pair
+    /// with the ground is made at its revive in the first PSI, as the binary makes it, and not when the body is filed.
+    /// </remarks>
+    [Test]
+    public void Collide_ANewBodyBesideAStaticObject_MakesNoPairUntilItsRevive()
+    {
+        IvpSimulation simulation = Simulation();
+        IvpRigidBody ground = Body((0d, 0d, 0d));
+        ground.Immovable = true;
+        IvpRigidBody body = Body((0d, 0d, 9d));
+        IvpCollisionObject groundObject = simulation.Collide(ground, Material);
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+
+        groundObject.Node!.Watchers.ShouldBeEmpty();
+    }
+
     [Test]
     public void Collide_ABodyWithNoLedge_Refuses()
     {

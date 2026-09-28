@@ -79,10 +79,6 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             Ledges = IvpTestCube.Ledges(half),
         };
 
-        world.Simulation.Add(body);
-        world.Simulation.Collide(body, material);
-        output.WriteLine($"dropped from {Format(Source(body))}, expecting rest at Z~{HalfInches:F3}");
-
         int impactTick = 0;
 
         // The binary probe's `TF2VPHYSICS_PROBE_TRACE_IMPACTS` lines, as the port builds each impact's record.
@@ -127,6 +123,11 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
                 }
             };
         }
+
+        // Added after the hooks, so a pair the body's filing makes before the first Simulate is traced as tick 0.
+        world.Simulation.Add(body);
+        world.Simulation.Collide(body, material);
+        output.WriteLine($"dropped from {Format(Source(body))}, expecting rest at Z~{HalfInches:F3}");
 
         for (int tick = 1; tick <= TotalTicks; tick++)
         {

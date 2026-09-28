@@ -132,8 +132,9 @@ public sealed class IvpSimulation
     /// <returns>The object.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
-    /// *<see cref="IvpCollisionObject.MovementState"/> is 1 for a static object too*: what vphysics writes for one is not read, and
-    /// a clear low three bits would give it the whole of a far pair's allowance where the moving side should take it.
+    /// **<see cref="IvpCollisionObject.MovementState"/> is 0 for a static object**, read from the live engine (`object+0x78 &amp; 7`).
+    /// *1 stood here, on the reasoning that a clear state would give a far pair's whole allowance to the static side*; the binary's
+    /// own value is 0, and with 1 a new body paired with the ground at its filing instead of at its revive (B369, 2026-09-28).
     /// </remarks>
     public IvpCollisionObject Collide(IvpRigidBody core, PhysicsLedgeTree surface, IIvpMaterial material)
     {
@@ -195,8 +196,8 @@ public sealed class IvpSimulation
             Surface = surface,
 
             // A sleeping core's objects are in its state 8, as its freeze writes them (`FUN_180078c90`), until the revive sets 1.
-            // *Measured*: the binary's object reads `& 7 == 0` until its core is revived. A static core keeps 1, as before.
-            MovementState = !core.Immovable && core.UnitState == 8 ? 8 : 1,
+            // *Measured*: the binary's object reads `& 7 == 0` until its core is revived, and 0 for a static core.
+            MovementState = MovementStateOf(core),
             Material = material,
 
             // **The friction core, `object+0xf0`.** The broad phase skips a pair whose two objects share one — two objects of the
@@ -211,6 +212,17 @@ public sealed class IvpSimulation
         IvpBroadPhase.Refile(Collisions, collisionObject);
 
         return collisionObject;
+    }
+
+    /// <summary>A new object's <c>+0x78</c>: 0 for a static core, 8 for an asleep one, 1 for one moving.</summary>
+    private static int MovementStateOf(IvpRigidBody core)
+    {
+        if (core.Immovable)
+        {
+            return 0;
+        }
+
+        return core.UnitState == 8 ? 8 : 1;
     }
 
     /// <summary>Keeps the broad phase's own clock with the environment's.</summary>
