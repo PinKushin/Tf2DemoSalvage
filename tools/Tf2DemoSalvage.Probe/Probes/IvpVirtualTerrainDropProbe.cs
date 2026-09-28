@@ -23,8 +23,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// by one PSI in free fall (2026-09-28), because it skipped <c>CPhysicsEnvironment::Simulate</c>'s frame dispatch and clock read.
 ///
 /// **The cube's core is built as <c>CreatePolyObject</c> builds it from the binary probe's parameters**, not through a
-/// <c>RagdollBody</c>, which needs a <c>.phy</c>: mass 10, inertia scale 1 (a solid box's (a² + b²)/3 per kilogram), no damping,
-/// and the engine's own <c>BBoxToCollide</c> ledge (<see cref="IvpTestCube"/>).
+/// <c>RagdollBody</c>, which needs a <c>.phy</c>: mass 10, the inertia the live engine's core holds
+/// (<see cref="IvpTerrainBasin.BodyInertia"/>), no damping, and the engine's own <c>BBoxToCollide</c> ledge (<see cref="IvpTestCube"/>).
 /// </remarks>
 public sealed class IvpVirtualTerrainDropProbe : IProbe
 {
@@ -60,7 +60,6 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         // Source (x, y, z) is IVP (x, −z, y) in metres.
         float half = HalfInches * MetresPerInch;
         (double X, double Y, double Z) at = (CentreInches * MetresPerInch, -DropAltitudeInches * MetresPerInch, CentreInches * MetresPerInch);
-        float perKilogram = 2f * half * half / 3f;
         IvpRigidBody body = new()
         {
             Position = at,
@@ -68,8 +67,11 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             WorkingOrientation = (0d, 0d, 0d, 1d),
             CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
             Radius = half * MathF.Sqrt(3f),
+            Offset08 = BodyDeviation,
+            Mass = BodyMass,
             InverseMass = 1f / BodyMass,
-            InverseInertia = (1f / (perKilogram * BodyMass), 1f / (perKilogram * BodyMass), 1f / (perKilogram * BodyMass)),
+            Inertia = (BodyInertia, BodyInertia, BodyInertia),
+            InverseInertia = (BodyInverseInertia, BodyInverseInertia, BodyInverseInertia),
             Damping = 0f,
             RotationDamping = 0f,
             RestAnchorOrientation = (0f, 0f, 0f, 1f),
@@ -84,12 +86,17 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         // The binary probe's `TF2VPHYSICS_PROBE_TRACE_IMPACTS` lines, as the port builds each impact's record.
         if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_IMPACTS") is not null)
         {
-            IvpMindistCollide.Traced = (mindist, record) => output.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"COLLIDE tick {impactTick} flags=0x{mindist.Flags:x8}{Environment.NewLine}" +
-                $"IMPACT tick {impactTick} normal=({record.Normal.X:F2}, {record.Normal.Y:F2}, {record.Normal.Z:F2}) " +
-                $"arm0=({record.FirstArm.X:F2}, {record.FirstArm.Y:F2}, {record.FirstArm.Z:F2}) " +
-                $"arm1=({record.SecondArm.X:F2}, {record.SecondArm.Y:F2}, {record.SecondArm.Z:F2})"));
+            IvpMindistCollide.Traced = (mindist, record) =>
+            {
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"COLLIDE tick {impactTick} flags=0x{mindist.Flags:x8}{Environment.NewLine}" +
+                    $"IMPACT tick {impactTick} normal=({record.Normal.X:F2}, {record.Normal.Y:F2}, {record.Normal.Z:F2}) " +
+                    $"arm0=({record.FirstArm.X:F2}, {record.FirstArm.Y:F2}, {record.FirstArm.Z:F2}) " +
+                    $"arm1=({record.SecondArm.X:F2}, {record.SecondArm.Y:F2}, {record.SecondArm.Z:F2})"));
+                output.WriteLine(CoreLine("before", record.FirstCore ?? record.SecondCore));
+            };
+            IvpMindistCollide.Solved = record => output.WriteLine(CoreLine("after ", record.FirstCore ?? record.SecondCore));
         }
 
         // The binary probe's `TF2VPHYSICS_PROBE_TRACE_QUEUE=first-last` window: each pair fired and each examined, with its queued value.
@@ -119,7 +126,10 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
                         $"EXAMINE tick {impactTick} len={mindist.Length:R} flags=0x{mindist.Flags:x8} looks->{world.Simulation.MarginDecayCounter} {outcome}") +
                         (mindist.QueueSlot is int slot
                             ? string.Create(CultureInfo.InvariantCulture, $" queued {world.Simulation.Collisions.EventQueue.ValueOf(slot):R} slot {slot}")
-                            : string.Empty));
+                            : string.Empty) +
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $" now={world.Simulation.Now:R} y={body.Position.Y:R} v170y={body.PreviousVelocity.Y:R} stepped={body.LastStepped:R}"));
                 }
             };
         }
@@ -167,6 +177,13 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             return new Vector3(x, y, z);
         }
     }
+
+    /// <summary>The moving core as the binary probe prints it: position, velocity and spin, in IVP units.</summary>
+    private static string CoreLine(string when, IvpRigidBody? core) => core is null ? $"  {when}: no core" : string.Create(
+        CultureInfo.InvariantCulture,
+        $"  {when}: p=({core.Position.X:R}, {core.Position.Y:R}, {core.Position.Z:R}) " +
+        $"v=({core.Velocity.X:R}, {core.Velocity.Y:R}, {core.Velocity.Z:R}) " +
+        $"w=({core.AngularVelocity.X:R}, {core.AngularVelocity.Y:R}, {core.AngularVelocity.Z:R})");
 
     private static string Format(Vector3 v) =>
         string.Create(CultureInfo.InvariantCulture, $"({v.X:F2}, {v.Y:F2}, {v.Z:F2})");

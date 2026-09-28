@@ -19,6 +19,9 @@ public static class IvpMindistCollide
     /// </summary>
     public static Action<IvpMindist, IvpContactRecord>? Traced { get; set; }
 
+    /// <summary>The same record just after its impact solve; null in production.</summary>
+    public static Action<IvpContactRecord>? Solved { get; set; }
+
     /// <summary>Resolves one mindist's collision: a linked contact, its solved impact, and the impact loop around it.</summary>
     /// <param name="mindist">The mindist; its flags name synapse A.</param>
     /// <param name="firstObject">Synapse record 0's object.</param>
@@ -112,6 +115,8 @@ public static class IvpMindistCollide
         Traced?.Invoke(mindist, record);
 
         IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [coreA, coreB], contact.PushOut(environment));
+
+        Solved?.Invoke(record);
 
         (float X, float Y, float Z) relative = record.RelativeVelocity;
 

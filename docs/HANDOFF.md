@@ -1123,8 +1123,20 @@ so the port paired the new body with the ground at its filing instead of at its 
 the binary for all 101 examines through tick 107. **What is left is finer**: after tick 107's first impact the struck pair
 re-examines at length 0.0063123 (binary 0.0063110) and queues at 0.0036334 (binary 0.0036316) — a micrometre of body state out of
 the first impact at 107, or its loop. After the second impact the port's pair lengths are 0.00577/0.00535/0.00494 against the
-binary's 0.00607/0.00589/0.00570, all left alone, and the third collision never fires. **Next: the tick-107 first impact lane by
-lane** — `vphysics-impact`'s entry fixture from this scene's cores, or a trace of the core after `IvpImpactSolver` on both twins.
+binary's 0.00607/0.00589/0.00570, all left alone, and the third collision never fires. **Later the same day: that gap was the twin's own body.** Both probes now print the moving core around each impact
+(`before`/`after`: position, velocity, spin, and on the binary its `+0x20` inertia): the engine's cube holds **75.42472 per axis
+(7.542 per kilogram), not the textbook 106.67** the twin had computed. With the engine's values (`IvpTerrainBasin.BodyInertia`)
+tick 107's first impact matches to every printed digit and the second to five (0.6159501 against 0.61589605; the binary's x and
+z differ in the eighth digit where the port's are symmetric). **The split left is the tail recheck after the second impact**: the
+binary re-minimizes first (the pairs walk to new features, `…0120` → `…0140`, `…0040` → `…0030`) and queues three at gaps
+0.00607/0.00589/0.00570; the port examines at 0.00576/0.00535/0.00495 with no feature change and leaves all alone. **Settled the same day, and it was the twin again**: the second impact
+fired 0.17 ms late (1.6251444 against 1.6249721) because the struck pair's recheck time `(gap − ε)/totalBound + …` read a
+surface speed bound off the core's `+0x8`, which the twin had left at its default; the live cube holds **5.681127**
+(`IvpTerrainBasin.BodyDeviation`; the radius `+0x4`, 6.928203, already matched). **With the engine's inertia and deviation
+the port rests beside the binary: (1003.40, 996.60, 157.96) against (1003.42, 996.58, 157.96)**, identical to two decimals
+through tick 117, a 0.05 in/s difference in the settle near tick 130. The only port defect this scene found is the static
+movement state (`5f40c14f`); everything after it was the twin's body. **Left:** the settle's last hundredth, and the other nine
+broad-phase tests, which still have no twin.
 Diffs are quickest with each run's EXAMINE lines reduced to `tick flags looks`.
 
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17

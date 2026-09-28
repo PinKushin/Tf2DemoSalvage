@@ -665,8 +665,25 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                     $"EXAMINE tick {_tick} mindist={mindist:x} removeFar={removeFar} recheck={recheck} flags 0x{before:x8}->0x{Marshal.ReadInt32(mindist, 0x20):x8} " +
                     $"looks {looksBefore}->{Marshal.ReadInt32(environment, 0x13c)} len={BitConverter.Int32BitsToSingle(Marshal.ReadInt32(mindist, 0xa8))} " +
                     $"state0={Marshal.ReadByte(Marshal.ReadIntPtr(mindist, 0x48), 0x78) & 7} state1={Marshal.ReadByte(Marshal.ReadIntPtr(mindist, 0x80), 0x78) & 7} " +
-                    $"past={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(mindist, 0xa0)):R}"));
+                    $"past={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(mindist, 0xa0)):R}") + MovingCore(mindist, environment));
             }
+        }
+
+        /// <summary>
+        /// The moving side's core against the clock, as the cache refresh reads it: <c>env+0x188</c>, <c>+0x158</c> (y, double),
+        /// <c>+0x174</c> (committed y velocity) and <c>+0x1d0</c> (when last stepped).
+        /// </summary>
+        private static string MovingCore(nint mindist, nint environment)
+        {
+            nint first = Marshal.ReadIntPtr(mindist, 0x48);
+            nint moving = (Marshal.ReadByte(first, 0x78) & 7) != 0 ? first : Marshal.ReadIntPtr(mindist, 0x80);
+            nint core = Marshal.ReadIntPtr(moving, 0xe8);
+
+            return core == 0 ? string.Empty : string.Create(
+                CultureInfo.InvariantCulture,
+                $" now={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(environment, 0x188)):R} " +
+                $"y={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x158)):R} v170y={Single(core, 0x174):R} " +
+                $"stepped={BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x1d0)):R}");
         }
 
         /// <summary><c>IvpCompactLedgeSolver::TriangleWeights(ledge, edge, point, out)</c>.</summary>
@@ -826,8 +843,25 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                 $"arm1={Read(record, 0xe0)} core98={Marshal.ReadIntPtr(record, 0x98):x} coreA0={Marshal.ReadIntPtr(record, 0xa0):x} " +
                 $"impacts={Marshal.ReadInt16(record, 0x72)}"));
 
+            nint core = Marshal.ReadIntPtr(record, 0x98);
+            core = core != 0 ? core : Marshal.ReadIntPtr(record, 0xa0);
+            _write(CoreLine("before", core));
             _entry.CallThrough(original => original(record, cores, pushOut, point));
+            _write(CoreLine("after ", core));
         }
+
+        /// <summary>The moving core in IVP units: <c>+0x150</c> position (doubles), <c>+0x140</c> velocity, <c>+0x130</c> spin.</summary>
+        private static string CoreLine(string when, nint core) => core == 0 ? $"  {when}: no core" : string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {when}: p=({BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x150)):R}, " +
+            $"{BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x158)):R}, {BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x160)):R}) " +
+            $"v=({Single(core, 0x140):R}, {Single(core, 0x144):R}, {Single(core, 0x148):R}) " +
+            $"w=({Single(core, 0x130):R}, {Single(core, 0x134):R}, {Single(core, 0x138):R}) " +
+            $"I=({Single(core, 0x20):R}, {Single(core, 0x24):R}, {Single(core, 0x28):R}) m={Single(core, 0x2c):R} " +
+            $"I'=({Single(core, 0x40):R}, {Single(core, 0x44):R}, {Single(core, 0x48):R}) m'={Single(core, 0x4c):R} " +
+            $"r={Single(core, 0x4):R} r8={Single(core, 0x8):R}");
+
+        private static float Single(nint at, int offset) => BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset));
 
         private void Collided(nint mindist)
         {
