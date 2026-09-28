@@ -96,4 +96,21 @@ public static class FramePacer
     /// </remarks>
     public static int NoFocusSleep(bool hasFocus, int milliseconds) =>
         hasFocus || milliseconds <= 0 ? 0 : milliseconds;
+
+    /// <summary>
+    /// Whether, after yielding to <paramref name="endedBy"/>, the loop should briefly wait for the next
+    /// message before drawing.
+    /// </summary>
+    /// <remarks>
+    /// A cross-thread call (COM into this STA, which is how UI Automation reaches the window) arrives
+    /// one message at a time, the next only after the reply. Drawing a frame between each makes every
+    /// call cost a frame: at CI's 68 ms software frames, a FindFirst timed out (0x80131505). Input is
+    /// excluded: a mouse move is not followed by another within a millisecond, so waiting would only
+    /// cost frames. <c>0</c> means the queue emptied, so nothing is in flight.
+    /// </remarks>
+    public static bool AwaitsTraffic(uint endedBy) =>
+        endedBy != 0 && endedBy is not (>= 0x0100 and <= 0x0109 or >= 0x0200 and <= 0x020E);
+
+    /// <summary>How long to wait for the next cross-thread message before drawing.</summary>
+    public const double TrafficWaitSeconds = 0.001;
 }

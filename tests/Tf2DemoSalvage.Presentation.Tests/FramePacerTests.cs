@@ -13,6 +13,21 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 public sealed class FramePacerTests
 {
     [Test]
+    public void AwaitsTraffic_AfterACrossThreadCall_Waits() =>
+        // WM_USER (0x0400): how COM delivers a call into this STA, which is what UI Automation sends,
+        // one call after each reply. Rendering a slow frame between them timed CI's FindFirst out.
+        FramePacer.AwaitsTraffic(0x0400).ShouldBeTrue();
+
+    [Test]
+    public void AwaitsTraffic_AfterInputOrNothing_DoesNotWait()
+    {
+        FramePacer.AwaitsTraffic(0).ShouldBeFalse();       // the queue emptied; nothing is in flight
+        FramePacer.AwaitsTraffic(0x0200).ShouldBeFalse();  // WM_MOUSEMOVE
+        FramePacer.AwaitsTraffic(0x0100).ShouldBeFalse();  // WM_KEYDOWN
+        FramePacer.AwaitsTraffic(0x020E).ShouldBeFalse();  // WM_MOUSEHWHEEL, the last mouse message
+    }
+
+    [Test]
     public void IsDue_WithNoLimitSet_IsAlwaysDue()
     {
         // Zero and below mean "as fast as the machine will go", which is the default and the case

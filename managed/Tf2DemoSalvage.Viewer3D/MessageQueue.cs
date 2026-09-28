@@ -1,5 +1,7 @@
 using System;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -42,6 +44,29 @@ internal static partial class MessageQueue
     /// </remarks>
     public static uint Waiting() =>
         PeekMessage(out NativeMessage message, IntPtr.Zero, 0, 0, PeekNoRemove) ? message.Message : 0;
+
+    /// <summary>Whether a message arrives within <paramref name="seconds"/>.</summary>
+    /// <remarks>
+    /// A spin with <see cref="Thread.Yield"/>, not a timed wait: a timed wait rounds up to the
+    /// scheduler's ~15.6 ms granularity, which would cap the frame rate (FramePacer, B208).
+    /// </remarks>
+    public static bool ArrivesWithin(double seconds)
+    {
+        long end = Stopwatch.GetTimestamp() + (long)(seconds * Stopwatch.Frequency);
+
+        do
+        {
+            if (HasWork())
+            {
+                return true;
+            }
+
+            Thread.Yield();
+        }
+        while (Stopwatch.GetTimestamp() < end);
+
+        return false;
+    }
 
     /// <summary>Look at the message without taking it off the queue.</summary>
     private const uint PeekNoRemove = 0;

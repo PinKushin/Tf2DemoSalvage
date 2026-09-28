@@ -4010,6 +4010,15 @@ internal class MainForm : Form, IFrameSteps
     {
         uint waiting;
 
+        // A cross-thread caller (UI Automation, over COM) sends its next call right after our reply.
+        // Serve it before drawing, or each call waits a whole frame.
+        if (FramePacer.AwaitsTraffic(_idleEndedBy) && MessageQueue.ArrivesWithin(FramePacer.TrafficWaitSeconds))
+        {
+            _idleEndedBy = MessageQueue.Waiting();
+            _frames.Yielded();
+            return;
+        }
+
         do
         {
             // **`engine_no_focus_sleep`, before the frame decision rather than inside the wait**
