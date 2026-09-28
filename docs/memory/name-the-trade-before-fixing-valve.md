@@ -5,106 +5,44 @@ metadata:
   type: feedback
 ---
 
-**Before changing anything of Valve's, name what it is trading against. If you cannot name it, you
-do not understand it well enough to change it.**
+**Before changing anything of Valve's, name what it's trading against. If you can't name it, you
+don't understand it well enough to change it.**
 
-The owner's analogy, 2026-08-21:
+Owner's analogy: *"if you were to just randomly come across quakes fast inverse square root function,
+you would immediately notice it isnt a perfect approximation and probably call it a bug, try to fix
+it, but that would be wrong and bad to do... im sure theres a bunch of that in valves code."*
 
-> *"if you were to just randomly come across quakes fast inverse square root function, you would
-> immediately notice it isnt a perfect approximation and probably call it a bug, try to fix it, but
-> that would be wrong and bad to do, because then quake will start rendering at a snails pace, im
-> sure theres a bunch of that in valves code."*
-
-**Why it matters here:** every local signal on `0x5f3759df` says defect — a magic constant, a
-truncated Newton iteration, a measurably wrong answer. The thing it buys, a reciprocal square root per
-vertex per frame, appears nowhere in the function. Expert code concentrates the reasoning somewhere
-other than the line you are reading.
-
-The owner's grounds for the standing rule (D46): Valve hires extremely well and their non-TF2 work is
-robust and well optimised; TF2's rough edges are **accretion** — features bolted beside old ones and
-never revisited — which looks different from a bad decision.
+Valve hires extremely well; TF2's rough edges are ACCRETION (features bolted beside old ones), which
+looks different from a bad decision (D46).
 
 **How to apply:**
-
-- **The asymmetry is what makes this cheap.** Reproducing something correct costs nothing;
-  "fixing" something correct costs a defect plus the hours to find it again. Two of them went that
-  way on 2026-08-21.
-- **When their value misbehaves, suspect our variables first.** Valve's `-262144` decal bias was
-  declared wrong twice. Both times our depth buffer was the wrong format, so D3D scaled the constant
-  by a data-dependent factor instead of the fixed `1/2^24` it is calibrated for (D48) — and then a
-  stray `SetDecalBias` was overwriting the state anyway, so it had never once been in effect.
-  See [[never-revert-without-asking]].
-- **Things here that looked wrong and were not:** `SHADER_POLYOFFSET_DECAL` as an enum rather than a
-  float; the decal bias expressed in raw buffer units rather than world distance; an overlay's face
-  list including faces at 45° to its own basis (B134); `m_nFaceCountAndRenderOrder` packing two
-  fields into one short.
-- **If it still looks wrong after the trade is sought and not found, write it down rather than
-  changing it.** `docs/findings/` exists for recorded puzzlement, and a wrong conclusion kept with
-  what killed it is worth more than a silent "correction".
+- Reproducing something correct costs nothing; "fixing" it costs a defect plus hours to find it
+  again.
+- When Valve's value misbehaves, suspect our variables first — a decal bias was declared wrong twice
+  because our depth buffer was the wrong format, both times.
+- Things here that looked wrong and weren't: an enum instead of a float, a bias in buffer units not
+  world distance, an overlay's face list including 45° faces, a packed field.
+- If it still looks wrong after the trade is sought and not found, write it down rather than change
+  it — a wrong conclusion kept with what killed it is worth more than a silent "correction".
 
 ## The one qualification: the trade may have been against a platform that is gone
 
-The owner's caveat, and it stops the rule becoming an absolute:
+Owner: *"some of the optimizations may be dx 9 only or earlier, and rely on bugs which existed then
+but dont exist now, but we will find those when they cause issues with the dx11 rendering."* A
+faithful transcription can misbehave on DX11 while the reasoning was sound — the fix is reproducing
+the INTENT, not the mechanism. Already met: the decal bias constant (D3D9's `D3DRS_DEPTHBIAS` is a
+float added to depth; D3D11's is an integer scaled by the buffer format — the number can't mean the
+same thing in both, D48).
 
-> *"some of the optimizations may be dx 9 only or earlier, and rely on bugs which existed then but
-> dont exist now, but we will find those when they cause issues with the dx11 rendering"*
-
-**So "name the trade" has a second possible answer: the trade was against Direct3D 9, and the other
-side of it no longer exists.** That is not Valve being wrong; it is a correct decision whose
-premise expired. Transcribing it faithfully then produces the wrong picture on DX11, and the fix is
-to reproduce the *intent* rather than the mechanism.
-
-**The tell is specific and worth recognising:** a faithful transcription that misbehaves on DX11
-while the reasoning behind it is sound. At that point the question changes from "what is this trading
-against" to "what did Direct3D 9 do here that Direct3D 11 does not".
-
-Already met on this project: the decal bias constants. `m_DepthBias_Decal = -262144` is a D3D9-era
-value, and the two APIs do not agree on what a depth bias even is — D3D9's `D3DRS_DEPTHBIAS` is a
-float added to depth, while D3D11's is an integer scaled by a factor the **buffer format** decides.
-The number therefore cannot mean the same thing in both, whatever the format (D48).
-
-Classic candidates to expect: the D3D9 half-texel offset for screen-space quads, which is wrong on
-DX11; anything working around a driver behaviour rather than an API rule; and render-state defaults,
-which differ between the two APIs and were often left unset deliberately.
-
-**Console paths need no weighing at all — skip them.** The owner: *"for all intents we can ignore
-tf2 on console, its not even current"*. TF2's console versions were the 2007 Orange Box release and
-never received the later updates, so `#if defined( _X360 )` and `_PS3` blocks describe a product that
-stopped moving around 2009 and hardware this project will never run on.
-
-So there is no judgement to make: **read the PC branch, ignore the guarded one.** Two were read while
-hunting B135 and neither means anything here — `CSimpleWorldView::Draw` calls
-`PushVertexShaderGPRAllocation( 32 )` under `_X360` to split the Xbox 360's unified shader registers
-between vertex and pixel work, a knob PC hardware does not expose, and `DecalModulate_dx9.cpp` picks
-its vertex-texture path under `#ifndef _X360`.
-
-Unlike the DX9-era traps these announce themselves, so the only way to be caught is not to look. The
-mistake to avoid is not transcribing one by accident — it is treating one as *evidence*, quoting a
-console path as "what Valve does" when the PC branch beside it says something else.
+**Console paths need no weighing — skip them.** Owner: *"for all intents we can ignore tf2 on
+console, its not even current."* Read the PC branch, ignore `_X360`/`_PS3` blocks entirely — the
+mistake to avoid is treating a console path as evidence of what Valve does on PC.
 
 ## The point that remark was actually making: effects built out of hardware quirks
 
-The owner was not talking about TF2's console port. They meant the older tradition:
+Owner clarified: he meant tricks like Super Mario Bros. 3's non-scrolling status bar — a mid-frame
+scroll-register change timed to a scanline, inexplicable from the code alone since the constraint it
+answers (a hardware limitation) isn't written down beside it. **When something in the engine looks
+arbitrary and precise at once, the hypothesis is a trick, not a mistake.**
 
-> *"my note about consoles was actually referencing stuff done on like the nintendo, to get overlays
-> and the like. you know how mario 3 got the nonscrolling part at the bottom of the screen"*
-
-**Super Mario Bros. 3's status bar is a raster trick.** The NES scrolls a whole nametable, so a fixed
-strip under a moving playfield is not something the hardware offers. The game changes the scroll
-registers *mid-frame*, timed to a scanline — sprite-0 hit, or the MMC3 mapper's IRQ — so the top of
-the screen is drawn with one scroll and the bottom with another. One screen, two behaviours, out of a
-chip that has one.
-
-**Why this belongs in a rule about reading Valve's code:** that trick is inexplicable from the code
-alone. There is no comment saying "status bar"; there is a write to a register at a suspiciously
-precise moment. Every local signal says wrong, and the thing that makes it right — a hardware
-constraint and a scanline counter — is nowhere near it.
-
-That is the same shape as the fast inverse square root and the same shape as a decal bias expressed
-in raw depth-buffer units. **An effect built out of a quirk looks like a bug wherever you find it**,
-because the constraint it answers is not written down beside it. So when something in the engine
-looks arbitrary and precise at the same time — a magic constant, an odd ordering, a value that only
-makes sense at one moment — the hypothesis is a trick, not a mistake.
-
-Related: [[nothing-is-closed]],
-[[a-filed-design-choice-may-not-be-one]].
+Related: [[nothing-is-closed]], [[a-filed-design-choice-may-not-be-one]].

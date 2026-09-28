@@ -8,13 +8,13 @@ metadata:
   modified: 2026-09-18T21:59:31.695Z
 ---
 
-**2026-09-18.** A build failed because `tf2demoview` PID 17756 held a DLL, and I told the owner it "may be yours". It was mine: a
-`timeout`-wrapped `run-exclusive` launch whose `taskkill` ran after the build had already started. The owner: *"that wasnt mine
-either, that was yours, you need to pay attention"*. Earlier the same day I had also claimed a run was "clean" that was only a
-paused `--shot` frame.
+A build failed because `tf2demoview` held a DLL, and it was blamed as possibly the owner's — it was
+mine, a `timeout`-wrapped launch whose `taskkill` ran after the build had already started. Owner:
+*"that wasnt mine either, that was yours, you need to pay attention."* Earlier the same day a paused
+`--shot` frame was also misreported as "clean".
 
-**Why:** attributing my own leftovers to the owner wastes his attention and reads as not tracking what I launched.
+**Why:** attributing my own leftovers to the owner wastes his attention.
 
-**How to apply:** before building the viewer or blaming a lock on someone else, list my own background tasks and kill my own
-leftover viewer first (`taskkill //IM tf2demoview.exe //F` only for processes I started). Never overlap a build with a viewer
-run I launched. Related: [[take-the-desktop-lock-dont-defer]], [[a-gui-exe-does-not-hold-the-lock]].
+**How to apply:** before building the viewer or blaming a lock on someone else, list and kill my own
+background tasks first. Never overlap a build with a viewer run I launched. Related:
+[[take-the-desktop-lock-dont-defer]], [[a-gui-exe-does-not-hold-the-lock]].

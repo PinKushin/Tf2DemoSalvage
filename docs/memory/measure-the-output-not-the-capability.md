@@ -5,38 +5,26 @@ metadata:
   type: project
 ---
 
-A progress report has to count what the code **produced**, not what it is **able** to
-produce. Those diverge exactly when something can fail per instance.
+A progress report must count what the code PRODUCED, not what it's ABLE to produce — they diverge
+whenever something can fail per instance.
 
-Measured on 2026-08-11: the assembly writer's "still raw" report asked
-`MessageAssembly.CanWrite(type)` and printed an empty queue — while 6.3 million bits were
-still hex, because the writer verifies each candidate and silently falls back to `raw` on a
-mismatch. A type whose text form declined on every single instance looked identical to one
-that was fully promoted. The report was believed for two commits and stated as a finished
-result before the owner asked "are you sure that's the floor".
+The writer's "still raw" report asked `MessageAssembly.CanWrite(type)` and printed an empty queue
+while 6.3 million bits were still hex, because the writer silently falls back to `raw` on a mismatch.
+A type declining on every single instance looked identical to one fully promoted — believed for two
+commits.
 
-The fix has two parts and the second is what makes it stick:
+**Fix, and the second part is what makes it stick:** count the emitted output, so the number can't
+disagree with the file; make output say WHY (each `raw` line names the message type and whether a
+text form declined) — a queue and a defect are different findings sharing one keyword.
 
-- Count the emitted output, so the number cannot disagree with the file.
-- Make the output say why. Each `raw` line now carries a comment naming the message type
-  and whether a text form existed and *declined* — a queue and a defect are different
-  findings and had been sharing one keyword.
+**A second instance, same file, same day:** a round-trip report compared over the STATED length of a
+body rather than the bits actually written — the encoder zero-fills unhandled bits, so the comparison
+measured its own padding as a decoder defect. 96.87% became 99.59% narrowing to content; the 3% never
+existed.
 
-Attributing the declines then took one measurement, not a guess: four of the five causes
-were a single bug (verification state rebuilt per packet instead of carried across the demo).
+**Both cases share a tell: the measurement covered ground the code under test never claimed.**
 
-A second instance the same day, in the same file: a round-trip report compared over the
-*stated* length of a body rather than over the bits the encoder actually wrote. The encoder
-zero-fills what it was not given, so the comparison was measuring its own padding against
-whatever the sender left behind, and calling the difference a decoder defect. 96.87% became
-99.59% when the comparison was narrowed to the content — and the 3% never existed.
-
-Both cases have the same tell: **the measurement covered ground the code under test never
-claimed.** Ask what region, predicate or artefact the code is actually responsible for, and
-measure exactly that.
-
-**How to apply:** whenever a report is built from a predicate rather than from the artefact,
-ask what happens when the predicate is true and the operation still fails. If that is
-possible, the report is measuring the wrong thing. Related:
-[[mutation-score-is-not-the-goal]], [[ask-whether-the-data-arrived]],
+**How to apply:** whenever a report is built from a predicate rather than the artefact, ask what
+happens when the predicate is true and the operation still fails — if possible, the report measures
+the wrong thing. Related: [[mutation-score-is-not-the-goal]], [[ask-whether-the-data-arrived]],
 [[round-trip-needs-the-encoding-shape]].
