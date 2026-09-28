@@ -475,6 +475,9 @@ public sealed class MapAssets
     /// <summary>Each drawn static prop's corners in <see cref="Props"/>, by its index in the map's lump — for its decals (B421).</summary>
     public IReadOnlyDictionary<int, PlacedProp> PlacedProps { get; init; } = new Dictionary<int, PlacedProp>();
 
+    /// <summary>The static props with no baked colours, drawn as models and lit per draw (B426).</summary>
+    public IReadOnlyList<Core.Scene.SceneProp> StaticModels { get; init; } = [];
+
     /// <summary>
     /// Materials that replace a whole model's own, keyed by their VMT path (B325).
     /// </summary>
@@ -1311,6 +1314,7 @@ public sealed class MapAssets
         // area is handed to `LoadFrames` twenty lines below for entity models, which is why the
         // viewer log looked populated while the half being investigated was silent.
         Dictionary<int, PlacedProp> placedProps = [];
+        List<Core.Scene.SceneProp> staticModels = [];
 
         IReadOnlyList<PropVertex> props = PropModels.Load(
             factory.CreateLogger("props"),
@@ -1321,7 +1325,8 @@ public sealed class MapAssets
             ResolveProp,
             refusedLighting,
             lightAt,
-            placedProps);
+            placedProps,
+            staticModels);
 
         // **Read once and shared, because two consumers ask the same lump different questions.**
         // The 2D sky wants `worldspawn`'s `skyname` and the grass wants its `detailmaterial`;
@@ -1727,6 +1732,7 @@ public sealed class MapAssets
             BrushMaterialCount = brushMaterials,
             RefusedPropLighting = refusedLighting,
             PlacedProps = placedProps,
+            StaticModels = staticModels,
             LocalReflections = table.LocalReflections,
             PlacedCubemaps = LoadPlacedCubemaps(assets, map, pak, maximumTextureSize),
             Phong = table.Phong,

@@ -259,7 +259,7 @@ public sealed class LevelLightingTests
     }
 
     /// <summary>A map lit brightly above the z = 0 plane and dimly below it.</summary>
-    private static LevelLighting Lit(
+    internal static LevelLighting Lit(
         IReadOnlyList<BspWorldLight>? worldLights = null,
         BspWorldLight? sun = null,
         RecordingLogger? log = null) =>
@@ -283,7 +283,7 @@ public sealed class LevelLightingTests
             (level, level, level), (level, level, level), (level, level, level));
 
     /// <summary>A point light with Valve's own falloff terms.</summary>
-    private static BspWorldLight Lamp((float X, float Y, float Z) origin, float intensity) =>
+    internal static BspWorldLight Lamp((float X, float Y, float Z) origin, float intensity) =>
         new(
             origin,
             (intensity, intensity, intensity),

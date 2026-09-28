@@ -7694,7 +7694,7 @@ Style-0 lights never enter the list — they are what vrad baked.
 
 ---
 
-### B426 — static props have no per-draw lighting — OPEN 2026-09-28
+### B426 — static props have no per-draw lighting — FIXED 2026-09-28 (unbaked props; baked stay merged)
 
 **The port merges every static prop into the world's surface batches at load** (`PropModels` then `MapWorld`, the
 `Append(… red, green, blue)` per corner). Its only light is the vertex colour: the `.vhv` colours where they exist, and otherwise
@@ -7703,6 +7703,21 @@ specular term. The engine draws a static prop through the model draw `0x1800f1bd
 (no `.vhv`) gets the handle's cube and local lights **every frame** (`FUN_1801ba590`, flags `0xf`), and a baked one can fall back
 to that path (B424). So an unbaked prop near a changing light never changes. It is also flatter than TF2's under any local
 light. The fix: draw static props as models, which is a rendering-architecture change that the owner can see.
+
+**Built (D198):** `PropModels.Load` hands each placement WITHOUT baked colours (none shipped, or refused — still
+counted in `RefusedPropLighting`) to `MapAssets.StaticModels` as a `SceneProp` (`PropModels.StaticModel`: the lump's
+origin, angles, scale and skin, keyed from `FirstStaticPropEntityIndex`) instead of merging it into the world batches.
+`LevelSystems` gives them to `MomentScene.StaticProps`, which adds them to every moment's draw list, so they take the
+entity path: frustum and leaf cull, `LevelLighting.ModelLightingAt` (light-cache cube plus local lights) per draw, skin
+families through the model's own table. Tests: `PropModelsTests`, `MomentSceneTests.Pose_AStaticPropUnderALamp_…`,
+and on `cp_process_final` `StaticPropModelsWiringTests` (model count = placements minus baked, none of their corners
+left in the world).
+
+**Not built, and why.** A baked prop stays merged: the model path shares one vertex buffer per model and has no
+per-instance colour stream, so a `.vhv` placement cannot be a model draw without one — B424's fallback therefore
+still has no route for a baked prop. The lighting point is the model path's `illumposition` point, not the lump's
+`LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have
+no fade (`fademindist`/`fademaxdist` are not read), as before.
 
 ---
 

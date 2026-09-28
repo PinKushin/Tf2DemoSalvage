@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -183,6 +184,37 @@ public static class PropModels
     /// <summary>What the engine multiplies static prop vertex lighting by, from its own shader.</summary>
     private const float Overbright = 2f;
 
+    /// <summary>The entity index a static prop drawn as a model takes, plus its lump index (B426).</summary>
+    /// <remarks>Past every networked and client-side range this project hands out, so no key collides.</remarks>
+    public const int FirstStaticPropEntityIndex = 1 << 20;
+
+    /// <summary>A static prop as the model draw sees it: the lump's placement and skin (B426, D198).</summary>
+    /// <param name="placement">The lump entry.</param>
+    /// <param name="index">Its index in the lump.</param>
+    /// <returns>The prop, keyed past every entity range.</returns>
+    /// <remarks>
+    /// `engine.dll` `0x1800f1bd0` draws a static prop through the same model draw as any entity, with a
+    /// lighting handle whose cube and local lights `FUN_1801ba590` refreshes every frame when the prop has no
+    /// baked colours. Handing it to <see cref="EntityModelSet.Instances"/> is that draw.
+    /// </remarks>
+    public static SceneProp StaticModel(BspStaticProp placement, int index) =>
+        new(
+            FirstStaticPropEntityIndex + index,
+            placement.Model,
+            SceneModelKind.Studio,
+            new ScenePose
+            {
+                X = placement.X,
+                Y = placement.Y,
+                Z = placement.Z,
+                Pitch = placement.Pitch,
+                Yaw = placement.Yaw,
+                Roll = placement.Roll,
+                Scale = placement.Scale,
+                Skin = placement.Skin,
+            },
+            ClassName: "prop_static");
+
     /// <summary>Loads a map's props and places them.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
@@ -200,6 +232,10 @@ public static class PropModels
     /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
     /// </param>
     /// <param name="placedAt">Filled with each placed prop's corners, by its lump index, for its decals (B421).</param>
+    /// <param name="drawnAsModels">
+    /// When supplied, collects each placement without baked colours as a model draw instead of merging it
+    /// into the returned corners (B426).
+    /// </param>
     /// <param name="props">
     /// Where loading reports what it refused, and what it could not paint. <b>Required, and first,
     /// so that a caller cannot omit it</b> — see the remarks.
@@ -245,7 +281,8 @@ public static class PropModels
         Func<string, ResolvedMaterial?> load,
         ICollection<string>? refusedLighting = null,
         Func<float, float, float, PointLighting>? lightAt = null,
-        IDictionary<int, PlacedProp>? placedAt = null)
+        IDictionary<int, PlacedProp>? placedAt = null,
+        ICollection<SceneProp>? drawnAsModels = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(pak);
@@ -289,6 +326,7 @@ public static class PropModels
         int placed = 0;
         int skipped = 0;
         int unlit = 0;
+        int modelled = 0;
 
         // Every placement whose baked lighting existed and was refused, named. Empty is the only
         // acceptable state on a map this project claims to read; see RejectedPropLighting.
@@ -378,8 +416,9 @@ public static class PropModels
             // static prop's light into its VERTEX COLOURS, one sample per prop — there is no normal
             // to shade a local light against at this point and no per-draw constant to carry one in.
             // A prop lit this way therefore keeps the flat-cube behaviour it has always had; the
-            // per-light path is for the models drawn through the shader.
-            AmbientCube? cube = lighting.Colours is null
+            // per-light path is for the models drawn through the shader — which is where the viewer
+            // now sends every unbaked prop (B426), so this bake serves only a caller that collects none.
+            AmbientCube? cube = lighting.Colours is null && drawnAsModels is null
                 ? lightAt?.Invoke(placement.X, placement.Y, placement.Z).Cube
                 : null;
 
@@ -391,6 +430,17 @@ public static class PropModels
                 }
 
                 placedAt.Add(index, new PlacedProp(shape, transform));
+            }
+
+            // **An unbaked prop is a model draw, lit every frame** (B426, D198): `engine.dll` `0x1800f1bd0`
+            // with the handle's cube and local lights from `FUN_1801ba590`. A baked one keeps its `.vhv`
+            // colours below with no cube and no locals, which is what that draw does with colour meshes.
+            if (drawnAsModels is not null && lighting.Colours is null)
+            {
+                drawnAsModels.Add(StaticModel(placement, index));
+                modelled++;
+                placed++;
+                continue;
             }
 
             for (int at = 0; at < model.Corners.Count; at++)
@@ -457,7 +507,7 @@ public static class PropModels
             "{Message}",
             $"ASKED FOR {placed} placements across {loaded.Count} models; " +
             $"HAVE baked lighting for {placed - unlit}; " +
-            $"PRODUCED {world.Count / 3} triangles, {transparent} of " +
+            $"PRODUCED {world.Count / 3} triangles and {modelled} model draws, {transparent} of " +
             $"{materialTable.Count - brushMaterialCount} prop materials alpha tested; " +
             $"MISSING {skipped} models that would not load, {unlit - refused.Count} placements the " +
             $"compiler never lit, {refused.Count} whose baked lighting exists and was REFUSED");
