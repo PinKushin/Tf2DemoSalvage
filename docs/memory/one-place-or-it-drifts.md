@@ -34,15 +34,18 @@ second implementation can't check the first).
 "not implemented" test rows when a feature lands, but its third instruction ("delete its section in
 docs too") was skipped four times — a reader planning off that doc would build a feature twice.
 
-**Fix: police the artefact, not the reminder.** A heading naming a parameter the production census
-confirms implemented is now a red test — two documents contradicting each other, one enforced.
+**It immediately caught B128** — a parameter's section carried "Implemented 2026-08-21" in its BODY
+and "every model is dull" in its HEADING, nobody reads the body. **Fix: police the artefact, not the
+reminder.** A heading naming a parameter the production census confirms implemented is now a red
+test — two documents contradicting each other, one enforced.
 Headings only, never prose, are the claim (prose may discuss an implemented parameter without
 claiming it's missing). A structural control (asserting the section is found and non-trivial) stops
 a renamed heading from silently checking an empty list.
 
 **Generalises past this file** — wherever a check tells a human to update prose, the prose is what
 won't get updated. Point the check at the prose. Same shape as
-[[the-denominator-decides-what-can-be-lost]].
+[[the-denominator-decides-what-can-be-lost]]. The loop closed on B332, the first gap where the
+audit's whole instruction was carried out in one change.
 
 ---
 

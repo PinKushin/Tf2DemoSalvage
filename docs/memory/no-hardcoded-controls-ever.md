@@ -16,7 +16,7 @@ refactor the views to actually be pure views."* D101 is a rule about what may be
 (B214: fourteen still-hardcoded menu shortcuts). Removals count and should be taken when they appear.
 
 **Three things stay allowed:** a control's own platform behaviour (`TrackBar`/`Home`); a guard naming
-no key ("nothing is a shortcut while a textbox has focus"); deleting keys.
+no key ("nothing is a shortcut while a textbox has focus" fixed a real defect, B212); deleting keys.
 
 **The tell that a hardcoded key does damage is the ORDER** — `ProcessCmdKey` runs before any control
 sees anything, so a literal there reaches over the whole form. `Space` (default switch-camera-mode)
@@ -50,7 +50,7 @@ default. Related: [[nothing-is-closed]], [[parity-is-the-search-not-the-defence]
 
 A test asserted every `ViewerAction` must be reachable by some key, which is correct about actions
 and says nothing about whether a setting should HAVE BEEN an action. Adding `cl_showpos` with no
-default key reddened three tests; the fix invented `CTRL+p`. Owner: *"not every cvar or setting needs
+default key reddened three tests; the fix invented `CTRL+p` (D123). Owner: *"not every cvar or setting needs
 a key bind... really if its not something valve normally binds a button too we dont NEED the bind,
 but having binds for the debug views is nice and SS's is needed."*
 

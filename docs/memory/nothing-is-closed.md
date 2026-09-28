@@ -48,16 +48,19 @@ materialsystem, and client are unpublished but USED by published code through `s
 interfaces and call sites in `vbsp`/`vrad`/`stdshaders`/the game DLLs. Go to the public API first —
 what a black box exposes, and what its callers do, is usually enough. Constants like
 `NUM_NETWORKED_EHANDLE_SERIAL_NUMBER_BITS`, `m_DepthBias_Decal`, the bump basis were all public even
-though the consuming code isn't. See [[read-the-encoder-not-the-decoder]], [[research-before-code]].
+though the consuming code isn't — a proxy resolves a name via `FindVar` (`functionproxy.cpp:210`,
+`imaterial.h:484`), and a cull-mode question is settled by `imaterialsystem.h:180`
+(`MATERIAL_CULLMODE_CCW`) and `imaterial.h:369` (`$nocull` is `MATERIAL_VAR_NOCULL`). See
+[[read-the-encoder-not-the-decoder]], [[research-before-code]].
 
 ---
 
 ## `tf2-game-code-is-in-the-sdk` — 1,318 files nobody had looked for
 
 **`source-sdk-2013` carries TF2's game code** — 1,318 files across `game/{shared,client,server}/tf`,
-including all 125 HUD sources, `tf_shareddefs.h`'s full condition enum, übercharge material names,
-and 55 files of econ/item schema. This project had recorded the opposite in THREE places, none
-checked.
+including all 125 HUD sources, `tf_shareddefs.h`'s full condition enum, übercharge material names
+(`c_tf_player.cpp:395,398`), and 55 files of econ/item schema. This project had recorded the opposite
+in THREE places, none checked.
 
 **The mechanism worth carrying forward:** a search looked in one subdirectory, found a reference with
 no definition, concluded the definition existed nowhere. **An absence found by a search is a fact
@@ -193,9 +196,9 @@ the game ships it, decompile it. Reserve "ours" for something no shipped artefac
 
 ## `shipped-data-settles-what-closed-code-cannot` — ask what the content would have to mean
 
-403 materials carry a DirectX-gated block with no registered shader of that name in the SDK — looked
-like a decompiler question. It wasn't: under "the block doesn't apply", Valve authored a bump map
-that draws on NO hardware at all — not a tenable reading, so the block applies.
+Measured on B328: 403 materials carry a DirectX-gated block with no registered shader of that name in
+the SDK — looked like a decompiler question. It wasn't: under "the block doesn't apply", Valve
+authored a bump map that draws on NO hardware at all — not a tenable reading, so the block applies.
 
 **General form: ask what the content would have to mean for your reading to be true.** Shipped assets
 are made by people who tested them.
@@ -233,7 +236,11 @@ because its neighbour genuinely is 2π (it was actually an epsilon, four bytes a
 local reused for two unrelated SSA values, read as one.
 
 **The tool:** `DisasmWithData.java` — disassembly with every memory operand resolved to its actual
-contents on the same line, so an address can't alias.
+contents on the same line, so an address can't alias:
+```
+1800386df  MOVAPS XMM4,xmmword ptr [0x1800ff130]   ; = {0.0, …, NaN}
+1800387f5  MULPS  XMM7,xmmword ptr [0x180124f70]   ; = {1.0, 1.0, 1.0, 0.5}
+```
 
 **The rule: any claim about which memory a value came from is settled in the disassembly, never a
 decompiler local** (Ghidra's invented name). Decompiled C is still right for CONTROL FLOW and

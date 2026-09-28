@@ -39,6 +39,6 @@ does overrides the downsides, i am open to having it in the program, but it is a
 2. Otherwise, does it genuinely read better or fail less? If yes, take it knowing the cost; a wash
    goes to the loop.
 
-Hot means per-message decode, per-entity posing, per-batch drawing. Map load, asset resolution,
-config parsing are not. Do not convert cold queries for tidiness — see
-[[measure-the-output-not-the-capability]].
+Hot means per-message decode, per-entity posing, per-batch drawing — where B181, B189 and B191 all
+landed. Map load, asset resolution, config parsing are not. Do not convert cold queries for tidiness —
+see [[measure-the-output-not-the-capability]].

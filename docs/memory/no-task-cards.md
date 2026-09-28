@@ -24,17 +24,22 @@ its own, can be messaged, and hands work back for review in place.
 
 Recorded as D169.
 
-**Recurred the same day, D170 added:** *"told you not to do those, so you get to do it here or call a
-subagent"* — a rule recorded mid-flight in another session doesn't reach a session already running
-(its memory index is a snapshot from its own start). **Before offering side work, grep the memory
-directory for the rule itself, not only the index that loaded at start.**
+**Recurred the same day, in the B404 session:** a card was offered for `PhysicsModel.Read`
+throwing past callers that catch a different exception type; owner: *"told you not to do those, so
+you get to do it here or call a subagent"* — a rule recorded mid-flight in another session doesn't
+reach a session already running (its memory index is a snapshot from its own start). **Before
+offering side work, grep the memory directory for the rule itself, not only the index that loaded at
+start.** The work was then done in that session (B405).
 
-**Widened to sibling sessions:** *"I need a 'first mate' to oversee agents, so the work gets merged
-and done right... you get to see where the work is at and work the merges so nothing gets weird."*
-The main session runs subagents, knows what every branch holds, and does merges itself. Prefer a
-subagent over a sibling session too; where siblings already exist, check their branches against main
-before merging, coordinate through `SendMessage`. Once merged, archive (not delete) a sibling's
-session — archiving is reversible, deleting stays the owner's own click.
+**Widened to sibling sessions, 2026-09-13, while the main session merged a card's branch to main:**
+*"I need a 'first mate' to oversee agents, so the work gets merged and done right... you get to see
+where the work is at and work the merges so nothing gets weird."* What prompted it: a card's branch
+had merged the in-progress B369 branch into itself, so a branch named for a loader fix held
+forty-four commits, most of them another port, never pushed or merged, and the owner had to be asked
+what main should get (D170). The main session runs subagents, knows what every branch holds, and does merges
+itself. Prefer a subagent over a sibling session too; where siblings already exist, check their
+branches against main before merging, coordinate through `SendMessage`. Once merged, archive (not
+delete) a sibling's session — archiving is reversible, deleting stays the owner's own click.
 
 Recorded as D171.
 

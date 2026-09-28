@@ -32,7 +32,7 @@ values is the architecture working, not a defect.
 
 **What tells them apart: whether anything CLAIMED the feature was done.** For fog, something did
 (conformance tests counted as parity in the doc without an implementation) — that's the defect worth
-filing, a gap ledger claiming parity for nothing.
+filing (B139), a gap ledger claiming parity for nothing.
 
 **How to apply:** write component tests as usual, then add ONE assertion against the rendered
 artefact for a corpus demo — the only test that can fail when wiring is wrong. Verify by
@@ -49,7 +49,7 @@ Related: [[fixtures-are-the-weak-point]], [[logs-are-the-debugger]], [[decode-mu
 ## `three-test-levels-and-the-third-is-missing`
 
 **A feature can have eleven conformance tests and three real-data tests and still do nothing.**
-Spectator target cycling was declared, bound to keys, covered by three tests — with no production
+B145: spectator target cycling was declared, bound to keys, covered by three tests — with no production
 code reading it. Clicking cycled nothing. The tests weren't wrong; they asserted a binding table held
 what it should, and it did — nothing about a binding table says whether anything CONSULTS it.
 
@@ -72,9 +72,9 @@ Related: [[measure-the-output-not-the-capability]].
 ## `a-moves-regressions-are-wiring`
 
 **Moving code doesn't break the code. It breaks the assignment that used to be implicit.** Extracting
-~1,100 lines out of a form: every regression was the same shape and NOT ONE was a logic error — a
-call dropped, an assignment never made, an upload never wired. **The viewer suite reported 620/620
-green through all three.**
+~1,100 lines out of a form (B188, B193): every regression was the same shape and NOT ONE was a logic
+error — a call dropped, an assignment never made, an upload never wired. **The viewer suite reported
+620/620 green through all three.**
 
 **Why logic is safe and wiring isn't:** a moved method's body is covered by tests written with it, and
 the compiler catches a broken call — but `new X(y)` written inline becoming a property assignment
@@ -91,7 +91,8 @@ found code moved inside a timer it had been outside of; check a counter that kep
 MEANING.
 
 **How to apply:**
-- A null/default collaborator must REPORT itself once there's work it would have done, guarded on
+- A null/default collaborator must REPORT itself once there's work it would have done — the null
+  object stays (a real object beats a null field, D83), guarded on
   there being something to do (not firing from an idle viewer).
 - Assign a demo's sources in ONE place, where the demo arrives, not wherever each collaborator is
   constructed.
@@ -105,8 +106,9 @@ Related: [[logs-are-the-debugger]], [[a-partial-thin-view-is-worse-than-none]].
 
 **When a type is superseded, call sites move and tests don't.** The old type keeps a green suite
 describing behaviour nothing executes; the new type inherits responsibility with zero coverage.
-Measured: an old camera-control type had eleven tests and zero production callers; its replacement
-had zero tests and ran the ACTUAL mouse look, written longhand with a duplicated constant.
+Measured (B206): `FreeLookState` had eleven tests and zero production callers; `FreeCameraController`
+(D66 created the first, D90/D91 replaced it) had zero tests and ran the ACTUAL mouse look, written
+longhand with a duplicated constant.
 
 **Why worse than ordinary dead code:** dead code with a passing suite is a FALSE NEGATIVE — "is the
 drag tested?" answers yes, correctly, about the wrong object.
@@ -119,7 +121,8 @@ drag tested?" answers yes, correctly, about the wrong object.
 - A floor drop is the moment to JUSTIFY a deletion, not a step to get past — the comment recording
   which tests went and why nothing was lost is what makes the deletion reviewable later.
 
-Related: [[most-of-a-decoder-is-untested]], [[one-place-or-it-drifts]].
+Related: [[most-of-a-decoder-is-untested]], [[one-place-or-it-drifts]], and B196, where two shipped
+features were only ever assigned `null` and the compiler couldn't see it either.
 
 ---
 
@@ -127,9 +130,9 @@ Related: [[most-of-a-decoder-is-untested]], [[one-place-or-it-drifts]].
 
 **Extracting a helper and leaving the copies in place adds one more implementation, it doesn't remove
 duplication.** Measure the count AFTER extraction; if it didn't fall, nothing was fixed. A shared
-install-locator helper was extracted at seventy-three call-site copies; by the time a related helper
-was added, the count was NINETY-FOUR — old copies left as "not this change's business", new files kept
-copying a neighbour instead of finding the shared type.
+install-locator helper (`GameInstall`) was extracted at seventy-three call-site copies; by the time a
+related helper was added (D109), the count was NINETY-FOUR — old copies left as "not this change's
+business", new files kept copying a neighbour instead of finding the shared type.
 
 **Worse, the copies had DIVERGED** — some accepted a folder merely existing where the shared type
 required a recogniser file inside it, so a stale env var made some suites run against the wrong

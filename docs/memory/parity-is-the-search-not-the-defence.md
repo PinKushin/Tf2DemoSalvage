@@ -27,15 +27,16 @@ an ILLUMINATION point was read as position, five conclusions built on it. See
 
 ## `half-a-mechanism-is-not-parity`
 
-**When Valve splits a behaviour across two systems, port BOTH or neither.** A dead spectated player:
-Valve switches the CAMERA to third person; this project instead emptied the viewmodel's hands and
-left the first-person camera in a dead player's skull — a state the engine cannot produce, reported
-for days as "the viewmodel is missing".
+**When Valve splits a behaviour across two systems, port BOTH or neither.** The worked example (B222,
+D116): a dead spectated player. `C_HLTVCamera::CalcInEyeCamView` (`hltvcamera.cpp:307`) switches the
+CAMERA to third person; this project instead emptied the viewmodel's hands and left the first-person
+camera in a dead player's skull — a state the engine cannot produce, reported for days as "the
+viewmodel is missing".
 
-**The tell: a silence in the SDK read as an omission.** The engine's draw test has no liveness term
-because the camera GUARANTEES first-person is never held on a dead target — **one system's invariant
-is another system's unstated precondition.** A check that looks missing is often a check something
-upstream made impossible to need.
+**The tell: a silence in the SDK read as an omission.** `C_BaseViewModel::ShouldDraw`
+(`c_baseviewmodel.cpp:277`) has no liveness term because the camera GUARANTEES first-person is never
+held on a dead target — **one system's invariant is another system's unstated precondition.** A check
+that looks missing is often a check something upstream made impossible to need.
 
 Owner: *"i dont think you can force tf2 to spectate a dead player in 1st person like we can force this
 viewer to do by fucking up and not having everything implemented."* Ask whether the guarded-against
@@ -66,18 +67,20 @@ hypothesis.
 
 ### The line you came for is usually below the one that changes its meaning
 
-A flag two lines above the answer being read was read PAST twice, in the same session this very
-memory was cited: `flags |= EXCLUDE_AUTO_INTERPOLATE` changes what the line below it means. **A flag
+B276, the sharpest instance so far: a flag two lines above the answer being read was read PAST twice,
+in the same session this very memory was cited: `flags |= EXCLUDE_AUTO_INTERPOLATE` changes what the
+line below it means. **A flag
 being SET is different from a flag existing** — reading a header of `#define`s teaches nothing.
 
 ---
 
 ## `decoding-a-field-is-not-honouring-it`
 
-Adding a decode is two jobs: reading the value, and reaching EVERY place the engine consults it. A
-render-mode field was decoded and routed to ONE consumer correctly while the engine consults it in a
-second place (a draw-refusal test) this project had no equivalent for — eighteen invisible door
-movers drawn as solid slabs.
+Adding a decode is two jobs: reading the value, and reaching EVERY place the engine consults it.
+Measured (B221 → B231): `m_nRenderMode` was decoded and routed to ONE consumer correctly while
+`C_BaseEntity::ShouldDraw` (`c_baseentity.cpp:1437`) consults it in a second place this project had no
+equivalent for — `EF_NODRAW` was already honoured one line away, the render mode was not — eighteen
+invisible door movers drawn as solid slabs.
 
 **How to apply:** when a field is newly decoded, grep the SDK for EVERY use, not the one that
 motivated the work. A field consulted in four places and honoured in one is three-quarters
@@ -103,9 +106,10 @@ before reading further.
 ## `follow-the-call-not-the-value`
 
 **When a function rewrites its own argument, find every CALLER — don't trace the argument forward
-from where it's computed.** A value discarded and recomputed inside a leaf function is invisible from
-tracing forward through the sites that hand it in; grepping for the leaf function's OWN call sites
-found all four places that mattered where forward-tracing found three.
+from where it's computed.** `STUDIO_REALTIME` (B309) is decided inside `CalcPoseSingle`, which
+discards the cycle it was handed; a value discarded and recomputed inside a leaf function is invisible
+from tracing forward through the sites that hand it in — grepping for the leaf function's OWN call
+sites found all four places that mattered where forward-tracing found three.
 
 **Then check each site is EXECUTED, not merely written** — two of four branches had passing tests
 that reached nothing (no fixture data exercised them). A sabotage that reddens nothing is the only
@@ -116,16 +120,18 @@ thing that says so.
 ## `ask-which-engine-mechanism-you-are-copying`
 
 A free-camera speed was reasoned from the bug it replaced rather than the engine; the audit then
-offered the OBVIOUS-looking reference (the demo-playback camera) — wrong, because that convar ships
-disabled and almost nobody uses it. The owner picked the roaming-spectator numbers instead, four times
-faster, correctly.
+offered the OBVIOUS-looking reference (`CalcDemoViewOverride`, `view.cpp:153`, the demo-playback
+camera) — wrong, because that convar ships disabled and almost nobody uses it. The owner picked the
+roaming-spectator numbers instead (`FullObserverMove` → `FullNoClipMove`), four times faster,
+correctly.
 
 **The danger: a citation makes a wrong reference look settled** — an uncited number invites "where did
 that come from"; a citation closes the question.
 
 **How to apply:** before citing an engine mechanism, ask whether it's the ONLY one for that job and
-check its enabling convar's default — a mechanism that ships off is rarely what users experience.
-Related: [[name-the-reading-you-picked]], [[a-default-is-not-a-constant]].
+check its enabling convar's default — a mechanism that ships off is rarely what users experience. When
+there are two, which one we copy is a decision to record (D102). Related:
+[[name-the-reading-you-picked]], [[a-default-is-not-a-constant]].
 
 ---
 
@@ -172,6 +178,8 @@ instead.
 after catching the third one in a session: *"if you diverge i need to be asked."* His framing: *"Valve
 can be thought of as god in this project."* A demo is a recording made BY the engine, so any answer of
 ours that differs is wrong about the universe it's in — there's no design space to have an opinion in.
+Parity is the project's first principle (D89), and every measured win has been a move toward the
+engine.
 
 **The failure mode, done three times in one session in the same words:** doc comments saying "a
 divergence stated rather than hidden", which sounds like diligence and is the tell — writing it down
@@ -197,9 +205,10 @@ Related: [[valve-parity-is-the-first-principle]], [[name-the-reading-you-picked]
 ## `the-half-you-have-may-be-the-wrong-half`
 
 **When a mechanism spans several engine sites, implementing SOME can be worse than implementing
-none.** `BONE_FIXED_ALIGNMENT` is three sites, one mechanism: align a rotation once, then use `NoAlign`
-variants elsewhere because the choice is already settled. This project had only the `NoAlign` slerp
-and neither of the others — nothing aligned anywhere, antipodal pairs blended the long way round.
+none.** `BONE_FIXED_ALIGNMENT` is three sites, one mechanism (B308): align a rotation once
+(`bone_setup.cpp:470`), then use the `NoAlign` variants in both blends (`:1492`, `:1608`) because the
+choice is already settled. This project had only the `NoAlign` slerp and neither of the others —
+nothing aligned anywhere, antipodal pairs blended the long way round.
 
 **Tell: a `NoAlign`, `Fast`, `Unchecked` or `Raw` variant** — those names mean "the precondition was
 established elsewhere". Reaching for one without finding where is the mistake.

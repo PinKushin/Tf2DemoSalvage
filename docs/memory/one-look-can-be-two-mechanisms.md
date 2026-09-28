@@ -5,8 +5,9 @@ metadata:
   type: reference
 ---
 
-A disguised spy's mask took two extra days because the SKIN was right — `GetSkin`'s formula was
-implemented and resolved correctly — but the mask still didn't appear, because the mask MESH is a
+A disguised spy's mask took two extra days because the SKIN was right — `GetSkin`'s formula
+(`c_tf_player.cpp:7790`) was implemented and resolved correctly — but the mask still didn't appear,
+because the mask MESH is a
 bodygroup alternative, and every player drew at the default bodygroup. The right texture was painted
 onto a mesh nobody drew.
 
