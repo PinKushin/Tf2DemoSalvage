@@ -9358,3 +9358,9 @@ and it names the `mcp__ghidra__*` tools.
 **Also decided the same day:** keep Valve's class shape for the model panels (*"yes do both, valve shape always"*),
 so the folded `VguiModelPanel` is split back into `CPotteryWheelPanel` / `CMDLPanel` / `CBaseModelPanel`; and
 `HudState` stops growing one field per convar, in favor of one convar lookup.
+
+## D197 — CI runs on `ubuntu-latest`, never a pinned image
+
+GitHub's notice that `ubuntu-latest` moves to Ubuntu 26 from October 19, 2026 raised whether to pin `ubuntu-24.04`.
+The owner: *"no we will go with tha latest, always the latest"*. Same rule as packages (D191). The migration notice is
+an accepted annotation until the move lands; anything the new image breaks is fixed in the workflow, not pinned away.
