@@ -1118,9 +1118,14 @@ look counter (`env+0x13c`, now `IvpSimulation.MarginDecayCounter`) matches the b
 hull-passes 8 far pairs (terrain triangles against the cube) and examines them close enough to search, so its counter lands
 twice on a `…0120` pair and decays it; the port hull-passes them at tick 70, one tick early, runs 16 examines instead of 8, and
 leaves every one alone before the decay**. The binary also examines two fresh hull-level pairs at tick 1 that the port does
-not. **Next: the far pair's hull allowance and pass time on a virtual-terrain triangle** — `IvpMindistHull.FileFar`, the hull
-managers' split, and `FUN_180097f00` — with `TF2VPHYSICS_PROBE_TRACE_QUEUE=70-71` on both twins; diff files are quickest with
-each run's EXAMINE lines reduced to `tick flags looks`.
+not. **Root found and fixed (`5f40c14f`): a static object's movement state is 0 in the binary (`object+0x78 & 7`), not the port's 1**,
+so the port paired the new body with the ground at its filing instead of at its revive. With it, the look-counter sequence matches
+the binary for all 101 examines through tick 107. **What is left is finer**: after tick 107's first impact the struck pair
+re-examines at length 0.0063123 (binary 0.0063110) and queues at 0.0036334 (binary 0.0036316) — a micrometre of body state out of
+the first impact at 107, or its loop. After the second impact the port's pair lengths are 0.00577/0.00535/0.00494 against the
+binary's 0.00607/0.00589/0.00570, all left alone, and the third collision never fires. **Next: the tick-107 first impact lane by
+lane** — `vphysics-impact`'s entry fixture from this scene's cores, or a trace of the core after `IvpImpactSolver` on both twins.
+Diffs are quickest with each run's EXAMINE lines reduced to `tick flags looks`.
 
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 
