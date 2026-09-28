@@ -118,6 +118,14 @@ function Deny([string]$reason) {
     exit 0
 }
 
+# NO NESTED HAND-OFFS, 2026-09-28. A sonnet subagent given a docs pass launched an opus subagent to do
+# it and checked out a branch in the main checkout. The owner: "let me sub out the work IM suppose to
+# do". A hook payload carries agent_id only when the call comes from inside a subagent.
+if (($tool -eq 'Agent' -or $tool -eq 'Workflow') -and -not [string]::IsNullOrWhiteSpace($payload.agent_id)) {
+    Deny(("Blocked: a subagent may not launch another agent or workflow. Do the work you were " +
+          "given yourself, or stop and report what blocks you."))
+}
+
 if ($tool -eq 'Agent') {
     $model = $toolInput.model
 
