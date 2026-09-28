@@ -39,6 +39,38 @@ public sealed class IvpSimulationBroadPhaseTests
         core.Objects.ShouldBe([collisionObject]);
     }
 
+    /// <remarks>
+    /// `object+0x78 &amp; 7` read out of the live engine (`vphysics-virtual-terrain-drop`'s EXAMINE `state1`): 0 for a static object,
+    /// 1 for the moving body. *1 stood here for a static object too.*
+    /// </remarks>
+    [Test]
+    public void Collide_AStaticCore_HasMovementStateZero()
+    {
+        IvpSimulation simulation = Simulation();
+        IvpRigidBody ground = Body((0d, 0d, 0d));
+        ground.Immovable = true;
+
+        simulation.Collide(ground, Material).MovementState.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **An asleep body and a static object make no pair** — both states' low bits clear (<c>FUN_180098880</c>) — so a new body's pair
+    /// with the ground is made at its revive in the first PSI, as the binary makes it, and not when the body is filed.
+    /// </remarks>
+    [Test]
+    public void Collide_ANewBodyBesideAStaticObject_MakesNoPairUntilItsRevive()
+    {
+        IvpSimulation simulation = Simulation();
+        IvpRigidBody ground = Body((0d, 0d, 0d));
+        ground.Immovable = true;
+        IvpRigidBody body = Body((0d, 0d, 9d));
+        IvpCollisionObject groundObject = simulation.Collide(ground, Material);
+        simulation.Add(body);
+        simulation.Collide(body, Material);
+
+        groundObject.Node!.Watchers.ShouldBeEmpty();
+    }
+
     [Test]
     public void Collide_ABodyWithNoLedge_Refuses()
     {
@@ -303,30 +335,8 @@ public sealed class IvpSimulationBroadPhaseTests
         ground.InverseMass = 0f;
         ground.InverseInertia = (0f, 0f, 0f);
 
-        (Vector3, float)[] field = new (Vector3, float)[25];
-
-        for (int index = 0; index < 25; index++)
-        {
-            if (index / 5 is 0 or 4 || index % 5 is 0 or 4)
-            {
-                field[index] = (Vector3.UnitZ, 100f);
-            }
-        }
-
-        DisplacementCollisionTree tree = DisplacementCollisionTree.Build(
-            [Vector3.Zero, new Vector3(0f, 2000f, 0f), new Vector3(2000f, 2000f, 0f), new Vector3(2000f, 0f, 0f)], 2, field);
-
-        // The convex hull: the raised corners 0, 4, 24, 20 over the flat middle's corners 6, 8, 18, 16, each face wound outward.
-        byte[] hull = HullBlob(
-            tree.Vertices,
-            [
-                (0, 4, 24), (0, 24, 20),
-                (6, 16, 18), (6, 18, 8),
-                (0, 6, 8), (0, 8, 4),
-                (4, 8, 18), (4, 18, 24),
-                (24, 18, 16), (24, 16, 20),
-                (20, 16, 6), (20, 6, 0),
-            ]);
+        DisplacementCollisionTree tree = IvpTerrainBasin.Tree();
+        byte[] hull = IvpTerrainBasin.Hull(tree.Vertices);
 
         IvpVirtualMeshSurfaceManager manager = new(PhysicsVirtualMesh.Build(tree.Vertices, tree.Triangles, hull), tree);
         simulation.Collide(ground, manager, Material);
@@ -376,47 +386,6 @@ public sealed class IvpSimulationBroadPhaseTests
 
         System.Math.Abs(body.Velocity.Z).ShouldBeLessThan(1e-3f, $"at {body.Position.Z}");
     }
-
-    /// <summary>
-    /// A <c>LUMP_PHYSDISP</c> blob of one hull over a displacement's vertices, every face and edge virtual: edges numbered as first
-    /// met, each triangle's pierce the face turned most against it.
-    /// </summary>
-    private static byte[] HullBlob(IReadOnlyList<Vector3> vertices, (int A, int B, int C)[] triangles)
-    {
-        List<(int From, int To)> edges = [];
-        List<byte> body = [];
-
-        foreach ((int a, int b, int c) in triangles)
-        {
-            foreach ((int from, int to) in ((int, int)[])[(a, b), (b, c), (c, a)])
-            {
-                int id = edges.FindIndex(edge => edge == (to, from));
-
-                if (id < 0)
-                {
-                    id = edges.Count;
-                    edges.Add((from, to));
-                }
-
-                body.Add((byte)id);
-            }
-
-            Vector3 normal = Normal(vertices, (a, b, c));
-            int pierce = Enumerable.Range(0, triangles.Length).MinBy(other => Vector3.Dot(Normal(vertices, triangles[other]), normal));
-            body.Add((byte)pierce);
-        }
-
-        foreach ((int from, int to) in edges)
-        {
-            body.Add((byte)from);
-            body.Add((byte)to);
-        }
-
-        return [1, 0, 0, 0, (byte)triangles.Length, (byte)triangles.Length, (byte)edges.Count, (byte)edges.Count, 0, .. body];
-    }
-
-    private static Vector3 Normal(IReadOnlyList<Vector3> vertices, (int A, int B, int C) triangle) =>
-        Vector3.Normalize(Vector3.Cross(vertices[triangle.B] - vertices[triangle.A], vertices[triangle.C] - vertices[triangle.A]));
 
     /// <summary>Two cubes of half four, faces one apart, the first driven at the second at 6 — advanced in 0.01 slices.</summary>
     private static (IvpSimulation, IvpRigidBody Moving, IvpRigidBody Still, IvpCollisionObject MovingObject) DrivenTogether(double until)

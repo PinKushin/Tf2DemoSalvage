@@ -1103,6 +1103,30 @@ first-tick differences in (findings 51, *A same-input differential*). **The chec
 scene** — the map world's virtual mesh through the environment seam — which does not exist yet. The PSI rate itself is
 confirmed: the binary gains 5.965 in/s per PSI, 393.7 × 1/66, with a 0.015 simulation timestep set.
 
+**Done the same day: `ivp-virtual-terrain-drop`**, the port's twin through `IvpRagdollWorld.AddVirtualTerrain`/`Simulate`, one shared
+scene (`Probe/Oracle/IvpTerrainBasin`). Both take `every=N`, `TF2VPHYSICS_PROBE_TRACE_IMPACTS=1` and `TF2VPHYSICS_PROBE_TRACE_QUEUE=a-b`
+(the port's through `IvpMindistCollide.Traced`, `PairFired`, `Examined`). **Identical to two decimals through tick 106; the
+divergence is tick 107, the second landing**: eight corner/edge pairs hull-pass at gap 0.0162 with matching queue values, and
+the first two collisions (`0x0fcc0040` edge–edge, `0x0fcc0120` vertex–face) match in flags, normals and arms. **The first
+difference is the tail recheck after impact 1** (`recheck=2`): gaps identical (0.00634746) and the struck pair's queued value
+matches (0.003632), but the other seven are queued at **0.006987 in the port against 0.004906 in the binary**, the binary's
+look bits advance (`0x0f4c…` → `0x0f0c…`) where the port's do not, and the binary sets bit 31 on one corner pair
+(`0x8fcc0020`) the port never sets. The third collision (a corner, `0x0fcc0020`, arm (4, 4, −4)) then never fires in the
+port; the cube lands on two contacts, spins at 9.25°/s against 2.57, slides off the flat and sinks. **Traced back further the same day, to a hull-pass timing difference at the FIRST landing.** The queue values differ because two
+vertex–face pairs (`…0120`) carry a margin class one higher in the port (`0x0fcc…` against `0x0f8c…`, bits `0x3fc00000`). The
+look counter (`env+0x13c`, now `IvpSimulation.MarginDecayCounter`) matches the binary from tick 54 on, but **at tick 71 the binary
+hull-passes 8 far pairs (terrain triangles against the cube) and examines them close enough to search, so its counter lands
+twice on a `…0120` pair and decays it; the port hull-passes them at tick 70, one tick early, runs 16 examines instead of 8, and
+leaves every one alone before the decay**. The binary also examines two fresh hull-level pairs at tick 1 that the port does
+not. **Root found and fixed (`5f40c14f`): a static object's movement state is 0 in the binary (`object+0x78 & 7`), not the port's 1**,
+so the port paired the new body with the ground at its filing instead of at its revive. With it, the look-counter sequence matches
+the binary for all 101 examines through tick 107. **What is left is finer**: after tick 107's first impact the struck pair
+re-examines at length 0.0063123 (binary 0.0063110) and queues at 0.0036334 (binary 0.0036316) — a micrometre of body state out of
+the first impact at 107, or its loop. After the second impact the port's pair lengths are 0.00577/0.00535/0.00494 against the
+binary's 0.00607/0.00589/0.00570, all left alone, and the third collision never fires. **Next: the tick-107 first impact lane by
+lane** — `vphysics-impact`'s entry fixture from this scene's cores, or a trace of the core after `IvpImpactSolver` on both twins.
+Diffs are quickest with each run's EXAMINE lines reduced to `tick flags looks`.
+
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 
 **In plain terms first, per the owner's own framing**: the cube should land on the displacement and stay there — "it should

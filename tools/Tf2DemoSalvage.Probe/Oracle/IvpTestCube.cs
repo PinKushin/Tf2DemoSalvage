@@ -4,7 +4,7 @@ using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
 
-namespace Tf2DemoSalvage.Animation.Tests;
+namespace Tf2DemoSalvage.Probe.Oracle;
 
 /// <summary>An axis-aligned box as the compact ledge the real engine's <c>BBoxToCollide</c> builds, word for word.</summary>
 /// <remarks>
@@ -42,7 +42,7 @@ internal static class IvpTestCube
     /// <summary>Each header's bits 12–23: triangle <c>t</c> names <c>11 − t</c>.</summary>
     private static readonly int[] Pierces = [11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0];
 
-    /// <summary>The cube as a ledge list, a body's <see cref="Animating.IvpRigidBody.Ledges"/>.</summary>
+    /// <summary>The cube as a ledge list, a body's <see cref="Tf2DemoSalvage.Animation.Animating.IvpRigidBody.Ledges"/>.</summary>
     /// <param name="half">The half extent.</param>
     /// <returns>One ledge.</returns>
     public static List<PhysicsLedge> Ledges(float half) => Box(half, half, half);
