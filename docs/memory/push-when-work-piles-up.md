@@ -5,7 +5,7 @@ metadata:
   type: feedback
 ---
 
-Owner, seeing ~10,000 unpushed lines on a long-running branch: *"make sure to push so we dont lose a
+Owner, 2026-09-13, seeing ~10,000 unpushed lines on `fix/b369-ivp-narrow-phase`: *"make sure to push so we dont lose a
 massive amount of work if the computer crashes or windows goes tits up."*
 
 **Why:** the standing rule is push sparingly (a push costs CI). A multi-day port piles commits onto

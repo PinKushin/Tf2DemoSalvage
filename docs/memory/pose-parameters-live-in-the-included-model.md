@@ -12,8 +12,9 @@ moving player ran the backward-left blend-grid animation, forever (B101). Nothin
 running off a list's end is a legitimate answer, and cell zero is a real cell (same shape as
 [[sentinels-conflate-unknown-with-answer]]).
 
-**The engine merges the lists** (`CVirtualModel::AppendPoseParameters`), keeping a per-group map read
-back by `GetSharedPoseParameter`. Three details: matching is by NAME, case-insensitive (models declare
+**The engine merges the lists** (`CVirtualModel::AppendPoseParameters`, `studio_virtualmodel.cpp:445`),
+keeping a per-group map read back by `GetSharedPoseParameter`. Three details: matching is by NAME,
+case-insensitive (models declare
 the same parameter at different positions); a duplicate WIDENS the shared range across all endpoints
 (a range differing between base and animation model normalises against the wrong one); the shared
 list is in group order, base model first.

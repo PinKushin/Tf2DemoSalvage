@@ -21,7 +21,7 @@ degrees) go in a plain `net10.0` project that **cannot** reference `System.Windo
 compiler enforces portability rather than a comment ([[a-partial-thin-view-is-worse-than-none]]:
 enforcement is the TFM, not the file); the ADAPTER (names the toolkit's types) stays tiny in the view.
 
-Worked example: a key-mapping helper takes a STRING key name and never sees a toolkit `Keys` value —
+Worked example, B216: a key-mapping helper takes a STRING key name and never sees a toolkit `Keys` value —
 the whole binding stack (`ViewerAction`, `KeyBindings`, `ConfigConsole`) is already this shape.
 
 **Check it by TFM, not by reading:** `grep -rl "System.Windows.Forms" <portable project>` should match

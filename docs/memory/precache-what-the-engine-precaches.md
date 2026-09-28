@@ -13,10 +13,12 @@ loader is a dictionary built up front, not on-demand — a path missing from the
 to nothing forever, silently (B195, and gibs hit it again).
 
 **Why:** a model reached only by a rare event is in no prop track, string table, or item schema,
-because it isn't an entity until the event happens. The engine solves this explicitly — a player
-class's precache function also precaches every gib model its collision data names, walking the
-`.phy`'s KeyValues. **The engine's precache list is the answer to "what else must be loaded", already
-written down** — read it rather than deriving one.
+because it isn't an entity until the event happens. The engine solves this explicitly —
+`CTFPlayer::PrecachePlayerModels` (`tf_player.cpp:2848`) precaches each class model and
+`PrecacheGibsForModel`, which is `PrecachePropsForModel(iModel, "break")` (`props_shared.cpp:1239`),
+walking the collision data's KeyValues for every `breakModel.modelName`. **The engine's precache list
+is the answer to "what else must be loaded", already written down** — read it rather than deriving
+one.
 
 **How to apply:** for anything drawn by an EVENT rather than an entity, find the engine's Precache for
 the thing that spawns it and add every named model to both load sets. Verify by LOOKING (same camera,
@@ -55,9 +57,9 @@ never in the load list has no key, answers null, is remembered as empty — no w
 loader's own "0 missing" is true about the list it was given.
 
 **The trap: a path the client DERIVES** — an item can override a prop's model
-(`CEconEntity::UpdateModelToClass` lets the item win), so the resolved path is named by the ITEM and
-appears on NO track, while the load list is built by walking tracks. The two never meet — thirteen
-cosmetics a frame packed zero batches while the loader reported zero missing.
+(`CEconEntity::UpdateModelToClass`, `econ_entity.cpp:411`, lets the item win), so the resolved path is
+named by the ITEM and appears on NO track, while the load list is built by walking tracks. The two
+never meet — thirteen cosmetics a frame packed zero batches while the loader reported zero missing.
 
 **How to apply:** whenever a model path can be produced by something other than the wire (item
 schema, class script, gib list, fallback), ask whether the load-list walk can reach the same
