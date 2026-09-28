@@ -386,6 +386,28 @@ public sealed class MomentSceneTests
         scene.Instances.Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **B426, and the production route rather than the lighting sampler** — `StaticProps` is what
+    /// `LevelSystems` hands the scene at map load. The engine draws an unbaked static prop through the
+    /// model draw (`engine.dll` `0x1800f1bd0`) with its handle's cube and local lights every frame
+    /// (`FUN_1801ba590`, flags `0xf`); a lamp 20 units above it must reach the draw as a local light.
+    /// </remarks>
+    [Test]
+    public void Pose_AStaticPropUnderALamp_DrawsWithTheLampAsALocalLight()
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]);
+        scene.StaticProps =
+            [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)];
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+        drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+        drawn.Light.ShouldNotBeNull("the handle's ambient cube");
+    }
+
 
     /// <summary>
     /// One weapon with a display model, so <c>Weapons.For</c> can answer in a unit test.

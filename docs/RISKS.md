@@ -7664,6 +7664,63 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B425 — dynamic lights (`cl_dlights`) are not ported — OPEN 2026-09-28
+
+**Read from `engine.dll`.** A dynamic light reaching a static prop sets bit *n* of its lighting handle's `+0x1a4` (dlight *n*,
+the light's `+0x8`) and stamps `+0x1a8` with the frame (`FUN_1801b5260`); the draw (`0x1800f1bd0`) then lights the prop fully
+instead of from its baked colours while any bit is set (`FUN_1801bb8a0`: `+0x1a4 != 0`). Nothing in the port allocates a dynamic
+light — explosions, muzzle flashes and burning players light nothing but their own sprites. A subsystem, not a patch: the dlight
+list, its decay, the client code that allocates them, and their reach into world lightmaps and models.
+
+---
+
+### B424 — a baked static prop ignores light styles — OPEN 2026-09-28
+
+**Read from `engine.dll`, the model draw `0x1800f1bd0` with a static prop's lighting handle** (`param_4`): a prop with baked
+colours (`*param_7`) is drawn with **no cube and no local lights** — which the port already does — except that
+`FUN_1801bb830` sends it to full lighting (`FUN_1801ba590(handle, …, 7)`, `*param_7 = 0`) when any light in the handle's list
+(`+0x1b0` indices into the world lights, count `+0x1c0`, gated by `+0x174 & 3`) has an **animated style** (`DAT_18069dd40[style] > 1`),
+and `FUN_1801bb8b0` rebuilds the baked colours (`FUN_1800f36e0`) when a **one-frame style** that light answers to changed since
+the handle's stamp (`+0x1d0` against `DAT_1806998a0[style]`, gated by `+0x174 & 1`). The port never re-evaluates a baked prop, so
+a prop under a flickering or switched lamp keeps the colours vrad baked for style 0.
+
+**The list, read from `FUN_1801b6bf0`** (called by the cache creator `FUN_1801b8350` with the prop's bounds): every world
+light (`0x58`-byte records) whose **style is nonzero** (`+0x2c`), whose cluster (`+0x24`) is in the PVS of the handle's leaf,
+and whose contribution at the handle's origin (`FUN_1801b99a0`, bounds passed through) is positive. Each hit sets its style's
+bit in the mask at `+0x17c`, and `+0x174` gains bit 1 when that style is animated (`DAT_18069dd40[style] >= 2`), else bit 0.
+Style-0 lights never enter the list — they are what vrad baked.
+
+**Blocked on B426**: the port has no per-draw lighting for a static prop to fall back to.
+
+---
+
+### B426 — static props have no per-draw lighting — FIXED 2026-09-28 (unbaked props; baked stay merged)
+
+**The port merges every static prop into the world's surface batches at load** (`PropModels` then `MapWorld`, the
+`Append(… red, green, blue)` per corner). Its only light is the vertex colour: the `.vhv` colours where they exist, and otherwise
+**one ambient cube sampled at the prop origin and baked into the colours**, with no local lights and no normal-mapped or
+specular term. The engine draws a static prop through the model draw `0x1800f1bd0` with its lighting handle; an unbaked prop
+(no `.vhv`) gets the handle's cube and local lights **every frame** (`FUN_1801ba590`, flags `0xf`), and a baked one can fall back
+to that path (B424). So an unbaked prop near a changing light never changes. It is also flatter than TF2's under any local
+light. The fix: draw static props as models, which is a rendering-architecture change that the owner can see.
+
+**Built (D198):** `PropModels.Load` hands each placement WITHOUT baked colours (none shipped, or refused — still
+counted in `RefusedPropLighting`) to `MapAssets.StaticModels` as a `SceneProp` (`PropModels.StaticModel`: the lump's
+origin, angles, scale and skin, keyed from `FirstStaticPropEntityIndex`) instead of merging it into the world batches.
+`LevelSystems` gives them to `MomentScene.StaticProps`, which adds them to every moment's draw list, so they take the
+entity path: frustum and leaf cull, `LevelLighting.ModelLightingAt` (light-cache cube plus local lights) per draw, skin
+families through the model's own table. Tests: `PropModelsTests`, `MomentSceneTests.Pose_AStaticPropUnderALamp_…`,
+and on `cp_process_final` `StaticPropModelsWiringTests` (model count = placements minus baked, none of their corners
+left in the world).
+
+**Not built, and why.** A baked prop stays merged: the model path shares one vertex buffer per model and has no
+per-instance colour stream, so a `.vhv` placement cannot be a model draw without one — B424's fallback therefore
+still has no route for a baked prop. The lighting point is the model path's `illumposition` point, not the lump's
+`LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have
+no fade (`fademindist`/`fademaxdist` are not read), as before.
+
+---
+
 ### B423 — a model was lit at its own point, not at its light cache cell — FIXED 2026-09-25
 
 **What the engine does, read from `engine.dll`.** `LightcacheGet` (`0x1801b9cd0`) keys model lighting on a

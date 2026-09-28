@@ -9364,3 +9364,10 @@ so the folded `VguiModelPanel` is split back into `CPotteryWheelPanel` / `CMDLPa
 GitHub's notice that `ubuntu-latest` moves to Ubuntu 26 from October 19, 2026 raised whether to pin `ubuntu-24.04`.
 The owner: *"no we will go with tha latest, always the latest"*. Same rule as packages (D191). The migration notice is
 an accepted annotation until the move lands; anything the new image breaks is fixed in the workflow, not pinned away.
+
+## D198 — static props are drawn as models, lit per draw like the engine (B426)
+
+The port merged every static prop into the world batches with light baked into vertex colours, so an unbaked prop got
+one origin cube and no local lights, and B424's fallback to full lighting had nowhere to go. The engine draws a static
+prop through the model draw `0x1800f1bd0` with its lighting handle. Asked whether to rewrite, the owner: *"If the rewrite
+is valve parity, then do it."* It is, so static props move to the model path; the extra draw calls are accepted.

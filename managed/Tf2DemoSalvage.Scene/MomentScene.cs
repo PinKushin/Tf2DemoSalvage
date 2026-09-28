@@ -192,6 +192,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>What light the map casts, set when a map is read.</summary>
     public LevelLighting Lighting { get; set; } = LevelLighting.Unlit(NullLogger.Instance);
 
+    /// <summary>The map's static props drawn as models every moment, set when a map is read (B426).</summary>
+    public IReadOnlyList<SceneProp> StaticProps { get; set; } = [];
+
     /// <summary>How a player is dressed, set once the game's archives are open.</summary>
     public IPlayerAppearance Appearance { get; set; } = NoAppearance.Instance;
 
@@ -284,6 +287,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // a second implementation would agree with the first only until one of them gained a feature.
         _drawn.Clear();
         _drawn.AddRange(props);
+
+        // The map's unbaked static props, drawn as models (B426, `engine.dll` `0x1800f1bd0`).
+        _drawn.AddRange(StaticProps);
 
         // **A weapon's model comes from its ITEM, and some weapons network no model index at all.**
         // `CEconEntity::SetModel` resolves `pItem->GetPlayerDisplayModel( iClass, team )` —
