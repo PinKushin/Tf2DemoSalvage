@@ -39,6 +39,9 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
         ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        int every = Every(arguments);
 
         VphysicsSurfaceProps surfaces = new([]);
         surfaces.ParseSurfaceData(Encoding.UTF8.GetBytes(SurfaceText));
@@ -80,11 +83,57 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         world.Simulation.Collide(body, material);
         output.WriteLine($"dropped from {Format(Source(body))}, expecting rest at Z~{HalfInches:F3}");
 
+        int impactTick = 0;
+
+        // The binary probe's `TF2VPHYSICS_PROBE_TRACE_IMPACTS` lines, as the port builds each impact's record.
+        if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_IMPACTS") is not null)
+        {
+            IvpMindistCollide.Traced = (mindist, record) => output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"COLLIDE tick {impactTick} flags=0x{mindist.Flags:x8}{Environment.NewLine}" +
+                $"IMPACT tick {impactTick} normal=({record.Normal.X:F2}, {record.Normal.Y:F2}, {record.Normal.Z:F2}) " +
+                $"arm0=({record.FirstArm.X:F2}, {record.FirstArm.Y:F2}, {record.FirstArm.Z:F2}) " +
+                $"arm1=({record.SecondArm.X:F2}, {record.SecondArm.Y:F2}, {record.SecondArm.Z:F2})"));
+        }
+
+        // The binary probe's `TF2VPHYSICS_PROBE_TRACE_QUEUE=first-last` window: each pair fired and each examined, with its queued value.
+        if (Environment.GetEnvironmentVariable("TF2VPHYSICS_PROBE_TRACE_QUEUE") is { } window)
+        {
+            string[] bounds = window.Split('-');
+            int firstTraced = int.Parse(bounds[0], CultureInfo.InvariantCulture);
+            int lastTraced = int.Parse(bounds[^1], CultureInfo.InvariantCulture);
+            bool Inside() => impactTick >= firstTraced && impactTick <= lastTraced;
+
+            world.Simulation.PairFired = (mindist, due, outcome) =>
+            {
+                if (Inside())
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"FIRED tick {impactTick} at {due:R} len={mindist.Length:R} flags=0x{mindist.Flags:x8} {outcome}"));
+                }
+            };
+
+            world.Simulation.Examined = (mindist, outcome) =>
+            {
+                if (Inside())
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"EXAMINE tick {impactTick} len={mindist.Length:R} flags=0x{mindist.Flags:x8} {outcome}") +
+                        (mindist.QueueSlot is int slot
+                            ? string.Create(CultureInfo.InvariantCulture, $" queued {world.Simulation.Collisions.EventQueue.ValueOf(slot):R} slot {slot}")
+                            : string.Empty));
+                }
+            };
+        }
+
         for (int tick = 1; tick <= TotalTicks; tick++)
         {
+            impactTick = tick;
             world.Simulate(Timestep);
 
-            if (tick % PrintEveryTicks != 0)
+            if (tick % every != 0)
             {
                 continue;
             }
@@ -93,9 +142,16 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
                 body.Velocity.X + body.PendingVelocity.X, body.Velocity.Y + body.PendingVelocity.Y, body.Velocity.Z + body.PendingVelocity.Z);
             (float svx, float svy, float svz) = IvpTransform.SourcePosition(vx, vy, vz);
 
+            // As `GetVelocity` (`FUN_18001c1f0`) reports spin: the core's axes as (x, z, −y), in degrees.
+            (float ax, float ay, float az) = (
+                body.AngularVelocity.X + body.PendingAngularVelocity.X,
+                body.AngularVelocity.Z + body.PendingAngularVelocity.Z,
+                body.AngularVelocity.Y + body.PendingAngularVelocity.Y);
+
             output.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
-                $"tick {tick,4} t={tick * Timestep,5:F2}  pos={Format(Source(body))}  vel=({svx:F2}, {svy:F2}, {svz:F2})"));
+                $"tick {tick,4} t={tick * Timestep,5:F2}  pos={Format(Source(body))}  vel=({svx:F2}, {svy:F2}, {svz:F2})  " +
+                $"spin=({ax * 57.29578f:F2}, {ay * 57.29578f:F2}, {az * -57.29578f:F2})"));
         }
 
         Vector3 last = Source(body);

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -49,6 +50,23 @@ internal static class IvpTerrainBasin
 
     /// <inheritdoc cref="TotalTicks"/>
     public const int PrintEveryTicks = 13;
+
+    /// <summary>How often to print: an <c>every=N</c> argument, else <see cref="PrintEveryTicks"/>.</summary>
+    /// <param name="arguments">The probe's arguments.</param>
+    /// <returns>The print interval in ticks.</returns>
+    public static int Every(IReadOnlyList<string> arguments)
+    {
+        foreach (string argument in arguments)
+        {
+            if (argument.StartsWith("every=", System.StringComparison.Ordinal) &&
+                int.TryParse(argument.AsSpan(6), System.Globalization.CultureInfo.InvariantCulture, out int every) && every > 0)
+            {
+                return every;
+            }
+        }
+
+        return PrintEveryTicks;
+    }
 
     /// <summary>The surfaces both runners parse: Valve's <c>default</c> (friction 0.8, elasticity 0.25) and a frictionless one.</summary>
     public const string SurfaceText = """

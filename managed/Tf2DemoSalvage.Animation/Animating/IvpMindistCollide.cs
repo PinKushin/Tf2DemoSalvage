@@ -13,6 +13,12 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// </remarks>
 public static class IvpMindistCollide
 {
+    /// <summary>
+    /// A probe's view of each impact as it enters the solve — the mindist and its freshly built record — null in production; the
+    /// same shape as <see cref="IvpTangentialSolve.Traced"/>. `ivp-virtual-terrain-drop` prints the binary probe's `IMPACT` line from it.
+    /// </summary>
+    public static Action<IvpMindist, IvpContactRecord>? Traced { get; set; }
+
     /// <summary>Resolves one mindist's collision: a linked contact, its solved impact, and the impact loop around it.</summary>
     /// <param name="mindist">The mindist; its flags name synapse A.</param>
     /// <param name="firstObject">Synapse record 0's object.</param>
@@ -102,6 +108,8 @@ public static class IvpMindistCollide
         float sinceLast = (float)(now - pair.LastImpact);
 
         pair.LastImpact = now;
+
+        Traced?.Invoke(mindist, record);
 
         IvpImpactSolver solver = IvpImpactSolver.Enter(environment, contact, [coreA, coreB], contact.PushOut(environment));
 

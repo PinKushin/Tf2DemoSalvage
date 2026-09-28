@@ -1103,6 +1103,18 @@ first-tick differences in (findings 51, *A same-input differential*). **The chec
 scene** — the map world's virtual mesh through the environment seam — which does not exist yet. The PSI rate itself is
 confirmed: the binary gains 5.965 in/s per PSI, 393.7 × 1/66, with a 0.015 simulation timestep set.
 
+**Done the same day: `ivp-virtual-terrain-drop`**, the port's twin through `IvpRagdollWorld.AddVirtualTerrain`/`Simulate`, one shared
+scene (`Probe/Oracle/IvpTerrainBasin`). Both take `every=N`, `TF2VPHYSICS_PROBE_TRACE_IMPACTS=1` and `TF2VPHYSICS_PROBE_TRACE_QUEUE=a-b`
+(the port's through `IvpMindistCollide.Traced`, `PairFired`, `Examined`). **Identical to two decimals through tick 106; the
+divergence is tick 107, the second landing**: eight corner/edge pairs hull-pass at gap 0.0162 with matching queue values, and
+the first two collisions (`0x0fcc0040` edge–edge, `0x0fcc0120` vertex–face) match in flags, normals and arms. **The first
+difference is the tail recheck after impact 1** (`recheck=2`): gaps identical (0.00634746) and the struck pair's queued value
+matches (0.003632), but the other seven are queued at **0.006987 in the port against 0.004906 in the binary**, the binary's
+look bits advance (`0x0f4c…` → `0x0f0c…`) where the port's do not, and the binary sets bit 31 on one corner pair
+(`0x8fcc0020`) the port never sets. The third collision (a corner, `0x0fcc0020`, arm (4, 4, −4)) then never fires in the
+port; the cube lands on two contacts, spins at 9.25°/s against 2.57, slides off the flat and sinks. **Next: the mode-2 recheck's
+time estimate and look-counter step in `FUN_1800977f0`/the scheduler, against the port's `IvpPairScheduler`.**
+
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 
 **In plain terms first, per the owner's own framing**: the cube should land on the displacement and stay there — "it should

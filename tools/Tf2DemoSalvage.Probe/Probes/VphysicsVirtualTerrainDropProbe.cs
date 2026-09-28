@@ -313,7 +313,7 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                     simulate(environment, Timestep);
                     getPosition(bodyObject, out lastPosition, out _);
 
-                    if (tick % PrintEveryTicks == 0)
+                    if (tick % Every(arguments) == 0)
                     {
                         getVelocity(bodyObject, out Vec3 velocity, out Vec3 angularVelocity);
                         output.WriteLine(
