@@ -236,11 +236,9 @@ verifiably different numbers, not the same answer read two ways), `ApplyStartFra
 same category `VguiPanel`'s own remarks already exclude — "Input, navigation... not modelled: a demo's HUD takes no
 input" — and stays excluded for the same reason: an offline demo renderer has no mouse to drive it.
 
-## Remaining HUD work (2026-09-27, `feat/hud-model-panel`, not yet on main)
+## HUD work, all on main (2026-09-28)
 
-On this branch: model panels in CMDL shape (edd41c62), CTFPlayerModelPanel dressing (1ed93891), client cvars through
-the ConVar lookup (261e4e69), server time limit (133bed1e), no-heal line (5a0087af). Merge to main needs all three
-gates.
+Every item below is done and merged with all three gates green (eafa0522); CI green again after 73279fd3.
 
 1. CTFPlayerModelPanel partials — a subagent is on these: per-team world-model bodygroup override (:871),
    GetBestVisualTeamData for attached models (:1034), strange-level styles (econ_item_view.cpp:747-776), eye glow and
