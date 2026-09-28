@@ -1129,9 +1129,14 @@ binary's 0.00607/0.00589/0.00570, all left alone, and the third collision never 
 tick 107's first impact matches to every printed digit and the second to five (0.6159501 against 0.61589605; the binary's x and
 z differ in the eighth digit where the port's are symmetric). **The split left is the tail recheck after the second impact**: the
 binary re-minimizes first (the pairs walk to new features, `…0120` → `…0140`, `…0040` → `…0030`) and queues three at gaps
-0.00607/0.00589/0.00570; the port examines at 0.00576/0.00535/0.00495 with no feature change and leaves all alone. **Next:
-`FUN_1800909d0`'s recheck — whether it minimizes each pair before `FUN_180099380`, and at what time — against
-`IvpImpactIsland.Tail`.**
+0.00607/0.00589/0.00570; the port examines at 0.00576/0.00535/0.00495 with no feature change and leaves all alone. **Settled the same day, and it was the twin again**: the second impact
+fired 0.17 ms late (1.6251444 against 1.6249721) because the struck pair's recheck time `(gap − ε)/totalBound + …` read a
+surface speed bound off the core's `+0x8`, which the twin had left at its default; the live cube holds **5.681127**
+(`IvpTerrainBasin.BodyDeviation`; the radius `+0x4`, 6.928203, already matched). **With the engine's inertia and deviation
+the port rests beside the binary: (1003.40, 996.60, 157.96) against (1003.42, 996.58, 157.96)**, identical to two decimals
+through tick 117, a 0.05 in/s difference in the settle near tick 130. The only port defect this scene found is the static
+movement state (`5f40c14f`); everything after it was the twin's body. **Left:** the settle's last hundredth, and the other nine
+broad-phase tests, which still have no twin.
 Diffs are quickest with each run's EXAMINE lines reduced to `tick flags looks`.
 
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17

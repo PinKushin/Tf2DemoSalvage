@@ -52,6 +52,12 @@ internal static class IvpTerrainBasin
     /// <inheritdoc cref="BodyInertia"/>
     public const float BodyInverseInertia = 0.013258252f;
 
+    /// <summary>
+    /// The live cube core's <c>+0x8</c>, the surface deviation widened past the mass centre, read the same way; the radius at
+    /// <c>+0x4</c> is 6.928203, half·√3. A single-ledge tree carries no surface header, so the port's twin must be told it.
+    /// </summary>
+    public const float BodyDeviation = 5.681127f;
+
     /// <summary>The simulation timestep both runners step at: IVP's PSI rate, as the test's own environment.</summary>
     public const float Timestep = 1f / 66f;
 

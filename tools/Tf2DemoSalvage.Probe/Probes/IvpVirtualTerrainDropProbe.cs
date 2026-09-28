@@ -67,6 +67,7 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             WorkingOrientation = (0d, 0d, 0d, 1d),
             CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
             Radius = half * MathF.Sqrt(3f),
+            Offset08 = BodyDeviation,
             Mass = BodyMass,
             InverseMass = 1f / BodyMass,
             Inertia = (BodyInertia, BodyInertia, BodyInertia),
@@ -125,7 +126,10 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
                         $"EXAMINE tick {impactTick} len={mindist.Length:R} flags=0x{mindist.Flags:x8} looks->{world.Simulation.MarginDecayCounter} {outcome}") +
                         (mindist.QueueSlot is int slot
                             ? string.Create(CultureInfo.InvariantCulture, $" queued {world.Simulation.Collisions.EventQueue.ValueOf(slot):R} slot {slot}")
-                            : string.Empty));
+                            : string.Empty) +
+                        string.Create(
+                            CultureInfo.InvariantCulture,
+                            $" now={world.Simulation.Now:R} y={body.Position.Y:R} v170y={body.PreviousVelocity.Y:R} stepped={body.LastStepped:R}"));
                 }
             };
         }
