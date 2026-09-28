@@ -5,14 +5,13 @@ metadata:
   type: feedback
 ---
 
-**The owner, 2026-09-13, seeing about ten thousand unpushed lines on `fix/b369-ivp-narrow-phase`:** *"make sure to
-push so we dont lose a massive amount of work if the computer crashes or windows goes tits up"*.
+Owner, seeing ~10,000 unpushed lines on a long-running branch: *"make sure to push so we dont lose a
+massive amount of work if the computer crashes or windows goes tits up."*
 
-**Why:** the standing rule is to push sparingly, because a push costs a CI run and bandwidth. A long port — B369 runs
-for days — piles commits and uncommitted files onto one disk, and a crash loses all of it. Losing the work costs more
-than any CI run.
+**Why:** the standing rule is push sparingly (a push costs CI). A multi-day port piles commits onto
+one disk, and a crash loses all of it — that costs more than any CI run.
 
-**How to apply:** when a branch carries a large amount of unpushed or uncommitted work, commit a state that builds and
-passes, and push the branch, without waiting for a logical unit to finish. **Never commit while a sabotage run has its
-edits applied** — wait for it to restore, then commit. Pushing a feature branch is not merging: the gate still runs once
-before the merge ([[gate-once-per-merge-not-per-commit]]).
+**How to apply:** when a branch carries a large amount of unpushed/uncommitted work, commit a state
+that builds and passes and push, without waiting for a logical unit to finish. **Never commit while a
+sabotage run has its edits applied** — wait for it to restore first. Pushing a feature branch is not
+merging: the gate still runs once before merge ([[gate-once-per-merge-not-per-commit]]).

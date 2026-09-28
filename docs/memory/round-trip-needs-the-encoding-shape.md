@@ -8,26 +8,20 @@ metadata:
   modified: 2026-09-09T03:54:31.905Z
 ---
 
-A delta-coded message decodes to values, and the values do not say which fields were on
-the wire. Re-encoding by the obvious rule — send a field when it differs from the previous
-record — is wrong, and it is wrong in a way that only a bit comparison against the original
-can see.
+A delta-coded message decodes to values that don't say which fields were on the wire. Re-encoding by
+"send a field when it differs from the previous record" is wrong in a way only a bit comparison
+against the original can see.
 
-Measured on `svc_Sounds`, 2026-08-10: that rule came out **exactly 12 bits short per
-occurrence** across hundreds of corpus bodies, always a multiple of an origin's 12-bit
-width. The engine compares positions at full precision; the decoder sees them quantised to
-an 8-unit grid; two sounds from one moving entity land in the same cell, so the field looks
-redundant when the sender did not think so. The same applies to any field the wire
-quantises, and to a *form* choice — a narrow entity index, a sequence sent as "one higher"
-rather than in full.
+Measured on `svc_Sounds`: that rule came out exactly 12 bits short per occurrence, always a multiple
+of a field's own width — the engine compares positions at full precision, the decoder sees them
+quantised, so two sounds land in the same cell and the field looks redundant when the sender didn't
+think so.
 
-So a lossless decoder records the encoding shape alongside the values.
-`DecodedSound.Sent` is a `SoundFields` mask doing exactly that, and adding it took the
-round trip from hundreds of mismatches to zero across 11,989 sounds and five protocols.
+**Fix:** a lossless decoder records the encoding SHAPE alongside values (a field mask). Adding it took
+the round trip from hundreds of mismatches to zero across 11,989 sounds and five protocols.
 
-**How to apply:** when writing an encoder for any delta-coded message here, do not infer
-presence — carry it. And pick the sabotage carefully: narrowing a width that decoder and
-encoder share still round-trips through *values*, and fails only against the original
-demo's bits. Comparing against the original is what makes a round trip evidence rather
-than a tautology. Related: [[fixtures-are-the-weak-point]],
+**How to apply:** when writing an encoder for a delta-coded message, don't infer presence — carry it.
+Pick the sabotage carefully — narrowing a shared width still round-trips through VALUES and fails
+only against the original demo's BITS; comparing against the original bits is what makes a round trip
+evidence rather than a tautology. Related: [[fixtures-are-the-weak-point]],
 [[read-the-encoder-not-the-decoder]], [[numeric-decoding-traps]].
