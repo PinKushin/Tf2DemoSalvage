@@ -151,6 +151,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// Valve's per-surface debug substitutions, so a test can assert on what one of them actually
     /// draws rather than only on the flag reaching the constant buffer.
     /// </param>
+    /// <param name="translucent">
+    /// Draw the translucent world now; false leaves it for <see cref="DrawTranslucentWorld"/> after a model.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -173,7 +176,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         IReadOnlyList<WorldBatch>? decals = null,
         Fullbright fullbright = Fullbright.Off,
         bool drawWorld = true,
-        DebugModes debug = default)
+        DebugModes debug = default,
+        bool translucent = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -189,6 +193,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // **Textures first, because the shader clips on their alpha.** With none bound the sample
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
         _world.UploadTextures(_device, _context, assets);
+        _uploaded = assets;
         _world.UploadGeometry(_device, vertices, batches, decals);
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, specular: true, fullbright,
@@ -201,7 +206,18 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.Draw(_context);
+
+        if (translucent)
+        {
+            _world.DrawTranslucentWorld(_context);
+        }
     }
+
+    /// <summary>The assets whose textures the renderer holds now.</summary>
+    private MapAssets? _uploaded;
+
+    /// <summary>The translucent world of the last <see cref="DrawWorld"/>, drawn now — after a model, as the engine does (B426).</summary>
+    public void DrawTranslucentWorld() => _world?.DrawTranslucentWorld(_context);
 
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
@@ -281,7 +297,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.Seconds = Seconds;
 
-        _world.UploadTextures(_device, _context, assets);
+        // **Not again for the world's own assets**: an upload releases the world's material classes and
+        // its translucent sort, so a DrawTranslucentWorld after this model would draw nothing (B426).
+        if (!ReferenceEquals(assets, _uploaded))
+        {
+            _world.UploadTextures(_device, _context, assets);
+            _uploaded = assets;
+        }
+
         // **Cleared first, because this target reuses one NAME for different geometry.** Every other
         // caller maps a model path to fixed vertices for the life of a map, which is what lets the
         // upload skip anything it already holds; here each Render is a different model under

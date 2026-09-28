@@ -7737,10 +7737,23 @@ blend-state test now draw the prop as a model after the world (`DrawModelPose(cl
 draws in `Device3D`** — it had gated only the merged prop batches, so turning it off hid static props and
 nothing else; `DrawOpaqueRenderables` returns on it for every renderable.
 
-**A picture change nothing here tests:** the world's translucent surfaces are drawn inside
-`WorldRenderer.Draw`, BEFORE the opaque models, where the engine draws them after the opaque renderables
-(`viewrender.cpp:5487`). This was already true of every entity; a static prop is now one, so a prop
-behind world glass or a translucent brush face draws over it rather than under it. Not fixed here.
+**Translucent world order — FIXED 2026-09-28, pass order only.** The world's translucent and additive
+surfaces were drawn inside `WorldRenderer.Draw`, before the opaque models, so a prop behind world glass
+drew over it. The engine draws them in `CRendering3dView::DrawTranslucentRenderables`
+(`viewrender.cpp:4465`), after `DrawOpaqueRenderables`: they now come from `WorldRenderer.DrawTranslucentWorld`,
+which `Device3D` calls after the opaque models and their decals and before the translucent models. Tests:
+`TranslucentWorldOrderRenderTests` (a model behind a translucent map material is changed by it; red with the
+old order) and `ScenePassOrderConformanceTests.DrawTranslucentRenderables_…`.
+
+**Still divergent — the per-leaf interleave.** The engine walks the world list's leaves back to front and,
+for each translucent entity in its `m_iWorldListInfoLeaf` order, draws the translucent world up to and
+including that leaf first (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298`, called at `:4577`), the
+entity after, and the leaves left over after the loop (`:4694`); translucent detail sprites are queued in the
+same walk. The port's translucent world runs are per MATERIAL, sorted once at upload, and carry no leaf, so
+the whole translucent world now draws before every translucent model: a translucent model BEHIND world glass
+still draws over it. Building it needs the translucent faces split into per-leaf runs and each translucent
+model's leaf within the cull's front-to-back leaf list. The grass (detail sprites) is still drawn before the
+opaque models (B361).
 
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
 `LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have

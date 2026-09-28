@@ -3422,6 +3422,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         // Static props are model draws now, after this (B426, D198) — `DrawOpaqueRenderables`.
+        // The translucent world is NOT drawn here: see DrawTranslucentWorld.
+    }
+
+    /// <summary>The world's translucent and additive surfaces, drawn after the opaque renderables.</summary>
+    /// <param name="context">Context to issue the draws on.</param>
+    /// <remarks>
+    /// **After <c>DrawOpaqueRenderables</c>, in <c>DrawTranslucentRenderables</c>** (<c>viewrender.cpp:4465</c>):
+    /// the world's translucent surfaces are drawn leaf by leaf, back to front, by
+    /// <c>DrawTranslucentWorldAndDetailPropsInLeaves</c> (<c>:4298</c>), interleaved with the translucent entities
+    /// (<c>:4577-4601</c>) and finished after the loop (<c>:4694</c>). Drawn inside <see cref="Draw"/> they went
+    /// before every model, so an opaque prop behind glass painted over it (B426).
+    ///
+    /// **Not yet the per-leaf interleave**: this port's translucent runs are per material, not per leaf, so
+    /// the whole translucent world is drawn before the translucent models rather than between them.
+    /// </remarks>
+    public void DrawTranslucentWorld(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_batches.Count == 0)
+        {
+            return;
+        }
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        // A model draw bound its own buffer, shaders and matrix; take the world's back.
+        BindPipeline(context);
+        context.RSSetState(Raster(_bothSides));
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        SetModel(context, Identity);
+
         DrawTranslucent(context);
         DrawAdditive(context);
     }

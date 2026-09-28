@@ -1282,6 +1282,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // Bullet holes on doors, after the doors (`R_DrawBrushModel`'s order).
                 _world.DrawEntityDecals(_context);
 
+                // **The translucent world, after every opaque renderable** — `DrawTranslucentRenderables`
+                // (`viewrender.cpp:4465`), not `DrawWorld`. A static prop behind glass was painted over it (B426).
+                _world.DrawTranslucentWorld(_context);
+
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
                 // can only be drawn once that has been drawn — which is the same reason the world

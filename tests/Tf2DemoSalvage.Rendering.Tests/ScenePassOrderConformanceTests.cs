@@ -93,6 +93,36 @@ public sealed class ScenePassOrderConformanceTests
 
 
     [Test]
+    public void DrawTranslucentRenderables_TheTranslucentWorld_IsDrawnThereNotWithTheWorld()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string text = SourceSdk.Text("src/game/client/viewrender.cpp")
+            ?? throw new InvalidOperationException("viewrender.cpp is missing from the SDK");
+
+        // viewrender.cpp:4465 — the translucent world is drawn per leaf inside the translucent pass,
+        // before each leaf's translucent entities and again for the leaves left after the loop (B426).
+        Match body = new Regex(
+            @"void CRendering3dView::DrawTranslucentRenderables\([^)]*\)(?s).{0,12000}?\n\}",
+            RegexOptions.Compiled,
+            TimeSpan.FromSeconds(10)).Match(text);
+
+        body.Success.ShouldBeTrue("CRendering3dView::DrawTranslucentRenderables was not found");
+
+        int world = body.Value.IndexOf("DrawTranslucentWorldAndDetailPropsInLeaves( iPrevLeaf, iThisLeaf", StringComparison.Ordinal);
+        int entity = body.Value.IndexOf("DrawTranslucentRenderable( pRenderable", StringComparison.Ordinal);
+        int rest = body.Value.IndexOf("DrawTranslucentWorldAndDetailPropsInLeaves( iPrevLeaf, 0", StringComparison.Ordinal);
+
+        world.ShouldBeGreaterThanOrEqualTo(0, "the per-leaf world draw is missing");
+        world.ShouldBeLessThan(entity, "the leaf's translucent world goes before its translucent entities");
+        entity.ShouldBeLessThan(rest, "the remaining leaves' translucent world goes after the loop");
+    }
+
+    [Test]
     public void DrawOpaqueRenderables_IsWhereStaticPropsAreDrawn()
     {
         if (!SourceSdk.Available)
