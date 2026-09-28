@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
@@ -256,7 +257,9 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 
         if (arguments.Count > 0 && arguments[0] is "slab" or "ledges")
         {
-            int frictionless = VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(surfaceProps, "frictionless");
+            // `real`: Valve's own default surface (friction 0.8, elasticity 0.25) in place of the tests' frictionless one.
+            int frictionless = VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(
+                surfaceProps, arguments.Contains("real") ? "default" : "frictionless");
 
             if (arguments[0] == "slab")
             {
