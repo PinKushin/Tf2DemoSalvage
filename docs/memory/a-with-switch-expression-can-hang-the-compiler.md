@@ -8,14 +8,14 @@ metadata:
   modified: 2026-09-24T00:36:28.188Z
 ---
 
-A switch expression of about twenty arms, each a nested `with` (`staged with { Sounds = staged.Sounds with { … } }`),
-made `csc.exe` on Tf2DemoSalvage.Animation run for more than seven minutes. The same logic as a switch STATEMENT over
-locals built in eight seconds.
+A ~20-arm switch expression, each arm a nested `with` (`staged with { Sounds = staged.Sounds with {
+… } }`), made `csc.exe` on Tf2DemoSalvage.Animation run 7+ minutes — the same logic as a switch
+STATEMENT over locals built in 8 seconds.
 
-**Why:** 2026-09-23. It looked like a deadlock between two of my own test runs, and I spent three rounds killing
-processes before a `timeout 300 dotnet build <project> -p:UseSharedCompilation=false` showed that csc itself never
+**Why:** 2026-09-23, looked like a deadlock between two test runs; three rounds of killing processes
+before `timeout 300 dotnet build <project> -p:UseSharedCompilation=false` showed csc itself never
 finished.
 
-**How to apply:** when a build stalls on one project right after an edit, suspect the edit before the machine. Build that
-project alone under `timeout`, with shared compilation off. Write long key dispatch as a switch statement. Related:
-[[my-own-processes-are-mine]].
+**How to apply:** when a build stalls on one project right after an edit, suspect the edit before the
+machine — build that project alone under `timeout`, shared compilation off. Write long key dispatch
+as a switch statement. Related: [[my-own-processes-are-mine]].

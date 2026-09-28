@@ -8,62 +8,45 @@ metadata:
   modified: 2026-09-10T23:02:35.345Z
 ---
 
-**`DemoTimeline.TrackFor(entity)` keeps ONE track per entity index, and a match has far more
-entities than indices.** `demostf-cp_process_f12` carries **1,669 `CTFProjectile_Rocket` tracks**
-across a couple of thousand edict slots, so index 407 names many different rockets over the match and
-`_trackByEntity[407]` holds the last one written.
+**`DemoTimeline.TrackFor(entity)` keeps ONE track per entity index, and a match has far more entities
+than indices.** `demostf-cp_process_f12` carries **1,669 `CTFProjectile_Rocket` tracks** across a
+couple thousand edict slots, so index 407 names many different rockets and `_trackByEntity[407]`
+holds the last one written.
 
-**How it failed (B375).** A rocket's trail needed the projectile's spawn tick to replay its history
-after a seek. `TrackFor(407)` at tick 51122 returned a rocket from *later* in the match, whose
-`FirstTick` is past 51122, so `age = Math.Max(0, 51122 - first)` clamped to zero, the `ticks > 0`
-guard was false, and the replay silently did nothing. The trail simply never appeared — no exception,
-no log, and a first attempt at the fix looked like it had made things worse.
+**B375:** a rocket trail needed the spawn tick to replay history after a seek. `TrackFor(407)` at
+tick 51122 returned a *later* rocket whose `FirstTick` exceeds 51122, `age` clamped to zero, the
+`ticks > 0` guard failed, the replay silently did nothing — no exception, no log.
 
-**It has now happened three times, and the third was an INSTRUMENT.** B370: `jitter` reported "fewer
-than three samples" for a door because its chosen track was long dead at the tick asked for. B389:
-`cycle 20130518_0313_cp_granary_blu_blu 141 8200` printed a full animation table for entity 141 while
-141 at that tick is `main_entrance_door.mdl` — that index owns **seven** tracks, one per round
-restart. A probe's wrong answer is worse than the renderer's, because a picture that looks wrong gets
-investigated and a table of plausible numbers gets quoted.
+**It has happened three times, the third in an INSTRUMENT.** B370: `jitter` reported "fewer than
+three samples" for a door whose chosen track was long dead. B389: a `cycle` probe printed a full
+animation table for entity 141, which owns seven tracks (one per round restart) — a wrong instrument
+answer is worse than the renderer's, since a table of plausible numbers gets quoted.
 
-**How to apply: `DemoTimeline.TrackFor(entityIndex, tick)`, never `TrackFor(entityIndex)`.** The
-tick-aware overload exists since B389 and selects with `ScenePropTrack.Alive`, the same bound `At` and
-`Held` apply — do not write the range comparison again, because two expressions that must agree stop
-agreeing. `TracksFor(entityIndex)` lists every occupant, which is what a report needs when the answer
-is null: "nothing was ever recorded for that index" and "seven tracks, none covering your tick" send
-the reader to opposite places. Probes go through `EntityTracks.Select`, which does both.
+**How to apply:** `DemoTimeline.TrackFor(entityIndex, tick)`, never the index-only overload — selects
+via `ScenePropTrack.Alive`, the same bound `At`/`Held` use. `TracksFor(entityIndex)` lists every
+occupant for reports ("nothing recorded" vs "seven tracks, none covering your tick" send the reader
+different places); probes go through `EntityTracks.Select`. **Don't fall back to index-only when
+nothing is alive** — a guess is the same failure with an extra step. Print the selection window and
+the model — `EndTick` ≠ last keyframe, so `[first..lastKeyframe]` can exclude an accepted tick (B243).
 
-**Do not fall back to the index-only lookup when nothing is alive.** If no occupant covers the tick,
-nothing of that entity is being drawn then and there is no track the answer belongs to — a guess is
-the same failure with an extra step.
-
-**Print the window you selected with, and print the model.** `EndTick` is the bound `Alive` tests; the
-last keyframe is a different number, so `[first..lastKeyframe]` can exclude a tick the selection
-accepted (B243). And a diagnostic that never names its subject's model gives the reader no way to
-notice it is describing something else.
-
-**The general shape** is [[key-a-lookup-on-the-question]] and its `lookups-must-match-exactly`
-section: the key has to identify the thing being asked about. An index that the engine recycles
-identifies a SLOT, the same way a store index identifies a slot and not a particle
-([[a-computed-offset-is-a-guess-the-file-can-answer]] is the file-format cousin). And it fails the
-way these always do — a plausible answer rather than an error, so nothing points at the lookup
+General shape: [[key-a-lookup-on-the-question]]#lookups-must-match-exactly — the key must identify
+the thing asked about, not the slot. Fails as a plausible answer, not an error
 ([[instrument-bugs-outnumber-decoder-bugs]]).
 
 ---
 
 ## `an-entity-index-is-not-a-real-name` — and the roster that names one was itself a slot short
 
-**A nameplate in a capture names whoever is in frame, not whoever holds the camera.** B397 compared
-the wrong players' views several times because the camera was guessed from what was visible.
+A nameplate in a capture names whoever is in frame, not whoever holds the camera — B397 compared the
+wrong players' views repeatedly, camera guessed from what was visible.
 
-**And the roster that should have settled it was wrong too.** `RosterBuilder` took the `userinfo`
-entry index as the entity index; the entry index is the CLIENT SLOT, and entity = slot + 1, because
-entity 0 is the world (`UTIL_PlayerByIndex`, `game/server/util.cpp:565`). Every name sat one entity
-short, so `--spectate <name>` landed on the neighbour — on an STV demo, on the SourceTV bot — and a
-"resolved" verdict naming entity 7 "nezay" was drafted off it. Entity 7 was abelll. Fixed in B398.
+**The roster was wrong too:** `RosterBuilder` took the `userinfo` entry index as the entity index;
+the entry index is the CLIENT SLOT, entity = slot + 1 (entity 0 is the world,
+`UTIL_PlayerByIndex`, `game/server/util.cpp:565`). Every name sat one entity short — `--spectate
+<name>` landed on the neighbour; a "resolved" verdict naming entity 7 "nezay" was actually abelll.
+Fixed B398.
 
-**How to apply:** confirm an index with the `roster` probe, then `--spectate <name>` or the user id.
-Before trusting ANY index-to-name mapping, check one against something that must hold: on a POV demo
-the header's client name must be the roster name at `RecorderEntityIndex`; on the f12 demo, entity 2
-must be Beleleu. Never declare a divergence resolved off a capture the owner has not confirmed.
-Related: [[instrument-bugs-outnumber-decoder-bugs]].
+**How to apply:** confirm an index with the `roster` probe, then `--spectate <name>` or user id. Check
+any index-to-name mapping against something that must hold (POV header name at
+`RecorderEntityIndex`; f12 entity 2 = Beleleu). Never declare a divergence resolved off an
+owner-unconfirmed capture. Related: [[instrument-bugs-outnumber-decoder-bugs]].

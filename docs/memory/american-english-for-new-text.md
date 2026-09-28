@@ -8,19 +8,17 @@ metadata:
   modified: 2026-09-11T00:00:29.172Z
 ---
 
-New text in this repository uses American English: color, behavior, center, normalize, gray,
-initialize, optimization. Pre-existing British spellings stay where they are — including in public
-names such as `HdrColourScale` and `VmtMaterial.Colour` — and editing a file for another reason is not
-an occasion to convert its old lines.
+New text uses American English (color, behavior, center, normalize, gray, initialize, optimization).
+Pre-existing British spellings stay, including public names (`HdrColourScale`, `VmtMaterial.Colour`)
+— editing a file for another reason is not an occasion to convert its old lines.
 
-**Why:** the owner's decision, D158. *"this repo should use american english"* — then, told that the
-British spellings already here run to thousands of lines, all written by earlier sessions: *"preexisting
-can stay, its not worth a refactor, expecially in comments and prose"*.
+**Why:** D158. Owner: *"this repo should use american english"*, then, told the existing British
+spellings run to thousands of lines: *"preexisting can stay, its not worth a refactor, expecially in
+comments and prose"*.
 
-**How to apply:** write new identifiers, test names, comments, documents and commit messages in American
-spelling from the start. Do not bulk-convert, and do not tidy an old line just because it is next to
-a new one. When a new name would sit one letter away from an existing one, choose a different word
-rather than the near-twin — `EntityState.RenderRgb`, because `RenderColor()` already returns the packed
-field there.
+**How to apply:** write new identifiers/tests/comments/docs/commits in American spelling; don't
+bulk-convert or tidy an old line just because it's next to a new one. When a new name would sit one
+letter from an existing one, choose a different word rather than the near-twin — `EntityState.RenderRgb`,
+since `RenderColor()` already returns the packed field there.
 
 Related: [[one-place-or-it-drifts]], [[test-naming-convention]].

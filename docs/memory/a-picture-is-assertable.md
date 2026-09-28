@@ -8,61 +8,44 @@ metadata:
   modified: 2026-09-10T22:54:57.543Z
 ---
 
-**This project wrote "whether it looks RIGHT is not answerable by an assertion" into its tests and
-its risks, and it is wrong.** The owner's correction, 2026-08-23: "we can use golden image
-comparison, or we can check pixels colors and or contrast, although that can be flakey."
+**"Whether it looks RIGHT is not answerable by an assertion" was written into tests and risks, and is
+wrong.** Owner, 2026-08-23: *"we can use golden image comparison, or we can check pixels colors and
+or contrast, although that can be flakey."*
 
-Three claims were being run together under one sentence:
+Three separate claims were run together:
+- **A specific visual property is assertable now, no reference needed** — "the wall must not show
+  through an opaque prop" caught the two-day blend-state leak; "each pass draws something, not the
+  same something" caught a mis-wired `r_drawworld`; "three fullbright states produce three different
+  pixels" caught a mode implemented as a boolean.
+- **Open-ended "does it look right" needs a person exactly ONCE**, to bless a reference — after that
+  it's a golden comparison. The owner said the mirror of this about the UI suite's captures: they're
+  "worthless, because we are not comparing them to a golden image".
+- **Flake is a property of the SETUP, not the technique** — driver/resolution/timing vary; a fixed
+  viewport, tick and device don't. This project already renders offscreen at 64x64 with exact pixel
+  reads.
 
-- **A specific visual property is assertable now, with no reference image.** "The wall must not show
-  through an opaque prop" caught the blend-state leak that had made every static prop translucent
-  for two days. "Each pass draws something, and not the same something" caught a mis-wired
-  `r_drawworld`. "Three fullbright states produce three different pixels" caught a mode implemented
-  as a boolean. None needed a person.
-- **Open-ended "does it look right" needs a person exactly ONCE**, to bless a reference. After that
-  it is a golden comparison and every later change is assertable. The owner had already said the
-  same thing from the other side, about the UI suite's captures: they are "worthless, because we are
-  not comparing them to a golden image".
-- **Flake is a property of the SETUP, not of the technique.** Driver, resolution and timing make a
-  capture vary; a fixed viewport, a fixed tick and a fixed device do not. This project already
-  renders offscreen at 64x64 from a fixed matrix and reads exact pixels.
+**What the overstatement cost:** `FirstPerson_Capture_WritesAPictureForSomebodyToLookAt` asserted
+only that a file appeared. The viewmodel pass drew nothing (`c_*` models went to the world pass
+instead) and the test rendered the broken picture and passed. One mechanical assertion (viewmodel
+pass draws >0 instances in first person) would have caught it.
 
-**What the overstatement cost.** `FirstPerson_Capture_WritesAPictureForSomebodyToLookAt` renders the
-first-person view and asserts only that a file appeared, on the reasoning above. The viewmodel pass
-draws nothing at all — `c_*` models go to the world pass and appear at the eye — and that test
-rendered the broken picture, wrote it out, and passed. One mechanical assertion would have caught
-it: the viewmodel pass draws more than zero instances when first person is on.
-
-**How to apply:** before concluding a visual claim needs a human, ask what property would differ
-between right and wrong and whether it can be measured — count, colour, contrast, "not equal to the
-other mode". Reach for "a person decides" only for open-ended correctness, and then bless a
-reference so the next person does not have to. And never let "a person decides" stand in for an
-assertion that needs no judgement at all.
+**How to apply:** before deciding a visual claim needs a human, ask what property would differ
+between right and wrong, and whether it's measurable (count, colour, contrast, "≠ other mode").
+Reach for "a person decides" only for open-ended correctness, then bless a reference.
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[instrument-bugs-outnumber-decoder-bugs]].
 
 ## But a VIEWER SCREENSHOT is not a diffable artefact — measured 2026-09-04
 
-Two captures of the SAME code, same demo, same `--tick 30000 --third-person`, differ in bytes.
-That was found the right way round: a shader change was captured before and after, the two PNGs
-differed, and the **control** — re-running the unchanged build — differed too. So the "before and
-after are different" result proved nothing, and would have been reported as proof if the control had
-been skipped.
-
-**At least one confound is visible in the image**: the fps overlay prints a per-run number in the
-corner. There may be others; nothing here has established that removing the overlay would make the
-capture reproducible, and one attempt to switch it off with `+cl_showfps 0` produced no file at all
-while `cmp` cheerfully reported "different" about two paths that did not exist. Two instrument
+Two captures of the same code/demo/tick differ in bytes. Found correctly: a shader change's before/
+after PNGs differed, but so did the CONTROL (re-running the unchanged build) — so "different" proved
+nothing. At least one confound is visible (fps overlay prints a per-run number); `+cl_showfps 0`
+produced no file at all while `cmp` reported "different" for two nonexistent paths — two instrument
 faults in one check.
 
-**So: `--shot` is for LOOKING, not for diffing.** When the question is "does this change any pixel",
-the instrument is `Rendering.Tests`' offscreen harness — `OffscreenTarget` + `DrawModelPose`, which
-draws a quad under a fixed camera and reads one pixel deterministically.
-
-**Its limit, which is why this note is here rather than a fixed test.** That harness draws from a
-loaded `MapAssets`, and `MapAssets` is a sealed class with `private init` members — so a test cannot
-build one carrying a chosen material state, only load a real map and use what is on it. If the
-map has no material exercising the branch, there is no pixel test to write. That is exactly the
-position `$phongexponenttexture` was in (B334): cp_process_final resolves zero exponent maps while a
-real demo resolves 21. See [[instrument-bugs-outnumber-decoder-bugs]], and its
-`run-the-control-before-arguing` section.
+**So `--shot` is for LOOKING, not diffing.** For "does this change any pixel", use `Rendering.Tests`'
+offscreen harness (`OffscreenTarget` + `DrawModelPose`, fixed camera, deterministic pixel read). Its
+limit: it draws from a loaded `MapAssets` (sealed, `private init`), so a test can't build one with
+chosen material state — only load a real map and use what's on it. If no map exercises the branch,
+there's no pixel test to write (`$phongexponenttexture`, B334: cp_process_final resolves zero
+exponent maps, a real demo resolves 21). See [[instrument-bugs-outnumber-decoder-bugs]]#run-the-control-before-arguing.

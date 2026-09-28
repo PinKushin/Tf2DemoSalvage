@@ -8,31 +8,28 @@ metadata:
   modified: 2026-09-10T11:36:19.576Z
 ---
 
-**"Visible" is not one predicate, and a set named for it will be wrong for at least one of its
-readers.** Source has at least three, and they share no inputs:
+**"Visible" is not one predicate.** Source has at least three, sharing no inputs:
 
-| the engine's question | what it actually tests | `file:line` |
+| the engine's question | what it tests | `file:line` |
 |---|---|---|
-| `IsVisible()` | `m_hRender != INVALID_CLIENT_RENDER_HANDLE` — leaf-system membership, set by `UpdateVisibility` from `ShouldDraw() && !IsDormant()`. **No frustum, no frame, no bones.** | `c_baseentity.h:691`, `c_baseentity.cpp:1421` |
-| `ShouldDraw()` | `kRenderNone`, then `model != 0 && !IsEffectActive( EF_NODRAW ) && index != 0` | `c_baseentity.cpp:1435` |
-| `IsRagdollVisible()` | `engine->IsBoxInViewCluster` then `engine->CullBox` around a ±1 box — a live PVS and frustum test | `c_tf_player.cpp:1350` |
+| `IsVisible()` | `m_hRender != INVALID_CLIENT_RENDER_HANDLE` — leaf-system membership, no frustum/frame/bones | `c_baseentity.h:691`, `.cpp:1421` |
+| `ShouldDraw()` | `kRenderNone`, then `model != 0 && !EF_NODRAW && index != 0` | `c_baseentity.cpp:1435` |
+| `IsRagdollVisible()` | `IsBoxInViewCluster` then `CullBox` around a ±1 box — live PVS + frustum | `c_tf_player.cpp:1350` |
 
-One `HashSet<int>` here served `ShouldInterpolate` (which wants the first) and the corpse fade (which
-wants the third), and was filled at **bone setup**, which is none of them. Consequences, all four at
-once and all invisible to a green suite: no brush entity was ever interpolated in any map, so no door
-anywhere ever moved smoothly; the viewmodel pass cleared the set and refilled it with two props, so on
-any first-person frame the whole world dropped off both lists; and the frustum removed entities the
-engine keeps.
+One `HashSet<int>` served both `ShouldInterpolate` (wants the first) and the corpse fade (wants the
+third), filled at bone setup (none of the three). Consequences, all invisible to a green suite: no
+brush entity interpolated in any map (no door ever moved smoothly); the viewmodel pass cleared and
+refilled the set with two props, dropping the whole world off both lists on any first-person frame;
+the frustum removed entities the engine keeps.
 
-**The tell was a sentence, not a symptom.** Four files repeated *"`IsVisible()` is the LAST render's
-answer, so gating this frame on the previous one is not an approximation of what Valve does — it is what
-Valve does."* A claim that confident, restated in four places, and none of them a quote. Reading the
-one-line inline accessor took a single grep.
+**The tell was a sentence, not a symptom:** four files repeated *"`IsVisible()` is the LAST render's
+answer, so gating this frame on the previous one is not an approximation — it is what Valve does"* —
+confident, restated four times, never quoted. A single grep of the one-line inline accessor settled
+it.
 
-**How to apply.** Before wiring any "was it visible" set: name the ENGINE FUNCTION each consumer calls,
-grep its definition — these are one-line inline accessors, not deep code — and give each consumer its
-own set if the inputs differ. A frame-latency argument ("the engine uses last frame's answer") is a
-claim about *when*, and it hides the prior question of *what*. Ask what, first.
+**How to apply:** before wiring any "was it visible" set, name the ENGINE FUNCTION each consumer
+calls, grep its definition, give each consumer its own set if inputs differ. A frame-latency argument
+hides the prior question of *what* — ask what, first.
 
 Related: [[the-base-is-not-the-behaviour]], [[parity-is-the-search-not-the-defence]],
 [[measure-the-output-not-the-capability]], [[an-entity-index-does-not-name-a-track]],
