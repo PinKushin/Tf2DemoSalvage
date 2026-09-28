@@ -7690,6 +7690,20 @@ and whose contribution at the handle's origin (`FUN_1801b99a0`, bounds passed th
 bit in the mask at `+0x17c`, and `+0x174` gains bit 1 when that style is animated (`DAT_18069dd40[style] >= 2`), else bit 0.
 Style-0 lights never enter the list — they are what vrad baked.
 
+**Blocked on B426**: the port has no per-draw lighting for a static prop to fall back to.
+
+---
+
+### B426 — static props have no per-draw lighting — OPEN 2026-09-28
+
+**The port merges every static prop into the world's surface batches at load** (`PropModels` then `MapWorld`, the
+`Append(… red, green, blue)` per corner). Its only light is the vertex colour: the `.vhv` colours where they exist, and otherwise
+**one ambient cube sampled at the prop origin and baked into the colours**, with no local lights and no normal-mapped or
+specular term. The engine draws a static prop through the model draw `0x1800f1bd0` with its lighting handle; an unbaked prop
+(no `.vhv`) gets the handle's cube and local lights **every frame** (`FUN_1801ba590`, flags `0xf`), and a baked one can fall back
+to that path (B424). So an unbaked prop near a changing light never changes. It is also flatter than TF2's under any local
+light. The fix: draw static props as models, which is a rendering-architecture change that the owner can see.
+
 ---
 
 ### B423 — a model was lit at its own point, not at its light cache cell — FIXED 2026-09-25
