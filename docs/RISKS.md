@@ -7682,8 +7682,13 @@ colours (`*param_7`) is drawn with **no cube and no local lights** — which the
 (`+0x1b0` indices into the world lights, count `+0x1c0`, gated by `+0x174 & 3`) has an **animated style** (`DAT_18069dd40[style] > 1`),
 and `FUN_1801bb8b0` rebuilds the baked colours (`FUN_1800f36e0`) when a **one-frame style** that light answers to changed since
 the handle's stamp (`+0x1d0` against `DAT_1806998a0[style]`, gated by `+0x174 & 1`). The port never re-evaluates a baked prop, so
-a prop under a flickering or switched lamp keeps the colours vrad baked for style 0. **Before porting: which lights the handle's
-`+0x1b0` list holds** — read where the static prop's cache is created.
+a prop under a flickering or switched lamp keeps the colours vrad baked for style 0.
+
+**The list, read from `FUN_1801b6bf0`** (called by the cache creator `FUN_1801b8350` with the prop's bounds): every world
+light (`0x58`-byte records) whose **style is nonzero** (`+0x2c`), whose cluster (`+0x24`) is in the PVS of the handle's leaf,
+and whose contribution at the handle's origin (`FUN_1801b99a0`, bounds passed through) is positive. Each hit sets its style's
+bit in the mask at `+0x17c`, and `+0x174` gains bit 1 when that style is animated (`DAT_18069dd40[style] >= 2`), else bit 0.
+Style-0 lights never enter the list — they are what vrad baked.
 
 ---
 
