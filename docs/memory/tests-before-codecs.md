@@ -8,78 +8,39 @@ metadata:
   modified: 2026-09-10T22:51:01.463Z
 ---
 
-**Write the unit tests before the decoder, every time.** Established the hard way on
-2026-08-07, twice in the same session.
+**Write unit tests before the decoder, every time.** Three codecs written tests-after each passed
+their corpus tests and looked finished; each time mutation testing found dozens to 86 survivors in
+that file alone. **Read the survivors, not the score** — a low aggregate score reads like a broad
+quality problem and is really three files written before their tests in an otherwise-fine codebase.
 
-| Codec | Tests written | First mutation run |
-|---|---|---|
-| `GameEventCodec` | after | 5 survivors, all in one untested helper |
-| `StringTableCodec` | after | **53 survivors** in that file alone |
-| `UserMessageBody` | after | **86 survivors** in that file alone (2026-08-12) |
+**Why corpus tests don't cover for it:** a real demo exercises only the paths it happens to use — a
+string-table codec has branches for fixed vs. variable user data, back-references, history eviction,
+that the corpus touches maybe half of. End-to-end tests prove the demos we have work; they say nothing
+about untaken branches, exactly where a silent misread waits.
 
-Every time, the code passed its corpus tests and looked finished. Every time, mutation testing
-found the gap immediately. The second lapse happened one feature after the first, which is why
-this was written down rather than merely noticed — and the third happened anyway, which is worth
-sitting with.
-
-**The third one is the clearest case yet, because of how concentrated it is.** The 2026-08-12
-`core` run scored 54.26 % with 242 survivors, and 86 of them — better than a third — are in
-`UserMessageBody.cs` alone. The next two are `MessageAssembly.cs` (32) and `DemoAssembly.cs`
-(31), both written the same way. A score that low reads like a broad quality problem and is not
-one: it is three files that were written before their tests, in a codebase whose other ~40 files
-are fine. **Read the survivors, not the score** — the score averages the lapse away, and the
-per-file count points straight at it.
-
-By mutator the survivors are 57 string, 40 equality, 37 statement and 35 boolean — the shape of
-code whose *outputs* were never asserted precisely, only that it ran.
-
-**Why corpus tests do not cover for it.** A real demo exercises only the paths those three
-files happen to use. `StringTableCodec` has branches for fixed-size versus variable-size
-user data, substring back-references, history eviction past 32 entries, explicit versus
-running indices, and compressed payloads — the corpus touches perhaps half. End-to-end
-tests prove the decoder works on the demos we have; they say nothing about the branches
-those demos never take, and a bit-level decoder's untaken branch is exactly where a silent
-misread waits.
-
-**How to apply:** before writing a codec, write the synthetic fixture builder and the tests
-for each branch the wire format describes — including the malformed cases. The builder is
-reusable and is usually the harder half anyway. Then implement.
+**How to apply:** before writing a codec, write the synthetic fixture builder and tests for each
+branch the format describes, including malformed cases. The builder is reusable and usually the
+harder half.
 
 ## The fixture trap that cost the most time
 
-**Bit-level fixtures must share one continuous `BitWriter`.** Building message A, calling
-`Build()`, then appending message B to a fresh writer does not work: `Build()` pads to a
-byte boundary, padding is 0–7 bits, and a message type field is 6 bits. The reader then
-consumes a type field spanning the padding *and* the start of message B, and desynchronises.
+**Bit-level fixtures must share one continuous `BitWriter`** — building message A, calling `Build()`
+(which pads to a byte boundary), then appending B to a fresh writer desyncs the reader with no error;
+it looks exactly like a decoder bug. A helper that writes INTO an existing writer, not one returning
+fresh bytes, is required for "what comes after A still decodes" tests.
 
-The symptom is confusing — B simply is not found, with no error — and it looks exactly like
-a bug in the decoder. Any test asserting "what comes after message A still decodes" needs a
-helper that writes *into* an existing writer rather than returning bytes. See
-`StringTableCodecTests.CreateInto`.
-
-Related: trailing zero padding decodes as a run of `net_NOP`, because NOP is message id 0.
-Fixtures must expect those extra messages or filter them out — see
-[[era-axis-is-measured]] for the pattern of assumptions that only real bytes disprove.
+Related: trailing zero padding decodes as `net_NOP` (message id 0) — fixtures must expect or filter
+those. See [[era-axis-is-measured]].
 
 ---
 
 ## The red step for a NEW type is a compile failure, not a failing assertion
 
-This project's analyzers are strict enough that TDD placeholder types do not compile. With
-`TreatWarningsAsErrors` plus `AnalysisMode=All` plus SonarAnalyzer, a stub whose members all throw
-`NotImplementedException` fails on **CA1065** (exception from a property getter) and **S2325**
-(member does not use instance state). Established 2026-08-07 when the solution was scaffolded.
+This project's analyzers are strict enough that TDD placeholder stub types (`throw
+NotImplementedException` everywhere) don't compile (CA1065, S2325). **Write tests first and implement
+directly** — don't stage a stub, don't relax analyzer settings.
 
-**So write the tests first and then implement directly** — do not waste a cycle trying to stage a
-stub, and do not relax `TreatWarningsAsErrors` or `AnalysisMode` to make one compile. The strictness
-is a gate the project deliberately wants; the reasons are recorded in comments at both sites — the
-analyzer settings, and every `GlobalUsings.cs`, where `System` is deliberately NOT global because the
-SDK-generated `AssemblyInfo.cs` emits its own `using System;` and the pair fails as CS8933. Do not add
-it there either.
-
-**The same strictness makes a lazy sabotage impossible**, which is worth knowing before trying one:
-`&& false` is S1125, dropping a call leaves a private method unreferenced (S1144), and `x = 0` on an
-int field is CA1805. A sabotage must compile, so pick one that keeps every symbol used — OR-ing
-`int.MaxValue` into a flag set, or `+ 500` on an index. See [[most-of-a-decoder-is-untested]].
+**The same strictness makes a lazy sabotage impossible** — pick one that keeps every symbol used
+(OR-ing a value into a flag set, `+ 500` on an index). See [[most-of-a-decoder-is-untested]].
 
 Related: [[mutation-score-is-not-the-goal]].

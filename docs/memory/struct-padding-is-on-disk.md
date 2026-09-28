@@ -8,35 +8,24 @@ metadata:
   modified: 2026-09-10T22:52:37.129Z
 ---
 
-**A lump written with `SwapLumpToDisk<T>` stores `sizeof(T)`, so C++ trailing padding is on disk.**
-`dcubemapsample_t` is `int origin[3]; unsigned char size;` — thirteen bytes of content, sixteen on
-disk, padded to the ints' four-byte alignment. Reading it at 13 gave a correct FIRST record and
-drift after, because each later one is composed from the tail of one and the head of the next:
-`(0, 0, 608)` then `(-2147483648, -2147483642, 1879048200)`.
+A lump stores `sizeof(T)`, so C++ trailing padding is ON DISK. A struct with 13 bytes of content read
+at 13 gave a correct FIRST record and drift after (each later record composed from the tail of one and
+head of the next) — the real stride is 16, padded to alignment.
 
-`DECLARE_BYTESWAP_DATADESC()` inside such a struct adds nothing — `static` members and friend
-templates only (`datamap.h:318`). Rule it out rather than worrying about it.
+**Ten synthetic tests passed against the wrong stride**, including three written specifically to
+catch a stride error, because the fixture builder was 13 bytes wide too — tests and reader shared one
+belief, so the suite was one hypothesis wearing ten assertions.
 
-**Ten synthetic tests passed against the wrong stride**, including three specifically written to
-catch a stride error, because the fixture builder was 13 bytes wide too. Tests and reader came from
-one belief, so the suite was one hypothesis wearing ten assertions. Not a buggy fixture — a fixture
-that faithfully expressed the bug.
+**Why:** field-sum stride is right often enough to feel safe, wrong silently — the first record is
+always correct, which is exactly what stops anyone looking further.
 
-**Why:** field-sum stride is right often enough to feel safe, and wrong silently. The failure
-produces plausible numbers, and the first record is always correct, which is exactly what stops
-anyone looking further.
+**How to apply, two cheap checks:**
+1. Divide the real lump length by candidate strides before writing code — one division answers it.
+   See [[length-arithmetic-identifies-a-layout]].
+2. Assert a property of REAL data the wrong reading can't satisfy (not a count) — here, world bounds
+   (a stride error lands outside ±16384, a correct one can't).
 
-**How to apply:** two checks, both cheap.
-
-1. **Divide the real lump length by the candidate strides before writing code.** 688 bytes is
-   43 × 16 exactly and is not divisible by 13. One division answers it. See
-   [[length-arithmetic-identifies-a-layout]].
-2. **Assert a property of REAL data that the wrong reading cannot satisfy** — not a count, which is
-   as plausible either way. For placements that is the world bounds: vbsp took the positions from
-   entities the compiler had already bounds-checked, so a stride error lands outside ±16384 and a
-   correct one cannot.
-
-Related: [[fixtures-are-the-weak-point]] and its `real-data-hides-bugs-small-inputs-expose` section,
-[[instrument-bugs-outnumber-decoder-bugs]] — the first version of the falsifying test searched the
-game's archives instead of the map's pakfile and found 0 of 43, which looked like the bug and was
-the instrument. Story: `docs/findings/27-cubemap-placement.md`.
+Related: [[fixtures-are-the-weak-point]]#real-data-hides-bugs-small-inputs-expose,
+[[instrument-bugs-outnumber-decoder-bugs]] — the falsifying test's first version searched the wrong
+archive and found 0 of 43, which looked like the bug and was the instrument. Story:
+`docs/findings/27-cubemap-placement.md`.

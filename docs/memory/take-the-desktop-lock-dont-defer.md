@@ -8,8 +8,13 @@ metadata:
   modified: 2026-09-18T15:37:28.858Z
 ---
 
-Run UI-suite and viewer work yourself through `run-exclusive.ps1`; do not stop and leave it "for when the desktop is free".
+Run UI-suite and viewer work yourself through `run-exclusive.ps1`; do not stop and leave it "for when
+the desktop is free."
 
-**Why:** 2026-09-18, after I ended a turn with "phase 2 not run — takes the desktop", the owner said: *"I'm not even home so the desktop is yours, can you not tell if I'm using a remote or local?"* The session gets no reliable signal for local vs remote. The lock already arbitrates between people and agents, and it waits rather than fights.
+**Why:** owner, after a turn ended with "phase 2 not run — takes the desktop": *"I'm not even home so
+the desktop is yours, can you not tell if I'm using a remote or local?"* The session has no reliable
+local-vs-remote signal. The lock already arbitrates between people and agents, and it waits rather
+than fights.
 
-**How to apply:** when the gate's phase 2 or a `--shot`/`--measure` is the next step, run it under `run-exclusive.ps1` in the same turn. See [[ui-tests-run-every-time]] and [[take-your-own-screenshot]].
+**How to apply:** when the gate's phase 2 or a `--shot`/`--measure` is the next step, run it under
+`run-exclusive.ps1` in the same turn. See [[ui-tests-run-every-time]], [[take-your-own-screenshot]].

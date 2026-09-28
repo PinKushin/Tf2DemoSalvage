@@ -5,25 +5,22 @@ metadata:
   type: project
 ---
 
-**A demo does not contain everything that is on screen.** The weapon you see in first person is
-`C_ViewmodelAttachmentModel`, created with `InitializeAsClientEntity` (`econ_entity.cpp:1153`) — no
-edict, no entity index, nothing networked. It is bone-merged onto the arms by the client at the
-moment the weapon is drawn. Searching a demo for it finds nothing, and that absence is correct.
+**A demo does not contain everything on screen.** The first-person weapon model is a client-created
+entity, no edict, no entity index, nothing networked — bone-merged onto the arms by the client at draw
+time. Searching a demo for it correctly finds nothing.
 
-**What the demo does carry is enough to rebuild it.** `DT_ScriptCreatedItem.m_iItemDefinitionIndex`
-names an item, and `items_game.txt` turns that into a model through `model_player`, inherited along
-the `prefab` chain — stock weapons are four lines and a prefab, so reading only the definition
-answers for almost nothing. **Twenty-two of fifty-six held weapons on z1800 send no index at all**,
-where the fallback is the stock item for the weapon's class, matched on `baseitem` + `item_class`.
-The two rules together resolved 56 of 56.
+**What the demo carries is enough to rebuild it:** an item definition index resolves through
+`items_game.txt`'s prefab chain to a model. Twenty-two of fifty-six held weapons on one demo send no
+index at all — the fallback is the stock item for the weapon's class. The two rules together resolved
+56 of 56.
 
-**Why it matters beyond weapons:** the same shape covers the HUD, tracers, muzzle flashes, and any
-`CLIENTCLASS`-only effect. When something obviously visible in the game turns out to be absent from
-the demo, the question is not "which field did we miss" but "does the client make this itself" — and
-if it does, the demo will carry the INPUT to that construction rather than its result.
+**Why it matters beyond weapons:** the same shape covers the HUD, tracers, muzzle flashes, any
+client-only effect. When something visibly in-game is absent from the demo, the question is "does the
+client make this itself", not "which field did we miss" — the demo carries the INPUT to that
+construction, not its result.
 
-**How to apply:** before hunting a field, check whether the thing is created client-side. `grep` for
-the class in `client/` with no matching `server/` definition, or for `InitializeAsClientEntity`.
-Then find what the client reads to build it, and read the same thing. Shipped data files are usually
-where that lands ([[nothing-is-closed]]), and an absent networked value normally means the
-default rather than "unknown" ([[sentinels-conflate-unknown-with-answer]]).
+**How to apply:** before hunting a field, check whether the thing is created client-side (grep for the
+class in `client/` with no `server/` match, or for the client-entity constructor). Find what the
+client reads to build it, read the same thing — shipped data files usually hold it
+([[nothing-is-closed]]); an absent networked value normally means the default, not "unknown"
+([[sentinels-conflate-unknown-with-answer]]).
