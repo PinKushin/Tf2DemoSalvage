@@ -5,23 +5,15 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
-/// <summary>
-/// What light a model is drawn with, and how often that is recomputed.
-/// </summary>
+/// <summary>What light a model is drawn with.</summary>
 /// <remarks>
-/// **The cache is the reason this type exists and it is not a micro-optimisation.** Lighting cost
-/// 320 ms of every second against 3.4 ms to draw the whole map (B99), and nearly all of it
-/// recomputed an unchanged answer: a cube is an inverse-squared average over sixteen ambient
-/// samples, <c>LocalLights</c> ranks all 477 of a map's world lights to pick four and evaluates a
-/// falloff per light for six faces, and the sun traces a ray through the BSP.
-///
-/// So the assertions here are call COUNTS on the sampler, not values. "Sampled once" and "sampled
-/// every frame" produce identical cubes, and no assertion on a cube can separate them.
+/// **The memo that stood here (B99) is gone: the engine's light cache is the memo** (<see cref="LightCache{T}"/>). Every
+/// drawn model asks every frame, as `LightcacheGet` is called every frame, so the cache sees each LRU touch.
 /// </remarks>
 public sealed class ModelLightingTests
 {
     [Test]
-    public void For_AModelThatHasNotMoved_IsSampledOnce()
+    public void For_AModelThatHasNotMoved_AsksTheLightSourceEveryFrame()
     {
         CountingSampler sampler = new();
         ModelLighting lighting = new(Origin, new RecordingLogger());
@@ -31,50 +23,7 @@ public sealed class ModelLightingTests
             lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
         }
 
-        sampler.Calls.ShouldBe(1);
-    }
-
-    /// <remarks>A switchable lamp turned off changes a standing model's light: the version says so.</remarks>
-    [Test]
-    public void For_AStandingModelAfterTheLightsChanged_IsSampledAgain()
-    {
-        CountingSampler sampler = new();
-        ModelLighting lighting = new(Origin, new RecordingLogger());
-
-        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
-        lighting.Version++;
-        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
-
-        sampler.Calls.ShouldBe(2);
-    }
-
-    [Test]
-    public void For_AModelThatMoved_IsSampledAgain()
-    {
-        // The control for the test above. A cache that never invalidates satisfies "sampled once"
-        // perfectly and lights every moving player at wherever it first stood.
-        CountingSampler sampler = new();
-        ModelLighting lighting = new(Origin, new RecordingLogger());
-
-        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
-        lighting.For(Prop(entity: 4, x: 101f), sampler.At, null);
-
-        sampler.Calls.ShouldBe(2);
-    }
-
-    [Test]
-    public void For_TwoModelsStandingInOnePlace_EachGetsItsOwnEntry()
-    {
-        // **Keyed on the entity as well as the point**, because two models can share a position and
-        // must not share a slot — a hat and its wearer are at the same illumination point by
-        // construction once the hat borrows it.
-        CountingSampler sampler = new();
-        ModelLighting lighting = new(Origin, new RecordingLogger());
-
-        lighting.For(Prop(entity: 4, x: 100f), sampler.At, null);
-        lighting.For(Prop(entity: 5, x: 100f), sampler.At, null);
-
-        sampler.Calls.ShouldBe(2);
+        sampler.Calls.ShouldBe(5);
     }
 
     [Test]

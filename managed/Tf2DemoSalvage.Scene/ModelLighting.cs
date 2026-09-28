@@ -61,20 +61,6 @@ public sealed class ModelLighting
         _render = render;
     }
 
-    /// <summary>One entity's lighting, and the point it was sampled at.</summary>
-    /// <remarks>
-    /// The position is held as BITS because the question is whether the model is at the identical
-    /// point, not whether it is near where it was — a tolerance would let a slow drift accumulate
-    /// without ever refreshing.
-    /// </remarks>
-    private readonly record struct LitAt(
-        int X, int Y, int Z, AmbientCube Light, SunLight? Sun, IReadOnlyList<LocalLight> Locals, int Version);
-
-    /// <summary>Raised when the lights themselves changed — a light style a world light answers to — so every model samples again.</summary>
-    public int Version { get; set; }
-
-    private readonly Dictionary<int, LitAt> _lit = [];
-
     /// <summary>Models already reported as drawing unlit.</summary>
     private readonly HashSet<string> _reportedDark = new(StringComparer.OrdinalIgnoreCase);
 
@@ -87,25 +73,18 @@ public sealed class ModelLighting
     /// </remarks>
     public long Ticks { get; set; }
 
-    /// <summary>Samples the light one prop is drawn with, or returns what it had last frame.</summary>
+    /// <summary>Asks for the light one prop is drawn with, every frame it is drawn.</summary>
     /// <param name="prop">The prop.</param>
     /// <param name="lightAt">The ambient cube at a world position, or null to leave models unlit.</param>
     /// <param name="sunAt">The sun at a world position, or null to apply no direct light.</param>
     /// <returns>The cube, the sun, and where they were sampled.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
     /// <remarks>
-    /// **A model that has not moved is lit exactly as it was last frame** (B99). Lighting cost
-    /// 320 ms of every second against 3.4 ms to draw the whole map, and nearly all of it recomputed
-    /// an unchanged answer: a cube is an inverse-squared average over sixteen ambient samples,
-    /// <c>LocalLights</c> ranks all 477 of a map's world lights to pick four and evaluates a falloff
-    /// per light for six faces, and the sun traces a ray through the BSP to ask whether the sky is
-    /// visible.
-    ///
-    /// **Keyed on the illumination point, compared exactly.** The point is derived from the pose,
-    /// and a held pose interpolates to a bit-identical <c>ScenePose</c> — so an entity that has not
-    /// moved produces the identical point and one that has moved at all produces a different one.
-    /// Keyed on the entity as well, because two models can stand in one place and must not share a
-    /// slot. Map lights never move; a light style they answer to can change, which <see cref="Version"/> carries.
+    /// **No memo here: the engine's light cache is the memo** (<see cref="LightCache{T}"/>, via
+    /// <see cref="LevelLighting.ModelLightingAt"/>). A per-entity memo (B99) kept a standing model from asking, which
+    /// skipped the cache's LRU touch and could not see an entry rebuilt at another model's point. A hit costs a leaf
+    /// walk and a lookup; the expensive sampling B99 measured happens only on a miss, capped per frame by
+    /// `lightcache_maxmiss`.
     /// </remarks>
     public ModelLight For(
         SceneProp prop,
@@ -130,35 +109,10 @@ public sealed class ModelLighting
             return new ModelLight(null, null, x, y, z, []);
         }
 
-        // Compared as bits rather than as floats, which is what "the identical point" means and is
-        // also how it is said without tripping the equality analyser: this is an identity test, not
-        // an approximation.
-        (int bitsX, int bitsY, int bitsZ) = (
-            BitConverter.SingleToInt32Bits(x),
-            BitConverter.SingleToInt32Bits(y),
-            BitConverter.SingleToInt32Bits(z));
-
-        AmbientCube? light;
-        SunLight? sun;
-        IReadOnlyList<LocalLight> locals;
-
-        if (_lit.TryGetValue(prop.EntityIndex, out LitAt cached) &&
-            cached.X == bitsX && cached.Y == bitsY && cached.Z == bitsZ && cached.Version == Version)
-        {
-            light = cached.Light;
-            sun = cached.Sun;
-            locals = cached.Locals;
-        }
-        else
-        {
-            PointLighting sampled = lightAt is null ? PointLighting.None : lightAt(x, y, z);
-
-            light = sampled.Cube;
-            sun = sunAt?.Invoke(x, y, z);
-            locals = sampled.Locals;
-
-            _lit[prop.EntityIndex] = new LitAt(bitsX, bitsY, bitsZ, sampled.Cube, sun, locals, Version);
-        }
+        PointLighting sampled = lightAt is null ? PointLighting.None : lightAt(x, y, z);
+        AmbientCube? light = sampled.Cube;
+        SunLight? sun = sunAt?.Invoke(x, y, z);
+        IReadOnlyList<LocalLight> locals = sampled.Locals;
 
         Ticks += Stopwatch.GetTimestamp() - started;
 

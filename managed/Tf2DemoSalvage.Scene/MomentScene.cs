@@ -510,8 +510,11 @@ public sealed class MomentScene : IGameSystemPerFrame
         // offset and made every other one simulate hundreds of ticks too many.
         _models.CurrentTick = info.Tick;
 
+        // `r_framecount` for the light cache: its miss budget is per frame (`LightcacheGet`, `0x1801b9cd0`).
+        Lighting.Frame++;
+
         _models.Instances(
-            _drawn, _instances, Lighting.LightingAt, Lighting.SunAt, info.Seconds, frustum,
+            _drawn, _instances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds, frustum,
             visibleByLeaf);
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
@@ -1230,8 +1233,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         _models.Instances(
             _viewmodelProps,
             _viewmodelInstances,
-            Lighting.LightingAt,
-            Lighting.SunAt,
+            Lighting.ModelLightingAt,
+            Lighting.ModelSunAt,
             info.Seconds,
 
             // **Named, because this pass shares the world pass's tally.** It passes no frustum, so
