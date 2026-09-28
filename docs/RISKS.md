@@ -7664,6 +7664,29 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B427 — a static prop's lump lighting origin was never read — FIXED 2026-09-28
+
+**`CStaticProp::Init`, `engine.dll` `0x1802052c0`:** when the lump's `m_Flags` has
+`STATIC_PROP_USE_LIGHTING_ORIGIN` (0x2, `public/gamebspfile.h:127`) the handle's lighting origin (`+0xb4`) is the lump's
+`m_LightingOrigin`; otherwise `GetIlluminationPoint` — the model's `illumposition`, which is all the port used.
+`CStaticPropMgr::PrecacheLighting` (`0x180205b20`) builds the light cache handle from that point (`FUN_1801b8350`).
+`BspStaticProps` read neither field.
+
+**The layout** (`gamebspfile.h:151-226`): `m_LightingOrigin` is at 44 in every version; `m_Flags` is one byte at 31
+through V6 and a `uint` at 64 from version 10 (`StaticPropLump_t`, where 31 is padding before `m_Skin`).
+
+**Measured 2026-09-28 over the 234 installed maps:** 161 flag at least one prop, 4,542 of 354,469 placements;
+`cp_process_final` flags none, `koth_harvest_final` 3 of 652.
+
+**Built:** `BspStaticProp.Flags` and `.LightingOrigin`; `PropModels.StaticModel` puts the lump point on
+`SceneProp.LightingOrigin` when flagged, and `EntityModelSet`'s illumination point returns it first, so the cube,
+sun, lamps and reflection origin all sample there. It only changes unbaked props (and a B424 fallback): a baked
+prop draws its `.vhv` colours with no per-draw lighting. Tests: `BspStaticPropLayoutTests` (V6, V10, V11 hand-built
+records with a decoy in the other version's flag slot), `MomentSceneTests.Pose_AStaticPropWithALightingOriginUnderALamp_…`,
+and `StaticPropModelsWiringTests.Load_KothHarvest_…` (the three flagged placements carry their lump point).
+
+---
+
 ### B425 — dynamic lights (`cl_dlights`) are not ported — OPEN 2026-09-28
 
 **Read from `engine.dll`.** A dynamic light reaching a static prop sets bit *n* of its lighting handle's `+0x1a4` (dlight *n*,

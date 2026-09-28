@@ -409,6 +409,33 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **B427.** `CStaticProp::Init` (`engine.dll` `0x1802052c0`) takes the lump's `m_LightingOrigin` as
+    /// the handle's lighting origin when `STATIC_PROP_USE_LIGHTING_ORIGIN` (0x2, `gamebspfile.h:127`) is
+    /// set. The prop stands 2,000 units from the lamp and its lighting origin stands under it, so the lamp
+    /// reaches the draw only through the lump point; unflagged, the same placement is lit where it stands.
+    /// </remarks>
+    [TestCase(0x2, 1)]
+    [TestCase(0x0, 0)]
+    public void Pose_AStaticPropWithALightingOriginUnderALamp_TakesTheLampOnlyWhenFlagged(int flags, int lamps)
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]);
+        scene.StaticProps =
+        [
+            PropModels.StaticModel(
+                new Content.Bsp.BspStaticProp(
+                    "models/props/crate.mdl", 2000f, 0f, 100f, 0f, 0f, 0f, 1f,
+                    Flags: flags, LightingOrigin: (0f, 0f, 100f)),
+                0),
+        ];
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        scene.Instances.ShouldHaveSingleItem().Locals.ShouldNotBeNull().Count.ShouldBe(lamps);
+    }
+
+    /// <remarks>
     /// **B426, the baked half.** `engine.dll` `0x1800f1bd0` draws a static prop with baked colours through
     /// the same model draw, with its per-placement colour mesh (the `.vhv` colours per vertex) and NO
     /// ambient cube and NO local lights. The colours reach the draw in the MODEL BUFFER's order, which

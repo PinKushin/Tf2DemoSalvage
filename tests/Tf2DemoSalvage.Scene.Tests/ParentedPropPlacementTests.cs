@@ -186,6 +186,11 @@ public sealed class ParentedPropPlacementTests
                 nameof(SceneProp.Force),
                 nameof(SceneProp.ForceBone),
                 nameof(SceneProp.RagdollVelocity),
+
+                // **`LightingOrigin` (B427)**: only a static prop flagged
+                // STATIC_PROP_USE_LIGHTING_ORIGIN has one, set in `PropModels.StaticModel`; null is
+                // "light at the illumination point", the true answer for every other site.
+                nameof(SceneProp.LightingOrigin),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

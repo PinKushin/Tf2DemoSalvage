@@ -213,7 +213,8 @@ public static class PropModels
                 Scale = placement.Scale,
                 Skin = placement.Skin,
             },
-            ClassName: "prop_static");
+            ClassName: "prop_static",
+            LightingOrigin: placement.UsesLightingOrigin ? placement.LightingOrigin : null);
 
     /// <summary>Hands one placement to the model draw, with its baked colours when it has them (B426).</summary>
     private static void StaticModelOf(
