@@ -3166,6 +3166,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private readonly HashSet<string> _faded = [];
 
+    /// <summary>Whether a frame's offered models are the one the draw-order line reports (B426).</summary>
+    /// <param name="offered">The models handed to the draw.</param>
+    /// <returns>True once a networked entity is among them, not merely a static prop.</returns>
+    /// <remarks>
+    /// [no-parity] an instrument's trigger. **Static props are models from map load (B426)**, so "the first
+    /// frame with any model" became the seek's capture frame, which draws the pose from before the opening
+    /// state: on z1800 that was three cobwebs at the wrong camera, read as static props going missing. The
+    /// line fired on the first frame with an entity before static props were models, and does again.
+    /// </remarks>
+    internal static bool ReportsDrawOrder(IReadOnlyList<ModelInstance> offered)
+    {
+        ArgumentNullException.ThrowIfNull(offered);
+
+        foreach (ModelInstance instance in offered)
+        {
+            if (instance.EntityIndex < PropModels.FirstStaticPropEntityIndex)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>
     /// <param name="offered">Every instance the scene produced, before culling.</param>
     /// <param name="ordered">What survived, in the order it is about to be drawn.</param>
@@ -3194,12 +3218,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private void ReportDrawOrder(
         IReadOnlyList<ModelInstance>? offered, List<ModelInstance> ordered)
     {
-        if (_reportedDrawOrder || offered is not { Count: > 0 })
+        if (_reportedDrawOrder || offered is null || !ReportsDrawOrder(offered))
         {
             return;
         }
 
         _reportedDrawOrder = true;
+
+        int statics = offered.Count(static instance => instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex);
 
         int[] perBucket = new int[OpaqueBuckets.Count];
 
@@ -3219,9 +3245,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // brought them back into view and it read 20 of 20. The number it wanted was never the
         // count; it was this flag.
         _render.LogInformation(
-            "opaque draw order: {Kept} of {Offered} models kept, frustum {Frustum}, buckets {Buckets}",
+            "opaque draw order: {Kept} of {Offered} models kept ({Statics} of them static props), frustum {Frustum}, buckets {Buckets}",
             ordered.Count,
             offered.Count,
+            statics,
             _frustum.IsBuilt ? "built" : "UNBUILT",
             string.Join('/', perBucket));
 
