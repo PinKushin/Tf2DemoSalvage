@@ -624,6 +624,13 @@ public readonly record struct ScenePose
 /// <param name="RagdollVelocity">
 /// What the corpse was already travelling at — <c>m_vecRagdollVelocity</c>.
 /// </param>
+/// <param name="LightingOrigin">
+/// Where the light is sampled, in world space, instead of the model's illumination point (B427).
+/// A static prop flagged <c>STATIC_PROP_USE_LIGHTING_ORIGIN</c> is lit at its lump's
+/// <c>m_LightingOrigin</c>: <c>CStaticProp::Init</c>, `engine.dll` `0x1802052c0`, stores it as the
+/// handle's lighting origin that <c>CStaticPropMgr::PrecacheLighting</c> (`0x180205b20`) builds the
+/// light cache from. Null everywhere else.
+/// </param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -763,7 +770,10 @@ public sealed record SceneProp(
     // `c_tf_player.cpp:847`.
     (float X, float Y, float Z)? Force = null,
     int? ForceBone = null,
-    (float X, float Y, float Z)? RagdollVelocity = null);
+    (float X, float Y, float Z)? RagdollVelocity = null,
+
+    // Appended, for the reason every parameter above says.
+    (float X, float Y, float Z)? LightingOrigin = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

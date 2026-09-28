@@ -590,6 +590,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
             return worn;
         }
 
+        // A flagged static prop's lump point replaces the illumination point outright (B427).
+        if (prop.LightingOrigin is { } origin)
+        {
+            return origin;
+        }
+
         if (!_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? entry))
         {
             return (pose.X, pose.Y, pose.Z);

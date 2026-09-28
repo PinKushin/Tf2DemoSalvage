@@ -113,16 +113,16 @@ public sealed class StaticPropConformanceTests
     [Test]
     public void StaticProp_TheFlagsField_MovedAndWidenedAtVersionTen()
     {
-        // **Recorded because it is the one thing a naive reader would get wrong**, and because
-        // BspStaticProps does not read flags today. When something does, this is the trap: V4
-        // through V6 carry m_Flags as one byte at offset 31, immediately after m_Solid; V10 removes
-        // it from there and adds a four-byte m_Flags near the end. Reading offset 31 on a V10 lump
-        // returns the low byte of m_Skin.
-        Layout("StaticPropLumpV6_t").Offset("m_Flags").ShouldBe(31);
+        // **The one thing a naive reader gets wrong** (B427): V4 through V6 carry m_Flags as one
+        // byte at offset 31, immediately after m_Solid; V10 removes it from there, leaving padding,
+        // and adds a four-byte m_Flags near the end. Checked against the reader's own constants.
+        Layout("StaticPropLumpV6_t").Offset("m_Flags").ShouldBe(BspStaticProps.ByteFlagsOffset);
 
         CLayout latest = Layout("StaticPropLump_t");
 
-        latest.Offset("m_Flags").ShouldBe(64);
+        latest.Offset("m_Flags").ShouldBe(BspStaticProps.WideFlagsOffset);
+        latest.Offset("m_LightingOrigin").ShouldBe(BspStaticProps.LightingOriginOffset);
+        Layout("StaticPropLumpV4_t").Offset("m_LightingOrigin").ShouldBe(BspStaticProps.LightingOriginOffset);
 
         // **The skin offset, against the reader's constant.** Its doc comment has claimed since it
         // was written that this test "derives it independently, so the constant is checked rather

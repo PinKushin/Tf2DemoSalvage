@@ -34,9 +34,25 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// apart, on the CLIENT (`game/client/physics.cpp:184-186`), which is the environment a ragdoll
 /// lives in.
 /// </param>
+/// <param name="Flags">
+/// <c>StaticPropLump_t.m_Flags</c>, the <c>STATIC_PROP_*</c> set (`public/gamebspfile.h:124-142`):
+/// one byte at 31 through version 6, a <c>uint</c> at 64 from version 10 (B427).
+/// </param>
+/// <param name="LightingOrigin">
+/// <c>StaticPropLump_t.m_LightingOrigin</c>, at 44 in every version. The engine lights the prop
+/// here instead of at its illumination point when <see cref="UsesLightingOrigin"/> —
+/// <c>CStaticProp::Init</c>, `engine.dll` `0x1802052c0` (B427).
+/// </param>
 public readonly record struct BspStaticProp(
     string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale,
-    int Skin = 0, int Solid = 0);
+    int Skin = 0, int Solid = 0, int Flags = 0, (float X, float Y, float Z) LightingOrigin = default)
+{
+    /// <summary><c>STATIC_PROP_USE_LIGHTING_ORIGIN</c>, `public/gamebspfile.h:127`.</summary>
+    public const int UseLightingOriginFlag = 0x2;
+
+    /// <summary>Whether the engine lights this prop at <see cref="LightingOrigin"/>.</summary>
+    public bool UsesLightingOrigin => (Flags & UseLightingOriginFlag) != 0;
+}
 
 /// <summary>
 /// The models a map places itself: rocks, crates, fences, foliage.
@@ -132,6 +148,18 @@ public static class BspStaticProps
     /// </remarks>
     internal const int SolidOffset = 30;
 
+    /// <summary><c>m_Flags</c> through version 6: one byte after <c>m_Solid</c>, `gamebspfile.h:160,195`.</summary>
+    internal const int ByteFlagsOffset = 31;
+
+    /// <summary><c>m_Flags</c> from version 10: a <c>uint</c> after <c>m_nMaxDXLevel</c>, `gamebspfile.h:223`.</summary>
+    internal const int WideFlagsOffset = 64;
+
+    /// <summary>The version that moved and widened <c>m_Flags</c> — `GAMELUMP_STATIC_PROPS_VERSION`, `gamebspfile.h:37`.</summary>
+    internal const int WideFlagsVersion = 10;
+
+    /// <summary><c>m_LightingOrigin</c>, after skin and the two fade distances, in every version (`gamebspfile.h:164,218`).</summary>
+    internal const int LightingOriginOffset = 44;
+
     /// <summary><c>SOLID_NONE</c> — the one value that means the prop is not collided.</summary>
     /// <remarks>
     /// **A prop's <c>m_Solid</c> is whatever the mapper typed**, copied through unexamined by
@@ -170,7 +198,7 @@ public static class BspStaticProps
         return [];
     }
 
-    private static List<BspStaticProp> ReadPayload(ReadOnlySpan<byte> payload, int version)
+    internal static List<BspStaticProp> ReadPayload(ReadOnlySpan<byte> payload, int version)
     {
         int at = 0;
 
@@ -264,7 +292,11 @@ public static class BspStaticProps
                 BinaryPrimitives.ReadSingleLittleEndian(prop[(AnglesOffset + 8)..]),
                 ReadScale(prop, version, stride),
                 ReadSkin(prop, stride),
-                prop[SolidOffset]));
+                prop[SolidOffset],
+                ReadFlags(prop, version, stride),
+                (BinaryPrimitives.ReadSingleLittleEndian(prop[LightingOriginOffset..]),
+                 BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 4)..]),
+                 BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 8)..]))));
         }
 
         return placements;
@@ -293,6 +325,16 @@ public static class BspStaticProps
 
         return skin > 0 ? skin : 0;
     }
+
+    /// <summary><c>m_Flags</c>, from wherever this version keeps it (B427).</summary>
+    /// <remarks>
+    /// **Byte 31 on a version-10 lump is padding before <c>m_Skin</c>**, so the version decides
+    /// the offset; the stride only guards a record too short to hold the wide field.
+    /// </remarks>
+    private static int ReadFlags(ReadOnlySpan<byte> prop, int version, int stride) =>
+        version >= WideFlagsVersion && stride >= WideFlagsOffset + sizeof(uint)
+            ? (int)BinaryPrimitives.ReadUInt32LittleEndian(prop[WideFlagsOffset..])
+            : prop[ByteFlagsOffset];
 
     /// <summary>The uniform scale, where the map's version carries one.</summary>
     /// <remarks>

@@ -56,4 +56,30 @@ public sealed class StaticPropModelsWiringTests
         drawn.Count(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex) && instance.BakedColours is not null)
             .ShouldBe(0, "an unbaked placement drawn with colours");
     }
+
+    /// <remarks>
+    /// **B427, on the map the loader actually builds.** `CStaticProp::Init` (`engine.dll` `0x1802052c0`)
+    /// lights a `STATIC_PROP_USE_LIGHTING_ORIGIN` prop at the lump's `m_LightingOrigin`. Measured
+    /// 2026-09-28: 161 of 234 shipped maps flag some props (4,542 of 354,469); `cp_process_final` flags
+    /// none and `koth_harvest_final` flags 3 of 652, so the three must reach the draw carrying exactly
+    /// their lump point and nothing else may carry one.
+    /// </remarks>
+    [Test]
+    public void Load_KothHarvest_CarriesEachFlaggedPropsLumpLightingOrigin()
+    {
+        const string Map = "koth_harvest_final";
+        IReadOnlyList<Content.Bsp.BspStaticProp> lump = Content.Bsp.BspStaticProps.Read(MapCache.Bytes(Map));
+        IReadOnlyList<Core.Scene.SceneProp> models = MapCache.With(mapName: Map).Assets.StaticModels;
+
+        List<Core.Scene.SceneProp> lit = [.. models.Where(prop => prop.LightingOrigin is not null)];
+
+        lit.Count.ShouldBe(3);
+
+        foreach (Core.Scene.SceneProp prop in lit)
+        {
+            Content.Bsp.BspStaticProp placement = lump[prop.EntityIndex - PropModels.FirstStaticPropEntityIndex];
+            placement.UsesLightingOrigin.ShouldBeTrue();
+            prop.LightingOrigin.ShouldBe(placement.LightingOrigin);
+        }
+    }
 }
