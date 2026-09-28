@@ -632,7 +632,8 @@ jobs:
         # and a floor taken off a console line would sit thirty short and look reasonable.
         run: |
           ./build/assert-test-count.sh '**/audio.trx' 183 Audio
-          ./build/assert-test-count.sh '**/fonts.trx' 7 Fonts
+          # 7 -> 4: 9c7cf1d9 removed the GDI rasteriser's seven tests; reason in build/gate.sh.
+          ./build/assert-test-count.sh '**/fonts.trx' 4 Fonts
           # 101 -> 103: LaunchOptionWiringTests (B223, D118). These load a corpus demo into a real
           # MainForm, which this job has; Team Fortress 2 it does NOT have, and that is fine —
           # `Apply` carries on past a map it cannot read and says "(map not found)", so the launch
