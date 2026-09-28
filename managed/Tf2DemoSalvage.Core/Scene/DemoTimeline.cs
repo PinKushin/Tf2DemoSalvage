@@ -523,6 +523,7 @@ public static class SceneTeams
 /// <param name="Entities">Entity delta decode, plus applying and recording what it produced.</param>
 /// <param name="Sampling">The per-packet walks: viewmodels, fog and soundscape.</param>
 /// <param name="Viewmodels">The viewmodel share of <paramref name="Sampling"/>, which contains it.</param>
+/// <param name="Frames">Building each moved packet's frame: players, game rules, and the HUD's entity lists.</param>
 /// <param name="Total">The whole of <see cref="DemoTimeline.Build"/>.</param>
 /// <remarks>
 /// **Building the timeline is thirty seconds on a fourteen-minute match and had no columns at
@@ -543,6 +544,7 @@ public readonly record struct TimelinePhases(
     double Entities,
     double Sampling,
     double Viewmodels,
+    double Frames,
     double Total);
 
 /// <summary>Where everyone was at one tick.</summary>
@@ -2161,6 +2163,7 @@ public sealed class DemoTimeline
         List<SceneRagdoll> replaced = [];
         long entityTicks = 0;
         long samplingTicks = 0;
+        long frameTicks = 0;
         long viewmodelTicks = 0;
 
         // Entity indices seen carrying a viewmodel model index, kept ascending (B265).
@@ -2934,6 +2937,7 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            long frameFrom = Stopwatch.GetTimestamp();
             List<ScenePlayer> players = [];
             EntityState? resource = entities.OfClass(ResourceClass).FirstOrDefault();
 
@@ -3417,6 +3421,7 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneTeam>? teams = Teams(entities);
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
+            frameTicks += Stopwatch.GetTimestamp() - frameFrom;
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
@@ -3521,6 +3526,7 @@ public sealed class DemoTimeline
                 Milliseconds(entityTicks),
                 Milliseconds(samplingTicks),
                 Milliseconds(viewmodelTicks),
+                Milliseconds(frameTicks),
                 Milliseconds(Stopwatch.GetTimestamp() - buildFrom)),
         };
     }

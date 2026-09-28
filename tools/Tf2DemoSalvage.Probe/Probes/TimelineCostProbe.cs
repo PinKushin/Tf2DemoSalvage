@@ -52,7 +52,7 @@ public sealed class TimelineCostProbe : IProbe
 
         output.WriteLine(
             "demo                                        MB   total  commands   schema messages entities sampling"
-            + "  (viewmodels)     rest   frames  tracks  players    us/frame-track");
+            + "  (viewmodels) building     rest   frames  tracks  players    us/frame-track  gc-paused");
 
         foreach (string asked in arguments)
         {
@@ -66,7 +66,10 @@ public sealed class TimelineCostProbe : IProbe
 
             byte[] file = File.ReadAllBytes(path);
 
+            // GC pauses land in whichever column allocates; this says how much of the total they are.
+            TimeSpan gcBefore = GC.GetTotalPauseDuration();
             DemoTimeline timeline = DemoTimeline.Build(file);
+            TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
             TimelinePhases phases = timeline.Phases;
 
             // **Bytes are the WRONG denominator here and this column is why.** The committed era
@@ -82,7 +85,7 @@ public sealed class TimelineCostProbe : IProbe
             // named column is something a stopwatch was deliberately wrapped around; whatever is
             // left is work nobody thought to time, which is exactly where an unmeasured cost hides.
             double rest = phases.Total - phases.Commands - phases.Schema - phases.Messages
-                - phases.Entities - phases.Sampling;
+                - phases.Entities - phases.Sampling - phases.Frames;
 
             output.WriteLine(
                 $"{Path.GetFileNameWithoutExtension(path),-40} "
@@ -94,11 +97,13 @@ public sealed class TimelineCostProbe : IProbe
                 + $"{Seconds(phases.Entities),7:0.00}s "
                 + $"{Seconds(phases.Sampling),7:0.00}s "
                 + $"{Seconds(phases.Viewmodels),12:0.00}s "
+                + $"{Seconds(phases.Frames),7:0.00}s "
                 + $"{Seconds(rest),7:0.00}s "
                 + $"{timeline.Frames.Count,8} "
                 + $"{timeline.Props.Count,7} "
                 + $"{timeline.PlayerTracks.Count,8} "
-                + $"{perUnit,17:0.00}");
+                + $"{perUnit,17:0.00} "
+                + $"{gcPaused.TotalSeconds,9:0.00}s");
         }
     }
 

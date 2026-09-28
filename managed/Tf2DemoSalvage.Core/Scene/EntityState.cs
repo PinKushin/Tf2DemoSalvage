@@ -407,6 +407,9 @@ public sealed class EntityState
     private readonly Dictionary<string, long> _lastSet = [];
     private long _sequence;
 
+    // EconAttributes per list (Local, NetworkedForDemos), null until read or after a write under one.
+    private readonly IReadOnlyList<EconAttributeValue>?[] _econ = new IReadOnlyList<EconAttributeValue>?[2];
+
     private readonly Dictionary<string, PropertyValue> _properties = new(StringComparer.Ordinal);
 
     // The path-shaped key `m_hMyWearables`' size arrived under, once seen.
@@ -508,6 +511,16 @@ public sealed class EntityState
     /// <c>econ_item_view.cpp:74</c>).
     /// </remarks>
     public IReadOnlyList<EconAttributeValue> EconAttributes(EconAttributeList list)
+    {
+        // Cached until a key under either list is written, or the state is forgotten: the timeline
+        // asks for every carried item's list on every packet, and walking every property each time
+        // was 22 of z1800's 50 profiled seconds.
+        int slot = list == EconAttributeList.Local ? 0 : 1;
+
+        return _econ[slot] ??= ReadEconAttributes(list);
+    }
+
+    private List<EconAttributeValue> ReadEconAttributes(EconAttributeList list)
     {
         // Matched as a whole path component, so `m_AttributeList` cannot match inside `…ForDemos`.
         string marker = list == EconAttributeList.Local
@@ -2810,6 +2823,12 @@ public sealed class EntityState
     {
         _properties[key] = value;
         _lastSet[key] = ++_sequence;
+
+        // Both lists' keys, and their length props, run through this component.
+        if (key.Contains(".m_Attributes.", StringComparison.Ordinal))
+        {
+            _econ[0] = _econ[1] = null;
+        }
     }
 
     /// <summary>Forgets every networked property, for an entity being decoded from a baseline.</summary>
@@ -2833,6 +2852,7 @@ public sealed class EntityState
     {
         _properties.Clear();
         _lastSet.Clear();
+        _econ[0] = _econ[1] = null;
     }
 
     /// <summary>When a key was last written, as a monotonic counter.</summary>

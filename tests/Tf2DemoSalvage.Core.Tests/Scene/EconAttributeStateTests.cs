@@ -115,6 +115,23 @@ public sealed class EconAttributeStateTests
         state.EconAttributes(EconAttributeList.NetworkedForDemos).ShouldBeEmpty();
     }
 
+    [Test]
+    public void EconAttributes_AfterAnAttributeChangesOrStateIsForgotten_ReadsTheNewState()
+    {
+        // The list is cached per entity (it was 22 of z1800's 50 profiled seconds), so a later
+        // write under the list and a Forget must both reach the next read.
+        EntityStateTable table = Apply(Decoder(rawBits: true), rawBits: true, ("m_AttributeList", 0, 5, 1.1f));
+        table.TryGet(EntityIndex, out EntityState? state).ShouldBeTrue();
+        state.EconAttributes(EconAttributeList.Local).Single().Value.ShouldBe(1.1f, 0.0001f);
+
+        string raw = state.Properties.Keys.Single(key => key.EndsWith("m_iRawValue32", StringComparison.Ordinal));
+        state.Set(raw, PropertyValue.FromInt(BitConverter.SingleToInt32Bits(2.5f)));
+        state.EconAttributes(EconAttributeList.Local).Single().Value.ShouldBe(2.5f);
+
+        state.Forget();
+        state.EconAttributes(EconAttributeList.Local).ShouldBeEmpty();
+    }
+
     /// <summary>Entity slot and serial the fixtures use.</summary>
     private const int EntityIndex = 1;
 

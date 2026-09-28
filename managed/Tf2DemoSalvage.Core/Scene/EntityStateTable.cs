@@ -18,6 +18,12 @@ public sealed class EntityStateTable
 {
     private readonly Dictionary<int, EntityState> _entities = [];
     private readonly Dictionary<int, string> _classNames = [];
+
+    // Live entities by class id, and class ids by name: `OfClass` without a walk of every entity.
+    // The timeline asks it dozens of times per packet, and the walk was 57 of z1800's 77 s build.
+    // The client does the same thing with direct pointers (`g_TF_PR`, `TFGameRules()`).
+    private readonly Dictionary<int, Dictionary<int, EntityState>> _byClass = [];
+    private readonly Dictionary<string, List<int>> _classIds = new(System.StringComparer.Ordinal);
     private readonly IEntityBaselines _baselines;
 
     /// <summary>Creates an accumulator that reads entities against their class baselines.</summary>
@@ -77,7 +83,19 @@ public sealed class EntityStateTable
     /// <param name="className">The server class name, e.g. <c>CTFPlayer</c>.</param>
     public void SetClassName(int classId, string className)
     {
+        if (_classNames.TryGetValue(classId, out string? previous))
+        {
+            _classIds[previous].Remove(classId);
+        }
+
         _classNames[classId] = className;
+
+        if (!_classIds.TryGetValue(className, out List<int>? ids))
+        {
+            _classIds[className] = ids = [];
+        }
+
+        ids.Add(classId);
 
         foreach (EntityState state in _entities.Values)
         {
@@ -111,7 +129,11 @@ public sealed class EntityStateTable
 
         if (entity.UpdateType == EntityUpdateType.Delete)
         {
-            _entities.Remove(entity.EntityIndex);
+            if (_entities.Remove(entity.EntityIndex, out EntityState? deleted))
+            {
+                _byClass[deleted.ClassId].Remove(deleted.EntityIndex);
+            }
+
             return;
         }
 
@@ -130,6 +152,11 @@ public sealed class EntityStateTable
         if (!_entities.TryGetValue(entity.EntityIndex, out EntityState? state) ||
             (statesSerial && state.SerialNumber != entity.SerialNumber))
         {
+            if (state is not null)
+            {
+                _byClass[state.ClassId].Remove(state.EntityIndex);
+            }
+
             // A different serial number in the same slot is a different entity. Merging into the
             // old one leaves the newcomer holding whichever properties it has not happened to
             // resend - a player who is on the previous occupant's team until they next change it,
@@ -141,6 +168,13 @@ public sealed class EntityStateTable
                 _classNames.GetValueOrDefault(entity.ClassId));
 
             _entities[entity.EntityIndex] = state;
+
+            if (!_byClass.TryGetValue(state.ClassId, out Dictionary<int, EntityState>? members))
+            {
+                _byClass[state.ClassId] = members = [];
+            }
+
+            members[state.EntityIndex] = state;
         }
 
         // Leave is not Delete: the entity has left the potentially-visible set and still exists,
@@ -254,6 +288,9 @@ public sealed class EntityStateTable
     /// <param name="className">Server class name to match exactly.</param>
     /// <returns>Matching entities.</returns>
     public IEnumerable<EntityState> OfClass(string className) =>
-        _entities.Values.Where(
-            state => string.Equals(state.ClassName, className, System.StringComparison.Ordinal));
+        _classIds.TryGetValue(className, out List<int>? ids)
+            ? ids.SelectMany(id => _byClass.TryGetValue(id, out Dictionary<int, EntityState>? members)
+                ? (IEnumerable<EntityState>)members.Values
+                : [])
+            : [];
 }
