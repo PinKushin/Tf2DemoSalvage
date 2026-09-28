@@ -8,8 +8,9 @@ metadata:
   modified: 2026-09-09T19:00:15.438Z
 ---
 
-The engine's interpolation walks history comparing each entry's CHANGETIME against a target, so its
-pair always brackets the target on that clock — whatever order entries arrived in.
+`GetInterpolationInfo` (`interpolatedvar.h:815`) walks history comparing each entry's CHANGETIME
+against a target, so its pair always brackets the target on that clock — whatever order entries
+arrived in.
 
 **The fault:** this project binary-searched the ARRIVAL tick for a pair, then read that pair's
 changetimes separately. Whenever the clocks disagree, those are different pairs. Measured: 26,064 of
@@ -35,8 +36,9 @@ Related: [[key-a-lookup-on-the-question]], [[read-the-encoder-not-the-decoder]],
 ## `the-prune-keeps-two-stale-entries` — the history is the window PLUS two, and they can be ancient
 
 **The engine's history is not trimmed to the interpolation window — it keeps the window plus two,
-and those two can be arbitrarily old.** The list is newest-first; on finding the first stale entry, it
-truncates keeping that entry and the two beyond it (needed for hermite blending).
+and those two can be arbitrarily old** (`interpolatedvar.h:782`). The list is newest-first; on finding
+the first stale entry, it truncates keeping that entry and the two beyond it (needed for hermite
+blending).
 
 **Two beliefs this refutes, both written into this repo as fact:**
 - "The three spline samples are always recent" — false; the oldest can be seconds old, producing a
@@ -44,14 +46,16 @@ truncates keeping that entry and the two beyond it (needed for hermite blending)
   respaced sample dips FIVE UNITS below shut, in the engine itself.
 - "An age bound on the older neighbour is Valve's" — it is not; the pruning bounds COUNT, never age.
 
-**It also refuses two entries at ONE changetime** — an update flushes from the head while at-or-after
-the new changetime, so "appends unconditionally" is half a reading; an update moving TIME backwards
-discards everything newer (Valve's stated case: the server corrected the clock). Measured cost: three
-steps under one applied time, keeping all three made drawn height jump 9 units in a tenth of a tick
-instead of the correct 0.45.
+**It also refuses two entries at ONE changetime** — `NoteChanged` passes `bFlushNewer = true`
+(`interpolatedvar.h:649`), and that branch flushes from the head while at-or-after the new changetime,
+so "appends unconditionally" is half a reading; an update moving TIME backwards discards everything
+newer (Valve's stated case: the server corrected the clock). Measured cost: three steps under one
+applied time, keeping all three made drawn height jump 9 units in a tenth of a tick instead of the
+correct 0.45.
 
 **What the engine DOES refuse: a sample it hasn't RECEIVED** — that's the only bound worth copying. A
-reader holding a whole recording needs an explicit arrival-tick bound per entry.
+reader holding a whole recording needs an explicit arrival-tick bound per entry. Skipping it is B94: a
+door sliding toward an update that had not been sent.
 
 **It overshoots UPWARD too, for the opposite reason: respacing preserves VELOCITY on purpose**, so a
 restated sample computed from real speed carries that speed into a dead stop and overshoots past the
@@ -62,6 +66,9 @@ is degenerate (fraction 0, value holds); every restatement is invisible except i
 between the next update's arrival and arrival-plus-interpolation-delay. Two conformance sweeps missed
 this window entirely by adding the delay to it instead of recognising the delay AS the window.
 
+`INTERPOLATE_LINEAR_ONLY` would prevent the overshoot and is set on exactly ONE variable in the whole
+client — `m_viewtarget` (`c_baseflex.cpp:133`). Not the origin, not the cycle.
+
 Related: [[an-unused-method-may-be-the-engines]], [[name-the-trade-before-fixing-valve]],
 [[parity-is-the-search-not-the-defence]].
 
@@ -69,13 +76,14 @@ Related: [[an-unused-method-may-be-the-engines]], [[name-the-trade-before-fixing
 
 ## `a-fraction-of-zero-is-an-oracle` — test a curve where it collapses to an identity
 
-**A duration cannot test a spline.** Three duration-based metrics failed to settle a jitter bug
-because a hermite eases out of a held position, taking longer between two heights than a straight
+**A duration cannot test a spline.** Three duration-based metrics failed to settle B370 because a
+hermite eases out of a held position, taking longer between two heights than a straight
 line WITH NOTHING WRONG — indistinguishable from the reported symptom.
 
 **The assertion that works needs no model of the curve:** when the drawn target lands exactly ON a
-history entry's changetime, the interpolation fraction is mathematically zero, and any spline at
-fraction zero returns that entry's own value — regardless of tangents or respacing. So: **the drawn
+history entry's changetime, `GetInterpolationInfo` computes a fraction of mathematically zero
+(`interpolatedvar.h:845`), and any spline at fraction zero returns that entry's own value — regardless
+of tangents or respacing. So: **the drawn
 value at (changetime + interpolation delay) must equal that entry's own value, exactly, for every
 live entry.** No speed, no easing, no curve shape enters it. Measured across 7,068 entries, found 3-5%
 wrong, worst by 111 units — where duration metrics had reported the same doors as merely "80%

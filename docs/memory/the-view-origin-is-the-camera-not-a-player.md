@@ -8,9 +8,10 @@ metadata:
   modified: 2026-09-09T03:55:38.680Z
 ---
 
-A view-origin field was filled only in first person, so free/chase camera left it null — silently
-disabling distance-based effects (areaportal blend fell back to a solid render panel, entity fade
-drew everything at full alpha).
+`MomentInfo.EyeCamera` was filled only in first person, so free/chase camera left `ViewOrigin` null —
+silently disabling distance-based effects: the areaportal window's distance blend fell back to the
+brush's renderamt, a solid `TOOLSBLACK` panel in every spawn window (B358), and
+`UTIL_ComputeEntityFade` drew every entity at full alpha (B365).
 
 **Why:** owner, before it was measured — *"this is a stv demo, pvs should update based on the camera,
 not a player themselves... that is basically guaranteed to be how valve does it."* Correct —

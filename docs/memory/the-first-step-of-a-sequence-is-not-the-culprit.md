@@ -6,9 +6,10 @@ metadata:
 ---
 
 **When a process dies partway through a sequence, the member named in the last log line is the one
-that ran FIRST — not evidence it's guilty.** Six agreeing CI runs all ended on the same disposal step,
-which felt like proof; they agreed because that step ran first. Skipping only it moved the crash
-forward to a DIFFERENT member on different runners.
+that ran FIRST — not evidence it's guilty.** B402, 2026-09-12: six CI runs ended on
+`shutdown: releasing viewport`, which felt like proof; they agreed because the viewport was disposed
+first. Skipping only it moved the crash forward to `releasing transport` on one runner and
+`releasing actions` on another.
 
 **The experiment that settles it changes exactly ONE variable.** Skip the accused member, keep
 everything else:
@@ -22,8 +23,9 @@ tempting shortcut — it's the same edit as the fix you already believe in, and 
 run with a wrong write-up.
 
 **How to apply:** before writing "member X kills the process", ask what X's position in the order is.
-The actual cause here was double disposal — a form disposing children it had already disposed itself,
-a mechanism belonging to ALL of them equally, unreachable by any single-member story.
+The actual cause in B402 was double disposal — `Form.Dispose` walks `Controls` and disposes every
+child, so an override disposing the same six first tore each down twice, a mechanism belonging to ALL
+of them equally, unreachable by any single-member story.
 
 Related: [[instrument-bugs-outnumber-decoder-bugs]], [[ask-which-input-differs-before-bisecting]],
 [[ci-is-the-machine-without-tf2]].

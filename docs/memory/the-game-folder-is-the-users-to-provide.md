@@ -11,9 +11,10 @@ crash because its missing it must just error and mention it."*
 **Nothing may throw on a missing install** — an empty archive with a logged reason is a normal answer,
 not a failure. A demo still plays without a map.
 
-**And the message must name the right thing** — a resolver returned one null for two different
-facts ("map absent from a found install" vs. "no install found"), so a missing-TF2 case wrongly
-started a map DOWNLOAD instead of reporting "no game". Now answers three distinct states.
+**And the message must name the right thing** — B211 was the failure of the second half: with no TF2
+present the viewer said *"cp_badlands is not installed; fetching it"* and started a download, because
+`MapProvider.Locate` returned null both for "map absent from a found install" and "no install found".
+`Find` now answers `Found` / `NotInstalled` / `NoGame`, three distinct states.
 
 **Why:** telling someone the wrong cause is worse than telling them nothing — they go look for the
 wrong thing.

@@ -32,17 +32,20 @@ Related: [[nothing-is-closed]], [[parity-is-the-search-not-the-defence]].
 
 ## `a-player-is-client-side-animated`
 
-**Every TF player unconditionally sends the client-side-animation bit**, and the client latches and
-advances every such entity's cycle each frame: `addcycle = interval * cyclerate * playbackRate`. All
-three factors matter — playback rate was missing from one draw path for a long time.
+**`CTFPlayer::CTFPlayer` unconditionally sends the client-side-animation bit** (`tf_player.cpp:953`),
+one unsigned bit in `DT_BaseAnimating` (`baseanimating.cpp:250`); `C_BaseAnimating::UpdateClientSideAnimation`
+(`c_baseanimating.cpp:5134`) latches and calls `FrameAdvance` for every member of
+`g_ClientSideAnimationList` each frame: `addcycle = interval * cyclerate * playbackRate`
+(`c_baseanimating.cpp:5493`). All three factors matter — playback rate was missing from one draw path
+for a long time (B281).
 
-**A VIEWMODEL advances by a DIFFERENT mechanism** — computed unconditionally, never joins the
-client-side-animation list, clamps a finished one-shot to 0.999 (the only place in the engine that
-does).
+**A VIEWMODEL advances by a DIFFERENT mechanism** (`c_baseviewmodel.cpp:197`) — computed
+unconditionally, never joins the client-side-animation list, clamps a finished one-shot to 0.999 (the
+only place in the engine that does).
 
 **Both reach one gate in this project, and it was dropped twice** building new prop paths from
-scratch — once making every player slide through the map in one pose for weeks, once meaning no
-first-person animation ever played. Neither was visible to any test, since every test either called
+scratch — once making every player slide through the map in one pose for weeks (B280), once meaning no
+first-person animation ever played (B283). Neither was visible to any test, since every test either called
 the advance directly or built its own prop with the flag already set.
 
 Related: [[output-level-assertion-or-it-is-not-done]].
@@ -51,9 +54,9 @@ Related: [[output-level-assertion-or-it-is-not-done]].
 
 ## `gestures-arrive-as-temp-entities`
 
-**A player's reload/flinch/attack animations arrive as TEMP ENTITIES** — the ONLY source, since
-overlay vars are excluded from the send table. Looking for them in the entity stream finds nothing,
-correctly.
+**A player's reload/flinch/attack animations arrive as TEMP ENTITIES** — `CTEPlayerAnimEvent`
+(`tf_player.cpp:324`) — the ONLY source, since overlay vars are excluded from the send table. Looking
+for them in the entity stream finds nothing, correctly.
 
 **The POV asymmetry is a fact about the format:** the broadcast filter removes the recording player as
 recipient for most such events (a player predicts their own), so a POV recording carries every OTHER
@@ -73,14 +76,16 @@ Related: [[output-level-assertion-or-it-is-not-done]].
 
 ## `a-delta-animation-is-not-a-pose`
 
-**Every TF2 player gesture is a DELTA, and composing one as a pose lays the player flat.** Bone
-blending splits on the delta flag before anything else: add the delta on top, don't blend toward it.
+**Every TF2 player gesture is a DELTA, and composing one as a pose lays the player flat.**
+`SlerpBones` splits on the delta flag before anything else (`bone_setup.cpp:1434`): add the delta on
+top, don't blend toward it.
 
 **Four places have to agree, each wrong-alone looking like a different bug:** the composition (add,
-not blend); the SEED (a delta's untouched bone is identity/zero, an ordinary animation's is bind
-pose — seeding wrong stretches every limb by its rest offset); any densifying step between (must fill
-absent bones the same way); the quaternion scale (scales the ANGLE, carries the sign of `w` across —
-not a component multiply).
+not blend); the SEED — `CalcVirtualAnimation` (`bone_setup.cpp:933`) branches on the animation's flags:
+a delta's untouched bone is identity/zero, an ordinary animation's is bind pose — seeding wrong
+stretches every limb by its rest offset; any densifying step between (must fill absent bones the same
+way); the quaternion scale (scales the ANGLE, carries the sign of `w` across per Valve's own comment,
+`mathlib_base.cpp:1757` — not a component multiply).
 
 **The flag lives in two DIFFERENT fields** (sequence flags vs. animation flags) tested by different
 functions — reading one and calling it the other cost an hour. **Index spaces differ too** — a merged
@@ -92,10 +97,12 @@ Related: [[one-look-can-be-two-mechanisms]], [[a-property-name-needs-its-declari
 
 ## `every-densifying-step-needs-the-delta-flag`
 
-**A delta pose passes through more than one expansion step, and every one must seed the same way.**
-One project's animation system had TWO such steps (frame blend, grid blend); one fix told only the
-first. A convenience overload silently defaulted `additive: false` in the second, and every TF2
-player's aim matrix IS a delta blend grid — seven of fifteen players stood on their heads.
+**A delta pose passes through more than one expansion step, and every one must seed the same way** —
+`CalcVirtualAnimation` (`bone_setup.cpp:933`) makes the choice once, and each later step repeats it or
+destroys it. `SkinnedModel.Locals` had TWO such steps and B284 fixed only the first (frame blend); the
+GRID blend called a four-argument overload that silently defaulted `additive: false` (B298,
+2026-09-03), and every TF2 player's aim matrix IS a delta blend grid — seven of fifteen players stood
+on their heads.
 
 **The convenience overload is deleted, not documented** — it had a three-paragraph doc comment
 explaining the exact branch it got wrong, the argument against comments as a guard
@@ -109,7 +116,8 @@ wiring landed the same day, so the wrong seeding had nothing to add itself to ye
 ## `one-keyframe-bundles-what-the-engine-keeps-apart`
 
 **The engine keeps one interpolation history PER VARIABLE; this project keeps one keyframe per
-entity per packet.** Keying a keyframe by the engine's own applied-time clock broke immediately — an
+entity per packet.** B273: keying a keyframe by the engine's own applied-time clock (`GetSimulationTime()`
+for origin/angles, `GetAnimTime()` for cycle/pose) broke immediately — an
 entity that doesn't simulate keeps one simulation time for minutes, collapsing every state change onto
 one tick.
 
@@ -118,7 +126,9 @@ the engine's changetime; visibility/render-mode/skin are current values that mus
 One timestamp can't serve both.
 
 **Fix: key the list by ARRIVAL, carry the applied time alongside** — arrival is the only monotonic
-key, and a parallel field dates the interpolated quantities. **Before changing what a timestamp
+key, and a parallel field dates the interpolated quantities. The animation clock disagrees with the
+simulation clock by more than eight ticks on 95.5% of updates carrying both, filed as B274 rather than
+bodged into the same list. **Before changing what a timestamp
 MEANS, list everything the field is used for** — here it was the list key, ordering, lifetime bound,
 AND wake schedule; only one wanted the new meaning.
 
@@ -128,7 +138,9 @@ Related: [[a-pass-must-establish-its-own-state]], [[wire-faithful-is-not-state-f
 
 ## `a-tick-encoded-value-expires`
 
-**A tickcount-encoded value stops meaning anything once the packet ends.** This decoder RETAINS
+**A tickcount-encoded value stops meaning anything once the packet ends.** `m_flSimulationTime` is
+eight unsigned bits holding an offset re-centred within ±127 ticks of now (`server/baseentity.cpp:265`,
+`client/c_baseentity.cpp:344`). This decoder RETAINS
 properties across packets by design, so decoding an offset a packet late yields a plausible tick up
 to 128 out — must convert AT RECEIPT, moved into the apply step.
 
