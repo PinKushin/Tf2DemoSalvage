@@ -44,7 +44,7 @@ public sealed class PropLoadLoggingTests
         // is that the area speaks at all. The numbers in it are a property of the map.
         props.ShouldContain(
             line => line.Contains("PRODUCED", StringComparison.Ordinal)
-                && line.Contains("triangles", StringComparison.Ordinal),
+                && line.Contains("model draws", StringComparison.Ordinal),
             "PropModels.Load writes one summary per map load; its absence means MapAssets handed "
             + "it a NullLogger and every warning the static-prop path produces is being discarded. "
             + $"The area wrote {props.Count} lines: "

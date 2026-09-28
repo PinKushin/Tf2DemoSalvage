@@ -1721,16 +1721,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11DepthStencilState> _depthWrite;
 
-    /// <summary>Static props, drawn after the overlays.</summary>
-    /// <remarks>
-    /// **Their own list because the engine draws them in their own pass (B135).**
-    /// <c>CBaseWorldView::DrawExecute</c> runs <c>DrawWorld</c> — surfaces and their overlay
-    /// fragments — and then <c>DrawOpaqueRenderables</c>, which is where static props and brush
-    /// models go. Batched with the world they were in the depth buffer before the overlays, so a
-    /// biased overlay could paint over a pipe an inch in front of the wall it marks.
-    /// </remarks>
-    private IReadOnlyList<WorldBatch> _props = [];
-
     /// <summary>Depth state for the overlay pass, built from <see cref="DecalState"/>.</summary>
     /// <remarks>
     /// Tested, never written, compared <c>LessEqual</c>. The values and the reasoning behind each
@@ -2387,13 +2377,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
     /// <remarks>
-    /// Overlays are governed by this rather than by <see cref="DrawEntities"/>, because the engine
+    /// Overlays are governed by this rather than by <c>r_drawentities</c>, because the engine
     /// draws them inside `DrawWorld` alongside the surfaces they mark, before any renderable.
     /// </remarks>
     public bool DrawWorld { get; set; } = true;
-
-    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
-    public bool DrawEntities { get; set; } = true;
 
     /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
     private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
@@ -3254,14 +3241,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="vertices">Every triangle corner, already in clip space.</param>
     /// <param name="batches">The runs, one per material.</param>
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
-    /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadGeometry(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch>? decals = null,
-        IReadOnlyList<WorldBatch>? props = null)
+        IReadOnlyList<WorldBatch>? decals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -3283,18 +3268,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // straight down, depth IS height, and height does not change when the view pans or zooms.
         // A perspective camera would have to re-sort per frame; this one never does.
         _decals = decals ?? [];
-        _props = props ?? [];
 
-        _sortedTranslucent = SortTranslucent(vertices, batches, _props, _translucent);
+        _sortedTranslucent = SortTranslucent(vertices, batches, _translucent);
 
-        // **Reported split by source, because the count alone would have looked healthy.** The
-        // brushwork half was always drawn; the prop half was the defect, so a combined total is
-        // exactly the number that hid it.
         _render.LogInformation(
             "{Message}",
-            $"{_sortedTranslucent.Count} translucent batches sorted back to front: " +
-            $"{batches.Count(batch => _translucent.Contains(batch.MaterialIndex))} of the world's " +
-            $"own and {_props.Count(batch => _translucent.Contains(batch.MaterialIndex))} from props");
+            $"{_sortedTranslucent.Count} translucent world batches sorted back to front");
     }
 
     /// <summary>Whether to combine each material's detail texture, on by default.</summary>
@@ -3442,11 +3421,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             DrawDecals(context);
         }
 
-        if (DrawEntities)
-        {
-            DrawOpaqueBatches(context, _props);
-        }
-
+        // Static props are model draws now, after this (B426, D198) — `DrawOpaqueRenderables`.
         DrawTranslucent(context);
         DrawAdditive(context);
     }
@@ -5312,26 +5287,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     internal static bool Blends(bool marks, bool translucent, bool additive, bool modulate) =>
         marks || translucent || additive || modulate;
 
-    /// <summary>Every translucent run, world and prop alike, farthest first.</summary>
+    /// <summary>Every translucent world run, farthest first.</summary>
     /// <param name="vertices">The uploaded corners, which carry the depth each batch is sorted by.</param>
     /// <param name="batches">The world's own runs.</param>
-    /// <param name="props">The static prop runs, drawn after the overlays.</param>
     /// <param name="translucent">Which material indices blend.</param>
     /// <returns>The runs to issue in <c>DrawTranslucent</c>, back to front.</returns>
     /// <remarks>
-    /// **Props belong in this list, and leaving them out drew them NOWHERE** (B362).
-    /// <c>DrawOpaqueBatches</c> skips every translucent material — it must, or a window would be
-    /// opaque — and this list used to be built from <paramref name="batches"/> alone, so a prop run
-    /// whose material blends fell between the two passes and was never issued at all.
-    ///
-    /// **The engine has no such gap.** <c>DrawTranslucentRenderables</c> walks the world's
-    /// translucent surfaces and the renderables together, which is what concatenating them here is.
-    ///
-    /// **Found while wiring detail sprites in (B360)**, and the shape is worth keeping: the sprite
-    /// material is `$translucent 1`, 20,117 quads were built and appended, `world:` reported all
-    /// 398,595 prop triangles drawn — and not one pixel of grass appeared. Two correct counts
-    /// either side of a pass that never ran. Measured on `koth_harvest_final`: 5 of the 11
-    /// translucent batches are prop runs, so this was never only about the grass.
+    /// **The world's alone.** Static prop runs joined this list for B362 — a blended prop run fell
+    /// between the opaque skip and this pass and drew nowhere — until static props became model
+    /// draws (B426, D198), whose translucent parts the model passes draw.
     ///
     /// **Sorted once, at upload**, as the world's own were: the order does not depend on the
     /// camera, because a batch's mean depth is a property of its geometry.
@@ -5339,17 +5303,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     internal static IReadOnlyList<WorldBatch> SortTranslucent(
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch> props,
         IReadOnlySet<int> translucent)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
-        ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(translucent);
 
         return
         [
-            .. batches.Concat(props)
+            .. batches
                 .Where(batch => translucent.Contains(batch.MaterialIndex))
                 .OrderByDescending(batch => MeanDepth(vertices, batch)),
         ];

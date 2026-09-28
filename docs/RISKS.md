@@ -7728,6 +7728,20 @@ models now join it at level load, as the engine loads them. Tests: `MomentSceneT
 `BakedColourStreamRenderTests`, and `StaticPropModelsWiringTests` on `cp_process_final` (1,631 placements drawn,
 1,625 with their colours, none given a cube or lamps).
 
+**Deleted (D180):** the merge path nothing fed any more — `MapAssets.Props`, `MapWorld.Props` and
+`MapWorldBuilder.AppendProps`, the renderer's prop pass and its prop runs in the translucent sort,
+`PropModels.Load`'s world corners, cube bake and `lightAt`, and `OffscreenTarget.DrawWorld`'s `props`.
+`PlacedProps` (B421 decals) and the refusal count (B123) stay. B135's occlusion tests and the opaque
+blend-state test now draw the prop as a model after the world (`DrawModelPose(clearDepth: false)`);
+`PassToggleRenderTests` went with the prop pass it partitioned. **`r_drawentities` now gates the model
+draws in `Device3D`** — it had gated only the merged prop batches, so turning it off hid static props and
+nothing else; `DrawOpaqueRenderables` returns on it for every renderable.
+
+**A picture change nothing here tests:** the world's translucent surfaces are drawn inside
+`WorldRenderer.Draw`, BEFORE the opaque models, where the engine draws them after the opaque renderables
+(`viewrender.cpp:5487`). This was already true of every entity; a static prop is now one, so a prop
+behind world glass or a translucent brush face draws over it rather than under it. Not fixed here.
+
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
 `LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have
 no fade (`fademindist`/`fademaxdist` are not read), as before.

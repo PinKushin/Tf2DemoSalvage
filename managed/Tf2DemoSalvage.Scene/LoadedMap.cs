@@ -403,11 +403,6 @@ public sealed class LoadedMap
                             ? brushMaterialNames[at]
                             : at.ToString(CultureInfo.InvariantCulture)),
 
-                    // **The light cache, for props whose baked lighting is absent or refused**
-                    // (B123). Usable here because the level was read above, before any asset is
-                    // loaded — the ordering is what makes this a delegate rather than a second pass.
-                    lightAt: lighting.LightingAt,
-
                     // **Passed explicitly, and forgetting it is silent (D83).** The parameter
                     // defaults to a null logger so tests need not supply one, which means an
                     // omission here costs every asset line in the run and nothing reports it.
@@ -531,7 +526,6 @@ public sealed class LoadedMap
             Level.Surfaces,
             assets.Materials,
             assets.Lightmaps,
-            assets.Props,
             area: null,
             Level.Overlays,
             Level.BrushModels,

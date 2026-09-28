@@ -34,7 +34,6 @@ public sealed class WorldCullingDiagnostic
             level.Surfaces,
             assets.Materials,
             assets.Lightmaps,
-            assets.Props,
             area: null,
             level.Overlays,
             level.BrushModels,

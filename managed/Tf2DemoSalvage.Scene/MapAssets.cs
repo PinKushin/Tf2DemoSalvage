@@ -454,7 +454,6 @@ public sealed class MapAssets
         IReadOnlyList<BspMaterial> materials,
         IReadOnlyList<string> shaders,
         LightmapAtlas lightmaps,
-        IReadOnlyList<PropVertex> props,
         int resolved,
         int missing)
     {
@@ -467,12 +466,11 @@ public sealed class MapAssets
         Proxies = proxies;
         Materials = materials;
         Lightmaps = lightmaps;
-        Props = props;
         Resolved = resolved;
         Missing = missing;
     }
 
-    /// <summary>Each drawn static prop's corners in <see cref="Props"/>, by its index in the map's lump — for its decals (B421).</summary>
+    /// <summary>Each drawn static prop's model shape and placement, by its index in the map's lump — for its decals (B421).</summary>
     public IReadOnlyDictionary<int, PlacedProp> PlacedProps { get; init; } = new Dictionary<int, PlacedProp>();
 
     /// <summary>Every static prop, drawn as a model (B426, D198).</summary>
@@ -709,18 +707,11 @@ public sealed class MapAssets
         return loaded;
     }
 
-    /// <summary>The map's placed models, in world space, three corners per triangle.</summary>
+    /// <summary>Entity models and the static props' models, in their own coordinates, keyed by path.</summary>
     /// <remarks>
-    /// **Their materials continue the map's own table**, so a prop's material index indexes
-    /// <see cref="Textures"/> exactly like a brush face's. That is what lets one renderer draw both.
-    /// </remarks>
-    public IReadOnlyList<PropVertex> Props { get; private set; }
-
-    /// <summary>Entity models, in their own coordinates, keyed by path.</summary>
-    /// <remarks>
-    /// Model space rather than world space, unlike <see cref="Props"/>: a static prop stands where
-    /// the map put it and can be baked, while an entity moves and is posed by a matrix in the
-    /// shader.
+    /// Model space: every one is posed by a matrix in the shader, a static prop included (B426, D198).
+    /// Their materials continue the map's own table, so a model's material index indexes
+    /// <see cref="Textures"/> exactly like a brush face's.
     /// </remarks>
     public IReadOnlyDictionary<string, PropModels.ModelFrames> EntityModels { get; private init; } =
         new Dictionary<string, PropModels.ModelFrames>(StringComparer.OrdinalIgnoreCase);
@@ -777,19 +768,18 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyList<MapBump?> Bumps { get; private set; }
 
-    /// <summary>Whether <see cref="ReleaseUploaded"/> has run — pixels and baked props are gone, and a re-upload reads the map again.</summary>
+    /// <summary>Whether <see cref="ReleaseUploaded"/> has run — pixels are gone, and a re-upload reads the map again.</summary>
     public bool Released { get; private set; }
 
-    /// <summary>Lets go of what the device now holds — texture pixels and the baked static props — keeping every other field (B407).</summary>
+    /// <summary>Lets go of what the device now holds — texture pixels — keeping every other field (B407).</summary>
     /// <remarks>
-    /// **1.3 GB of an f12 load was texture mips and 416 MB the static props baked into world space**, both kept for a re-upload
-    /// only a failed upload asks for. Everything else is still read — the world build asks whether a material is translucent —
-    /// so only the images and the prop vertices go. A caller that needs them again reads the map again, as the engine rebuilds
-    /// a texture from its file.
+    /// **1.3 GB of an f12 load was texture mips**, kept for a re-upload only a failed upload asks for. Everything else is still
+    /// read — the world build asks whether a material is translucent — so only the images go. A caller that needs them again
+    /// reads the map again, as the engine rebuilds a texture from its file. (The 416 MB of static props baked into world space
+    /// that also went here no longer exists: static props are model draws, B426.)
     /// </remarks>
     public void ReleaseUploaded()
     {
-        Props = [];
         static MapTexture? Bare(MapTexture? texture) =>
             texture is { } present ? present with { Image = TextureImage.None } : null;
 
@@ -1105,11 +1095,6 @@ public sealed class MapAssets
     /// in rather than read here because they are cut from the same surface list the world is built
     /// from, and reading that list twice is the expensive half of loading a map.
     /// </param>
-    /// <param name="lightAt">
-    /// The light reaching a point, for props whose baked vertex lighting is absent or refused. The
-    /// engine lights those from the light cache rather than leaving them unlit (B123); passed in
-    /// because the caller reads the leaves and ambient samples before any asset is loaded.
-    /// </param>
     /// <param name="loggers">Where loading reports what it could not use, or null for nowhere.</param>
     /// <param name="decalMaterials">The materials the game's decals draw with — a Subrect's atlas, not the Subrect (B415).</param>
     /// <param name="effectMaterials">Sprite materials the legacy impact effects draw with, loaded as particle materials.</param>
@@ -1136,7 +1121,6 @@ public sealed class MapAssets
         // Null means the rocket trail alone, which is what this did before explosions existed.
         IReadOnlyCollection<string>? particleSystemsUsed = null,
         Func<LightmapAtlas, IReadOnlyDictionary<string, PropModels.ModelFrames>>? brushModels = null,
-        Func<float, float, float, PointLighting>? lightAt = null,
         ILoggerFactory? loggers = null,
         IReadOnlyCollection<string>? decalMaterials = null,
         IReadOnlyCollection<string>? effectMaterials = null)
@@ -1321,7 +1305,7 @@ public sealed class MapAssets
         Dictionary<int, float[]> staticColours = [];
         Dictionary<string, PropModels.ModelFrames> staticFrames = new(StringComparer.OrdinalIgnoreCase);
 
-        IReadOnlyList<PropVertex> props = PropModels.Load(
+        PropModels.Load(
             factory.CreateLogger("props"),
             map,
             pak,
@@ -1329,7 +1313,6 @@ public sealed class MapAssets
             table,
             ResolveProp,
             refusedLighting,
-            lightAt,
             placedProps,
             staticModels,
             staticColours,
@@ -1727,7 +1710,6 @@ public sealed class MapAssets
             table.Materials,
             table.Shaders,
             lightmaps,
-            props,
             resolved,
             missing)
         {

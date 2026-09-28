@@ -91,41 +91,6 @@ public sealed class ScenePassOrderConformanceTests
             "the engine draws opaque renderables before translucent ones");
     }
 
-    [Test]
-    public void PassOrder_ThisRenderer_KeepsPropsOutOfTheWorldsOwnBatches()
-    {
-        // **The half this file was missing, and said so in its own remarks before being committed
-        // anyway.** Everything above asserts Valve's source, which does not change and which Valve
-        // already tested; it cannot fail for any reason that concerns this renderer.
-        //
-        // The engine's order — world and its overlays, THEN opaque renderables — is only reproducible
-        // if static props are a separate run from world surfaces. Merged into one batch list they
-        // are necessarily drawn with the world, whatever the pass sequence says, because a batch
-        // list is drawn in one go. So the structural claim is checkable directly: MapWorld must
-        // carry props apart from surfaces.
-        //
-        // The behavioural half — that a prop therefore occludes a marking on the wall behind it —
-        // is measured in pixels by OverlayOcclusionRenderTests, which is the test that would have
-        // caught B135.
-        MapWorld world = MapWorldBuilder.Build(
-            null,
-            [],
-            [],
-            LightmapAtlas.Pack([]),
-            [
-                new PropVertex(0f, 0f, 0f, 0f, 0f, 0),
-                new PropVertex(1f, 0f, 0f, 1f, 0f, 0),
-                new PropVertex(1f, 1f, 0f, 1f, 1f, 0),
-            ],
-            area: null);
-
-        world.Props.ShouldNotBeEmpty("a static prop must be its own run, drawn after the overlays");
-
-        world.Batches.ShouldBeEmpty(
-            "and it must NOT be in the world's batches: those are drawn before the overlay pass, " +
-            "which is the arrangement that let a marking paint over a pipe (B135)");
-    }
-
 
     [Test]
     public void DrawOpaqueRenderables_IsWhereStaticPropsAreDrawn()

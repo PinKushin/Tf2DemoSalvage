@@ -13,7 +13,7 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
-/// The static-prop geometry actually PRODUCED near a point, by material.
+/// The static-prop model draws actually PRODUCED near a point.
 /// </summary>
 /// <remarks>
 /// **The difference between "the map places it" and "we built it".** `map-near` reads the BSP and
@@ -38,7 +38,7 @@ public sealed class WorldGeometryProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "baked prop geometry near a point: world-near <map> <x> <y> <z> [radius]";
+        "static prop model draws near a point, with their baked colours: world-near <map> <x> <y> <z> [radius]";
 
     private const float DefaultRadius = 128f;
 
@@ -91,44 +91,42 @@ public sealed class WorldGeometryProbe : IProbe
                 + $"{prop.Skin.ToString(CultureInfo.InvariantCulture)}  {prop.Model}");
         }
 
-        Dictionary<int, int> corners = [];
-
-        // **And their baked COLOUR, because "built" and "visible" are different claims.** A static
-        // prop's light is baked into its vertices here, so geometry that reaches the buffer at
-        // (0,0,0) draws black — present, correct, and indistinguishable from missing in a dark
-        // doorway. Reporting the count alone is the mistake that made a wall out of a one-face sign.
-        Dictionary<int, (float Red, float Green, float Blue)> light = [];
-
-        foreach (PropVertex corner in assets.Props
-            .Where(corner => Near(corner.X, corner.Y, corner.Z, x, y, z, radius)))
-        {
-            int material = corner.MaterialIndex;
-
-            corners[material] = corners.TryGetValue(material, out int seen) ? seen + 1 : 1;
-
-            (float red, float green, float blue) =
-                light.TryGetValue(material, out (float Red, float Green, float Blue) sum)
-                    ? sum
-                    : (0f, 0f, 0f);
-
-            light[material] = (red + corner.Red, green + corner.Green, blue + corner.Blue);
-        }
+        // **What was BUILT: each nearby placement's model draw** (B426) — the geometry the model draw
+        // finds for it, and its baked COLOUR, because "built" and "visible" are different claims: a
+        // colour mesh of (0,0,0) draws black — present, correct, and indistinguishable from missing in
+        // a dark doorway. A placement with no colour mesh is lit per draw instead.
+        List<Core.Scene.SceneProp> near =
+            [.. assets.StaticModels.Where(prop => Near(prop.Pose.X, prop.Pose.Y, prop.Pose.Z, x, y, z, radius))];
 
         output.WriteLine(
-            $"BUILT {corners.Values.Sum().ToString(CultureInfo.InvariantCulture)} prop corners "
-            + $"within {radius.ToString("0", CultureInfo.InvariantCulture)} of "
-            + $"({x:0} {y:0} {z:0}), across "
-            + $"{corners.Count.ToString(CultureInfo.InvariantCulture)} materials");
+            $"BUILT {near.Count.ToString(CultureInfo.InvariantCulture)} model draws "
+            + $"within {radius.ToString("0", CultureInfo.InvariantCulture)} of ({x:0} {y:0} {z:0})");
 
-        foreach ((int material, int count) in corners.OrderByDescending(pair => pair.Value))
+        foreach (Core.Scene.SceneProp prop in near)
         {
-            (float red, float green, float blue) = light[material];
+            int corners = assets.Geometry(prop.ModelPath)?.Geometry[0].Count ?? 0;
+
+            string light = assets.StaticModelColours.TryGetValue(prop.EntityIndex, out float[]? colours)
+                ? $"mean baked colour ({Mean(colours, 0):0.000} {Mean(colours, 1):0.000} {Mean(colours, 2):0.000})"
+                : "no colour mesh, lit per draw";
 
             output.WriteLine(
-                $"  {count,6} corners  material "
-                + $"{material.ToString(CultureInfo.InvariantCulture),4}  "
-                + $"mean colour ({red / count:0.000} {green / count:0.000} {blue / count:0.000})");
+                $"  {corners,6} corners  skin {prop.Pose.Skin.ToString(CultureInfo.InvariantCulture)}  "
+                + $"{light}  {prop.ModelPath}");
         }
+    }
+
+    /// <summary>One channel's mean over a red-green-blue colour mesh.</summary>
+    private static float Mean(float[] colours, int channel)
+    {
+        float sum = 0f;
+
+        for (int at = channel; at < colours.Length; at += 3)
+        {
+            sum += colours[at];
+        }
+
+        return colours.Length == 0 ? 0f : sum / (colours.Length / 3);
     }
 
     private static bool Near(

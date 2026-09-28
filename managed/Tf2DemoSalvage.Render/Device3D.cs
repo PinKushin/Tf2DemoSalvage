@@ -1191,9 +1191,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
                 // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
                 // detail model could not sort against the entities it stands among.
-                IReadOnlyList<ModelInstance> drawn = models ?? [];
+                // **`r_drawentities 0` draws no renderable** — `DrawOpaqueRenderables` and the translucent
+                // pass return at the top on it, static props included. It gated only the merged prop
+                // batches here until static props became model draws (B426), and gates the models now.
+                IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
 
-                if (_detailModelInstances.Count > 0)
+                if (DrawEntities && _detailModelInstances.Count > 0)
                 {
                     _allModels.Clear();
                     _allModels.AddRange(drawn);
@@ -1552,7 +1555,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadGeometry(
-            _device, world.Vertices, world.Batches, world.Decals, world.Props);
+            _device, world.Vertices, world.Batches, world.Decals);
     }
 
     /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
@@ -2299,7 +2302,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // toggle flipped before the first map would otherwise be silently forgotten.
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
-        _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong);
@@ -2427,22 +2429,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private bool _drawWorld = true;
 
     /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
-    public bool DrawEntities
-    {
-        get => _drawEntities;
-
-        set
-        {
-            _drawEntities = value;
-
-            if (_world is not null)
-            {
-                _world.DrawEntities = value;
-            }
-        }
-    }
-
-    private bool _drawEntities = true;
+    public bool DrawEntities { get; set; } = true;
 
     /// <summary>Valve's per-surface debug visualisations — see <see cref="DebugModes"/>.</summary>
     public DebugModes Debug

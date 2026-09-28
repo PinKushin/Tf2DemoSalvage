@@ -145,10 +145,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="detail">Combine each material's detail texture; false renders without.</param>
     /// <param name="bumped">Light bumped surfaces directionally; false uses the flat lightmap.</param>
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
-    /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
     /// <param name="fullbright">Which <c>mat_fullbright</c> substitution to draw with.</param>
     /// <param name="drawWorld">Whether world surfaces and overlays draw — <c>r_drawworld</c>.</param>
-    /// <param name="drawEntities">Whether props and models draw — <c>r_drawentities</c>.</param>
     /// <param name="debug">
     /// Valve's per-surface debug substitutions, so a test can assert on what one of them actually
     /// draws rather than only on the flag reaching the constant buffer.
@@ -173,10 +171,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool detail = true,
         bool bumped = true,
         IReadOnlyList<WorldBatch>? decals = null,
-        IReadOnlyList<WorldBatch>? props = null,
         Fullbright fullbright = Fullbright.Off,
         bool drawWorld = true,
-        bool drawEntities = true,
         DebugModes debug = default)
     {
         ArgumentNullException.ThrowIfNull(vertices);
@@ -188,13 +184,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.DrawDetail = detail;
         _world.DrawBumped = bumped;
         _world.DrawWorld = drawWorld;
-        _world.DrawEntities = drawEntities;
         _world.Seconds = Seconds;
 
         // **Textures first, because the shader clips on their alpha.** With none bound the sample
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
         _world.UploadTextures(_device, _context, assets);
-        _world.UploadGeometry(_device, vertices, batches, decals, props);
+        _world.UploadGeometry(_device, vertices, batches, decals);
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, specular: true, fullbright,
             debug);
@@ -243,6 +238,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// can see it working is one that renders with and without it and compares pixels (B325).
     /// </param>
     /// <param name="bakedColours">A baked static prop's colour mesh, per vertex, or null (B426).</param>
+    /// <param name="surfaceColours">Draw the category view, which shows the vertex colour.</param>
+    /// <param name="clearDepth">
+    /// Clear depth first; false draws over a <see cref="DrawWorld"/> just made, as a static prop is drawn after
+    /// the world and its overlays (B135, B426).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -266,7 +266,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool specular = true,
         (float X, float Y, float Z)? origin = null,
         string? overrideMaterial = null,
-        float[]? bakedColours = null)
+        float[]? bakedColours = null,
+        bool surfaceColours = false,
+        bool clearDepth = true)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -306,12 +308,17 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // could sit in the viewer with a full offscreen render suite in place: the harness reproduced
         // the bug rather than exposing it.
         _world.SetCamera(
-            _device, _context, camera, surfaceColours: false, specular, fullbright, debug, phong);
+            _device, _context, camera, surfaceColours, specular, fullbright, debug, phong);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 
         _context.RSSetViewports(1, in viewport);
-        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+
+        if (clearDepth)
+        {
+            _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        }
+
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
         _world.DrawModel(

@@ -29,7 +29,6 @@ public sealed class StaticPropModelsWiringTests
         baked.ShouldBeGreaterThan(0, "the control: the reference map has baked placements");
         assets.StaticModels.Count.ShouldBe(placed, "every placement is a model draw");
         assets.StaticModelColours.Count.ShouldBe(baked, "every baked placement carries its colours, and only those");
-        assets.Props.ShouldBeEmpty("no prop is merged into the world's batches");
 
         // **Through the production pose**: the set that draws them, handed what `LevelSystems` hands it.
         EntityModelSet models = new()
