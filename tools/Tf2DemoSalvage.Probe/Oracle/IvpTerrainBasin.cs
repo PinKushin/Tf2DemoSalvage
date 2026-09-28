@@ -33,6 +33,12 @@ internal static class IvpTerrainBasin
     /// <summary>The slab scene's drop point, IVP (1, 2, 10), in Source inches (x, z, −y).</summary>
     public static readonly System.Numerics.Vector3 SlabDrop = new(1f / MetresPerInch, 10f / MetresPerInch, -2f / MetresPerInch);
 
+    /// <summary>The two-ledge scene's drop point, IVP (20, 1, 14), in Source inches (x, z, −y).</summary>
+    public static readonly System.Numerics.Vector3 LedgesDrop = new(20f / MetresPerInch, 14f / MetresPerInch, -1f / MetresPerInch);
+
+    /// <summary>Where the binary twin leaves the engine's two-ledge collide bytes for the port's twin, in the temp folder.</summary>
+    public static string LedgesCollidePath => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "tf2ds-two-ledges.collide");
+
     /// <summary>IVP's metre in Source inches' terms.</summary>
     public const float MetresPerInch = 0.0254f;
 

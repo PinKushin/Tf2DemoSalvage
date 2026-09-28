@@ -6,6 +6,7 @@ using System.Numerics;
 using System.Text;
 
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Probe.Oracle;
 
@@ -42,7 +43,8 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         int every = Every(arguments);
-        bool slab = arguments.Count > 0 && arguments[0] == "slab";
+        bool ledges = arguments.Count > 0 && arguments[0] == "ledges";
+        bool slab = ledges || (arguments.Count > 0 && arguments[0] == "slab");
 
         // `slab`: the broad-phase test's static slab under IVP gravity (0, 0, −10) — Source (0, −10, 0) — on the frictionless surface.
         VphysicsSurfaceProps surfaces = new([]);
@@ -56,7 +58,26 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             return;
         }
 
-        if (slab)
+        if (ledges)
+        {
+            // The engine's own ConvertConvexToCollide bytes, left by `vphysics-virtual-terrain-drop ledges`, read as a map's are.
+            if (!File.Exists(LedgesCollidePath) || PhysicsHull.Tree(PhysicsHull.Surface(File.ReadAllBytes(LedgesCollidePath))) is not { } surface)
+            {
+                output.WriteLine($"{LedgesCollidePath}: run 'vphysics-virtual-terrain-drop ledges' first, or it did not read as a tree");
+                return;
+            }
+
+            IvpRigidBody ground = new()
+            {
+                Immovable = true,
+                InverseMass = 0f,
+                InverseInertia = (0f, 0f, 0f),
+                Ledges = surface.Root.Left?.Ledge is { } first ? [first] : [],
+            };
+            world.Simulation.Collide(ground, surface, material);
+            output.WriteLine($"ledges: {LedgesCollidePath} read, radius {ground.Radius}");
+        }
+        else if (slab)
         {
             (float X, float Y, float Z) halves = (SlabHalfXInches * MetresPerInch, SlabHalfXInches * MetresPerInch, SlabHalfYInches * MetresPerInch);
             IvpRigidBody ground = new()
@@ -78,8 +99,9 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
 
         // Source (x, y, z) is IVP (x, −z, y) in metres.
         float half = HalfInches * MetresPerInch;
+        Vector3 drop = ledges ? LedgesDrop : SlabDrop;
         (double X, double Y, double Z) at = slab
-            ? (SlabDrop.X * MetresPerInch, -SlabDrop.Z * MetresPerInch, SlabDrop.Y * MetresPerInch)
+            ? (drop.X * MetresPerInch, -drop.Z * MetresPerInch, drop.Y * MetresPerInch)
             : (CentreInches * MetresPerInch, -DropAltitudeInches * MetresPerInch, CentreInches * MetresPerInch);
         float mass = slab ? 1f : BodyMass;
         float inertia = BodyInertia / BodyMass * mass;
