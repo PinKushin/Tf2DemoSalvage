@@ -39,6 +39,26 @@ public sealed class LightCacheCellConformanceTests
         LightCacheCell.Position(Point, static at => at.Z < 65f, static (_, _) => true).ShouldBe(new Vector3(16f, -16f, 100f));
     }
 
+    /// <remarks>
+    /// The first trace STARTS in solid (`local_71` in `0x1801b6860`): the point is returned at once, and the point-height
+    /// trace, which would reach here, is never tried. For a ray, starting in solid is the point being in `MASK_OPAQUE`.
+    /// </remarks>
+    [Test]
+    public void Position_AFirstTraceStartingInSolid_IsThePointWithoutTheSecondTrace()
+    {
+        LightCacheCell.Position(Point, static at => at == Point, static (_, to) => to.Z > 99f).ShouldBe(Point);
+    }
+
+    /// <remarks>
+    /// The control: a centre in solid means no first trace, so a point in solid still gets the point-height attempt.
+    /// </remarks>
+    [Test]
+    public void Position_APointInSolidWithTheCentreInSolidToo_StillTriesThePointsHeight()
+    {
+        LightCacheCell.Position(Point, static at => at == Point || at.Z < 65f, static (_, _) => true)
+            .ShouldBe(new Vector3(16f, -16f, 100f));
+    }
+
     /// <remarks>x −40 is cell −2, whose centre is −48: the cell floors, it does not truncate toward zero.</remarks>
     [Test]
     public void Position_ANegativeCoordinate_FloorsItsCell()

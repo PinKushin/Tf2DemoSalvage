@@ -5394,7 +5394,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (changed.Count > 0 && lighting.Answers(changed))
         {
-            _models.LightsChanged();
+            lighting.StylesChanged();
         }
 
         _lightmapRegions.Clear();

@@ -7680,10 +7680,16 @@ in one cell share one light.
 **Built:** `LightCacheCell`, which `LevelLighting.LightingAt` and `SunAt` use. Its traces are `MASK_OPAQUE` world
 traces through `MapLevel.TraceBrushOnly`, so terrain stops them as it stops the engine's.
 
-**Not built:** a first trace that STARTS in solid returns the point at once in `0x1801b6860` (`local_71`), without the
-point-height attempt; our trace does not report `startsolid`, so that case tries the second trace. And the cache's memory. An entry placed at the point itself, the last fallback, is lit where the first
-model to miss stood, and later models in that cell reuse it. Here each model uses its own point in that case. The
-entry capacity, and the eviction it forces, is not reproduced either.
+**Built 2026-09-28, closing what was left:** a first trace starting in solid returns the point (`local_71`; for a ray,
+the point is in `MASK_OPAQUE`). And the cache's memory, `LightCache`: 200 entries keyed on `((int)c + 0x8000) >> 5`
+(`>> 7` in z) plus the leaf, LRU (`0x1801baeb0`, victim `DAT_180773316`), `lightcache_maxmiss` 2 (`0x18000fde0`) misses a
+frame after the first 60, and past it the nearest entry (a different leaf counts 2) for model lighting's flags `0xf`
+(`0x1800f1bd0`). An entry is built at the first point to miss and relit there when a style changes. `ModelLighting`'s
+per-entity memo (B99) is removed: it kept standing models from touching the LRU. Static props do not use it — they
+take `FUN_1801ba590`'s per-prop handle.
+
+**Not built:** an all-zero entry (a fallback reaching an unbuilt slot) draws full-bright here, because the shader reads a
+zero cube as "none"; with `lightcache_maxmiss` above 0 it is unreachable, since the budget is only spent by building.
 
 ### B422 — the world drew no light styles — FIXED 2026-09-25
 

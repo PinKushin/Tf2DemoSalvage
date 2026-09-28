@@ -223,6 +223,41 @@ public sealed class LevelLightingTests
             new LevelLighting(null, [], [], null, render: null!));
     }
 
+    /// <remarks>
+    /// Two lamps either side of one 32-unit cell: x 1 is nearer the west lamp, x 30 the east. The light cache
+    /// (`0x1801b9cd0`) builds the cell's entry at the first point to miss and lights the second with it.
+    /// </remarks>
+    [Test]
+    public void ModelLightingAt_TwoPointsInOneCell_BothTakeTheFirstPointsEntry()
+    {
+        LevelLighting lighting = Lit([Lamp((-200f, 0f, 100f), 400f), Lamp((230f, 0f, 100f), 400f)]);
+
+        lighting.ModelLightingAt(1f, 0f, 100f).Locals[0].X.ShouldBe(-200f);
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(-200f, "the entry built at x 1");
+
+        // The control: the uncached reading at x 30 ranks the east lamp first.
+        lighting.LightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
+    }
+
+    /// <remarks>
+    /// A light style change relights an entry where it was built, not where it is asked from (`ComputeLightStyles` on a
+    /// stale hit, `0x1801b9cd0`): dimming the west lamp's style puts the east lamp first at x 1.
+    /// </remarks>
+    [Test]
+    public void ModelLightingAt_AfterAStyleChange_RelightsTheEntryAtItsOwnPoint()
+    {
+        LevelLighting lighting = Lit([Lamp((-200f, 0f, 100f), 400f) with { Style = 1 }, Lamp((230f, 0f, 100f), 400f)]);
+
+        lighting.ModelLightingAt(1f, 0f, 100f);
+        lighting.StyleScale = style => style == 1 ? 0.01f : 1f;
+
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(-200f, "unchanged until told");
+
+        lighting.StylesChanged();
+
+        lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
+    }
+
     /// <summary>A map lit brightly above the z = 0 plane and dimly below it.</summary>
     private static LevelLighting Lit(
         IReadOnlyList<BspWorldLight>? worldLights = null,

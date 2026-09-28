@@ -6,24 +6,12 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>
-/// That a model which has not moved is not lit again.
-/// </summary>
+/// <summary>How a drawn model asks for its light, frame to frame.</summary>
 /// <remarks>
-/// **B99, and the measurement that justifies it.** Per second of wall time while playing, posing
-/// costs about 900 ms of which lighting is 320, against 3.4 ms to draw the entire uncalled map. Most
-/// of that lighting recomputes a value that cannot have changed: map lights never move, and most
-/// entities in a demo are standing still at any moment.
-///
-/// **The cost per lookup is why it matters rather than being a micro-optimisation.** A cube comes
-/// from an inverse-squared-distance average over the sixteen ambient samples in the model's leaf,
-/// then `LocalLights` ranks all 477 of the map's world lights to pick four and evaluates a falloff
-/// per light for each of six cube faces. The sun on top of that traces a ray through the BSP to ask
-/// whether the sky is visible. None of it changes while the model stands still.
-///
-/// **Correctness first: this must return the SAME value, not merely fewer of them.** The lighting
-/// path took most of a session to get right, and a cache that quietly answers differently would undo
-/// that while every existing test still passed.
+/// **B99's per-entity memo is gone (B423): the engine's light cache is the memo.** Every drawn model asks every frame,
+/// as `LightcacheGet` (`0x1801b9cd0`) is called every frame, and the cost B99 measured (320 ms a second) now falls on a
+/// cache hit — a leaf walk and a lookup — with full sampling only on a miss, capped per frame by `lightcache_maxmiss`.
+/// These fixtures pass a bare probe, so they count asks, not cache hits.
 /// </remarks>
 public sealed class LightingCacheTests
 {
@@ -76,7 +64,7 @@ public sealed class LightingCacheTests
             []);
 
     [Test]
-    public void AStationaryModel_IsLitOnce()
+    public void Instances_AStationaryModelOverThreeFrames_AsksThreeTimes()
     {
         EntityModelSet models = new();
         Probe probe = new();
@@ -90,10 +78,9 @@ public sealed class LightingCacheTests
         models.Instances(props, instances, probe.Light, probe.Sun, 0.016d);
         models.Instances(props, instances, probe.Light, probe.Sun, 0.032d);
 
-        // Three frames, one lookup. The seconds differ because animation advances with time, which
-        // must not invalidate lighting: a spinning health pack is lit by the same leaf throughout.
-        probe.AmbientCalls.ShouldBe(1);
-        probe.SunCalls.ShouldBe(1);
+        // Three frames, three asks: the light cache behind the probe answers the repeats.
+        probe.AmbientCalls.ShouldBe(3);
+        probe.SunCalls.ShouldBe(3);
     }
 
     [Test]

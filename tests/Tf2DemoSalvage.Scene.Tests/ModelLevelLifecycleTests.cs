@@ -109,15 +109,12 @@ public sealed class ModelLevelLifecycleTests
     }
 
     /// <remarks>
-    /// **A stationary wearer's lighting is sampled once, not once per item per frame** (the
-    /// outside audit's finding 6). The worn branch reads the wearer's light point and asked the
-    /// sampler EVERY frame — a code comment had already named the missing cache as a defect
-    /// (B189) — where `ModelLighting.For`'s contract is the engine's: a model at the identical
-    /// point cannot have changed brightness, so the sample is keyed on the entity and the exact
-    /// point and re-taken only when the point moves.
+    /// **Every drawn model asks the light source every frame, worn items included**, as each renderable calls
+    /// `LightcacheGet` (`0x1801b9cd0`) every frame it draws. The light cache behind the source is the memo, and the
+    /// per-entity memo that made this "once" (B189, the outside audit's finding 6) hid the cache's LRU touches (B423).
     /// </remarks>
     [Test]
-    public void Instances_AStationaryWearerAcrossTwoFrames_SamplesWornLightingOnce()
+    public void Instances_AStationaryWearerAcrossTwoFrames_AsksForWornLightingEachFrame()
     {
         EntityModelSet models = Models();
 
@@ -152,7 +149,7 @@ public sealed class ModelLevelLifecycleTests
 
         models.Instances(props, instances, Count);
 
-        sampled.ShouldBe(first, "nothing moved, so the second frame re-samples nothing");
+        sampled.ShouldBe(first * 2, "the second frame asks exactly as often as the first");
     }
 
     /// <remarks>

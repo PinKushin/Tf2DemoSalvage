@@ -103,6 +103,80 @@ public sealed class LevelLighting
     /// <summary>Whether a `MASK_OPAQUE` world trace between two points is clear; see the constructor.</summary>
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _reaches;
 
+    /// <summary>The engine's model light cache (<see cref="LightCache{T}"/>), one per map as a map load flushes it.</summary>
+    private readonly LightCache<CachedLight> _cache = new(CachedLight.Unbuilt);
+
+    /// <summary>Bumped when a style a world light answers to changes; an entry built before it is relit on its next hit.</summary>
+    private int _styleVersion;
+
+    /// <summary>`r_framecount`: advance once per rendered frame, before the frame's models are lit.</summary>
+    public int Frame { get; set; }
+
+    /// <summary>A light style a world light answers to changed: every cache entry is relit where it was built when next used.</summary>
+    public void StylesChanged() => _styleVersion++;
+
+    /// <summary>A model's light, through the light cache: see <see cref="LightCache{T}"/>.</summary>
+    /// <param name="x">The model's lighting origin.</param>
+    /// <param name="y">The model's lighting origin.</param>
+    /// <param name="z">The model's lighting origin.</param>
+    /// <returns>The cube and local lights of the entry lighting this point.</returns>
+    /// <remarks>
+    /// **The entry is built at the first point to miss its cell and leaf**, and every model after it in that cell is lit
+    /// with it — model lighting passes flags `0xf` (`0x1800f1bd0`), so past `lightcache_maxmiss` it takes the nearest entry.
+    /// </remarks>
+    public PointLighting ModelLightingAt(float x, float y, float z) => Entry(x, y, z)?.Lighting ?? LightingAt(x, y, z);
+
+    /// <summary>The sun a model's light cache entry sees: see <see cref="ModelLightingAt"/>.</summary>
+    /// <param name="x">The model's lighting origin.</param>
+    /// <param name="y">The model's lighting origin.</param>
+    /// <param name="z">The model's lighting origin.</param>
+    /// <returns>The entry's sun, or null.</returns>
+    public SunLight? ModelSunAt(float x, float y, float z) => Entry(x, y, z) is { } entry ? entry.Sun : SunAt(x, y, z);
+
+    private CachedLight? Entry(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _ambient.Count == 0)
+        {
+            return null;
+        }
+
+        CachedLight entry = _cache.Get(
+            new System.Numerics.Vector3(x, y, z),
+            tree.LeafAt(x, y, z),
+            Frame,
+            allowFast: true,
+            () => new CachedLight(x, y, z, LightingAt(x, y, z), SunAt(x, y, z), _styleVersion));
+
+        if (entry.Built && entry.StyleVersion != _styleVersion)
+        {
+            entry.Lighting = LightingAt(entry.X, entry.Y, entry.Z);
+            entry.StyleVersion = _styleVersion;
+        }
+
+        return entry;
+    }
+
+    /// <summary>What a cache entry holds: where it was built, and what it lit there.</summary>
+    private sealed class CachedLight(float x, float y, float z, PointLighting lighting, SunLight? sun, int styleVersion)
+    {
+        /// <summary>A zeroed pool entry (`0x1801bb640`): no cube, no lights, no sun.</summary>
+        public static readonly CachedLight Unbuilt = new(0f, 0f, 0f, PointLighting.None, null, -1) { Built = false };
+
+        public float X { get; } = x;
+
+        public float Y { get; } = y;
+
+        public float Z { get; } = z;
+
+        public bool Built { get; private init; } = true;
+
+        public PointLighting Lighting { get; set; } = lighting;
+
+        public SunLight? Sun { get; } = sun;
+
+        public int StyleVersion { get; set; } = styleVersion;
+    }
+
     /// <summary>How many places to report light terms for before falling silent.</summary>
     /// <remarks>Public so the test asserts against this value rather than a copy of it.</remarks>
     public const int LightTermReportLimit = 40;
