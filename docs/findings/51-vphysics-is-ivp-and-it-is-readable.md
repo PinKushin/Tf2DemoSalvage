@@ -8258,6 +8258,29 @@ both. The first divergence is now the impact at tick 20: z 24.21 against 23.96, 
 against (−7.92, 7.87). *Not established*: which of the impact's inputs differs. vphysics' spin is read in degrees about the
 object's axes and the port's in radians about the core's, so that column does not compare yet.
 
+**Closed the same day (2026-09-17) by reading core memory on both sides per tick** — position `+0x150`, the time last stepped
+`+0x1d0`, the velocities, the spin as `GetVelocity` (`FUN_18001c1f0`) reports it, and each side's friction contacts — beside the
+port's pair events (`IvpSimulation.PairFired`, `Examined`). Each step was found by the first column that disagreed. *This account
+sat on the unmerged branch `fix/b369-ivp-narrow-phase/retry-context` until 2026-09-28; the code fixes it names reached main
+separately.*
+
+1. **The impact was 0.82 ms late** (0.311016 in vphysics, 0.311837 in the port). The vertex-face edge target is
+   `−(0.1·d · face core+0x54)`, and `IvpRangeManager.Bounds` handed every search `+0x54` and `+0x80` as zero. With
+   `+0x54 = 0.5f / +0x4` (`FUN_180076f80`, run by `ConstructCore` after the radius) the impact, flight and spin match to the hundredth.
+2. **A contact at `block[0x47]` stayed filed** — vphysics dropped the crate's second contact at gap 0.0334; the port kept it
+   (`FUN_180084490`, `FUN_1800a9bf0`; the move-to-head test reads each object's friction core `+0xf0`). Parked then — see 4.
+3. **A search mid-PSI measured the body where its PSI had begun.** `IvpSimulation.Searchable` built slot 0 of the motion cache from
+   the core's matrix; vphysics' slot 0 is the object's cache matrix at now (`FUN_180094680`'s `+0x40`). Fixed (83befb3a).
+4. **The drop exposed a fall-through on virtual terrain**: a cube on a displacement hull loses its contact, its pairs are filed
+   far, handed back on the way down, and leave the exact list at once. *Not established* then: where a handed-off virtual-mesh
+   pair goes.
+
+**Also measured:** the port had no inverse contact mass on a contact (`cp+0x60`, 0.17488 in vphysics, 0 in the port), which the
+friction cone's budget multiplies by; its writer `FUN_180083a60` is read and was not called on this path. And the broad-phase
+fixtures gave every core the cube's radius: a 40 × 40 slab had a radius of 4. The same branch found `RecheckInvalid`
+(`FUN_180074240`) minimizing with a step budget; it calls `MinimizeWithoutBudget` (`FUN_180095ad0`), now wired in
+`IvpSimulation.Start`.
+
 
 ### And the faces are already parsed — they are discarded one line before the physics (B306)
 
