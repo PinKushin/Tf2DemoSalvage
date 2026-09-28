@@ -42,24 +42,47 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
         ArgumentNullException.ThrowIfNull(arguments);
 
         int every = Every(arguments);
+        bool slab = arguments.Count > 0 && arguments[0] == "slab";
 
+        // `slab`: the broad-phase test's static slab under IVP gravity (0, 0, −10) — Source (0, −10, 0) — on the frictionless surface.
         VphysicsSurfaceProps surfaces = new([]);
         surfaces.ParseSurfaceData(Encoding.UTF8.GetBytes(SurfaceText));
-        IvpRagdollWorld world = new(Timestep, new Vector3(0f, 0f, -GravityInches), surfaces);
+        IvpRagdollWorld world = new(
+            Timestep, slab ? new Vector3(0f, -GravityInches, 0f) : new Vector3(0f, 0f, -GravityInches), surfaces);
 
-        if (surfaces.ObjectMaterial("default") is not { } material)
+        if (surfaces.ObjectMaterial(slab ? "frictionless" : "default") is not { } material)
         {
-            output.WriteLine("control: 'default' did not parse");
+            output.WriteLine("control: the surface did not parse");
             return;
         }
 
-        DisplacementCollisionTree tree = Tree();
-        output.WriteLine($"DisplacementCollisionTree: {tree.Vertices.Count} vertices, {tree.Triangles.Count} triangles");
-        world.AddVirtualTerrain([(tree, false)], [Hull(tree.Vertices)]);
+        if (slab)
+        {
+            (float X, float Y, float Z) halves = (SlabHalfXInches * MetresPerInch, SlabHalfXInches * MetresPerInch, SlabHalfYInches * MetresPerInch);
+            IvpRigidBody ground = new()
+            {
+                Immovable = true,
+                InverseMass = 0f,
+                InverseInertia = (0f, 0f, 0f),
+                Radius = MathF.Sqrt((halves.X * halves.X) + (halves.Y * halves.Y) + (halves.Z * halves.Z)),
+                Ledges = IvpTestCube.Box(halves.X, halves.Y, halves.Z),
+            };
+            world.Simulation.Collide(ground, material);
+        }
+        else
+        {
+            DisplacementCollisionTree tree = Tree();
+            output.WriteLine($"DisplacementCollisionTree: {tree.Vertices.Count} vertices, {tree.Triangles.Count} triangles");
+            world.AddVirtualTerrain([(tree, false)], [Hull(tree.Vertices)]);
+        }
 
         // Source (x, y, z) is IVP (x, −z, y) in metres.
         float half = HalfInches * MetresPerInch;
-        (double X, double Y, double Z) at = (CentreInches * MetresPerInch, -DropAltitudeInches * MetresPerInch, CentreInches * MetresPerInch);
+        (double X, double Y, double Z) at = slab
+            ? (SlabDrop.X * MetresPerInch, -SlabDrop.Z * MetresPerInch, SlabDrop.Y * MetresPerInch)
+            : (CentreInches * MetresPerInch, -DropAltitudeInches * MetresPerInch, CentreInches * MetresPerInch);
+        float mass = slab ? 1f : BodyMass;
+        float inertia = BodyInertia / BodyMass * mass;
         IvpRigidBody body = new()
         {
             Position = at,
@@ -68,10 +91,10 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
             CoreMatrix = IvpMatrix.FromRotation((0f, 0f, 0f, 1f), at),
             Radius = half * MathF.Sqrt(3f),
             Offset08 = BodyDeviation,
-            Mass = BodyMass,
-            InverseMass = 1f / BodyMass,
-            Inertia = (BodyInertia, BodyInertia, BodyInertia),
-            InverseInertia = (BodyInverseInertia, BodyInverseInertia, BodyInverseInertia),
+            Mass = mass,
+            InverseMass = 1f / mass,
+            Inertia = (inertia, inertia, inertia),
+            InverseInertia = (1f / inertia, 1f / inertia, 1f / inertia),
             Damping = 0f,
             RotationDamping = 0f,
             RestAnchorOrientation = (0f, 0f, 0f, 1f),

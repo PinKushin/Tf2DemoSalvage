@@ -70,6 +70,8 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     // The scene's numbers — ticks, timestep, cube, drop, gravity, surfaces — are IvpTerrainBasin's, shared with the port's twin
     // (`ivp-virtual-terrain-drop`) and the broad-phase test, so a diff between them is never a difference in the setup.
 
+    private static readonly Vec3 SlabDropInches = new(SlabDrop.X, SlabDrop.Y, SlabDrop.Z);
+
     /// <summary>The cap the runtime handler hands its tree walk — <c>0xc00</c>, <c>MAX_VIRTUAL_TRIANGLES·3</c>.</summary>
     private const int TriangleIndexCap = 0xc00;
 
@@ -232,6 +234,13 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             return;
         }
 
+        if (arguments.Count > 0 && arguments[0] == "slab")
+        {
+            RunSlab(output, module, physics, collision, VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(
+                surfaceProps, "frictionless"), Every(arguments));
+            return;
+        }
+
         if (arguments.Count > 0 && arguments[0] == "boxes")
         {
             RunBoxes(output, module, physics, collision, VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(
@@ -352,6 +361,63 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     /// IVP +z, one still at (0, 0, 9), no gravity, a frictionless inelastic surface — through the real engine.
     /// </summary>
     /// <remarks>IVP to Source is <c>(x, z, −y)</c> over <see cref="MetresPerInch"/>.</remarks>
+    /// <summary>
+    /// <c>slab</c>: <c>IvpSimulationBroadPhaseTests.Advance_ABodyDroppedOnAStaticSlab_ComesToRestOnIt</c> through the real engine —
+    /// a static <c>BBoxToCollide</c> slab of IVP half (40, 40, 1) at the origin, the half-4 cube of mass 1 dropped from IVP (1, 2, 10)
+    /// under IVP gravity (0, 0, −10), on the frictionless surface. IVP to Source is <c>(x, z, −y)</c>.
+    /// </summary>
+    private static void RunSlab(TextWriter output, nint module, nint physics, nint collision, int materialIndex, int every)
+    {
+        nint environment = VCall<CreateEnvironmentDelegate>(physics, 5)(physics);
+        VCall<SetGravityDelegate>(environment, EnvironmentSetGravitySlot)(environment, new Vec3(0f, -GravityInches, 0f));
+        VCall<SetSimulationTimestepDelegate>(environment, EnvironmentSetSimulationTimestepSlot)(environment, Timestep);
+
+        nint box = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
+            collision, new Vec3(-HalfInches, -HalfInches, -HalfInches), new Vec3(HalfInches, HalfInches, HalfInches));
+        nint slab = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
+            collision, new Vec3(-SlabHalfXInches, -SlabHalfYInches, -SlabHalfXInches), new Vec3(SlabHalfXInches, SlabHalfYInches, SlabHalfXInches));
+        nint bodyName = Marshal.StringToHGlobalAnsi("body");
+        nint slabName = Marshal.StringToHGlobalAnsi("slab");
+
+        using ImpactTrace? impacts = ImpactTrace.FromEnvironment(module, output);
+
+        try
+        {
+            ObjectParams slabParams = ObjectParams.Default(mass: 0f, slabName);
+            VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectStaticSlot)(
+                environment, slab, materialIndex, new Vec3(0f, 0f, 0f), new Vec3(0f, 0f, 0f), ref slabParams);
+
+            ObjectParams bodyParams = ObjectParams.Default(mass: 1f, bodyName);
+            nint body = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
+                environment, box, materialIndex, SlabDropInches, new Vec3(0f, 0f, 0f), ref bodyParams);
+            VCall<EnableMotionDelegate>(body, ObjectEnableMotionSlot)(body, true);
+            VCall<WakeDelegate>(body, ObjectWakeSlot)(body);
+            output.WriteLine($"slab: dropped from {SlabDropInches}, IVP rest expected at z~5 (Source y {5f / MetresPerInch:F2})");
+
+            SimulateDelegate simulate = VCall<SimulateDelegate>(environment, EnvironmentSimulateSlot);
+            GetPositionDelegate getPosition = VCall<GetPositionDelegate>(body, ObjectGetPositionSlot);
+            GetVelocityDelegate getVelocity = VCall<GetVelocityDelegate>(body, ObjectGetVelocitySlot);
+
+            for (int tick = 1; tick <= TotalTicks; tick++)
+            {
+                impacts?.AtTick(tick);
+                simulate(environment, Timestep);
+
+                if (tick % every == 0)
+                {
+                    getPosition(body, out Vec3 at, out _);
+                    getVelocity(body, out Vec3 velocity, out Vec3 spin);
+                    output.WriteLine($"tick {tick,4} t={tick * Timestep,5:F2}  pos={at}  vel={velocity}  spin={spin}");
+                }
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(bodyName);
+            Marshal.FreeHGlobal(slabName);
+        }
+    }
+
     private static void RunBoxes(TextWriter output, nint module, nint physics, nint collision, int materialIndex)
     {
         nint environment = VCall<CreateEnvironmentDelegate>(physics, 5)(physics);
