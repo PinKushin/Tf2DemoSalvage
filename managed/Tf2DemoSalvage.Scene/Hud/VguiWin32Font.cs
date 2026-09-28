@@ -38,6 +38,9 @@ public sealed class VguiWin32Font
     /// <summary>What it was made from.</summary>
     public VguiFont GlyphSet { get; }
 
+    /// <summary>`~CWin32Font`: gives its GDI objects back.</summary>
+    public void Release() => _gdi.DeleteFont(_font);
+
     /// <summary>`GetHeight`: `tmHeight`, plus 1 for a dropshadow and 2 for an outline.</summary>
     public int Height { get; private init; }
 

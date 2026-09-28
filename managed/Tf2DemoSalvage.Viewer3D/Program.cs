@@ -99,8 +99,12 @@ internal static class Program
         // first attempt at naming B402 logged nothing at all.
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
 
+        // **The stack goes in the message** because the file logger keeps only type and message for
+        // an exception (caught ones need no more). A paint that threw here drew WinForms' red X on
+        // the menu and status bars, and a log without the stack could not say which control.
         Application.ThreadException += (_, thread) =>
-            crashes.LogError(thread.Exception, "{Message}", "unhandled exception on the UI thread");
+            crashes.LogError(
+                "{Message}: {Stack}", "unhandled exception on the UI thread", thread.Exception.ToString());
 
         AppDomain.CurrentDomain.UnhandledException += (_, domain) =>
             crashes.LogError(

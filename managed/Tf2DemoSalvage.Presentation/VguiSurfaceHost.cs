@@ -68,6 +68,7 @@ public sealed class VguiSurfaceHost(
         if (_list is null || (Wide, Tall) != (wide, tall))
         {
             (Wide, Tall) = (wide, tall);
+            _fonts?.ClearAllFonts();
             _fonts = new VguiFontManager(gdi);
             _list = new VguiDrawList(textureSize, _fonts);
         }

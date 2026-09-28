@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -10,8 +11,38 @@ namespace Tf2DemoSalvage.Fonts.Tests;
 /// The rules are pinned against a fake in `Scene.Tests`; these check the adapter makes the calls that produce them.
 /// Arial is on every Windows install, CI's included.
 /// </remarks>
-public sealed class GdiVguiTests
+public sealed partial class GdiVguiTests
 {
+    private const uint GrGdiObjects = 0;
+
+    [Test]
+    public void Release_AFontThatWasMade_GivesBackEveryGdiObjectItTook()
+    {
+        using GdiVgui gdi = new();
+        uint before = GdiObjects();
+
+        VguiWin32Font font = VguiWin32Font.Create(gdi, new VguiFont("Arial", 20, 400, 0, 0, VguiFont.Antialias, 1f, 1f))
+            ?? throw new InvalidOperationException("Arial did not create.");
+
+        uint made = GdiObjects();
+
+        made.ShouldBeGreaterThan(before, "the control: making a font takes GDI objects, or this measures nothing");
+
+        font.Release();
+
+        GdiObjects().ShouldBe(before);
+    }
+
+    private static uint GdiObjects() => GetGuiResources(GetCurrentProcess(), GrGdiObjects);
+
+    [LibraryImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static partial uint GetGuiResources(nint process, uint flags);
+
+    [LibraryImport("kernel32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static partial nint GetCurrentProcess();
+
     [Test]
     public void FamilyExists_AnInstalledFamilyAndAnInventedOne_AreTrueAndFalse()
     {

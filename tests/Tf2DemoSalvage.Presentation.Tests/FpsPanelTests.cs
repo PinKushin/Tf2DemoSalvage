@@ -129,6 +129,11 @@ public sealed class FpsPanelTests
 
         public void CreateBitmap(VguiGdiFont font, int wide, int tall) => _bitmap = (wide, tall);
 
+        // A fake holds no GDI objects to give back.
+        public void DeleteFont(VguiGdiFont font)
+        {
+        }
+
         public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => (0, 6, 0);
 
         public int? GetTextExtent(VguiGdiFont font, char character) => 6;

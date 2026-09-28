@@ -7664,6 +7664,22 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B428 — HUD fonts leaked GDI objects until WinForms drew red X's — FIXED 2026-09-28
+
+**Symptom (owner):** red X's across the menu bar, status bar and transport buttons during the UI suite, after the
+full-screen checks. That X is WinForms' own mark for a control whose paint threw: `StatusStrip.OnPaint` →
+`Graphics.FromHdcInternal` failed ("An object could not be created"), then `Control.WmPaint` got a null DC.
+
+**Measured:** a sampler on `GetGuiResources( GR_GDIOBJECTS )` read one viewer at **10,000**, Windows' per-process cap.
+**Cause:** `VguiSurfaceHost.BeginFrame` made a new `VguiFontManager` on every screen-size change, and the shared
+`GdiVgui` freed a font's DC, font and DIB (three objects) only on `Dispose`, so every resize kept a whole HUD font set.
+**Fix:** `VguiFontManager.ClearAllFonts` releases each `CWin32Font` (`IVguiGdi.DeleteFont`, the destructor's
+`DeleteDC`/`DeleteObject`) before the new set is made. Interpolated: `~CWin32Font` and a font reload that clears
+the old set are read from the shape of `vguimatsurface.dll`, not disassembled. **After:** peak 1,376, zero paint errors.
+The crash log now carries the stack (`Program.cs`); the file logger keeps only type and message.
+
+---
+
 ### B427 — a static prop's lump lighting origin was never read — FIXED 2026-09-28
 
 **`CStaticProp::Init`, `engine.dll` `0x1802052c0`:** when the lump's `m_Flags` has

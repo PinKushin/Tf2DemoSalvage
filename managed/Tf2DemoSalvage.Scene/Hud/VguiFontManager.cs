@@ -97,6 +97,22 @@ public sealed class VguiFontManager(IVguiGdi gdi)
         return handle;
     }
 
+    /// <summary>`ClearAllFonts`: every `CWin32Font` deleted, as a font reload does before fonts are made again.</summary>
+    /// <remarks>
+    /// Without it a screen-size change made a whole new font set and kept the old one's GDI objects, three per font, until
+    /// the process hit Windows' 10,000-object cap and every WinForms paint failed with a red X.
+    /// </remarks>
+    public void ClearAllFonts()
+    {
+        foreach (VguiWin32Font font in _fonts)
+        {
+            font.Release();
+        }
+
+        _fonts.Clear();
+        _handles.Clear();
+    }
+
     /// <summary>`AddCustomFontFile`'s Windows half.</summary>
     /// <param name="fullPath">The font file on disk.</param>
     /// <returns>Whether GDI added it.</returns>

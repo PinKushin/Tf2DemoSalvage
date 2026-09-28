@@ -114,5 +114,21 @@ public sealed class VguiFontManagerConformanceTests
         manager.GetFontTall(handle).ShouldBe(20 + 2);
     }
 
+    [Test]
+    public void ClearAllFonts_AfterFontsWereMade_DeletesEachGdiFontOnce()
+    {
+        FakeGdi gdi = new();
+        VguiFontManager manager = new(gdi);
+
+        manager.SetFontGlyphSet(manager.CreateFont(), Set("TF2 Build"), 0, 0);
+        manager.ClearAllFonts();
+
+        gdi.Deleted.ShouldBe(["TF2 Build", "Tahoma"]);
+
+        manager.ClearAllFonts();
+
+        gdi.Deleted.Count.ShouldBe(2, "a second clear has nothing left to delete");
+    }
+
     private static VguiFont Set(string face, int flags = 0) => new(face, 20, 400, 0, 0, flags, 1f, 1f);
 }

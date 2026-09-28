@@ -144,6 +144,11 @@ public sealed class HudProbe : IProbe
         {
         }
 
+        // Nothing was made, so nothing is given back.
+        public void DeleteFont(VguiGdiFont font)
+        {
+        }
+
         public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => null;
 
         public int? GetTextExtent(VguiGdiFont font, char character) => null;
