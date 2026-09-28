@@ -67,6 +67,46 @@ public sealed class IvpImpactIslandBuildTests
         environment.LoopPasses.ShouldBe(6);
     }
 
+    /// <remarks>
+    /// `FUN_180090700` at `18009087e`: past the cap, a non-null mindist (the second argument, `R12`) is called at its slot 0 with 1
+    /// — `IVP_Mindist`'s destructor (`0x1800fe960`), so the collided mindist is deleted — and the loop stops. The cap is lowered
+    /// so one pass crosses it.
+    /// </remarks>
+    [Test]
+    public void Build_PastThePassCap_DeletesTheCollidedMindist()
+    {
+        (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();
+        collided.Record!.PredictedGap = IvpCollisionTolerance.RampEnd * 0.1f;
+        island.Cap = 0;
+        CountingMindist mindist = new();
+
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d, mindist);
+
+        island.Passes.ShouldBe(1);
+        mindist.Deletes.ShouldBe(1);
+    }
+
+    [Test]
+    public void Build_UnderThePassCap_KeepsTheMindist()
+    {
+        // The control: the same mindist, no pass run, no delete.
+        (IvpImpactIsland island, IvpImpactEnvironment environment, IvpFrictionPair pair, IvpContactPoint collided) = Collided();
+        island.Cap = 0;
+        CountingMindist mindist = new();
+
+        island.Build(environment, pair, collided, Revalidate.Sides, Revalidate.Materials.Instance, _ => { }, _ => { }, now: 1d, mindist);
+
+        mindist.Deletes.ShouldBe(0);
+    }
+
+    private sealed class CountingMindist() : IvpMindist(
+        new IvpSynapse(new IvpLedgeEdge(0, 0), IvpFeatureKind.Point), new IvpSynapse(new IvpLedgeEdge(0, 1), IvpFeatureKind.Point), 0f)
+    {
+        public int Deletes { get; private set; }
+
+        public override void Delete() => Deletes++;
+    }
+
     private static (IvpImpactIsland, IvpImpactEnvironment, IvpFrictionPair, IvpContactPoint) Collided()
     {
         (IvpFrictionSystem system, IvpFrictionPair pair, IvpContactPoint contact) = Revalidate.Linked(out _);

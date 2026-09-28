@@ -36,6 +36,9 @@ public sealed class IvpImpactIsland
     /// <summary>The pass cap — <c>block+0x8 &gt; 0x1388</c> asks the mindist to stop (<c>FUN_180090700</c>).</summary>
     public const int PassCap = 0x1388;
 
+    /// <summary>The cap this island stops at — <see cref="PassCap"/>, lowered only by tests so one pass can cross it.</summary>
+    internal int Cap { get; set; } = PassCap;
+
     private readonly List<IvpFrictionPair> _pairs = [];
     private readonly List<IvpRigidBody> _coresIntegrated = [];
     private readonly List<IvpRigidBody> _coresAtEvent = [];
@@ -164,6 +167,7 @@ public sealed class IvpImpactIsland
     /// <param name="minimize">The minimize, for the tail's recheck.</param>
     /// <param name="reschedule">The scheduler in mode 2, for the tail's recheck.</param>
     /// <param name="now">The environment's time, <c>env+0x188</c>.</param>
+    /// <param name="mindist">The collided mindist, deleted if the loop runs past the cap; null for none.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// <code>
@@ -176,7 +180,8 @@ public sealed class IvpImpactIsland
     /// while FUN_180090bd0(block) == 1:  block+0x8 += 1;  n += 1;  block+0x8 > 0x1388 → mindist slot 0(mindist, 1), stop
     /// env+0x98 += n + 1;  tail into FUN_1800909d0(block)
     /// </code>
-    /// *Not carried yet*: the mindist's slot 0 at the cap, whose body is unread.
+    /// Past the cap (`18009087e`), a non-null mindist is called at slot 0 with 1 — `IVP_Mindist`'s destructor (vtable
+    /// `0x1800fe960`) — so the collided mindist is deleted.
     /// </remarks>
     internal void Build(
         IvpImpactEnvironment environment,
@@ -186,7 +191,8 @@ public sealed class IvpImpactIsland
         IIvpMaterialManager materials,
         Action<IvpMindist> minimize,
         Action<IvpMindist> reschedule,
-        double now)
+        double now,
+        IvpMindist? mindist = null)
     {
         ArgumentNullException.ThrowIfNull(environment);
         ArgumentNullException.ThrowIfNull(pair);
@@ -208,8 +214,9 @@ public sealed class IvpImpactIsland
             Passes++;
             drained++;
 
-            if (Passes > PassCap)
+            if (Passes > Cap)
             {
+                mindist?.Delete();
                 break;
             }
         }

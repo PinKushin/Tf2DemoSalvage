@@ -112,7 +112,7 @@ public static class IvpMindistCollide
             relative = (-relative.X, -relative.Y, -relative.Z);
         }
 
-        new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, minimize, reschedule, now);
+        new IvpImpactIsland(system).Build(environment, pair, contact, sides, materials, minimize, reschedule, now, mindist);
 
         record.RelativeVelocity = relative;
 
