@@ -826,8 +826,24 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                 $"arm1={Read(record, 0xe0)} core98={Marshal.ReadIntPtr(record, 0x98):x} coreA0={Marshal.ReadIntPtr(record, 0xa0):x} " +
                 $"impacts={Marshal.ReadInt16(record, 0x72)}"));
 
+            nint core = Marshal.ReadIntPtr(record, 0x98);
+            core = core != 0 ? core : Marshal.ReadIntPtr(record, 0xa0);
+            _write(CoreLine("before", core));
             _entry.CallThrough(original => original(record, cores, pushOut, point));
+            _write(CoreLine("after ", core));
         }
+
+        /// <summary>The moving core in IVP units: <c>+0x150</c> position (doubles), <c>+0x140</c> velocity, <c>+0x130</c> spin.</summary>
+        private static string CoreLine(string when, nint core) => core == 0 ? $"  {when}: no core" : string.Create(
+            CultureInfo.InvariantCulture,
+            $"  {when}: p=({BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x150)):R}, " +
+            $"{BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x158)):R}, {BitConverter.Int64BitsToDouble(Marshal.ReadInt64(core, 0x160)):R}) " +
+            $"v=({Single(core, 0x140):R}, {Single(core, 0x144):R}, {Single(core, 0x148):R}) " +
+            $"w=({Single(core, 0x130):R}, {Single(core, 0x134):R}, {Single(core, 0x138):R}) " +
+            $"I=({Single(core, 0x20):R}, {Single(core, 0x24):R}, {Single(core, 0x28):R}) m={Single(core, 0x2c):R} " +
+            $"I'=({Single(core, 0x40):R}, {Single(core, 0x44):R}, {Single(core, 0x48):R}) m'={Single(core, 0x4c):R}");
+
+        private static float Single(nint at, int offset) => BitConverter.Int32BitsToSingle(Marshal.ReadInt32(at, offset));
 
         private void Collided(nint mindist)
         {

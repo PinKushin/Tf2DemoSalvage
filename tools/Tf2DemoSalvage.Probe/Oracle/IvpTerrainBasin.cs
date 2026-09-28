@@ -42,6 +42,16 @@ internal static class IvpTerrainBasin
     /// <summary>The dropped cube's mass, kilograms.</summary>
     public const float BodyMass = 10f;
 
+    /// <summary>
+    /// The core's inertia about each axis (<c>core+0x20</c>) and its reciprocal (<c>core+0x40</c>), read out of the live engine's
+    /// cube (`vphysics-virtual-terrain-drop`'s IMPACT trace): 7.542 per kilogram, not a textbook solid box's 10.667. *The port's twin
+    /// used the textbook value first*, and its corner impact at tick 107 came out 10% off the binary's for that reason alone.
+    /// </summary>
+    public const float BodyInertia = 75.42472f;
+
+    /// <inheritdoc cref="BodyInertia"/>
+    public const float BodyInverseInertia = 0.013258252f;
+
     /// <summary>The simulation timestep both runners step at: IVP's PSI rate, as the test's own environment.</summary>
     public const float Timestep = 1f / 66f;
 
