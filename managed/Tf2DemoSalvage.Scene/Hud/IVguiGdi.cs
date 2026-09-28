@@ -45,6 +45,10 @@ public interface IVguiGdi
     /// <param name="tall">Height.</param>
     public void CreateBitmap(VguiGdiFont font, int wide, int tall);
 
+    /// <summary>`~CWin32Font`: `DeleteObject` the font and its DIB, `DeleteDC` its DC.</summary>
+    /// <param name="font">The font; unusable afterwards.</param>
+    public void DeleteFont(VguiGdiFont font);
+
     /// <summary>`GetCharABCWidthsW`, else `GetCharABCWidthsA`, for one character.</summary>
     /// <param name="font">The font.</param>
     /// <param name="character">The character.</param>

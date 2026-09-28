@@ -180,16 +180,33 @@ public sealed partial class GdiVgui : IVguiGdi, IDisposable
     }
 
     /// <inheritdoc/>
+    public void DeleteFont(VguiGdiFont font)
+    {
+        FontState state = State(font);
+
+        if (_fonts.Remove(state))
+        {
+            Delete(state);
+        }
+    }
+
+    /// <inheritdoc/>
     public void Dispose()
     {
         foreach (FontState state in _fonts)
         {
-            DeleteDC(state.Dc);
-            DeleteObject(state.Bitmap);
-            DeleteObject(state.Font);
+            Delete(state);
         }
 
         _fonts.Clear();
+    }
+
+    private static void Delete(FontState state)
+    {
+        // The DC first, so the font and bitmap are no longer selected into anything when they are deleted.
+        DeleteDC(state.Dc);
+        DeleteObject(state.Bitmap);
+        DeleteObject(state.Font);
     }
 
     private static FontState State(VguiGdiFont font)

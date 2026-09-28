@@ -52,6 +52,11 @@ internal sealed class FakeGdi : IVguiGdi
         return new VguiGdiFont(face, 20, 16, 12);
     }
 
+    /// <summary>Every font `DeleteFont` was given, by face, in order.</summary>
+    public List<string> Deleted { get; } = [];
+
+    public void DeleteFont(VguiGdiFont font) => Deleted.Add((string)font.Handle);
+
     public void CreateBitmap(VguiGdiFont font, int wide, int tall) => Bitmap = (wide, tall);
 
     public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => Abc;
