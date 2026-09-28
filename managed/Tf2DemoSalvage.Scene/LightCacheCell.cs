@@ -32,9 +32,19 @@ public static class LightCacheCell
 
         Vector3 centre = new(Middle(point.X, Across), Middle(point.Y, Across), Middle(point.Z, Up));
 
-        if (!solidAt(centre) && reaches(point, centre))
+        if (!solidAt(centre))
         {
-            return centre;
+            // A first trace that STARTS in solid returns the point at once (`local_71`), with no point-height attempt.
+            // For a ray, starting in solid is the point itself being in `MASK_OPAQUE`.
+            if (solidAt(point))
+            {
+                return point;
+            }
+
+            if (reaches(point, centre))
+            {
+                return centre;
+            }
         }
 
         Vector3 level = centre with { Z = point.Z };
