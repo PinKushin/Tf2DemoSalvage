@@ -235,10 +235,11 @@ internal sealed partial class ViewerSession
 
         // Synchronised on the world appearing in the log, not on a delay. Loading a map reads a
         // hundred megabytes and decodes a couple of hundred textures, and how long that takes is a
-        // property of the machine, not of the program.
+        // property of the machine, not of the program. The ceiling is only there to end a hung run:
+        // a CI runner spends 100-120 s on z1800's position timeline alone before the map starts.
         Retry.WhileFalse(
             () => App.Count(WorldBuildLine) > 0 && App.Count(TextureUploadLine) > 0,
-            TimeSpan.FromSeconds(120),
+            TimeSpan.FromSeconds(300),
             throwOnTimeout: true,
             timeoutMessage:
                 $"The viewer never reported building a world. Log: {_viewer.LogPath ?? "NONE FOUND"} " +
