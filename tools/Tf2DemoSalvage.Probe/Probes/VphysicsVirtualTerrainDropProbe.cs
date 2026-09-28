@@ -53,6 +53,12 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 {
     // Same slot constants VphysicsDropProbe already verified against the disassembly.
     private const int CollisionBBoxToCollideSlot = 29;
+
+    // Counted the same way from public/vphysics_interface.h: BBoxToConvex, ConvertConvexToCollide, CollideSize, CollideWrite.
+    private const int CollisionBBoxToConvexSlot = 7;
+    private const int CollisionConvertConvexToCollideSlot = 14;
+    private const int CollisionCollideSizeSlot = 17;
+    private const int CollisionCollideWriteSlot = 18;
     private const int CollisionCreateVirtualMeshSlot = 46;
     private const int CollisionSupportsVirtualMeshSlot = 47;
     private const int SurfacePropsParseSurfaceDataSlot = 1;
@@ -71,6 +77,11 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     // (`ivp-virtual-terrain-drop`) and the broad-phase test, so a diff between them is never a difference in the setup.
 
     private static readonly Vec3 SlabDropInches = new(SlabDrop.X, SlabDrop.Y, SlabDrop.Z);
+
+    private static readonly Vec3 LedgesDropInches = new(LedgesDrop.X, LedgesDrop.Y, LedgesDrop.Z);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint BBoxToConvexDelegate(nint collision, in Vec3 mins, in Vec3 maxs);
 
     /// <summary>The cap the runtime handler hands its tree walk — <c>0xc00</c>, <c>MAX_VIRTUAL_TRIANGLES·3</c>.</summary>
     private const int TriangleIndexCap = 0xc00;
@@ -130,6 +141,15 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint BBoxToCollideDelegate(nint collision, in Vec3 mins, in Vec3 maxs);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate nint ConvertConvexToCollideDelegate(nint collision, nint[] convexes, int count);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CollideSizeDelegate(nint collision, nint collide);
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int CollideWriteDelegate(nint collision, byte[] destination, nint collide, [MarshalAs(UnmanagedType.I1)] bool swap);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate nint CreateVirtualMeshDelegate(nint collision, nint paramsPtr);
@@ -234,10 +254,21 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             return;
         }
 
-        if (arguments.Count > 0 && arguments[0] == "slab")
+        if (arguments.Count > 0 && arguments[0] is "slab" or "ledges")
         {
-            RunSlab(output, module, physics, collision, VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(
-                surfaceProps, "frictionless"), Every(arguments));
+            int frictionless = VCall<GetSurfaceIndexDelegate>(surfaceProps, SurfacePropsGetSurfaceIndexSlot)(surfaceProps, "frictionless");
+
+            if (arguments[0] == "slab")
+            {
+                nint slab = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
+                    collision, new Vec3(-SlabHalfXInches, -SlabHalfYInches, -SlabHalfXInches), new Vec3(SlabHalfXInches, SlabHalfYInches, SlabHalfXInches));
+                RunSlab(output, module, physics, collision, frictionless, Every(arguments), slab, SlabDropInches);
+            }
+            else
+            {
+                RunSlab(output, module, physics, collision, frictionless, Every(arguments), TwoLedges(output, collision), LedgesDropInches);
+            }
+
             return;
         }
 
@@ -366,7 +397,30 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     /// a static <c>BBoxToCollide</c> slab of IVP half (40, 40, 1) at the origin, the half-4 cube of mass 1 dropped from IVP (1, 2, 10)
     /// under IVP gravity (0, 0, −10), on the frictionless surface. IVP to Source is <c>(x, z, −y)</c>.
     /// </summary>
-    private static void RunSlab(TextWriter output, nint module, nint physics, nint collision, int materialIndex, int every)
+    /// <summary>
+    /// <c>ledges</c>' ground: <c>IvpSimulationBroadPhaseTests.Advance_ABodyDroppedOnTheHigherOfTwoLedges_RestsOnThatLedge</c>'s two
+    /// boxes — IVP centres (−20, 0, 0) and (20, 0, 2), halves (20, 40, 1) — as two <c>BBoxToConvex</c> convexes under one
+    /// <c>ConvertConvexToCollide</c>. Its bytes (<c>CollideWrite</c>) go to <see cref="LedgesCollidePath"/> for the port's twin to read.
+    /// </summary>
+    private static nint TwoLedges(TextWriter output, nint collision)
+    {
+        const float M = 1f / MetresPerInch;
+        nint lower = VCall<BBoxToConvexDelegate>(collision, CollisionBBoxToConvexSlot)(
+            collision, new Vec3(-40f * M, -1f * M, -40f * M), new Vec3(0f, 1f * M, 40f * M));
+        nint higher = VCall<BBoxToConvexDelegate>(collision, CollisionBBoxToConvexSlot)(
+            collision, new Vec3(0f, 1f * M, -40f * M), new Vec3(40f * M, 3f * M, 40f * M));
+        nint collide = VCall<ConvertConvexToCollideDelegate>(collision, CollisionConvertConvexToCollideSlot)(collision, [lower, higher], 2);
+        int size = VCall<CollideSizeDelegate>(collision, CollisionCollideSizeSlot)(collision, collide);
+        byte[] bytes = new byte[size];
+        VCall<CollideWriteDelegate>(collision, CollisionCollideWriteSlot)(collision, bytes, collide, false);
+        File.WriteAllBytes(LedgesCollidePath, bytes);
+        output.WriteLine($"ledges: ConvertConvexToCollide -> {size} bytes, written to {LedgesCollidePath}");
+
+        return collide;
+    }
+
+    private static void RunSlab(
+        TextWriter output, nint module, nint physics, nint collision, int materialIndex, int every, nint slab, Vec3 drop)
     {
         nint environment = VCall<CreateEnvironmentDelegate>(physics, 5)(physics);
         VCall<SetGravityDelegate>(environment, EnvironmentSetGravitySlot)(environment, new Vec3(0f, -GravityInches, 0f));
@@ -374,8 +428,6 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 
         nint box = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
             collision, new Vec3(-HalfInches, -HalfInches, -HalfInches), new Vec3(HalfInches, HalfInches, HalfInches));
-        nint slab = VCall<BBoxToCollideDelegate>(collision, CollisionBBoxToCollideSlot)(
-            collision, new Vec3(-SlabHalfXInches, -SlabHalfYInches, -SlabHalfXInches), new Vec3(SlabHalfXInches, SlabHalfYInches, SlabHalfXInches));
         nint bodyName = Marshal.StringToHGlobalAnsi("body");
         nint slabName = Marshal.StringToHGlobalAnsi("slab");
 
@@ -389,10 +441,10 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 
             ObjectParams bodyParams = ObjectParams.Default(mass: 1f, bodyName);
             nint body = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
-                environment, box, materialIndex, SlabDropInches, new Vec3(0f, 0f, 0f), ref bodyParams);
+                environment, box, materialIndex, drop, new Vec3(0f, 0f, 0f), ref bodyParams);
             VCall<EnableMotionDelegate>(body, ObjectEnableMotionSlot)(body, true);
             VCall<WakeDelegate>(body, ObjectWakeSlot)(body);
-            output.WriteLine($"slab: dropped from {SlabDropInches}, IVP rest expected at z~5 (Source y {5f / MetresPerInch:F2})");
+            output.WriteLine($"dropped from {drop}");
 
             SimulateDelegate simulate = VCall<SimulateDelegate>(environment, EnvironmentSimulateSlot);
             GetPositionDelegate getPosition = VCall<GetPositionDelegate>(body, ObjectGetPositionSlot);
