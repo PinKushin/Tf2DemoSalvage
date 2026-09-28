@@ -33,3 +33,11 @@ bounded sonnet task; late in the week with tokens to spare, several at once is f
 
 Haiku produced wrong answers on decompiler output and SDK analysis. Only pass `haiku` for a purely
 mechanical, fully self-contained task (sabotage verifier, a remote-log number read).
+
+## Confirmed 2026-09-28: the split works, keep it
+
+Owner: *"yes the current split is fine … this workflow has actually seemed to be faster than what we had
+before, it took us a little over a week to do physics, but the hud system … took us like 2 days"*.
+Split: main loop reads engine (Ghidra/SDK), writes brief; opus subagent implements; main loop reviews,
+runs gates 2/3, merges, fixes CI. **Engine read before brief, always** — B426 brief skipped it, lighting
+origin left open.
