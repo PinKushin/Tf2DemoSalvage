@@ -15,6 +15,8 @@ head of the next) — the real stride is 16, padded to alignment.
 **Ten synthetic tests passed against the wrong stride**, including three written specifically to
 catch a stride error, because the fixture builder was 13 bytes wide too — tests and reader shared one
 belief, so the suite was one hypothesis wearing ten assertions.
+`DECLARE_BYTESWAP_DATADESC()` inside such a struct adds nothing — `static` members and friend
+templates only (`datamap.h:318`); rule it out rather than worrying about it.
 
 **Why:** field-sum stride is right often enough to feel safe, wrong silently — the first record is
 always correct, which is exactly what stops anyone looking further.

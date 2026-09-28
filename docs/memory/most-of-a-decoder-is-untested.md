@@ -121,7 +121,8 @@ index to make the prediction two numbers, immune to accidental satisfaction.
 
 **A test for a guard redundant with a downstream guard cannot fail, and no assertion fixes it.**
 Measured building B353. Deleting a guard clause reddened nothing, because the downstream function ALSO handles the invalid
-case identically — the clause is behaviourally dead in the engine too. **Fix is to the INPUT**: give
+case identically — `SetBodygroup` already returns the body unchanged for a negative value, in this
+code and in Valve's (`shared/animation.cpp:863` returns early), so the clause is behaviourally dead in the engine too. **Fix is to the INPUT**: give
 the test a value where the guarded and unguarded paths would actually disagree. **Keep the guard**
 (it's where Valve writes it) but document it as redundant, not load-bearing.
 

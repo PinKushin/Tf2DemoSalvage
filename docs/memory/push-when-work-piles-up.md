@@ -8,8 +8,8 @@ metadata:
 Owner, 2026-09-13, seeing ~10,000 unpushed lines on `fix/b369-ivp-narrow-phase`: *"make sure to push so we dont lose a
 massive amount of work if the computer crashes or windows goes tits up."*
 
-**Why:** the standing rule is push sparingly (a push costs CI). A multi-day port piles commits onto
-one disk, and a crash loses all of it — that costs more than any CI run.
+**Why:** the standing rule is push sparingly (a push costs CI). A multi-day port — B369 runs for days
+— piles commits onto one disk, and a crash loses all of it — that costs more than any CI run.
 
 **How to apply:** when a branch carries a large amount of unpushed/uncommitted work, commit a state
 that builds and passes and push, without waiting for a logical unit to finish. **Never commit while a

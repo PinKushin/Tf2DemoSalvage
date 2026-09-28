@@ -11,7 +11,7 @@ metadata:
 **Record both, always.** POV and SourceTV of the SAME session are different writers over identical
 events — a difference between them is a difference in the writer, a control no single file provides.
 
-Paid twice same day: a 64KiB schema cap on a protocol-11 SourceTV demo read as a parser bug alone; the
+Paid twice same day: B24, a 64KiB schema cap on a protocol-11 SourceTV demo read as a parser bug alone; the
 POV of the same session carries 85,063 bytes and parses, proving SourceTV cut it (confirmed on a
 second map). A missing string-table command seen first on POV could have been a quirk; the SourceTV
 pair lacks it too, proving it's a property of the era, not the mode.

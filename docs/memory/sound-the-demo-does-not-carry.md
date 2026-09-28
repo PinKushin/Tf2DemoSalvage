@@ -24,7 +24,9 @@ demo contains it at all.
 
 Originally ended claiming footsteps "would mean synthesising audio from movement... authoring rather
 than replay." **Wrong — a footstep is an animation EVENT authored into the model at a fixed cycle**
-(measured: numbered walk/run-cycle events answered by a ground surface lookup). So the inputs are the
+(measured on `models/player/heavy_animations.mdl`: 44 events numbered 7001 alternate `left`/`right`
+through the walk/run cycles, answered by `C_TFPlayer::FireEvent`, `c_tf_player.cpp:9066`, with a
+ground surface lookup and `UpdateStepSound`). So the inputs are the
 model's own data, the map's surface, and velocity — replay, like everything else. Stays open for its
 SIZE, not because it would be invention.
 

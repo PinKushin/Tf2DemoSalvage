@@ -102,7 +102,8 @@ when writing them: "not recoverable from the string pool", never "not recoverabl
 
 **Before implementing a branch, count how many of this project's own inputs actually reach it.** TF2's
 famous death-animation coin flip (`RandomFloat(0,1) > 0.25f`) reads as "a quarter of deaths animate" —
-but a `switch` in front with no default routes only headshots/decapitations/backstabs there. Counted
+but a `switch` on `m_iDamageCustom` with no default (`tf_player_shared.cpp:13441-13455`) routes only
+headshots/decapitations/backstabs there. Counted
 on real demos: about one corpse in a hundred is eligible. A day on the branch would have changed
 nothing visible; what actually lays a corpse down is the physics, which every corpse takes.
 

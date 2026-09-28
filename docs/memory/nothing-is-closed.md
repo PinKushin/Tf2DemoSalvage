@@ -220,8 +220,9 @@ it via `worldspawn`, and only 49 name the SDK's default — every grass capture 
 wrong texture (B364).
 
 **Why:** the comment is true per-map (structural claims hold), only the literal NAME is wrong, and
-the name is the half transcribed into a constant. The override lives in a different file from the
-comment, so reading the struct never meets it.
+the name is the half transcribed into a constant. The override lives in a different file
+(`detailobjectsystem.cpp:1516`) from the comment (`public/gamebspfile.h`), so reading the struct never
+meets it.
 
 **How to apply:** when an SDK comment names a specific constant, treat it as a lead — ask the shipped
 data how many maps/models actually use it. Symptom is invisible: the wrong asset still draws, doing

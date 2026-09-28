@@ -9,7 +9,8 @@ metadata:
 ---
 
 On a SourceTV recording, `GetLocalPlayer()` is NOT null — it's the SourceTV client's own `CTFPlayer`
-(team 1/spectator, class 0). Measured on two demos; confirmed from source (`IsHLTV()` requires
+(team 1/spectator, class 0). Measured on two demos; confirmed from source (`C_BasePlayer::IsHLTV()`,
+`c_baseplayer.cpp:527`, requires
 `IsLocalPlayer()`).
 
 **Why:** the project's prose said "SourceTV has no local player" in several places, repeated to the

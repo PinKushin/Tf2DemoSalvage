@@ -41,7 +41,8 @@ test your and my hypothesis, more than once if you need to."* His steer is worth
 still settled by the engine's source or a number.
 
 His guess about a corpse's bodygroups was right, measured — but reading the engine FIRST showed the
-fix was more specific than his wording (three passes in a fixed order, not list order).
+fix was more specific than his wording: `RecalculatePlayerBodygroups` runs three passes in a fixed
+order (`tf_player_shared.cpp:13693`), not list order.
 
 **The half worth keeping: one count answered nothing.** "11 of 204 match" is equally consistent with
 "the value is absent" and "my comparison is wrong" — opposite fixes. Measured apart ("readable at
