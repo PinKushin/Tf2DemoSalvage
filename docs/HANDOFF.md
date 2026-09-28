@@ -159,8 +159,9 @@ constructor tails, the random draws). **A watcher probe must file each OV node b
    object caches, contact filing for two movers with the system merge, unit merge, wake with the core revive, sleep with the
    core freeze (findings 51, *Two bodies driven together, end to end*). Since ported, each in findings 51: the map as static
    objects and virtual terrain, the friction split, the revive's resting-contact rebuild, the tangential work bank,
-   `CPhysicsEnvironment::Simulate`'s frame dispatch with `GetPosition` read at the clock, and air drag. **What it still lacks:**
-   the mindist slot-0 call at the 5,000-pass cap, and phase 1's guarded calls and `env+0x158` list. **A gap found 2026-09-17
+   `CPhysicsEnvironment::Simulate`'s frame dispatch with `GetPosition` read at the clock, and air drag. **What it lacked here is now settled:**
+   the mindist slot-0 call at the 5,000-pass cap is ported (the collided mindist is deleted, 2026-09-28), and phase 1's
+   `env+0x158` list is parity as absent (B419: empty in a vphysics environment). **A gap found 2026-09-17
    on `wip/b369-contact-drops` (parked, not merged):** with the normal pass's contact drop in (`FUN_180084490`'s tail,
    `FUN_1800a9bf0`'s filing pass), `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` falls through instead of resting.
    **One real wiring bug found and fixed the same day, but it does not close the gap**: `IvpPhysicsPipeline.Psi`'s phase-2
