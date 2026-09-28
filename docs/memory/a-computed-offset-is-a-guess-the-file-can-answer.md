@@ -8,36 +8,27 @@ metadata:
   modified: 2026-09-10T22:49:04.336Z
 ---
 
-**`VtfTexture` found image data at `headerSize + thumbnail` for years.** That is the 7.2 layout. From
-VTF 7.3 the header is followed by a resource table, the images are two of its entries
-(`VTF_LEGACY_RSRC_LOW_RES_IMAGE` `0x01`, `VTF_LEGACY_RSRC_IMAGE` `0x30`, `src/public/vtf/vtf.h`), and
-**anything else the file carries sits between them** — a sprite sheet, a CRC, an LOD clamp.
+`VtfTexture` found image data at `headerSize + thumbnail` for years — the VTF 7.2 layout. From 7.3
+on, a resource table follows the header and images are two entries in it
+(`VTF_LEGACY_RSRC_LOW_RES_IMAGE` `0x01`, `VTF_LEGACY_RSRC_IMAGE` `0x30`, `src/public/vtf/vtf.h`),
+with anything else the file carries (a sprite sheet, a CRC, an LOD clamp) sitting between them.
 
-**288 of TF2's 34,246 textures decoded to noise**, every one an effect, and it went unnoticed because
-it never threw. VTF stores mips *smallest first*, so the largest mip is at the end of the file and a
-1,436-byte shift moves it by a fraction of its own size: `smokelit`'s smoke puffs kept their
-silhouettes, in the right places, at the right sizes, and filled with rainbow speckle.
+**288 of TF2's 34,246 textures decoded to noise**, every one an effect, silently — no exception was
+ever thrown. VTF stores mips smallest-first, so a 1,436-byte shift moves the largest (last) mip by a
+fraction of its own size: `smokelit`'s smoke kept its silhouette but filled with rainbow speckle.
 
-**Why:** a computed offset encodes an assumption about what the file contains. It is correct exactly
-while nothing optional is present, so it passes on the common case and fails on the interesting one —
-here, on every texture that carries the sheet the particle system needs.
+**Why:** a computed offset encodes an assumption about file contents — correct until something
+optional is present, so it passes the common case and fails the interesting one.
 
 **How to apply:**
-
-- **If a format has a directory, read the directory.** Lumps, resources, chunks, string tables. A
-  formula is a fallback for versions that have none, not the primary route.
-- **Suspect the offset before the codec when output is structured but wrong.** Recognisable shape
-  with garbage content means the right region read at the wrong place, or a neighbouring region read
-  as this one. See [[address-a-struct-by-name-not-from-its-end]] — same family, fourth time here.
-- **Do not let a correlation in the sample become the mechanism.** DXT1 textures decoded correctly
-  and DXT5 ones did not, which sent this to the DXT decoder, `BlockFormat`, `BlockPitch` and the GPU
-  upload — all correct. Sheet-carrying textures are DXT5 because they are effects and effects have
-  alpha. Ask which property is *causal*, not which one separates the two groups
+- If a format has a directory (lumps, resources, chunks, string tables), read it; a formula is a
+  fallback for versions with none, not the primary route.
+- Recognisable shape with garbage content means the right region read at the wrong place, or a
+  neighbour read as this one — see [[address-a-struct-by-name-not-from-its-end]].
+- Don't let a sample correlation become the mechanism: DXT1 decoded fine, DXT5 didn't — not because
+  of the codec, but because effects (which carry the sheet) happen to use DXT5 for alpha
   ([[ask-which-input-differs-before-bisecting]]).
-- **A mean cannot tell grey from rainbow — it averages to grey.** `(78 68 68)` was read as evidence
-  of smoke. The per-pixel channel SPREAD separates them (112.5 wrong, 10.8 right), and printing the
-  texture as a coarse character grid ended the argument in one run
-  (the `print-a-value-somebody-can-recognise` section of [[instrument-bugs-outnumber-decoder-bugs]],
-  and [[a-picture-is-assertable]]).
+- A mean can't tell grey from rainbow (`(78 68 68)` read as "smoke"); per-pixel channel SPREAD does
+  (112.5 wrong vs 10.8 right) — print the texture as a character grid to end the argument in one run.
 
-`vtf census` in the probe counts the affected files; `vtf <path>` prints the spread and the grid.
+`vtf census` in the probe counts affected files; `vtf <path>` prints the spread and the grid.

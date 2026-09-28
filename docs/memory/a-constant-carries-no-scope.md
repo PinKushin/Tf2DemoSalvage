@@ -9,59 +9,37 @@ metadata:
 ---
 
 **A number copied from Valve's source with a correct citation is still a guess about scope.**
-`m_DepthBias_Decal = -262144` is real (`materialsystem_config.h:226`, and the string ships in
-`MaterialSystem.dll` beside `mat_depthbias_decal`), it really is `glPolygonOffset`'s `units`
-(`togl/linuxwin/dxabstract.h:966`), and 262144 being 2¹⁸ makes it exactly 1/64 of a 24-bit depth
-range — a chosen number, not a tuned one. Every claim in the case for adopting it was true and
-cited. It was applied to the wrong surfaces three times anyway (2026-08-14, 2026-08-21 twice), and
-each time the owner saw markings floating in mid-air.
+`m_DepthBias_Decal = -262144` is real (`materialsystem_config.h:226`), really is `glPolygonOffset`'s
+`units` (`togl/linuxwin/dxabstract.h:966`), and 2¹⁸ is a chosen, not tuned, number. Every claim in
+the case for it was true and cited — and it was applied to the wrong surfaces three times anyway
+(2026-08-14, 2026-08-21 ×2), each time producing markings floating in mid-air.
 
-**The unasked question was which surfaces Valve applies it to, and it is answerable by grep:**
-`EnablePolyOffset` is declared once in the whole SDK, on `IShaderShadow` (`ishadershadow.h:255`);
-`IMaterialSystem`, `IMatRenderContext`, `IMesh` and `IShaderAPI` offer no polygon-offset entry point
-at all; nothing outside `stdshaders` calls the one that exists; and `lightmappedgeneric_dx9.cpp` —
-which is what an `info_overlay` ordinarily is — never calls it. A polygon offset in Source is a
-property of the SHADER. The constant governs bullet holes and sprays.
+**The unasked question was which surfaces Valve applies it to**, answerable by grep: `EnablePolyOffset`
+is declared once, on `IShaderShadow` (`ishadershadow.h:255`); no other render interface exposes it;
+nothing outside `stdshaders` calls it; `lightmappedgeneric_dx9.cpp` (an `info_overlay`'s usual
+shader) never calls it. A polygon offset in Source is a property of the SHADER — the constant governs
+bullet holes and sprays, not overlays.
 
-**Why it kept winning the argument.** Two empirical refutations existed ("restoring this floats every
-decal"), and an observation invites the reply that the picture was wrong for some other reason. A
-cited constant reads as settled in a way an uncited one does not, so the side with the citation won
-against the side with the evidence. The arithmetic was published in B70 the same day and simply not
-read: window depth goes as z ≈ 1 − N/d, so an offset Δz moves a surface Δd ≈ Δz·d²/N — at
-`VIEW_NEARZ` 7, a marking 500 units out tests as though it were at 236.
+**Why it kept winning:** a cited constant reads as settled in a way an empirical refutation does not.
+The arithmetic (published same-day, unread) settles it: window depth z ≈ 1 − N/d, so offset Δz moves
+a surface Δd ≈ Δz·d²/N — at `VIEW_NEARZ` 7, a marking 500 units out tests as though at 236.
 
-**How to apply:** before matching a Valve constant, find the code that READS it and establish which
-surfaces, passes or objects reach that code. A constant carries no scope, so "this is Valve's value"
-is only half a claim. When a documented refutation exists, answering it requires a mechanism, not a
-better-sounding reason the earlier attempt was invalid — and the owner's standing direction is to
-"look at the sdk and decomp to confirm anything you think about valves code", which is what turns an
-argument into a reading.
+**How to apply:** before matching a Valve constant, find the code that READS it and which surfaces
+reach that code. A constant carries no scope. Answering a documented refutation needs a mechanism,
+not a better-sounding reason it was invalid — per the owner's standing direction to confirm against
+SDK and decomp.
 
 ## The same rule applies to OUR constants, in both directions — D94, 2026-08-25
 
-The entry above is about adopting a value. The mirror case is merging two, and it nearly cost two
-recorded decisions.
+Three declarations of `StallSeconds = 0.03` in `SoundCache`, `MomentScene` and `MainForm` looked like
+a plain DRY violation. Reading them showed two state, in their own remarks, why they're separate: one
+applies to a single decode blocking the draw thread, one to one scene-rebuild step, one to a whole
+frame. **Three symbols agreeing on a number are three judgements, not one fact repeated** — merge on
+whether the REASON is the same, not whether the values are equal.
 
-Three declarations of `StallSeconds = 0.03` sat in `SoundCache`, `MomentScene` and `MainForm`, and
-they read as a plain DRY violation — three copies of one number, only one carrying a reason. I was
-one edit away from unifying them into a shared project when reading the declarations showed that two
-of the three say, in their own remarks, exactly why they are separate: one is applied to a single
-decode blocking the draw thread, one to a single step of a scene rebuild, one to a whole frame.
-
-**Three symbols that agree on a number are three judgements, not one fact repeated.** The test for
-merging is not "are the values equal" but "is the REASON the same". Merging them would have tied
-independent judgements together so that tuning either silently moved the other — which is what the
-separation was written to prevent, and what the merge would have been justified as preventing.
-
-**And the real defect was the mirror image, found in the same read.** `ReportSlowMoment` compared a
-WHOLE moment against `MomentScene.StallSeconds`, whose own documentation says "applied to one step
-of a scene rebuild". Borrowing a symbol whose stated meaning is narrower than your use is the same
-error as adopting Valve's decal bias for the wrong surfaces — a scope mismatch wearing a citation.
-
-**Two cheap questions, both answered at the declaration site, neither asked:** before merging two
-equal constants, read what each is applied TO; before borrowing one, read whether its documentation
-describes your use.
+**The real defect was the mirror image:** `ReportSlowMoment` compared a WHOLE moment against
+`MomentScene.StallSeconds`, documented as applying to one rebuild step — the same scope mismatch as
+the decal bias, wearing a citation.
 
 Related: [[nothing-is-closed]], [[arithmetic-settles-disputes]], [[a-filed-design-choice-may-not-be-one]],
-[[parity-is-the-search-not-the-defence]], [[never-revert-without-asking]],
-[[one-place-or-it-drifts]].
+[[parity-is-the-search-not-the-defence]], [[never-revert-without-asking]], [[one-place-or-it-drifts]].

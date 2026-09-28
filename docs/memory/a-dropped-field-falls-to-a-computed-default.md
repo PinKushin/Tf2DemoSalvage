@@ -8,34 +8,22 @@ metadata:
   modified: 2026-09-02T00:00:00.000Z
 ---
 
-**Before predicting what a missing field looks like on screen, follow the value through every
-transform between the decode and the draw.** The failure mode is set by the LAST step, not the
-first, and the two can disagree completely.
+**Follow a missing value through every transform between decode and draw before predicting how it
+looks on screen** — the failure mode is set by the LAST step, not the first, and the two can disagree
+completely.
 
-B269, and the wrong prediction was written into three files before it was measured:
+B269: `m_flPoseParameter` is sent normalised 0..1 (`baseanimating.cpp:243`); a sentry's `aim_yaw` runs
+−180..180, so a dropped value (0) predicted as −180° — barrel fully swung round. Correct about the
+wire, wrong about this program: `EntityModelSet.Filled` leaves an uncomputed parameter at raw zero
+and normalises *afterwards*, so zero over a symmetric range becomes **0.5** — dead centre. Every
+sentry drew level and pointing forward, not swung round.
 
-- `m_flPoseParameter` is sent **normalised 0..1** (`baseanimating.cpp:243`). A sentry's `aim_yaw`
-  runs −180..180. So a dropped value is 0, which is −180 degrees: barrel swung fully round. That
-  reasoning is correct about the wire and wrong about this program.
-- `EntityModelSet.Filled` leaves an uncomputed parameter at a **raw** zero and normalises it
-  afterwards. Zero over a symmetric range normalises to **0.5** — dead centre. Every sentry drew
-  level and pointing straight ahead.
+**Why the correction matters more than the arithmetic:** a barrel at −180° is a bug report filed
+immediately; a barrel pointing forward is a sentry, and that bug survives for years.
 
-**The correction matters more than the arithmetic, because the two predictions have opposite
-consequences for whether the bug can survive.** A barrel at −180 is a bug report filed by the first
-person who saw it. A barrel pointing forwards is a sentry. The second one lives for years, and it
-lived here.
-
-So the general rule: **a plausible default is what hides a dropped field, and whether the default is
-plausible depends on code you have not read yet.** `Body`, `Skin`, `PlaybackRate` and `RenderMode`
-all had this shape — see [[output-level-assertion-or-it-is-not-done]] and
-[[sentinels-conflate-unknown-with-answer]] — and in every case the value the field fell to was
-legal, so nothing could report it.
-
-Two practical consequences:
-
-- **Measure the symptom before writing it down.** One probe run said 0.5, not 0. The prediction had
-  already reached a conformance test's remarks, a fixture comment and a probe's comment.
-- **Choose fixture ranges that separate the cases.** A pose parameter over 0..100 cannot tell
-  "arrived as 50" from "never arrived"; over −50..50 it can, because the missing answer is the
-  midpoint and any real value is not.
+General rule: **a plausible default is what hides a dropped field, and plausibility depends on code
+you haven't read yet.** `Body`, `Skin`, `PlaybackRate`, `RenderMode` all had this shape — see
+[[output-level-assertion-or-it-is-not-done]], [[sentinels-conflate-unknown-with-answer]]. Practical
+consequences: measure the symptom before writing it down (a wrong prediction had already reached a
+test's remarks, a fixture comment, and a probe comment); choose fixture ranges that separate "arrived
+as X" from "never arrived" (0..100 can't; −50..50 can, since missing = midpoint).

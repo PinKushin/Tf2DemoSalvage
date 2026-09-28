@@ -8,34 +8,22 @@ metadata:
   modified: 2026-09-10T22:55:13.580Z
 ---
 
-**A handoff that says a feature is missing may mean the opposite: that it is applied everywhere.**
-Both produce the same next task — *implement X* — and only one of them is a starting point that
-leads anywhere.
+**A handoff calling a feature missing may mean the opposite: applied everywhere.** Both produce the
+same next task — *implement X* — only one leads anywhere.
 
-Measured 2026-08-28. `docs/HANDOFF.md` filed two-pass models as the next task, in these words:
+`docs/HANDOFF.md` (2026-08-28) filed two-pass models as next: *"This project has no two-pass concept
+and draws every model once."* `Device3D.RenderFrame` in fact drew every model TWICE, filtered by
+`WorldRenderer.DrawModel` via `STUDIORENDER_DRAW_OPAQUE_ONLY`/`_TRANSLUCENT_ONLY` verbatim. Machinery
+complete; missing was the question of which models the engine actually splits — measured at 88 of
+14,109. The renderer did MORE than the engine; the fix removes work.
 
-> *"This project has no two-pass concept and draws every model once."*
+**Why:** the note was written from the SDK alone, which says what the engine does, not what this
+project already does. Owner: *"that previous session didnt really research and look into the 2 pass
+much that im aware"*.
 
-`Device3D.RenderFrame` drew every model **twice**, and `WorldRenderer.DrawModel` filtered each pass
-by material — which is `STUDIORENDER_DRAW_OPAQUE_ONLY` / `_TRANSLUCENT_ONLY` verbatim. The machinery
-was right and complete. What was missing was the *question* it should have been asking: which models
-does the engine split? Answer, measured over TF2's archives: **88 of 14,109**.
-
-So the real defect was the opposite of the filed one. The renderer was doing MORE of the feature
-than the engine, and the fix removes work rather than adding it.
-
-**Why:** the note was written from the SDK alone. Reading Valve's code tells you what the engine
-does; it cannot tell you what this project already does, and the gap between them is the only thing
-a task list is about. The owner's read: *"that previous session didnt really research and look into
-the 2 pass much that im aware"*.
-
-**How to apply:** before implementing anything a handoff, RISKS entry or comment calls missing,
-**grep the repository for it first** — for the mechanism, not only the name. Two-pass drawing was
-absent under every spelling of "two pass" and present as `bool blended`. A capability can be
-implemented under a name nobody thought to search, which is the same reason
-[[instrument-bugs-outnumber-decoder-bugs]] exists: an empty grep is a fact about the grep.
-
-The tell is that the feature's *machinery* turns up while its *decision* does not. Correct
-implementation, no caller that chooses — that is a feature applied unconditionally, not one that is
-missing. Related: [[measure-the-output-not-the-capability]], and
-[[filing-a-divergence-is-not-fixing-it]] for the same shape in the other direction.
+**How to apply:** before implementing anything a handoff/RISKS entry calls missing, grep the repo for
+the mechanism, not just the name — two-pass drawing was present as `bool blended`. An empty grep is a
+fact about the grep ([[instrument-bugs-outnumber-decoder-bugs]]). The tell: machinery present,
+decision (a caller that chooses) absent — that's unconditional, not missing. Related:
+[[measure-the-output-not-the-capability]], [[filing-a-divergence-is-not-fixing-it]] (same shape,
+other direction).

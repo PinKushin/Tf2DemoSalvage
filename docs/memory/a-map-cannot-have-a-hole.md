@@ -8,89 +8,61 @@ metadata:
   modified: 2026-09-09T03:56:18.056Z
 ---
 
-The owner, 2026-09-07, cutting an investigation short: *"they literally cant have holes because
-hammer doesnt allow holes, so idk what you mean by holes"*.
+Owner, 2026-09-07: *"they literally cant have holes because hammer doesnt allow holes, so idk what
+you mean by holes"*.
 
-**Why:** a `.bsp` is compiled from sealed solids, so the geometry is not the thing with a gap in it.
-This project holds at least four parallel readings of one map — physics ledges from
-`LUMP_PHYSCOLLIDE`, terrain rebuilt from `LUMP_DISPINFO`, the brush tree from `LUMP_BRUSHES`, and
-whatever a probe assembles out of those. Saying "the map has a hole" collapses all four into a claim
-about Valve's data, which is the one place the fault cannot be.
+**Why:** a `.bsp` is compiled from sealed solids. This project holds four parallel readings of one
+map (physics ledges from `LUMP_PHYSCOLLIDE`, terrain from `LUMP_DISPINFO`, brush tree from
+`LUMP_BRUSHES`, a probe's assembly) — "the map has a hole" wrongly collapses all four into a claim
+about Valve's data.
 
-**How to apply:** name the reading and give it a denominator out of the file before reporting a gap.
-Doing that here took one measurement: `LUMP_BRUSHES` declares 2,722 solid brushes,
-`LUMP_PHYSCOLLIDE` yields 2,671 ledges for the same solid, vbsp writes one convex per referenced
-brush — so the physics reading is complete, and the gaps were in the CAMERA's reading, which stops
-on displacement base brushes that vphysics deliberately has no collision for. Two readings of one
-map are *supposed* to disagree there.
+**How to apply:** name the reading and give it a denominator before reporting a gap. Here:
+`LUMP_BRUSHES` declares 2,722 solid brushes, `LUMP_PHYSCOLLIDE` yields 2,671 ledges, vbsp writes one
+convex per referenced brush — the physics reading was complete; the gap was in the CAMERA's reading,
+which stops on displacement base brushes vphysics deliberately has no collision for.
 
-Same shape as [[instrument-bugs-outnumber-decoder-bugs]]'s empty-search rule one level up: that one
-says an absence is usually about the grep, this one says an absence is usually about which reading
-you asked. The probe's own seed defaults were wrong here too. D149.
-
-**A COUNT can be complete while the geometry is in the wrong place, and that is how this rule gets
-misused** (B400, 2026-09-12). The measurement above — 2,722 solid brushes against 2,671 ledges, one
-convex per referenced brush — is still correct, and it was taken while every ledge in the project
-was rotated 180° about X. A rotation preserves counts, extents, plane totals and contents
-histograms, so "the physics reading is complete" was true and "the physics reading is right" was
-false, and the same sentence had been read as both. That reading is exactly what kept a real
-physics-side defect looking like a camera-side disagreement for days.
-
-**So: completeness and correctness are two questions, and a count only ever answers the first.**
-Pair every completeness count with one IDENTITY the format guarantees — for the collide, a
-six-plane axis-aligned world brush and its convex share eight corners exactly, because the world is
-built with `NO_SHRINK`. Nothing about that test can be satisfied by a wrong transform.
+**A COUNT can be complete while the geometry is wrong-placed** (B400, 2026-09-12) — the 2,722-vs-2,671
+measurement stayed correct while every ledge was rotated 180° about X (rotation preserves counts,
+extents, plane totals, contents histograms). "Complete" ≠ "right", and that kept a physics-side defect
+looking camera-side for days. **Pair every completeness count with one format-guaranteed IDENTITY**
+(e.g. an axis-aligned world brush and its convex share eight corners exactly, `NO_SHRINK`).
 
 ---
 
 ## `a-hole-is-not-always-a-drawing-fault` — ask what CLASS of geometry could occupy it
 
-Black areas in the map view were chased through three shading explanations and one culling
-explanation before the cause turned out to be **static props** — `prop_static` placements in the
-BSP game lump (35, `sprp`), which this project did not read at all.
+Black map-view areas were chased through shading and culling explanations before the cause was
+**static props** (`prop_static` in BSP game lump 35, `sprp`), unread entirely.
+`tools/toolsinvisibledisplacement` is collision-only terrain; skipping it is correct, but a prop
+(rock, crate) sits on top of it and was never drawn — skip the tool material, draw the props, the
+hole is prop-shaped.
 
-`tools/toolsinvisibledisplacement` is collision-only terrain laid over ground the mapper wants
-smooth to walk on. Skipping it is correct. What a player sees standing there is a prop — a rock, a
-crate — sitting on top of it. Skip the tool material, never draw the props, and the hole is exactly
-prop-shaped.
+**Why:** a coverage grid built from faces can report "no drawn face here" but not "the missing thing
+was never a face."
 
-**Why:** the diagnostic instrument was a coverage grid built from faces, so it could report "these
-cells have no drawn face" and could rank the filters that might have dropped one. It could not
-report that the missing thing was never a face. Every hypothesis it produced was about the
-candidates it could see.
-
-**How to apply:** when a rendered picture has a hole, ask what CLASS of geometry could occupy it
-before asking which filter dropped it. Region-shaped failure means geometry; material-shaped means
-shading — and "no geometry of a kind you parse" is a third answer neither question reaches. The
-owner named it from memory of playing the map, which beat the measurement; on a game map, ask what
-is actually there. Related: [[fixtures-are-the-weak-point]],
-[[measure-the-output-not-the-capability]], [[fallbacks-do-not-make-guesses-safe]].
+**How to apply:** ask what class of geometry could occupy a hole before asking which filter dropped
+it — region-shaped means geometry, material-shaped means shading, "no geometry of a kind you parse"
+is a third answer. The owner named it from memory of playing the map.
 
 ---
 
 ## `the-engine-may-load-what-you-rebuild` — read the engine's loader before approximating a piece
 
-**Terrain thickness was a 512-unit slab "standing in for `buildOuterHull`", and the map carried the
-hull all along** (B369, 2026-09-12). vbsp writes one outer hull per displacement into
-`LUMP_PHYSDISP` (lump 28); the shipped engine loads it at level init, and its virtual-mesh callback
-hands it to vphysics as `pHull`. The engine only BUILDS a hull when the lump is absent. This project
-rebuilt terrain from the render lumps and never opened lump 28.
+**Terrain thickness was a 512-unit slab "standing in for `buildOuterHull`"; the map carried the hull
+all along** (B369, 2026-09-12). vbsp writes one outer hull per displacement into `LUMP_PHYSDISP`
+(lump 28); the engine loads it at init and hands it to vphysics as `pHull`, building one only when
+absent. This project rebuilt terrain from render lumps, never opened lump 28.
 
-**And the second half of this lesson is the one that bites: finding the unread piece is not finding
-the cause.** The first write-up said the hull was the missing thickness under buried limbs. Reading
-vphysics' surface manager refuted it the same day — the hull is the ROOT of a two-level query
-(hull first, then triangles), not a solid, and the engine has no terrain thickness at all. The limbs
-were buried by our narrow phase, not by the unread lump. Read the CONSUMER of the piece you found
-before saying what it would have fixed.
+**Finding the unread piece is not finding the cause:** the first write-up said the hull was the
+missing thickness under buried limbs; reading vphysics' surface manager refuted it same-day — the
+hull is the ROOT of a two-level query, not a solid; the engine has no terrain thickness at all. The
+limbs were buried by our narrow phase. Read the CONSUMER before saying what an unread piece would
+have fixed.
 
-**Why it survived so long:** the SDK's own runtime callback, `CDispCollTree::GetVirtualMeshList`, sets
-`pHull = NULL`, which reads as "no hull at runtime". The engine's handler calls that and THEN
-overwrites the field. Published source showed the base; the binary showed the override —
-[[the-base-is-not-the-behaviour]] in a file format.
+**Why it survived:** `CDispCollTree::GetVirtualMeshList` sets `pHull = NULL` in the SDK base; the
+engine's runtime handler calls it and then overwrites the field — [[the-base-is-not-the-behaviour]]
+in a file format.
 
-**How to apply:** before approximating anything the engine clearly has — a thickness, a bound, a
-hull, a table — list the lumps its LOADER reads (the `CollisionBSPData_Load*` log strings name them in
-order) and ask which one is unread here. An unread lump next to an invented constant is the finding.
-Measure it with two controls first: its count against a lump that must agree, and its declared sizes
-against its own length.
-
+**How to apply:** before approximating anything the engine clearly has, list the lumps its LOADER
+reads (`CollisionBSPData_Load*` log strings, in order) and find which is unread. Measure with two
+controls: count against an agreeing lump, and declared sizes against actual length.

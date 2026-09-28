@@ -5,51 +5,39 @@ metadata:
   type: project
 ---
 
-`cp_badlands` in 2017 is not `cp_badlands` in 2026. The viewer loads the map by NAME out of the
-current TF2 install, so an old demo is rendered against geometry it was never recorded on — and every
-consequence looks like a rendering defect.
+`cp_badlands` in 2017 is not `cp_badlands` in 2026. The viewer loads the map by NAME from the current
+TF2 install, so an old demo renders against geometry it was never recorded on, and every consequence
+looks like a rendering defect.
 
-Measured 2026-08-27/28. Three separate "regressions" were reported and investigated against a 2017
-badlands demo: roller doors drawing as grey rock, players appearing out of nowhere, doors flickering
-between grate and stone. **None was caused by the work under suspicion.** The owner: *"the bugs are
-probably from a mismatched map version… not a regression, just something to document and fix."*
+Measured 2026-08-27/28: three "regressions" reported against a 2017 badlands demo (grey roller doors,
+players appearing out of nowhere, flickering doors) were **all** map-version mismatch, not the code
+under suspicion. Owner: *"the bugs are probably from a mismatched map version… not a regression, just
+something to document and fix."*
 
-**The check needs nothing invented.** `CRC_MapFile` (`utils/common/bsplib.cpp:3774`) is published:
-CRC32 over every lump **except `LUMP_ENTITIES`**, in header order, over the raw on-disk bytes — no
-decompression. Entities are excluded so a server editing them still matches its clients. And the
-expected value arrives on the wire: `svc_ServerInfo`'s `mapCRC`, decoded here since the container
-work as `ServerInfoMessage.MapCrc` and never once compared to anything.
+The check needs nothing invented: `CRC_MapFile` (`utils/common/bsplib.cpp:3774`) is CRC32 over every
+lump except `LUMP_ENTITIES` (excluded so a server editing entities still matches clients), over raw
+on-disk bytes. The expected value arrives on the wire as `svc_ServerInfo`'s `mapCRC`
+(`ServerInfoMessage.MapCrc`), decoded but never compared to anything.
 
-**Why:** without the comparison, no visual report on an old demo can be trusted to be about the code.
-The only instrument that resolves the ambiguity is the owner's familiarity with one map, which is
-what [[the-f12-demo-is-the-parity-reference]] is for — and leaning on it is expensive in his evenings.
-
-**How to apply:** on any visual oddity from a demo that is not f12, the FIRST question is whether the
-map matches, not what the renderer did. Until the CRC check exists (D113), treat a non-f12 map as an
-unverified subject: reproduce on f12 before calling anything a regression. The plan is to pre-pack
-period maps from a client per year rather than patch modern ones — the owner's call, on the grounds
-that it is the easier of the two.
-
-**One correction to the paragraph above, and it is load-bearing:** the field to compare is NOT
-`MapCrc`. See the section below.
+**How to apply:** on any visual oddity from a non-f12 demo, first ask whether the map matches, not
+what the renderer did — see [[the-f12-demo-is-the-parity-reference]]. Until the CRC check exists
+(D113), reproduce on f12 before calling anything a regression.
 
 ---
 
 ## `map-checksum-is-maphash-not-mapcrc` — the version check is MapHash on every era
 
-**`DemoTimeline.MapCrc` is not the field that decides a map's version.** Finding 43
-(`docs/findings/43-what-identifies-a-map.md`) found `svc_ServerInfo` carries two fields on old
-protocols; this project named the 32-bit one `MapCrc` and the four-byte one `MapHash`, then chased
-`MapCrc` for a day. **The map checksum is `MapHash`.** `MapCrc` (`0x534EEB7C` on the 2007 granary
-specimen) remains unidentified and does not match anything.
+**`DemoTimeline.MapCrc` is not the version field.** Finding 43 (`docs/findings/43-what-identifies-a-map.md`)
+showed `svc_ServerInfo` carries two fields pre-2013; this project named the 32-bit one `MapCrc` and
+the four-byte one `MapHash`, then chased `MapCrc` for a day. **The map checksum is `MapHash`.**
+`MapCrc` (`0x534EEB7C` on the 2007 granary specimen) is unidentified and matches nothing.
 
-**So one field answers every era.** `MapHash` is four bytes pre-2013 and sixteen (MD5) from 2013 on,
-and `BspMapChecksum.Matches(file, recorded)` already disambiguates by length — feed it `MapHash`
-regardless of era, never a value built from `MapCrc`. `PeriodMapChecksumTests` and
-`BspMapChecksumConformanceTests` are the confirmed uses.
+One field answers every era: `MapHash` is 4 bytes pre-2013, 16 (MD5) from 2013 on, and
+`BspMapChecksum.Matches(file, recorded)` already disambiguates by length — feed it `MapHash`
+regardless of era. `PeriodMapChecksumTests` and `BspMapChecksumConformanceTests` are the confirmed
+uses.
 
-**Why this matters:** it looks like the natural reading is the reverse — `MapCrc` sounds like THE
-checksum and `MapHash` sounds like a newer, better one. Building D162's version check from `MapCrc`
-would have shipped a check that always disagrees with the real map, on every pre-2013 demo, with no
-test catching it unless that test also used the wrong field. Caught before writing any code, by
-reading `docs/findings/` first — [[valve-parity-is-the-first-principle]].
+**Why it matters:** the natural reading is backwards — "Crc" sounds like the real checksum. Building
+D162's version check on `MapCrc` would have shipped a check that always disagrees, on every pre-2013
+demo, undetected unless the test used the same wrong field. Caught by reading `docs/findings/` before
+writing code — [[valve-parity-is-the-first-principle]].
