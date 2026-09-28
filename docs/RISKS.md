@@ -7664,6 +7664,29 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B425 — dynamic lights (`cl_dlights`) are not ported — OPEN 2026-09-28
+
+**Read from `engine.dll`.** A dynamic light reaching a static prop sets bit *n* of its lighting handle's `+0x1a4` (dlight *n*,
+the light's `+0x8`) and stamps `+0x1a8` with the frame (`FUN_1801b5260`); the draw (`0x1800f1bd0`) then lights the prop fully
+instead of from its baked colours while any bit is set (`FUN_1801bb8a0`: `+0x1a4 != 0`). Nothing in the port allocates a dynamic
+light — explosions, muzzle flashes and burning players light nothing but their own sprites. A subsystem, not a patch: the dlight
+list, its decay, the client code that allocates them, and their reach into world lightmaps and models.
+
+---
+
+### B424 — a baked static prop ignores light styles — OPEN 2026-09-28
+
+**Read from `engine.dll`, the model draw `0x1800f1bd0` with a static prop's lighting handle** (`param_4`): a prop with baked
+colours (`*param_7`) is drawn with **no cube and no local lights** — which the port already does — except that
+`FUN_1801bb830` sends it to full lighting (`FUN_1801ba590(handle, …, 7)`, `*param_7 = 0`) when any light in the handle's list
+(`+0x1b0` indices into the world lights, count `+0x1c0`, gated by `+0x174 & 3`) has an **animated style** (`DAT_18069dd40[style] > 1`),
+and `FUN_1801bb8b0` rebuilds the baked colours (`FUN_1800f36e0`) when a **one-frame style** that light answers to changed since
+the handle's stamp (`+0x1d0` against `DAT_1806998a0[style]`, gated by `+0x174 & 1`). The port never re-evaluates a baked prop, so
+a prop under a flickering or switched lamp keeps the colours vrad baked for style 0. **Before porting: which lights the handle's
+`+0x1b0` list holds** — read where the static prop's cache is created.
+
+---
+
 ### B423 — a model was lit at its own point, not at its light cache cell — FIXED 2026-09-25
 
 **What the engine does, read from `engine.dll`.** `LightcacheGet` (`0x1801b9cd0`) keys model lighting on a
