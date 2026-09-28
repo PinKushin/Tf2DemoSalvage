@@ -14,7 +14,7 @@ public sealed class VguiHudUserMessageTests
     [TestCase(false, true)]
     public void Frame_APlayerPickupWeaponMessage_RefreshesTheClassModelPanel(bool sent, bool imageStillShown)
     {
-        VguiSurfaceHost host = new(_ => null, _ => null, new FpsPanelTests.SolidGdi(), _ => (0, 0));
+        VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
         VguiHud hud = new(host, new EntityModelSet());
         HudState state = new(true, true, 0, 100, true, 100, 150, 1f, 2, LocalIndex: 1,
             Players: [new ScenePlayer(1, 0f, 0f, 0f, 2, 100, 3)],

@@ -84,7 +84,7 @@ public sealed class VguiHudItemEffectMeterTests
 
     private static (VguiSurfaceHost Host, VguiHud Hud) Hud()
     {
-        VguiSurfaceHost host = new(_ => null, _ => null, new FpsPanelTests.SolidGdi(), _ => (0, 0));
+        VguiSurfaceHost host = VguiHudTests.EmptySchemeHost();
 
         return (host, new VguiHud(host, new EntityModelSet()));
     }

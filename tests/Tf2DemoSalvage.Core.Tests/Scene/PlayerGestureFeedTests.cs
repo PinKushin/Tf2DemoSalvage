@@ -249,6 +249,70 @@ public sealed class PlayerGestureFeedTests
         gestures.ShouldBeEmpty("player 9 raised no event and must have no gesture");
     }
 
+    [Test]
+    public void Jumping_AfterAJumpEvent_RunsUntilTheGroundIsBelievedOrTheWaterIsWaistDeep()
+    {
+        // HandleJumping (tf_playeranimstate.cpp:1491): `m_bJumping` clears on the ground only 0.2 s after the jump, or
+        // at once in waist-deep water.
+        PlayerGestureFeed feed = new();
+        feed.Jumping(4, 10d, onGround: false, waistDeep: false).ShouldBeNull("no jump yet");
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 10d, default);
+
+        feed.Jumping(4, 10.1d, onGround: true, waistDeep: false).ShouldNotBeNull("the ground is not believed yet").ShouldBe(0.1d, 1e-9);
+        feed.Jumping(4, 10.5d, onGround: false, waistDeep: false).ShouldNotBeNull().ShouldBe(0.5d, 1e-9);
+        feed.Jumping(4, 10.6d, onGround: true, waistDeep: false).ShouldBeNull();
+        feed.Jumping(4, 10.7d, onGround: false, waistDeep: false).ShouldBeNull("the clear is kept");
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 20d, default);
+        feed.Jumping(4, 20.05d, onGround: false, waistDeep: true).ShouldBeNull();
+    }
+
+    [Test]
+    public void Landed_AfterADoubleJump_RestartsTheJumpSlotAsTheLandingOnce()
+    {
+        // `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` (tf_playeranimstate.cpp:1507), past the same 0.2 s.
+        PlayerGestureFeed feed = new();
+        feed.Landed(4, 1d);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.DoubleJump), 10d, default);
+
+        feed.Landed(4, 10.1d);
+        Gestures(feed, 4).ShouldHaveSingleItem().ActivityName.ShouldBe("ACT_MP_DOUBLEJUMP", "too soon to believe the ground");
+
+        feed.Landed(4, 10.5d);
+        feed.Landed(4, 11d);
+        SceneGesture landing = Gestures(feed, 4).ShouldHaveSingleItem();
+        (landing.ActivityName, landing.StartedSeconds, landing.AutoKill).ShouldBe(("ACT_MP_JUMP_LAND", 10.5d, true), "not restarted by the second");
+    }
+
+    [Test]
+    public void RecordAndStopScene_TheVcdSlot_HoldsTheSceneAndOnlyItsOwnStopMarksIt()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.RecordScene(4, string.Empty, 1d);
+        feed.AnyRecorded.ShouldBeFalse("a scene with no name records nothing");
+
+        feed.RecordScene(4, "scenes/player/heavy/low/taunt01.vcd", 2d);
+        feed.StopScene(4, "scenes/player/heavy/low/taunt02.vcd", 3d);
+        feed.StopScene(9, "scenes/player/heavy/low/taunt01.vcd", 3d);
+
+        SceneGesture taunt = Gestures(feed, 4).ShouldHaveSingleItem();
+        (taunt.Slot, taunt.SceneName, taunt.StartedSeconds, taunt.StoppedSeconds).ShouldBe(
+            (GestureSlot.Vcd, "scenes/player/heavy/low/taunt01.vcd", 2d, (double?)null));
+
+        feed.StopScene(4, "scenes/player/heavy/low/taunt01.vcd", 4d);
+        Gestures(feed, 4).ShouldHaveSingleItem().StoppedSeconds.ShouldBe(4d);
+    }
+
+    private static List<SceneGesture> Gestures(PlayerGestureFeed feed, int player)
+    {
+        List<SceneGesture> gestures = [];
+        feed.For(player, gestures);
+
+        return gestures;
+    }
+
     /// <summary>A decoded <c>CTEPlayerAnimEvent</c> naming a player and an event.</summary>
     private static DecodedTempEntity Event(
         int player,

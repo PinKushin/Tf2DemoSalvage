@@ -100,4 +100,37 @@ public sealed class PlayerConditionConformanceTests
         new PlayerConditions(unchecked((int)0x8000_0000), 0, 0, 0, 0).Has(31).ShouldBeTrue();
         new PlayerConditions(0, unchecked((int)0x8000_0000), 0, 0, 0).Has(63).ShouldBeTrue();
     }
+
+    [TestCase(5)]
+    [TestCase(51)]
+    [TestCase(52)]
+    [TestCase(57)]
+    public void IsInvulnerable_EachConditionTheSharedTestNames_IsInvulnerable(int condition)
+    {
+        // `CTFPlayerShared::IsInvulnerable` (tf_player_shared.cpp): INVULNERABLE, _HIDE_UNLESS_DAMAGED, _USER_BUFF and
+        // _CARD_EFFECT.
+        With(condition).IsInvulnerable.ShouldBeTrue();
+    }
+
+    [TestCase(4)]
+    [TestCase(50)]
+    [TestCase(53)]
+    public void IsInvulnerable_ANeighbouringCondition_IsNot(int condition) =>
+        With(condition).IsInvulnerable.ShouldBeFalse();
+
+    [TestCase(4, true)]
+    [TestCase(64, true)]
+    [TestCase(66, true)]
+    [TestCase(65, false)]
+    public void IsStealthed_EachConditionTheSharedTestNames_IsStealthed(int condition, bool expected) =>
+        With(condition).IsStealthed.ShouldBe(expected);
+
+    /// <summary>A set holding exactly one condition, in whichever of the five words it falls.</summary>
+    private static PlayerConditions With(int condition)
+    {
+        int[] words = new int[5];
+        words[condition / 32] = unchecked((int)(1u << (condition % 32)));
+
+        return new PlayerConditions(words[0], words[1], words[2], words[3], words[4]);
+    }
 }

@@ -136,6 +136,14 @@ public sealed class VguiHud
         IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null,
         bool showScoreboard = false)
     {
+        // **No `ClientScheme.res`, no HUD.** An install with no files opens as an empty `GameContent`, not a null one, and
+        // an empty scheme's `Panel.BgColor` falls back to opaque white, so the viewport panel painted the whole screen
+        // white — the CI runner's capture, one colour with every pixel lit. The game never runs its HUD without the file.
+        if (_context is null && _host.Read(SchemePath) is null)
+        {
+            return;
+        }
+
         // `system()->GetCurrentTime()`, which a `RichText` fades on.
         VguiRichText.HudClock = state.RealTime;
 

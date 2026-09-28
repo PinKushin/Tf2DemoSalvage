@@ -40,8 +40,8 @@ public sealed class SoundCharConformanceTests
 {
     private const string SoundChars = "src/public/soundchars.h";
 
-    [SetUp]
-    public void RequireTheSdk()
+    /// <summary>Skips a test that reads the header. Not a <c>[SetUp]</c>: the parse tests read nothing, and ran nowhere without the SDK.</summary>
+    private static void RequireTheSdk()
     {
         if (!SourceSdk.Available)
         {
@@ -52,6 +52,7 @@ public sealed class SoundCharConformanceTests
     [Test]
     public void SoundChars_EveryOneValveDeclares_IsRecognisedHere()
     {
+        RequireTheSdk();
         Dictionary<char, string> declared = Declared();
 
         // The control: a pattern that matched nothing would make the loop below vacuous, and the
@@ -86,6 +87,8 @@ public sealed class SoundCharConformanceTests
     [Test]
     public void Parse_TheCharactersValveDeclares_AreStrippedAndRetained()
     {
+        RequireTheSdk();
+
         // Retained, not merely stripped: `*` selects streaming, `#` bypasses the DSP chain and `)`
         // spatialises a stereo file. Dropping them loses the instruction and keeps only the path,
         // which is the half-fix that looks complete.
@@ -107,6 +110,7 @@ public sealed class SoundCharConformanceTests
         // FUNCTION goes further: PSkipSoundChars loops `while (IsSoundChar(*pcht)) pcht++`, with no
         // limit of two. Transcribed from the function rather than the comment, because the function
         // is what runs (docs/memory/read-the-encoder-not-the-decoder.md).
+        RequireTheSdk();
         string skip = Sdk();
 
         skip.ShouldContain("PSkipSoundChars", Case.Sensitive);

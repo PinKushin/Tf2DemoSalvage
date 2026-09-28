@@ -47,6 +47,34 @@ public sealed class SceneGameEventTests
         second.Roster[1].Name.ShouldBe("Bob");
     }
 
+    [Test]
+    public void GetInt_EveryWholeNumberTheCodecProduces_IsReadAsAnInt()
+    {
+        // `GameEventCodec` hands back each wire type as its own CLR type; `IGameEvent::GetInt` reads any of them.
+        SceneGameEvent values = Event(new Dictionary<string, object?>
+        {
+            ["long"] = 5L, ["short"] = (short)-6, ["byte"] = (byte)7, ["int"] = 8, ["true"] = true, ["false"] = false, ["float"] = 9.75f,
+            ["text"] = "10",
+        });
+
+        (values.GetInt("long"), values.GetInt("short"), values.GetInt("byte"), values.GetInt("int")).ShouldBe((5, -6, 7, 8));
+        (values.GetInt("true"), values.GetInt("false"), values.GetInt("float")).ShouldBe((1, 0, 9), "a float truncates as a C cast does");
+        values.GetInt("text", -1).ShouldBe(-1, "a string is not a number to GetInt");
+        values.GetInt("absent", 42).ShouldBe(42);
+    }
+
+    [Test]
+    public void GetString_ATextFieldOrAnything_ReturnsTheTextOrTheFallback()
+    {
+        SceneGameEvent values = Event(new Dictionary<string, object?> { ["name"] = "Alice", ["number"] = 3 });
+
+        values.GetString("name").ShouldBe("Alice");
+        values.GetString("number", "none").ShouldBe("none");
+        values.GetString("absent").ShouldBe(string.Empty);
+    }
+
+    private static SceneGameEvent Event(Dictionary<string, object?> values) => new(0, "test", values, new Dictionary<int, PlayerInfo>());
+
     private static GameEventMessage Death(int userId, int attacker) =>
         new(1, "player_death", new Dictionary<string, object?> { ["userid"] = (short)userId, ["attacker"] = (short)attacker });
 
