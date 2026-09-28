@@ -6,17 +6,17 @@ using System.Text.RegularExpressions;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>Which static props leave the world batches for the model draw, on a real map (B426).</summary>
+/// <summary>Every static prop drawn as a model, on a real map (B426, D198).</summary>
 /// <remarks>
 /// `engine.dll` `0x1800f1bd0`: a prop with baked `.vhv` colours draws them with no cube and no local
-/// lights, and one without draws lit per frame like any model. So on a real map the unbaked placements
-/// must reach <see cref="MapAssets.StaticModels"/> and none of their corners may stay in the world's
-/// batches, while the baked ones stay there.
+/// lights, and one without draws lit per frame like any model — both through the model draw. So on a
+/// real map every placement must reach <see cref="MapAssets.StaticModels"/>, the baked ones must carry
+/// their colours, and the world's batches must hold no prop at all.
 /// </remarks>
 public sealed class StaticPropModelsWiringTests
 {
     [Test]
-    public void Load_TheReferenceMap_DrawsUnbakedPropsAsModelsAndKeepsBakedOnesInTheWorld()
+    public void Load_TheReferenceMap_DrawsEveryPropAsAModelAndTheBakedOnesWithTheirColours()
     {
         MapCache.LoadedMap loaded = MapCache.With();
         MapAssets assets = loaded.Assets;
@@ -27,12 +27,33 @@ public sealed class StaticPropModelsWiringTests
         int baked = int.Parse(Regex.Match(summary, @"HAVE baked lighting for (\d+)").Groups[1].Value, CultureInfo.InvariantCulture);
 
         baked.ShouldBeGreaterThan(0, "the control: the reference map has baked placements");
-        assets.StaticModels.Count.ShouldBe(placed - baked, "every placement vrad never lit, and only those");
-        assets.Props.ShouldNotBeEmpty("the baked placements stay in the world batches");
+        assets.StaticModels.Count.ShouldBe(placed, "every placement is a model draw");
+        assets.StaticModelColours.Count.ShouldBe(baked, "every baked placement carries its colours, and only those");
 
-        HashSet<(float, float)> modelled = [.. assets.StaticModels.Select(static prop => (prop.Pose.X, prop.Pose.Y))];
+        // **Through the production pose**: the set that draws them, handed what `LevelSystems` hands it.
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+        };
 
-        assets.Props.Count(corner => modelled.Contains((corner.OriginX, corner.OriginY)))
-            .ShouldBe(0, "an unbaked placement's corners were also merged into the world");
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn);
+
+        // Every placement drawn — which needs the static props' own models loaded with the map, not only
+        // the ones the demo precaches (B426).
+        drawn.Count.ShouldBe(placed, "a static prop whose model the map did not load");
+
+        List<ModelInstance> coloured = [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
+
+        coloured.Count.ShouldBe(baked, "every baked placement is drawn");
+        coloured.Count(instance => instance.BakedColours is null)
+            .ShouldBe(0, "a baked placement drawn without its colour mesh");
+        coloured.Count(instance => instance.Light is not null || instance.Locals is { Count: > 0 })
+            .ShouldBe(0, "a baked placement given a cube or lamps");
+        drawn.Count(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex) && instance.BakedColours is not null)
+            .ShouldBe(0, "an unbaked placement drawn with colours");
     }
 }

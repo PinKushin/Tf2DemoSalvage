@@ -24,8 +24,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// **This asserts on the OUTPUT, which is the only level that can fail when the wiring is wrong**
 /// (`docs/memory/output-level-assertion-or-it-is-not-done.md`). The unit test above proves the
 /// lookup obeys the engine when called; this proves the loader calls it, on a real map, and that
-/// what comes out is what gets drawn — <see cref="MapAssets.Props"/> is the exact list
-/// `MapWorldBuilder.AppendProps` reads to build the prop batches.
+/// what comes out is what gets drawn — each static prop's model and its skin family's row, as the
+/// model draw paints them (B426).
 ///
 /// **It is not a claim about the map (D38).** The claim is about this project: TF2 draws every one
 /// of these props, so a corner here that names no material is this project failing to read a model.
@@ -74,10 +74,33 @@ public sealed class PropMaterialResolutionTests
         // **A precondition on the instrument.** Zero unresolved corners means either "everything
         // resolved" or "no prop was placed", and B229 spent four hypotheses on exactly that kind of
         // ambiguity. A non-empty prop list settles it.
-        loaded.Assets.Props.Count.ShouldBeGreaterThan(
-            0, $"{mapName} produced no placed prop geometry at all");
+        MapAssets assets = loaded.Assets;
 
-        return loaded.Assets.Props.Count(corner => corner.MaterialIndex < 0);
+        assets.StaticModels.Count.ShouldBeGreaterThan(
+            0, $"{mapName} produced no placed prop at all");
+
+        // **Through the model draw that paints them** (B426): each placement's model, its skin
+        // family's row from the set that draws it, and every corner that row leaves unresolved.
+        EntityModelSet models = new() { Geometry = assets.Geometry };
+        models.Add(assets.StaticModels);
+
+        int unresolved = 0;
+
+        foreach (Core.Scene.SceneProp prop in assets.StaticModels)
+        {
+            IReadOnlyDictionary<int, int>? family = models.SkinSwap(prop.ModelPath, prop.Pose.Skin);
+
+            foreach (PropVertex corner in assets.Geometry(prop.ModelPath)?.Geometry[0] ?? [])
+            {
+                int material = family is not null && family.TryGetValue(corner.MaterialSlot, out int painted)
+                    ? painted
+                    : corner.MaterialIndex;
+
+                unresolved += material < 0 ? 1 : 0;
+            }
+        }
+
+        return unresolved;
     }
 
     /// <summary>Every line the static-prop path wrote to say it could not paint something.</summary>

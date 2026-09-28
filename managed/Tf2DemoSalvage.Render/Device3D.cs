@@ -1191,9 +1191,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
                 // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
                 // detail model could not sort against the entities it stands among.
-                IReadOnlyList<ModelInstance> drawn = models ?? [];
+                // **`r_drawentities 0` draws no renderable** — `DrawOpaqueRenderables` and the translucent
+                // pass return at the top on it, static props included. It gated only the merged prop
+                // batches here until static props became model draws (B426), and gates the models now.
+                IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
 
-                if (_detailModelInstances.Count > 0)
+                if (DrawEntities && _detailModelInstances.Count > 0)
                 {
                     _allModels.Clear();
                     _allModels.AddRange(drawn);
@@ -1260,7 +1263,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
                         burn: instance.Burn,
-                        urine: instance.Urine);
+                        urine: instance.Urine,
+
+                        // A baked static prop's colour mesh (B426).
+                        bakedColours: instance.BakedColours);
 
                     // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
                     // model's decal meshes after its own (B415).
@@ -1275,6 +1281,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 // Bullet holes on doors, after the doors (`R_DrawBrushModel`'s order).
                 _world.DrawEntityDecals(_context);
+
+                // **The translucent world, after every opaque renderable** — `DrawTranslucentRenderables`
+                // (`viewrender.cpp:4465`), not `DrawWorld`. A static prop behind glass was painted over it (B426).
+                _world.DrawTranslucentWorld(_context);
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
@@ -1367,7 +1377,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
                         paint: instance.Paint,
                         burn: instance.Burn,
-                        urine: instance.Urine);
+                        urine: instance.Urine,
+                        bakedColours: instance.BakedColours);
                 }
 
                 WorldRenderer.ResetBlend(_context);
@@ -1548,7 +1559,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadGeometry(
-            _device, world.Vertices, world.Batches, world.Decals, world.Props);
+            _device, world.Vertices, world.Batches, world.Decals);
     }
 
     /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
@@ -2295,7 +2306,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // toggle flipped before the first map would otherwise be silently forgotten.
         _world.Wireframe = _wireframe;
         _world.DrawWorld = _drawWorld;
-        _world.DrawEntities = _drawEntities;
 
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong);
@@ -2423,22 +2433,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private bool _drawWorld = true;
 
     /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
-    public bool DrawEntities
-    {
-        get => _drawEntities;
-
-        set
-        {
-            _drawEntities = value;
-
-            if (_world is not null)
-            {
-                _world.DrawEntities = value;
-            }
-        }
-    }
-
-    private bool _drawEntities = true;
+    public bool DrawEntities { get; set; } = true;
 
     /// <summary>Valve's per-surface debug visualisations — see <see cref="DebugModes"/>.</summary>
     public DebugModes Debug
@@ -3171,6 +3166,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private readonly HashSet<string> _faded = [];
 
+    /// <summary>Whether a frame's offered models are the one the draw-order line reports (B426).</summary>
+    /// <param name="offered">The models handed to the draw.</param>
+    /// <returns>True once a networked entity is among them, not merely a static prop.</returns>
+    /// <remarks>
+    /// [no-parity] an instrument's trigger. **Static props are models from map load (B426)**, so "the first
+    /// frame with any model" became the seek's capture frame, which draws the pose from before the opening
+    /// state: on z1800 that was three cobwebs at the wrong camera, read as static props going missing. The
+    /// line fired on the first frame with an entity before static props were models, and does again.
+    /// </remarks>
+    internal static bool ReportsDrawOrder(IReadOnlyList<ModelInstance> offered)
+    {
+        ArgumentNullException.ThrowIfNull(offered);
+
+        foreach (ModelInstance instance in offered)
+        {
+            if (instance.EntityIndex < PropModels.FirstStaticPropEntityIndex)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>Writes, once, what the cull kept and how it spread across Valve's size buckets.</summary>
     /// <param name="offered">Every instance the scene produced, before culling.</param>
     /// <param name="ordered">What survived, in the order it is about to be drawn.</param>
@@ -3199,12 +3218,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private void ReportDrawOrder(
         IReadOnlyList<ModelInstance>? offered, List<ModelInstance> ordered)
     {
-        if (_reportedDrawOrder || offered is not { Count: > 0 })
+        if (_reportedDrawOrder || offered is null || !ReportsDrawOrder(offered))
         {
             return;
         }
 
         _reportedDrawOrder = true;
+
+        int statics = offered.Count(static instance => instance.EntityIndex >= PropModels.FirstStaticPropEntityIndex);
 
         int[] perBucket = new int[OpaqueBuckets.Count];
 
@@ -3224,9 +3245,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // brought them back into view and it read 20 of 20. The number it wanted was never the
         // count; it was this flag.
         _render.LogInformation(
-            "opaque draw order: {Kept} of {Offered} models kept, frustum {Frustum}, buckets {Buckets}",
+            "opaque draw order: {Kept} of {Offered} models kept ({Statics} of them static props), frustum {Frustum}, buckets {Buckets}",
             ordered.Count,
             offered.Count,
+            statics,
             _frustum.IsBuilt ? "built" : "UNBUILT",
             string.Join('/', perBucket));
 

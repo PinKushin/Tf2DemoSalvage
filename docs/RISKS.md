@@ -7690,11 +7690,12 @@ and whose contribution at the handle's origin (`FUN_1801b99a0`, bounds passed th
 bit in the mask at `+0x17c`, and `+0x174` gains bit 1 when that style is animated (`DAT_18069dd40[style] >= 2`), else bit 0.
 Style-0 lights never enter the list — they are what vrad baked.
 
-**Blocked on B426**: the port has no per-draw lighting for a static prop to fall back to.
+**Unblocked by B426**: a baked prop is a model draw carrying `ModelInstance.BakedColours`; setting it null for a
+frame (and supplying the cube and lamps) is the fallback this needs.
 
 ---
 
-### B426 — static props have no per-draw lighting — FIXED 2026-09-28 (unbaked props; baked stay merged)
+### B426 — static props have no per-draw lighting — FIXED 2026-09-28 (every static prop is a model draw)
 
 **The port merges every static prop into the world's surface batches at load** (`PropModels` then `MapWorld`, the
 `Append(… red, green, blue)` per corner). Its only light is the vertex colour: the `.vhv` colours where they exist, and otherwise
@@ -7713,9 +7714,48 @@ families through the model's own table. Tests: `PropModelsTests`, `MomentSceneTe
 and on `cp_process_final` `StaticPropModelsWiringTests` (model count = placements minus baked, none of their corners
 left in the world).
 
-**Not built, and why.** A baked prop stays merged: the model path shares one vertex buffer per model and has no
-per-instance colour stream, so a `.vhv` placement cannot be a model draw without one — B424's fallback therefore
-still has no route for a baked prop. The lighting point is the model path's `illumposition` point, not the lump's
+**Built, the baked half:** every placement is now a model draw. `PropModels.Load` computes each baked
+placement's colours per corner (the same strip-group lookup, count check and overbright the merged copies used)
+into `MapAssets.StaticModelColours`, keyed by entity index; `LevelSystems` hands them to
+`EntityModelSet.StaticPropColours`, which lays them out in the model buffer's order (the buffer groups corners by
+material) and puts them on `ModelInstance.BakedColours` with **no cube, no sun and no local lights** — `engine.dll`
+`0x1800f1bd0` with a colour mesh. The renderer binds them as a second vertex stream (slot 1, `TEXCOORD11`,
+multiplied into the vertex colour); every other draw binds one white element at stride zero. **`BakedColours`
+null is the B424 switch**: a prop whose colours are dropped for a frame draws with full lighting. The world
+batches hold no prop. Found on the way: the model draw finds geometry only in `MapAssets.EntityModels`, which held
+only what the demo precaches, so a static prop whose model the demo never named drew nothing — the prop loader's
+models now join it at level load, as the engine loads them. Tests: `MomentSceneTests.Pose_ABakedStaticPropBesideALamp_…`,
+`BakedColourStreamRenderTests`, and `StaticPropModelsWiringTests` on `cp_process_final` (1,631 placements drawn,
+1,625 with their colours, none given a cube or lamps).
+
+**Deleted (D180):** the merge path nothing fed any more — `MapAssets.Props`, `MapWorld.Props` and
+`MapWorldBuilder.AppendProps`, the renderer's prop pass and its prop runs in the translucent sort,
+`PropModels.Load`'s world corners, cube bake and `lightAt`, and `OffscreenTarget.DrawWorld`'s `props`.
+`PlacedProps` (B421 decals) and the refusal count (B123) stay. B135's occlusion tests and the opaque
+blend-state test now draw the prop as a model after the world (`DrawModelPose(clearDepth: false)`);
+`PassToggleRenderTests` went with the prop pass it partitioned. **`r_drawentities` now gates the model
+draws in `Device3D`** — it had gated only the merged prop batches, so turning it off hid static props and
+nothing else; `DrawOpaqueRenderables` returns on it for every renderable.
+
+**Translucent world order — FIXED 2026-09-28, pass order only.** The world's translucent and additive
+surfaces were drawn inside `WorldRenderer.Draw`, before the opaque models, so a prop behind world glass
+drew over it. The engine draws them in `CRendering3dView::DrawTranslucentRenderables`
+(`viewrender.cpp:4465`), after `DrawOpaqueRenderables`: they now come from `WorldRenderer.DrawTranslucentWorld`,
+which `Device3D` calls after the opaque models and their decals and before the translucent models. Tests:
+`TranslucentWorldOrderRenderTests` (a model behind a translucent map material is changed by it; red with the
+old order) and `ScenePassOrderConformanceTests.DrawTranslucentRenderables_…`.
+
+**Still divergent — the per-leaf interleave.** The engine walks the world list's leaves back to front and,
+for each translucent entity in its `m_iWorldListInfoLeaf` order, draws the translucent world up to and
+including that leaf first (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298`, called at `:4577`), the
+entity after, and the leaves left over after the loop (`:4694`); translucent detail sprites are queued in the
+same walk. The port's translucent world runs are per MATERIAL, sorted once at upload, and carry no leaf, so
+the whole translucent world now draws before every translucent model: a translucent model BEHIND world glass
+still draws over it. Building it needs the translucent faces split into per-leaf runs and each translucent
+model's leaf within the cull's front-to-back leaf list. The grass (detail sprites) is still drawn before the
+opaque models (B361).
+
+**Not built.** The lighting point is the model path's `illumposition` point, not the lump's
 `LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have
 no fade (`fademindist`/`fademaxdist` are not read), as before.
 

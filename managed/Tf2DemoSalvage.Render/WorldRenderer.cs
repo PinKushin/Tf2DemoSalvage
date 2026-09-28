@@ -96,6 +96,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // one whose frames were baked. A baked model carries zeroes and is not skinned.
             float3 bones   : TEXCOORD8;
             float3 weights : TEXCOORD9;
+
+            // **A baked static prop's colour mesh, a second stream** (B426) — the engine's per-placement
+            // colour mesh, bound beside the model's shared vertices for `engine.dll` `0x1800f1bd0`'s draw
+            // of a prop with baked colours. Every other draw binds one white element at stride zero, so
+            // this multiplies by one.
+            float3 baked   : TEXCOORD11;
         };
 
         struct VsOut
@@ -707,7 +713,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.uv2 = float2(dot(coordinate, secondTransform0), dot(coordinate, secondTransform1));
             output.luv = input.luv;
             output.a = input.a;
-            output.vc = input.vc;
+            output.vc = input.vc * input.baked;
 
             // The normal is in the model's own space, so it turns with the model. Rotation only:
             // the translation would move a direction, and the scale cancels once it is normalised.
@@ -1715,16 +1721,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11DepthStencilState> _depthWrite;
 
-    /// <summary>Static props, drawn after the overlays.</summary>
-    /// <remarks>
-    /// **Their own list because the engine draws them in their own pass (B135).**
-    /// <c>CBaseWorldView::DrawExecute</c> runs <c>DrawWorld</c> — surfaces and their overlay
-    /// fragments — and then <c>DrawOpaqueRenderables</c>, which is where static props and brush
-    /// models go. Batched with the world they were in the depth buffer before the overlays, so a
-    /// biased overlay could paint over a pipe an inch in front of the wall it marks.
-    /// </remarks>
-    private IReadOnlyList<WorldBatch> _props = [];
-
     /// <summary>Depth state for the overlay pass, built from <see cref="DecalState"/>.</summary>
     /// <remarks>
     /// Tested, never written, compared <c>LessEqual</c>. The values and the reasoning behind each
@@ -2175,6 +2171,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 AlignedByteOffset = sizeof(float) * 24,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+
+            // The baked colour stream, slot 1 (B426).
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 11,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                InputSlot = 1,
+                AlignedByteOffset = 0,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -2296,7 +2303,62 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
             _wireframeFor = wireframe,
+            _device = device,
+            _whiteColour = ColourStream(device, [1f, 1f, 1f]),
         };
+    }
+
+    /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>
+    private ComPtr<ID3D11Device> _device;
+
+    /// <summary>One white colour, bound at stride zero on slot 1 for every draw without a colour mesh (B426).</summary>
+    private ComPtr<ID3D11Buffer> _whiteColour;
+
+    /// <summary>Each baked static prop's colour stream, by the colour array it was built from (B426).</summary>
+    private readonly Dictionary<float[], ComPtr<ID3D11Buffer>> _colourStreams = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>An immutable vertex buffer of red, green, blue triples.</summary>
+    private static ComPtr<ID3D11Buffer> ColourStream(ComPtr<ID3D11Device> device, float[] colours)
+    {
+        BufferDesc description = new()
+        {
+            ByteWidth = (uint)(colours.Length * sizeof(float)),
+            Usage = Usage.Immutable,
+            BindFlags = (uint)BindFlag.VertexBuffer,
+        };
+
+        ComPtr<ID3D11Buffer> buffer = default;
+
+        fixed (float* first = colours)
+        {
+            SubresourceData initial = new() { PSysMem = first };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, in initial, ref buffer));
+        }
+
+        return buffer;
+    }
+
+    /// <summary>Binds a colour stream to slot 1: a baked prop's own, or the white element at stride zero.</summary>
+    private void BindColours(ComPtr<ID3D11DeviceContext> context, float[]? colours)
+    {
+        uint offset = 0;
+
+        if (colours is null)
+        {
+            uint none = 0;
+            context.IASetVertexBuffers(1, 1, ref _whiteColour, in none, in offset);
+            return;
+        }
+
+        if (!_colourStreams.TryGetValue(colours, out ComPtr<ID3D11Buffer> stream))
+        {
+            stream = ColourStream(_device, colours);
+            _colourStreams[colours] = stream;
+        }
+
+        uint stride = sizeof(float) * 3;
+        context.IASetVertexBuffers(1, 1, ref stream, in stride, in offset);
     }
 
     /// <summary>Whether every pass draws in wireframe — Valve's <c>mat_wireframe</c>.</summary>
@@ -2315,13 +2377,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
     /// <summary>Whether world surfaces and their overlays draw — Valve's <c>r_drawworld</c>.</summary>
     /// <remarks>
-    /// Overlays are governed by this rather than by <see cref="DrawEntities"/>, because the engine
+    /// Overlays are governed by this rather than by <c>r_drawentities</c>, because the engine
     /// draws them inside `DrawWorld` alongside the surfaces they mark, before any renderable.
     /// </remarks>
     public bool DrawWorld { get; set; } = true;
-
-    /// <summary>Whether static props and models draw — Valve's <c>r_drawentities</c>.</summary>
-    public bool DrawEntities { get; set; } = true;
 
     /// <summary>The wireframe twin of each solid rasteriser state, by handle.</summary>
     private Dictionary<nint, ComPtr<ID3D11RasterizerState>> _wireframeFor = [];
@@ -3182,14 +3241,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="vertices">Every triangle corner, already in clip space.</param>
     /// <param name="batches">The runs, one per material.</param>
     /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
-    /// <param name="props">Static prop runs, drawn after the overlays as the engine does.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadGeometry(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch>? decals = null,
-        IReadOnlyList<WorldBatch>? props = null)
+        IReadOnlyList<WorldBatch>? decals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -3211,18 +3268,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // straight down, depth IS height, and height does not change when the view pans or zooms.
         // A perspective camera would have to re-sort per frame; this one never does.
         _decals = decals ?? [];
-        _props = props ?? [];
 
-        _sortedTranslucent = SortTranslucent(vertices, batches, _props, _translucent);
+        _sortedTranslucent = SortTranslucent(vertices, batches, _translucent);
 
-        // **Reported split by source, because the count alone would have looked healthy.** The
-        // brushwork half was always drawn; the prop half was the defect, so a combined total is
-        // exactly the number that hid it.
         _render.LogInformation(
             "{Message}",
-            $"{_sortedTranslucent.Count} translucent batches sorted back to front: " +
-            $"{batches.Count(batch => _translucent.Contains(batch.MaterialIndex))} of the world's " +
-            $"own and {_props.Count(batch => _translucent.Contains(batch.MaterialIndex))} from props");
+            $"{_sortedTranslucent.Count} translucent world batches sorted back to front");
     }
 
     /// <summary>Whether to combine each material's detail texture, on by default.</summary>
@@ -3272,6 +3323,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     {
         context.IASetInputLayout(_layout);
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+
+        // The layout reads slot 1 on every draw; only a baked static prop binds a colour mesh there (B426).
+        BindColours(context, null);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
@@ -3367,10 +3421,37 @@ internal sealed unsafe class WorldRenderer : IDisposable
             DrawDecals(context);
         }
 
-        if (DrawEntities)
+        // Static props are model draws now, after this (B426, D198) — `DrawOpaqueRenderables`.
+        // The translucent world is NOT drawn here: see DrawTranslucentWorld.
+    }
+
+    /// <summary>The world's translucent and additive surfaces, drawn after the opaque renderables.</summary>
+    /// <param name="context">Context to issue the draws on.</param>
+    /// <remarks>
+    /// **After <c>DrawOpaqueRenderables</c>, in <c>DrawTranslucentRenderables</c>** (<c>viewrender.cpp:4465</c>):
+    /// the world's translucent surfaces are drawn leaf by leaf, back to front, by
+    /// <c>DrawTranslucentWorldAndDetailPropsInLeaves</c> (<c>:4298</c>), interleaved with the translucent entities
+    /// (<c>:4577-4601</c>) and finished after the loop (<c>:4694</c>). Drawn inside <see cref="Draw"/> they went
+    /// before every model, so an opaque prop behind glass painted over it (B426).
+    ///
+    /// **Not yet the per-leaf interleave**: this port's translucent runs are per material, not per leaf, so
+    /// the whole translucent world is drawn before the translucent models rather than between them.
+    /// </remarks>
+    public void DrawTranslucentWorld(ComPtr<ID3D11DeviceContext> context)
+    {
+        if (_batches.Count == 0)
         {
-            DrawOpaqueBatches(context, _props);
+            return;
         }
+
+        uint stride = VertexStride;
+        uint offset = 0;
+
+        // A model draw bound its own buffer, shaders and matrix; take the world's back.
+        BindPipeline(context);
+        context.RSSetState(Raster(_bothSides));
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        SetModel(context, Identity);
 
         DrawTranslucent(context);
         DrawAdditive(context);
@@ -5237,26 +5318,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     internal static bool Blends(bool marks, bool translucent, bool additive, bool modulate) =>
         marks || translucent || additive || modulate;
 
-    /// <summary>Every translucent run, world and prop alike, farthest first.</summary>
+    /// <summary>Every translucent world run, farthest first.</summary>
     /// <param name="vertices">The uploaded corners, which carry the depth each batch is sorted by.</param>
     /// <param name="batches">The world's own runs.</param>
-    /// <param name="props">The static prop runs, drawn after the overlays.</param>
     /// <param name="translucent">Which material indices blend.</param>
     /// <returns>The runs to issue in <c>DrawTranslucent</c>, back to front.</returns>
     /// <remarks>
-    /// **Props belong in this list, and leaving them out drew them NOWHERE** (B362).
-    /// <c>DrawOpaqueBatches</c> skips every translucent material — it must, or a window would be
-    /// opaque — and this list used to be built from <paramref name="batches"/> alone, so a prop run
-    /// whose material blends fell between the two passes and was never issued at all.
-    ///
-    /// **The engine has no such gap.** <c>DrawTranslucentRenderables</c> walks the world's
-    /// translucent surfaces and the renderables together, which is what concatenating them here is.
-    ///
-    /// **Found while wiring detail sprites in (B360)**, and the shape is worth keeping: the sprite
-    /// material is `$translucent 1`, 20,117 quads were built and appended, `world:` reported all
-    /// 398,595 prop triangles drawn — and not one pixel of grass appeared. Two correct counts
-    /// either side of a pass that never ran. Measured on `koth_harvest_final`: 5 of the 11
-    /// translucent batches are prop runs, so this was never only about the grass.
+    /// **The world's alone.** Static prop runs joined this list for B362 — a blended prop run fell
+    /// between the opaque skip and this pass and drew nowhere — until static props became model
+    /// draws (B426, D198), whose translucent parts the model passes draw.
     ///
     /// **Sorted once, at upload**, as the world's own were: the order does not depend on the
     /// camera, because a batch's mean depth is a property of its geometry.
@@ -5264,17 +5334,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
     internal static IReadOnlyList<WorldBatch> SortTranslucent(
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch> props,
         IReadOnlySet<int> translucent)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
-        ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(translucent);
 
         return
         [
-            .. batches.Concat(props)
+            .. batches
                 .Where(batch => translucent.Contains(batch.MaterialIndex))
                 .OrderByDescending(batch => MeanDepth(vertices, batch)),
         ];
@@ -5781,6 +5849,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _camera.Dispose();
         _model.Dispose();
         ReleaseModelBuffers();
+        _whiteColour.Dispose();
         _decalOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
@@ -6009,6 +6078,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         }
 
         _modelBuffers.Clear();
+
+        // A baked prop's colour stream is per placement of a model, so it goes with the models (B426).
+        foreach (ComPtr<ID3D11Buffer> stream in _colourStreams.Values)
+        {
+            stream.Dispose();
+        }
+
+        _colourStreams.Clear();
     }
 
     /// <summary>The packed batches for one model, or empty when it is not loaded.</summary>
@@ -6095,6 +6172,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The jarate multiplier for this ENTITY, or null for white (B336). Feeds <c>YellowLevel</c>,
     /// whose result two <c>Equals</c> proxies copy into <c>$color2</c> and <c>$selfillumtint</c>.
     /// </param>
+    /// <param name="bakedColours">
+    /// A baked static prop's colour mesh in the model buffer's order, or null (B426). Bound as a second
+    /// stream and multiplied into the vertex colour; the caller passes no cube and no lamps with it.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -6124,7 +6205,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         string? overrideMaterial = null,
         (float Red, float Green, float Blue)? paint = null,
         float burn = 0f,
-        (float Red, float Green, float Blue)? urine = null)
+        (float Red, float Green, float Blue)? urine = null,
+        float[]? bakedColours = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -6167,6 +6249,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // One bind per model instance, which is what per-model meshes cost and what the engine pays
         // too. It buys the buffer never being rebuilt, which was 200 ms a time.
         context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
+
+        // **A baked static prop's colour mesh beside the shared vertices** (B426, `engine.dll` `0x1800f1bd0`),
+        // unbound again at the end so no later draw reads it.
+        BindColours(context, bakedColours);
 
         SetModel(context, matrix, light, sun, blend, bones, locals);
 
@@ -6649,6 +6735,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 $"{System.IO.Path.GetFileNameWithoutExtension(modelPath)} drew NOTHING in the " +
                 $"{pass} pass: {batches.Count} batches offered, {filteredByPass} filtered by the " +
                 $"pass, {filteredByBody} by body {body}");
+        }
+
+        if (bakedColours is not null)
+        {
+            BindColours(context, null);
         }
     }
 

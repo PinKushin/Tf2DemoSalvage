@@ -113,7 +113,6 @@ public sealed class DecalOrientationTests
             [surface],
             materials,
             LightmapAtlas.Pack([]),
-            [],
             null,
             [CaptureZone()]);
 

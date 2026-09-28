@@ -13,13 +13,6 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Vertices">Every triangle corner, grouped so one material's are contiguous.</param>
 /// <param name="Batches">World surfaces, one run per material actually used, drawn first.</param>
 /// <param name="Decals">Overlay fragments, drawn with the world and after its surfaces.</param>
-/// <param name="Props">
-/// Static props, drawn AFTER the overlays because the engine draws them as opaque renderables
-/// rather than as world geometry — <c>CBaseWorldView::DrawExecute</c>,
-/// <c>game/client/viewrender.cpp:5487</c>. Merged into <see cref="Batches"/> they landed in the
-/// depth buffer before the overlay pass, and any bias on that pass then let a stripe paint over a
-/// pipe standing in front of the wall (B135).
-/// </param>
 /// <param name="FaceSpans">
 /// Where each world face's triangles ended up in <see cref="Vertices"/>, in buffer order. This is
 /// what makes per-frame visibility possible: a leaf names faces, and this says which vertices a
@@ -29,7 +22,6 @@ public readonly record struct MapWorld(
     IReadOnlyList<WorldVertex> Vertices,
     IReadOnlyList<WorldBatch> Batches,
     IReadOnlyList<WorldBatch> Decals,
-    IReadOnlyList<WorldBatch> Props,
     IReadOnlyList<WorldFaceSpan> FaceSpans = null!)
 {
     /// <summary>Where each world face's triangles are, or an empty list.</summary>
@@ -116,7 +108,6 @@ public static class MapWorldBuilder
     /// <param name="surfaces">The map's surfaces.</param>
     /// <param name="materials">The map's texture table, for identifying tool materials.</param>
     /// <param name="atlas">Where each face's lighting sits.</param>
-    /// <param name="props">The map's placed models, in world space.</param>
     /// <param name="area">Ground-plane area to keep, or null for all of it.</param>
     /// <param name="overlays">The map decals, or null to draw none.</param>
     /// <param name="models">The map's models, so entity brushwork can be counted apart from the world.</param>
@@ -139,7 +130,6 @@ public static class MapWorldBuilder
         IReadOnlyList<BspSurface> surfaces,
         IReadOnlyList<BspMaterial> materials,
         LightmapAtlas atlas,
-        IReadOnlyList<PropVertex> props,
         MapBounds? area,
         IReadOnlyList<BspOverlay>? overlays = null,
         IReadOnlyList<BspModel>? models = null,
@@ -148,7 +138,6 @@ public static class MapWorldBuilder
         ArgumentNullException.ThrowIfNull(surfaces);
         ArgumentNullException.ThrowIfNull(materials);
         ArgumentNullException.ThrowIfNull(atlas);
-        ArgumentNullException.ThrowIfNull(props);
 
         // Two areas: what was BUILT is render, where decals landed is map (D83).
         ILoggerFactory factory = loggers ?? NullLoggerFactory.Instance;
@@ -420,19 +409,9 @@ public static class MapWorldBuilder
                 vertices.Count - startInGroup);
         }
 
-        // **Props go in their OWN batches, because the engine draws them after the overlays
-        // (B135).** `CBaseWorldView::DrawExecute` at game/client/viewrender.cpp:5487 runs
-        // `DrawWorld` — world surfaces and their overlay fragments — and only then
-        // `DrawOpaqueRenderables`, which is where `DrawOpaqueRenderables_DrawStaticProps` lives.
-        //
-        // Merged into `byMaterial` they were drawn with the world, so a pipe was already in the
-        // depth buffer when the overlay pass ran, and any bias on that pass let a stripe paint over
-        // it. That is the pipes, the light fixtures, and the overlay seen through a wall — one
-        // symptom, and it was the ORDER rather than the bias all along.
-        Dictionary<int, List<WorldVertex>> propsByMaterial = [];
-
-        (int propTriangles, float furthestPropX, float furthestPropY) =
-            AppendProps(props, propsByMaterial, area);
+        // **No static prop is built here** (B426, D198): each is a model draw, after the world and its
+        // overlays — `CBaseWorldView::DrawExecute`, game/client/viewrender.cpp:5487, `DrawWorld` then
+        // `DrawOpaqueRenderables` (B135).
 
         // **How many of those faces belong to a moving entity rather than to the world.** A door,
         // a lift and a payload cart are each their own BSP model, and their faces sit in the same
@@ -447,8 +426,6 @@ public static class MapWorldBuilder
         render.LogInformation(
             "{Message}",
             $"world: {brushFaces} brush faces, {terrainFaces} terrain faces, " +
-            $"{propTriangles} of {props.Count / 3} prop triangles drawn, reaching " +
-            $"{furthestPropX:0} x {furthestPropY:0} from the origin, " +
             $"{missingMaterials} faces with no material; " +
             $"{movingFaces} faces held back for entity models rather than baked into the world");
 
@@ -547,61 +524,10 @@ public static class MapWorldBuilder
             factory.CreateLogger("map"),
             all, overlays, materials, surfaces, atlas, area);
 
-        // **After the decals in the buffer as well as in the pass list**, so the three runs read in
-        // the order they are drawn. Nothing requires it — a batch names its own range — but a vertex
-        // buffer whose layout matches the frame is one less thing to hold in mind when reading a
-        // capture.
-        List<WorldBatch> propBatches = [];
-
-        foreach (KeyValuePair<int, List<WorldVertex>> group in propsByMaterial)
-        {
-            if (group.Value.Count == 0)
-            {
-                continue;
-            }
-
-            // **Says WHERE the chequered geometry is, because "material -1" alone cannot be
-            // chased.** Drawing an unresolved prop in Valve's chequer is deliberate — the note in
-            // `AppendProps` argues it, and rightly: a hole is what nobody investigates. But the
-            // owner then has to find it, and the only thing said about it so far was a count.
-            //
-            // A world position separates the two places it turned up on `cp_fulgur`: pipe elbows
-            // inside the level, and flat panels out in the 3D skybox, which sits thousands of units
-            // from the play area. One number tells those apart; the material index cannot.
-            if (group.Key < 0 && group.Value.Count > 0)
-            {
-                float x = 0f;
-                float y = 0f;
-                float depth = 0f;
-
-                foreach (WorldVertex corner in group.Value)
-                {
-                    x += corner.X;
-                    y += corner.Y;
-                    depth += corner.Depth;
-                }
-
-                render.LogWarning(
-                    "{Message}",
-                    $"{group.Value.Count / 3} triangles name material {group.Key} and will draw as "
-                    + $"the missing-material chequer, centred on ({x / group.Value.Count:0}, "
-                    + $"{y / group.Value.Count:0}, {depth / group.Value.Count:0})");
-            }
-
-            propBatches.Add(new WorldBatch(
-                group.Key,
-                all.Count,
-                group.Value.Count,
-                Category: group.Key < 0 ? SurfaceCategory.Missing : SurfaceCategory.Prop));
-
-            all.AddRange(group.Value);
-        }
-
-        // **Spans cover the world's own surfaces only** — not decals and not static props. Overlay
-        // fragments are clipped to the surfaces they mark and props are placed models, so neither is
-        // named by a leaf's face list; both keep being drawn whole for now, which is the
-        // conservative direction.
-        return new MapWorld(all, batches, decals, propBatches, faceSpans);
+        // **Spans cover the world's own surfaces only** — not decals. Overlay fragments are clipped to
+        // the surfaces they mark, so they are not named by a leaf's face list and keep being drawn
+        // whole for now, which is the conservative direction.
+        return new MapWorld(all, batches, decals, faceSpans);
     }
 
     /// <summary>Turns each overlay into a quad lit by the face it is pinned to.</summary>
@@ -849,107 +775,6 @@ public static class MapWorldBuilder
         return decals;
     }
 
-    /// <summary>
-    /// Adds the map's placed models to the batches the brushwork already filled.
-    /// </summary>
-    /// <remarks>
-    /// **A prop's light comes from its own vertex colours, not from the lightmap.** The compiler
-    /// bakes a colour per vertex per placement into the map's pakfile, because the same model
-    /// stands in many places under different light and one lightmap could not serve them all. The
-    /// zero-width atlas rectangle sends every corner to the reserved white texel, so the lightmap
-    /// term is an identity and the vertex colour does the work.
-    ///
-    /// A placement whose lighting is missing or does not match its model keeps white, which draws
-    /// it at its texture's own brightness. Visible and slightly wrong beats a hole.
-    ///
-    /// **No upward-facing filter.** Brush faces are culled by normal because a ceiling seen from
-    /// above should not hide the room; a prop is a closed solid whose far side is hidden by its own
-    /// near side under the depth buffer, so there is nothing to cull and a normal test would delete
-    /// half of every rock.
-    /// </remarks>
-    /// <returns>How many prop triangles were actually appended, and how far they reach.</returns>
-    private static (int Triangles, float FurthestX, float FurthestY) AppendProps(
-        IReadOnlyList<PropVertex> props,
-        Dictionary<int, List<WorldVertex>> byMaterial,
-        MapBounds? area)
-    {
-        // **Counted on the way OUT, because the count on the way in cannot see a cull.** The world
-        // log reported `props.Count / 3` for months, which is what this method was HANDED — so
-        // removing the play-area cull moved the brush count by exactly the 133 faces the ledger
-        // predicted and left the prop figure identical, and neither number was wrong. The prop one
-        // simply was not measuring the thing it was being read for.
-        //
-        // The furthest reach comes with it because that is the question the count cannot answer:
-        // a TF2 map keeps its 3D skybox as ordinary props far outside the level, so "are they in"
-        // is a question about DISTANCE, and a total says nothing about where anything is.
-        int appended = 0;
-        float furthestX = 0f;
-        float furthestY = 0f;
-
-        for (int corner = 0; corner + 2 < props.Count; corner += 3)
-        {
-            PropVertex first = props[corner];
-
-            // **A prop whose material resolved to nothing is DRAWN, in the missing-material
-            // chequer.** It used to be skipped, on the reasoning that a white rock reads as a
-            // rendering fault - which was true and was the wrong conclusion. A hole reads as
-            // nothing at all, and nothing at all is what nobody investigates. Magenta gets
-            // reported.
-
-            if (area is { } bounds && !Inside(first, bounds))
-            {
-                // **Judged by the placement's origin, not by its triangles.** A TF2 map keeps a
-                // miniature copy of the surrounding scenery in a separate room far outside the
-                // play area, drawn at a fraction of world scale; those are ordinary prop_static
-                // entries whose triangles are perfectly valid shapes at perfectly valid positions.
-                // Nothing about a triangle distinguishes them - only where its prop stands does.
-                //
-                // The earlier per-triangle test kept a prop if ANY corner fell inside, which let
-                // whole skybox buildings through wherever one touched the boundary. Visible in a
-                // screenshot as structures scattered well outside the map's own outline.
-                continue;
-            }
-
-            if (!byMaterial.TryGetValue(first.MaterialIndex, out List<WorldVertex>? vertices))
-            {
-                vertices = [];
-                byMaterial[first.MaterialIndex] = vertices;
-            }
-
-            for (int offset = 0; offset < 3; offset++)
-            {
-                PropVertex vertex = props[corner + offset];
-
-                // **A prop keeps its own baked lighting, always** (B219). This slot is a static
-                // prop's `.vhv` vertex lighting, and the category view used to overwrite it — which
-                // is exactly why switching the view had to rebuild. The category now rides on the
-                // batch instead, so the two no longer compete for the same three floats.
-                (float red, float green, float blue) = (vertex.Red, vertex.Green, vertex.Blue);
-
-                Append(
-                    vertices,
-                    new SurfaceVertex(vertex.X, vertex.Y, vertex.Z, vertex.U, vertex.V, 0f, 0f),
-                    default,
-                    // A prop takes its light from its own baked vertex colours, not from a
-                    // lightmap, so it never steps along the atlas.
-                    0f,
-                    red,
-                    green,
-                    blue);
-            }
-
-            appended++;
-
-            furthestX = Math.Max(furthestX, Math.Abs(first.OriginX));
-            furthestY = Math.Max(furthestY, Math.Abs(first.OriginY));
-        }
-
-        return (appended, furthestX, furthestY);
-    }
-
-    private static bool Inside(PropVertex vertex, MapBounds bounds) =>
-        vertex.OriginX >= bounds.MinX && vertex.OriginX <= bounds.MaxX &&
-        vertex.OriginY >= bounds.MinY && vertex.OriginY <= bounds.MaxY;
 
     /// <summary>Reads a displacement's terrain, or nothing if it cannot be read.</summary>
     /// <remarks>

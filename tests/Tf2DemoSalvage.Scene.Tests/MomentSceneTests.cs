@@ -408,6 +408,51 @@ public sealed class MomentSceneTests
         drawn.Light.ShouldNotBeNull("the handle's ambient cube");
     }
 
+    /// <remarks>
+    /// **B426, the baked half.** `engine.dll` `0x1800f1bd0` draws a static prop with baked colours through
+    /// the same model draw, with its per-placement colour mesh (the `.vhv` colours per vertex) and NO
+    /// ambient cube and NO local lights. The colours reach the draw in the MODEL BUFFER's order, which
+    /// groups corners by material: corners 0..5 alternate materials 3 and 4, so the buffer holds corners
+    /// 0, 2, 4, 1, 3, 5, and each corner's colour here is its own index.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropBesideALamp_DrawsItsColoursWithNoCubeOrLocals()
+    {
+        PropVertex Corner(int index) => new(index, 0f, 0f, 0f, 0f, MaterialIndex: 3 + (index % 2));
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { Corner(0), Corner(1), Corner(2), Corner(3), Corner(4), Corner(5) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+        };
+
+        int entity = PropModels.FirstStaticPropEntityIndex;
+        float[] byCorner = [.. Enumerable.Range(0, 6).SelectMany(corner => new[] { corner, corner, corner }.Select(value => value / 10f))];
+        models.StaticPropColours = new Dictionary<int, float[]> { [entity] = byCorner };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]),
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+        drawn.BakedColours.ShouldNotBeNull()
+            .ShouldBe([0f, 0f, 0f, .2f, .2f, .2f, .4f, .4f, .4f, .1f, .1f, .1f, .3f, .3f, .3f, .5f, .5f, .5f]);
+        drawn.Light.ShouldBeNull("a baked prop takes no ambient cube");
+        drawn.Sun.ShouldBeNull("nor the sun");
+        drawn.Locals.ShouldBeEmpty("nor the lamp beside it");
+    }
+
 
     /// <summary>
     /// One weapon with a display model, so <c>Weapons.For</c> can answer in a unit test.

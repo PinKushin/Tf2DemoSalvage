@@ -224,6 +224,7 @@ public sealed class LevelSystems
         // system reads globals; ours are handed their data here and then told the level has begun.
         _moment.Lighting = map.Lighting;
         _moment.StaticProps = map.Assets?.StaticModels ?? [];
+        _models.StaticPropColours = map.Assets?.StaticModelColours ?? new Dictionary<int, float[]>();
 
         // **The tree, for the visibility half of the entity cull** (B254). Assigned here with the
         // lighting because it arrives with the map for the same reason, and left null by a map that

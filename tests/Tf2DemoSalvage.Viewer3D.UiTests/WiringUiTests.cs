@@ -184,6 +184,15 @@ public sealed class WiringUiTests
             1,
             $"every opaque model fell in one bucket ({counts}), which is what an unset "
             + "ModelInstance.Bounds looks like");
+
+        // **Static props reach the device as models** (B426): the line names how many of the offered
+        // models are static props, and a map scene with none of them offered has lost the map's props.
+        Match statics = Regex.Match(
+            line, @"\((\d+) of them static props\)", RegexOptions.None, TimeSpan.FromSeconds(5));
+
+        statics.Success.ShouldBeTrue($"the line should say how many static props were offered: {line}");
+        int.Parse(statics.Groups[1].Value, CultureInfo.InvariantCulture).ShouldBeGreaterThan(
+            0, $"no static prop reached the device's model list: {line}");
     }
 
     [Test]

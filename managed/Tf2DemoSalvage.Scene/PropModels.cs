@@ -215,6 +215,36 @@ public static class PropModels
             },
             ClassName: "prop_static");
 
+    /// <summary>Hands one placement to the model draw, with its baked colours when it has them (B426).</summary>
+    private static void StaticModelOf(
+        BspStaticProp placement,
+        int index,
+        LoadedModel model,
+        PropLighting lighting,
+        ICollection<SceneProp> drawnAsModels,
+        IDictionary<int, float[]> bakedColours)
+    {
+        SceneProp prop = StaticModel(placement, index);
+        drawnAsModels.Add(prop);
+
+        if (lighting.Colours is null)
+        {
+            return;
+        }
+
+        // Red, green, blue per corner of the model's geometry, through the same lookup the merged world
+        // copies used — the strip group's vertex (`LightingVertex`), the count check and the overbright.
+        float[] colours = new float[model.Corners.Count * 3];
+
+        for (int at = 0; at < model.Corners.Count; at++)
+        {
+            (colours[at * 3], colours[(at * 3) + 1], colours[(at * 3) + 2]) = Colour(
+                lighting.Colours, model.Meshes[at], model.Vertices[at]);
+        }
+
+        bakedColours.Add(prop.EntityIndex, colours);
+    }
+
     /// <summary>Loads a map's props and places them.</summary>
     /// <param name="map">The map's bytes.</param>
     /// <param name="pak">The map's own embedded content, searched before the game's.</param>
@@ -226,15 +256,15 @@ public static class PropModels
     /// in rather than returned through a static: a static written by every map load is meaningless
     /// once two loads overlap, which is exactly what the parallel test suite does.
     /// </param>
-    /// <returns>Every placed triangle corner, three per triangle.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    /// <param name="lightAt">
-    /// The light reaching a point, used for props whose baked vertex lighting is absent or refused.
-    /// </param>
     /// <param name="placedAt">Filled with each placed prop's corners, by its lump index, for its decals (B421).</param>
-    /// <param name="drawnAsModels">
-    /// When supplied, collects each placement without baked colours as a model draw instead of merging it
-    /// into the returned corners (B426).
+    /// <param name="drawnAsModels">Collects every placement as a model draw (B426, D198).</param>
+    /// <param name="bakedColours">
+    /// Collects each baked placement's colours per corner, keyed by its model draw's entity index (B426).
+    /// </param>
+    /// <param name="modelsRead">
+    /// Collects every model a placement names, read once here, for the model draw to find by path (B426) —
+    /// the engine loads a static prop's model at level load, whatever the demo precaches.
     /// </param>
     /// <param name="props">
     /// Where loading reports what it refused, and what it could not paint. <b>Required, and first,
@@ -272,23 +302,29 @@ public static class PropModels
     /// (`docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`). Required means the compiler
     /// asks the question instead of a reviewer having to.
     /// </remarks>
-    public static IReadOnlyList<PropVertex> Load(
+    public static void Load(
         ILogger props,
         ReadOnlyMemory<byte> map,
         PakFile pak,
         GameArchives archives,
         MaterialTable materialTable,
         Func<string, ResolvedMaterial?> load,
-        ICollection<string>? refusedLighting = null,
-        Func<float, float, float, PointLighting>? lightAt = null,
-        IDictionary<int, PlacedProp>? placedAt = null,
-        ICollection<SceneProp>? drawnAsModels = null)
+        ICollection<string> refusedLighting,
+        IDictionary<int, PlacedProp> placedAt,
+        ICollection<SceneProp> drawnAsModels,
+        IDictionary<int, float[]> bakedColours,
+        IDictionary<string, ModelFrames> modelsRead)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(archives);
         ArgumentNullException.ThrowIfNull(materialTable);
         ArgumentNullException.ThrowIfNull(load);
+        ArgumentNullException.ThrowIfNull(refusedLighting);
+        ArgumentNullException.ThrowIfNull(placedAt);
+        ArgumentNullException.ThrowIfNull(drawnAsModels);
+        ArgumentNullException.ThrowIfNull(bakedColours);
+        ArgumentNullException.ThrowIfNull(modelsRead);
 
         IReadOnlyList<BspStaticProp> placements;
 
@@ -299,12 +335,12 @@ public static class PropModels
         catch (InvalidDataException failure)
         {
             props.LogWarning(failure, "reading the map's static props");
-            return [];
+            return;
         }
 
         if (placements.Count == 0)
         {
-            return [];
+            return;
         }
 
         int brushMaterialCount = materialTable.Count;
@@ -320,13 +356,11 @@ public static class PropModels
         // assignment is a real refactor rather than a wrapper, so it is left as one.
         Dictionary<string, LoadedModel?> loaded = new(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, int> materialIndices = new(StringComparer.OrdinalIgnoreCase);
-        List<PropVertex> world = [];
         Dictionary<string, PropShape> shapes = new(StringComparer.OrdinalIgnoreCase);
 
         int placed = 0;
         int skipped = 0;
         int unlit = 0;
-        int modelled = 0;
 
         // Every placement whose baked lighting existed and was refused, named. Empty is the only
         // acceptable state on a map this project claims to read; see RejectedPropLighting.
@@ -352,6 +386,11 @@ public static class PropModels
                     props,
                     placement.Model, pak, archives, materialTable, materialIndices, load);
                 loaded[placement.Model] = model;
+
+                if (model is not null)
+                {
+                    modelsRead.TryAdd(placement.Model, model.Frames);
+                }
             }
 
             if (model is null)
@@ -378,103 +417,18 @@ public static class PropModels
                 refused.Add($"prop {index} ({placement.Model}): {reason}");
             }
 
-            // **The placement's skin family, which every prop used to ignore.**
-            // StaticPropLump_t.m_Skin says which family a placed model draws with, and reading it
-            // as zero for everything drew the FIRST variant of every skinned prop — not an error,
-            // and it reads as the map's own art rather than as a defect. Measured on
-            // cp_process_final: 267 of 1631 placements ask for a family other than zero.
-            //
-            // The lookup is done here rather than at load time because a model is loaded ONCE and
-            // placed many times, with different families at different placements. Vertices are
-            // already copied per placement, so resolving the material on the way past costs a
-            // dictionary lookup and no extra geometry.
-            //
-            // **Indexed BY family rather than by family-minus-one, and family zero is not special**
-            // (B229). The table used to hold families 1..N and to be keyed on family zero's
-            // resolved material, which made a model whose family-zero texture the map does not
-            // pack undrawable in every family. An out-of-range skin falls back to family zero,
-            // which is `props_shared.cpp:1079`'s answer for the same input.
-            IReadOnlyDictionary<int, int>? family = null;
-
-            if (model.Frames.SkinSwaps is { Count: > 0 } families)
+            if (!shapes.TryGetValue(placement.Model, out PropShape? shape))
             {
-                int chosen = placement.Skin >= 0 && placement.Skin < families.Count
-                    ? placement.Skin
-                    : 0;
-
-                family = families[chosen];
+                shapes[placement.Model] = shape = PropShape.Of(model.Corners);
             }
 
-            // **Sampled once per placement, not per vertex.** The engine gives a whole model one
-            // ambient cube — `DrawModelInfo_t.m_vecAmbientCube` is a single set of six — and it is
-            // the vertex NORMAL that varies across the mesh, which is applied below. Sampling per
-            // vertex would also be a lookup through the BSP tree for every corner of every prop.
-            //
-            // Only when there is nothing baked to use. A prop with valid vertex lighting keeps it:
-            // that is higher quality than a cube, which is why the compiler wrote it.
-            // **The cube alone here, and the local lights are dropped deliberately.** This bakes a
-            // static prop's light into its VERTEX COLOURS, one sample per prop — there is no normal
-            // to shade a local light against at this point and no per-draw constant to carry one in.
-            // A prop lit this way therefore keeps the flat-cube behaviour it has always had; the
-            // per-light path is for the models drawn through the shader — which is where the viewer
-            // now sends every unbaked prop (B426), so this bake serves only a caller that collects none.
-            AmbientCube? cube = lighting.Colours is null && drawnAsModels is null
-                ? lightAt?.Invoke(placement.X, placement.Y, placement.Z).Cube
-                : null;
+            placedAt.Add(index, new PlacedProp(shape, transform));
 
-            if (placedAt is not null)
-            {
-                if (!shapes.TryGetValue(placement.Model, out PropShape? shape))
-                {
-                    shapes[placement.Model] = shape = PropShape.Of(model.Corners);
-                }
-
-                placedAt.Add(index, new PlacedProp(shape, transform));
-            }
-
-            // **An unbaked prop is a model draw, lit every frame** (B426, D198): `engine.dll` `0x1800f1bd0`
-            // with the handle's cube and local lights from `FUN_1801ba590`. A baked one keeps its `.vhv`
-            // colours below with no cube and no locals, which is what that draw does with colour meshes.
-            if (drawnAsModels is not null && lighting.Colours is null)
-            {
-                drawnAsModels.Add(StaticModel(placement, index));
-                modelled++;
-                placed++;
-                continue;
-            }
-
-            for (int at = 0; at < model.Corners.Count; at++)
-            {
-                PropVertex corner = model.Corners[at];
-
-                if (family is not null && family.TryGetValue(corner.MaterialSlot, out int painted))
-                {
-                    corner = corner with { MaterialIndex = painted };
-                }
-
-                (float x, float y, float z) = transform.Apply(corner.X, corner.Y, corner.Z);
-
-                (float red, float green, float blue) = Colour(
-                    lighting.Colours, model.Meshes[at], model.Vertices[at], cube, corner);
-
-                // **The placement's own origin rides along**, so a prop can be kept or dropped as
-                // one thing. Judging its triangles individually cannot tell a 3D skybox prop from
-                // a real one: both are made of ordinary triangles, and the skybox's are a valid
-                // shape at a valid position - just a position that is nowhere near where the
-                // player sees it.
-                world.Add(corner with
-                {
-                    X = x,
-                    Y = y,
-                    Z = z,
-                    OriginX = placement.X,
-                    OriginY = placement.Y,
-                    Red = red,
-                    Green = green,
-                    Blue = blue,
-                });
-            }
-
+            // **Every static prop is a model draw** (B426, D198): `engine.dll` `0x1800f1bd0`. An unbaked one
+            // is lit every frame with the handle's cube and local lights (`FUN_1801ba590`); a baked one carries
+            // its per-placement colour mesh — the `.vhv` colours per corner — and takes no cube and no locals.
+            // Its skin family is the model draw's (`EntityModelSet.SkinSwap`, B229).
+            StaticModelOf(placement, index, model, lighting, drawnAsModels, bakedColours);
             placed++;
         }
 
@@ -488,15 +442,12 @@ public static class PropModels
             }
         }
 
-        if (refusedLighting is not null)
+        // A loop rather than AddRange: the parameter is ICollection<string> so any caller's
+        // collection type works, and ICollection has no AddRange. The list is a handful of
+        // material names, so the difference costs nothing measurable.
+        foreach (string name in refused)
         {
-            // A loop rather than AddRange: the parameter is ICollection<string> so any caller's
-            // collection type works, and ICollection has no AddRange. The list is a handful of
-            // material names, so the difference costs nothing measurable.
-            foreach (string name in refused)
-            {
-                refusedLighting.Add(name);
-            }
+            refusedLighting.Add(name);
         }
 
         // **Four categories, not one.** A log that reports only failures reads clean while
@@ -507,7 +458,7 @@ public static class PropModels
             "{Message}",
             $"ASKED FOR {placed} placements across {loaded.Count} models; " +
             $"HAVE baked lighting for {placed - unlit}; " +
-            $"PRODUCED {world.Count / 3} triangles and {modelled} model draws, {transparent} of " +
+            $"PRODUCED {drawnAsModels.Count} model draws, {bakedColours.Count} with baked colours, {transparent} of " +
             $"{materialTable.Count - brushMaterialCount} prop materials alpha tested; " +
             $"MISSING {skipped} models that would not load, {unlit - refused.Count} placements the " +
             $"compiler never lit, {refused.Count} whose baked lighting exists and was REFUSED");
@@ -518,8 +469,6 @@ public static class PropModels
             // which prop to go and look at. Four of these hid inside an aggregate for weeks.
             props.LogInformation("refused baked lighting: {Rejection}", rejection);
         }
-
-        return world;
     }
 
     /// <summary>What reading one placement's baked lighting produced.</summary>
@@ -607,24 +556,11 @@ public static class PropModels
     /// wrong vertex, which lights the prop convincingly and wrongly.
     /// </remarks>
     private static (float Red, float Green, float Blue) Colour(
-        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>>? lighting,
+        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>> lighting,
         int mesh,
-        int vertex,
-        AmbientCube? cube,
-        PropVertex corner)
+        int vertex)
     {
-        // **The engine's fallback, which is the light cache rather than white** (B123). A cube is
-        // supplied only when nothing was baked, so this cannot override valid vertex lighting; see
-        // the remarks on Load.
-        //
-        // Evaluated with the vertex's own normal, which is what makes a cube light a shape rather
-        // than tint it flat — the same `VertexShaderAmbientLight` arithmetic the world uses.
-        if (cube is { } sampled)
-        {
-            return sampled.Light(corner.NormalX, corner.NormalY, corner.NormalZ);
-        }
-
-        if (lighting is null || mesh < 0 || mesh >= lighting.Count)
+        if (mesh < 0 || mesh >= lighting.Count)
         {
             return (1f, 1f, 1f);
         }

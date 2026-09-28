@@ -93,16 +93,18 @@ public sealed class OpaquePassBlendStateRenderTests
             Quad(0.9f, material: Decal(assets), firstVertex: 6, colour: (1f, 0f, 0f));
 
         (List<WorldVertex> prop, WorldBatch propBatch) =
-            Quad(0.5f, material: masked, firstVertex: 12, colour: (0f, 1f, 0f));
+            Quad(0.5f, material: masked, firstVertex: 0, colour: (0f, 1f, 0f));
 
-        List<WorldVertex> all = [.. wall, .. mark, .. prop];
+        List<WorldVertex> all = [.. wall, .. mark];
 
         target.Clear(0f, 0f, 0f);
 
         // **The decal list is what arms this.** Passing none skips DrawDecals entirely, the blend
         // state is never turned on, and the prop draws correctly for the wrong reason.
-        target.DrawWorld(
-            all, [wallBatch], Identity, assets, decals: [markBatch], props: [propBatch]);
+        target.DrawWorld(all, [wallBatch], Identity, assets, decals: [markBatch]);
+
+        // The prop is a model draw after the world and its overlays, as every static prop is (B426).
+        target.DrawModelPose(prop, [propBatch], Identity, Identity, assets, bothSides: true, clearDepth: false);
 
         (int red, int green, int blue) = target.PixelAt(32, 32);
 

@@ -63,7 +63,6 @@ public sealed class BrushEntityFaceTests
             [worldFace, doorFace],
             Materials,
             LightmapAtlas.Pack([]),
-            [],
             null,
             models: TwoModels);
 
@@ -88,7 +87,6 @@ public sealed class BrushEntityFaceTests
             [Surface(faceIndex: 0, material: 1), Surface(faceIndex: 1, material: 2)],
             Materials,
             LightmapAtlas.Pack([]),
-            [],
             null);
 
         IReadOnlyList<int> built = [.. world.Batches.Select(batch => batch.MaterialIndex)];

@@ -91,41 +91,36 @@ public sealed class ScenePassOrderConformanceTests
             "the engine draws opaque renderables before translucent ones");
     }
 
+
     [Test]
-    public void PassOrder_ThisRenderer_KeepsPropsOutOfTheWorldsOwnBatches()
+    public void DrawTranslucentRenderables_TheTranslucentWorld_IsDrawnThereNotWithTheWorld()
     {
-        // **The half this file was missing, and said so in its own remarks before being committed
-        // anyway.** Everything above asserts Valve's source, which does not change and which Valve
-        // already tested; it cannot fail for any reason that concerns this renderer.
-        //
-        // The engine's order — world and its overlays, THEN opaque renderables — is only reproducible
-        // if static props are a separate run from world surfaces. Merged into one batch list they
-        // are necessarily drawn with the world, whatever the pass sequence says, because a batch
-        // list is drawn in one go. So the structural claim is checkable directly: MapWorld must
-        // carry props apart from surfaces.
-        //
-        // The behavioural half — that a prop therefore occludes a marking on the wall behind it —
-        // is measured in pixels by OverlayOcclusionRenderTests, which is the test that would have
-        // caught B135.
-        MapWorld world = MapWorldBuilder.Build(
-            null,
-            [],
-            [],
-            LightmapAtlas.Pack([]),
-            [
-                new PropVertex(0f, 0f, 0f, 0f, 0f, 0),
-                new PropVertex(1f, 0f, 0f, 1f, 0f, 0),
-                new PropVertex(1f, 1f, 0f, 1f, 1f, 0),
-            ],
-            area: null);
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
 
-        world.Props.ShouldNotBeEmpty("a static prop must be its own run, drawn after the overlays");
+        string text = SourceSdk.Text("src/game/client/viewrender.cpp")
+            ?? throw new InvalidOperationException("viewrender.cpp is missing from the SDK");
 
-        world.Batches.ShouldBeEmpty(
-            "and it must NOT be in the world's batches: those are drawn before the overlay pass, " +
-            "which is the arrangement that let a marking paint over a pipe (B135)");
+        // viewrender.cpp:4465 — the translucent world is drawn per leaf inside the translucent pass,
+        // before each leaf's translucent entities and again for the leaves left after the loop (B426).
+        Match body = new Regex(
+            @"void CRendering3dView::DrawTranslucentRenderables\([^)]*\)(?s).{0,12000}?\n\}",
+            RegexOptions.Compiled,
+            TimeSpan.FromSeconds(10)).Match(text);
+
+        body.Success.ShouldBeTrue("CRendering3dView::DrawTranslucentRenderables was not found");
+
+        int world = body.Value.IndexOf("DrawTranslucentWorldAndDetailPropsInLeaves( iPrevLeaf, iThisLeaf", StringComparison.Ordinal);
+        int entity = body.Value.IndexOf("DrawTranslucentRenderable( pRenderable", StringComparison.Ordinal);
+        int rest = body.Value.IndexOf("DrawTranslucentWorldAndDetailPropsInLeaves( iPrevLeaf, 0", StringComparison.Ordinal);
+
+        world.ShouldBeGreaterThanOrEqualTo(0, "the per-leaf world draw is missing");
+        world.ShouldBeLessThan(entity, "the leaf's translucent world goes before its translucent entities");
+        entity.ShouldBeLessThan(rest, "the remaining leaves' translucent world goes after the loop");
     }
-
 
     [Test]
     public void DrawOpaqueRenderables_IsWhereStaticPropsAreDrawn()

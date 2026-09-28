@@ -66,7 +66,7 @@ public sealed class AssetCoverageConformanceTests
         // explained it was on the unreachable line below.
         TestContext.Out.WriteLine(
             $"{assets.Materials.Count} materials total, {assets.BrushMaterialCount} brushwork, " +
-            $"{propMaterials} from props, {assets.Props.Count} prop vertices, " +
+            $"{propMaterials} from props, {assets.StaticModels.Count} static props, " +
             $"{assets.EntityModels.Count} entity models");
 
         propMaterials.ShouldBeGreaterThan(

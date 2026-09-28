@@ -299,15 +299,18 @@ public sealed class OverlayOcclusionRenderTests
         // Half-size so the marking stays visible around its edges — without that, "the prop covers
         // everything" and "the prop is drawn correctly" are the same picture.
         (List<WorldVertex> prop, WorldBatch propBatch) =
-            Quad(0.5f, material: 2, firstVertex: 12, colour: (0f, 1f, 0f), half: 0.5f);
+            Quad(0.5f, material: 2, firstVertex: 0, colour: (0f, 1f, 0f), half: 0.5f);
 
-        List<WorldVertex> all = [.. wall, .. mark, .. prop];
+        List<WorldVertex> all = [.. wall, .. mark];
 
         target.Clear(0f, 0f, 0f);
 
         target.DrawWorld(
-            all, [wallBatch], Identity, assets, surfaceColours: true,
-            decals: [markBatch], props: [propBatch]);
+            all, [wallBatch], Identity, assets, surfaceColours: true, decals: [markBatch]);
+
+        // The prop is a model draw after the world and its overlays, as every static prop is (B426).
+        target.DrawModelPose(
+            prop, [propBatch], Identity, Identity, assets, bothSides: true, surfaceColours: true, clearDepth: false);
 
         // **The centre is the PROP's**, at depth 0.5, in front of both. Named by colour rather than
         // by brightness, so "the prop won" is distinguishable from "the marking won" — which is
@@ -359,15 +362,17 @@ public sealed class OverlayOcclusionRenderTests
             Quad(0.9f, material: DecalMaterial(assets), firstVertex: 6, colour: (1f, 0f, 0f));
 
         (List<WorldVertex> prop, WorldBatch propBatch) =
-            Quad(0.89f, material: 2, firstVertex: 12, colour: (0f, 1f, 0f), half: 0.5f);
+            Quad(0.89f, material: 2, firstVertex: 0, colour: (0f, 1f, 0f), half: 0.5f);
 
-        List<WorldVertex> all = [.. wall, .. mark, .. prop];
+        List<WorldVertex> all = [.. wall, .. mark];
 
         target.Clear(0f, 0f, 0f);
 
         target.DrawWorld(
-            all, [wallBatch], Identity, assets, surfaceColours: true,
-            decals: [markBatch], props: [propBatch]);
+            all, [wallBatch], Identity, assets, surfaceColours: true, decals: [markBatch]);
+
+        target.DrawModelPose(
+            prop, [propBatch], Identity, Identity, assets, bothSides: true, surfaceColours: true, clearDepth: false);
 
         Winner(target.PixelAt(32, 32).Red, target.PixelAt(32, 32).Green, target.PixelAt(32, 32).Blue)
             .ShouldBe(

@@ -32,7 +32,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [], Materials, LightmapAtlas.Pack([]), [], null);
+            [], Materials, LightmapAtlas.Pack([]), null);
 
         world.Vertices.ShouldBeEmpty();
         world.Batches.ShouldBeEmpty();
@@ -43,7 +43,7 @@ public sealed class MapWorldTests
     {
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), [], null);
+            [Surface(0, material: 3, corners: 4)], Materials, LightmapAtlas.Pack([]), null);
 
         world.Vertices.Count.ShouldBe(6);
         world.Batches.Count.ShouldBe(1);
@@ -74,7 +74,6 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, normalZ: -1f)], Materials, LightmapAtlas.Pack([]),
-            [],
             null);
 
         world.Vertices.Count.ShouldBe(3);
@@ -104,7 +103,6 @@ public sealed class MapWorldTests
             ],
             materials,
             LightmapAtlas.Pack([]),
-            [],
             null);
 
         // **toolsblack is kept, and that is the point of this test now.** It shares the tools/
@@ -124,7 +122,6 @@ public sealed class MapWorldTests
         MapWorld world = MapWorldBuilder.Build(
             Map,
             [Surface(0, material: 0, corners: 3, flags: SurfaceProperties.NoDraw)], Materials, LightmapAtlas.Pack([]),
-            [],
             null);
 
         world.Vertices.ShouldBeEmpty();
@@ -145,7 +142,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            surfaces, Materials, LightmapAtlas.Pack([]), [], null);
+            surfaces, Materials, LightmapAtlas.Pack([]), null);
 
         world.Batches.Count.ShouldBe(2);
         world.Vertices.Count.ShouldBe(9);
@@ -171,7 +168,7 @@ public sealed class MapWorldTests
 
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(1, material: 0, corners: 3)], Materials, atlas, [], null);
+            [Surface(1, material: 0, corners: 3)], Materials, atlas, null);
 
         AtlasRect rectangle = atlas.Rectangles[1];
 
@@ -189,92 +186,9 @@ public sealed class MapWorldTests
         // 0..1 are the normal case and clamping them would stretch one texel across the surface.
         MapWorld world = MapWorldBuilder.Build(
             Map,
-            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), [], null);
+            [Surface(0, material: 0, corners: 3, u: 12.5f)], Materials, LightmapAtlas.Pack([]), null);
 
         world.Vertices[0].U.ShouldBe(12.5f);
-    }
-
-    [Test]
-    public void Build_APropWhoseOriginIsOutsideThePlayArea_IsDroppedWholeEvenIfItReachesInside()
-    {
-        // **The 3D skybox test.** A TF2 map keeps a miniature copy of the surrounding scenery far
-        // outside the play area; those are ordinary prop_static entries whose triangles are valid
-        // shapes at valid positions, so nothing about a TRIANGLE distinguishes them - only where
-        // its placement stands does.
-        //
-        // The condition is chosen so the two readings disagree: this prop's origin is well outside
-        // the area while one of its corners reaches inside it. Judged per triangle, as the first
-        // version did, it is kept; judged by origin it is dropped. A prop entirely outside would
-        // be dropped either way and would prove nothing.
-        MapBounds area = new(0f, 0f, 1000f, 1000f);
-
-        PropVertex[] straddling =
-        [
-            new(500f, 500f, 0f, 0f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
-            new(9000f, 9000f, 0f, 1f, 0f, 0, OriginX: 9000f, OriginY: 9000f),
-            new(9100f, 9100f, 0f, 1f, 1f, 0, OriginX: 9000f, OriginY: 9000f),
-        ];
-
-        MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), straddling, area);
-
-        world.Vertices.ShouldBeEmpty("a prop standing in the skybox room is not in the map");
-    }
-
-    [Test]
-    public void Build_APropStandingInThePlayArea_IsKept()
-    {
-        // The control. Without it "drops the skybox" and "drops every prop" are the same
-        // observation, which is the failure mode the whole filter risks.
-        MapBounds area = new(0f, 0f, 1000f, 1000f);
-
-        PropVertex[] inside =
-        [
-            new(100f, 100f, 0f, 0f, 0f, 0, OriginX: 500f, OriginY: 500f),
-            new(200f, 100f, 0f, 1f, 0f, 0, OriginX: 500f, OriginY: 500f),
-            new(200f, 200f, 0f, 1f, 1f, 0, OriginX: 500f, OriginY: 500f),
-        ];
-
-        MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), inside, area);
-
-        world.Vertices.Count.ShouldBe(3);
-
-        // **In Props rather than Batches, which is B135.** A static prop is an opaque RENDERABLE to
-        // the engine, drawn after the world and its overlays — `DrawWorld` then
-        // `DrawOpaqueRenderables`, game/client/viewrender.cpp:5487. Batched with the world it was in
-        // the depth buffer before the overlay pass, so a biased overlay painted over a pipe standing
-        // in front of the wall it marks.
-        //
-        // This assertion read `world.Batches.Single()` until the pass order was corrected, which is
-        // why it went red: it encoded the merge rather than the requirement.
-        world.Props.Single().MaterialIndex.ShouldBe(0);
-
-        // And the world's own runs are empty here, since this map has no surfaces — the pair says
-        // the prop went to one list and not the other, where either alone would not.
-        world.Batches.ShouldBeEmpty();
-    }
-
-    [Test]
-    public void Build_APropWhoseMaterialResolvedToNothing_IsDrawnAsMissing()
-    {
-        // **Drawn, not skipped, and the reversal is deliberate.** This used to skip it, reasoning
-        // that a white rock reads as a rendering fault - true, and the wrong conclusion, because a
-        // HOLE reads as nothing at all and nothing at all is what goes uninvestigated. The engine's
-        // own convention is a magenta chequer, which looks like a bug and therefore gets reported.
-        //
-        // Several defects this session hid behind exactly that difference.
-        PropVertex[] unpainted =
-        [
-            new(100f, 100f, 0f, 0f, 0f, -1),
-            new(200f, 100f, 0f, 1f, 0f, -1),
-            new(200f, 200f, 0f, 1f, 1f, -1),
-        ];
-
-        MapWorld world = MapWorldBuilder.Build(
-            Map, [], Materials, LightmapAtlas.Pack([]), unpainted, null);
-
-        world.Vertices.Count.ShouldBe(3, "a prop with no material draws in the missing chequer");
     }
 
     private static BspSurface Surface(
