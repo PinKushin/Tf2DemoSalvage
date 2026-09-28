@@ -8,42 +8,31 @@ metadata:
   modified: 2026-09-09T03:54:02.149Z
 ---
 
-`DecodedEntity.Properties` is **what the snapshot carried**. `EntityDecoder.EffectiveProperties` is
-**what the entity is** — the same list laid over the class's instance baseline, because an entering
-entity is a delta against that baseline and omits everything equal to it (`CL_CopyNewEntity`).
+A decoded entity's raw properties are what the SNAPSHOT carried; its effective properties are what
+the entity IS, laid over the class's baseline (an entering entity is a delta against that baseline
+omitting equal values). One accumulator read the raw list for months.
 
-`EntityStateTable.Apply` read the first for months. Fixed 2026-08-21, B132.
+**Why:** on demos anyone looks at, the two hold the same values (a player resends origin/health
+constantly, so the baseline rarely adds anything — applying baselines changed no property count on
+any corpus demo). The difference is total only for an entity whose whole state IS its baseline — one
+entering once with fifteen properties, none on the wire ever again. It sat in every demo's entity
+table looking empty.
 
-**Why:** the two are the same type, and on the demos anyone looks at they hold the same values. A
-player resends origin, health and team constantly, so the baseline only supplies values that arrive
-again a second later — applying baselines changed **no property count on any corpus demo**. The
-difference is total only for an entity whose whole state IS its baseline: `CFogController` enters
-once at tick 1 with fifteen properties, **none on the wire**, and is never mentioned again. It sat in
-the table of every demo holding nothing but its class name. 19 of 195 entities were empty that way.
-
-The trace writer had been fixed to call `EffectiveProperties` earlier and its commit noted
-"DemoTimeline has always done this" — true of applying the baseline string table to the decoder,
-false of reading the merged result. Half a fix reads exactly like a whole one.
+**A half-fix reads exactly like a whole one** — a related writer had already been fixed with a commit
+noting "has always done this", true of applying the baseline table but false of reading the merged
+result.
 
 **How to apply:**
+- When a type exposes two accessors for "the same" data, make the wrong one unreachable by
+  construction (require the baseline dependency, don't make it optional).
+- Suspect this whenever an entity has a plausible-but-empty state — class name present with zero
+  properties is the signature.
+- Cross-check: the trace and the accumulated table, on the same packet, should agree.
+- Confirm against something outside the project when possible (an authored map's own data matched).
 
-- When a type exposes two accessors for "the same" data, the doc comment distinguishing them is not
-  enough. Make the wrong one unreachable: `EntityStateTable` now **requires** an `IEntityBaselines`
-  in its constructor, with `EntityBaselines.None` for fixtures. An optional dependency would let a
-  caller rebuild the defect by omission.
-- Suspect this whenever an entity has a plausible-but-empty state. Class name present with zero
-  properties is the signature — the class id rides on the update itself, so it survives.
-- The cross-check that settles it: **the trace and the accumulated table, on the same packet**. They
-  came from one decoder and disagreed.
-- Confirm a decode against something outside this project when one exists. Fog is networked by the
-  demo and authored in the map's BSP entity lump, and they matched — see
-  [[fixtures-are-the-weak-point]]. Pick the specimen that can falsify: viaduct's 213/174/221 fixes
-  the colour byte order, a grey map cannot.
-
-**The same split for temp entities (2026-09-21, finding 62):** an effect that omits its class is a delta
-against the PREVIOUS effect in the message. `DecodedTempEntity.State` is the effect; `Properties` is the wire.
-The tell was a pair: a sentry's muzzle flash read entity 0 and attachment 0, exactly the two fields it shares
-with the tracer sent before it.
+**The same split recurs for temp entities:** an effect omitting its class is a delta against the
+PREVIOUS effect in the message — tell: a field reading as the two values it shares with the prior
+effect, not its own.
 
 Related: [[measure-the-output-not-the-capability]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[instrument-bugs-outnumber-decoder-bugs]].
