@@ -9,7 +9,8 @@ metadata:
 ---
 
 **Deriving a lump's numeric scale from the compiler's source is predicting from it, not reading it.**
-vrad's key conversion genuinely scales a light value to 0-255 — that does NOT say the compiled lump
+vrad's `LightForString` (`utils/vrad/lightmap.cpp:1088`) converts a `light` key with
+`pow(r/255.0, 2.2) * 255`, and that genuinely scales a light value to 0-255 — that does NOT say the compiled lump
 on a shipped map contains numbers near 255. Measured: sky light 2.313, brightest ambient sample 2.938
 — both in Valve's overbright range, nowhere near 255. A predicted scale mismatch between two lumps
 did not exist, and a fix aimed at it would have scaled a correct value into a wrong one.

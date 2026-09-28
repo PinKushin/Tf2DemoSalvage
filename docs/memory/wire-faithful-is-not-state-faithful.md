@@ -10,7 +10,8 @@ metadata:
 
 A decoded entity's raw properties are what the SNAPSHOT carried; its effective properties are what
 the entity IS, laid over the class's baseline (an entering entity is a delta against that baseline
-omitting equal values). One accumulator read the raw list for months.
+omitting equal values, `CL_CopyNewEntity`). `EntityStateTable.Apply` read the raw list for months.
+Fixed 2026-08-21, B132.
 
 **Why:** on demos anyone looks at, the two hold the same values (a player resends origin/health
 constantly, so the baseline rarely adds anything — applying baselines changed no property count on

@@ -14,6 +14,6 @@ keeps following Valve's patterns rather than inventing parallel ones.
 
 **How to apply:** when there's nothing to be parity WITH, find the nearest engine mechanism and use
 its shape — old content as a search path (matching `gameinfo.txt` order), downloads following the
-engine's download queue, checks named after the client's own checks. Read the SDK/disassembly for the
+engine's download queue (B392), checks named after the client's own checks. Read the SDK/disassembly for the
 mechanism first, exactly as for parity work. Related: [[valve-parity-is-the-first-principle]],
 [[parity-is-the-search-not-the-defence]].
