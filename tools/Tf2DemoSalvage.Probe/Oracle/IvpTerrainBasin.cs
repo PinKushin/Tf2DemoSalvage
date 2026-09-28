@@ -24,6 +24,15 @@ internal static class IvpTerrainBasin
     /// <summary>How far the border ring is raised, in Source inches.</summary>
     public const float BorderHeight = 100f;
 
+    /// <summary>The slab scene's static box, IVP half (40, 40, 1): Source half x and z 40 m, y 1 m, in inches.</summary>
+    public const float SlabHalfXInches = 40f / MetresPerInch;
+
+    /// <inheritdoc cref="SlabHalfXInches"/>
+    public const float SlabHalfYInches = 1f / MetresPerInch;
+
+    /// <summary>The slab scene's drop point, IVP (1, 2, 10), in Source inches (x, z, −y).</summary>
+    public static readonly System.Numerics.Vector3 SlabDrop = new(1f / MetresPerInch, 10f / MetresPerInch, -2f / MetresPerInch);
+
     /// <summary>IVP's metre in Source inches' terms.</summary>
     public const float MetresPerInch = 0.0254f;
 
