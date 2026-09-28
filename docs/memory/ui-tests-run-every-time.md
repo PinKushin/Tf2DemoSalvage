@@ -20,14 +20,15 @@ rather than substituting a check that only restates the diff. Related: [[tests-b
 ## The phase-scoped exception has expired
 
 A former exemption for "the UI is still small" is closed — twenty tests have caught a silent
-full-screen collision (days), three wiring regressions shipping at 620/620 green, and a log-level
-silencing.
+full-screen collision that broke it for days (B165), three wiring regressions shipping at 620/620
+green (B193), and a log-level silencing.
 
 **Worked example of a UI test that was WORSE than none:** a test proved a click reached a handler by
 requiring the handler's success branch to log — but the handler's FAILURE branch also proves the
 wiring, and once a precondition tightened, the legitimately-failing branch (a solo demo with nobody to
 follow) went red against a viewer working correctly. Owner: *"that seems like a stupid test for a pov
-demo... it doesnt actually check anything."* Fixed by asserting the handler RAN, not that it
+demo... it doesnt actually check anything."* Once B171 required a target to be alive and drawn, this
+surfaced against a solo POV specimen. Fixed by asserting the handler RAN, not that it
 succeeded.
 
 ---
@@ -41,7 +42,9 @@ pausing and seeking back is fine to do actually."*
 
 **How to apply:** restore in the test itself (not a teardown a failure skips), to an EXACT known
 value. When restoring isn't possible (no seek action exists to drive), say so and drop to a lower-
-level test instead (e.g. asserting wiring on a headless form).
+level test instead (e.g. asserting wiring on a headless form). **Open and deliberately undecided**
+(B224): sharing setup across tests by leaning on run order was raised and not adopted — the owner's
+own caveat was that it "can be flaky... just an idea."
 
 Related: [[output-level-assertion-or-it-is-not-done]], [[read-the-trx-total-not-the-console]],
 [[ui-tests-run-every-time]]#a-negative-retry-is-a-sleep, [[nunit-shared-fixture-is-the-standard]].
@@ -76,8 +79,10 @@ working until an alt-tab away and back. Fix: explicitly clear and refocus on the
 
 A plain `Panel` clears `ControlStyles.Selectable`; `TabStop` cannot override it. Consequence: focus
 never tracked what the user was doing (clicking the 3D view left focus on a list), causing keys typed
-in a search box to reach global shortcuts, and list type-ahead to swallow WASD/space globally. Fix: a
-custom panel subclass enabling `Selectable` and focusing on mouse-down.
+in a search box to reach global shortcuts (B212: `Space` toggled first person, `Home` moved the map
+instead of the caret), and list type-ahead to swallow WASD/space globally (B216: adding type-ahead
+against a permanently focused playlist stopped the camera switching and WASD flying, four UI tests
+failed at once). Fix: a custom panel subclass enabling `Selectable` and focusing on mouse-down.
 
 **Before building anything that reasons about focus, check the surface can actually hold it** — a
 comment already in the file ("a Panel does not take focus") was a workaround note, not read as a bug

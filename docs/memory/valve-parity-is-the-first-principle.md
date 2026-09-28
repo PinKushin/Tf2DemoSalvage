@@ -12,9 +12,11 @@ Owner, mid-optimisation: *"this isnt messing up the matching valve rule is it? w
 performance my matching valve, but weve seemed to lose part of them"* → *"ok well dont change things
 that are valve parity, keep valve parity as first principal."* Recorded as D89.
 
-**Why:** parity is the constraint the performance work happens INSIDE, never a factor traded against
-speed. Every measured win on this viewer has been a move TOWARD the engine (one static mesh per
-model, precaching at load, reusing buffers — all matching Valve's own arrangement).
+**Why:** D82 bounds departures and D86 requires them declared where made, but neither says what
+happens when a departure would be faster; parity is the constraint the performance work happens
+INSIDE, never a factor traded against speed. Every measured win on this viewer has been a move TOWARD
+the engine (one static mesh per model, precaching models and sounds at load, reusing buffers — all
+B163, all matching Valve's own arrangement).
 
 **How to apply:**
 - Before proposing a performance change, find the engine's arrangement for the same problem. If ours
@@ -50,22 +52,24 @@ owner: *"go for the threading too, full parity thats an optimization valve did f
 the bones are heavy, they need speed."*
 
 **Why:** a shipping optimisation was written against a measured frame budget — it earns its place by
-default, and the project's own measurements already showed exactly the cost it targets, unchecked
-before proposing the skip.
+default, and the project's own measurements already showed exactly the cost it targets: B99 records
+posing at ~420ms of every second, unchecked before proposing the skip.
 
 **How to apply:** when tempted to file something as "merely an optimisation", find the measurement
 that decides it — usually already exists. Treat a departure from an optimisation as needing the same
 evidence as a departure from behaviour. Note what the optimisation actually is (a speculative
-prefetch, not naive parallelism) — the name can mislead.
+prefetch of last frame's expensive roots, run between simulate and render, not naive parallelism —
+D88) — the name can mislead.
 
 ---
 
 ## `baking-yields-to-parity` — D143, ours is the side that changes
 
-Owner: *"valve doesnt have baking, soo, their version isnt going to bake, and we might have to change
-our baking if valve does something that is imcompatable."* When a piece of engine behaviour (e.g. a
-per-view distance fade) won't fit a baked static path, change the path — do not look for the version
-of the behaviour that fits the optimisation.
+Owner, while B363 (detail props that are MODELS) was being designed: *"valve doesnt have baking, soo,
+their version isnt going to bake, and we might have to change our baking if valve does something that
+is imcompatable."* When a piece of engine behaviour (e.g. a per-view distance fade) won't fit a baked
+static path, change the path — do not look for the version of the behaviour that fits the
+optimisation.
 
 ---
 
@@ -75,8 +79,8 @@ Owner: *"the refactors are perfect times to double check stuff like that."* Read
 arrangement for a job being extracted costs one grep at exactly the moment the new shape is decided —
 and a divergence written into a freshly-extracted type is harder to spot later than one left in an
 old method. Found once within minutes: an extracted method read ambient camera state off the form
-where Valve's equivalent is TOLD the camera via a parameter struct — exactly what made the extracted
-method untestable without a window.
+where Valve's equivalent is TOLD the camera via a parameter struct (`clientleafsystem.h:75` and
+`:169`) — exactly what made the extracted method untestable without a window (B188).
 
 **How to apply:** find the engine's equivalent, read what it's PASSED vs. what it reaches for
 (parameters vs. ambient state is usually the whole difference between testable and not). Record the
@@ -88,7 +92,7 @@ Related: [[conformance-test-before-implementation]], [[nothing-is-closed]].
 
 ## `a-transcribed-function-is-not-a-ported-subsystem` — D172, parity is claimed of a structure
 
-Owner, midway through a large physics refactor: *"how was everything so fucked up we needed this
+Owner, midway through B369's contact point port: *"how was everything so fucked up we needed this
 massive refactor anyway? i thought we had all this on parity and working but idk."* A faithfully
 transcribed impact solver sat inside collision plumbing that was this project's own invention, labeled
 only in code remarks — per-function claims of parity added up, for the owner, to a subsystem claim,

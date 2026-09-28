@@ -22,9 +22,12 @@ ROTATION** — a missing transpose is invisible on pure translation, so is a rev
 ## `ivp-is-a-third-convention` — physics changes axes, units and storage at once
 
 Source's physics engine (IVP) crosses via one function changing three things: AXES (Source Z-up →
-IVP Y-up, a specific permutation matrix), UNITS (×0.0254, metres per inch), STORAGE (rows become
-columns, translation moves to the last row). Two independent facts confirmed the permutation: a joint
-axis remap table, and exactly one axis negated when converting ragdoll limits.
+IVP Y-up, `M' = P M Pᵀ` with `P = [[1,0,0],[0,0,−1],[0,1,0]]`), UNITS (×0.0254, metres per inch — the
+constant sits at `18011f000` with `0x421d7af6` (`39.3700790`, `1f/0.0254f` in float) in the next
+dword, once wrongly carried as the decompiler's decimal `39.37`, a different float `0x421d7ae1`),
+STORAGE (`FUN_18000ca70` writes rows into columns of a 4×4, translation to the last row). Two
+independent facts confirmed the permutation: a joint axis remap table, and exactly one axis negated
+when converting ragdoll limits.
 
 **Why:** getting the axis swap right while missing the transpose, or the units while missing the
 sign, produces a ragdoll that's consistently and subtly wrong — settles at a plausible angle in the
@@ -47,7 +50,8 @@ histograms, outward normals) because on a symmetric map, misplaced geometry ofte
 geometry legitimately is.
 
 **What to reach for instead: an IDENTITY the format guarantees, not a similarity.** World convexes
-are built with NO_SHRINK, so an axis-aligned world brush and its convex share the same eight corners
+are built with `NO_SHRINK` (`utils/vbsp/ivp.cpp:1531` — `VPHYSICS_SHRINK 0.5` is brush entities only),
+so an axis-aligned world brush and its convex share the same eight corners
 exactly — counting exact matches needs no tolerance: 0 of 2,083 as read, 1,964 corrected. **Print
 every candidate transform with the identity as the control** — a rival wrong flip still scored 1,771
 purely from map symmetry.
@@ -61,9 +65,11 @@ authority is a different SOURCE. See [[instrument-bugs-outnumber-decoder-bugs]],
 ### IVP's interior stays in metres; Hammer units stop at the seam (D173)
 
 Owner, challenging metric conversion in a port: *"valve uses hammer units"* — accepted the answer:
-*"Oh ok so parity."* The game side is Hammer units; the engine converts ONCE at its API boundary and
-runs IVP entirely in metres (gravity, tolerances, floor constants all metre-scaled binary constants).
-A port multiplying back to inches rounds differently and can't reach bit parity.
+*"Oh ok so parity."* The game side is Hammer units; `vphysics.dll` converts ONCE at its API boundary
+(`METERS_PER_INCH (0.0254f)`, `src/public/vphysics_interface.h:40`) and runs IVP entirely in metres
+(collision tolerance `(0.25f − 1e-4f) × 0.0254f`, gravity scaled in `SetGravity`, floor constants
+`1e-19`, `1e-12`, `1e-10f`, `1e-8` all metre values). A port multiplying back to inches (×39.37) rounds
+differently and can't reach bit parity.
 
 **How to apply:** an IVP port takes/returns metres, holds the binary's constants by their bits;
 convert only at the same seam the engine does.
