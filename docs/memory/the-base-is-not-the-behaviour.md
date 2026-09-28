@@ -8,9 +8,10 @@ metadata:
   modified: 2026-09-09T03:55:05.684Z
 ---
 
-**Read the override list before concluding what a virtual does.** A virtual method with seven live
-overrides did all of its actual work AFTER the base returned — reading only the base to its closing
-brace missed a procedurally-spun barrel bone entirely.
+**Read the override list before concluding what a virtual does.** `StandardBlendingRules` has seven
+live overrides; everything the minigun does happens in one of them, after `BaseClass::` returns —
+reading only the base to its closing brace would have missed B347 entirely: a barrel bone that TF2
+spins procedurally and this project left still.
 
 ```
 grep -rn "::TheVirtual" src            # every definition, base and overrides
@@ -18,9 +19,10 @@ grep -rn "BaseClass::TheVirtual" src   # which chain
 ```
 
 **Some overrides are DEAD, equally worth measuring, and look like features:** a whole file behind
-`#if 0`; a body entirely inside `#ifdef` for another game; a function called unconditionally whose
-body opens with a bare `return;`. Implementing a dead override is worse than missing a live one — it
-adds behaviour the engine doesn't have, and nothing will ever contradict it.
+`#if 0`; `C_BaseFlex`'s body entirely inside `#ifdef HL2_CLIENT_DLL` (nothing for TF2); `ChildLayerBlend`
+called unconditionally whose body opens with a bare `return;` (`c_baseanimating.cpp:1909`). Implementing
+a dead override is worse than missing a live one — it adds behaviour the engine doesn't have, and
+nothing will ever contradict it.
 
 **How to apply:** for any virtual being reproduced, list overrides, check each for `#if 0`, `#ifdef
 <OTHERGAME>`, a leading `return;`, and say which are live. "Dead, implementing it is implementing

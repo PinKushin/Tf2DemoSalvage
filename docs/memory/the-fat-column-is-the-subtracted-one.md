@@ -6,9 +6,10 @@ metadata:
 ---
 
 **When every directly-measured column is small and the fat one is computed by SUBTRACTION, the
-PATTERN is the finding, not noise to narrow further.** Hunting a ~130ms stall: six timers at a few ms
-each, and a `rest` remainder holding 125.6ms. Each new timer added just moved the fat column to
-whatever was still subtracted — happened several times before the shape was read.
+PATTERN is the finding, not noise to narrow further.** Measured 2026-08-25 hunting a ~130ms stall
+(B191): six timers at a few ms each, and a `rest` remainder holding 125.6ms. Each new timer added just
+moved the fat column to whatever was still subtracted — happened several times before the shape was
+read.
 
 **The answer was `Debug.WriteLine`** — `OutputDebugString` serialises every caller on the machine
 through a global mutex; one line cost ~120ms. Fixed by gating on `Debugger.IsAttached`.

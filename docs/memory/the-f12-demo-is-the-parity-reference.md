@@ -42,7 +42,7 @@ goes.
 
 **Measured:** picking an unfamiliar demo for a before/after check produced five "regressions",
 six falsified hypotheses, none of it the refactor — the demo was simply unexamined AND one the live
-TF2 client refuses outright.
+TF2 client refuses outright (B201, schema drift).
 
 **How to apply:**
 - Parity/before-after/"did I break it" — use f12.

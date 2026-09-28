@@ -5,9 +5,10 @@ metadata:
   type: project
 ---
 
-**A demo does not contain everything on screen.** The first-person weapon model is a client-created
-entity, no edict, no entity index, nothing networked — bone-merged onto the arms by the client at draw
-time. Searching a demo for it correctly finds nothing.
+**A demo does not contain everything on screen.** The first-person weapon model is
+`C_ViewmodelAttachmentModel`, created with `InitializeAsClientEntity` (`econ_entity.cpp:1153`) — no
+edict, no entity index, nothing networked — bone-merged onto the arms by the client at draw time.
+Searching a demo for it correctly finds nothing.
 
 **What the demo carries is enough to rebuild it:** an item definition index resolves through
 `items_game.txt`'s prefab chain to a model. Twenty-two of fifty-six held weapons on one demo send no

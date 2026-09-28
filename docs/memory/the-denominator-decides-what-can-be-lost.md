@@ -52,10 +52,11 @@ test with false accusations is worse than no test. See [[one-place-or-it-drifts]
 ## `a-census-of-requests-beats-a-list-of-features` — only it catches an unreachable parameter
 
 Two conformance instruments: an SDK-generated denominator (never stale, but blind to WHICH declared
-parameters are unimplementable-vs-just-unneeded), and a census of what a REAL MAP requests. A newly
-reachable material parameter went red on the census in the SAME gate run it became reachable — the
-SDK list could never flag it, since it was already counted as "declared, unimplemented" identically to
-hundreds nobody needs.
+parameters are unimplementable-vs-just-unneeded), and a census of what a REAL MAP requests. Measured
+2026-09-04: reading VMT DirectX-level sub-blocks (B326) made `$selfillummask` reachable for the first
+time, and a newly reachable material parameter went red on the census in the SAME gate run it became
+reachable — the SDK list could never flag it, since it was already counted as "declared,
+unimplemented" identically to hundreds nobody needs.
 
 **Rule when adding any reader: ask what the new reach makes VISIBLE** — a red census in that run is
 the feature working, not a regression. Keep denominator and census reports separate when reporting;

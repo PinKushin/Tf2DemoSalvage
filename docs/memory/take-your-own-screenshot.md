@@ -39,8 +39,9 @@ menu item saying f12 is actually wrong... we cahnged it for valve parity."*
 **Why:** the key is TF2's, not this project's — D101, every control follows the binding table.
 
 **How to apply:** never name a key from memory — ask `KeyBindings.KeyFor(...)` or read the defaults.
-A key written anywhere else is a copy that goes stale the next time parity moves one (a menu label
-once printed "F12" long after the real key was F5).
+A key written anywhere else is a copy that goes stale the next time parity moves one — B239 is what
+that costs: a menu label printed "F12" long after the real key was F5, because a label is not a
+registration and nothing breaks when it lies.
 
 See [[a-default-is-not-a-constant]], [[no-hardcoded-controls-ever]].
 
@@ -60,10 +61,15 @@ relative OFF, pause ON. Always all three arguments explicit.
 
 ## `paused-is-a-different-sample` — a still capture is a PAUSED frame, and paused draws a different pose
 
-**Pausing clears interpolation for every entity at once**, so it doesn't freeze the picture — it
-changes it to the last update's state, by the whole interpolation window (B399). A golden screenshot
-from `demo_gototick <tick> 0 1` (paused) compared against an interpolating viewer capture is comparing
-poses ticks apart — chased for a long session as a rocket spawn-position bug before this was found.
+**`engine->IsPaused()` clears `s_bInterpolate` for every entity at once**
+(`C_BaseEntity::InterpolateServerEntities`, `client/c_baseentity.cpp:3226`); `IsInterpolationEnabled()`
+returns that flag (`c_baseentity.h:2156`), and `BaseInterpolatePart1` answers it with
+`MoveToLastReceivedPosition()` and `INTERPOLATE_STOP` (`c_baseentity.cpp:2845`). So pausing doesn't
+freeze the picture — it changes it to the last update's state, by the whole interpolation window
+(B399). A golden screenshot from `demo_gototick <tick> 0 1` (paused) compared against an interpolating
+viewer capture is comparing poses ticks apart — on the f12 demo that drew a rocket-jumping soldier
+still airborne beside a ledge where the real client had already landed him, chased for a long session
+as a rocket spawn-position bug (B397) before this was found.
 
 **How to apply:** any still capture (ours or TF2's) is a PAUSED frame — sample with interpolation off
 and compare like with like. A constant positional offset along an entity's travel direction should be
