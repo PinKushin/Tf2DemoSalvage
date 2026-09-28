@@ -1058,6 +1058,9 @@ public sealed class IvpSimulation
     /// <summary>What the scheduler last decided about a watched pair — an instrument, not a field the engine keeps.</summary>
     public IvpScheduleOutcome? LastOutcome { get; private set; }
 
+    /// <summary>The looks since a margin class last decayed, <c>env+0x13c</c> — read by the terrain probe beside the binary's <c>looks</c>.</summary>
+    public int MarginDecayCounter => _marginDecay;
+
     /// <summary>One side as the time-of-impact searches read it — the ledge, the body's motion over the interval, its bounds.</summary>
     /// <remarks>
     /// **The motion cache's slot 0 is the object's cache matrix at now** — the cache object's <c>+0x40</c> (<c>FUN_180094680</c>),

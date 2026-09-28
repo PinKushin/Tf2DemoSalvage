@@ -120,7 +120,7 @@ public sealed class IvpVirtualTerrainDropProbe : IProbe
                 {
                     output.WriteLine(string.Create(
                         CultureInfo.InvariantCulture,
-                        $"EXAMINE tick {impactTick} len={mindist.Length:R} flags=0x{mindist.Flags:x8} {outcome}") +
+                        $"EXAMINE tick {impactTick} len={mindist.Length:R} flags=0x{mindist.Flags:x8} looks->{world.Simulation.MarginDecayCounter} {outcome}") +
                         (mindist.QueueSlot is int slot
                             ? string.Create(CultureInfo.InvariantCulture, $" queued {world.Simulation.Collisions.EventQueue.ValueOf(slot):R} slot {slot}")
                             : string.Empty));

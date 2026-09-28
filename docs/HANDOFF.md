@@ -1112,8 +1112,15 @@ difference is the tail recheck after impact 1** (`recheck=2`): gaps identical (0
 matches (0.003632), but the other seven are queued at **0.006987 in the port against 0.004906 in the binary**, the binary's
 look bits advance (`0x0f4c…` → `0x0f0c…`) where the port's do not, and the binary sets bit 31 on one corner pair
 (`0x8fcc0020`) the port never sets. The third collision (a corner, `0x0fcc0020`, arm (4, 4, −4)) then never fires in the
-port; the cube lands on two contacts, spins at 9.25°/s against 2.57, slides off the flat and sinks. **Next: the mode-2 recheck's
-time estimate and look-counter step in `FUN_1800977f0`/the scheduler, against the port's `IvpPairScheduler`.**
+port; the cube lands on two contacts, spins at 9.25°/s against 2.57, slides off the flat and sinks. **Traced back further the same day, to a hull-pass timing difference at the FIRST landing.** The queue values differ because two
+vertex–face pairs (`…0120`) carry a margin class one higher in the port (`0x0fcc…` against `0x0f8c…`, bits `0x3fc00000`). The
+look counter (`env+0x13c`, now `IvpSimulation.MarginDecayCounter`) matches the binary from tick 54 on, but **at tick 71 the binary
+hull-passes 8 far pairs (terrain triangles against the cube) and examines them close enough to search, so its counter lands
+twice on a `…0120` pair and decays it; the port hull-passes them at tick 70, one tick early, runs 16 examines instead of 8, and
+leaves every one alone before the decay**. The binary also examines two fresh hull-level pairs at tick 1 that the port does
+not. **Next: the far pair's hull allowance and pass time on a virtual-terrain triangle** — `IvpMindistHull.FileFar`, the hull
+managers' split, and `FUN_180097f00` — with `TF2VPHYSICS_PROBE_TRACE_QUEUE=70-71` on both twins; diff files are quickest with
+each run's EXAMINE lines reduced to `tick flags looks`.
 
 ## `Advance_ABodyDroppedOnVirtualTerrain_ComesToRestOnIt` — traced to the ground, 2026-09-17
 
