@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Probe.Oracle;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 

@@ -1,5 +1,6 @@
 using System;
 using Tf2DemoSalvage.Animation.Animating;
+using Tf2DemoSalvage.Probe.Oracle;
 
 namespace Tf2DemoSalvage.Animation.Tests;
 

@@ -7,6 +7,9 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Probe.Oracle;
+
+using static Tf2DemoSalvage.Probe.Oracle.IvpTerrainBasin;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
@@ -48,8 +51,6 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// </remarks>
 public sealed class VphysicsVirtualTerrainDropProbe : IProbe
 {
-    private const float MetresPerInch = 0.0254f;
-
     // Same slot constants VphysicsDropProbe already verified against the disassembly.
     private const int CollisionBBoxToCollideSlot = 29;
     private const int CollisionCreateVirtualMeshSlot = 46;
@@ -66,51 +67,11 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
     private const int ObjectGetPositionSlot = 47;
     private const int ObjectGetVelocitySlot = 51;
 
-    // Matches IvpSimulationBroadPhaseTests' own Environment() InverseStep (66), so a tick-by-tick diff against the port
-    // compares the same PSI rate rather than the engine's default 100Hz against the port's 66Hz (B369).
-    private const int TotalTicks = 198;
-    private const int PrintEveryTicks = 13;
-    private const float Timestep = 1f / 66f;
+    // The scene's numbers — ticks, timestep, cube, drop, gravity, surfaces — are IvpTerrainBasin's, shared with the port's twin
+    // (`ivp-virtual-terrain-drop`) and the broad-phase test, so a diff between them is never a difference in the setup.
 
     /// <summary>The cap the runtime handler hands its tree walk — <c>0xc00</c>, <c>MAX_VIRTUAL_TRIANGLES·3</c>.</summary>
     private const int TriangleIndexCap = 0xc00;
-
-    /// <summary>The basin's 2000-inch square, matching the test's own corners.</summary>
-    private const float BasinSize = 2000f;
-
-    /// <summary>The border ring's raise, matching the test's own field distance.</summary>
-    private const float BorderHeight = 100f;
-
-    /// <summary>The test's own <c>Half</c> (4), read back out of its metric IVP scale into Source inches.</summary>
-    private const float HalfInches = 4f / MetresPerInch;
-
-    /// <summary>The test's own drop height (10, IVP <c>-Y</c>), read back into Source inches of altitude above the flat middle.</summary>
-    private const float DropAltitudeInches = 10f / MetresPerInch;
-
-    /// <summary>The test's own gravity magnitude (10), read back into Source inches/s².</summary>
-    private const float GravityInches = 10f / MetresPerInch;
-
-    /// <summary>The test's drop X/Z (25.4 IVP, the basin's exact metric centre), read back into Source inches — 1000 exactly.</summary>
-    private const float CentreInches = 25.4f / MetresPerInch;
-
-    private const string SurfaceText = """
-        "default"
-        {
-        "friction"      "0.8"
-        "elasticity"    "0.25"
-        "density"       "2700"
-        "thickness"     "-1"
-        "dampening"     "0"
-        }
-        "frictionless"
-        {
-        "friction"      "0"
-        "elasticity"    "0"
-        "density"       "2700"
-        "thickness"     "-1"
-        "dampening"     "0"
-        }
-        """;
 
     /// <summary><c>IPhysicsObject::SetVelocity</c>, counted as the other object slots are.</summary>
     private const int ObjectSetVelocitySlot = 49;
@@ -287,19 +248,7 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
             return;
         }
 
-        // The test's own corners and field, unconverted — DisplacementCollisionTree takes Source units already.
-        Vector3[] corners = [Vector3.Zero, new Vector3(0f, BasinSize, 0f), new Vector3(BasinSize, BasinSize, 0f), new Vector3(BasinSize, 0f, 0f)];
-        (Vector3 Direction, float Distance)[] field = new (Vector3, float)[25];
-
-        for (int index = 0; index < 25; index++)
-        {
-            if (index / 5 is 0 or 4 || index % 5 is 0 or 4)
-            {
-                field[index] = (Vector3.UnitZ, BorderHeight);
-            }
-        }
-
-        DisplacementCollisionTree tree = DisplacementCollisionTree.Build(corners, 2, field);
+        DisplacementCollisionTree tree = IvpTerrainBasin.Tree();
         output.WriteLine($"DisplacementCollisionTree: {tree.Vertices.Count} vertices, {tree.Triangles.Count} triangles");
 
         nint environment = VCall<CreateEnvironmentDelegate>(physics, 5)(physics);
@@ -341,7 +290,7 @@ public sealed class VphysicsVirtualTerrainDropProbe : IProbe
                     collision, new Vec3(-HalfInches, -HalfInches, -HalfInches), new Vec3(HalfInches, HalfInches, HalfInches));
 
                 Vec3 start = new(CentreInches, CentreInches, DropAltitudeInches);
-                ObjectParams bodyParams = ObjectParams.Default(mass: 10f, bodyName);
+                ObjectParams bodyParams = ObjectParams.Default(mass: BodyMass, bodyName);
                 nint bodyObject = VCall<CreatePolyObjectDelegate>(environment, EnvironmentCreatePolyObjectSlot)(
                     environment, bodyCollide, materialIndex, start, new Vec3(0f, 0f, 0f), ref bodyParams);
 
