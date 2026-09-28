@@ -8,56 +8,26 @@ metadata:
   modified: 2026-09-09T03:54:15.157Z
 ---
 
-**The byte-identical round trip was a GATE, and it was passed before anything else began.** Owner,
-2026-08-21:
+**The byte-identical round trip was a GATE, passed before anything else began.** Owner: *"the core
+parser got to 100% demo decode before i even started anythign else, I required a real demo to be
+parsed to our quake code then recompiled byte identical into a new demo file."* Decode side is
+complete; draw side is the backlog — a decoded value with no renderer is expected state, not a no-op
+([[output-level-assertion-or-it-is-not-done]]).
 
-> *"the core parser got to 100% demo decode before i even started anythign else, I required a real
-> demo to be parsed to our quake code then recompiled byte identical into a new demo file"*
+**A round trip proves fidelity, not understanding** — copying bytes back achieves that too. The real
+test: does the engine accept a file this project INVENTED? Confirmed 2026-08-11 in the March 2007
+client (build 3258, protocol 11), against cut-down demos: 1/20/70/300 frames all played correctly,
+nothing crashed, behaviour tracked length.
 
-That sequencing explains the shape of the whole repository and is worth knowing before reading it:
-**the decode side is complete and the draw side is the backlog.** A decoded value with no renderer
-is the expected state, not a no-op — see the distinction under
-[[output-level-assertion-or-it-is-not-done]], which was filed against fog and gestures before this
-was understood.
+Two format facts: **`dem_synctick` is tick zero** — before it, ticks are the SERVER's (2083-2153),
+after, the packet stream restarts at 0; taking the largest tick reports the connect phase as the
+demo's length (turned a 1-frame cut into 32 seconds). SourceTV files carry no `dem_synctick` at all.
+**Length is stated three ways, all read**: `playbackframes` (packets), `playbackticks` (last tick),
+`playbacktime` (ticks × interval).
 
-**A round trip proves fidelity, not understanding.** Writing back the bytes you were handed can be
-achieved by copying them. The real test is whether a file this project *invented* is one the engine
-accepts — and it is.
+**Size is dominated by the signon, not length** — a 1-frame cut of a 460KB demo is still 160KB
+(schema + string tables). A short demo isn't a cheap demo.
 
-Confirmed 2026-08-11 in the March 2007 client (build 3258, protocol 11), against demos cut from a
-recording it made itself:
-
-| frames | length | result |
-|---|---|---|
-| 1 | 0.000 s | renders a still, does nothing — correct for one frame |
-| 20 | 0.900 s | never leaves the startup pause every demo has |
-| 70 | 3.4 s | plays normally |
-| 300 | 14.9 s | plays normally |
-
-Nothing crashed, and **the behaviour tracks the length** — which is what separates a correct file
-from one the engine merely tolerates.
-
-Two format facts that came out of it:
-
-- **`dem_synctick` is tick zero.** Everything before it carries the SERVER's tick (2083–2153 in
-  that recording) while the packet stream restarts at 0. Taking the largest tick in a file
-  therefore reports the connect phase as the demo's length, which turned a one-frame cut into a
-  32-second one. SourceTV files carry no `dem_synctick` at all, so a fallback has to count packets
-  rather than scan the whole file.
-- **Length is stated three ways and all three are read**: `playbackframes` counts packets,
-  `playbackticks` is the last tick, `playbacktime` is ticks × the interval `svc_ServerInfo`
-  carries. The header states the interval itself, as `playbacktime / playbackticks`.
-
-**Size is dominated by the signon, not the length.** A one-frame cut of a 460 KB demo is still
-160 KB, essentially all schema and string tables. A short demo is not a cheap demo — worth knowing
-before assuming a corpus of tiny specimens would be cheap.
-
-**Why this is worth keeping:** it is the strongest available evidence that the container and the
-message framing are understood, and it costs one edit plus one `playdemo`. Cheaper than any
-differential. See [[fixtures-are-the-weak-point]] for the other direction, which tests the
-decoder's reading rather than the writer's output.
-
-**Not a product feature.** The owner was explicit: this project is not a TAS tool, and cutting an
-existing demo up is "a little cheaty" as a test. Truncation code was written and deleted the same
-day. Keep the probes in a scratchpad; keep only the finding here. Related:
-[[measure-the-output-not-the-capability]].
+**Not a product feature** — owner: this isn't a TAS tool, cutting an existing demo is "a little
+cheaty" as a test (code deleted same day). Keep probes in a scratchpad; keep only the finding here.
+Related: [[measure-the-output-not-the-capability]], [[fixtures-are-the-weak-point]].

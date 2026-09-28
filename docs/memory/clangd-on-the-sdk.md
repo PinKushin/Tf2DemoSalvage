@@ -5,22 +5,21 @@ metadata:
   type: reference
 ---
 
-**SDK `.cpp`/`.h` lookups go through clangd, not grep/sed** — owner, 2026-09-26: *".cpp files should be going
-through clang not grep btw"*. Symbol source (`get_symbol_source`), callers, overrides and references come from
-clangd; grep on the SDK is only for prose, string literals and ConVar names.
+**SDK `.cpp`/`.h` lookups go through clangd, not grep/sed** — owner: *".cpp files should be going
+through clang not grep btw"*. Symbol source, callers, overrides and references come from clangd; grep
+is for prose, string literals and ConVar names only.
 
-The `mcp__clangd__*` tools (agent-lsp over `C:\Program Files\LLVM\bin\clangd.exe`) cover `F:/src/source-sdk-2013/src`:
-`compile_commands.json` there has 2,604 entries — all 276 `game/client/tf/*.cpp` included — and the background index
-(`src/.cache/clangd/index`, ~4,900 shards) is already built.
+`mcp__clangd__*` covers `F:/src/source-sdk-2013/src` (2,604 compile-db entries, all 276
+`game/client/tf/*.cpp`; background index already built at `src/.cache/clangd/index`).
 
-**Workspace search returns nothing until a file is opened.** clangd discovers its compilation database on the first
-`didOpen`, and only then loads the index. So: `start_lsp(root_dir=F:/src/source-sdk-2013/src)`, then any
-`list_symbols`/`get_symbol_source` on an SDK file, then `find_symbol`. Measured 2026-09-25: before opening, every query
-returned 0; after, `ComputeWide` and `CTFHudPlayerHealth` resolved.
+**Workspace search returns nothing until a file is opened** — clangd discovers its compilation
+database on first `didOpen`. So: `start_lsp(root_dir=F:/src/source-sdk-2013/src)`, open a file, then
+`find_symbol`.
 
 **A class name can miss while its methods resolve** — `CHudBaseDeathNotice` returned 0 while
-`RetireExpiredDeathNotices` found both the TF and HL2MP versions. Query a distinctive method name when a class misses.
+`RetireExpiredDeathNotices` found both TF and HL2MP versions. Query a distinctive method when a class
+misses.
 
-**Closed code is not there, and an empty answer for it is correct**: `CScheme`/`CSchemeManager` (vgui2.dll),
-vguimatsurface, engine and materialsystem are Ghidra work — projects under `D:\ghidra-proj` (`tf2vgui2`, `tf2enginex64`,
-`tf2materialsystem`), launched by the `ghidra-mcp-*.bat` files there.
+**Closed code isn't there, correctly empty**: `CScheme`/`CSchemeManager`, vguimatsurface, engine and
+materialsystem are Ghidra work under `D:\ghidra-proj` (`tf2vgui2`, `tf2enginex64`,
+`tf2materialsystem`).
