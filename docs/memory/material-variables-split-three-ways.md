@@ -14,7 +14,7 @@ Source splits material variables three ways, each declared somewhere unrelated:
 |---|---|---|
 | Shader parameter | `SHADER_PARAM(...)` in `stdshaders/*.cpp` | `$detail`, `$bumpmap`, `$envmap` |
 | Material flag | `MATERIAL_VAR_*`, `imaterial.h:355` | `$translucent`, `$alphatest` |
-| Standard var | `ShaderMaterialVars_t`, `public/shaderlib/BaseShader.h:31` (also `:32`) | `$color`, `$alpha`, `$basetexture` |
+| Standard var | `ShaderMaterialVars_t`, `public/shaderlib/BaseShader.h:31` (also `.h:32`) | `$color`, `$alpha`, `$basetexture` |
 
 `SdkCoverageTests`'s denominator builds from all three — **wrong twice, both times accusing correct
 code**, once knowing only shader parameters (flagged flags as undeclared) and once also knowing flags

@@ -6,7 +6,7 @@ metadata:
 ---
 
 **A feature beyond parity is still built the way Valve would have built it.** D163, owner, on
-fetching old maps/models: *"even those areas need to take vavles conventions into account and
+fetching old maps/models (D162): *"even those areas need to take vavles conventions into account and
 probably follow them so any ai working on it stays looking like valve code."*
 
 **Why:** wants the whole codebase to read as Valve's shape, so whoever works on it next (AI included)

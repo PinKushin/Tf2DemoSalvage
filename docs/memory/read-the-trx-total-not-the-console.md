@@ -20,7 +20,7 @@ looked exactly like a regression when there was none.
 ## `a-floor-must-track-the-number-it-guards`
 
 **A floor that hasn't been raised is not a guard.** Floors drifted an order of magnitude behind real
-suite sizes — a run that reported 50 of 350 Viewer tests satisfied a floor of 34 without complaint.
+suite sizes — a run that reported 50 of Viewer's 350 tests (B104) satisfied a floor of 34 without complaint.
 Run one project at a time (`build/gate.sh`): a solution-wide run writes one `.trx` per project under
 the same name, indistinguishable afterward, and runs assemblies concurrently (a leading suspect for
 truncation). `--filter` changes which tests EXIST (drops `[Explicit]` the moment any filter is
@@ -32,7 +32,8 @@ present) — two invocations that look equivalent can report different totals fo
 hardcoded path made a test silently `Assert.Ignore` — a map went unread for an unknown time, with
 `Passed!` on the console and the trx total (which counts skips) satisfying the floor.
 
-- A guard clause is a claim — make it checkable (one shared skip helper, not per-file duplicates).
+- A guard clause is a claim — make it checkable: `GameInstall` plus `Skip` (D52, D109) is one shared
+  skip helper, not per-file duplicates.
 - When a suite's skip count is non-zero, find out which and why.
 - Suspect this whenever a test "has always passed" but you can't remember it producing output.
 
@@ -101,17 +102,19 @@ the trx total even as `[Explicit]`; asking it a question costs a full VSTest hos
 parameters meant editing code just to change an input.
 
 **How to apply:** a probe is a console program discovered by reflection — adding one is adding a file,
-run via `dotnet run --project tools/.../Probe`. This doesn't replace a real synthetic test for
-anything with a right answer (decode, arithmetic) — those stay in the suite. Don't bulk-port existing
-probes without reading them; some carry findings that should become `docs/findings/` entries instead.
+run via `dotnet run --project tools/.../Probe`. This doesn't replace [[measure-the-output-not-the-capability]]
+or D38's rule that a measurement is not a test — for anything with a right answer (decode, arithmetic,
+a rule read from the SDK), those stay in the suite. Don't bulk-port existing
+probes without reading them; some carry findings that should become `docs/findings/` entries instead
+(D126).
 
 ## `slow-ui-tests-measure-the-app`
 
 **A UI suite that got slow is telling you the application got slow** — UIA queries are served by the
 target's message loop, so a laggy app makes a five-second wait become fifty. Adding a second demo took
 a suite from 12s to 4m43; per-test duration logging showed every test AFTER the demo-switch taking
-20-50s — pointing straight at the application (frame rate collapsed from 300fps to 19fps, paused).
-Read per-test durations before touching the tests; a slowdown is a measurement already paid for.
+20-50s — pointing straight at the application (frame rate collapsed from 300fps to 19fps, paused,
+filed as B148). Read per-test durations before touching the tests; a slowdown is a measurement already paid for.
 
 ---
 
@@ -122,16 +125,19 @@ actually one run behind. Redirect to a file THIS invocation names, read only tha
 **A gate in flight owns the tree, and it still exits 0 on a mid-run edit** — a source edit landing
 between two projects' test runs means each measured a DIFFERENT tree, and the run reports success
 because nothing detects the split. **While a gate is in flight, do documentation/reading/planning,
-never a source edit.** A probe run (which also builds) has the same hazard — two false "findings"
-were actually build error text matched by the grep, because source was edited mid-scan.
+never a source edit.** This is the same rule D145 states for subagents from the other side — "the
+parent does not build or measure while one holds a source file." A probe run (which also builds) has
+the same hazard — two false "findings" were actually build error text matched by the grep, because
+source was edited mid-scan.
 
 **A commit nobody ran may be the editor's own button** — before auditing hooks or suspecting a peer
 session for an unexplained commit, ask the owner (a UI button clicked in an editor was the actual
 cause once).
 
-**The viewer suite wants the GPU** — creates real Direct3D devices; a `Test Run Aborted` mid-suite
-once coincided with another app in exclusive fullscreen, didn't reproduce after. The count FLOOR is
-what made a truncated run visible at all.
+## `the-viewer-suite-wants-the-gpu` — creates real Direct3D devices
+
+A `Test Run Aborted` mid-suite once coincided with another app in exclusive fullscreen, didn't
+reproduce after. The count FLOOR is what made a truncated run visible at all.
 
 **Console vs. trx gap is not a constant** — grows with the number of skipped/Explicit tests; on one CI
 run it was eleven tests. Never compare a console `Total:` against a gate floor.
