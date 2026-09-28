@@ -56,10 +56,18 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
 
         try
         {
+            // GC pauses land in whichever phase allocates, so "rest" swinging 7.8 s to 210 s between
+            // two local builds of one demo needs this number beside it.
+            TimeSpan gcBefore = GC.GetTotalPauseDuration();
+            int gen2Before = GC.CollectionCount(2);
+
             using (demo.Time("building the position timeline"))
             {
                 timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress, interp);
             }
+
+            TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;
+            int gen2 = GC.CollectionCount(2) - gen2Before;
 
             // **The columns, because the total alone says nothing about what to fix** (B265). The
             // frame was one number too until it was split, and splitting it is what took it from
@@ -74,7 +82,8 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
                 $"entities {phases.Entities:0}, sampling {phases.Sampling:0} " +
                 $"(viewmodels {phases.Viewmodels:0}), " +
                 $"rest {phases.Total - phases.Commands - phases.Schema - phases.Messages
-                    - phases.Entities - phases.Sampling:0}");
+                    - phases.Entities - phases.Sampling:0}; " +
+                $"gc paused {gcPaused.TotalMilliseconds:0} ms over the build, {gen2} gen2");
 
             Report(timeline, demo);
         }

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Scene;
 
@@ -360,6 +361,35 @@ public sealed class EntityStateTableTests
         table.Apply(Entity(2, EntityUpdateType.Enter, classId: 999));
         table.TryGet(2, out EntityState? unknown).ShouldBeTrue();
         unknown.ClassName.ShouldBeNull();
+    }
+
+    [Test]
+    public void OfClass_AcrossEnterReplaceDeleteAndRename_TracksTheLiveOccupants()
+    {
+        EntityStateTable table = new(EntityBaselines.None);
+        table.SetClassName(1, "CA");
+        table.SetClassName(2, "CB");
+
+        table.Apply(Entity(10, EntityUpdateType.Enter, classId: 1));
+        table.Apply(Entity(11, EntityUpdateType.Enter, classId: 1));
+        table.Apply(Entity(12, EntityUpdateType.Enter, classId: 2));
+        table.OfClass("CA").Select(e => e.EntityIndex).Order().ShouldBe([10, 11]);
+
+        // A new serial in slot 11 is a new occupant of another class.
+        table.Apply(new DecodedEntity(11, 2, SerialNumber: 7, EntityUpdateType.Enter, []));
+        table.OfClass("CA").Select(e => e.EntityIndex).ShouldBe([10]);
+        table.OfClass("CB").Select(e => e.EntityIndex).Order().ShouldBe([11, 12]);
+
+        table.Apply(Entity(12, EntityUpdateType.Delete, classId: 2));
+        table.OfClass("CB").Select(e => e.EntityIndex).ShouldBe([11]);
+
+        // A class named after its entities arrived still finds them, and loses its old name.
+        table.Apply(Entity(13, EntityUpdateType.Enter, classId: 3));
+        table.OfClass("CC").ShouldBeEmpty();
+        table.SetClassName(3, "CC");
+        table.OfClass("CC").Select(e => e.EntityIndex).ShouldBe([13]);
+        table.SetClassName(3, "CD");
+        (table.OfClass("CC").Count(), table.OfClass("CD").Count()).ShouldBe((0, 1));
     }
 
     private static DecodedEntity Entity(
