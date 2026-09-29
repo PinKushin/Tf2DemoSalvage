@@ -147,13 +147,18 @@ publish_shared_corpus() {
   echo "    ${target}: published $(find "$dir" -type f | wc -l) inputs"
 }
 
-exec 9>"$LOCK"
-if ! flock -n 9; then
-  echo "ERROR: another measurement run holds $LOCK. One at a time." >&2
-  # Deleting the lock FILE does nothing: flock is on the open file description, not the path.
-  command -v fuser >/dev/null && { echo "held by:" >&2; fuser -v "$LOCK" >&2 2>&1 || true; }
-  exit 1
-fi
+# A function so build/test-box-lock.sh can extract and run exactly this.
+take_box_lock() {
+  exec 9>"$LOCK"
+  if ! flock -n 9; then
+    echo "ERROR: another measurement run holds $LOCK. One at a time." >&2
+    # Deleting the lock FILE does nothing: flock is on the open file description, not the path.
+    command -v fuser >/dev/null && { echo "held by:" >&2; fuser -v "$LOCK" >&2 2>&1 || true; }
+    exit 1
+  fi
+}
+
+take_box_lock
 
 cd "$REPO"
 
