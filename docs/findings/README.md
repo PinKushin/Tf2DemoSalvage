@@ -208,6 +208,10 @@ in any public writeup found:
 - **An unbaked static prop is lit once, not every frame.** A model compiled `$staticprop` with no `.vhv` gets a
   colour mesh the engine lights on the CPU at load, from the handle's static state, which holds no styled light — so
   the engine's own "rebake" of it reproduces the same colours ([65](65-an-unbaked-static-prop-is-lit-once.md)).
+- **TF2 barely uses dynamic lights.** Explosions, muzzle flashes and burning players allocate none — the explosion
+  light is commented out in the SDK and TF2 overrides every muzzle-flash elight away. The one allocator a match
+  reaches is the recorder's own Dragon's Fury fireball, and 19 demos drove none
+  ([66](66-tf2-barely-uses-dynamic-lights.md)).
 
 ## Conventions used throughout
 

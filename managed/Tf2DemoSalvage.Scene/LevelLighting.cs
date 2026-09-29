@@ -124,7 +124,69 @@ public sealed class LevelLighting
     /// **The entry is built at the first point to miss its cell and leaf**, and every model after it in that cell is lit
     /// with it — model lighting passes flags `0xf` (`0x1800f1bd0`), so past `lightcache_maxmiss` it takes the nearest entry.
     /// </remarks>
-    public PointLighting ModelLightingAt(float x, float y, float z) => Entry(x, y, z)?.Lighting ?? LightingAt(x, y, z);
+    public PointLighting ModelLightingAt(float x, float y, float z)
+    {
+        CachedLight? entry = Entry(x, y, z);
+        PointLighting lit = entry?.Lighting ?? LightingAt(x, y, z);
+
+        return Dynamic is { } dynamic && _leaves is { } tree
+            ? WithDynamicLights(lit, dynamic, tree, entry?.X ?? x, entry?.Y ?? y, entry?.Z ?? z)
+            : lit;
+    }
+
+    /// <summary>The client's dynamic lights (B425), which every model draw ranks with the world lights; null for none.</summary>
+    public DynamicLights? Dynamic { get; set; }
+
+    /// <summary>The dynamic lights a model draw sees, reused.</summary>
+    private readonly List<DynamicLight> _dynamic = [];
+
+    /// <summary>
+    /// `LightcacheGet` flag 2 (`engine.dll` `0x1801b9cd0` → `0x1801b7a10`, merged by `0x1801b5890`): each dynamic light
+    /// whose cluster is in the PVS of the model's leaf is converted (<see cref="DynamicLights.ToWorldLight"/>) and
+    /// ranked with the entry's lights at the entry's point, so it takes a local-light slot from a weaker world light.
+    /// </summary>
+    /// <remarks>
+    /// The ranking is this port's <see cref="LocalLights.Strongest"/> over the world lights and the dynamic ones together,
+    /// which is what the static selection would have been with them present; the engine folds the losers into the
+    /// cube and the port drops them, as it does for world lights.
+    /// </remarks>
+    private PointLighting WithDynamicLights(PointLighting lit, DynamicLights dynamic, BspLeafTree tree, float x, float y, float z)
+    {
+        dynamic.ModelLights(_dynamic);
+
+        if (_dynamic.Count == 0)
+        {
+            return lit;
+        }
+
+        int from = tree.ClusterAt(x, y, z);
+        bool anyCluster = _visibility is not { HasData: true };
+        List<BspWorldLight> lights = [.. _worldLights];
+
+        foreach (DynamicLight light in _dynamic)
+        {
+            int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
+
+            // A map without vis data admits every cluster, as `StyledLights` does; with it, a cluster of −1 is outside.
+            if (anyCluster || (cluster >= 0 && _visibility!.Visible(from, cluster)))
+            {
+                lights.Add(DynamicLights.ToWorldLight(light, cluster));
+            }
+        }
+
+        if (lights.Count == _worldLights.Count)
+        {
+            return lit;
+        }
+
+        (x, y, z) = CachePoint(x, y, z);
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return new PointLighting(lit.Cube, nearest);
+    }
 
     /// <summary>The sun a model's light cache entry sees: see <see cref="ModelLightingAt"/>.</summary>
     /// <param name="x">The model's lighting origin.</param>
