@@ -1237,6 +1237,31 @@ public sealed class DemoTimeline
         return items;
     }
 
+    /// <summary>The list this player had last frame when every element equals this frame's, else this frame's.</summary>
+    /// <remarks>
+    /// **Every frame's player keeps its lists for the life of the demo, and they almost never change** (B433): on z1800 the
+    /// per-frame item copies were 2.19 million `SceneItem`s, 2.21 million wires and 315 thousand lists — ~340 MB of the
+    /// timeline's 1.1 GB — and the gesture slots another 315 thousand. Both element types are immutable records with
+    /// structural equality (an item's wire compares by value), so handing one instance to two frames is indistinguishable
+    /// to every reader.
+    /// </remarks>
+    private static List<T>? SameAsBefore<T>(Dictionary<int, List<T>> before, int player, List<T>? now)
+    {
+        if (now is null)
+        {
+            return null;
+        }
+
+        if (before.TryGetValue(player, out List<T>? last) && last.SequenceEqual(now))
+        {
+            return last;
+        }
+
+        now.TrimExcess();
+        before[player] = now;
+        return now;
+    }
+
     /// <summary>One item entity as a <see cref="SceneItem"/>, with its quality and `m_bDisguiseWearable` (tf_item_wearable.cpp:33).</summary>
     private static SceneItem ItemOf(int slot, EntityState item, bool isWeapon) =>
         new(slot, item.ClassName, item.ItemDefinitionIndex(), EconWire(item), isWeapon)
@@ -2334,6 +2359,10 @@ public sealed class DemoTimeline
         // back to the jump animation as the rise slows.
         HashSet<int> airwalkingSince = [];
 
+        // Each player's last carried-items list, handed out again while nothing in it changes (B433).
+        Dictionary<int, List<SceneItem>> carriedBefore = [];
+        Dictionary<int, List<SceneGesture>> gesturedBefore = [];
+
         ModelPrecache precache = new();
         LightStyleFeed lightStyles = new();
         int protocol = header.NetworkProtocol;
@@ -3288,7 +3317,7 @@ public sealed class DemoTimeline
                     // depends on the sequence its activity resolves to, which only the scene can
                     // answer. Null when the player has raised nothing, so the common case costs no
                     // allocation.
-                    Gestures: GesturesFor(gestures, player.EntityIndex),
+                    Gestures: SameAsBefore(gesturedBefore, player.EntityIndex, GesturesFor(gestures, player.EntityIndex)),
 
                     // **The three per-BONE scales** (B312), defaulting to 1 exactly as
                     // `C_TFPlayer`'s own members do (`c_tf_player.cpp:577`) — a demo that never
@@ -3311,7 +3340,7 @@ public sealed class DemoTimeline
                         ? typedWeapon.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType")
                         : null,
                     Ammo = AmmoCounts(player),
-                    Items = CarriedItems(player, entities),
+                    Items = SameAsBefore(carriedBefore, player.EntityIndex, CarriedItems(player, entities)),
                     OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
@@ -3422,6 +3451,9 @@ public sealed class DemoTimeline
             IReadOnlyList<SceneScoreboardPlayer>? scoreboardPlayers = ScoreboardPlayers(entities);
             IReadOnlyList<SceneIdEntity>? idEntities = IdEntities(entities, index => precache.Path(ModelPrecache.Unpack(index, protocol)));
             frameTicks += Stopwatch.GetTimestamp() - frameFrom;
+
+            // Kept for the life of the demo, so not at `Add`'s doubled capacity (B433).
+            players.TrimExcess();
 
             if (frames.Count > 0 && frames[^1].Tick >= command.Tick)
             {
