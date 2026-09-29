@@ -7757,7 +7757,9 @@ covers, except the opaque-model depth case, which no sabotage of the sprite pass
 
 **D199 (2026-09-29):** options 1 and 4 built. `MainForm` runs one blocking, compacting collection (LOH too) before the
 "memory after load" line, which now reads `GCKind.FullBlocking` and says "live managed heap" and the collection's ms.
-Keyframes and dropping model source frames stay open here.
+Keyframes and dropping model source frames stay open here. **Measured, z1800 in the UI suite:** 933 ms collection, live
+heap 4,492 MB, but committed 8,678 MB and working set 9,575 MB: the GC keeps the freed regions committed rather than
+returning them at once, so the working set did NOT drop with the log number. Returning them is still open.
 
 **The report:** `memory after load: working set 11267 MB, managed heap 12264 MB (committed 12270 MB, fragmented 56 MB);
 entity model vertices 7,157,832 in 1357 MB` on `z1800.dem` (koth_harvest_final, 57,551 ticks), 10–12.7 GB all day. B407 is the
