@@ -529,8 +529,8 @@ public sealed class LevelLighting
     ///
     /// **The difference is not brightness, it is direction.** A lamp folded into a cube arrives
     /// from all six faces at once, so a model takes no N·L falloff from it and can cast no
-    /// highlight from it — which is why our phong is gated on the sun and why a weapon indoors has
-    /// no specular term at all (B170).
+    /// highlight from it. Handed over as lights, each one shades the model and adds its highlight
+    /// and rim, which is how a weapon indoors gets a specular term at all (B170).
     ///
     /// **Nothing here folds anything in**, deliberately. `PixelShaderDoLightingLinear` accumulates
     /// the cube and then each light, so a light appearing in both would be counted twice — and that

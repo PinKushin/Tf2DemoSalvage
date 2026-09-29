@@ -34,8 +34,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// 2. Comparing two angles without an ambient cube — the model shader wraps the whole direct term in
 ///    `if (ambientCube[0].w > 0.5f)`, so with no cube supplied the draw was unlit albedo and the
 ///    ramp could not have appeared at all.
-/// 3. A ratio of direct terms on a material carrying `$phong` — the highlight is gated on the sun,
-///    so it lands inside the "direct" term the baseline subtraction was meant to isolate, and it
+/// 3. A ratio of direct terms on a material carrying `$phong` — the highlight comes with the sun, the
+///    only light these draws have, so it lands inside the "direct" term the baseline subtraction was
+///    meant to isolate, and it
 ///    varies far more steeply than the diffuse. Observed 5.40 where the ramp predicted 2.57.
 /// 4. The same on a phong-free material — the only candidates are dark, and the direct term
 ///    quantised to 3 levels at both angles: a ratio of 1.00 carrying no information.
@@ -374,7 +375,7 @@ public sealed class PhongRenderTests
 
     /// <summary>A material naming a light warp and NO highlight, with a texture to draw it on.</summary>
     /// <remarks>
-    /// **The exclusion is the point.** $phong is gated on the sun, so it appears in a lit draw and
+    /// **The exclusion is the point.** $phong comes with the light, so it appears in a lit draw and
     /// not in the ambient-only baseline — which puts the highlight inside the "direct term" this
     /// test subtracts out, and it varies with the angle far more steeply than the diffuse does.
     /// Measured on a material carrying both: the direct ratio came out at 5.40 where the ramp

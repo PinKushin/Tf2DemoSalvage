@@ -324,9 +324,6 @@ public sealed class PhongConformanceTests
         // (`PixelShaderAmbientLight(vEyeDir, cAmbientCube)`), so a model picks up its surroundings
         // on the rim even with no direct light on it. The `worldSpaceNormal.z` is an upward bias:
         // the sky end of the cube contributes most on upward-facing edges.
-        //
-        // That second term matters more here than in the engine, because this renderer gives a
-        // model one directional light and TF2 gives it several.
         string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
 
         shader.ShouldContain(

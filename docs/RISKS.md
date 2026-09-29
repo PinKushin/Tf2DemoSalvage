@@ -8775,6 +8775,9 @@ specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply
 surroundings on the edge with nothing shining on it. TF2 gives a model several lights and this
 renderer gives it one, so the ambient half carries proportionally more of the effect here.
 
+**Corrected 2026-09-29:** the code read that cube along the view ray rather than the eye, left
+`$rimmask` out of it, and drew the rim only under the sun — see B170's residual, below.
+
 Measured offscreen, same light in both draws: a grazing surface reads (117, 121, 126) against
 (43, 47, 52) head-on.
 
@@ -12969,7 +12972,7 @@ and no part of it is authoring.
 
 Filed here so nobody spends another session looking for a bug in the sound path.
 
-### B170 — some viewmodels on modern demos are washed out — OPEN, narrowed to the lighting term 2026-08-27
+### B170 — some viewmodels on modern demos are washed out — OPEN, narrowed to the lighting term 2026-08-27; the sun-gated phong residual FIXED 2026-09-29
 
 The owner, 2026-08-23: *"some of the new demo viewmodels are not displaying right either, they are
 basically washed out, like the old demos weapon models that were drawing on top for that demo that
@@ -14644,6 +14647,74 @@ rather than a defect of its own.
 
 An experiment, not more reading: give the viewmodel a phong term driven by something other than the
 sun and see whether the weapon comes to look like TF2's. If it does not, the term is elsewhere.
+
+#### The residual: phong and rim were gated on the sun, on a stale premise — FIXED 2026-09-29
+
+**The gate outlived its reason.** The model shader drew `$phong` and `$rimlight` only where the sun
+reached, and its comment said why: local lights "do not reach a model in this renderer". They have
+since 2f7d497f (diffuse), through the light cache (`LevelLighting.ModelLightingAt`), the dlights
+(B425) and the DX9 static-plus-dynamic path (9525e9c2). So every `$phong` model out of the sun — the
+viewmodel indoors first among them — drew no highlight and no rim, on every frame.
+
+**Read from the SDK** (published source; each line now quoted by `PhongConformanceTests`):
+`skin_ps20b.fxc:286-293` sums the specular over `nNumLights`/`cLightInfo` through
+`PixelShaderDoSpecularLighting` (`common_vertexlitgeneric_dx9.h:321-390`), one `SpecularAndRimTerms`
+per light with `vLightColor * fAtten` (:255), the attenuation per light per vertex
+(`skin_vs20.fxc:155-158`) and 1 for a directional light (`common_vs_fxc.h:806`), the light vector the
+diffuse's (:132, :149). Mask, Fresnel ranges and boost apply once to the sum (`skin_ps20b.fxc:312`,
+:315); the rim folds in by max after `rimLighting *= fRimMultiply`, `fRimMultiply = fRimMask *
+fRimFresnel` (:353-359); the cube term reads `PixelShaderAmbientLight(vEyeDir, …)` with vEyeDir toward
+the eye (:186, `skin_vs20.fxc:135`) and saturates the same `fRimMultiply` (:362); the tint multiplies
+the whole specular last (:365). The sun is one of the four `LightDesc_t` a model is drawn with
+(`istudiorender.h:215-217`).
+
+**Three more divergences sat in the same block and went with it**, found by reading those lines
+against the port rather than from a symptom: the rim's cube term was read along the view ray, away
+from the eye (B129 described it as "along the eye" and the code did the opposite); it ignored
+`$rimmask`, so a c_ weapon's masked parts caught the cube's rim; and the tint was applied before the
+rim fold, so a tinted material's rim stayed white.
+
+**Ported**: per light, `pow(saturate(R·L), exp) · saturate(N·L) · colour · atten`, summed over the sun
+and the four lamps (the rim alike, with its own exponent); `× mask · Fresnel(ranges) · boost`; rim
+`max(spec, rim · rimMask · Fresnel4)`; `+ cube(toward the eye) · rimBoost · saturate(rimMask · Fresnel4
+· N.z)`; the whole `× tint`. The sun keeps its own constant and is added once, unattenuated; no lamp
+slot carries it (`LocalLights.IsLocal` leaves `emit_skylight` out), so it is not counted twice.
+
+**Measured** (`PhongLocalLightRenderTests`, offscreen at 65×65 so the centre pixel is on the axis): a far
+lamp with quadratic falloff delivering 0.5 draws scout_red at (36, 25, 26) — the sun's own pixel — where
+it drew (12, 1, 2) before; TV001's highlight is 23 from one lamp, 37 from another and 60 from both; a
+lamp behind the surface adds (0, 0, 0); with no light at all the eye-side cube rims scout_red at
+(27, 28, 27) against 27.60 predicted, the far side at nothing; a scattergun texel whose rim mask is 0
+takes (0, 0, 0) and one at 0.882 takes 18 against 18.27; a (1, 0.39, 0) tint rims (10, 4, 0) against
+(10.33, 4.05, 0). The sun alone draws what it drew before on three materials.
+
+**Looked at**: f12 (`demostf-cp_process_f12-2026-08-07.dem`), Beleleu first-person at tick 600 in RED's
+spawn — `viewmodel light at (4814, 1281, 648) … sun none`, a lamp 146 units off. Whether the weapon now
+reads like TF2's is a question for the owner, not a claim.
+
+##### What is left of B170
+
+- **The sun competes for one of four slots in the engine and not here.** The port gives the sun its own
+  constant and the four strongest lamps beside it, so a model in the sun with four lamps in range takes
+  five lights where TF2 takes four. That is light SELECTION (`LocalLights.Strongest`), not this shader.
+  Interpolated from the four-slot structure and this project's lightcache notes (`engine.dll`
+  `0x1801b8e20` traces the skylight in the ranking loop); not re-read in disassembly.
+- **The highlight uses the VERTEX normal.** Valve's uses the normal map through the tangent frame
+  (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`, and the model vertex format here carries
+  no tangent — so where on a model a highlight lands is not yet TF2's, for diffuse and rim too. Not filed
+  anywhere else before this.
+- `$phongwarptexture` is unimplemented (one shipped player material, `ice_player`), so the ranges always
+  scale the mask (`skin_ps20b.fxc:311`).
+- **The `FASTPATH_NOBUMP` combo is not ported** (read from published source). A phong material with no
+  bump map, exponent texture, tint map, phong warp, rim, detail, self-illumination or blend-tint runs it
+  (`skin_dx9_helper.cpp:298-307`), and it ignores `$phongtint` (`vSpecularTint` stays 1,
+  `skin_ps20b.fxc:248`) and takes `max(exponent, 0)` (:279) — so an unstated `$phongexponent` is 0
+  there rather than 150. This port tints and uses 150 for those. Map props mostly: TV001 and bottle001
+  state a white tint and an exponent and agree either way; `powerhouse_desk_stuff`'s (1, 0.9, 0.75)
+  would draw untinted in TF2. The local-light sum is the same in both combos. An unverified lead beside
+  it: a NON-fast-path material with no bump map reads its mask from `TEXTURE_NORMALMAP_FLAT`'s alpha
+  (`skin_dx9_helper.cpp:574`, `skin_ps20b.fxc:200`) unless it states `$basemapalphaphongmask`, where this
+  port reads the base alpha; what that standard texture's alpha holds was not checked.
 
 #### B219 closed twice over: the guard, then removing the thing it guarded
 

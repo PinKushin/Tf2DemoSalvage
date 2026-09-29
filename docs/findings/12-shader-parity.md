@@ -171,6 +171,20 @@ stands between that and a camera a person can fly.
 
 ---
 
+## The model highlight is summed over every light, and its gate outlived its reason
+
+Evidence class: **read from published source** (`skin_ps20b.fxc`, `common_vertexlitgeneric_dx9.h`,
+`skin_vs20.fxc`), then **measured offscreen**, 2026-09-29.
+
+`$phong` and `$rimlight` were drawn only where the sun reached, because when they were written no
+other light reached a model. Local lights arrived later and the gate stayed, so every `$phong` model
+out of the sun lost its highlight — the wrong turn being a premise nobody re-read once it went stale.
+The engine sums `SpecularAndRimTerms` over each of a model's four local lights, the sun being one of
+them, and the rim's cube half is read toward the eye, masked by `$rimmask` and tinted with the rest;
+this port had the last three wrong as well. Full account and numbers: `docs/RISKS.md` B170.
+
+---
+
 ## `$modblend` is dead, and the shipped VMTs say so
 
 Evidence class: **measured on one machine**, against the live install, 2026-08-16. Reproducible by
