@@ -158,7 +158,32 @@ public static class DetailSprites
     /// <param name="Built">Quads emitted — six vertices each.</param>
     /// <param name="Faded">Sprites the distance fade dropped entirely.</param>
     /// <param name="Aligned">Of those built, how many were turned to face the eye.</param>
-    public readonly record struct Frame(int Built, int Faded, int Aligned);
+    /// <param name="Fast">Of those built, how many went down the fast lane (B435).</param>
+    public readonly record struct Frame(int Built, int Faded, int Aligned, int Fast = 0);
+
+    /// <summary><c>cl_fastdetailsprites</c>'s default, "1" (<c>detailobjectsystem.cpp:1642</c>).</summary>
+    /// <remarks>
+    /// A <c>FCVAR_CHEAT</c> cvar, so a config cannot move it off a server without <c>sv_cheats</c>; it is not a
+    /// viewer setting for that reason.
+    /// </remarks>
+    public const bool FastDetailSprites = true;
+
+    /// <summary>Whether a detail prop goes down the fast sprite lane — <c>DetailObjectIsFastSprite</c>.</summary>
+    /// <param name="prop">The detail prop.</param>
+    /// <param name="enabled"><c>cl_fastdetailsprites</c>.</param>
+    /// <returns>True for a plain, unlit-by-styles, vertically screen-aligned sprite.</returns>
+    /// <remarks>
+    /// <c>detailobjectsystem.cpp:1644</c>: the cvar, <c>DETAIL_PROP_TYPE_SPRITE</c>, <c>m_LightStyleCount == 0</c>,
+    /// <c>m_Orientation == 2</c>, and zero <c>m_ShapeAngle</c>, <c>m_ShapeSize</c> and <c>m_SwayAmount</c>.
+    /// </remarks>
+    public static bool IsFast(BspDetailProp prop, bool enabled = FastDetailSprites) =>
+        enabled &&
+        prop.Type == DetailPropType.Sprite &&
+        prop.LightStyleCount == 0 &&
+        prop.Orientation == 2 &&
+        prop.ShapeAngle == 0 &&
+        prop.ShapeSize == 0 &&
+        prop.SwayAmount == 0;
 
     /// <summary>Builds every detail sprite this view can see, farthest first.</summary>
     /// <param name="objects">The detail props, from <see cref="BspDetailProps"/>.</param>
@@ -167,6 +192,8 @@ public static class DetailSprites
     /// <param name="fade">The distance fade for this view.</param>
     /// <param name="into">The vertex list to append to.</param>
     /// <param name="leaves">Cleared, then given each quad's leaf and squared distance in emission order; or null.</param>
+    /// <param name="forward">The view direction, for the fast lane's behind-the-eye cull; null culls nothing.</param>
+    /// <param name="fastSprites"><c>cl_fastdetailsprites</c>.</param>
     /// <returns>What was built, dropped and turned.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -190,7 +217,9 @@ public static class DetailSprites
         (float X, float Y, float Z) eye,
         DetailFade fade,
         IList<DetailSpriteVertex> into,
-        DetailSpriteLeaves? leaves = null)
+        DetailSpriteLeaves? leaves = null,
+        (float X, float Y, float Z)? forward = null,
+        bool fastSprites = FastDetailSprites)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -199,17 +228,52 @@ public static class DetailSprites
         // **Gathered before anything is emitted, because the emission order IS the draw order.**
         // A blended quad is combined with what is already in the frame buffer, so the sort has to
         // happen between deciding what is visible and writing any vertex.
-        List<(int Index, float Squared, byte Alpha)> visible = [];
+        List<(int Index, float Squared, byte Alpha, bool Fast)> visible = [];
 
         int faded = 0;
+
+        // The fast lane's group of four (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2157-2165`), restarted at
+        // every leaf change as `UnserializeModels` pads it (`:1794`).
+        List<(int Index, float Squared, byte Alpha, bool Culled)> group = [];
+        int groupLeaf = int.MinValue;
 
         for (int index = 0; index < objects.Count; index++)
         {
             BspDetailProp prop = objects[index];
 
+            if (prop.Leaf != groupLeaf)
+            {
+                faded += EmitGroup(group, visible);
+                groupLeaf = prop.Leaf;
+            }
+
             if (prop.Type != DetailPropType.Sprite ||
                 prop.DetailModel < 0 || prop.DetailModel >= sprites.Count)
             {
+                continue;
+            }
+
+            if (IsFast(prop, fastSprites))
+            {
+                (float X, float Y, float Z) anchor = Anchor(prop, sprites[prop.DetailModel]);
+                float ax = anchor.X - eye.X;
+                float ay = anchor.Y - eye.Y;
+                float az = anchor.Z - eye.Z;
+                float distance = (ax * ax) + (ay * ay) + (az * az);
+
+                // `TestSignSIMD( OrSIMD( ofsDotFwd, CmpGtSIMD( distanceSquared, maxsqdist ) ) )`: the sign bit of the
+                // dot (so -0 counts) or beyond the maximum.
+                bool culled = forward is { } ahead &&
+                    (float.IsNegative((ax * ahead.X) + (ay * ahead.Y) + (az * ahead.Z)) ||
+                     distance > fade.MaximumSquared);
+
+                group.Add((index, distance, FastAlpha(fade, distance), culled));
+
+                if (group.Count == 4)
+                {
+                    faded += EmitGroup(group, visible);
+                }
+
                 continue;
             }
 
@@ -230,34 +294,188 @@ public static class DetailSprites
                 continue;
             }
 
-            visible.Add((index, squared, alpha));
+            visible.Add((index, squared, alpha, false));
         }
 
+        faded += EmitGroup(group, visible);
+
+        // Leaf by leaf; in each, the fast lane before the ordinary (`:2637`); in each lane, farthest first.
         visible.Sort((first, second) =>
-            objects[first.Index].Leaf != objects[second.Index].Leaf                ? objects[first.Index].Leaf.CompareTo(objects[second.Index].Leaf)
-                : second.Squared.CompareTo(first.Squared));
+        {
+            int byLeaf = objects[first.Index].Leaf.CompareTo(objects[second.Index].Leaf);
+
+            if (byLeaf != 0)
+            {
+                return byLeaf;
+            }
+
+            int byLane = second.Fast.CompareTo(first.Fast);
+
+            return byLane != 0 ? byLane : second.Squared.CompareTo(first.Squared);
+        });
 
         leaves?.Clear();
 
         int aligned = 0;
+        int fast = 0;
 
-        foreach ((int index, float squared, byte alpha) in visible)
+        foreach ((int index, float squared, byte alpha, bool isFast) in visible)
         {
             BspDetailProp prop = objects[index];
 
-            leaves?.Add(prop.Leaf, squared);
-
-            (float Pitch, float Yaw, float Roll) angles = Facing(prop, eye);
+            leaves?.Add(prop.Leaf, squared, isFast);
 
             if (prop.Orientation != 0)
             {
                 aligned++;
             }
 
-            Quad(prop, sprites[prop.DetailModel], angles, alpha / 255f, into);
+            if (isFast)
+            {
+                fast++;
+                FastQuad(prop, sprites[prop.DetailModel], eye, alpha / 255f, into);
+                continue;
+            }
+
+            Quad(prop, sprites[prop.DetailModel], Facing(prop, eye), alpha / 255f, into);
         }
 
-        return new Frame(visible.Count, faded, aligned);
+        return new Frame(visible.Count, faded, aligned, fast);
+    }
+
+    /// <summary>Moves a finished group of four into the visible list unless every member was culled.</summary>
+    /// <returns>How many of its members the fade reduced to nothing, which are left out.</returns>
+    /// <remarks>
+    /// `if ( nLastBfMask != 0xf )` (`detailobjectsystem.cpp:2165`): one member ahead of the eye keeps all four. A
+    /// member at alpha zero is still built by the engine, and draws nothing; it is left out here as the ordinary lane
+    /// leaves one out.
+    /// </remarks>
+    private static int EmitGroup(
+        List<(int Index, float Squared, byte Alpha, bool Culled)> group,
+        List<(int Index, float Squared, byte Alpha, bool Fast)> visible)
+    {
+        int faded = 0;
+
+        if (group.Exists(static member => !member.Culled))
+        {
+            foreach ((int index, float squared, byte alpha, bool _) in group)
+            {
+                if (alpha == 0)
+                {
+                    faded++;
+                    continue;
+                }
+
+                visible.Add((index, squared, alpha, true));
+            }
+        }
+
+        group.Clear();
+
+        return faded;
+    }
+
+    /// <summary>
+    /// A fast sprite's anchor — <c>GetSpriteMiddleBottomPosition</c> (<c>detailobjectsystem.cpp:1885</c>), as
+    /// <c>UnserializeFastSprite</c> stores it (<c>:1920</c>).
+    /// </summary>
+    /// <remarks>
+    /// **Built from a FIXED direction, (0, -100, 0), not the eye**: yaw 270, so the rectangle's middle-bottom is found
+    /// along world -X once at load, and the quad later turns about that point rather than about the origin.
+    /// </remarks>
+    public static (float X, float Y, float Z) Anchor(BspDetailProp prop, BspDetailSprite sprite)
+    {
+        (float pitch, float yaw, float roll) = AngleVectors.Angles(0f, -100f, 0f);
+        (float X, float Y, float Z) dx = AngleVectors.Right(pitch, yaw, roll);
+        (float X, float Y, float Z) dy = AngleVectors.Up(pitch, yaw, roll);
+
+        float scale = prop.Scale;
+        (float X, float Y) ul = (sprite.UpperLeft.X * scale, sprite.UpperLeft.Y * scale);
+        (float X, float Y) lr = (sprite.LowerRight.X * scale, sprite.LowerRight.Y * scale);
+
+        (float X, float Y, float Z) at = (
+            prop.Origin.X + (ul.X * dx.X) + (ul.Y * dy.X),
+            prop.Origin.Y + (ul.X * dx.Y) + (ul.Y * dy.Y),
+            prop.Origin.Z + (ul.X * dx.Z) + (ul.Y * dy.Z));
+
+        float width = lr.X - ul.X;
+        float height = lr.Y - ul.Y;
+
+        // `return vecOrigin + dy + 0.5 * dx;`, with dx and dy already scaled by the rectangle.
+        return (
+            at.X + (dy.X * height) + (0.5f * dx.X * width),
+            at.Y + (dy.Y * height) + (0.5f * dx.Y * width),
+            at.Z + (dy.Z * height) + (0.5f * dx.Z * width));
+    }
+
+    /// <summary>A fast sprite's alpha — <c>BuildOutSortedSprites</c>, <c>detailobjectsystem.cpp:2149-2184</c>.</summary>
+    /// <remarks>
+    /// <c>1 - clamp((d² - fade²) * (1 / (max² - fade²)), 0, 1)</c>, times 255, then the 2^23 magic number: the byte is
+    /// the float ROUNDED to nearest, where the ordinary lane's <c>SetAlpha</c> truncates. The reciprocal is taken in
+    /// double and stored as a float (<c>ReplicateX4( 1.0/ … )</c>).
+    /// </remarks>
+    private static byte FastAlpha(DetailFade fade, float squared)
+    {
+        float falloff = (float)(1.0 / (fade.MaximumSquared - fade.FadeSquared));
+        float alpha = 1f - Math.Clamp((squared - fade.FadeSquared) * falloff, 0f, 1f);
+
+        return (byte)MathF.Round(255f * alpha);
+    }
+
+    /// <summary>One fast sprite's four corners — <c>BuildOutSortedSprites</c> (<c>detailobjectsystem.cpp:2167-2194</c>).</summary>
+    /// <remarks>
+    /// The side vector is the anchor's offset from the eye turned a quarter about Z, <c>(-ofs.y, ofs.x, 0)</c>,
+    /// normalised (a zero offset stays zero — <c>ReciprocalSqrtEstSaturateSIMD</c>); the corners are anchor
+    /// <c>+dx</c>, <c>-dy</c>, <c>-2dx</c>, <c>+dy</c> in turn, with <c>dx</c> the half width and <c>dy</c> the height
+    /// (<c>:1927-1928</c>). The UVs are read from the FLIPPED dictionary when the sprite is not flipped
+    /// (<c>:1929-1932</c>), and laid on as (LR.x, LR.y), (LR.x, UL.y), (UL.x, UL.y), (UL.x, LR.y) (<c>:2600-2617</c>).
+    /// </remarks>
+    private static void FastQuad(
+        BspDetailProp prop,
+        BspDetailSprite sprite,
+        (float X, float Y, float Z) eye,
+        float alpha,
+        IList<DetailSpriteVertex> into)
+    {
+        (float X, float Y, float Z) anchor = Anchor(prop, sprite);
+
+        float sideX = -(anchor.Y - eye.Y);
+        float sideY = anchor.X - eye.X;
+        float length = MathF.Sqrt((sideX * sideX) + (sideY * sideY));
+
+        if (length > 0f)
+        {
+            sideX /= length;
+            sideY /= length;
+        }
+
+        float halfWidth = (float)(0.5 * prop.Scale * (sprite.LowerRight.X - sprite.UpperLeft.X));
+        float height = prop.Scale * (sprite.LowerRight.Y - sprite.UpperLeft.Y);
+
+        (float X, float Y, float Z) dx = (sideX * halfWidth, sideY * halfWidth, 0f);
+
+        float texUpperLeftX = prop.Flipped ? sprite.TextureUpperLeft.X : sprite.TextureLowerRight.X;
+        float texLowerRightX = prop.Flipped ? sprite.TextureLowerRight.X : sprite.TextureUpperLeft.X;
+
+        (float X, float Y, float Z) at = (anchor.X + dx.X, anchor.Y + dx.Y, anchor.Z + dx.Z);
+        DetailSpriteVertex first = Vertex(at, texLowerRightX, sprite.TextureLowerRight.Y, prop, alpha);
+
+        at = (at.X, at.Y, at.Z - height);
+        DetailSpriteVertex second = Vertex(at, texLowerRightX, sprite.TextureUpperLeft.Y, prop, alpha);
+
+        at = (at.X - dx.X - dx.X, at.Y - dx.Y - dx.Y, at.Z - dx.Z - dx.Z);
+        DetailSpriteVertex third = Vertex(at, texUpperLeftX, sprite.TextureUpperLeft.Y, prop, alpha);
+
+        at = (at.X, at.Y, at.Z + height);
+        DetailSpriteVertex fourth = Vertex(at, texUpperLeftX, sprite.TextureLowerRight.Y, prop, alpha);
+
+        into.Add(first);
+        into.Add(second);
+        into.Add(third);
+
+        into.Add(first);
+        into.Add(third);
+        into.Add(fourth);
     }
 
     /// <summary>Which way a sprite faces this view — <c>CDetailModel::ComputeAngles</c>.</summary>
