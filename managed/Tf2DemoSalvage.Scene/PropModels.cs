@@ -254,17 +254,86 @@ public static class PropModels
             return;
         }
 
-        // Red, green, blue per corner of the model's geometry, through the same lookup the merged world
-        // copies used — the strip group's vertex (`LightingVertex`), the count check and the overbright.
-        float[] colours = new float[model.Corners.Count * 3];
+        bakedColours.Add(
+            prop.EntityIndex, ColourMesh(lighting.Colours, model.Meshes, model.Vertices, model.GroupVertices));
+    }
 
-        for (int at = 0; at < model.Corners.Count; at++)
+    /// <summary>
+    /// A placement's colour mesh from its `.vhv`, red, green, blue per corner — NaN for a corner whose strip group the
+    /// engine leaves unfilled (B436).
+    /// </summary>
+    /// <param name="lighting">The `.vhv`'s root-LOD meshes, one per strip group in order.</param>
+    /// <param name="meshes">Each corner's strip group.</param>
+    /// <param name="vertices">Each corner's vertex in that group.</param>
+    /// <param name="groupVertices">Each group's <c>numVerts</c>, -1 where unknown.</param>
+    /// <returns>The colours, NaN where the CPU bake must supply them.</returns>
+    /// <remarks>
+    /// `engine.dll` `FUN_1800f1550`, the `.vhv` load's completion: walking the root-LOD mesh headers in order, it
+    /// uploads each mesh's colours only while the header's vertex count EQUALS its colour mesh's (the strip group's
+    /// <c>numVerts</c>), and BREAKS at the first that does not — that mesh and every one after it are never written.
+    /// The engine leaves those buffers as `FUN_1800eeb30` created them, uninitialised, so it defines no colour for
+    /// them; this reads them as the CPU bake the same placement would get without a `.vhv` (`FUN_1800ee4a0`), which
+    /// is our choice for an engine-undefined value, not a port of one. It used to be white per vertex.
+    /// </remarks>
+    internal static float[] ColourMesh(
+        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>> lighting,
+        IReadOnlyList<int> meshes,
+        IReadOnlyList<int> vertices,
+        IReadOnlyList<int> groupVertices)
+    {
+        int filled = 0;
+
+        while (filled < lighting.Count &&
+               (filled >= groupVertices.Count || groupVertices[filled] < 0 || lighting[filled].Count == groupVertices[filled]))
         {
-            (colours[at * 3], colours[(at * 3) + 1], colours[(at * 3) + 2]) = Colour(
-                lighting.Colours, model.Meshes[at], model.Vertices[at]);
+            filled++;
         }
 
-        bakedColours.Add(prop.EntityIndex, colours);
+        float[] colours = new float[meshes.Count * 3];
+
+        for (int at = 0; at < meshes.Count; at++)
+        {
+            int mesh = meshes[at];
+            int vertex = vertices[at];
+
+            if (mesh < 0 || mesh >= filled || vertex < 0 || vertex >= lighting[mesh].Count)
+            {
+                colours[at * 3] = colours[(at * 3) + 1] = colours[(at * 3) + 2] = float.NaN;
+                continue;
+            }
+
+            (byte red, byte green, byte blue) = lighting[mesh][vertex];
+            (colours[at * 3], colours[(at * 3) + 1], colours[(at * 3) + 2]) =
+                (FromVertexByte(red), FromVertexByte(green), FromVertexByte(blue));
+        }
+
+        return colours;
+    }
+
+    /// <summary>Fills a colour mesh's unfilled corners (NaN, <see cref="ColourMesh"/>) from the CPU bake, in place.</summary>
+    /// <param name="baked">The `.vhv` colours per corner.</param>
+    /// <param name="cpu">The CPU bake per corner, the same length; null when the model takes none (B429).</param>
+    /// <returns>False when a corner is unfilled and there is no CPU bake to fill it: the prop is then lit per draw.</returns>
+    internal static bool FillUnfilled(float[] baked, float[]? cpu)
+    {
+        ArgumentNullException.ThrowIfNull(baked);
+
+        for (int at = 0; at < baked.Length; at++)
+        {
+            if (!float.IsNaN(baked[at]))
+            {
+                continue;
+            }
+
+            if (cpu is null || cpu.Length != baked.Length)
+            {
+                return false;
+            }
+
+            baked[at] = cpu[at];
+        }
+
+        return true;
     }
 
     /// <summary>Loads a map's props and places them.</summary>
@@ -436,7 +505,10 @@ public static class PropModels
                 // with no baked lighting is ordinary; a prop whose baked lighting was READ and
                 // refused is this project failing on data the game uses. Folding them together is
                 // what let four refusals sit inside a plausible "without baked lighting" total.
-                refused.Add($"prop {index} ({placement.Model}): {reason}");
+                // The engine refuses it at level load (`0x1800f4760`) and `FUN_1800f36e0` then bakes it on the CPU, as
+                // though it had no `.vhv` (B436) — or lights it per draw where its model is not `$staticprop` (B429).
+                refused.Add($"prop {index} ({placement.Model}): {reason}; " +
+                    (StaticPropVertexLighting.Lights(model.Frames.StudioFlags) ? "CPU-baked instead" : "lit per draw instead"));
             }
 
             if (!shapes.TryGetValue(placement.Model, out PropShape? shape))
@@ -567,36 +639,6 @@ public static class PropModels
         }
 
         return PropLighting.None;
-    }
-
-    /// <summary>One vertex's baked colour, or white where there is none to apply.</summary>
-    /// <remarks>
-    /// **Applied only where the counts agree**, which is the check the engine makes before
-    /// uploading vertex colours. vrad counts a mesh's colours from its strip group, which may
-    /// duplicate vertices past the model mesh's own count; measured at one model in two hundred on
-    /// cp_process_final. Applying a short run anyway would shift every colour after it onto the
-    /// wrong vertex, which lights the prop convincingly and wrongly.
-    /// </remarks>
-    private static (float Red, float Green, float Blue) Colour(
-        IReadOnlyList<IReadOnlyList<(byte Red, byte Green, byte Blue)>> lighting,
-        int mesh,
-        int vertex)
-    {
-        if (mesh < 0 || mesh >= lighting.Count)
-        {
-            return (1f, 1f, 1f);
-        }
-
-        IReadOnlyList<(byte Red, byte Green, byte Blue)> colours = lighting[mesh];
-
-        if (vertex < 0 || vertex >= colours.Count)
-        {
-            return (1f, 1f, 1f);
-        }
-
-        (byte red, byte green, byte blue) = colours[vertex];
-
-        return (FromVertexByte(red), FromVertexByte(green), FromVertexByte(blue));
     }
 
     /// <summary>One colour-mesh byte as the vertex-lit shader reads it: <c>GammaToLinear( c · 2 )</c>, linear light.</summary>
@@ -942,6 +984,7 @@ public static class PropModels
 
             List<int> cornerMeshes = [];
             List<int> cornerVertices = [];
+            Dictionary<int, int> groupVertices = [];
             List<IReadOnlyList<PropVertex>> baked = new(skeletons.Count);
 
             // The material indices are resolved once and reused for every frame. Registering them
@@ -1137,6 +1180,7 @@ public static class PropModels
                         {
                             cornerMeshes.Add(corner.LightingGroup);
                             cornerVertices.Add(corner.LightingVertex);
+                            groupVertices[corner.LightingGroup] = corner.LightingGroupVertices;
                         }
                     }
                 }
@@ -1212,6 +1256,7 @@ public static class PropModels
                 baked[0],
                 cornerMeshes,
                 cornerVertices,
+                GroupVertexCounts(groupVertices),
                 model.Checksum,
                 new ModelFrames(
                     baked,
@@ -1514,6 +1559,10 @@ public static class PropModels
     /// <param name="Corners">The triangle corners, three per triangle.</param>
     /// <param name="Meshes">Which strip group each corner came from, in .vhv header order.</param>
     /// <param name="Vertices">Which vertex of that strip group each corner is.</param>
+    /// <param name="GroupVertices">
+    /// Each strip group's <c>numVerts</c>, by group — what `FUN_1800f1550` compares each <c>.vhv</c> mesh header against
+    /// (B436). A group no corner came from holds -1: nothing of it is drawn, so its count cannot be known here.
+    /// </param>
     /// <param name="Checksum">The model's checksum, which its lighting must match.</param>
     /// <remarks>
     /// **The mesh and vertex are kept because the model is shared and the lighting is not.** One
@@ -1526,8 +1575,23 @@ public static class PropModels
         IReadOnlyList<PropVertex> Corners,
         IReadOnlyList<int> Meshes,
         IReadOnlyList<int> Vertices,
+        IReadOnlyList<int> GroupVertices,
         int Checksum,
         ModelFrames Frames);
+
+    /// <summary>The strip groups' vertex counts as a list by group, -1 where no corner named one.</summary>
+    private static int[] GroupVertexCounts(Dictionary<int, int> byGroup)
+    {
+        int[] counts = new int[byGroup.Count == 0 ? 0 : byGroup.Keys.Max() + 1];
+        Array.Fill(counts, -1);
+
+        foreach ((int group, int count) in byGroup)
+        {
+            counts[group] = count;
+        }
+
+        return counts;
+    }
 
     /// <summary>A model posed by its bones at draw time instead of having its frames baked.</summary>
     /// <param name="Bones">Its skeleton, which the pose is computed against.</param>

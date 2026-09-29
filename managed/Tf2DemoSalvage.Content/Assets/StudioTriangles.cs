@@ -70,7 +70,11 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// match its mesh's, which is usually and not always - and where it differs, colours land on the
 /// wrong vertices and the prop draws speckled with black.
 /// </remarks>
-public readonly record struct StudioCorner(int Vertex, int LightingGroup, int LightingVertex);
+/// <param name="LightingGroupVertices">
+/// That strip group's <c>numVerts</c> — the count `engine.dll` `FUN_1800f1550` compares each <c>.vhv</c> mesh header
+/// against before it uploads that mesh's colours (B436).
+/// </param>
+public readonly record struct StudioCorner(int Vertex, int LightingGroup, int LightingVertex, int LightingGroupVertices);
 
 public static class StudioTriangles
 {
@@ -380,7 +384,7 @@ public static class StudioTriangles
 
         // The strip group index is kept alongside, because baked lighting is stored in that
         // order while positions are stored in the mesh's.
-        return new StudioCorner(original, group, index);
+        return new StudioCorner(original, group, index, vertexCount);
     }
 
     /// <summary>The address of one element of an array, checked to be inside the file.</summary>

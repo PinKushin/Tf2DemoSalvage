@@ -183,6 +183,13 @@ public sealed class StaticPropModelsWiringTests
         List<ModelInstance> unbaked = [.. drawn.Where(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
         unbaked.Count.ShouldBe(8, "the control: koth_harvest_final's unbaked placements");
 
+        // **They are the eight REFUSED `.vhv`s** (B436): `0x1800f4760` refuses each header, so `FUN_1800f36e0` bakes
+        // them on the CPU exactly as if the file were absent — the refusal is counted AND the prop is CPU-lit.
+        assets.RefusedPropLighting.Count.ShouldBe(8);
+        assets.RefusedPropLighting.ShouldAllBe(line => line.Contains("CPU-baked instead"));
+        unbaked.Select(instance => instance.EntityIndex - PropModels.FirstStaticPropEntityIndex).Order().ShouldBe(
+            assets.RefusedPropLighting.Select(line => int.Parse(line.Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture)).Order());
+
         Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
         int compiledStatic = 0;
 
@@ -206,6 +213,23 @@ public sealed class StaticPropModelsWiringTests
         }
 
         compiledStatic.ShouldBe(8, "measured 2026-09-28: all eight are box_cluster01/02 and tractor_tire001, flags 0x11");
+    }
+
+    /// <summary>A measurement, not a test (D38): per map, placements refused at the header and those with `.vhv` meshes `FUN_1800f1550` never writes (B436).</summary>
+    [TestCase("koth_harvest_final")]
+    [TestCase("cp_process_final")]
+    [TestCase("cp_badlands")]
+    [TestCase("koth_dryfield")]
+    [Explicit]
+    public void UnwrittenVhvMeshesDiagnostic(string map)
+    {
+        MapAssets assets = MapCache.With(mapName: map).Assets;
+        assets.StaticModelColours.ShouldNotBeEmpty("the control: a baked map must have .vhv colours to count");
+        int partial = assets.StaticModelColours.Values.Count(colours => Array.Exists(colours, float.IsNaN));
+
+        TestContext.Out.WriteLine(
+            $"{map}: {assets.StaticModels.Count} placements, {assets.StaticModelColours.Count} with a .vhv, " +
+            $"{assets.RefusedPropLighting.Count} refused at the header, {partial} with unwritten meshes");
     }
 
     /// <remarks>

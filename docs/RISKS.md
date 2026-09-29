@@ -3085,7 +3085,12 @@ is the half that turns a white blob into a recognisable object. Adding direct li
 piece of work with its own failure modes — shadowing above all, since an unshadowed sun lights the
 inside of every building.
 
-## B54 — colour maths happens in display space, not linear — OPEN, and it is the root of several
+## B54 — colour maths happens in display space, not linear — FIXED (heading closed 2026-09-29)
+
+**Closed late; the work landed long before the heading was touched.** Checked 2026-09-29 against the code: the back
+buffer's view is `B8G8R8A8_UNORM_SRGB` (`Device3D`, since `11ec9f3d`), base textures sample through `_SRGB` views,
+`BspLightmaps` uploads linear samples with Valve's overbright (`Overbright`), and the static prop colour mesh is read as
+`GammaToLinear(2c)` (`96f9c30d`). All five steps below are done; the text is kept as the record of why.
 
 **Filed 2026-08-13**, after the owner observed that "we keep running into problems because we are
 flattening stuff".
@@ -7661,6 +7666,39 @@ set directly reddens both.
 
 **The general shape, worth carrying:** a cache that hands out a mutable reference is not a cache, it
 is shared state. Every consumer of one is trusted not to write to it, and one of six was not.
+
+---
+
+### B436 — a static prop's `.vhv` was validated at the wrong granularity, with a white fallback — FIXED 2026-09-29
+
+**Read in disassembly** (`engine.dll`). Validation is in two places, neither of them `FUN_1800f0940`:
+
+- **`0x1800f4760` (level load)** reads the 40-byte header and sets the prop's static-lighting bit (`+0x12e & 2`) only
+  when `version == 2`, `checksum == studiohdr->checksum` and `vertexSize == 4`; otherwise it sets the "bad `.vhv`" bit
+  (`& 4`, only a `mat_`-style debug mode reads it). A missing file sets neither.
+- **`FUN_1800f36e0`** takes the `.vhv` only while `+0x12e & 2` holds and `FUN_1800f0940` returns true — and
+  `FUN_1800f0940` validates nothing: it queues the async read and returns true whenever static prop lighting is on.
+  Anything else falls through to the CPU bake (`FUN_1800ee4a0`, B429), or per-frame lighting when the model is not
+  `$staticprop`. So a refused header is exactly an absent file, and the flag-clear-but-file-present case never opens
+  the file.
+- **`FUN_1800f1550`** (the read's completion) walks the root-LOD mesh headers and uploads each only while its vertex
+  count EQUALS its colour mesh's (the strip group's `numVerts`, counted by `FUN_1800effa0`), BREAKING at the first
+  mismatch. That mesh and all later ones stay as `FUN_1800eeb30` created them — uninitialised. No white anywhere.
+
+**What we did.** Refused headers already fell to the CPU bake (B429); the refusal now also says so in its log line.
+The vertex size check was `4..64` and is now `== 4`. The per-mesh check was per VERTEX (`vertex < colours.Count`,
+white otherwise), which let a longer header through and kept going past a mismatch. Now
+`PropModels.ColourMesh` breaks where the engine breaks, and the unwritten corners take the CPU bake
+(`PropModels.FillUnfilled`), or the whole prop is lit per draw when there is none. **Reading picked:** the engine's
+value there is undefined, so the CPU bake is our choice, not a port.
+
+**Census** (measured 2026-09-29, `UnwrittenVhvMeshesDiagnostic`): koth_harvest_final 652 placements, 644 `.vhv`, 8
+refused (all eight CPU-baked, `$staticprop` 0x11), 0 with unwritten meshes; cp_process_final 1631/1625/0/0;
+cp_badlands 1232/1186/0/0; koth_dryfield 2443/2399/0/0. So the white fallback was never reached on these maps, and
+nothing drawn changes on them.
+
+**Tests:** `StudioVertexLightingConformanceTests`, `StaticPropColourMeshConformanceTests`, and the harvest wiring test,
+which now pins the refused eight as the CPU-baked eight.
 
 ---
 
