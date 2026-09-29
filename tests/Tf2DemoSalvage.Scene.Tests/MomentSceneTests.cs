@@ -460,6 +460,76 @@ public sealed class MomentSceneTests
         WorldDynamicLightConformanceTests.Texel(atlas, 0, 1, 0, 9).ShouldBe((byte)25);
     }
 
+    /// <remarks>
+    /// **B425, the two paths step 2 left out, through the production route.** The recorder's fireball at (0, 0, 90), red
+    /// 65280. A displacement's first luxel stands 10 units above its parent plane: `0x1800c0ad0` takes the true 3D distance,
+    /// `d² = 6400`, `65280 · (39.0625/6400) · 0.36 = 143.44`, stored halved: 71 (the plane's reading, `d² = 8100`, is 29).
+    /// A door (`*1`, head node 1) drawn at (0, 0, 20) turned 90° in yaw takes the light into its own space
+    /// (`0x1800e03a0`): 70 above its floor's first luxel, `65280 · (39.0625/4900) · 0.51 = 265.41`: 132.
+    /// </remarks>
+    [Test]
+    public void Pose_TheRecordersFireballOverTerrainAndADoor_LightsBothByTheEnginesOwnPaths()
+    {
+        MomentScene scene = Posable();
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 90f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+        SceneProp door = new(301, "*1", SceneModelKind.Brush, new ScenePose { Z = 20f, Yaw = 90f });
+        MomentInfo info = Info() with { Recorder = 9 };
+        LightmapAtlas atlas = LightmapAtlas.PackAll([Black(2), Black(5)]);
+        Content.Bsp.BspModel[] models = [default, new((0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f), 1, 1, 1)];
+
+        scene.Build([], [fireball], info);
+        scene.Pose(info);
+        new WorldDynamicLights(TerrainAndDoor()).Frame(
+            scene.WorldLights, atlas, _ => 1f, [], WorldDynamicLights.BrushesOf([door], models));
+
+        FaceTexel(atlas, 0, 0, 0).ShouldBe((byte)71);
+        FaceTexel(atlas, 1, 0, 0).ShouldBe((byte)132);
+    }
+
+    /// <summary>Face 0 a displacement whose first luxel is 10 above its plane; face 1 the door's floor under head node 1.</summary>
+    private static DecalWorld TerrainAndDoor() =>
+        new(
+            [
+                new DecalNode(-1, -1, System.Numerics.Vector3.UnitX, 1000f, 0, 0),
+                new DecalNode(
+                    -1, -1, System.Numerics.Vector3.UnitZ, 0f, 1, 1, new(0f, 0f, -8f), new(80f, 80f, 8f)),
+            ],
+            [Array.Empty<int>()],
+            [WorldDynamicLightDisplacementAndBrushConformanceTests.Parent(), WorldDynamicLightConformanceTests.Floor() with { Index = 1 }])
+        {
+            Displacements =
+            [
+                new DecalDisplacement(0, System.Numerics.Vector3.Zero, new(16f, 16f, 10f), [])
+                {
+                    Luxels = [new(0f, 0f, 10f), new(16f, 0f, 0f), new(0f, 16f, 0f), new(16f, 16f, 0f)],
+                },
+            ],
+        };
+
+    private static Content.Bsp.BspFaceLighting Black(int size)
+    {
+        byte[] black = new byte[size * size * 4];
+
+        for (int luxel = 0; luxel < size * size; luxel++)
+        {
+            black[(luxel * 4) + 3] = 255;
+        }
+
+        return new Content.Bsp.BspFaceLighting(new Content.Bsp.BspLightmap(size, size, black), []);
+    }
+
+    /// <summary>The red byte of one face's luxel on the flat page.</summary>
+    private static byte FaceTexel(LightmapAtlas atlas, int face, int column, int row)
+    {
+        AtlasRect rect = atlas.Rectangles[face];
+        int x = (int)MathF.Round((rect.U * atlas.Width) - 0.5f);
+        int y = (int)MathF.Round((rect.V * atlas.Height) - 0.5f);
+
+        return atlas.Pixels[((((y + row) * atlas.Width) + x + column) * 4)];
+    }
+
     [Test]
     public void Pose_AfterTheRecordersFireballIsGone_KeepsItsLightOneFrameThenDropsIt()
     {

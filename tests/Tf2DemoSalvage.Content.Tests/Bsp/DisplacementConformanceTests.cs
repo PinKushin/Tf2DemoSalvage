@@ -81,6 +81,7 @@ public sealed class DisplacementConformanceTests
         info.Offset("startPosition").ShouldBe(BspStructLayout.DispStartPositionOffset);
         info.Offset("m_iDispVertStart").ShouldBe(BspStructLayout.DispVertexStartOffset);
         info.Offset("power").ShouldBe(BspStructLayout.DispPowerOffset);
+        info.Offset("m_iLightmapSamplePositionStart").ShouldBe(BspStructLayout.DispLightmapSamplePositionStartOffset);
     }
 
     [Test]
