@@ -7664,6 +7664,28 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B431 — the first frame after the opening seek drew a pose from before it — FIXED 2026-09-29
+
+**Seen in the log**, z1800 on `koth_harvest_final` opened at tick 20000 by the UI suite
+(`viewer-20260928-180144-26976.log`): the frame right after `opening state applied at tick 20000` reported `opaque
+draw order: 3 of 3 models` (two cobwebs) at a camera that was not tick 20000's, with `camera 0.8, project 0,
+capture 6761` — the camera and projection ran BEFORE the capture stage, which is where the seek happens. The next
+frame, 0.6 s later, drew the right scene.
+
+**Cause:** `FrameSequence.Run` ran `TakeShot` (which applies the opening state: `_playback.Seek`, `ShowMoment`) fifth,
+after `Simulate`, `PlaceCamera` and `ProjectWorld`, so the frame's `Draw` got the pre-seek camera and projection.
+**Engine:** new state is taken in `FRAME_NET_UPDATE_START..END`, before `FRAME_RENDER_START`
+(`public/cdll_int.h:134-152`; the host loop that sequences them is closed). **Fix:** `TakeShot` runs first. A capture
+it asks for is still of that frame's draw (`CaptureNextFrame` fires on present); `TF2VIEW_PICK` reads the previous
+frame's camera, identical while paused.
+
+Tests: `FrameSequenceTests.Run_OverAFrame_FollowsTheEnginesStageOrder`,
+`Run_WhenTheShotStageSeeks_DrawsThePoseOfTheSoughtTickAtItsCamera` (both red on the old order); UI:
+`WiringUiTests.FirstDraw_AfterTheOpeningState_DrawsTheCameraPlacedAtTheOpeningTick`, reading the new log line
+`first frame after the opening state draws the camera placed at tick N` (tick carried from `PlaceCamera`).
+
+---
+
 ### B430 — static props never faded with distance — FIXED 2026-09-28
 
 **Read from `engine.dll`.** `UnserializeModels` (`0x180206590`) gives a fade entry, at `mgr+0x78` (stride 0x10:

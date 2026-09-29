@@ -2070,6 +2070,7 @@ internal class MainForm : Form, IFrameSteps
         ShowMoment(_launch.ShotTick);
 
         _log.LogInformation("{Message}", $"opening state applied at tick {_launch.ShotTick}");
+        _reportFirstDrawAfterOpening = true;
 
         if (_launch.SurfaceColours)
         {
@@ -7841,7 +7842,15 @@ internal class MainForm : Form, IFrameSteps
         FlyCamera();
 
         UploadCamera(Stopwatch.GetTimestamp() - flyAt);
+
+        _cameraPlacedAtTick = _shownTick;
     }
+
+    /// <summary>The tick shown when this frame's camera was placed, carried to the draw (B431).</summary>
+    private double _cameraPlacedAtTick;
+
+    /// <summary>Whether the next draw is the first after the opening state, and should say what it drew.</summary>
+    private bool _reportFirstDrawAfterOpening;
 
     /// <summary>Put the ears where the eye is, and play what is due.</summary>
     /// <remarks>
@@ -7912,7 +7921,23 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Draw the frame.</summary>
     /// <param name="overlay">The VGUI built for this frame.</param>
-    public void Draw(VguiDrawList? overlay) =>
+    public void Draw(VguiDrawList? overlay)
+    {
+        // **B431's output-level check.** The tick CARRIED from the camera placement, never re-read:
+        // the UI suite asserts this names the opening tick.
+        if (_reportFirstDrawAfterOpening)
+        {
+            _reportFirstDrawAfterOpening = false;
+            _log.LogInformation(
+                "{Message}",
+                $"first frame after the opening state draws the camera placed at tick {_cameraPlacedAtTick:0}");
+        }
+
+        DrawScene(overlay);
+    }
+
+    /// <summary>Hands this frame's scene to the device.</summary>
+    private void DrawScene(VguiDrawList? overlay) =>
         _device?.DrawFrame(
             BackgroundRed,
             BackgroundGreen,

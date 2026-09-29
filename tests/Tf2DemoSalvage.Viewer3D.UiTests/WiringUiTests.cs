@@ -131,6 +131,25 @@ public sealed class WiringUiTests
     }
 
     [Test]
+    public void FirstDraw_AfterTheOpeningState_DrawsTheCameraPlacedAtTheOpeningTick()
+    {
+        // **B431.** The seek ran inside the shot stage, AFTER the camera was placed, so the first
+        // frame drawn after "opening state applied" showed three cobwebs at a pre-seek camera. The
+        // line carries the tick the camera was placed at, so a stale first frame names the old one.
+        const string line = "first frame after the opening state draws the camera placed at tick";
+
+        Retry.WhileFalse(
+            () => Viewer.Count(line) > 0,
+            TimeSpan.FromSeconds(60),
+            throwOnTimeout: true,
+            timeoutMessage: "The first draw after the opening state never reported itself.");
+
+        // Trimmed: LastLine keeps the line's own terminator.
+        (Viewer.LastLine(line) ?? string.Empty).TrimEnd().ShouldEndWith(
+            $"tick {ViewerSession.OpeningTick.ToString(CultureInfo.InvariantCulture)}");
+    }
+
+    [Test]
     public void TheScene_AfterLoadingADemo_ActuallyPackedSomeGeometry()
     {
         // **Absence checks alone would pass against a viewer that drew nothing for a reason nobody

@@ -33,9 +33,10 @@ public interface IFrameSteps
     /// <remarks>Valve: `SetupVis( viewRender, visFlags, pCustomVisibility )`, `viewrender.cpp:1415`.</remarks>
     public void ProjectWorld();
 
-    /// <summary>Take a screenshot if one was asked for.</summary>
+    /// <summary>Apply the opening state, or take a screenshot, if either is due.</summary>
     /// <remarks>
-    /// Ours, not Valve's — there is no automatic capture in the engine's frame.
+    /// Ours, not Valve's — there is no automatic capture in the engine's frame. **Runs first**,
+    /// because applying the opening state seeks (B431).
     ///
     /// **Named `TakeShot` rather than `Capture` because the view is a `Control`**, and
     /// `Control.Capture` is WinForms' mouse capture. Implementing the obvious name would have hidden
@@ -97,11 +98,16 @@ public static class FrameSequence
 
         long start = Stopwatch.GetTimestamp();
 
+        // **The shot stage FIRST, because it can seek** (B431). It applies the opening state, and
+        // run after the camera and the projection it left this frame drawing a pose made before
+        // the seek — three cobwebs at the wrong camera on z1800 at tick 20000. The engine takes new
+        // state in FRAME_NET_UPDATE_START..END, before FRAME_RENDER_START (`cdll_int.h:134-152`).
+        // A capture it asks for is still of THIS frame's draw: `CaptureNextFrame` fires on present.
+        long capture = Time(steps.TakeShot);
         long advance = Time(steps.Simulate);
         long camera = Time(steps.PlaceCamera);
         long sound = Time(steps.UpdateListener);
         long project = Time(steps.ProjectWorld);
-        long capture = Time(steps.TakeShot);
 
         long hudAt = Stopwatch.GetTimestamp();
         VguiDrawList? overlay = steps.BuildOverlay();
