@@ -63,6 +63,9 @@ public sealed class WorldCulling
 
         TotalLeaves = tree.LeafCount;
 
+        _positionByLeaf = new int[tree.LeafCount];
+        Array.Fill(_positionByLeaf, -1);
+
         int corners = 0;
 
         for (int at = 0; at < spans.Count; at++)
@@ -228,6 +231,25 @@ public sealed class WorldCulling
 
         IReadOnlyList<WorldBatch> runs = _surfaces.Batches(_mainLeaves, frustum);
 
+        // Each main leaf's place in the list, for the translucent pass (B426): the previous view's places cleared.
+        for (int at = 0; at < _placed.Count; at++)
+        {
+            _positionByLeaf[_placed[at]] = -1;
+        }
+
+        _placed.Clear();
+
+        for (int at = 0; at < _mainLeaves.Count; at++)
+        {
+            if (_mainLeaves[at] >= 0 && _mainLeaves[at] < _positionByLeaf.Length)
+            {
+                _positionByLeaf[_mainLeaves[at]] = at;
+                _placed.Add(_mainLeaves[at]);
+            }
+        }
+
+        _lastFrustum = frustum;
+
         int drawn = 0;
 
         for (int at = 0; at < runs.Count; at++)
@@ -239,4 +261,27 @@ public sealed class WorldCulling
 
         return runs;
     }
+
+    private readonly List<int> _placed = [];
+    private readonly int[] _positionByLeaf;
+    private ViewFrustum _lastFrustum;
+
+    /// <summary>The last view's translucent and additive world runs, by leaf place — the engine's per-leaf alpha lists.</summary>
+    /// <param name="blended">Whether a material index is translucent or additive.</param>
+    /// <returns>The runs over the leaves <see cref="Batches"/> last drew, valid until the next call; null when this map cannot be culled.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="blended"/> is null.</exception>
+    /// <remarks>See <see cref="VisibleWorld.BlendedByLeaf"/> (B426).</remarks>
+    public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended) =>
+        CanCull ? _surfaces.BlendedByLeaf(_mainLeaves, _lastFrustum, blended, _positionByLeaf) : null;
+
+    /// <summary>The place in the last view's leaf list of the nearest leaf a box touches, or −1.</summary>
+    /// <param name="minX">The box, in world space.</param>
+    /// <param name="minY">The box, in world space.</param>
+    /// <param name="minZ">The box, in world space.</param>
+    /// <param name="maxX">The box, in world space.</param>
+    /// <param name="maxY">The box, in world space.</param>
+    /// <param name="maxZ">The box, in world space.</param>
+    /// <returns>A translucent entity's <c>m_iWorldListInfoLeaf</c> (<c>ComputeTranslucentRenderLeaf</c>, B426).</returns>
+    public int PositionOf(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) =>
+        _tree.NearestRank(minX, minY, minZ, maxX, maxY, maxZ, _positionByLeaf);
 }

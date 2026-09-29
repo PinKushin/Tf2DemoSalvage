@@ -103,6 +103,30 @@ public sealed class BspLeafTreeTests
         tree.TouchesAny(-8f, -8f, -10f, 8f, 8f, 10f, [false, false, false]).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The translucent render leaf is the NEAREST visible leaf the box touches** —
+    /// <c>ComputeTranslucentRenderLeaf</c> (<c>clientleafsystem.cpp:1400</c>, *"choose the leaf that is closest to
+    /// the camera"*). A rank is a leaf's place in the front-to-back list, so the answer is the smallest rank reached
+    /// (B426).
+    /// </remarks>
+    [Test]
+    public void NearestRank_WithABoxAcrossThePlane_IsTheSmallerRankOfTheTwo()
+    {
+        BspLeafTree tree = OneSplit(above: 2, below: 0);
+
+        tree.NearestRank(-8f, -8f, -10f, 8f, 8f, 10f, [4, -1, 1]).ShouldBe(1);
+        tree.NearestRank(-8f, -8f, -10f, 8f, 8f, 10f, [0, -1, 1]).ShouldBe(0);
+    }
+
+    [Test]
+    public void NearestRank_WithABoxOnOneSideOnly_IsThatLeafsRank()
+    {
+        BspLeafTree tree = OneSplit(above: 2, below: 0);
+
+        tree.NearestRank(-8f, -8f, 10f, 8f, 8f, 20f, [0, -1, 3]).ShouldBe(3, "wholly above, leaf 2");
+        tree.NearestRank(-8f, -8f, 10f, 8f, 8f, 20f, [0, -1, -1]).ShouldBe(-1, "leaf 2 is not in the list");
+    }
+
     /// <summary>A tree of one node splitting on the z = 0 plane.</summary>
     private static BspLeafTree OneSplit(int above, int below, int solidLeaf = -1)
     {

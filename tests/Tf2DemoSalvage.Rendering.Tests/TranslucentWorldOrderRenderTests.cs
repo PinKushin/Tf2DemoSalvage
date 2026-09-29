@@ -80,6 +80,108 @@ public sealed class TranslucentWorldOrderRenderTests
         difference.ShouldBeGreaterThan(6, "the glass in front of the model left its pixel unchanged, so it drew before it");
     }
 
+    /// <remarks>
+    /// **The per-leaf interleave, drawn** (B426): glass in leaf position 0, the nearest; a TRANSLUCENT model in
+    /// position 1 behind it, or in position 0 with it. Neither writes depth, so only the order decides the pixel.
+    /// The engine draws a farther leaf's entity before the nearer leaf's glass, and a same-leaf entity after its
+    /// leaf's glass (<c>viewrender.cpp:4583</c>-<c>4635</c>). Each case is predicted exactly by drawing its order
+    /// by hand, and the two hand orders must differ or the test cannot fail.
+    /// </remarks>
+    [Test]
+    public void DrawTranslucentLeaf_ATranslucentModelBehindWorldGlass_IsCoveredAndOneInFrontIsNot()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        if (TranslucentMaterials(assets) is not [int glassMaterial, int modelMaterial, ..])
+        {
+            Assert.Ignore("fewer than two translucent materials in this map");
+            return;
+        }
+
+        (List<WorldVertex> wall, WorldBatch wallBatch) = Quad(0.9f, 0, 0, (0f, 0f, 1f));
+        (List<WorldVertex> glass, WorldBatch glassBatch) = Quad(0.3f, glassMaterial, 6, (1f, 1f, 1f));
+        (List<WorldVertex> model, WorldBatch modelBatch) = Quad(0.5f, modelMaterial, 0, (0f, 1f, 0f));
+
+        List<WorldVertex> world = [.. wall, .. glass];
+
+        // Glass at position 0 (nearest); position 1 holds no translucent surface.
+        TranslucentLeafRuns runs = new([glassBatch], [0, 1, 1]);
+
+        (int red, int green, int blue) Draw(Action translucents)
+        {
+            target.Clear(0f, 0f, 0f);
+            target.DrawWorld(world, [wallBatch, glassBatch], Identity, assets, translucent: false);
+            target.SetTranslucentLeaves(runs);
+            translucents();
+            return target.PixelAt(32, 32);
+        }
+
+        void Model() =>
+            target.DrawModelPose(model, [modelBatch], Identity, Identity, assets, bothSides: true, clearDepth: false);
+
+        (int red, int green, int blue) Planned(int modelLeaf) => Draw(() =>
+        {
+            List<InterleaveStep> steps = [];
+
+            TranslucentInterleave.Plan(runs.LeafCount, [modelLeaf], steps);
+
+            foreach (InterleaveStep step in steps)
+            {
+                if (step.IsEntity)
+                {
+                    Model();
+                }
+                else
+                {
+                    target.DrawTranslucentLeaf(step.Index);
+                }
+            }
+        });
+
+        (int red, int green, int blue) glassOver = Draw(() => { Model(); target.DrawTranslucentLeaf(0); });
+        (int red, int green, int blue) modelOver = Draw(() => { target.DrawTranslucentLeaf(0); Model(); });
+
+        TestContext.Out.WriteLine($"GLASS OVER {glassOver}  MODEL OVER {modelOver}");
+        Distance(glassOver, modelOver).ShouldBeGreaterThan(6, "the two orders draw the same pixel, so this test cannot fail");
+
+        (int red, int green, int blue) behind = Planned(1);
+        (int red, int green, int blue) inFront = Planned(0);
+
+        TestContext.Out.WriteLine($"BEHIND {behind}  IN FRONT {inFront}");
+        Distance(behind, glassOver).ShouldBeLessThanOrEqualTo(3, "a model in a farther leaf drew over the nearer glass");
+        Distance(inFront, modelOver).ShouldBeLessThanOrEqualTo(3, "a model in the glass's own leaf drew under it");
+    }
+
+    private static int Distance((int red, int green, int blue) a, (int red, int green, int blue) b) =>
+        Math.Abs(a.red - b.red) + Math.Abs(a.green - b.green) + Math.Abs(a.blue - b.blue);
+
+    private static List<int> TranslucentMaterials(MapAssets assets)
+    {
+        List<int> found = [];
+
+        for (int index = 0; index < assets.Textures.Count && found.Count < 2; index++)
+        {
+            if (IsPartlyOpaqueAtCentre(assets, index))
+            {
+                found.Add(index);
+            }
+        }
+
+        return found;
+    }
+
     private static MapAssets? Assets
     {
         get
@@ -99,38 +201,33 @@ public sealed class TranslucentWorldOrderRenderTests
         }
     }
 
-    private static int? TranslucentMaterial(MapAssets assets)
+    private static int? TranslucentMaterial(MapAssets assets) =>
+        TranslucentMaterials(assets) is [int first, ..] ? first : null;
+
+    private static bool IsPartlyOpaqueAtCentre(MapAssets assets, int index)
     {
-        for (int index = 0; index < assets.Textures.Count; index++)
+        if (assets.Textures[index] is not { IsTranslucent: true, IsDecal: false, Width: > 0 } texture)
         {
-            if (assets.Textures[index] is not { IsTranslucent: true, IsDecal: false, Width: > 0 } texture)
-            {
-                continue;
-            }
-
-            byte[] pixels;
-
-            try
-            {
-                pixels = texture.Image.ToRgba(texture.Width, texture.Height);
-            }
-            catch (NotSupportedException)
-            {
-                // Not a candidate: this reader cannot expand the format.
-                continue;
-            }
-
-            // **Partly opaque at the centre texel, where the test samples** — a pane that is clear there
-            // blends to the model's own pixel in either order, and the test could not fail.
-            int centre = (((texture.Height / 2) * texture.Width) + (texture.Width / 2)) * 4;
-
-            if (pixels.Length > centre + 3 && pixels[centre + 3] is >= 64 and <= 224)
-            {
-                return index;
-            }
+            return false;
         }
 
-        return null;
+        byte[] pixels;
+
+        try
+        {
+            pixels = texture.Image.ToRgba(texture.Width, texture.Height);
+        }
+        catch (NotSupportedException)
+        {
+            // Not a candidate: this reader cannot expand the format.
+            return false;
+        }
+
+        // **Partly opaque at the centre texel, where the test samples** — a pane that is clear there
+        // blends to the model's own pixel in either order, and the test could not fail.
+        int centre = (((texture.Height / 2) * texture.Width) + (texture.Width / 2)) * 4;
+
+        return pixels.Length > centre + 3 && pixels[centre + 3] is >= 64 and <= 224;
     }
 
     private static (List<WorldVertex> Vertices, WorldBatch Batch) Quad(

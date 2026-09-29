@@ -1069,12 +1069,54 @@ public sealed class BspLeafTree
         float maxX,
         float maxY,
         float maxZ,
-        ReadOnlySpan<bool> wanted)
+        ReadOnlySpan<bool> wanted) =>
+        !wanted.IsEmpty && WalkBox(minX, minY, minZ, maxX, maxY, maxZ, wanted, default) == 0;
+
+    /// <summary>The smallest rank among the leaves a world-space box touches.</summary>
+    /// <param name="minX">The box, in world space.</param>
+    /// <param name="minY">The box, in world space.</param>
+    /// <param name="minZ">The box, in world space.</param>
+    /// <param name="maxX">The box, in world space.</param>
+    /// <param name="maxY">The box, in world space.</param>
+    /// <param name="maxZ">The box, in world space.</param>
+    /// <param name="rank">One rank per leaf; negative, or a leaf outside the span, is unranked.</param>
+    /// <returns>The smallest rank reached, or −1 when the box reaches no ranked leaf.</returns>
+    /// <remarks>
+    /// **<c>ComputeTranslucentRenderLeaf</c> in the shape a viewer needs it** (<c>clientleafsystem.cpp:1391</c>):
+    /// a translucent renderable is drawn with the NEAREST visible leaf it is in, *"the leaf that is closest to the
+    /// camera"* (<c>:1400</c>). The rank is the leaf's place in the front-to-back list, so the nearest is the
+    /// smallest (B426). The same walk as <see cref="TouchesAny"/>, without its early stop.
+    /// </remarks>
+    public int NearestRank(
+        float minX,
+        float minY,
+        float minZ,
+        float maxX,
+        float maxY,
+        float maxZ,
+        ReadOnlySpan<int> rank) =>
+        rank.IsEmpty ? -1 : WalkBox(minX, minY, minZ, maxX, maxY, maxZ, default, rank);
+
+    /// <summary>
+    /// The box walk: with <paramref name="wanted"/>, 0 at the first wanted leaf; with <paramref name="rank"/>, the
+    /// smallest non-negative rank. −1 when neither is reached.
+    /// </summary>
+    private int WalkBox(
+        float minX,
+        float minY,
+        float minZ,
+        float maxX,
+        float maxY,
+        float maxZ,
+        ReadOnlySpan<bool> wanted,
+        ReadOnlySpan<int> rank)
     {
-        if (IsEmpty || wanted.IsEmpty)
+        if (IsEmpty)
         {
-            return false;
+            return -1;
         }
+
+        int nearest = -1;
 
         // Depth-first with an explicit stack: the recursion is bounded by tree depth, and a
         // malformed tree must not be able to overflow the real one.
@@ -1096,7 +1138,13 @@ public sealed class BspLeafTree
 
                 if (leaf >= 0 && leaf < wanted.Length && wanted[leaf])
                 {
-                    return true;
+                    return 0;
+                }
+
+                if (leaf >= 0 && leaf < rank.Length && rank[leaf] >= 0 &&
+                    (nearest < 0 || rank[leaf] < nearest))
+                {
+                    nearest = rank[leaf];
                 }
 
                 continue;
@@ -1152,7 +1200,7 @@ public sealed class BspLeafTree
             }
         }
 
-        return false;
+        return nearest;
     }
 
     /// <summary>How deep the box walk may go before it gives up.</summary>

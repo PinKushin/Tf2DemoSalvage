@@ -219,6 +219,20 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>The translucent world of the last <see cref="DrawWorld"/>, drawn now — after a model, as the engine does (B426).</summary>
     public void DrawTranslucentWorld() => _world?.DrawTranslucentWorld(_context);
 
+    /// <summary>Hands the renderer the last <see cref="DrawWorld"/>'s translucent runs by leaf place (B426).</summary>
+    /// <param name="leaves">The runs, over that world's vertices.</param>
+    public void SetTranslucentLeaves(TranslucentLeafRuns? leaves)
+    {
+        if (_world is not null)
+        {
+            _world.TranslucentLeaves = leaves;
+        }
+    }
+
+    /// <summary>One leaf place's translucent world runs, drawn now — the interleave's world step (B426).</summary>
+    /// <param name="position">The leaf's place.</param>
+    public void DrawTranslucentLeaf(int position) => _world?.DrawTranslucentLeaf(_context, position);
+
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
     /// <param name="batches">Its runs over those vertices.</param>

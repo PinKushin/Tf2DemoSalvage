@@ -303,4 +303,50 @@ public sealed class VisibleWorldTests
 
         Should.Throw<ArgumentNullException>(() => world.Batches(null!, default));
     }
+
+    /// <summary>That a blended face goes with the nearest visible leaf naming it, and opaque faces with none.</summary>
+    /// <remarks>
+    /// Face 10 is named by both leaves; leaf 1 is first in the front-to-back list, so it is drawn with
+    /// position 0 and not again with position 1 (B426). Face 11 is opaque and joins no leaf's translucent runs.
+    /// </remarks>
+    [Test]
+    public void BlendedByLeaf_AFaceInTwoLeaves_JoinsTheNearerOneOnly()
+    {
+        VisibleWorld world = new(
+            Spans((10, 5), (11, 6), (12, 5)),
+            Leaves((0, 2), (2, 2)),
+            FaceList(10, 11, 12, 10));
+
+        TranslucentLeafRuns runs = world.BlendedByLeaf([1, 2], default, static material => material == 5, default);
+
+        runs.LeafCount.ShouldBe(2);
+        Faces(runs, 0).ShouldBe([0]);
+        Faces(runs, 1).ShouldBe([6]);
+    }
+
+    /// <summary>That within one leaf the faces are drawn in reverse of the leaf's list.</summary>
+    /// <remarks>
+    /// <c>engine.dll</c> <c>0x1800e4fd0</c> (the <c>DrawTranslucentSurfaces</c> slot of <c>VEngineRenderView014</c>)
+    /// draws a leaf's gathered surfaces from the last one down (<c>lVar10 = count - 1 … -1</c>). Faces 20 and 21 are
+    /// not adjacent in the buffer order they are drawn in, so they stay two runs, 21 first.
+    /// </remarks>
+    [Test]
+    public void BlendedByLeaf_TwoFacesInOneLeaf_AreDrawnLastFirst()
+    {
+        VisibleWorld world = new(
+            Spans((20, 5), (21, 5)),
+            Leaves((0, 2)),
+            FaceList(20, 21));
+
+        TranslucentLeafRuns runs = world.BlendedByLeaf([1], default, static material => material == 5, default);
+
+        Faces(runs, 0).ShouldBe([3, 0]);
+    }
+
+    private static int[] Faces(TranslucentLeafRuns runs, int position)
+    {
+        (int first, int count) = runs.Leaf(position);
+
+        return [.. Enumerable.Range(first, count).Select(at => runs.Runs[at].FirstVertex)];
+    }
 }

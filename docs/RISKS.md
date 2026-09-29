@@ -7883,15 +7883,32 @@ which `Device3D` calls after the opaque models and their decals and before the t
 `TranslucentWorldOrderRenderTests` (a model behind a translucent map material is changed by it; red with the
 old order) and `ScenePassOrderConformanceTests.DrawTranslucentRenderables_…`.
 
-**Still divergent — the per-leaf interleave.** The engine walks the world list's leaves back to front and,
+**The per-leaf interleave — FIXED 2026-09-29.** The engine walks the world list's leaves back to front and,
 for each translucent entity in its `m_iWorldListInfoLeaf` order, draws the translucent world up to and
-including that leaf first (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298`, called at `:4577`), the
-entity after, and the leaves left over after the loop (`:4694`); translucent detail sprites are queued in the
-same walk. The port's translucent world runs are per MATERIAL, sorted once at upload, and carry no leaf, so
-the whole translucent world now draws before every translucent model: a translucent model BEHIND world glass
-still draws over it. Building it needs the translucent faces split into per-leaf runs and each translucent
-model's leaf within the cull's front-to-back leaf list. The grass (detail sprites) is still drawn before the
-opaque models (B361).
+including that leaf first (`DrawTranslucentWorldAndDetailPropsInLeaves`, `:4298`, called at `:4583`), the
+entity after, and the leaves left over after the loop (`:4695`). Ported as `TranslucentInterleave.Plan`
+(Scene), driven from `Device3D`'s translucent pass:
+
+- **World runs per leaf place**: `VisibleWorld.BlendedByLeaf` / `WorldCulling.BlendedRuns`, over the same
+  front-to-back main-leaf list the opaque cull draws, rebuilt on the same view change. A translucent or additive
+  face goes with the NEAREST visible leaf naming it; within a leaf, last face first, then displacements —
+  `engine.dll` `0x1800e4fd0` (the `DrawTranslucentSurfaces` slot of `VEngineRenderView014`) walks a leaf's
+  surface list from its end and draws its displacements after. *Interpolated:* the engine's per-leaf list is
+  filled in its world-walk order, which the port does not have; the leaf's LEAFFACES order stands in. A
+  displacement goes to the nearest listed leaf its box touches.
+- **Entity leaf**: `WorldCulling.PositionOf` → `BspLeafTree.NearestRank`, the nearest listed leaf the model's
+  box touches (`ComputeTranslucentRenderLeaf`, `clientleafsystem.cpp:1400`). Entities are sorted by leaf place,
+  then along the view within a leaf (`BuildRenderablesList`, `:1822-1834`) — `TranslucentOrder.Sort`.
+- **A map that cannot be culled** keeps the old order: whole translucent world, then the models.
+
+Also changed: the translucent world is now CULLED (it drew every translucent face of the map every frame, and
+the 3D-sky room's glass at literal size in the main view). Tests: `TranslucentInterleaveTests`,
+`VisibleWorldTests.BlendedByLeaf_…`, `BspLeafTreeTests.NearestRank_…`, `TranslucentOrderTests.Sort_ANearer…`,
+`ScenePassOrderConformanceTests.DrawTranslucentRenderables_TheLeafInterleave_…`, and
+`TranslucentWorldOrderRenderTests.DrawTranslucentLeaf_…` (a translucent model behind world glass is covered, one
+in the glass's leaf is not). **Not done:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
+TF2 maps without water use group 0 only; translucent detail sprites in this walk — the grass is still drawn
+before the opaque models (B361), so there is nothing here to interleave.
 
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
 `LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have

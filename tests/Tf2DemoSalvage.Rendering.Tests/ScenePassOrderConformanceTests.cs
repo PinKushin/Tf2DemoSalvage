@@ -122,6 +122,48 @@ public sealed class ScenePassOrderConformanceTests
         entity.ShouldBeLessThan(rest, "the remaining leaves' translucent world goes after the loop");
     }
 
+    /// <remarks>
+    /// **The interleave itself, then ours against it** (B426). <c>DrawTranslucentRenderables</c> starts at the
+    /// last leaf (<c>viewrender.cpp:4554</c>), draws down to and including each entity's leaf (<c>:4583</c>, the
+    /// <c>&gt;=</c> loop at <c>:4302</c>), steps past it (<c>:4586</c>) and finishes at leaf zero (<c>:4695</c>).
+    /// An entity's leaf is the nearest one it touches (<c>ComputeTranslucentRenderLeaf</c>,
+    /// <c>clientleafsystem.cpp:1400</c>), and entities are sorted within each leaf only (<c>:1833</c>).
+    /// </remarks>
+    [Test]
+    public void DrawTranslucentRenderables_TheLeafInterleave_IsWhatThePlannerEmits()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string view = SourceSdk.Text("src/game/client/viewrender.cpp")
+            ?? throw new InvalidOperationException("viewrender.cpp is missing from the SDK");
+        string leaves = SourceSdk.Text("src/game/client/clientleafsystem.cpp")
+            ?? throw new InvalidOperationException("clientleafsystem.cpp is missing from the SDK");
+
+        view.ShouldContain("int iPrevLeaf = info.m_LeafCount - 1;");
+        view.ShouldContain("for( ; iCurLeafIndex >= iFinalLeafIndex; iCurLeafIndex-- )");
+        view.ShouldContain("iPrevLeaf = iThisLeaf - 1;");
+        view.ShouldContain("DrawTranslucentWorldAndDetailPropsInLeaves( iPrevLeaf, 0,");
+        leaves.ShouldContain("we're gonna choose the leaf that is closest to the camera");
+        leaves.ShouldContain("SortEntities( vecRenderOrigin, vecRenderForward, &pTranslucentEntries[nTranslucent], nNewTranslucent );");
+
+        // Ours: leaves 0..2 front to back, one entity in leaf 1. The engine draws leaves 2 and 1, the entity, then 0.
+        List<InterleaveStep> steps = [];
+
+        TranslucentInterleave.Plan(3, [1], steps);
+
+        steps.ShouldBe(
+        [
+            new InterleaveStep(false, 2),
+            new InterleaveStep(false, 1),
+            new InterleaveStep(true, 0),
+            new InterleaveStep(false, 0),
+        ]);
+    }
+
     [Test]
     public void DrawOpaqueRenderables_IsWhereStaticPropsAreDrawn()
     {
