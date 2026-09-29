@@ -21,21 +21,71 @@ public sealed class FrameSequenceTests
     {
         // The whole claim in one assertion. Valve simulates in `HudUpdate`, before the view exists;
         // then builds the camera; then sets the audio state from that same eye; then vis; then
-        // draws.
+        // draws. `TakeShot` comes FIRST because it can seek (the opening state, B431), and the
+        // engine takes new state in FRAME_NET_UPDATE_* before FRAME_RENDER_START
+        // (`public/cdll_int.h:134-152`).
         RecordingSteps steps = new();
 
         FrameSequence.Run(steps);
 
         steps.Ran.ShouldBe(
         [
+            "TakeShot",
             "Simulate",
             "PlaceCamera",
             "UpdateListener",
             "ProjectWorld",
-            "TakeShot",
             "BuildOverlay",
             "Draw",
         ]);
+    }
+
+    [Test]
+    public void Run_WhenTheShotStageSeeks_DrawsThePoseOfTheSoughtTickAtItsCamera()
+    {
+        // **B431.** The opening state is applied inside the shot stage. It ran after the camera and
+        // the projection, so the frame drawn right after the seek showed a pose made BEFORE it:
+        // three cobwebs at the pre-seek camera on z1800 at tick 20000. A frame must never be drawn
+        // from a pose older than the state it claims to show.
+        SeekingSteps steps = new(soughtTick: 20000, soughtCamera: 7);
+
+        FrameSequence.Run(steps);
+
+        steps.Drawn.ShouldBe((20000, 7));
+    }
+
+    /// <summary>A shot stage that seeks, and a camera and draw that carry what they were built from.</summary>
+    private sealed class SeekingSteps(int soughtTick, int soughtCamera) : IFrameSteps
+    {
+        private (int Tick, int Camera) _state = (0, 0);
+
+        private (int Tick, int Camera) _posed = (-1, -1);
+
+        /// <summary>The tick and camera of the pose the draw was handed.</summary>
+        public (int Tick, int Camera) Drawn { get; private set; } = (-1, -1);
+
+        public void TakeShot() => _state = (soughtTick, soughtCamera);
+
+        public void Simulate()
+        {
+            // Nothing advances: the viewer is paused at the opening tick.
+        }
+
+        public void PlaceCamera() => _posed = _state;
+
+        public void UpdateListener()
+        {
+            // No sound in this frame's question.
+        }
+
+        public void ProjectWorld()
+        {
+            // The pose was taken with the camera; projecting adds nothing this test reads.
+        }
+
+        public VguiDrawList? BuildOverlay() => null;
+
+        public void Draw(VguiDrawList? overlay) => Drawn = _posed;
     }
 
     [Test]
