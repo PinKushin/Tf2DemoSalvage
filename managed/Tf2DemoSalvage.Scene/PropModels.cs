@@ -1047,10 +1047,13 @@ public static class PropModels
             // the rest pose on the processor and by the real pose on the card.
             int slots = skin ? 1 : skeletons.Count;
 
+            // **Sized up front with the budget's own count, because every frame is kept for the life of the map** (B433).
+            // Grown by `Add`, a frame's backing array ends anywhere up to twice its corners. The count is an upper bound — a
+            // mesh whose range overruns is skipped below — so it never regrows.
             for (int slot = 0; slot < slots; slot++)
             {
                 StudioSkeleton posed = skeletons[slot];
-                List<PropVertex> frame = [];
+                List<PropVertex> frame = new(cornersPerFrame);
 
                 // **The two files paired mesh by mesh, said once per model.** `meshes` comes from
                 // the .vtx and `model.Meshes` from the .mdl, and they are matched by POSITION — so

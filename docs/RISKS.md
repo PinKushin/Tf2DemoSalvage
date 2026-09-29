@@ -7664,6 +7664,59 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B433 — z1800 logs a 12 GB managed heap after load; the live set is under half of it — OPEN 2026-09-29
+
+**The report:** `memory after load: working set 11267 MB, managed heap 12264 MB (committed 12270 MB, fragmented 56 MB);
+entity model vertices 7,157,832 in 1357 MB` on `z1800.dem` (koth_harvest_final, 57,551 ticks), 10–12.7 GB all day. B407 is the
+same question on f12.
+
+**The instrument first.** That line reads `GC.GetGCMemoryInfo()` with no kind, which is the heap as the LAST collection of any
+generation left it — every dead object no gen2 has reached yet counts. The viewer's own render line over the load shows
+`gc 601/99/4`: four gen2s in a load that allocates many GB. The number is therefore an upper bound on the live set, not the
+live set. *Not established without the viewer*: how much of the 12 GB is dead. The control below says most of it.
+
+**Measured through the production path, no viewer** (`timeline-heap z1800 --map`, new probe: `DemoTimeline.Build` as
+`DecodedDemo` calls it, then `LoadedMap.Read` as `LevelSystems` calls it, then `MapAssets.ReleaseUploaded` as `WorldPresenter`
+does, each followed by a forced compacting full collection; texture quality 0). It misses `EntityModelSet` (the viewer's packed
+entity vertices, 1,357 MB by the log line, released after the first upload) and anything on the device. Census by a scratch
+reader over `dotnet-gcdump`'s `Graphs.GCHeapDump`, every node summed (the tool's own report is unreliable at this size, B407):
+
+| stage | live before | after this change |
+|---|---|---|
+| timeline alone | 1,124 MB | **635 MB** |
+| + map and game content | 4,840 MB | 4,033 MB |
+| after the post-upload release | 3,036 MB | **2,228 MB** |
+
+Add the 1,357 MB of entity vertices still held when the line is logged and the live set at that moment is ~3.6–4.2 GB, against
+12.2 GB reported. **Where the released 3,036 MB was** (before this change): `PropVertex[]` 1,018 MB (every loaded model's source
+frames, `PropModels.LoadFrames`, lists grown by doubling); `Byte[]` ~490 MB (texture and file bytes not in the four released
+lists); `ScenePlayer[]` 254 MB (one list per frame); `SceneItem` 217 MB + `EconAttributeWire` 84 MB + their lists 38 MB
+(2.19 M items: every player's items copied into every frame); particle definitions' `DmxValue` dictionaries 185 MB; poses 180 MB;
+`SceneGesture[]` 88 MB (315 K arrays, one per player per frame).
+
+**Fixed here — duplication and slack, nothing structural:**
+
+- A player's carried items and gesture slots are handed to the next frame as the SAME list while every element is equal
+  (`DemoTimeline.SameAsBefore`; both element types are immutable records with structural equality). Timeline 1,124 → 729 → 635 MB.
+- Each frame's player list is trimmed before it is stored. (Inside the 729.)
+- `PropModels.LoadFrames` sizes each baked frame to its corner count up front rather than by doubling: 319 MB on the released set.
+
+**Left for the owner — architectural, with the numbers:**
+
+1. **Collect once after load.** A blocking compacting gen2 (with LOH compaction) at the end of `Apply` would return the dead
+   ~8 GB to the OS instead of waiting for the GC to get round to it — the working set is what starved the machine. Costs one pause
+   of roughly a second on a load that already takes 60. Not built: it is a policy on the owner's load path.
+2. **Keyframe + delta timeline.** The timeline is 635 MB now; its remaining bulk is per-frame `ScenePlayer` lists (~200 MB),
+   poses (~180 MB) and histories. Keyframes every N ticks with deltas would cut that by an order of magnitude but make a seek
+   replay up to N ticks; D181's "a seek is a lookup" is the constraint it would trade against. Not proposed at 635 MB.
+3. **Source model frames after packing** (`PropVertex`, ~690 MB after this change): read by later packs and by pose checks
+   (`EntityModels._raw`). Dropping them means re-reading models on demand, as the engine's model cache does.
+4. **The log line should report the live set**, or say it is an upper bound. Changing it changes a number the owner has been
+   reading all day, so it is his call.
+
+*Evidence class: measured (probe with forced collections; gcdump census). The "mostly dead" reading of the viewer's 12 GB is
+interpolated from the probe's control, not measured in the viewer.*
+
 ### B432 — static props never took their screen-size fades — FIXED 2026-09-29
 
 **Measured first** (B430's census, `static-prop-fades`): 140 screen-space fade entries on 4 maps
