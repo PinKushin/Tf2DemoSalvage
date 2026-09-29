@@ -7979,13 +7979,33 @@ and `StaticPropModelsWiringTests.Load_KothHarvest_…` (the three flagged placem
 
 ---
 
-### B425 — dynamic lights (`cl_dlights`) are not ported — OPEN 2026-09-28
+### B425 — dynamic lights (`cl_dlights`) — models FIXED 2026-09-29; world lightmaps, static-prop bit and three allocators OPEN
 
-**Read from `engine.dll`.** A dynamic light reaching a static prop sets bit *n* of its lighting handle's `+0x1a4` (dlight *n*,
-the light's `+0x8`) and stamps `+0x1a8` with the frame (`FUN_1801b5260`); the draw (`0x1800f1bd0`) then lights the prop fully
-instead of from its baked colours while any bit is set (`FUN_1801bb8a0`: `+0x1a4 != 0`). Nothing in the port allocates a dynamic
-light — explosions, muzzle flashes and burning players light nothing but their own sprites. A subsystem, not a patch: the dlight
-list, its decay, the client code that allocates them, and their reach into world lightmaps and models.
+**The premise was wrong.** In TF2, explosions, muzzle flashes and burning players allocate no light at all. The
+explosion light is `//FIXME`d out of `C_BaseExplosionEffect::Create`, TF2 overrides every muzzle-flash elight, and
+nothing allocates one for fire. The full account, the allocator census and the 19-demo measurement (zero lights
+driven) are in `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
+
+**Built.**
+- `DynamicLights`: the 32 dlights and 64 elights, allocation (`0x18008a9c0`/`0x18008aa60`/`0x18008aac0`),
+  `CL_DecayLights` (`0x18008b2f0`), and the model-draw conversion (`0x1801bb940`).
+- `LevelLighting.ModelLightingAt`: live lights whose `flags & 0xe` is zero and whose cluster is in the PVS, ranked with
+  the world lights for the four local slots (`0x1801b9cd0` flag 2 → `0x1801b7a10` → `0x1801b5890`).
+- `MomentScene`: runs the one allocator a demo drives, the recorder's own Dragon's Fury fireball, in `Build`. It
+  decays at the end of `Pose` (after the frame, as `_Host_RunFrame_Render` does) and clears on a backward jump.
+- Tests: `DynamicLightConformanceTests` and `MomentSceneTests.Pose_AFireballAboveAStaticProp_…` / `…FireballIsGone_…`.
+
+**Open.**
+- **World lightmaps:** `R_AddDynamicLights`, and `0x1801b7dd0`'s hand-off of every active light to the material system.
+- **The static-prop bit (`FUN_1801b5260`, `+0x1a4`) — ambiguous, not built.** In `0x1800f1bd0` the bit sends a baked
+  prop to full lighting only when hardware-config slot `0x150` answers false. B429 names that slot
+  `SupportsStaticPlusDynamicLighting` and calls it true on DX9. On the true branch the colour mesh is kept and
+  `FUN_1801ba590(handle, 6 + bit)` supplies styled and dynamic lighting on top. If B429 is right, B424's
+  `BakedFallsBack` sits on the branch TF2 does not take. Settle slot `0x150` first.
+- **Allocators:** `light_dynamic` (`C_DynamicLight`, needs `DT_DynamicLight` decoded), `EF_BRIGHTLIGHT`/`EF_DIMLIGHT`
+  (`CreateLightEffects`, a random radius each frame) and `CTEDynamicLight`. None appears in any demo measured.
+- **Two approximations, both in the code:** v19 maps take a 20/256 floor, and the port's vrad all-zero rule would
+  treat a dlight with `r² · minlight > 1000` as constant.
 
 ---
 

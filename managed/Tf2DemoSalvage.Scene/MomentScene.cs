@@ -120,6 +120,8 @@ public sealed class MomentScene : IGameSystemPerFrame
     public void LevelShutdownPreEntity()
     {
         Lighting = LevelLighting.Unlit(_render);
+        _dynamic.Clear();
+        _decayedAt = null;
 
         _drawn.Clear();
         _instances.Clear();
@@ -133,6 +135,16 @@ public sealed class MomentScene : IGameSystemPerFrame
     }
 
     private readonly EntityModelSet _models;
+
+    /// <summary>The client's dlights and elights (B425), handed to every <see cref="Lighting"/> this scene is given.</summary>
+    private readonly DynamicLights _dynamic = new();
+
+    /// <summary>The demo time of the last `CL_DecayLights`, which the next one's frame time is measured from.</summary>
+    private double? _decayedAt;
+
+    /// <summary>`IMPLEMENT_CLIENTCLASS` name of the Dragon's Fury fireball (`tf_projectile_dragons_fury.cpp`).</summary>
+    private const string FireballClass = "CTFProjectile_BallOfFire";
+
     private readonly ViewmodelScene _viewmodels;
     private readonly ILogger _render;
 
@@ -198,6 +210,7 @@ public sealed class MomentScene : IGameSystemPerFrame
             ArgumentNullException.ThrowIfNull(value);
 
             field = value;
+            value.Dynamic = _dynamic;
             _models.BakedFallsBack = value.TakesFullLighting;
             _models.StaticPropLighting = value.StaticPropLightingAt;
         }
@@ -292,6 +305,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         ArgumentNullException.ThrowIfNull(props);
 
         long momentAt = Stopwatch.GetTimestamp();
+
+        ThinkDynamicLights(props, info);
 
         // **Players become props, rather than getting a pipeline of their own.** A player is a model
         // at a pose, which is exactly what the prop path already draws, lights and interpolates — and
@@ -633,6 +648,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         ReportInstances();
 
+        // After everything this frame lit, as `_Host_RunFrame_Render` calls `CL_DecayLights` after `SCR_UpdateScreen`.
+        DecayDynamicLights(info);
+
         return new MomentPhases(
             Total: Stopwatch.GetTimestamp() - posingAt,
             DrawList: 0,
@@ -645,6 +663,46 @@ public sealed class MomentScene : IGameSystemPerFrame
             Selected: _drawn.Count,
             Hidden: hidden,
             Unjudgeable: unjudged);
+    }
+
+    /// <summary>The client thinks that allocate dynamic lights this moment (B425), at the moment's time.</summary>
+    /// <remarks>
+    /// Only the one TF2 allocator a demo can drive from props: the LOCAL player's Dragon's Fury fireball
+    /// (`tf_projectile_dragons_fury.cpp:509`, `GetOwnerEntity() == C_BasePlayer::GetLocalPlayer()`). The rest of the census
+    /// — `light_dynamic`, `EF_BRIGHTLIGHT`/`EF_DIMLIGHT`, `TE_DynamicLight` — is in B425.
+    /// </remarks>
+    private void ThinkDynamicLights(IReadOnlyList<SceneProp> props, in MomentInfo info)
+    {
+        _dynamic.Time = (float)info.Seconds;
+
+        if (info.Recorder is not { } local)
+        {
+            return;
+        }
+
+        foreach (SceneProp prop in props)
+        {
+            if (prop.OwnedBy == local && string.Equals(prop.ClassName, FireballClass, StringComparison.Ordinal))
+            {
+                DynamicLights.DragonsFury(_dynamic, prop.EntityIndex, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z));
+            }
+        }
+    }
+
+    /// <summary>`CL_DecayLights` with the demo time since the last one; a jump backwards is a seek, which clears the list.</summary>
+    /// <remarks>The engine cannot seek, so the clear is ours: a light stamped in the future would otherwise outlive it.</remarks>
+    private void DecayDynamicLights(in MomentInfo info)
+    {
+        if (_decayedAt is { } last && info.Seconds < last)
+        {
+            _dynamic.Clear();
+        }
+        else if (_decayedAt is { } previous)
+        {
+            _dynamic.Decay((float)(info.Seconds - previous));
+        }
+
+        _decayedAt = info.Seconds;
     }
 
     /// <summary>Reads whatever geometry this moment needs, and uploads it if the set grew.</summary>

@@ -409,6 +409,58 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **B425, the production route.** A Dragon's Fury fireball owned by the LOCAL player allocates a dlight in its
+    /// `ClientThink` (`tf_projectile_dragons_fury.cpp:509-528`), which the next model draw ranks as a local light
+    /// (`engine.dll` `0x1801b7a10`); anyone else's fireball lights nothing. `CL_DecayLights` runs after the frame is
+    /// drawn (`_Host_RunFrame_Render` `0x1801a5fa8`), so a light past its `die` still lights the next frame and is gone
+    /// the frame after.
+    /// </remarks>
+    [TestCase(9, 1)]
+    [TestCase(4, 0)]
+    public void Pose_AFireballAboveAStaticProp_LightsItOnlyWhenTheRecorderOwnsIt(int owner, int lights)
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([]);
+        scene.StaticProps =
+            [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)];
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 120f }, OwnedBy: owner,
+            ClassName: "CTFProjectile_BallOfFire");
+        MomentInfo info = Info() with { Recorder = 9 };
+
+        scene.Build([], [fireball], info);
+        scene.Pose(info);
+
+        scene.Instances.ShouldAllBe(drawn => drawn.Locals!.Count == lights);
+        scene.Instances.Count.ShouldBe(2);
+    }
+
+    [Test]
+    public void Pose_AfterTheRecordersFireballIsGone_KeepsItsLightOneFrameThenDropsIt()
+    {
+        MomentScene scene = Posable();
+        scene.Lighting = LevelLightingTests.Lit([]);
+        scene.StaticProps =
+            [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)];
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 120f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+
+        scene.Build([], [fireball], Info() with { Recorder = 9 });
+        scene.Pose(Info() with { Recorder = 9 });
+
+        MomentInfo later = Info() with { Tick = 10d, CurrentTick = 10, Recorder = 9 };
+        scene.Build([], [], later);
+        scene.Pose(later);
+        scene.Instances.ShouldHaveSingleItem().Locals!.Count.ShouldBe(1, "drawn before this frame's CL_DecayLights");
+
+        MomentInfo after = Info() with { Tick = 11d, CurrentTick = 11, Recorder = 9 };
+        scene.Build([], [], after);
+        scene.Pose(after);
+        scene.Instances.ShouldHaveSingleItem().Locals!.ShouldBeEmpty();
+    }
+
+    /// <remarks>
     /// **B427.** `CStaticProp::Init` (`engine.dll` `0x1802052c0`) takes the lump's `m_LightingOrigin` as
     /// the handle's lighting origin when `STATIC_PROP_USE_LIGHTING_ORIGIN` (0x2, `gamebspfile.h:127`) is
     /// set. The prop stands 2,000 units from the lamp and its lighting origin stands under it, so the lamp
