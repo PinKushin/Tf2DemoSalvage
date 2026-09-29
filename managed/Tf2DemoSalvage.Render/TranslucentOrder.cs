@@ -19,24 +19,25 @@ namespace Tf2DemoSalvage.Render;
 /// outside audit's finding 2): "blending is order-dependent" is exactly why the order must come
 /// from the camera rather than from whatever order the scene happened to emit entities in.
 ///
-/// The engine sorts per leaf inside a back-to-front leaf walk; this viewer's draw list has no
-/// per-leaf grouping, so the sort runs over the whole translucent set against the same axis —
-/// coarser bookkeeping, same comparison, same resulting rule.
+/// **Per leaf**, as the engine does: <c>BuildRenderablesList</c> collates the visible leaves front to
+/// back and sorts only each leaf's new translucent entries (<c>clientleafsystem.cpp:1822-1834</c>), so
+/// the list is ordered by leaf place first and by distance within a leaf (B426).
 /// </remarks>
 public static class TranslucentOrder
 {
-    /// <summary>Sorts entries ascending along the view axis; draw them back to front by walking in reverse.</summary>
-    /// <param name="entries">The translucent survivors, each carrying its distance along the view.</param>
+    /// <summary>Sorts entries by leaf place, then ascending along the view axis; draw them by walking in reverse.</summary>
+    /// <param name="entries">The translucent survivors, each carrying its leaf place and its distance along the view.</param>
     /// <remarks>
     /// Internal, and typed on the concrete list on purpose: this is the draw loop's own reusable
     /// buffer, sorted in place every frame, and CA1002's abstraction advice is for public
     /// surfaces — a wrapper here would be an allocation in the render loop for nobody.
     /// </remarks>
-    internal static void Sort<T>(List<(float Along, T Entry)> entries)
+    internal static void Sort<T>(List<(int Leaf, float Along, T Entry)> entries)
     {
         ArgumentNullException.ThrowIfNull(entries);
 
-        entries.Sort(static (a, b) => a.Along.CompareTo(b.Along));
+        entries.Sort(static (a, b) =>
+            a.Leaf != b.Leaf ? a.Leaf.CompareTo(b.Leaf) : a.Along.CompareTo(b.Along));
     }
 
     /// <summary>An instance's distance along the view forward axis, measured at its box center.</summary>

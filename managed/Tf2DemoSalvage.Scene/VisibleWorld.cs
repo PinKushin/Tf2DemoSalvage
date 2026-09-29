@@ -116,6 +116,158 @@ public sealed class VisibleWorld
         }
 
         _unreachable = [.. unreachable];
+
+        // Which spans each face owns, for the blended gather: a face's spans are
+        // _faceSpans[_faceStart[face] .. _faceStart[face + 1]).
+        _faceStart = new int[highest + 2];
+
+        for (int at = 0; at < spans.Count; at++)
+        {
+            _faceStart[spans[at].Face + 1]++;
+        }
+
+        for (int face = 0; face <= highest; face++)
+        {
+            _faceStart[face + 1] += _faceStart[face];
+        }
+
+        _faceSpans = new int[spans.Count];
+
+        int[] filled = new int[highest + 1];
+
+        for (int at = 0; at < spans.Count; at++)
+        {
+            int face = spans[at].Face;
+
+            _faceSpans[_faceStart[face] + filled[face]++] = at;
+        }
+
+        _claimed = new int[highest + 1];
+    }
+
+    private readonly int[] _faceStart;
+    private readonly int[] _faceSpans;
+
+    /// <summary>Which blended gather last gave each face to a leaf — a frame number, as <see cref="_stamped"/> is.</summary>
+    private readonly int[] _claimed;
+
+    private int _claimFrame;
+
+    private readonly List<WorldBatch> _blendedRuns = [];
+    private readonly List<int> _blendedStarts = [];
+    private readonly List<(int Position, int Span)> _placedUnreachable = [];
+
+    /// <summary>The blended runs for one set of visible leaves, grouped by each leaf's place in that list.</summary>
+    /// <param name="leaves">Visible leaf indices, front to back, as <see cref="WorldVisibility.Leaves"/> returns.</param>
+    /// <param name="frustum">The view volume, for the surfaces no leaf names.</param>
+    /// <param name="blended">Whether a material index is translucent or additive.</param>
+    /// <param name="positionByLeaf">Each leaf's place in <paramref name="leaves"/>, −1 when absent; for placing the surfaces no leaf names.</param>
+    /// <returns>The runs, valid until the next call.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="leaves"/> or <paramref name="blended"/> is null.</exception>
+    /// <remarks>
+    /// **Per leaf because the engine draws them per leaf** (<c>DrawTranslucentWorldAndDetailPropsInLeaves</c>,
+    /// <c>viewrender.cpp:4313</c>), between the translucent entities (B426).
+    ///
+    /// **A face goes with the NEAREST visible leaf naming it**, once. *Interpolated:* the engine adds a translucent
+    /// surface to a leaf's list while its world walk visits it, which this port does not reproduce; both put it on the
+    /// camera's side of the surface. **Within a leaf, the last face first**: <c>engine.dll</c> <c>0x1800e4fd0</c>
+    /// (<c>DrawTranslucentSurfaces</c>) draws a leaf's brush surfaces from the end of its list down, and its
+    /// displacements after them. The list here is the leaf's LEAFFACES order, not the engine's walk order —
+    /// *interpolated*. A displacement is placed in the nearest listed leaf its box touches, or the nearest leaf of
+    /// all when it touches none.
+    /// </remarks>
+    public TranslucentLeafRuns BlendedByLeaf(
+        IReadOnlyList<int> leaves,
+        ViewFrustum frustum,
+        Func<int, bool> blended,
+        ReadOnlySpan<int> positionByLeaf)
+    {
+        ArgumentNullException.ThrowIfNull(leaves);
+        ArgumentNullException.ThrowIfNull(blended);
+
+        _blendedRuns.Clear();
+        _blendedStarts.Clear();
+        _placedUnreachable.Clear();
+        _claimFrame++;
+
+        for (int at = 0; at < _unreachable.Length; at++)
+        {
+            WorldFaceSpan span = _spans[_unreachable[at]];
+
+            if (!blended(span.MaterialIndex) ||
+                frustum.Cull(span.Min.X, span.Min.Y, span.Min.Z, span.Max.X, span.Max.Y, span.Max.Z))
+            {
+                continue;
+            }
+
+            int position = _tree.NearestRank(
+                span.Min.X, span.Min.Y, span.Min.Z, span.Max.X, span.Max.Y, span.Max.Z, positionByLeaf);
+
+            _placedUnreachable.Add((Math.Max(position, 0), _unreachable[at]));
+        }
+
+        _placedUnreachable.Sort();
+
+        int placed = 0;
+
+        for (int position = 0; position < leaves.Count; position++)
+        {
+            _blendedStarts.Add(_blendedRuns.Count);
+
+            (int first, int count) = _tree.LeafFaces(leaves[position]);
+
+            for (int entry = count - 1; entry >= 0; entry--)
+            {
+                int face = _leafFaces.Face(first + entry);
+
+                if (face < 0 || face >= _claimed.Length || _claimed[face] == _claimFrame)
+                {
+                    continue;
+                }
+
+                _claimed[face] = _claimFrame;
+
+                for (int at = _faceStart[face]; at < _faceStart[face + 1]; at++)
+                {
+                    AddBlended(_faceSpans[at], blended);
+                }
+            }
+
+            for (; placed < _placedUnreachable.Count && _placedUnreachable[placed].Position == position; placed++)
+            {
+                AddBlended(_placedUnreachable[placed].Span, blended);
+            }
+        }
+
+        _blendedStarts.Add(_blendedRuns.Count);
+
+        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts);
+    }
+
+    /// <summary>Appends a blended span to the current leaf's runs, continuing the last run when it follows it.</summary>
+    private void AddBlended(int index, Func<int, bool> blended)
+    {
+        WorldFaceSpan span = _spans[index];
+
+        if (!blended(span.MaterialIndex))
+        {
+            return;
+        }
+
+        int last = _blendedRuns.Count - 1;
+        WorldBatch run = last >= 0 ? _blendedRuns[last] : default;
+
+        if (last >= _blendedStarts[^1] &&
+            run.MaterialIndex == span.MaterialIndex &&
+            run.Category == span.Category &&
+            run.FirstVertex + run.VertexCount == span.FirstVertex)
+        {
+            _blendedRuns[last] = run with { VertexCount = run.VertexCount + span.VertexCount };
+            return;
+        }
+
+        _blendedRuns.Add(new WorldBatch(
+            span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category));
     }
 
     /// <summary>Spans no leaf names, which must be culled by their own box or not at all.</summary>

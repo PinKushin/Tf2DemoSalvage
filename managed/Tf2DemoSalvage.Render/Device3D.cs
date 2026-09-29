@@ -1284,7 +1284,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 // **The translucent world, after every opaque renderable** — `DrawTranslucentRenderables`
                 // (`viewrender.cpp:4465`), not `DrawWorld`. A static prop behind glass was painted over it (B426).
-                _world.DrawTranslucentWorld(_context);
+                // A culled map draws it leaf by leaf between the translucent models below; one that cannot be
+                // culled has no leaves to interleave by and draws it all here.
+                TranslucentLeafRuns? worldLeaves = _culling is not null ? _world.TranslucentLeaves : null;
+
+                if (worldLeaves is null)
+                {
+                    _world.DrawTranslucentWorld(_context);
+                }
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
@@ -1329,15 +1336,39 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     }
 
                     _translucentDraw.Add((
+                        worldLeaves is null ? 0 : TranslucentLeaf(instance),
                         TranslucentOrder.Along(instance, _translucentEye, _translucentForward),
                         (instance, twoPass)));
                 }
 
+                // Sorted within each leaf, leaves in list order; with no leaves every model is in place 0.
                 TranslucentOrder.Sort(_translucentDraw);
 
-                for (int at = _translucentDraw.Count - 1; at >= 0; at--)
+                _translucentLeaves.Clear();
+
+                foreach ((int leaf, float _, (ModelInstance, bool) _) in _translucentDraw)
                 {
-                    (ModelInstance instance, bool twoPass) = _translucentDraw[at].Entry;
+                    _translucentLeaves.Add(leaf);
+                }
+
+                // **The interleave** (`viewrender.cpp:4554-4695`): each leaf's world surfaces, back to front, with
+                // that leaf's models after them — so a cloaked spy behind glass is covered by it (B426).
+                TranslucentInterleave.Plan(worldLeaves?.LeafCount ?? 0, _translucentLeaves, _translucentSteps);
+
+                foreach (InterleaveStep step in _translucentSteps)
+                {
+                    if (!step.IsEntity)
+                    {
+                        // The world's pass binds its own pipeline; the models' depth state goes back after it.
+                        if (_world.DrawTranslucentLeaf(_context, step.Index))
+                        {
+                            _context.OMSetDepthStencilState(_depthReadOnly, 0);
+                        }
+
+                        continue;
+                    }
+
+                    (ModelInstance instance, bool twoPass) = _translucentDraw[step.Index].Entry;
 
                     if (instance.Bones is { Count: > 0 } bones)
                     {
@@ -2177,6 +2208,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         if (_world is not null)
         {
             _world.VisibleBatches = null;
+            _world.TranslucentLeaves = null;
         }
     }
 
@@ -2228,12 +2260,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             ((camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
              camera.Angles, camera.FieldOfView, camera.NearZ, camera.FarZ, camera.Aspect);
 
-        if (_world is not null && (_culledFor != view || _world.VisibleBatches is null))
+        // **Also when the translucent runs were dropped** by a material upload, which the view did not change (B426).
+        if (_world is not null &&
+            (_culledFor != view || _world.VisibleBatches is null ||
+             (_world.TranslucentLeaves is null && _culling is { CanCull: true })))
         {
             _culledFor = view;
 
             _world.VisibleBatches = _culling?.Batches(
                 camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
+
+            // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426).
+            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial);
 
             // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve
             // builds it as a separate `CSkyboxView` and calls `ViewSetupVis` at the sky camera's
@@ -2663,8 +2701,34 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private (float X, float Y, float Z) _translucentForward = (1f, 0f, 0f);
 
     /// <summary>The translucent pass's reusable sort buffer: survivors with their view distance.</summary>
-    private readonly List<(float Along, (ModelInstance Instance, bool TwoPass) Entry)>
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)>
         _translucentDraw = [];
+
+    /// <summary>The sorted survivors' leaf places, for the interleave planner.</summary>
+    private readonly List<int> _translucentLeaves = [];
+
+    /// <summary>The translucent pass's steps, reused a frame to the next.</summary>
+    private readonly List<InterleaveStep> _translucentSteps = [];
+
+    /// <summary>A translucent model's leaf place — <c>m_iWorldListInfoLeaf</c>, the nearest listed leaf it touches.</summary>
+    /// <param name="instance">The model.</param>
+    /// <returns>Its place, or 0 (drawn after every leaf's surfaces) when it has no box or touches no listed leaf.</returns>
+    /// <remarks>
+    /// <c>ComputeTranslucentRenderLeaf</c> (<c>clientleafsystem.cpp:1400</c>). The engine's list only ever holds an
+    /// entity in a visible leaf; a model this port keeps without one — no bounds, which is never culled — goes with
+    /// the nearest leaf, where every translucent model went before the interleave (B426).
+    /// </remarks>
+    private int TranslucentLeaf(ModelInstance instance)
+    {
+        if (_culling is not { } culling || !WorldSpaceBounds.IsPlaced(instance.WorldBounds))
+        {
+            return 0;
+        }
+
+        (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
+
+        return Math.Max(culling.PositionOf(minX, minY, minZ, maxX, maxY, maxZ), 0);
+    }
 
     /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>
     private ((float X, float Y, float Z) Origin, (float Pitch, float Yaw, float Roll) Angles,

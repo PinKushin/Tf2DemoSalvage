@@ -36,16 +36,16 @@ public sealed class TranslucentOrderTests
         ModelInstance near = At(100f, "models/near.mdl");
         ModelInstance far = At(900f, "models/far.mdl");
 
-        List<(float Along, ModelInstance Entry)> forwards =
+        List<(int Leaf, float Along, ModelInstance Entry)> forwards =
         [
-            (TranslucentOrder.Along(near, Eye, LookingAlongX), near),
-            (TranslucentOrder.Along(far, Eye, LookingAlongX), far),
+            (0, TranslucentOrder.Along(near, Eye, LookingAlongX), near),
+            (0, TranslucentOrder.Along(far, Eye, LookingAlongX), far),
         ];
 
-        List<(float Along, ModelInstance Entry)> backwards =
+        List<(int Leaf, float Along, ModelInstance Entry)> backwards =
         [
-            (TranslucentOrder.Along(far, Eye, LookingAlongX), far),
-            (TranslucentOrder.Along(near, Eye, LookingAlongX), near),
+            (0, TranslucentOrder.Along(far, Eye, LookingAlongX), far),
+            (0, TranslucentOrder.Along(near, Eye, LookingAlongX), near),
         ];
 
         TranslucentOrder.Sort(forwards);
@@ -57,6 +57,20 @@ public sealed class TranslucentOrderTests
         backwards[0].Entry.ModelPath.ShouldBe(
             "models/near.mdl", "the order must not depend on the input order");
         backwards[1].Entry.ModelPath.ShouldBe("models/far.mdl");
+    }
+
+    /// <remarks>
+    /// **The leaf place outranks the distance** (<c>clientleafsystem.cpp:1822-1834</c>, B426): a nearer entity in a
+    /// farther leaf still comes after a farther entity in a nearer leaf.
+    /// </remarks>
+    [Test]
+    public void Sort_ANearerEntityInAFartherLeaf_ComesAfterTheNearerLeaf()
+    {
+        List<(int Leaf, float Along, string Entry)> entries = [(2, 100f, "near, far leaf"), (1, 900f, "far, near leaf")];
+
+        TranslucentOrder.Sort(entries);
+
+        entries[0].Entry.ShouldBe("far, near leaf");
     }
 
     /// <remarks>

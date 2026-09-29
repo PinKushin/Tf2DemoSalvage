@@ -2008,10 +2008,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
     ///
     /// Set on a view change, like the camera, because it is a function of the camera.
     ///
-    /// **The OPAQUE world pass only.** The translucent runs are depth-sorted once at upload and the
-    /// additive ones walk the full list; both therefore keep drawing everything. That is the
-    /// conservative direction — more work, never a missing surface — and culling them properly means
-    /// re-sorting by depth per view, which is its own piece of work.
+    /// **The OPAQUE world pass only.** The translucent and additive runs of a culled view are
+    /// <see cref="TranslucentLeaves"/>, per leaf (B426).
     /// </remarks>
     public IReadOnlyList<WorldBatch>? VisibleBatches { get; set; }
 
@@ -3434,8 +3432,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// (<c>:4577-4601</c>) and finished after the loop (<c>:4694</c>). Drawn inside <see cref="Draw"/> they went
     /// before every model, so an opaque prop behind glass painted over it (B426).
     ///
-    /// **Not yet the per-leaf interleave**: this port's translucent runs are per material, not per leaf, so
-    /// the whole translucent world is drawn before the translucent models rather than between them.
+    /// **The fallback for a map that cannot be culled**: with no leaves there is nothing to interleave by, so
+    /// the whole translucent world is drawn before the translucent models. A culled map draws it leaf by leaf
+    /// between them instead — <see cref="DrawTranslucentLeaf"/>.
     /// </remarks>
     public void DrawTranslucentWorld(ComPtr<ID3D11DeviceContext> context)
     {
@@ -5749,41 +5748,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _sortedTranslucent)
         {
-            if (batch.MaterialIndex >= _textures.Count ||
-                _textures[batch.MaterialIndex].Handle is null)
-            {
-                continue;
-            }
-
-            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
-
-            ComPtr<ID3D11ShaderResourceView> stillDetail =
-                batch.MaterialIndex < _details.Count &&
-                _details[batch.MaterialIndex].Handle is not null
-                    ? _details[batch.MaterialIndex]
-                    : _white;
-
-            ComPtr<ID3D11ShaderResourceView> bump =
-                batch.MaterialIndex < _bumps.Count &&
-                _bumps[batch.MaterialIndex].Handle is not null
-                    ? _bumps[batch.MaterialIndex]
-                    : _white;
-
-            SetMaterial(context, batch.MaterialIndex, batch.Category);
-
-            // **The animated frame outranks the still one** (B342), and is chosen AFTER the chain
-            // has run (B343): for a material running `AnimatedTexture` on `$detail`, the still
-            // texture IS frame zero, and the frame itself is a variable the chain writes.
-            ComPtr<ID3D11ShaderResourceView> detail =
-                DetailFrame(batch.MaterialIndex, stillDetail);
-
-            texture = AnimationFrame(batch.MaterialIndex, texture);
-
-            context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
-            context.PSSetShaderResources(3, 1, ref detail);
-            context.PSSetShaderResources(4, 1, ref bump);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            DrawBlendedBatch(context, batch, additive: false);
         }
 
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
@@ -5802,38 +5767,127 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         foreach (WorldBatch batch in _batches)
         {
-            if (!_additive.Contains(batch.MaterialIndex) ||
-                batch.MaterialIndex >= _textures.Count ||
-                _textures[batch.MaterialIndex].Handle is null)
+            if (_additive.Contains(batch.MaterialIndex))
             {
-                continue;
+                DrawBlendedBatch(context, batch, additive: true);
             }
-
-            ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
-
-            ComPtr<ID3D11ShaderResourceView> stillDetail =
-                batch.MaterialIndex < _details.Count &&
-                _details[batch.MaterialIndex].Handle is not null
-                    ? _details[batch.MaterialIndex]
-                    : _white;
-
-            SetMaterial(context, batch.MaterialIndex, batch.Category);
-
-            // **Both frames chosen after the chain has run** (B343), because the chain is what
-            // writes `$frame` and `$detailframe`.
-            ComPtr<ID3D11ShaderResourceView> detail =
-                DetailFrame(batch.MaterialIndex, stillDetail);
-
-            texture = AnimationFrame(batch.MaterialIndex, texture);
-
-            context.PSSetShaderResources(0, 1, ref texture);
-            context.PSSetShaderResources(2, 1, ref texture);
-            context.PSSetShaderResources(3, 1, ref detail);
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
 
         // Back to ordinary painting, or every later frame keeps adding.
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+    }
+
+    /// <summary>Binds one blended world run's material and textures and draws it; the caller set the blend state.</summary>
+    /// <param name="context">The device context.</param>
+    /// <param name="batch">The run.</param>
+    /// <param name="additive">An additive run, which binds no bump map (as its pass always has).</param>
+    private void DrawBlendedBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, bool additive)
+    {
+        if (batch.MaterialIndex >= _textures.Count ||
+            _textures[batch.MaterialIndex].Handle is null)
+        {
+            return;
+        }
+
+        ComPtr<ID3D11ShaderResourceView> texture = _textures[batch.MaterialIndex];
+
+        ComPtr<ID3D11ShaderResourceView> stillDetail =
+            batch.MaterialIndex < _details.Count &&
+            _details[batch.MaterialIndex].Handle is not null
+                ? _details[batch.MaterialIndex]
+                : _white;
+
+        SetMaterial(context, batch.MaterialIndex, batch.Category);
+
+        // **The animated frame outranks the still one** (B342), and is chosen AFTER the chain
+        // has run (B343): for a material running `AnimatedTexture` on `$detail`, the still
+        // texture IS frame zero, and the frame itself is a variable the chain writes.
+        ComPtr<ID3D11ShaderResourceView> detail =
+            DetailFrame(batch.MaterialIndex, stillDetail);
+
+        texture = AnimationFrame(batch.MaterialIndex, texture);
+
+        context.PSSetShaderResources(0, 1, ref texture);
+        context.PSSetShaderResources(2, 1, ref texture);
+        context.PSSetShaderResources(3, 1, ref detail);
+
+        if (!additive)
+        {
+            ComPtr<ID3D11ShaderResourceView> bump =
+                batch.MaterialIndex < _bumps.Count &&
+                _bumps[batch.MaterialIndex].Handle is not null
+                    ? _bumps[batch.MaterialIndex]
+                    : _white;
+
+            context.PSSetShaderResources(4, 1, ref bump);
+        }
+
+        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+    }
+
+    /// <summary>The visible translucent and additive world runs by leaf place, or null to draw them all at once.</summary>
+    /// <remarks>
+    /// Set by <c>Device3D</c> from <c>WorldCulling.BlendedRuns</c> beside <see cref="VisibleBatches"/>; null for a map
+    /// that cannot be culled, which keeps <see cref="DrawTranslucentWorld"/> (B426).
+    /// </remarks>
+    public TranslucentLeafRuns? TranslucentLeaves { get; set; }
+
+    /// <summary>Whether a material draws in the translucent pass — translucent or additive.</summary>
+    /// <param name="material">The material index.</param>
+    /// <returns>True for a blended material.</returns>
+    public bool IsBlendedMaterial(int material) =>
+        _translucent.Contains(material) || _additive.Contains(material);
+
+    /// <summary>One leaf's translucent and additive world runs — <c>DrawTranslucentSurfaces</c> for one leaf.</summary>
+    /// <param name="context">Context to issue the draws on.</param>
+    /// <param name="position">The leaf's place in the world list.</param>
+    /// <returns>Whether anything was drawn, so the caller knows the world's state is bound now.</returns>
+    /// <remarks>
+    /// Called between translucent models by the interleave (<c>viewrender.cpp:4313</c>, B426). Each run takes its own
+    /// blend, alpha or additive, in the leaf's order; an empty leaf binds nothing, as
+    /// <c>LeafContainsTranslucentSurfaces</c> skips it (<c>:4306</c>).
+    /// </remarks>
+    public bool DrawTranslucentLeaf(ComPtr<ID3D11DeviceContext> context, int position)
+    {
+        if (TranslucentLeaves is not { } leaves || _alphaBlend.Handle is null || _addBlend.Handle is null)
+        {
+            return false;
+        }
+
+        (int first, int count) = leaves.Leaf(position);
+
+        if (count == 0)
+        {
+            return false;
+        }
+
+        uint stride = VertexStride;
+        uint offset = 0;
+        float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        // A model draw bound its own buffer, shaders and matrix; take the world's back.
+        BindPipeline(context);
+        context.RSSetState(Raster(_bothSides));
+        context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        SetModel(context, Identity);
+
+        if (_depthReadOnly.Handle is not null)
+        {
+            context.OMSetDepthStencilState(_depthReadOnly, 0);
+        }
+
+        for (int at = first; at < first + count; at++)
+        {
+            WorldBatch batch = leaves.Runs[at];
+            bool additive = _additive.Contains(batch.MaterialIndex);
+
+            context.OMSetBlendState(additive ? _addBlend : _alphaBlend, factor, 0xFFFFFFFF);
+            DrawBlendedBatch(context, batch, additive);
+        }
+
+        context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
+
+        return true;
     }
 
     /// <inheritdoc />
@@ -5922,6 +5976,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();
+
+        // Gathered against the material kinds just cleared; Device3D gathers again on its next camera (B426).
+        TranslucentLeaves = null;
 
         if (_lightmap.Handle is not null)
         {
