@@ -106,6 +106,23 @@ public sealed class WorldDynamicLightConformanceTests
         world.Bits(0).ShouldBe(bits);
     }
 
+    /// <remarks>
+    /// The root splits on x = 1000, far behind the light, so the walk takes the back child into leaf 0 (`0x1800d4520`),
+    /// whose faces are tried unless `SURFDRAW_NODE` says a node pass owns them (`0x1800d4680`: `*surf &amp; 2`).
+    /// </remarks>
+    [TestCase(false, 1u)]
+    [TestCase(true, 0u)]
+    public void Frame_AFaceReachedThroughALeaf_IsMarkedUnlessItLiesOnANode(bool onNode, uint bits)
+    {
+        DecalWorld leafy = new(
+            [new DecalNode(-1, -1, Vector3.UnitX, 1000f, 0, 0)], [[0]], [Floor() with { OnNode = onNode }]);
+        WorldDynamicLights world = new(leafy);
+
+        world.Frame(Lights((32f, 32f, 24f)), Atlas(), _ => 1f, []);
+
+        world.Bits(0).ShouldBe(bits);
+    }
+
     [Test]
     public void Frame_ALightWhoseCircleMissesTheLuxelRectangle_MarksNothing()
     {
@@ -193,6 +210,33 @@ public sealed class WorldDynamicLightConformanceTests
         dirty.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// A face's bits are ORed, never reset, by the marking pass, so light 0's bit from the first frame is still on the
+    /// face when light 1 marks it in the second. `0x1800d0ba0` then drops light 0 on its own plane test: it has moved
+    /// 50 units behind the floor.
+    /// </remarks>
+    [Test]
+    public void Frame_AStaleBitWhoseLightMovedBehindThePlane_IsDroppedByTheBuildsOwnPlaneTest()
+    {
+        LightmapAtlas atlas = Atlas();
+        WorldDynamicLights world = new(World());
+        DynamicLights lights = Lights((32f, 32f, 24f));
+
+        world.Frame(lights, atlas, _ => 1f, []);
+
+        (lights.Dlights[0].X, lights.Dlights[0].Y, lights.Dlights[0].Z) = (32f, 32f, -50f);
+        DynamicLight second = lights.AllocDlight(2);
+        (second.X, second.Y, second.Z) = (32f, 32f, 24f);
+        second.Radius = 100f;
+        (second.Red, second.Green, second.Blue, second.Exponent) = (255, 255, 255, 2);
+        second.Die = 2f;
+
+        world.Frame(lights, atlas, _ => 1f, []);
+
+        world.Bits(0).ShouldBe(0b10u);
+        Texel(atlas, 0, 2, 2).ShouldBe((byte)32);
+    }
+
     [Test]
     public void Frame_ABumpedFaceUnderALight_AddsEachBasisVectorsShare()
     {
@@ -226,12 +270,31 @@ public sealed class WorldDynamicLightConformanceTests
     }
 
     [Test]
-    public void Pushes_ALiveLight_IsWalkedAndADeadOneIsNot()
+    public void Frame_ABumpedLuxelLitAtASlant_DividesByTheNormalsShareAndSkipsABasisFacingAway()
+    {
+        LightmapAtlas atlas = Atlas(bumped: true);
+        WorldDynamicLights world = new(World());
+
+        world.Frame(Lights((0f, 32f, 24f)), atlas, _ => 1f, []);
+
+        // Luxel (0, 0): dist² 1600, falloff 0.0205078; direction (0, 0.8, 0.6), so the share is 0.0205078 / 0.6.
+        // Basis 0 takes 1020 · 0.34641 · 0.0341797 = 12.08 → 6, basis 1 · 0.91210 = 31.80 → 15, basis 2 faces away.
+        Texel(atlas, 0, 0, 0).ShouldBe((byte)10);
+        Texel(atlas, 1, 0, 0).ShouldBe((byte)6);
+        Texel(atlas, 2, 0, 0).ShouldBe((byte)15);
+        Texel(atlas, 3, 0, 0).ShouldBe((byte)0);
+    }
+
+    [Test]
+    public void Pushes_ALiveLight_IsWalkedAndADeadOrWorldRefusingOneIsNot()
     {
         DynamicLights lights = Lights((0f, 0f, 24f));
 
         WorldDynamicLights.Pushes(lights.Dlights[0], 1f).ShouldBeTrue();
         WorldDynamicLights.Pushes(lights.Dlights[0], 2.5f).ShouldBeFalse();
+
+        lights.Dlights[0].Flags = DynamicLights.NoWorldIllumination;
+        WorldDynamicLights.Pushes(lights.Dlights[0], 1f).ShouldBeFalse();
     }
 
     /// <summary>A white-coloured dlight of radius 100 at 2^2, key 1 (slot 0), alive until 2 at time 1.</summary>

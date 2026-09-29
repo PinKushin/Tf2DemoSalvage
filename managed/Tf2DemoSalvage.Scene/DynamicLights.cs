@@ -265,6 +265,41 @@ public sealed class DynamicLights
     public bool LightsModels(int index) =>
         index is >= 0 and < MaxDlights && (_active & (1u << index)) != 0 && (_dlights[index].Flags & NotOnModels) == 0;
 
+    /// <summary>Whether a dlight's bit is set in `r_dlightactive`.</summary>
+    /// <param name="index">The dlight's slot.</param>
+    /// <returns>True for a live slot.</returns>
+    public bool IsActive(int index) => index is >= 0 and < MaxDlights && (_active & (1u << index)) != 0;
+
+    /// <summary>The dlights as this frame draws them, copied into another list: `EndUpdateLightmaps`' copy of `cl_dlights`.</summary>
+    /// <param name="into">Overwritten: its time, its active mask and every dlight slot.</param>
+    /// <remarks>
+    /// `0x1800d5fa0` copies the 0x800 bytes of `cl_dlights` before the queued lightmaps are rebuilt from them. Taken
+    /// here before `CL_DecayLights`, because the viewer rebuilds lightmaps after its model pass has decayed the list.
+    /// </remarks>
+    public void CopyTo(DynamicLights into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        into.Time = Time;
+        into._active = _active;
+
+        for (int index = 0; index < MaxDlights; index++)
+        {
+            DynamicLight from = _dlights[index];
+            DynamicLight to = into._dlights[index];
+
+            to.Reset(from.Key);
+            to.Flags = from.Flags;
+            (to.X, to.Y, to.Z) = (from.X, from.Y, from.Z);
+            to.Radius = from.Radius;
+            (to.Red, to.Green, to.Blue, to.Exponent) = (from.Red, from.Green, from.Blue, from.Exponent);
+            (to.Die, to.Decay, to.MinLight) = (from.Die, from.Decay, from.MinLight);
+            to.Style = from.Style;
+            to.Direction = from.Direction;
+            (to.InnerAngle, to.OuterAngle) = (from.InnerAngle, from.OuterAngle);
+        }
+    }
+
     /// <summary>`CL_ClearState` (`0x18008b030`): both arrays zeroed, as at a level change.</summary>
     public void Clear()
     {
