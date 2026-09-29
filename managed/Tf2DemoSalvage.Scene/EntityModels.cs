@@ -597,8 +597,21 @@ public sealed class EntityModelSet : Hud.IMdlCache
             return built;
         }
 
-        if (!StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner) &&
-            !TryLightOnCpu(prop, pose, x, y, z, out byCorner))
+        if (StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner))
+        {
+            // A `.vhv` mesh `FUN_1800f1550` never wrote takes the CPU bake (B436); with none, the prop is lit per draw.
+            if (Array.Exists(byCorner, float.IsNaN))
+            {
+                byCorner = (float[])byCorner.Clone();
+
+                if (!PropModels.FillUnfilled(byCorner, TryLightOnCpu(prop, pose, x, y, z, out float[] cpu) ? cpu : null))
+                {
+                    _bakedByEntity[prop.EntityIndex] = null;
+                    return null;
+                }
+            }
+        }
+        else if (!TryLightOnCpu(prop, pose, x, y, z, out byCorner))
         {
             return null;
         }

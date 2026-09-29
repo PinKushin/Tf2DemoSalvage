@@ -32,7 +32,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <c>.mdl</c> and <c>.vtx</c>. The format mixes conventions across files with nothing marking
 /// which is which, and this is the third convention in the model chain.
 ///
-/// **The checksum must match the model's**, which is the engine's own guard: a map recompiled
+/// **The checksum must match the model's**, which is the engine's own guard (`engine.dll` `0x1800f4760` compares the
+/// header's version, checksum and vertex size at level load; a failure there makes the prop CPU-baked, B436): a map recompiled
 /// against a changed model leaves lighting that no longer corresponds to its vertices, and applying
 /// it silently would light the wrong parts of the prop.
 ///
@@ -42,6 +43,9 @@ public static class StudioVertexLighting
 {
     /// <summary>The version the format has carried since it was introduced.</summary>
     private const int SupportedVersion = 2;
+
+    /// <summary>The only vertex size `0x1800f4760` accepts: one BGRA colour.</summary>
+    private const int SupportedVertexSize = 4;
 
     private const int HeaderBytes = 40;
     private const int MeshHeaderBytes = 28;
@@ -115,7 +119,9 @@ public static class StudioVertexLighting
 
         int meshes = BinaryPrimitives.ReadInt32LittleEndian(bytes[MeshCountOffset..]);
 
-        if (vertexSize is < 4 or > 64)
+        // `engine.dll` `0x1800f4760` accepts a header only at version 2, the model's checksum AND a vertex size of
+        // exactly 4; anything else sets the prop's "bad .vhv" bit and it is CPU-baked instead (B436).
+        if (vertexSize != SupportedVertexSize)
         {
             // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
             // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
