@@ -480,6 +480,65 @@ public sealed class MomentSceneTests
         drawn.Locals.ShouldBeEmpty("nor the lamp beside it");
     }
 
+    /// <remarks>
+    /// **B424, through the production route.** `FUN_1801bb830` (`engine.dll`) sends a baked prop to full lighting
+    /// (`FUN_1801ba590(…, 7)`, baked colours unused) in a frame where a light in its handle's list — styled, in the
+    /// PVS of its leaf, reaching its lighting origin (`FUN_1801b6bf0`) — has `DAT_18069dd40[style] > 1`, the pattern
+    /// length `R_AnimateLight` (`0x1800d3ec0`) stores. Style 0 never enters the list; nor does a light out of PVS or reach.
+    /// </remarks>
+    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 0, 0f, true)]
+    [TestCase("m", 5, 0, 0f, false)]
+    [TestCase(StyledLightFallbackConformanceTests.Flicker, 0, 0, 0f, false)]
+    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 1, 0f, false)]
+    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 0, 10f, false)]
+    public void Pose_ABakedStaticPropBesideAStyledLamp_TakesFullLightingOnlyWhenItAnimates(
+        string pattern, int style, int cluster, float radius, bool full)
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+        };
+
+        models.StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] };
+
+        LightStyleValues values = new();
+        values.Set(style, pattern);
+
+        LevelLighting lighting = StyledLightFallbackConformanceTests.Map(
+            [StyledLightFallbackConformanceTests.Lamp(style, cluster, radius)]);
+        lighting.StyleAnimates = values.Animates;
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+
+        if (full)
+        {
+            drawn.BakedColours.ShouldBeNull("an animated listed light drops the baked colours for the frame");
+            drawn.Light.ShouldNotBeNull("the handle's cube");
+            drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+        }
+        else
+        {
+            drawn.BakedColours.ShouldBe([.5f, .5f, .5f]);
+            drawn.Locals.ShouldBeEmpty();
+        }
+    }
+
 
     /// <summary>
     /// One weapon with a display model, so <c>Weapons.For</c> can answer in a unit test.

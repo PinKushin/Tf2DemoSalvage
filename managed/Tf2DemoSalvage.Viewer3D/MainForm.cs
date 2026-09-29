@@ -5392,6 +5392,9 @@ internal class MainForm : Form, IFrameSteps
 
         lighting.StyleScale ??= style => _lightStyles.Scale(style);
 
+        // A baked static prop under an animated style takes full lighting that frame (B424, `FUN_1801bb830`).
+        lighting.StyleAnimates ??= style => _lightStyles.Animates(style);
+
         if (changed.Count > 0 && lighting.Answers(changed))
         {
             lighting.StylesChanged();

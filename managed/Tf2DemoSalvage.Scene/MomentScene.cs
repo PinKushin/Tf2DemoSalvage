@@ -190,7 +190,17 @@ public sealed class MomentScene : IGameSystemPerFrame
     }
 
     /// <summary>What light the map casts, set when a map is read.</summary>
-    public LevelLighting Lighting { get; set; } = LevelLighting.Unlit(NullLogger.Instance);
+    public LevelLighting Lighting
+    {
+        get;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            field = value;
+            _models.BakedFallsBack = value.TakesFullLighting;
+        }
+    } = LevelLighting.Unlit(NullLogger.Instance);
 
     /// <summary>The map's static props drawn as models every moment, set when a map is read (B426).</summary>
     public IReadOnlyList<SceneProp> StaticProps { get; set; } = [];

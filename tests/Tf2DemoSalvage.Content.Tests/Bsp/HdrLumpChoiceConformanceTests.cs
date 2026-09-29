@@ -49,6 +49,20 @@ public sealed class HdrLumpChoiceConformanceTests
         BspAmbientLight.Read(map)[0].Samples[0].X.ShouldBe(10f / 255f);
     }
 
+    /// <remarks>B424: `FUN_1801b6bf0` reads `dworldlight_t.cluster` at `+0x24` and the style at `+0x2c`.</remarks>
+    [Test]
+    public void WorldLightsRead_ALightsClusterAndStyle_AreItsOwnFields()
+    {
+        byte[] light = new byte[BspStructLayout.WorldLightStride];
+        light[0x24] = 7;
+        light[0x2c] = 5;
+
+        BspWorldLight read = BspWorldLights.Read(SyntheticBsp.Build(new Dictionary<int, byte[]> { [WorldLights] = light }))[0];
+
+        read.Cluster.ShouldBe(7);
+        read.Style.ShouldBe(5);
+    }
+
     [Test]
     public void WorldLightsRead_AMapCarryingBothSets_ReadsTheHdrLights()
     {

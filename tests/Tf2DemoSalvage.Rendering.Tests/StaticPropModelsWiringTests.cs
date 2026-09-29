@@ -4,6 +4,8 @@ using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 
+using Microsoft.Extensions.Logging.Abstractions;
+
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>Every static prop drawn as a model, on a real map (B426, D198).</summary>
@@ -55,6 +57,51 @@ public sealed class StaticPropModelsWiringTests
             .ShouldBe(0, "a baked placement given a cube or lamps");
         drawn.Count(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex) && instance.BakedColours is not null)
             .ShouldBe(0, "an unbaked placement drawn with colours");
+    }
+
+    /// <remarks>
+    /// **B424, on a real map.** `FUN_1801bb830` (`engine.dll`) drops a baked prop's colours for full lighting in a frame
+    /// where a light in its handle's list (`FUN_1801b6bf0`) has an animated style, `DAT_18069dd40[style] &gt; 1`. Measured
+    /// 2026-09-28 (`styledprops`): no gcor map carries a styled world light; `koth_dryfield` carries one light on style 1,
+    /// `world.cpp`'s FLICKER, reaching 56 placements. So with style 1 flickering some baked placements must reach the draw
+    /// without colours and lit, and with style 1 a single letter none may.
+    /// </remarks>
+    [TestCase("mmnmmommommnonmmonqnmmo", true)]
+    [TestCase("m", false)]
+    public void Instances_KothDryfieldWithStyleOne_DropsBakedColoursOnlyWhileItFlickers(string pattern, bool flickers)
+    {
+        const string Map = "koth_dryfield";
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+
+        LightStyleValues values = new();
+        values.Set(1, pattern);
+        lighting.StyleAnimates = values.Animates;
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            BakedFallsBack = lighting.TakesFullLighting,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        List<ModelInstance> dropped =
+            [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex) && instance.BakedColours is null)];
+
+        if (flickers)
+        {
+            dropped.Count.ShouldBeInRange(1, 56);
+            dropped.ShouldAllBe(instance => instance.Light != null, "a dropped placement takes its handle's cube");
+        }
+        else
+        {
+            dropped.ShouldBeEmpty();
+        }
     }
 
     /// <remarks>

@@ -316,6 +316,47 @@ public static class LocalLights
         return count;
     }
 
+    /// <summary>Whether a light's contribution at a point is positive, as a static prop's handle list admits it.</summary>
+    /// <param name="light">The world light.</param>
+    /// <param name="x">The handle's lighting origin.</param>
+    /// <param name="y">The handle's lighting origin.</param>
+    /// <param name="z">The handle's lighting origin.</param>
+    /// <returns>True when it reaches.</returns>
+    /// <remarks>
+    /// `engine.dll` `FUN_1801b99a0` → `FUN_1801b9570` with flags `9|2`: bit 8 skips the style scale and bit 2 the
+    /// trace, so this is the distance falloff (radius cutoff included), a spotlight's or surface light's cone, and
+    /// `r_worldlightmin` for every kind but `emit_surface`. Sky and sky-ambient lights never reach a point this way.
+    /// `FUN_1801b99a0`'s pre-culls against the prop's bounds are skipped: for an origin inside the bounds they reject
+    /// nothing the point test keeps. ponytail: add them if a lighting origin outside its bounds ever matters.
+    /// </remarks>
+    public static bool Reaches(BspWorldLight light, float x, float y, float z)
+    {
+        if (!IsLocal(light.Kind) && light.Kind != WorldLightKind.Surface)
+        {
+            return false;
+        }
+
+        float falloff = Distance(light, x, y, z);
+
+        if (light.Kind is WorldLightKind.Spotlight or WorldLightKind.Surface)
+        {
+            float dx = light.Origin.X - x;
+            float dy = light.Origin.Y - y;
+            float dz = light.Origin.Z - z;
+            float length = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
+
+            falloff = length > 0f ? falloff * Cone(light, dx / length, dy / length, dz / length) : falloff;
+        }
+
+        if (falloff <= 0f)
+        {
+            return false;
+        }
+
+        return light.Kind == WorldLightKind.Surface ||
+            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
+    }
+
     /// <summary>vrad's all-zero rule, applied once so no caller has to know it.</summary>
     private static (float Constant, float Linear, float Quadratic) Normalised(BspWorldLight light)
     {
