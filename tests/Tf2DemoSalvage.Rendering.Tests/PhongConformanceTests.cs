@@ -324,9 +324,6 @@ public sealed class PhongConformanceTests
         // (`PixelShaderAmbientLight(vEyeDir, cAmbientCube)`), so a model picks up its surroundings
         // on the rim even with no direct light on it. The `worldSpaceNormal.z` is an upward bias:
         // the sky end of the cube contributes most on upward-facing edges.
-        //
-        // That second term matters more here than in the engine, because this renderer gives a
-        // model one directional light and TF2 gives it several.
         string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
 
         shader.ShouldContain(
@@ -342,6 +339,78 @@ public sealed class PhongConformanceTests
         shader.ShouldContain(
             "specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z);",
             Case.Sensitive);
+    }
+
+    [Test]
+    public void Phong_TheHighlight_IsSummedOverEveryLocalLight()
+    {
+        // **Every light the model is given, not the sun alone** (B170). The call names the count and the
+        // array, and its comment says what it is for (skin_ps20b.fxc:286-289):
+        //
+        //     // Summation of specular from all local lights besides the flashlight
+        //     PixelShaderDoSpecularLighting( vWorldPos, worldSpaceNormal,
+        //         fSpecExp, vEyeDir, vLightAtten,
+        //         nNumLights, cLightInfo, false, 1.0f, bDoSpecularWarp,
+        string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
+        string source = Sdk("src/materialsystem/stdshaders/common_vertexlitgeneric_dx9.h");
+        string vertex = Sdk("src/materialsystem/stdshaders/skin_vs20.fxc");
+        string studio = Sdk("src/public/istudiorender.h");
+
+        shader.ShouldContain("// Summation of specular from all local lights besides the flashlight", Case.Sensitive);
+        shader.ShouldContain("nNumLights, cLightInfo, false, 1.0f, bDoSpecularWarp,", Case.Sensitive);
+
+        // Each light's term accumulated, the rim's beside it (common_vertexlitgeneric_dx9.h:343-344), each
+        // computed with the light's colour TIMES ITS OWN attenuation (:255) — which the vertex shader works
+        // out per light (skin_vs20.fxc:155-158).
+        source.ShouldContain("specularLighting += localSpecularTerm;", Case.Sensitive);
+        source.ShouldContain("rimLighting += localRimTerm;", Case.Sensitive);
+        source.ShouldContain("bDoSpecularWarp, specularWarpSampler, fFresnel, vLightColor * fAtten,", Case.Sensitive);
+        vertex.ShouldContain("o.lightAtten.x = GetVertexAttenForLight( worldPos, 0, true );", Case.Sensitive);
+        vertex.ShouldContain("o.worldPos_atten3.w = GetVertexAttenForLight( worldPos, 3, true );", Case.Sensitive);
+
+        // **The highlight's light vector is the diffuse's** — both `normalize( pos - worldPos )` (:149, :132),
+        // so a lamp lights and shines from one direction.
+        source.ShouldContain("return normalize( cLightInfo[nLightIndex].pos - worldPos );", Case.Sensitive);
+        source.ShouldContain("float3 lightDir = normalize( vPosition - worldPos );", Case.Sensitive);
+
+        // **And the sun is one of those lights**: the studio render takes four `LightDesc_t`, a directional
+        // type among them, and the cube carries what did not make the four (istudiorender.h:215-217).
+        studio.ShouldContain("// ambient, and lights that aren't in locallight[]", Case.Sensitive);
+        studio.ShouldContain("m_LocalLightDescs[4];", Case.Sensitive);
+    }
+
+    [Test]
+    public void RimLight_TheCubeHalf_IsMaskedAlongTheEyeAndTintedWithTheRest()
+    {
+        // **Three details of the rim's cube half, each easy to lose** (skin_ps20b.fxc):
+        //
+        //     float3 vEyeDir = normalize(i.worldVertToEyeVectorXYZ_tangentSpaceVertToEyeVectorZ.xyz);  // :185
+        //     float3 vRimAmbientCubeColor = PixelShaderAmbientLight(vEyeDir, cAmbientCube);           // :186
+        //     float fRimMultiply = fRimMask * fRimFresnel;                                              // :353
+        //     specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z); // :362
+        //     float3 result = specularLighting*vSpecularTint + envMapColor + diffuseComponent;        // :365
+        //
+        // The cube is read along the direction TO the eye — the vertex shader writes `cEyePos - worldPos`
+        // (skin_vs20.fxc:135) — so the face toward the viewer lights the rim. The rim MASK is inside the
+        // saturate, so a masked texel takes none of the cube either. And the tint multiplies the whole
+        // specular after the rim is folded in, so a tinted material's rim is tinted too.
+        string shader = Sdk("src/materialsystem/stdshaders/skin_ps20b.fxc");
+        string vertex = Sdk("src/materialsystem/stdshaders/skin_vs20.fxc");
+
+        vertex.ShouldContain("o.worldVertToEyeVector = VSHADER_VECT_SCALE * (cEyePos - worldPos);", Case.Sensitive);
+        shader.ShouldContain("float3 vRimAmbientCubeColor = PixelShaderAmbientLight(vEyeDir, cAmbientCube);", Case.Sensitive);
+        shader.ShouldContain("float fRimMultiply = fRimMask * fRimFresnel;", Case.Sensitive);
+        shader.ShouldContain("rimLighting *= fRimMultiply;", Case.Sensitive);
+
+        shader.ShouldContain(
+            "specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z);",
+            Case.Sensitive);
+
+        // The fold and the cube come before the tint, in the file's own order.
+        shader.IndexOf("specularLighting = max( specularLighting, rimLighting );", StringComparison.Ordinal)
+            .ShouldBeLessThan(
+                shader.IndexOf("float3 result = specularLighting*vSpecularTint", StringComparison.Ordinal),
+                "the tint is applied to the specular after the rim is folded into it");
     }
 
     [Test]

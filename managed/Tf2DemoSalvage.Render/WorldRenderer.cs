@@ -771,6 +771,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return mixed / total;
         }
 
+        // **Which way a lamp is from a surface point.** `CosineTermInternal` (common_vs_fxc.h:814-817):
+        // toward the light, or against a directional one's travel. One function for the diffuse and
+        // the highlight, because the engine's pixel shader gives both the same
+        // `normalize( pos - worldPos )` (common_vertexlitgeneric_dx9.h:132, :149) — a lamp lights and
+        // shines from one direction.
+        float3 LampToward(int lamp, float3 wpos)
+        {
+            return lerp(
+                normalize(localLightPosition[lamp].xyz - wpos), -localLightDirection[lamp].xyz, localLightPosition[lamp].w);
+        }
+
         // **One local light's diffuse contribution — Valve's PixelShaderDoGeneralDiffuseLight.**
         // `common_vertexlitgeneric_dx9.h:124`: normalise the direction here, take the DiffuseTerm
         // against the normal, and multiply by the attenuation the vertex shader handed over.
@@ -784,10 +795,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 return float3(0.0f, 0.0f, 0.0f);
             }
 
-            // `CosineTermInternal` (common_vs_fxc.h:814-817): toward the light, or against a directional one's travel.
-            float3 toward = lerp(
-                normalize(localLightPosition[lamp].xyz - wpos), -localLightDirection[lamp].xyz, localLightPosition[lamp].w);
-            float towards = dot(normal, toward);
+            float towards = dot(normal, LampToward(lamp, wpos));
 
             // The same DiffuseTerm the sun takes, so a half-Lambert material shades both the same
             // way — Valve applies it inside DoLightInternal for every light, warp included.
@@ -803,6 +811,29 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 : float3(falloff, falloff, falloff);
 
             return localLightColour[lamp].rgb * attenuation * direct;
+        }
+
+        // **One light's highlight and rim — Valve's SpecularAndRimTerms** (common_vertexlitgeneric_dx9.h:167),
+        // given the light's colour already times its attenuation, which is how
+        // `PixelShaderDoSpecularLight` hands it over (:255). The rim takes its own exponent on the same
+        // L·R with the same N·L mask, and only for a material that has one (`bDoRimLighting`, :192).
+        void SpecularAndRimTerms(
+            float3 normal, float3 mirrored, float3 toward, float exponent, float3 colour,
+            inout float3 specularLighting, inout float3 rimLighting)
+        {
+            float lDotR = saturate(dot(mirrored, toward));
+
+            // **Masked by N·L, which is the half easy to drop.** Without it a highlight appears on the
+            // side of the model facing AWAY from the light, which reads as a material property rather
+            // than as a defect.
+            float facing = saturate(dot(normal, toward));
+
+            specularLighting += pow(lDotR, exponent) * facing * colour;
+
+            if (rimControl.z > 0.5f)
+            {
+                rimLighting += pow(lDotR, rimControl.x) * facing * colour;
+            }
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -1330,21 +1361,17 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // line is `result = specularLighting*vSpecularTint + envMapColor + diffuseComponent`
             // (skin_ps20b.fxc:365).
             //
-            // Gated on the SUN, which is the only direct light a model gets here. In the engine the
-            // term is summed over the light cache's local lights as well, and those do not reach a
-            // model in this renderer — so a highlight appears where the sun reaches and nowhere
-            // else. That is a smaller effect than TF2's, and it is the honest one to draw with what
-            // is decoded: a fabricated light would put highlights where no light is.
+            // **Summed over every light the model is given, the sun and the four lamps alike** (B170).
+            // `PixelShaderDoSpecularLighting` (common_vertexlitgeneric_dx9.h:321) runs
+            // `SpecularAndRimTerms` once per light and adds, so a model out of the sun and under a lamp
+            // keeps its highlight. This was gated on the sun, from when no lamp reached a model, and
+            // every $phong model indoors drew none.
             // `surfaceColours.y` is mat_phong, and it gates the whole term rather than scaling it:
             // Valve's switch removes the feature, it does not attenuate it.
-            if (surfaceColours.y > 0.5f &&
-                phongControl.z > 0.5f && sunColour.w > 0.5f && eyePosition.w > 0.5f)
+            if (surfaceColours.y > 0.5f && phongControl.z > 0.5f && eyePosition.w > 0.5f)
             {
                 float3 toEye = normalize(eyePosition.xyz - input.wpos);
                 float3 phongNormal = normalize(input.nrm);
-
-                // The direction TOWARD the light. sunDirection is the direction the light travels.
-                float3 toLight = -normalize(sunDirection.xyz);
 
                 // **The EYE reflected through the normal, dotted with the light** — Valve's own
                 // form, with `reflect( -vEyeDir, vWorldNormal )` left commented out beside it:
@@ -1371,14 +1398,54 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? phongControl.x
                     : (1.0f + (-phongControl.x * specExp.r));
 
-                float highlight = pow(saturate(dot(mirrored, toLight)), specularExponent);
+                float3 specularLighting = float3(0.0f, 0.0f, 0.0f);
+                float3 rimLighting = float3(0.0f, 0.0f, 0.0f);
 
-                // **Masked by N.L, which is the half easy to drop.** Without it a highlight appears
-                // on the side of the model facing AWAY from the light, which reads as a material
-                // property rather than as a defect.
-                highlight *= saturate(dot(phongNormal, toLight));
+                // **The sun is one of those lights in the engine** — a `MATERIAL_LIGHT_DIRECTIONAL` among
+                // the four `LightDesc_t` a model is drawn with (istudiorender.h:217). Here it rides beside
+                // the four lamps rather than in a slot, so it is added once, unattenuated as a directional
+                // light is (common_vs_fxc.h:806); no lamp slot carries it, because `LocalLights.IsLocal`
+                // leaves `emit_skylight` out. sunDirection is the way the light travels, so toward it is
+                // minus.
+                if (sunColour.w > 0.5f)
+                {
+                    SpecularAndRimTerms(
+                        phongNormal, mirrored, -normalize(sunDirection.xyz), specularExponent, sunColour.rgb,
+                        specularLighting, rimLighting);
+                }
 
-                float3 phong = highlight * sunColour.rgb;
+                // **The lamps, nested on the count as the diffuse is**, each with the attenuation the
+                // vertex shader worked out for it (skin_vs20.fxc:155-158) — `lightAtten.x` for light 0,
+                // and so on, exactly as `PixelShaderDoSpecularLighting` reads them.
+                float lamps = localLightFalloff[0].w;
+
+                if (lamps > 0.5f)
+                {
+                    SpecularAndRimTerms(
+                        phongNormal, mirrored, LampToward(0, input.wpos), specularExponent,
+                        localLightColour[0].rgb * input.lampAtten.x, specularLighting, rimLighting);
+
+                    if (lamps > 1.5f)
+                    {
+                        SpecularAndRimTerms(
+                            phongNormal, mirrored, LampToward(1, input.wpos), specularExponent,
+                            localLightColour[1].rgb * input.lampAtten.y, specularLighting, rimLighting);
+
+                        if (lamps > 2.5f)
+                        {
+                            SpecularAndRimTerms(
+                                phongNormal, mirrored, LampToward(2, input.wpos), specularExponent,
+                                localLightColour[2].rgb * input.lampAtten.z, specularLighting, rimLighting);
+
+                            if (lamps > 3.5f)
+                            {
+                                SpecularAndRimTerms(
+                                    phongNormal, mirrored, LampToward(3, input.wpos), specularExponent,
+                                    localLightColour[3].rgb * input.lampAtten.w, specularLighting, rimLighting);
+                            }
+                        }
+                    }
+                }
 
                 // The mask: the bump map's alpha, or the base texture's when the material says it
                 // has no normal map. Valve selects both the mask and the normal with one lerp.
@@ -1404,7 +1471,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     ? phongTint.rgb
                     : lerp(float3(1.0f, 1.0f, 1.0f), albedo.rgb, specExp.g);
 
-                float3 shine = phong * phongMask * phongControl.y * specularTint;
+                // Mask and boost once, over the sum: `specularLighting *= fSpecMask * g_SpecularBoost`
+                // (skin_ps20b.fxc:315).
+                specularLighting *= phongMask * phongControl.y;
 
                 // **The rim, folded in with MAX rather than added** — Valve's own line and their own
                 // reason (skin_ps20b.fxc:359): "Fold rim lighting into specular term by using the
@@ -1413,17 +1482,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 // reads as a blown edge rather than as a wrong operator.
                 if (rimControl.z > 0.5f)
                 {
-                    // The rim's own exponent, on the same L.R, with the same N.L mask.
-                    float rim = pow(saturate(dot(mirrored, toLight)), rimControl.x);
-                    rim *= saturate(dot(phongNormal, toLight));
-
-                    // **$rimmask: the exponent map's ALPHA, selected by a control that is zero
-                    // unless all three conditions hold** — `fRimMask = lerp( 1.0f, vSpecExpMap.a,
-                    // g_RimMaskControl )`, `skin_ps20b.fxc:257`. At zero the lerp is 1 and this
-                    // costs nothing, which is exactly why the parameter was inert rather than
-                    // missing for as long as no exponent texture was read.
-                    rim *= lerp(1.0f, specExp.a, rimControl.w);
-
                     // **Fresnel4, not the ranged one**, and Valve annotates the difference:
                     // "modulated with tint, mask and traditional Fresnel (not using Fresnel
                     // ranges)". A material's $phongfresnelranges must not widen its silhouette
@@ -1432,28 +1490,36 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     edging = edging * edging;
                     edging = edging * edging;
 
-                    shine = max(shine, rim * edging * sunColour.rgb);
+                    // **$rimmask times Fresnel4, ONE factor for both halves of the rim** —
+                    // `float fRimMultiply = fRimMask * fRimFresnel;` (skin_ps20b.fxc:353). The mask is
+                    // the exponent map's ALPHA, selected by a control that is zero unless all three
+                    // conditions hold — `fRimMask = lerp( 1.0f, vSpecExpMap.a, g_RimMaskControl )`,
+                    // `:257` — and at zero the lerp is 1, which is why the parameter was inert rather
+                    // than missing for as long as no exponent texture was read.
+                    float rimMultiply = lerp(1.0f, specExp.a, rimControl.w) * edging;
+
+                    specularLighting = max(specularLighting, rimLighting * rimMultiply);
 
                     // **And the half that needs no direct light at all**: the ambient cube sampled
-                    // along the EYE, biased upward by the normal's height. This is what lets a model
-                    // catch its surroundings on the edge in shade, and it matters more here than in
-                    // the engine — TF2 gives a model several lights and this renderer gives it one.
-                    if (ambientCube[0].w > 0.5f)
-                    {
-                        float3 alongView = -toEye;
-                        float3 viewSquared = alongView * alongView;
-                        int3 negative = alongView < 0.0f;
+                    // along the direction TO the eye — `PixelShaderAmbientLight(vEyeDir, cAmbientCube)`
+                    // (:186), vEyeDir being `cEyePos - worldPos` (skin_vs20.fxc:135) — biased upward by
+                    // the normal's height and masked by the same factor (:362). This is what lets a
+                    // model catch its surroundings on the edge with no light on it at all. It was read
+                    // along the view ray instead, away from the eye, and without the mask.
+                    float3 viewSquared = toEye * toEye;
+                    int3 negative = toEye < 0.0f;
 
-                        float3 surroundings =
-                            viewSquared.x * ambientCube[negative.x].rgb +
-                            viewSquared.y * ambientCube[negative.y + 2].rgb +
-                            viewSquared.z * ambientCube[negative.z + 4].rgb;
+                    float3 surroundings =
+                        viewSquared.x * ambientCube[negative.x].rgb +
+                        viewSquared.y * ambientCube[negative.y + 2].rgb +
+                        viewSquared.z * ambientCube[negative.z + 4].rgb;
 
-                        shine += surroundings * rimControl.y * saturate(edging * phongNormal.z);
-                    }
+                    specularLighting += surroundings * rimControl.y * saturate(rimMultiply * phongNormal.z);
                 }
 
-                lit += shine;
+                // **The tint LAST, over the rim as well** — `specularLighting*vSpecularTint` (:365) comes
+                // after the fold and the cube, so a tinted material's rim is tinted too.
+                lit += specularLighting * specularTint;
             }
 
             // **The baked reflection, ADDED rather than blended.** Valve's line is
