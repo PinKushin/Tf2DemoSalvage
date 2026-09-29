@@ -144,7 +144,8 @@ public sealed class WiringUiTests
             throwOnTimeout: true,
             timeoutMessage: "The first draw after the opening state never reported itself.");
 
-        Viewer.LastLine(line).ShouldEndWith(
+        // Trimmed: LastLine keeps the line's own terminator.
+        (Viewer.LastLine(line) ?? string.Empty).TrimEnd().ShouldEndWith(
             $"tick {ViewerSession.OpeningTick.ToString(CultureInfo.InvariantCulture)}");
     }
 
