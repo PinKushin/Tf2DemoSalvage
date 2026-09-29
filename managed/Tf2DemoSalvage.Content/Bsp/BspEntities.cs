@@ -384,6 +384,37 @@ public static class BspEntities
         return DefaultDetailSpriteMaterial;
     }
 
+    /// <summary>
+    /// <c>worldspawn</c>'s <c>minpropscreenwidth</c> and <c>maxpropscreenwidth</c> (`world.cpp:390-391`), the
+    /// level screen fade's range (B432); an absent or unreadable key is the field's zero.
+    /// </summary>
+    /// <param name="entities">The map's entities.</param>
+    /// <returns>The minimum and maximum width in pixels, as written.</returns>
+    /// <remarks>
+    /// `CWorld` networks both and `C_World::OnDataChanged` hands them to `SetLevelScreenFadeRange`
+    /// (`c_world.cpp:121`); the server only copies the keys, so the map is the same answer the wire gives.
+    /// </remarks>
+    public static (float Minimum, float Maximum) PropScreenWidths(IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        foreach (BspEntity entity in entities)
+        {
+            if (string.Equals(entity.ClassName, "worldspawn", StringComparison.OrdinalIgnoreCase))
+            {
+                return (Width(entity, "minpropscreenwidth"), Width(entity, "maxpropscreenwidth"));
+            }
+        }
+
+        return (0f, 0f);
+
+        static float Width(BspEntity world, string key) =>
+            world.TryGetValue(key, out string stated) &&
+            float.TryParse(stated, NumberStyles.Float, CultureInfo.InvariantCulture, out float width)
+                ? width
+                : 0f;
+    }
+
     /// <summary>`MAX_DETAIL_SPRITE_MATERIAL_NAME_LENGTH` — `c_world.h:47`.</summary>
     private const int DetailSpriteMaterialLength = 256;
 

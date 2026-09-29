@@ -632,6 +632,7 @@ public readonly record struct ScenePose
 /// light cache from. Null everywhere else.
 /// </param>
 /// <param name="StaticFade">A static prop's distance fade entry (B430); null everywhere else.</param>
+/// <param name="StaticScreen">A static prop's screen-fade inputs (B432); null everywhere else.</param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -779,7 +780,11 @@ public sealed record SceneProp(
     // **A static prop's fade entry, built at load as `UnserializeModels` builds it** (B430). Null for
     // every entity, which fades by `m_fadeMinDist`/`m_fadeMaxDist` instead, and for a static prop
     // without `STATIC_PROP_FLAG_FADES`.
-    StaticPropFade? StaticFade = null);
+    StaticPropFade? StaticFade = null,
+
+    // **A static prop's sphere and forced fade scale, for the screen fades** (B432). Set on every
+    // static prop, entry or not, because the level fade applies to all of them; null for every entity.
+    StaticPropScreen? StaticScreen = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

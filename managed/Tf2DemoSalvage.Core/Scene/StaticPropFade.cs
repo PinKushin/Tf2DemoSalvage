@@ -73,12 +73,11 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
     /// <returns>0 to 255.</returns>
     /// <remarks>
     /// The factor multiplies the offset BEFORE squaring, so a half factor halves the distance. A
-    /// screen-space entry is not a distance and is answered opaque here; see B430 for why that branch
-    /// is not ported.
+    /// screen-space entry is not a distance and is answered opaque here; <see cref="Opacity"/> sends it
+    /// to <see cref="ScreenAlpha"/> instead.
     /// </remarks>
     public byte Alpha((float X, float Y, float Z) origin, (float X, float Y, float Z) view, float factor)
     {
-        // ponytail: screen-space entries draw opaque; the branch needs the view's projected screen size.
         if (factor < 0f || ScreenSpace)
         {
             return (byte)Opaque;
@@ -100,5 +99,70 @@ public readonly record struct StaticPropFade(float Minimum, float Maximum, float
         }
 
         return (byte)Math.Clamp((int)((Maximum - here) * Scale), 0, (int)Opaque);
+    }
+
+    /// <summary>The screen-space branch of `engine.dll` `FUN_180202c60`, at <c>0x180202e98</c> (B432).</summary>
+    /// <param name="pixels">The prop's <c>ComputePixelWidthOfSphere</c>.</param>
+    /// <returns>0 at or below <see cref="Maximum"/>, 255 at or above <see cref="Minimum"/> (or when it is negative), the lerp between.</returns>
+    /// <remarks>The band runs large → small: the lump's minimum is the width where the prop is whole.</remarks>
+    public byte ScreenAlpha(float pixels)
+    {
+        if (pixels <= Maximum)
+        {
+            return 0;
+        }
+
+        if (Minimum < 0f || Minimum <= pixels)
+        {
+            return (byte)Opaque;
+        }
+
+        return (byte)Math.Clamp((int)((pixels - Maximum) * Scale), 0, (int)Opaque);
+    }
+
+    /// <summary>A static prop's whole alpha this frame — `engine.dll` `FUN_180202c60` (B430, B432).</summary>
+    /// <param name="entry">The prop's fade entry, or null when it has none.</param>
+    /// <param name="screen">Its sphere and forced fade scale.</param>
+    /// <param name="origin">Its render origin.</param>
+    /// <param name="view">The view origin.</param>
+    /// <param name="factor">The FOV distance factor; negative disables every fade.</param>
+    /// <param name="projection">The main view, or null before one exists (then nothing is measured on screen).</param>
+    /// <param name="level">The level screen fade range.</param>
+    /// <returns>0 to 255.</returns>
+    /// <remarks>
+    /// The entry's alpha (distance or screen-space), then lowered to the smaller of the level and view screen
+    /// fades when that is lower (<c>0x180202fe5</c>) — for EVERY static prop, entry or not. The view range is
+    /// <c>r_screenfademinsize</c>/<c>r_screenfademaxsize</c>, both 0 by default and not read from a config here,
+    /// so it is the disabled range and answers 255; only the level range is passed.
+    /// </remarks>
+    public static byte Opacity(
+        StaticPropFade? entry,
+        StaticPropScreen screen,
+        (float X, float Y, float Z) origin,
+        (float X, float Y, float Z) view,
+        float factor,
+        ScreenFadeView? projection,
+        ScreenFadeRange level)
+    {
+        if (factor < 0f)
+        {
+            return (byte)Opaque;
+        }
+
+        byte alpha = entry switch
+        {
+            null => (byte)Opaque,
+            { ScreenSpace: true } screenSpace => projection is { } seen
+                ? screenSpace.ScreenAlpha(seen.PixelWidthOfSphere(origin, screen.Radius))
+                : (byte)Opaque,
+            { } distance => distance.Alpha(origin, view, factor),
+        };
+
+        if (projection is not { } lens || !level.Measures(screen.ForcedFadeScale))
+        {
+            return alpha;
+        }
+
+        return Math.Min(alpha, level.Alpha(lens.PixelWidthOfSphere(origin, screen.Radius), screen.ForcedFadeScale));
     }
 }

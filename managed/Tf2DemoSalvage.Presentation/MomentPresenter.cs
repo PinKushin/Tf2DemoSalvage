@@ -271,10 +271,12 @@ public sealed class MomentPresenter
     /// the moment is built, and it comes from the device so that it is the same origin the frustum
     /// beside it was built from.
     /// </param>
+    /// <param name="screen">The main view for the static props' screen fades (B432), from the same device.</param>
     public void PoseNow(
         ViewFrustum frustum = default,
         ReadOnlySpan<bool> visibleByLeaf = default,
-        (float X, float Y, float Z)? eye = null)
+        (float X, float Y, float Z)? eye = null,
+        ScreenFadeView? screen = null)
     {
         // Stryker disable once : a mutant that empties the guard body leaves 'info'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -285,7 +287,7 @@ public sealed class MomentPresenter
 
         _posed = true;
 
-        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf, eye);
+        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf, eye, screen);
 
         // **One line per rebuild, not two.** The two halves are measured apart and read together;
         // reporting each on its own would put `advance`'s parts in separate lines that a reader has

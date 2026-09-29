@@ -45,10 +45,14 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// </param>
 /// <param name="FadeMinimum"><c>m_FadeMinDist</c>, at 36 in every version (B430).</param>
 /// <param name="FadeMaximum"><c>m_FadeMaxDist</c>, at 40 in every version (B430).</param>
+/// <param name="ForcedFadeScale">
+/// <c>m_flForcedFadeScale</c>, at 56 from version 5, else 1 (B432). It divides the screen width the level and
+/// view screen fades compare (`engine.dll` `FUN_1801cb810`).
+/// </param>
 public readonly record struct BspStaticProp(
     string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale,
     int Skin = 0, int Solid = 0, int Flags = 0, (float X, float Y, float Z) LightingOrigin = default,
-    float FadeMinimum = 0f, float FadeMaximum = 0f)
+    float FadeMinimum = 0f, float FadeMaximum = 0f, float ForcedFadeScale = 1f)
 {
     /// <summary><c>STATIC_PROP_USE_LIGHTING_ORIGIN</c>, `public/gamebspfile.h:127`.</summary>
     public const int UseLightingOriginFlag = 0x2;
@@ -168,6 +172,12 @@ public static class BspStaticProps
 
     /// <summary><c>m_FadeMaxDist</c>, in every version (`gamebspfile.h:163`).</summary>
     internal const int FadeMaximumOffset = 40;
+
+    /// <summary><c>m_flForcedFadeScale</c>, after <c>m_LightingOrigin</c> from <c>StaticPropLumpV5_t</c> (B432).</summary>
+    internal const int ForcedFadeScaleOffset = 56;
+
+    /// <summary>The version that added <c>m_flForcedFadeScale</c>.</summary>
+    internal const int ForcedFadeScaleVersion = 5;
 
     /// <summary><c>SOLID_NONE</c> — the one value that means the prop is not collided.</summary>
     /// <remarks>
@@ -307,7 +317,10 @@ public static class BspStaticProps
                  BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 4)..]),
                  BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 8)..])),
                 BinaryPrimitives.ReadSingleLittleEndian(prop[FadeMinimumOffset..]),
-                BinaryPrimitives.ReadSingleLittleEndian(prop[FadeMaximumOffset..])));
+                BinaryPrimitives.ReadSingleLittleEndian(prop[FadeMaximumOffset..]),
+                version >= ForcedFadeScaleVersion && stride >= ForcedFadeScaleOffset + sizeof(float)
+                    ? BinaryPrimitives.ReadSingleLittleEndian(prop[ForcedFadeScaleOffset..])
+                    : 1f));
         }
 
         return placements;

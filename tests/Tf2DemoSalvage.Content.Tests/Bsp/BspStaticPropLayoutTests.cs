@@ -76,6 +76,30 @@ public sealed class BspStaticPropLayoutTests
         prop.FadeMaximum.ShouldBe(1500f);
     }
 
+    /// <remarks>`m_flForcedFadeScale`, after `m_LightingOrigin` from `StaticPropLumpV5_t` on (`gamebspfile.h`), B432.</remarks>
+    [TestCase(5, 60)]
+    [TestCase(6, 64)]
+    [TestCase(10, 72)]
+    [TestCase(11, 76)]
+    public void ReadPayload_ForcedFadeScale_IsTheFloatAt56(int version, int stride)
+    {
+        byte[] record = new byte[stride];
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(52), 7f); // m_LightingOrigin.z, below
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(56), 2.5f);
+
+        BspStaticProps.ReadPayload(Payload(record), version).ShouldHaveSingleItem().ForcedFadeScale.ShouldBe(2.5f);
+    }
+
+    /// <remarks>Version 4 has no such field; the neutral scale of 1 divides the screen width by nothing.</remarks>
+    [Test]
+    public void ReadPayload_ForcedFadeScaleAtVersion4_IsOne()
+    {
+        byte[] record = new byte[56];
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(52), 7f);
+
+        BspStaticProps.ReadPayload(Payload(record), 4).ShouldHaveSingleItem().ForcedFadeScale.ShouldBe(1f);
+    }
+
     /// <summary>One dictionary entry, no leaves, and the one placement.</summary>
     private static byte[] Payload(byte[] record)
     {
