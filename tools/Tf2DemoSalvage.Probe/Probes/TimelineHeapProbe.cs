@@ -80,8 +80,8 @@ public sealed class TimelineHeapProbe : IProbe
         {
             GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
             map = LoadedMap.Read(File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
-            // What the viewer's "memory after load" line reads: the heap as the LAST collection left it, of whatever kind,
-            // which counts every dead object no full collection has reached yet.
+            // What the viewer's "memory after load" line read before D199: the heap as the LAST collection left it, of
+            // whatever kind, counting every dead object no full collection had reached. The viewer now collects first.
             GCMemoryInfo asLogged = GC.GetGCMemoryInfo();
             output.WriteLine(
                 $"with {mapName}, read as the viewer's log line reads it: managed heap {Mb(asLogged.HeapSizeBytes):0} MB "
