@@ -75,6 +75,9 @@ public sealed record StudioModelInfo(
     /// <summary>Whether the model was compiled <c>$staticprop</c>: no bones, no transforms.</summary>
     public bool IsStaticProp => (Flags & StudioModelFlags.StaticProp) != 0;
 
+    /// <summary><c>constdirectionallightdot</c> (`studio.h:2373`), read under <see cref="StudioModelFlags.ConstantDirectionalLightDot"/>.</summary>
+    public byte ConstantDirectionalLightDot { get; init; }
+
     /// <summary>Whether a mesh is the one its body part shows for a given body number.</summary>
     /// <param name="mesh">The mesh, carrying the part and alternative it belongs to.</param>
     /// <param name="body">The entity's <c>m_nBody</c>.</param>
@@ -381,7 +384,11 @@ public static class StudioModel
             // **Last in the parameter list on purpose.** `Checksum` is the only other int here, so
             // placing this beside it would let a transposition compile silently; separated by four
             // list parameters, it cannot.
-            BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderFlagsOffset..]));
+            BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderFlagsOffset..]))
+        {
+            ConstantDirectionalLightDot =
+                bytes.Length > HeaderConstantDirectionalLightDotOffset ? bytes[HeaderConstantDirectionalLightDotOffset] : (byte)0,
+        };
     }
 
     private static List<string> ReadMaterials(ReadOnlySpan<byte> file)

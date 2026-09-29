@@ -66,4 +66,11 @@ public static class StudioModelFlags
     /// <c>StudioHeaderFlagsConformanceTests</c> uses it for.
     /// </remarks>
     public const int StaticProp = 0x00000010;
+
+    /// <summary>
+    /// <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> (`studio.h:2073`, <c>$constantdirectionallight</c>): a
+    /// static prop's CPU colour mesh takes <see cref="StudioModelInfo.ConstantDirectionalLightDot"/> / 255 in place of
+    /// each light's N·L (B429).
+    /// </summary>
+    public const int ConstantDirectionalLightDot = 0x00002000;
 }

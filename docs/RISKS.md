@@ -7681,8 +7681,13 @@ and `…_AStyledLampSwitchedBesideACpuLitProp_…`, and on `koth_harvest_final`
 `StaticPropModelsWiringTests.Instances_KothHarvestUnbakedPlacements_…` (8 of 8 unbaked placements compiled static, all
 drawn with a colour mesh).
 
-**Still open:** `ComputeLightingConstDirectional` (flag `0x2000`, `studiorender.dll` `+0x130`) is unread; such a model
-stays per frame. None on `koth_harvest_final`.
+**`$constantdirectionallight` — ported 2026-09-28.** `ComputeLightingConstDirectional` (`studiorender.dll` `+0x130`,
+`0x180020f90`) is `ComputeLighting` with every light's `max( n · L, 0 )` replaced by `max( constdirectionallightdot / 255,
+0 )`; the cube still follows the normal (findings 65). `StudioPointLighting.At`'s `constantDot`, read from the header byte
+at `0x178` (`StudioModelInfo.ConstantDirectionalLightDot`); `StaticPropVertexLighting.Lights` no longer excludes `0x2000`.
+**Census (`const-directional` probe): 0 of 14,109 shipped models** carry the flag (control: 2,541 static props), so only a
+community map's packed model can reach it. Tests: `StaticPropVertexLightingConformanceTests.At_AConstantDot…`,
+`MomentSceneTests.Pose_AConstDirectionalUnbakedStaticProp_…`, `StudioHeaderFlagsConformanceTests` (layout and reader).
 
 ---
 

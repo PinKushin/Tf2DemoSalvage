@@ -58,5 +58,30 @@ lighting origin itself rather than a cache cell, style-0 lights only, the sun), 
 **Measured 2026-09-28 on `koth_harvest_final`:** all eight unbaked placements are compiled static (flags `0x11`,
 `box_cluster01`, `box_cluster02`, `tractor_tire001`), none const-directional.
 
-**Not ported:** `ComputeLightingConstDirectional`. Its body is in `studiorender.dll`, which was not read; a model with
-`0x2000` stays on per-frame lighting.
+## `$constantdirectionallight`: the dot is a constant, the cube is not (evidence: read from `studiorender.dll`)
+
+`CStudioRenderContext`'s vtable (`0x180081120`) has `ComputeLighting` at `+0x128` (`0x180020bd0`) and
+`ComputeLightingConstDirectional` at `+0x130` (`0x180020f90`). The two bodies are the same instructions: both call
+`0x180020c80`, which adds the ambient cube along the **vertex normal** and picks a per-light combination, and both
+tail-jump into a table of per-light functions. They differ in two ways. The constant one reads one more argument (the float
+at `[rsp+0x88]`) and passes it on. And it uses the table at `0x18009aa50` (filled by `FUN_180001ee0`) instead of
+`0x18009b260` (`FUN_1800010e0`).
+
+Compare the entries for one light:
+
+| light | normal | constant |
+|---|---|---|
+| point | `0x180021a10`: `max( n · L, 0 ) · falloff · colour` | `0x180045e30`: `max( dot, 0 ) · falloff · colour` |
+| directional | `0x180021a90`: `max( −n · dir, 0 ) · falloff · colour` | `0x180045e30`, the same body as point |
+| spot | `0x180021b20`: N·L, then the cone | `0x180045e90`: the argument, then the same cone |
+
+So the formula difference is exactly that each light's diffuse dot becomes the constant. The cone, the falloff (`+0x48`),
+the colour and the positive-only add stay as they were, and so does the cube. Point and directional collapse into one
+function because the only thing that told them apart was how they compute L. The combination entries for more than one
+light follow the same pattern, point and directional sharing an address in each (`FUN_180001ee0`'s repeated labels); only
+the single-light entries were disassembled, so the rest is interpolated. The byte is `studiohdr_t.constdirectionallightdot`
+at `0x178`: `includemodelindex` (340) plus nine on-disk ints, which matches `engine.dll`'s read.
+
+**Measured 2026-09-28 (`const-directional` probe):** 0 of the 14,109 `.mdl` files in `tf2_misc_dir.vpk` and
+`tf2_textures_dir.vpk` carry `0x2000`. The control reads 2,541 static props. So no stock map changes. Only a model packed
+into a community map could reach this path.

@@ -118,6 +118,13 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>includemodelindex</c>.</summary>
     public const int HeaderIncludeIndexOffset = 340;
 
+    /// <summary>Byte offset of <c>constdirectionallightdot</c> (`studio.h:2373`), a byte.</summary>
+    /// <remarks>
+    /// Nine on-disk ints after <see cref="HeaderIncludeIndexOffset"/> (the pointers are 4 bytes in the file): 376, the
+    /// `studiohdr +0x178` that `engine.dll` `FUN_1800f36e0` reads.
+    /// </remarks>
+    public const int HeaderConstantDirectionalLightDotOffset = 376;
+
     /// <summary>Byte offset of <c>numlocalattachments</c>.</summary>
     /// <remarks>
     /// **These five are declared ahead of the reader that would use them, deliberately — and B82 is

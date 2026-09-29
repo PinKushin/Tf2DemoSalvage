@@ -31,9 +31,17 @@ public static class StudioPointLighting
     /// <param name="sun">The sun where it reaches the point, or null.</param>
     /// <param name="point">Where.</param>
     /// <param name="normal">The unit normal.</param>
+    /// <param name="constantDot">
+    /// Null for <c>ComputeLighting</c> (`+0x128`); otherwise <c>ComputeLightingConstDirectional</c> (`+0x130`,
+    /// `0x180020f90`): the same cube prep (`0x180020c80`, along <paramref name="normal"/>), and every light's
+    /// <c>max( n · L, 0 )</c> replaced by <c>max( constantDot, 0 )</c> — table `0x18009aa50` (`FUN_180001ee0`), where
+    /// point and directional share `0x180045e30` and the spot `0x180045e90` keeps its cone.
+    /// </param>
     /// <returns>The linear light.</returns>
-    public static Vector3 At(PointLighting lighting, SunLight? sun, Vector3 point, Vector3 normal)
+    public static Vector3 At(PointLighting lighting, SunLight? sun, Vector3 point, Vector3 normal, float? constantDot = null)
     {
+        float fixedDot = MathF.Max(constantDot ?? 0f, 0f);
+
         AmbientCube cube = lighting.Cube;
         Vector3 light =
             (Face(normal.X > 0f ? cube.PositiveX : cube.NegativeX) * normal.X * normal.X) +
@@ -53,7 +61,7 @@ public static class StudioPointLighting
             float falloff = 1f / ((local.Constant == 0f ? AbsentConstant : local.Constant) +
                                   (local.Linear * MathF.Sqrt(squared)) + (local.Quadratic * squared));
             Vector3 direction = delta / MathF.Sqrt(squared + DirectionEpsilon);
-            float dot = MathF.Max(Vector3.Dot(normal, direction), 0f);
+            float dot = constantDot is null ? MathF.Max(Vector3.Dot(normal, direction), 0f) : fixedDot;
 
             if (local.Spot)
             {
@@ -65,8 +73,9 @@ public static class StudioPointLighting
 
         if (sun is { } directional)
         {
-            float dot = MathF.Max(
-                -Vector3.Dot(normal, new Vector3(directional.DirectionX, directional.DirectionY, directional.DirectionZ)), 0f);
+            float dot = constantDot is null
+                ? MathF.Max(-Vector3.Dot(normal, new Vector3(directional.DirectionX, directional.DirectionY, directional.DirectionZ)), 0f)
+                : fixedDot;
 
             light += new Vector3(directional.Red, directional.Green, directional.Blue) * dot;
         }

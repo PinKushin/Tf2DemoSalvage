@@ -576,7 +576,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
         (PointLighting lighting, SunLight? sun) = lightingAt(x, y, z);
 
         byCorner = StaticPropVertexLighting.Colours(
-            corners, new PropTransform(pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, 1f), lighting, sun);
+            corners,
+            new PropTransform(pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, 1f),
+            lighting,
+            sun,
+            StaticPropVertexLighting.ConstantDot(frames.StudioFlags,frames.ConstantDirectionalLightDot));
 
         return true;
     }
