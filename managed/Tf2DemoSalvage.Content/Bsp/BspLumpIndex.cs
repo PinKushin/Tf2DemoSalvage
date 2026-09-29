@@ -99,6 +99,9 @@ internal static class BspLumpIndex
     /// <summary>Displacement vertex offsets.</summary>
     public const int DispVerts = 33;
 
+    /// <summary>`LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS`: per displacement luxel, a triangle and three byte weights.</summary>
+    public const int DispLightmapSamplePositions = 34;
+
     /// <summary>Per-vertex normals, for smoothed lighting and a tangent basis.</summary>
     /// <remarks>
     /// **Not the same as the face's plane normal, despite what the compiler first writes.** `vbsp`

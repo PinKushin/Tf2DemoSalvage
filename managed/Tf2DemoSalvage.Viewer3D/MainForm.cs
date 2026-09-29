@@ -5418,7 +5418,12 @@ internal class MainForm : Form, IFrameSteps
 
         // B425: after the styles, so a dlit styled face is rebuilt with both; from the lights as the frame drew them.
         _worldLights ??= new WorldDynamicLights(DecalWorldOf(_loaded));
-        _worldLights.Frame(_moment.WorldLights, assets.Lightmaps, _lightStyles.Scale, _lightmapRegions);
+        _worldLights.Frame(
+            _moment.WorldLights,
+            assets.Lightmaps,
+            _lightStyles.Scale,
+            _lightmapRegions,
+            WorldDynamicLights.BrushesOf(_moment.Drawn, _loaded.Level.BrushModels ?? []));
 
         _device.UpdateLightmap(assets.Lightmaps.Pixels, assets.Lightmaps.Width, _lightmapRegions);
 

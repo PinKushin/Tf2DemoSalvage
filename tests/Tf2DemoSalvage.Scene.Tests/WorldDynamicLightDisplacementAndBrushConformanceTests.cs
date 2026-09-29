@@ -104,6 +104,51 @@ public sealed class WorldDynamicLightDisplacementAndBrushConformanceTests
     }
 
     /// <summary>
+    /// The light leans along S: from luxel (0, 1) the direction is (0.6, 0, 0.8), `f` as above. With S = +x (the flip
+    /// `(sAxis × tAxis)·N &gt; 0` applied) page 0 takes `0.8 f` = 16.73 → 8, page 1 `(0.48990 + 0.46188) f` = 19.91 → 9,
+    /// pages 2 and 3 `(−0.24495 + 0.46188) f` = 4.54 → 2. Unflipped, page 1 would face away and page 2 take 7.
+    /// </summary>
+    [Test]
+    public void Frame_ABumpedDisplacementLuxelLitAlongItsTextureS_TakesTheFlippedTangent()
+    {
+        LightmapAtlas atlas = WorldDynamicLightConformanceTests.Atlas(bumped: true, size: 2);
+        WorldDynamicLights world = new(Terrain());
+
+        world.Frame(Lights((24f, 16f, 72f)), atlas, _ => 1f, []);
+
+        WorldDynamicLightConformanceTests.Texel(atlas, 0, 0, 1, 2).ShouldBe((byte)8);
+        WorldDynamicLightConformanceTests.Texel(atlas, 1, 0, 1, 2).ShouldBe((byte)9);
+        WorldDynamicLightConformanceTests.Texel(atlas, 2, 0, 1, 2).ShouldBe((byte)2);
+        WorldDynamicLightConformanceTests.Texel(atlas, 3, 0, 1, 2).ShouldBe((byte)2);
+    }
+
+    /// <summary>
+    /// The head node's box is only (0, 0, −8)–(8, 8, 8): a light at (80, 80, 0) is 72 off it on two axes, `10368 ≥ 10000`,
+    /// so `0x180172d10` refuses the walk — though the face's own test (one luxel diagonal past its rectangle, inside a
+    /// circle of 6.25) would have taken it.
+    /// </summary>
+    [Test]
+    public void Frame_ALightTheHeadNodesBoxRefuses_IsNotWalkedIntoTheDoorEvenWhereTheFaceWouldTakeIt()
+    {
+        DecalWorld door = Door();
+        DecalWorld tiny = door with
+        {
+            Nodes = [door.Nodes[0], door.Nodes[1] with { Maxs = new Vector3(8f, 8f, 8f) }],
+        };
+        WorldDynamicLights world = new(tiny);
+        LitBrush still = new(1, Vector3.Zero, Vector3.Zero);
+
+        world.Frame(Lights((80f, 80f, 0f)), WorldDynamicLightConformanceTests.Atlas(), _ => 1f, [], [still]);
+        world.Bits(0).ShouldBe(0u);
+
+        // The control: the step-2 box takes the same light.
+        WorldDynamicLights control = new(door);
+
+        control.Frame(Lights((80f, 80f, 0f)), WorldDynamicLightConformanceTests.Atlas(), _ => 1f, [], [still]);
+        control.Bits(0).ShouldBe(1u);
+    }
+
+    /// <summary>
     /// The door's floor is the step-2 floor in the model's own space; the entity stands at (100, 0, 0) turned 90° in yaw.
     /// The light at world (68, 32, 24) is `Rᵀ((−32, 32, 24))` = (32, 32, 24) in the model, over luxel (2, 2) — so the
     /// step-2 floor's 32. Read in world space it would be 36 units off that luxel's column.
@@ -178,7 +223,7 @@ public sealed class WorldDynamicLightDisplacementAndBrushConformanceTests
         SceneProp crate = new(8, "models/crate.mdl", SceneModelKind.Studio, new ScenePose());
         BspModel[] models = [default, new((0f, 0f, 0f), (0f, 0f, 0f), (0f, 0f, 0f), 12, 0, 1)];
 
-        List<LitBrush> brushes = WorldDynamicLights.BrushesOf([door, crate], models);
+        IReadOnlyList<LitBrush> brushes =WorldDynamicLights.BrushesOf([door, crate], models);
 
         brushes.ShouldHaveSingleItem().ShouldBe(new LitBrush(12, new Vector3(100f, 2f, 3f), new Vector3(4f, 90f, 5f)));
     }
