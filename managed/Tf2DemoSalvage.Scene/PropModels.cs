@@ -575,6 +575,15 @@ public static class PropModels
 
         (byte red, byte green, byte blue) = colours[vertex];
 
+        return (FromVertexByte(red), FromVertexByte(green), FromVertexByte(blue));
+    }
+
+    /// <summary>One colour-mesh byte as the vertex-lit shader reads it: doubled, clamped (see the remarks inside).</summary>
+    /// <param name="value">A `.vhv` byte, or one <see cref="StaticPropVertexLighting"/> computed.</param>
+    /// <returns>The colour, 0 to 1.</returns>
+    internal static float FromVertexByte(byte value)
+    {
+
         // **Doubled, because the engine doubles it.** vrad builds its vertex-light table as
         // pow(linear, 1/gamma) * overbrightFactor, storing HALF the light when overbright is 2, and
         // the vertex-lit shader multiplies it back:
@@ -593,10 +602,7 @@ public static class PropModels
         //
         // Clamped rather than carried, since this renderer works in display space and has no tone
         // map to give over-range light anywhere to go.
-        return (
-            Math.Min(1f, red / 255f * Overbright),
-            Math.Min(1f, green / 255f * Overbright),
-            Math.Min(1f, blue / 255f * Overbright));
+        return Math.Min(1f, value / 255f * Overbright);
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
@@ -1258,7 +1264,10 @@ public static class PropModels
 
                     // **What a bullet hits** (B415): `UTIL_PlayerBulletTrace` traces `CONTENTS_HITBOX`, so a
                     // player is struck by these boxes and not by their hull.
-                    StudioHitboxes.Read(modelFile)));
+                    StudioHitboxes.Read(modelFile))
+                {
+                    StudioFlags = model.Flags,
+                });
         }
         catch (InvalidDataException failure)
         {
@@ -3159,6 +3168,9 @@ public static class PropModels
         IReadOnlyList<PhysicsBreakPiece>? BreakPieces = null,
         IReadOnlyList<IReadOnlyList<StudioHitbox>>? Hitboxes = null)
     {
+        /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
+        public int StudioFlags { get; init; }
+
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>
         /// <returns>The box, falling back to <see cref="HeaderBounds"/>.</returns>

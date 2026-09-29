@@ -7664,6 +7664,28 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B429 — an unbaked static prop was lit per frame; the engine lights it once on the CPU — FIXED 2026-09-28
+
+**Read from `engine.dll`** (full account: `docs/findings/65-an-unbaked-static-prop-is-lit-once.md`). `FUN_1800eac60`
+builds a colour mesh for any static prop whose model has `STUDIOHDR_FLAGS_STATIC_PROP`; `FUN_1800f36e0` fills it from
+the `.vhv` when one loads and otherwise lights each vertex on the CPU (`FUN_1800ee4a0`: `ComputeLighting` on the vertex's
+placed position and normal, `AngleMatrix` with no scale, then `lineartovertex` from `BuildGammaTable(2.2, 2.2, 0, 2)`
+`0x180279a40` and `· 255`), from the handle's static state (`FUN_1801ba590` flags 1: leaf cube and style-0 lights only,
+`FUN_1801b5a50`). Only a model NOT compiled static is lit per frame. B426 had filed every unbaked prop as per-frame.
+
+**Built:** `StaticPropVertexLighting` (the conversion and the flag gate), `LevelLighting.StaticPropLightingAt` (the
+handle's static state), `ModelFrames.StudioFlags`, and `EntityModelSet.StaticPropLighting` (set by `MomentScene.Lighting`),
+which builds the colours at a prop's first draw and draws them as `BakedColours` — so B424's animated-style fallback
+applies to them too. Tests: `StaticPropVertexLightingConformanceTests`, `MomentSceneTests.Pose_AnUnbakedStaticPropUnderALamp_…`
+and `…_AStyledLampSwitchedBesideACpuLitProp_…`, and on `koth_harvest_final`
+`StaticPropModelsWiringTests.Instances_KothHarvestUnbakedPlacements_…` (8 of 8 unbaked placements compiled static, all
+drawn with a colour mesh).
+
+**Still open:** `ComputeLightingConstDirectional` (flag `0x2000`, `studiorender.dll` `+0x130`) is unread; such a model
+stays per frame. None on `koth_harvest_final`.
+
+---
+
 ### B428 — HUD fonts leaked GDI objects until WinForms drew red X's — FIXED 2026-09-28
 
 **Symptom (owner):** red X's across the menu bar, status bar and transport buttons during the UI suite, after the
@@ -7750,8 +7772,10 @@ map has a styled world light; of 234 shipped maps 53 do, and eight carry world.c
 (`cp_fulgur`, `cp_junction_final`, `koth_boardwalk`, `koth_dryfield`, `koth_sawmill_event`, `pd_watergate`,
 `pl_hasslecastle`, `pl_sludgepit_event`); the rest are switchable styles 32+, static unless their pattern animates.
 
-**Still open: the one-frame-style rebake** (`FUN_1801bb8b0` → `FUN_1800f36e0`, stamp `+0x1d0` against
-`DAT_1806998a0[style]`): a baked prop under a SWITCHED (single-letter) style keeps the colours vrad baked.
+**The one-frame-style rebake needs no work — CLOSED 2026-09-28 (B429).** `FUN_1801bb8b0` → `FUN_1800f36e0` rebuilds
+the colour mesh, but a `.vhv` prop reloads the same file, and a CPU-lit one relights from the handle's static state
+(`FUN_1801ba590` flags 1), which holds no styled light (`FUN_1801b5a50` adds style 0 only). Both reproduce the colours
+they replace; `MomentSceneTests.Pose_AStyledLampSwitchedBesideACpuLitProp_…` holds it.
 
 ---
 
@@ -7770,7 +7794,8 @@ counted in `RefusedPropLighting`) to `MapAssets.StaticModels` as a `SceneProp` (
 origin, angles, scale and skin, keyed from `FirstStaticPropEntityIndex`) instead of merging it into the world batches.
 `LevelSystems` gives them to `MomentScene.StaticProps`, which adds them to every moment's draw list, so they take the
 entity path: frustum and leaf cull, `LevelLighting.ModelLightingAt` (light-cache cube plus local lights) per draw, skin
-families through the model's own table. Tests: `PropModelsTests`, `MomentSceneTests.Pose_AStaticPropUnderALamp_…`,
+families through the model's own table. **Corrected by B429:** only a model NOT compiled `$staticprop` is lit per
+draw; a compiled-static one gets a CPU-lit colour mesh. Tests: `PropModelsTests`, `MomentSceneTests.Pose_AStaticPropUnderALamp_…`,
 and on `cp_process_final` `StaticPropModelsWiringTests` (model count = placements minus baked, none of their corners
 left in the world).
 

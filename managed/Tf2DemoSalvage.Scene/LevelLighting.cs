@@ -336,6 +336,40 @@ public sealed class LevelLighting
         return false;
     }
 
+    /// <summary>
+    /// The static lighting state a static prop's handle holds, which its CPU colour mesh is lit with (B429):
+    /// `ComputeStaticLightingForCacheEntry`, `engine.dll` `0x1801b8270`.
+    /// </summary>
+    /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <returns>The leaf's cube and the strongest style-0 lights at the point, and the sun where it reaches.</returns>
+    /// <remarks>
+    /// `FUN_1800f36e0` takes the handle's lighting through `FUN_1801ba590(handle, 0, 1)` — flags 1, because
+    /// `SupportsStaticPlusDynamicLighting` (hardware config `+0x150`) is true on every DX9 part — so it reads the
+    /// static state at `+0x18`: the leaf cube (`FUN_1801bb4b0`) at the handle's own origin, not a cache cell, and
+    /// `FUN_1801b5a50`'s lights, which adds a light only when its style (`+0x2c`) is 0. A styled light only sets its
+    /// bit in the handle's mask; bit 4 (`FUN_1801b5400`), which would add it, is not asked for.
+    /// </remarks>
+    public (PointLighting Lighting, SunLight? Sun) StaticPropLightingAt(float x, float y, float z)
+    {
+        if (_leaves is not { } tree || _ambient.Count == 0)
+        {
+            return (PointLighting.None, null);
+        }
+
+        int leaf = tree.LeafAt(x, y, z);
+        AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f);
+        Array.Resize(ref nearest, found);
+
+        SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky ? SunFrom(light, strikesSky, x, y, z) : null;
+
+        return (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
+    }
+
     /// <summary>The ambient light at a world position.</summary>
     /// <param name="x">World position.</param>
     /// <param name="y">World position.</param>
@@ -489,6 +523,13 @@ public sealed class LevelLighting
 
         (x, y, z) = CachePoint(x, y, z);
 
+        return SunFrom(sun, strikesSky, x, y, z);
+    }
+
+    /// <summary>The sun reaching exactly this point: <see cref="SunAt"/> without the cache cell.</summary>
+    private static SunLight? SunFrom(
+        BspWorldLight sun, Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> strikesSky, float x, float y, float z)
+    {
         (float X, float Y, float Z) toward = (
             x - (sun.Normal.X * SkyTraceLength),
             y - (sun.Normal.Y * SkyTraceLength),

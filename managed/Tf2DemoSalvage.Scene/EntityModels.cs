@@ -537,21 +537,66 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </summary>
     public Func<int, float, float, float, bool>? BakedFallsBack { get; set; }
 
+    /// <summary>
+    /// A static prop handle's static lighting state at its lighting origin (<see cref="LevelLighting.StaticPropLightingAt"/>),
+    /// which an unbaked <c>$staticprop</c> model's CPU colour mesh is lit with (B429); null lights none on the CPU.
+    /// </summary>
+    public Func<float, float, float, (PointLighting Lighting, SunLight? Sun)>? StaticPropLighting
+    {
+        get;
+        set
+        {
+            field = value;
+            _bakedByEntity.Clear();
+        }
+    }
+
+    /// <summary>
+    /// An unbaked static prop's colour mesh lit on the CPU, per corner of its model's geometry (B429): `engine.dll`
+    /// `FUN_1800f36e0` when the `.vhv` is absent, for a model compiled <c>$staticprop</c> (`FUN_1800eac60`).
+    /// </summary>
+    /// <remarks>
+    /// Built once and never rebuilt. The engine rebuilds it when a listed one-frame style changes (`FUN_1801bb8b0`), but
+    /// it builds it from the handle's STATIC state (`FUN_1801ba590` flags 1), which holds no styled light — so the
+    /// rebuild reproduces these colours, as it reproduces a `.vhv` prop's by reloading the same file.
+    /// </remarks>
+    private bool TryLightOnCpu(SceneProp prop, ScenePose pose, float x, float y, float z, out float[] byCorner)
+    {
+        byCorner = [];
+
+        if (StaticPropLighting is not { } lightingAt ||
+            prop.EntityIndex < PropModels.FirstStaticPropEntityIndex ||
+            !_frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? frames) ||
+            !StaticPropVertexLighting.Lights(frames.StudioFlags) ||
+            !_raw.TryGetValue(prop.ModelPath, out IReadOnlyList<PropVertex>? corners))
+        {
+            return false;
+        }
+
+        (PointLighting lighting, SunLight? sun) = lightingAt(x, y, z);
+
+        byCorner = StaticPropVertexLighting.Colours(
+            corners, new PropTransform(pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, 1f), lighting, sun);
+
+        return true;
+    }
+
     /// <summary>A baked static prop's colours in its model buffer's order, or null when it has none.</summary>
     /// <remarks>
     /// Null also when the colours do not cover the model's corners — a geometry this set packed differently
     /// from the one the colours were read against — which is refused, said once, and falls to full lighting.
     /// </remarks>
-    private float[]? BakedColoursOf(SceneProp prop)
+    private float[]? BakedColoursOf(SceneProp prop, ScenePose pose, float x, float y, float z)
     {
-        if (!StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner))
-        {
-            return null;
-        }
-
         if (_bakedByEntity.TryGetValue(prop.EntityIndex, out float[]? built))
         {
             return built;
+        }
+
+        if (!StaticPropColours.TryGetValue(prop.EntityIndex, out float[]? byCorner) &&
+            !TryLightOnCpu(prop, pose, x, y, z, out byCorner))
+        {
+            return null;
         }
 
         built = null;
@@ -5353,7 +5398,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
             // **A baked static prop draws its colour mesh and nothing else** (B426): `engine.dll` `0x1800f1bd0`
             // gives a prop with baked colours no ambient cube and no local lights — the colours ARE its light.
-            float[]? baked = BakedColoursOf(prop);
+            float[]? baked = BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
 
             // **B424**: `FUN_1801bb830` drops them for a frame where a light in the handle's list animates.
             if (baked is not null && BakedFallsBack?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) == true)
