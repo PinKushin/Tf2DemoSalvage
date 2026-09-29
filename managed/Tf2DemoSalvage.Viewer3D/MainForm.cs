@@ -3342,7 +3342,9 @@ internal class MainForm : Form, IFrameSteps
         long collectAt = Stopwatch.GetTimestamp();
         System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
 #pragma warning disable S1215 // The owner chose this collection (D199): the load's dead gigabytes stay committed without it.
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        // Aggressive, not Forced: Forced left 8.7 GB committed on z1800 (working set 9.6 GB against a 4.5 GB live heap);
+        // Aggressive also decommits the freed regions, which is what hands them back to Windows.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
 #pragma warning restore S1215
         double collectMs = Stopwatch.GetElapsedTime(collectAt).TotalMilliseconds;
 
