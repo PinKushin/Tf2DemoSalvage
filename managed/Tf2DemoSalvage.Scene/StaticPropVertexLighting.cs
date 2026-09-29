@@ -20,9 +20,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <c>lineartovertex</c> is `BuildGammaTable( 2.2, 2.2, 0, 2 )`'s (`0x180279a40`, from `0x1800d7890` and
 /// `0x18012ecf0`): <c>min( 1, pow( i / 1024, 1 / 2.2 ) · 0.5 )</c> — `mathlib/color_conversion.cpp:248`.
 ///
-/// **Not ported: <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c>** (`0x2000`), where the engine calls
-/// <c>ComputeLightingConstDirectional</c> (`+0x130`) with <c>constdirectionallightdot / 255</c>. That body is in
-/// `studiorender.dll` and was not read; <see cref="Lights"/> refuses such a model, which stays lit per frame.
+/// Under <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> (`0x2000`) the engine calls
+/// <c>ComputeLightingConstDirectional</c> (`+0x130`) with <c>constdirectionallightdot / 255</c> instead
+/// (<see cref="ConstantDot"/>, the <c>constantDot</c> of <see cref="StudioPointLighting.At"/>).
 /// </remarks>
 public static class StaticPropVertexLighting
 {
@@ -35,7 +35,7 @@ public static class StaticPropVertexLighting
     /// <summary><c>lineartovertex</c>: 4096 entries covering linear 0 to 4 in steps of 1/1024.</summary>
     private static readonly float[] LinearToVertex = BuildLinearToVertex();
 
-    /// <summary>Whether the engine lights this model's colour mesh on the CPU: compiled static, and not const-directional.</summary>
+    /// <summary>Whether the engine lights this model's colour mesh on the CPU: compiled static.</summary>
     /// <param name="studioFlags">The model's <c>studiohdr_t.flags</c>.</param>
     /// <returns>True when <see cref="Colours"/> is the engine's answer.</returns>
     /// <remarks>
@@ -43,12 +43,17 @@ public static class StaticPropVertexLighting
     /// is lit every frame (`CStaticProp::Init` `0x1802052c0` warns <c>used as a static prop, but not compiled as a static
     /// prop</c>).
     /// </remarks>
-    public static bool Lights(int studioFlags) =>
-        (studioFlags & Content.Assets.StudioModelFlags.StaticProp) != 0 &&
-        (studioFlags & ConstantDirectionalLightDot) == 0;
+    public static bool Lights(int studioFlags) => (studioFlags & Content.Assets.StudioModelFlags.StaticProp) != 0;
 
     /// <summary><c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c>, `studio.h:2073`.</summary>
-    public const int ConstantDirectionalLightDot = 0x2000;
+    public const int ConstantDirectionalLightDot = Content.Assets.StudioModelFlags.ConstantDirectionalLightDot;
+
+    /// <summary>`FUN_1800ee4a0`'s choice: <c>constdirectionallightdot / 255</c> under flag `0x2000`, else null (N·L).</summary>
+    /// <param name="studioFlags">The model's <c>studiohdr_t.flags</c>.</param>
+    /// <param name="dot">Its <c>constdirectionallightdot</c> byte.</param>
+    /// <returns>The dot every light takes, or null.</returns>
+    public static float? ConstantDot(int studioFlags, byte dot) =>
+        (studioFlags & ConstantDirectionalLightDot) != 0 ? dot / 255f : null;
 
     /// <summary>One channel of light as the colour mesh stores it: `FUN_1800ee4a0`'s conversion.</summary>
     /// <param name="linear">The linear light <see cref="StudioPointLighting.At"/> returned.</param>
@@ -66,9 +71,11 @@ public static class StaticPropVertexLighting
     /// <param name="placement">The prop's origin and angles; its scale is not applied, as `FUN_180276390` applies none.</param>
     /// <param name="lighting">The handle's static state (<see cref="LevelLighting.StaticPropLightingAt"/>).</param>
     /// <param name="sun">The sun where it reaches the handle's origin, or null.</param>
+    /// <param name="constantDot"><see cref="ConstantDot"/>'s answer for the model.</param>
     /// <returns>Red, green and blue per corner, through the same overbright as a `.vhv` byte.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="corners"/> is null.</exception>
-    public static float[] Colours(IReadOnlyList<PropVertex> corners, PropTransform placement, PointLighting lighting, SunLight? sun)
+    public static float[] Colours(
+        IReadOnlyList<PropVertex> corners, PropTransform placement, PointLighting lighting, SunLight? sun, float? constantDot = null)
     {
         ArgumentNullException.ThrowIfNull(corners);
 
@@ -80,7 +87,7 @@ public static class StaticPropVertexLighting
             (float x, float y, float z) = placement.Apply(corner.X, corner.Y, corner.Z);
             (float nx, float ny, float nz) = placement.Rotate(corner.NormalX, corner.NormalY, corner.NormalZ);
 
-            Vector3 light = StudioPointLighting.At(lighting, sun, new Vector3(x, y, z), new Vector3(nx, ny, nz));
+            Vector3 light = StudioPointLighting.At(lighting, sun, new Vector3(x, y, z), new Vector3(nx, ny, nz), constantDot);
 
             colours[at * 3] = PropModels.FromVertexByte(ToByte(light.X));
             colours[(at * 3) + 1] = PropModels.FromVertexByte(ToByte(light.Y));

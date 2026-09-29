@@ -542,12 +542,10 @@ public sealed class MomentSceneTests
     /// <remarks>
     /// **B429, through the production route.** `FUN_1800eac60` (`engine.dll`) gives an unbaked static prop a colour mesh
     /// when its model has `STUDIOHDR_FLAGS_STATIC_PROP` (0x10), lit on the CPU by `FUN_1800ee4a0` from the handle's static
-    /// state, and the draw then takes no cube and no locals; a model without the flag, or with the unported
-    /// const-directional flag, stays lit per frame. The corner stands at the prop's origin, 20 units under a style-0 lamp.
+    /// state, and the draw then takes no cube and no locals; a model without the flag stays lit per frame. The corner stands at the prop's origin, 20 units under a style-0 lamp.
     /// </remarks>
     [TestCase(0x10, true)]
     [TestCase(0x0, false)]
-    [TestCase(0x2010, false)]
     public void Pose_AnUnbakedStaticPropUnderALamp_IsLitOnTheCpuOnlyWhenCompiledStatic(int studioFlags, bool cpu)
     {
         MomentScene scene = UnbakedStaticProp(studioFlags, out LevelLighting lighting, out _);
@@ -607,8 +605,30 @@ public sealed class MomentSceneTests
         PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(both.X)).ShouldNotBe(before[0]);
     }
 
+    /// <remarks>
+    /// **B429, `$constantdirectionallight`.** `FUN_1800ee4a0` calls `ComputeLightingConstDirectional` (`+0x130`) with the
+    /// model's <c>constdirectionallightdot / 255</c> under flag `0x2000`: the lamp straight above arrives at 51 / 255 of
+    /// its strength instead of the full N·L of 1 the ordinary path gives (the control).
+    /// </remarks>
+    [Test]
+    public void Pose_AConstDirectionalUnbakedStaticProp_IsLitOnTheCpuWithTheModelsDot()
+    {
+        MomentScene scene = UnbakedStaticProp(0x2010, out LevelLighting lighting, out _, constantDot: 51);
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        (Content.Bsp.PointLighting state, SunLight? sun) = lighting.StaticPropLightingAt(0f, 0f, 100f);
+        System.Numerics.Vector3 light = StudioPointLighting.At(state, sun, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ, 0.2f);
+        System.Numerics.Vector3 ordinary = StudioPointLighting.At(state, sun, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ);
+
+        float[] drawn = scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull();
+        drawn[0].ShouldBe(PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(light.X)));
+        drawn[0].ShouldNotBe(PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(ordinary.X)), "the control");
+    }
+
     private static MomentScene UnbakedStaticProp(
-        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false)
+        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false, byte constantDot = 0)
     {
         EntityModelSet models = new()
         {
@@ -619,6 +639,7 @@ public sealed class MomentSceneTests
                 [true])
             {
                 StudioFlags = studioFlags,
+                ConstantDirectionalLightDot = constantDot,
             },
         };
 

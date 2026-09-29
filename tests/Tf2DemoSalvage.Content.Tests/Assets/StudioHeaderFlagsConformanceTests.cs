@@ -179,6 +179,46 @@ public sealed class StudioHeaderFlagsConformanceTests
             0, "a player model is not compiled $staticprop");
     }
 
+    /// <summary>
+    /// B429: <c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c> and the byte it names, <c>constdirectionallightdot</c>.
+    /// </summary>
+    /// <remarks>
+    /// `studio.h:2069-2073` defines the flag (<c>$constantdirectionallight</c>); `studio.h:2370-2373` declares the byte
+    /// after <c>includemodelindex</c> and nine more on-disk ints (the pointers are 4 bytes in the file), so at 340 + 4 + 36
+    /// = 376 — the `+0x178` that `engine.dll` `FUN_1800f36e0` reads and divides by 255.
+    /// </remarks>
+    [Test]
+    public void StudioLayout_ConstantDirectionalLightDot_IsTheByteAt0x178AfterTheIncludeIndex()
+    {
+        string header = Skip.Unless(SourceSdk.Text("src/public/studio.h"), SourceSdk.Missing);
+
+        Define(header, "STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT")
+            .ShouldBe(StudioModelFlags.ConstantDirectionalLightDot);
+
+        string body = Body("studiohdr_t");
+        Order(body, "includemodelindex").ShouldBeLessThan(Order(body, "constdirectionallightdot"));
+        Order(body, "constdirectionallightdot").ShouldBeLessThan(Order(body, "rootLOD"));
+
+        StudioLayout.HeaderConstantDirectionalLightDotOffset.ShouldBe(StudioLayout.HeaderIncludeIndexOffset + 36);
+        StudioLayout.HeaderConstantDirectionalLightDotOffset.ShouldBe(0x178, "engine.dll FUN_1800f36e0 reads studiohdr +0x178");
+    }
+
+    /// <summary>The reader surfaces the byte, on a hand-built header whose value the test put there.</summary>
+    [Test]
+    public void Read_AHeaderWithAConstantDot_SurfacesTheByte()
+    {
+        byte[] file = new byte[512];
+        "IDST"u8.CopyTo(file);
+        BinaryPrimitives.WriteInt32LittleEndian(file.AsSpan(4), 48);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            file.AsSpan(StudioLayout.HeaderFlagsOffset), StudioModelFlags.StaticProp | StudioModelFlags.ConstantDirectionalLightDot);
+        file[StudioLayout.HeaderConstantDirectionalLightDotOffset] = 200;
+        file[StudioLayout.HeaderConstantDirectionalLightDotOffset - 1] = 7;
+        file[StudioLayout.HeaderConstantDirectionalLightDotOffset + 1] = 9;
+
+        StudioModel.Read(file).ConstantDirectionalLightDot.ShouldBe((byte)200);
+    }
+
     /// <summary>The <c>flags</c> and <c>numbones</c> words of a model in the archives.</summary>
     private static (int Flags, int Bones)? Header(string path)
     {

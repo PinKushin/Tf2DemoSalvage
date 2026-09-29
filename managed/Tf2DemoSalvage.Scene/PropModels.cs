@@ -1267,6 +1267,7 @@ public static class PropModels
                     StudioHitboxes.Read(modelFile))
                 {
                     StudioFlags = model.Flags,
+                    ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                 });
         }
         catch (InvalidDataException failure)
@@ -3170,6 +3171,9 @@ public static class PropModels
     {
         /// <summary>The model's <c>studiohdr_t.flags</c>, which decide whether a static prop gets a CPU colour mesh (B429).</summary>
         public int StudioFlags { get; init; }
+
+        /// <summary>The model's <c>constdirectionallightdot</c>, the dot its CPU colour mesh uses under flag <c>0x2000</c> (B429).</summary>
+        public byte ConstantDirectionalLightDot { get; init; }
 
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

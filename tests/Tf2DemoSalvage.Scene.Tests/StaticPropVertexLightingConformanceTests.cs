@@ -50,11 +50,98 @@ public sealed class StaticPropVertexLightingConformanceTests
 
     [TestCase(0x10, true)]
     [TestCase(0x0, false)]
-    [TestCase(0x2010, false)]
-    public void Lights_ByStudioFlags_OnlyAStaticPropWithoutConstantDirectional(int flags, bool lit)
+    [TestCase(0x2010, true)]
+    [TestCase(0x2000, false)]
+    public void Lights_ByStudioFlags_AnyStaticProp(int flags, bool lit)
     {
         StaticPropVertexLighting.Lights(flags).ShouldBe(lit);
     }
+
+    /// <remarks>`engine.dll` `FUN_1800ee4a0`: <c>constdirectionallightdot / 255</c> only under flag `0x2000`.</remarks>
+    [TestCase(0x2010, 255, 1f)]
+    [TestCase(0x2010, 51, 0.2f)]
+    [TestCase(0x10, 255, null)]
+    public void ConstantDot_ByFlagsAndByte_IsTheByteOver255OnlyUnderTheFlag(int flags, int dot, float? expected)
+    {
+        StaticPropVertexLighting.ConstantDot(flags, (byte)dot).ShouldBe(expected);
+    }
+
+    // ComputeLightingConstDirectional, `studiorender.dll` `+0x130` = `0x180020f90`. It is `+0x128` (`0x180020bd0`) with
+    // the same `0x180020c80` prep — the ambient cube along the vertex normal — and a different per-light table:
+    // `0x18009aa50` (`FUN_180001ee0`) instead of `0x18009b260` (`FUN_1800010e0`). Each entry is its normal twin with
+    // `max( n · L, 0 )` replaced by `max( dot, 0 )` (the float at `[rsp+0x88]`, passed on as the fifth argument):
+    // point `0x180021a10` and directional `0x180021a90` both become `0x180045e30`; spot `0x180021b20` becomes
+    // `0x180045e90`, which keeps the cone. Every term still multiplies by the falloff and adds colour.
+
+    /// <remarks>
+    /// A lamp of (30, 20, 10) 40 units above with falloff 1 (constant 1), and the sun (0.3, 0.2, 0.1) straight down, at
+    /// dot 0.5: 0.5 · (30.3, 20.2, 10.1). The normal is +X, which faces neither — the ordinary path gives zero, so the
+    /// constant dot is the only way the light arrives.
+    /// </remarks>
+    [Test]
+    public void At_AConstantDotUnderALampAndTheSun_IsDotTimesColourTimesFalloff()
+    {
+        (PointLighting lighting, SunLight sun) = LampAndSun();
+
+        Vector3 light = StudioPointLighting.At(lighting, sun, new Vector3(0f, 0f, 10f), Vector3.UnitX, 0.5f);
+
+        light.X.ShouldBe(15.15f, 1e-4f);
+        light.Y.ShouldBe(10.1f, 1e-4f);
+        light.Z.ShouldBe(5.05f, 1e-4f);
+        StudioPointLighting.At(lighting, sun, new Vector3(0f, 0f, 10f), Vector3.UnitX).ShouldBe(Vector3.Zero, "the control");
+    }
+
+    /// <summary>The direct terms ignore the normal; the ordinary path is the control that they otherwise do not.</summary>
+    [Test]
+    public void At_AConstantDotUnderTwoNormals_GivesOneColour()
+    {
+        (PointLighting lighting, SunLight sun) = LampAndSun();
+        Vector3 point = new(0f, 0f, 10f);
+
+        StudioPointLighting.At(lighting, sun, point, Vector3.UnitZ, 0.5f)
+            .ShouldBe(StudioPointLighting.At(lighting, sun, point, -Vector3.UnitY, 0.5f));
+        StudioPointLighting.At(lighting, sun, point, Vector3.UnitZ)
+            .ShouldNotBe(StudioPointLighting.At(lighting, sun, point, -Vector3.UnitY), "the control");
+    }
+
+    /// <summary>`0x180020c80` adds the cube for both entry points, along the vertex normal.</summary>
+    [Test]
+    public void At_AConstantDotUnderACube_StillTakesTheFaceTheNormalMeets()
+    {
+        PointLighting cube = PointLighting.Bounce(new AmbientCube { PositiveX = (1f, 1f, 1f), PositiveY = (0.25f, 0.25f, 0.25f) });
+
+        StudioPointLighting.At(cube, null, Vector3.Zero, Vector3.UnitX, 0.5f).ShouldBe(Vector3.One);
+        StudioPointLighting.At(cube, null, Vector3.Zero, Vector3.UnitY, 0.5f).ShouldBe(new Vector3(0.25f));
+    }
+
+    /// <summary>`0x180045e90` keeps the spot's cone: dark outside it, the dot inside it.</summary>
+    [TestCase(-1f, 15f)]
+    [TestCase(1f, 0f)]
+    public void At_AConstantDotUnderASpot_KeepsTheCone(float pointsZ, float expectedRed)
+    {
+        LocalLight spot = new(0f, 0f, 50f, 30f, 20f, 10f, 1f, 0f, 0f, 0f, (0f, 0f, pointsZ), 0.9f, 0.8f, 0f, true);
+
+        StudioPointLighting.At(new PointLighting(default, [spot]), null, new Vector3(0f, 0f, 10f), Vector3.UnitX, 0.5f)
+            .X.ShouldBe(expectedRed, 1e-4f);
+    }
+
+    /// <summary>The colour mesh passes the dot through to every corner.</summary>
+    [Test]
+    public void Colours_WithAConstantDot_AreConstDirectionalLightingThroughTheTable()
+    {
+        (PointLighting lighting, SunLight sun) = LampAndSun();
+        Vector3 expected = StudioPointLighting.At(lighting, sun, new Vector3(0f, 0f, 10f), Vector3.UnitX, 0.5f);
+
+        float[] colours = StaticPropVertexLighting.Colours(
+            [new PropVertex(0f, 0f, 0f, 0f, 0f, 0, NormalX: 1f)], new PropTransform(0f, 0f, 10f, 0f, 0f, 0f, 1f), lighting, sun, 0.5f);
+
+        colours[0].ShouldBe(PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(expected.X)));
+        colours[0].ShouldBeGreaterThan(0f, "the control: the ordinary path lights a +X corner not at all");
+    }
+
+    private static (PointLighting Lighting, SunLight Sun) LampAndSun() =>
+        (new PointLighting(default, [new LocalLight(0f, 0f, 50f, 30f, 20f, 10f, 1f, 0f, 0f, 0f)]),
+         new SunLight(0.3f, 0.2f, 0.1f, 0f, 0f, -1f));
 
     /// <remarks>
     /// One corner at the model origin with its normal along +X, the prop yawed 90° and scaled 3 (which `FUN_180276390`'s
