@@ -3335,12 +3335,23 @@ internal class MainForm : Form, IFrameSteps
 
         // **Where the memory is, once everything is loaded** (B407): the process held ~16 GB after a map load and nobody could say
         // whether that was the managed heap or native memory (textures, the device). The two numbers answer it.
-        GCMemoryInfo heap = GC.GetGCMemoryInfo();
+        //
+        // **One blocking, compacting collection first** (D199, B433). A load allocates many GB and reaches few gen2
+        // collections, so the dead half stayed committed and the line reported it as if live. Collected here, the
+        // working set gives it back and the heap figure is the live set. Paid once per load, about a second.
+        long collectAt = Stopwatch.GetTimestamp();
+        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+#pragma warning disable S1215 // The owner chose this collection (D199): the load's dead gigabytes stay committed without it.
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+#pragma warning restore S1215
+        double collectMs = Stopwatch.GetElapsedTime(collectAt).TotalMilliseconds;
+
+        GCMemoryInfo heap = GC.GetGCMemoryInfo(GCKind.FullBlocking);
         _log.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"memory after load: working set {Environment.WorkingSet / 1048576d:F0} MB, managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
+                $"memory after load (after a {collectMs:F0} ms full collection): working set {Environment.WorkingSet / 1048576d:F0} MB, live managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
                 $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB); " +
                 $"entity model vertices {_models.Vertices.Count:N0} in {_models.VertexBytes / 1048576d:F0} MB"));
 

@@ -9371,3 +9371,10 @@ The port merged every static prop into the world batches with light baked into v
 one origin cube and no local lights, and B424's fallback to full lighting had nowhere to go. The engine draws a static
 prop through the model draw `0x1800f1bd0` with its lighting handle. Asked whether to rewrite, the owner: *"If the rewrite
 is valve parity, then do it."* It is, so static props move to the model path; the extra draw calls are accepted.
+
+## D199 — one full collection after load, and the memory line reports the live set (B433)
+
+B433 offered four options after measuring that most of z1800's logged 12 GB heap was dead objects: collect once
+after load, a keyframe timeline, dropping model source frames, and relabelling the log line. The assistant recommended
+the first and the last, because they keep a seek a lookup (D181). The owner: *"Sure sounds good, good job."* Keyframes
+and dropping source frames are not built; they stay filed in B433.
