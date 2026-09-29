@@ -60,6 +60,53 @@ public sealed class StaticPropModelsWiringTests
     }
 
     /// <remarks>
+    /// **The drawn colour term is the shader's decode of the map's own `.vhv` bytes** — `GammaToLinear( colour · 2 )`,
+    /// `common_vs_fxc.h:870-874`. On the reference map, the first baked placement's `sp_hdr_N.vhv` is read straight from
+    /// the pakfile and every value its production draw carries must be pow( 2b / 255, 2.2 ) of one of that file's bytes.
+    /// The control: some drawn value exceeds one, which the old <c>min( 1, 2c )</c> could never produce.
+    /// </remarks>
+    [Test]
+    public void Instances_TheReferenceMapsFirstBakedProp_DrawItsVhvBytesThroughGammaToLinearOfTwice()
+    {
+        byte[] map = MapCache.Bytes();
+        MapAssets assets = MapCache.With().Assets;
+
+        EntityModelSet models = new() { Geometry = assets.Geometry, StaticPropColours = assets.StaticModelColours };
+        models.Add(assets.StaticModels);
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn);
+
+        // The brightest baked placement, so the over-one control has something to find.
+        ModelInstance prop = drawn
+            .Where(instance => instance.BakedColours is not null)
+            .OrderByDescending(instance => instance.BakedColours!.Max())
+            .First();
+
+        int lumpIndex = prop.EntityIndex - PropModels.FirstStaticPropEntityIndex;
+        string path = Content.Assets.StudioVertexLighting.PathsFor(lumpIndex, Content.Bsp.BspMapFlags.Read(map)).Single();
+        byte[] file = Content.Assets.PakFile.ReadFrom(map).ReadFile(path).ShouldNotBeNull(path);
+        int checksum = BitConverter.ToInt32(file, 4);
+
+        HashSet<float> decoded = [];
+
+        foreach (IReadOnlyList<(byte Red, byte Green, byte Blue)> mesh in Content.Assets.StudioVertexLighting.Read(file, checksum))
+        {
+            foreach ((byte red, byte green, byte blue) in mesh)
+            {
+                decoded.Add(MathF.Pow(red / 255f * 2f, 2.2f));
+                decoded.Add(MathF.Pow(green / 255f * 2f, 2.2f));
+                decoded.Add(MathF.Pow(blue / 255f * 2f, 2.2f));
+            }
+        }
+
+        float[] colours = prop.BakedColours!;
+        TestContext.Out.WriteLine($"{path}: {colours.Length} drawn values, max {colours.Max()}, {decoded.Count} decoded");
+
+        colours.Where(value => !decoded.Contains(value)).ShouldBeEmpty(path);
+        colours.Max().ShouldBeGreaterThan(1f, "the control: a bake brighter than half a byte decodes above one");
+    }
+
+    /// <remarks>
     /// **B424 corrected, on a real map.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150` true) a baked
     /// prop keeps its colours and takes `FUN_1801ba590(handle, 6)`: its handle's styled lights (`FUN_1801b6bf0`) at their
     /// current values. Measured 2026-09-28 (`styledprops`): `koth_dryfield` carries one light on style 1, `world.cpp`'s

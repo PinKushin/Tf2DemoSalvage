@@ -146,7 +146,7 @@ public sealed class StaticPropVertexLightingConformanceTests
     /// <remarks>
     /// One corner at the model origin with its normal along +X, the prop yawed 90° and scaled 3 (which `FUN_180276390`'s
     /// matrix does not carry): the normal lands on +Y, which the cube lights with 0.25 — byte 68 — and nothing else
-    /// does, so every channel reads the doubled byte, 68 / 255 · 2.
+    /// does, so every channel reads the shader's decode of byte 68, GammaToLinear( 68 / 255 · 2 ) = 0.2508 — the 0.25 back.
     /// </remarks>
     [Test]
     public void Colours_AYawedCornerUnderACube_TakesTheFaceItsWorldNormalMeets()
@@ -159,7 +159,8 @@ public sealed class StaticPropVertexLightingConformanceTests
             PointLighting.Bounce(cube),
             null);
 
-        colours.ShouldBe([68f / 255f * 2f, 68f / 255f * 2f, 68f / 255f * 2f], tolerance: 1e-6);
+        float decoded = System.MathF.Pow(68f / 255f * 2f, 2.2f);
+        colours.ShouldBe([decoded, decoded, decoded], tolerance: 1e-6);
     }
 
     /// <summary>The per-vertex light is <see cref="StudioPointLighting.At"/>'s, the same `ComputeLighting` the model draw's CPU path uses.</summary>

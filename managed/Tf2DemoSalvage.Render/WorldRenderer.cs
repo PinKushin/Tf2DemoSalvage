@@ -1036,11 +1036,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // ambientCube[0].w says whether a cube was supplied. Without one the model keeps its
             // full brightness rather than going black, because a model lit by a cube nobody
             // measured is worse than a model that is merely too bright.
-            // **The colour mesh's own term, as this pipeline has always lit it**: the white texel's light times the
-            // colours. Where no cube is supplied it is the whole light; in the static-plus-dynamic mode it is ADDED
-            // (below), `PixelShaderDoLightingLinear`'s first `+=` (common_vertexlitgeneric_dx9.h:268-274).
-            float3 staticTerm = light * input.baked;
-            bool staticPlusDynamic = ambientCube[1].w > 0.5f;
+            // **The colour mesh IS the static light** — already `GammaToLinear( colour * cOverbright )`
+            // (PropModels.FromVertexByte; common_vs_fxc.h:870-874, common_vertexlitgeneric_dx9.h:272), so no
+            // lightmap texel multiplies it. Where no cube is supplied it is the whole light; in the
+            // static-plus-dynamic mode it is ADDED (below), `PixelShaderDoLightingLinear`'s first `+=`.
+            // ambientCube[1].w says a colour mesh is bound; without one the white stream keeps the texel's light.
+            bool colourMesh = ambientCube[1].w > 0.5f;
+            float3 staticTerm = colourMesh ? input.baked : light * input.baked;
+            bool staticPlusDynamic = colourMesh;
 
             if (ambientCube[0].w > 0.5f)
             {
@@ -3879,7 +3882,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The direct lights near this model, at most four. Null or empty where none reach it, which
     /// the shader reads as "no lamp" rather than as a black one at the origin.
     /// </param>
-    /// <param name="staticLight">A colour mesh is bound and is ADDED to the cube and lamps (B424); needs a cube.</param>
+    /// <param name="staticLight">A colour mesh is bound: the whole static light, ADDED to the cube and lamps when there is a cube (B424).</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -3938,11 +3941,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             WriteFace(contents, 36, cube.NegativeZ);
 
             contents[19] = 1f;
-
-            // ambientCube[1].w: the colour mesh is ADDED to the cube and lamps — the studio render's static-plus-dynamic
-            // mode, `param_8 + 0x40` in `engine.dll` `0x1800f1bd0` (B424).
-            contents[23] = staticLight ? 1f : 0f;
         }
+
+        // ambientCube[1].w: a colour mesh is bound — the whole static light, and with a cube ADDED to it and the lamps,
+        // the studio render's static-plus-dynamic mode, `param_8 + 0x40` in `engine.dll` `0x1800f1bd0` (B424).
+        contents[23] = staticLight ? 1f : 0f;
 
         // The sun follows the cube: colour and "is it reaching this model", then the direction it
         // travels. Left at zero when the map has no sun or this model stands in shade, which the

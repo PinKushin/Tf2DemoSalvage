@@ -8032,7 +8032,12 @@ colours — they described behaviour TF2 on DX9 never shows. Tests: `StaticPlusD
 `MomentSceneTests.Pose_ABakedStaticPropBesideAStyledLamp_KeepsItsColoursAndTakesTheLitLamp` and
 `…UnderTheRecordersFireball_…`, `BakedColourStreamRenderTests.DrawModelPose_ColoursWithALamp_AddTheLampToTheColours`, and
 on `koth_dryfield` `StaticPropModelsWiringTests.Instances_KothDryfieldWithStyleOne_KeepBakedColoursAndCarryTheLampWhileItIsLit`.
-**Open, named:** the colour term takes no `GammaToLinear` (B426's `FromVertexByte`, unchanged); an evicted light is
+**Closed 2026-09-29, the colour term:** it is now `GammaToLinear( c · 2 )` = pow( 2c, 2.2 ), unclamped
+(`PropModels.FromVertexByte`), and the shader no longer multiplies it by the white lightmap texel's light of 2 — read from
+`common_vs_fxc.h:59, 870-874, 902`, `common_vertexlitgeneric_dx9.h:272`, `common_fxc.h:189-192`; the bytes' encoding from
+`vradstaticprops.cpp:1583-1586` → `lightmap.cpp:3553-3599` → `color_conversion.cpp:248-255`, the same for `sp_hdr_` and `sp_`
+(findings 67). Tests: `StaticPropColourDecodeConformanceTests`, `BakedColourStreamRenderTests.DrawModelPose_ABakedByteWithNoCube_…`,
+`StaticPropModelsWiringTests.Instances_TheReferenceMapsFirstBakedProp_…`. **Open, named:** an evicted light is
 dropped, not folded into the cube; one ranking without the dlight's eviction precedence.
 
 **Read from `engine.dll`, the model draw `0x1800f1bd0` with a static prop's lighting handle** (`param_4`): a prop with baked

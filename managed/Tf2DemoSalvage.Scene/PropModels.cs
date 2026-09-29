@@ -184,6 +184,9 @@ public static class PropModels
     /// <summary>What the engine multiplies static prop vertex lighting by, from its own shader.</summary>
     private const float Overbright = 2f;
 
+    /// <summary><c>GammaToLinear</c>'s exponent, `common_fxc.h:189-192`.</summary>
+    private const float VertexGamma = 2.2f;
+
     /// <summary>The entity index a static prop drawn as a model takes, plus its lump index (B426).</summary>
     /// <remarks>Past every networked and client-side range this project hands out, so no key collides.</remarks>
     public const int FirstStaticPropEntityIndex = 1 << 20;
@@ -596,31 +599,20 @@ public static class PropModels
         return (FromVertexByte(red), FromVertexByte(green), FromVertexByte(blue));
     }
 
-    /// <summary>One colour-mesh byte as the vertex-lit shader reads it: doubled, clamped (see the remarks inside).</summary>
+    /// <summary>One colour-mesh byte as the vertex-lit shader reads it: <c>GammaToLinear( c · 2 )</c>, linear light.</summary>
     /// <param name="value">A `.vhv` byte, or one <see cref="StaticPropVertexLighting"/> computed.</param>
-    /// <returns>The colour, 0 to 1.</returns>
+    /// <returns>The static light term, linear, 0 to pow( 2, 2.2 ).</returns>
     internal static float FromVertexByte(byte value)
     {
-
-        // **Doubled, because the engine doubles it.** vrad builds its vertex-light table as
-        // pow(linear, 1/gamma) * overbrightFactor, storing HALF the light when overbright is 2, and
-        // the vertex-lit shader multiplies it back:
+        // **The inverse of how the byte was written.** vrad (`lightmap.cpp:3581-3599`, both `sp_hdr_` and `sp_`) and the
+        // engine's CPU bake store round( 255 · min( 1, pow( L, 1 / 2.2 ) · 0.5 ) ) (`color_conversion.cpp:248-255`), and
+        // every DX9 vertex-lit route reads it back as `GammaToLinear( staticLightingColor * cOverbright )` —
+        // `common_vs_fxc.h:870-874` and `:902`, `common_vertexlitgeneric_dx9.h:272`; `GammaToLinear` is pow( x, 2.2 ).
         //
-        // its vertex-lit shader defines an overbright of two and multiplies the stored colour by
-        // it before converting to linear.
-        //
-        // Without it every prop draws at half brightness - dark rocks and near-black foliage on a
-        // sunlit map, which is what the owner kept reporting as blobs.
-        //
-        // The measurement had said so before the source did: prop colours averaged 0.2309 against
-        // the world's lightmaps at 0.4704, a ratio of 2.04. That was first explained as a missing
-        // gamma step, because 0.23 ^ (1/2.2) is 0.495 and also lands near 0.47 - two different
-        // curves passing through one point, and the wrong one was picked. Only the shader settles
-        // which.
-        //
-        // Clamped rather than carried, since this renderer works in display space and has no tone
-        // map to give over-range light anywhere to go.
-        return Math.Min(1f, value / 255f * Overbright);
+        // This was min( 1, 2c ), from when the pipeline worked in display space (B54): the gamma-space value used as
+        // light, clamped. The pipeline is linear now, so it made a mid-grey bake about four times too bright and cut
+        // everything above half a byte to one. Not clamped: the shader carries light above one, as this does.
+        return MathF.Pow(value / 255f * Overbright, VertexGamma);
     }
 
     /// <summary>Reads one model's three files and turns them into triangles.</summary>
