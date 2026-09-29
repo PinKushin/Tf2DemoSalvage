@@ -196,6 +196,10 @@ public sealed class ParentedPropPlacementTests
                 // entry, built in `PropModels.StaticModel`; an entity fades by its own
                 // `m_fadeMinDist`/`m_fadeMaxDist`, so null is its true answer.
                 nameof(SceneProp.StaticFade),
+
+                // **`StaticScreen` (B432)**: set on every static prop by `PropModels.StaticModel`; an
+                // entity takes no static-prop screen fade, so null is its true answer.
+                nameof(SceneProp.StaticScreen),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

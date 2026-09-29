@@ -226,6 +226,10 @@ public sealed class LevelSystems
         _moment.StaticProps = map.Assets?.StaticModels ?? [];
         _models.StaticPropColours = map.Assets?.StaticModelColours ?? new Dictionary<int, float[]>();
 
+        // **The level screen fade** (B432): `C_World::OnDataChanged` → `SetLevelScreenFadeRange` (`FUN_1801c9e50`).
+        (float minWidth, float maxWidth) = Content.Bsp.BspEntities.PropScreenWidths(map.Level.Entities);
+        _models.LevelScreenFade = ScreenFadeRange.Set(minWidth, maxWidth);
+
         // **The tree, for the visibility half of the entity cull** (B254). Assigned here with the
         // lighting because it arrives with the map for the same reason, and left null by a map that
         // carries none — which leaves the cull frustum-only rather than culling everything.

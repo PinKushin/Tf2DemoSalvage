@@ -488,13 +488,18 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// (B203). Moving that too would put the camera a tick behind the world it follows, which is the
     /// bug B203 fixed.
     /// </remarks>
+    /// <param name="screen">The main view for the static props' screen fades (B432).</param>
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
         ReadOnlySpan<bool> visibleByLeaf = default,
-        (float X, float Y, float Z)? eye = null)
+        (float X, float Y, float Z)? eye = null,
+        ScreenFadeView? screen = null)
     {
         long posingAt = Stopwatch.GetTimestamp();
+
+        // The main view for the static props' screen fades (B432), from the device beside the eye.
+        _models.ScreenView = screen;
 
         EntityModelSet.PoseCounters before = _models.Counters;
 

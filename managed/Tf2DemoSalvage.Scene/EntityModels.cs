@@ -3944,6 +3944,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </remarks>
     public (float X, float Y, float Z)? ViewOrigin { get; set; }
 
+    /// <summary>The main view a static prop's screen width is measured through (B432); null measures none.</summary>
+    public ScreenFadeView? ScreenView { get; set; }
+
+    /// <summary>The level screen fade, from <c>worldspawn</c> when a map is read (B432); the default is disabled.</summary>
+    public ScreenFadeRange LevelScreenFade { get; set; }
+
     /// <summary>Where the arms were posed this frame, as the weapon's reference.</summary>
     /// <remarks>
     /// The props are built arms first, so this is set before any weapon consults it. Null until the
@@ -5706,13 +5712,16 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **A static prop takes its own entry instead** (B430): `engine.dll` `FUN_180202c60` writes
             // the prop's alpha from the entry `UnserializeModels` built, measured from its render
             // origin — the placement, not the illumination point. The factor is 1 for the reason
-            // `EntityFade.DistanceAlpha` gives: no local player's zoom to look through.
+            // `EntityFade.DistanceAlpha` gives: no local player's zoom to look through. Its screen fades —
+            // the 0x20 branch and the level fade — come with it through `StaticPropFade.Opacity` (B432).
             byte fade = 255;
 
             if (ViewOrigin is { } eye)
             {
-                fade = prop.StaticFade is { } staticFade
-                    ? staticFade.Alpha((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), eye, 1f)
+                fade = prop.StaticFade is not null || prop.StaticScreen is not null
+                    ? StaticPropFade.Opacity(
+                        prop.StaticFade, prop.StaticScreen ?? default, (prop.Pose.X, prop.Pose.Y, prop.Pose.Z), eye, 1f,
+                        ScreenView, LevelScreenFade)
                     : EntityFade.DistanceAlpha(
                         prop.Pose.FadeMinimumDistance,
                         prop.Pose.FadeMaximumDistance,

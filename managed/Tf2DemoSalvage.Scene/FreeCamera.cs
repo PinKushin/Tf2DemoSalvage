@@ -319,6 +319,18 @@ public sealed class FreeCamera
             (Origin.X, Origin.Y, Origin.Z), forward, right, up, NearZ, FarZ, FieldOfView, Aspect);
     }
 
+    /// <summary>This camera as <c>ComputePixelWidthOfSphere</c> projects through it (B432).</summary>
+    /// <param name="viewportHeight">The viewport's height in pixels.</param>
+    /// <returns>Eye, forward, up and <see cref="ToMatrix"/>'s <c>[1][1]</c>, which is <c>Aspect / tan(fovX / 2)</c>.</returns>
+    public ScreenFadeView ScreenView(float viewportHeight)
+    {
+        ((float X, float Y, float Z) forward, _, (float X, float Y, float Z) up) = Basis();
+
+        return new ScreenFadeView(
+            (Origin.X, Origin.Y, Origin.Z), forward, up,
+            Aspect / MathF.Tan(FieldOfView * (MathF.PI / 180f) * 0.5f), viewportHeight);
+    }
+
     /// <summary>The view-projection the shader wants, row-major, translation in the last row.</summary>
     /// <returns>Sixteen floats for the camera constant buffer.</returns>
     public float[] ToMatrix()

@@ -2233,6 +2233,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _frustum = camera.Frustum();
 
+        // The main view the static props' screen fades measure through (B432), from the same camera.
+        _screenView = camera.ScreenView(_height);
+
         // For the translucent back-to-front sort: the same two values the engine hands
         // `SortEntities` as vecRenderOrigin and vecRenderForward, read from the same camera the
         // frustum came from — one camera or the cull lies, and so would the sort.
@@ -2679,6 +2682,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// Unbuilt before the first camera is set, and an unbuilt frustum culls nothing.
     /// </remarks>
     public ViewFrustum Frustum => _frustum;
+
+    /// <summary>The main view for <c>ComputePixelWidthOfSphere</c> (B432); null before a camera is set.</summary>
+    public Core.Scene.ScreenFadeView? ScreenView => _screenView;
+
+    private Core.Scene.ScreenFadeView? _screenView;
 
     /// <summary>Which leaves the world cull accepted this view, for the entity cull (B254).</summary>
     /// <remarks>

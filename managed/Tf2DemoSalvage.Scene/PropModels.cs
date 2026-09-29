@@ -191,13 +191,17 @@ public static class PropModels
     /// <summary>A static prop as the model draw sees it: the lump's placement and skin (B426, D198).</summary>
     /// <param name="placement">The lump entry.</param>
     /// <param name="index">Its index in the lump.</param>
+    /// <param name="radius">
+    /// <c>prop+0x98</c>, the sphere the screen fades project (B432): half the diagonal of the model's render
+    /// bounds, <see cref="SphereRadius"/>. Zero where no model was read.
+    /// </param>
     /// <returns>The prop, keyed past every entity range.</returns>
     /// <remarks>
     /// `engine.dll` `0x1800f1bd0` draws a static prop through the same model draw as any entity, with a
     /// lighting handle whose cube and local lights `FUN_1801ba590` refreshes every frame when the prop has no
     /// baked colours. Handing it to <see cref="EntityModelSet.Instances"/> is that draw.
     /// </remarks>
-    public static SceneProp StaticModel(BspStaticProp placement, int index) =>
+    public static SceneProp StaticModel(BspStaticProp placement, int index, float radius = 0f) =>
         new(
             FirstStaticPropEntityIndex + index,
             placement.Model,
@@ -215,7 +219,20 @@ public static class PropModels
             },
             ClassName: "prop_static",
             LightingOrigin: placement.UsesLightingOrigin ? placement.LightingOrigin : null,
-            StaticFade: StaticPropFade.For(placement.Flags, placement.FadeMinimum, placement.FadeMaximum));
+            StaticFade: StaticPropFade.For(placement.Flags, placement.FadeMinimum, placement.FadeMaximum),
+            StaticScreen: new StaticPropScreen(radius, placement.ForcedFadeScale));
+
+    /// <summary>Half a box's diagonal — <c>m_flRadius</c> as <c>CStaticProp::Init</c> sets it from the render bounds (B432).</summary>
+    /// <param name="bounds">The model's header render bounds (the clipping box when authored, else the hull).</param>
+    /// <returns>The radius, unscaled by the placement.</returns>
+    public static float SphereRadius(StudioBox bounds)
+    {
+        float x = bounds.MaxX - bounds.MinX;
+        float y = bounds.MaxY - bounds.MinY;
+        float z = bounds.MaxZ - bounds.MinZ;
+
+        return MathF.Sqrt((x * x) + (y * y) + (z * z)) * 0.5f;
+    }
 
     /// <summary>Hands one placement to the model draw, with its baked colours when it has them (B426).</summary>
     private static void StaticModelOf(
@@ -226,7 +243,7 @@ public static class PropModels
         ICollection<SceneProp> drawnAsModels,
         IDictionary<int, float[]> bakedColours)
     {
-        SceneProp prop = StaticModel(placement, index);
+        SceneProp prop = StaticModel(placement, index, SphereRadius(model.Frames.HeaderBounds));
         drawnAsModels.Add(prop);
 
         if (lighting.Colours is null)

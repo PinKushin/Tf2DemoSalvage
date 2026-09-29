@@ -135,24 +135,22 @@ public sealed class StaticPropFadesProbe : IProbe
 
             (float[]? scales, float[] minimums) = RawRecords(file);
 
-            // The control: this second walk of the records must agree with the production reader
-            // on a field both read, or its forced fade scale column is not the one it claims.
+            // The control: an independent walk of the records must agree with the production reader on
+            // the fade minimum AND the forced fade scale (B432), or the column below is not the one it claims.
             if (minimums.Length != props.Count
                 || props.Where((prop, index) =>
-                    BitConverter.SingleToInt32Bits(prop.FadeMinimum) != BitConverter.SingleToInt32Bits(minimums[index])).Any())
+                    BitConverter.SingleToInt32Bits(prop.FadeMinimum) != BitConverter.SingleToInt32Bits(minimums[index])
+                    || (scales is not null
+                        && BitConverter.SingleToInt32Bits(prop.ForcedFadeScale) != BitConverter.SingleToInt32Bits(scales[index]))).Any())
             {
                 controlMismatch++;
                 output.WriteLine($"{name}: CONTROL MISMATCH — raw walk disagrees with BspStaticProps");
             }
 
-            int mapForced = 0;
-
-            if (scales is not null)
-            {
-                scaleReadable++;
-                mapForced = scales.Count(scale => BitConverter.SingleToInt32Bits(scale) != BitConverter.SingleToInt32Bits(1f));
-                forced += mapForced;
-            }
+            scaleReadable += scales is null ? 0 : 1;
+            int mapForced = props.Count(prop =>
+                BitConverter.SingleToInt32Bits(prop.ForcedFadeScale) != BitConverter.SingleToInt32Bits(1f));
+            forced += mapForced;
 
             BspEntity? world = entities.FirstOrDefault(entity =>
                 string.Equals(entity.ClassName, "worldspawn", StringComparison.OrdinalIgnoreCase));
@@ -190,7 +188,7 @@ public sealed class StaticPropFadesProbe : IProbe
 
     /// <summary>
     /// The forced fade scale of every prop (null below version 5), and each prop's fade minimum
-    /// for the control. A second walk because production does not read the scale (D180).
+    /// for the control — a second, independent walk of the records that must agree with the production reader.
     /// </summary>
     private static (float[]? Scales, float[] Minimums) RawRecords(byte[] file)
     {

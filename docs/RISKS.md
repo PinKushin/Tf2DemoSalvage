@@ -7664,6 +7664,41 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B432 — static props never took their screen-size fades — FIXED 2026-09-29
+
+**Measured first** (B430's census, `static-prop-fades`): 140 screen-space fade entries on 4 maps
+(`pl_cactuscanyon`, `pl_barnblitz`, `koth_overcast_final`, `cp_cowerhouse`), and the level screen fade
+enabled on 2 (`cp_mountainlab` 10..20 px, `koth_overcast_final` 2..4 px), where it applies to EVERY static prop.
+
+**Read from `engine.dll`:** the screen-space branch of `FUN_180202c60` (`0x180202e98`), the level/view fade
+`FUN_1801cb810` behind the modelinfo thunks `+0x110`/`+0x118` (`0x1801c9ed0`/`0x1801c9ef0`, ranges at
+`modelinfo+0x70`/`+0x7c`), the setter `FUN_1801c9e50`, and the min at `0x180202fe5`; formulas in B430. **From
+`materialsystem.dll`** (read by the coordinator; the fallback constants checked here): `ComputePixelWidthOfSphere`
+`FUN_180012710` = 2 × `FUN_180030f90`, which projects `center ± radius · up` (the view matrix's row 1) through
+view-projection, takes `y / w` (or `y · 1000` when `w < 0.001`: `0x1800bd540` = 0.001, `0x1800bd550` = 1000) and
+returns `|Δ| · viewportHeight · 0.5`.
+
+**Built:** `ScreenFadeView.PixelWidthOfSphere`, `ScreenFadeRange` (`Set`, `Alpha`), `StaticPropFade.ScreenAlpha`
+and `.Opacity` (Core); `BspStaticProp.ForcedFadeScale` (offset 56 from v5, else 1); `BspEntities.PropScreenWidths`
+→ `EntityModelSet.LevelScreenFade` in `LevelSystems`; `FreeCamera.ScreenView` → `Device3D.ScreenView` →
+`PoseNow`/`Pose` → `EntityModelSet.ScreenView`; every static prop carries `StaticPropScreen(radius, scale)`.
+
+**Interpolated, flagged:** the radius (`prop+0x98`) is half the diagonal of the model's header render bounds
+(clipping box if authored, else hull), unscaled by the placement — the coordinator's reading of
+`CStaticProp::Init` and `GetModelRenderBounds`, not re-read here. The view range stays disabled
+(`r_screenfademinsize` 0; the viewer reads no such cvar). The level range comes from the BSP's `worldspawn`,
+which the server copies onto the wire unchanged, rather than from the demo's `CWorld`.
+
+**Tests:** `StaticPropScreenFadeConformanceTests` (Scene), `BspStaticPropLayoutTests.ReadPayload_ForcedFadeScale_…`
+(Content), and the output-level `StaticPropScreenFadeWiringTests` (Rendering): `koth_overcast_final` loaded
+through `MapAssets`, its first non-fading prop at 3.1 px → 140, at 5 px → 255. Sabotaged: dropping the 2×,
+the 1000 fallback, the collapsed-range setter, dividing by the forced scale, the `Measures` guard, `Min`→`Max`,
+passing no level range, the camera's aspect, the 56 offset, and the radius each reddened named tests.
+`ScreenAlpha`'s `≤ max` → `< max` survives and is equivalent (the lerp at `max` is 0). Not covered by a test:
+the `LevelSystems` and `MainForm` wiring lines.
+
+---
+
 ### B431 — the first frame after the opening seek drew a pose from before it — FIXED 2026-09-29
 
 **Seen in the log**, z1800 on `koth_harvest_final` opened at tick 20000 by the UI suite
@@ -7726,8 +7761,7 @@ alpha 0 at `px ≤ entry.max`, 255 at `entry.min < 0` or `px ≥ entry.min`, els
 (level) / `+0x7c` (view): 255 when `range.min ≤ 0` or forced scale `≤ 0`; `px' = px / forcedScale`; 0 at `px' ≤ min`,
 255 at `max < 0` or `px' ≥ max`, else `(px' − min)·scale`. The setter `FUN_1801c9e50` stores `{min, max, 255/(max−min)}`,
 or `{min, min, 255}` when `max ≤ min`. The min of the two is applied only when lower than the current alpha.
-**Blocked:** `ComputePixelWidthOfSphere` lives in `materialsystem.dll`; its project was not reachable through the
-MCP bridge (8089 serves `engine.dll` only), and porting the projection without reading it would be a guess.
+**Built as B432**, once `ComputePixelWidthOfSphere` (`materialsystem.dll`) was read.
 
 ---
 
