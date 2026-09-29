@@ -39,11 +39,19 @@ public sealed class BspTerrain
 
     private readonly ReadOnlyMemory<byte> _infos;
     private readonly ReadOnlyMemory<byte> _vertices;
+    private readonly ReadOnlyMemory<byte> _samples;
 
-    private BspTerrain(ReadOnlyMemory<byte> infos, ReadOnlyMemory<byte> vertices)
+    /// <summary>`CPowerInfo::m_pTriInfos` by power, built once.</summary>
+    private static readonly int[]?[] Triangles = new int[MaximumPower + 1][];
+
+    /// <summary>`0x1800c0600`'s byte weight scale, `0.003921569`, as the binary writes it rather than `1/255`.</summary>
+    private const float SampleWeight = 0.003921569f;
+
+    private BspTerrain(ReadOnlyMemory<byte> infos, ReadOnlyMemory<byte> vertices, ReadOnlyMemory<byte> samples)
     {
         _infos = infos;
         _vertices = vertices;
+        _samples = samples;
     }
 
     /// <summary>How many displacements the map declares.</summary>
@@ -61,7 +69,159 @@ public sealed class BspTerrain
             BspLumpData.ReadStructures(
                 file, header.Lump(BspLumpIndex.DispInfo), DispInfoStride, "dispinfo"),
             BspLumpData.ReadStructures(
-                file, header.Lump(BspLumpIndex.DispVerts), DispVertStride, "dispverts"));
+                file, header.Lump(BspLumpIndex.DispVerts), DispVertStride, "dispverts"),
+            BspLumpData.ReadStructures(
+                file, header.Lump(BspLumpIndex.DispLightmapSamplePositions), 1, "disp lightmap sample positions"));
+    }
+
+    /// <summary>`CPowerInfo::m_pTriInfos` for a power: three grid vertex indices per triangle, as `InitPowerInfoTriInfos_R` winds them.</summary>
+    /// <param name="power">The displacement's power, 2 to 4.</param>
+    /// <returns>The indices, <c>y · side + x</c>, two triangles per grid quad.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The power is outside 2 to 4.</exception>
+    /// <remarks>
+    /// `disp_powerinfo.cpp:319-370`: from the centre, into the four children (upper-right, upper-left, lower-left,
+    /// lower-right, `g_ChildNodeIndexMul`) until a node one step from the grid, which winds the eight `g_TesselateVerts`
+    /// round itself, each consecutive pair closing a triangle on the node. The engine reads these at `+0x28` of the power
+    /// info (`0x1800c0600`), and vbsp's sample positions name them by index (`disp_vbsp.cpp:58-90`).
+    /// </remarks>
+    public static IReadOnlyList<int> SampleTriangles(int power)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThan(power, MinimumPower);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(power, MaximumPower);
+
+        if (Triangles[power] is { } built)
+        {
+            return built;
+        }
+
+        ReadOnlySpan<(int X, int Y)> children = [(1, 1), (-1, 1), (-1, -1), (1, -1)];
+        ReadOnlySpan<(int X, int Y)> winding = [(1, -1), (0, -1), (-1, -1), (-1, 0), (-1, 1), (0, 1), (1, 1), (1, 0), (1, -1)];
+        int side = (1 << power) + 1;
+        List<int> triangles = new((1 << power) * (1 << power) * 6);
+
+        Node(side / 2, side / 2, 0, children, winding);
+
+        return Triangles[power] = [.. triangles];
+
+        void Node(int x, int y, int level, ReadOnlySpan<(int X, int Y)> children, ReadOnlySpan<(int X, int Y)> winding)
+        {
+            if (level + 1 < power)
+            {
+                int step = 1 << (power - level - 2);
+
+                foreach ((int cx, int cy) in children)
+                {
+                    Node(x + (cx * step), y + (cy * step), level + 1, children, winding);
+                }
+
+                return;
+            }
+
+            int first = -1;
+
+            foreach ((int wx, int wy) in winding)
+            {
+                int vertex = ((y + wy) * side) + x + wx;
+
+                if (first >= 0)
+                {
+                    triangles.Add(first);
+                    triangles.Add(vertex);
+                    triangles.Add((y * side) + x);
+                }
+
+                first = vertex;
+            }
+        }
+    }
+
+    /// <summary>`0x1800c0600`: each luxel's position from its sample record and the displacement's grid.</summary>
+    /// <param name="samples">The displacement's records in lump 34, from its `m_iLightmapSamplePositionStart`.</param>
+    /// <param name="count">How many luxels: the face's lightmap samples across times down.</param>
+    /// <param name="power">The displacement's power.</param>
+    /// <param name="grid">Its vertices, <c>y · side + x</c>.</param>
+    /// <returns>A position per luxel, row by row; the origin for any the records run out before.</returns>
+    /// <remarks>
+    /// A record is a triangle byte — 255 escapes to <c>255 + the next byte</c> — and three byte weights, each times
+    /// `0.003921569`, on the triangle's first, second and third vertex. A sample vbsp could place in no triangle is written
+    /// as four zeros (`disp_vbsp.cpp:127-133`), so it reads as weight zero everywhere: the origin, as the engine reads it.
+    /// </remarks>
+    public static (float X, float Y, float Z)[] LuxelPositions(
+        ReadOnlySpan<byte> samples, int count, int power, IReadOnlyList<(float X, float Y, float Z)> grid)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+
+        IReadOnlyList<int> triangles = SampleTriangles(power);
+        (float X, float Y, float Z)[] positions = new (float, float, float)[Math.Max(0, count)];
+        int at = 0;
+
+        for (int luxel = 0; luxel < positions.Length && at + 4 <= samples.Length; luxel++)
+        {
+            int triangle = samples[at];
+
+            if (triangle == byte.MaxValue && at + 5 <= samples.Length)
+            {
+                at++;
+                triangle = samples[at] + byte.MaxValue;
+            }
+
+            float w0 = samples[at + 1] * SampleWeight;
+            float w1 = samples[at + 2] * SampleWeight;
+            float w2 = samples[at + 3] * SampleWeight;
+
+            at += 4;
+
+            if ((triangle * 3) + 2 >= triangles.Count)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) a = Vertex(triangles[triangle * 3]);
+            (float X, float Y, float Z) b = Vertex(triangles[(triangle * 3) + 1]);
+            (float X, float Y, float Z) c = Vertex(triangles[(triangle * 3) + 2]);
+
+            positions[luxel] = (
+                (w1 * b.X) + (w0 * a.X) + (w2 * c.X),
+                (w1 * b.Y) + (w0 * a.Y) + (w2 * c.Y),
+                (w1 * b.Z) + (w0 * a.Z) + (w2 * c.Z));
+        }
+
+        return positions;
+
+        (float X, float Y, float Z) Vertex(int index) => index < grid.Count ? grid[index] : default;
+    }
+
+    /// <summary>Where each luxel of a displacement's lightmap sits in the world, as a dlight reads it (B425).</summary>
+    /// <param name="surface">A displacement's parent face.</param>
+    /// <returns>A position per luxel, row by row; empty for a face that is not a displacement or a map without the lump.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="surface"/> is null.</exception>
+    /// <exception cref="InvalidDataException">The displacement's data is malformed.</exception>
+    public (float X, float Y, float Z)[] ReadLuxelPositions(BspSurface surface)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+
+        if (Grid(surface) is not { } built)
+        {
+            return [];
+        }
+
+        ReadOnlySpan<byte> info = _infos.Span.Slice(surface.DisplacementIndex * DispInfoStride, DispInfoStride);
+        int start = BinaryPrimitives.ReadInt32LittleEndian(info[DispLightmapSamplePositionStartOffset..]);
+
+        if (start < 0 || start >= _samples.Length)
+        {
+            return [];
+        }
+
+        (float X, float Y, float Z)[] grid = new (float, float, float)[built.Grid.Length];
+
+        for (int index = 0; index < grid.Length; index++)
+        {
+            grid[index] = (built.Grid[index].X, built.Grid[index].Y, built.Grid[index].Z);
+        }
+
+        return LuxelPositions(
+            _samples.Span[start..], Math.Max(1, surface.LuxelWidth) * Math.Max(1, surface.LuxelHeight), built.Power, grid);
     }
 
     /// <summary>Reads one face's terrain, if it has any.</summary>
@@ -79,10 +239,47 @@ public sealed class BspTerrain
     {
         ArgumentNullException.ThrowIfNull(surface);
 
+        if (Grid(surface) is not { } built)
+        {
+            return [];
+        }
+
+        ReadOnlySpan<byte> info = _infos.Span.Slice(surface.DisplacementIndex * DispInfoStride, DispInfoStride);
+
+        // **Valve's own tesselation, not a uniform grid, and the difference is where the ground
+        // ENDS.** A displacement next to a coarser neighbour has edge vertices turned off in
+        // `m_AllowedVerts` so its edge collapses onto the neighbour's and the two meet exactly;
+        // spanning every quad regardless keeps them, and the fine edge then bulges away from the
+        // straight line the coarse one draws. Measured before this: 26 columns on
+        // `koth_harvest_final` where a ray fell through ground the map's own brush tree stops it
+        // on, and a corpse seeded on one of them reached z -1015.
+        //
+        // **The same walk serves the renderer, which is Valve's arrangement rather than ours** —
+        // *"This interface is shared betwixt VBSP and the engine. VBSP uses it to build the physics
+        // mesh and the engine uses it to render"* (`disp_tesselate.h:174-175`). A renderer and a
+        // collision mesh that tesselate one displacement differently disagree about where the
+        // ground is, which is a defect wearing the clothes of an optimisation.
+        List<int> indices = new((built.Side - 1) * (built.Side - 1) * 6);
+
+        DisplacementTesselation.Build(built.Power, info[DispAllowedVertsOffset..], indices);
+
+        List<SurfaceVertex> triangles = new(indices.Count);
+
+        foreach (int index in indices)
+        {
+            triangles.Add(built.Grid[index]);
+        }
+
+        return triangles;
+    }
+
+    /// <summary>A displacement's full vertex grid, <c>y · side + x</c>, and its power; null for a face that is not one.</summary>
+    private (SurfaceVertex[] Grid, int Power, int Side)? Grid(BspSurface surface)
+    {
         if (!surface.IsDisplacement || surface.Vertices.Count != 4)
         {
             // A displacement is always built on a quad. Anything else is not one.
-            return [];
+            return null;
         }
 
         ReadOnlySpan<byte> infos = _infos.Span;
@@ -190,31 +387,7 @@ public sealed class BspTerrain
             }
         }
 
-        // **Valve's own tesselation, not a uniform grid, and the difference is where the ground
-        // ENDS.** A displacement next to a coarser neighbour has edge vertices turned off in
-        // `m_AllowedVerts` so its edge collapses onto the neighbour's and the two meet exactly;
-        // spanning every quad regardless keeps them, and the fine edge then bulges away from the
-        // straight line the coarse one draws. Measured before this: 26 columns on
-        // `koth_harvest_final` where a ray fell through ground the map's own brush tree stops it
-        // on, and a corpse seeded on one of them reached z -1015.
-        //
-        // **The same walk serves the renderer, which is Valve's arrangement rather than ours** —
-        // *"This interface is shared betwixt VBSP and the engine. VBSP uses it to build the physics
-        // mesh and the engine uses it to render"* (`disp_tesselate.h:174-175`). A renderer and a
-        // collision mesh that tesselate one displacement differently disagree about where the
-        // ground is, which is a defect wearing the clothes of an optimisation.
-        List<int> indices = new((side - 1) * (side - 1) * 6);
-
-        DisplacementTesselation.Build(power, info[DispAllowedVertsOffset..], indices);
-
-        List<SurfaceVertex> triangles = new(indices.Count);
-
-        foreach (int index in indices)
-        {
-            triangles.Add(grid[index]);
-        }
-
-        return triangles;
+        return (grid, power, side);
     }
 
     /// <summary>Reads one face's displacement as the engine's collision tree, and whether it is excluded from physics.</summary>

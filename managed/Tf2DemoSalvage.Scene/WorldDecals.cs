@@ -137,7 +137,11 @@ public readonly record struct DisplacementCorner(Vector3 Position, float LightU,
 /// <param name="Mins">Its bounding box's low corner.</param>
 /// <param name="Maxs">Its high corner.</param>
 /// <param name="Triangles">Its drawn triangles, three corners each, as the world renderer draws them.</param>
-public sealed record DecalDisplacement(int Face, Vector3 Mins, Vector3 Maxs, IReadOnlyList<DisplacementCorner> Triangles);
+public sealed record DecalDisplacement(int Face, Vector3 Mins, Vector3 Maxs, IReadOnlyList<DisplacementCorner> Triangles)
+{
+    /// <summary>Each of its luxels' world positions, row by row, as `0x1800c0600` rebuilds them for a dlight (B425).</summary>
+    public IReadOnlyList<Vector3> Luxels { get; init; } = [];
+}
 
 /// <summary>A displacement as a ray sees it: its parent face and its collision tree (B415).</summary>
 /// <param name="Face">Its parent face's index.</param>
@@ -152,7 +156,10 @@ public sealed record RayDisplacement(int Face, DisplacementCollisionTree Tree, b
 /// <param name="Distance">Its distance.</param>
 /// <param name="FirstFace">The first face lying on the plane.</param>
 /// <param name="FaceCount">How many.</param>
-public readonly record struct DecalNode(int Front, int Back, Vector3 Normal, float Distance, int FirstFace, int FaceCount);
+/// <param name="Mins">`dnode_t::mins`: the low corner of its box, which a brush model's dlight test reads at its head node (B425).</param>
+/// <param name="Maxs">`dnode_t::maxs`.</param>
+public readonly record struct DecalNode(
+    int Front, int Back, Vector3 Normal, float Distance, int FirstFace, int FaceCount, Vector3 Mins = default, Vector3 Maxs = default);
 
 /// <summary>The world as the decal system walks it: nodes, each leaf's faces, and the faces.</summary>
 /// <param name="Nodes">Every node, the root first.</param>
@@ -208,7 +215,9 @@ public sealed record DecalWorld(
                     new Vector3(node.NormalX, node.NormalY, node.NormalZ),
                     node.Distance,
                     node.FirstFace,
-                    node.FaceCount)
+                    node.FaceCount,
+                    new Vector3(node.Min.X, node.Min.Y, node.Min.Z),
+                    new Vector3(node.Max.X, node.Max.Y, node.Max.Z))
                 : new DecalNode(-1, -1, Vector3.UnitZ, 0f, 0, 0);
         }
 
@@ -273,7 +282,7 @@ public sealed record DecalWorld(
         {
             Displacements = DisplacementsOf(surfaces, terrain),
             RayDisplacements = rays,
-            LeafDisplacements = Link(nodes, leaves.Length, rays),
+            LeafDisplacements = Link(nodes, leaves.Length, rays.ConvertAll(static ray => (ray.Tree.Mins, ray.Tree.Maxs))),
         };
     }
 
@@ -294,7 +303,11 @@ public sealed record DecalWorld(
     }
 
     /// <summary>Each leaf's displacements: every one whose box reaches it, in displacement order.</summary>
-    private static List<int>[] Link(DecalNode[] nodes, int leafCount, List<RayDisplacement> rays)
+    /// <param name="nodes">The tree.</param>
+    /// <param name="leafCount">How many leaves.</param>
+    /// <param name="boxes">Each displacement's box, in order.</param>
+    /// <returns>Each leaf's indices into <paramref name="boxes"/>.</returns>
+    internal static List<int>[] Link(IReadOnlyList<DecalNode> nodes, int leafCount, IReadOnlyList<(Vector3 Mins, Vector3 Maxs)> boxes)
     {
         List<int>[] lists = new List<int>[leafCount];
 
@@ -303,11 +316,11 @@ public sealed record DecalWorld(
             lists[leaf] = [];
         }
 
-        for (int index = 0; index < rays.Count; index++)
+        for (int index = 0; index < boxes.Count; index++)
         {
-            if (nodes.Length > 0)
+            if (nodes.Count > 0)
             {
-                Down(0, rays[index].Tree.Mins, rays[index].Tree.Maxs, index);
+                Down(0, boxes[index].Mins, boxes[index].Maxs, index);
             }
         }
 
@@ -317,7 +330,7 @@ public sealed record DecalWorld(
         {
             while (node >= 0)
             {
-                if (node >= nodes.Length)
+                if (node >= nodes.Count)
                 {
                     return;
                 }
@@ -389,7 +402,15 @@ public sealed record DecalWorld(
                 high = Vector3.Max(high, at);
             }
 
-            displacements.Add(new DecalDisplacement(surface.FaceIndex, low, high, corners));
+            (float X, float Y, float Z)[] luxels = terrain.ReadLuxelPositions(surface);
+            Vector3[] positions = new Vector3[luxels.Length];
+
+            for (int index = 0; index < positions.Length; index++)
+            {
+                positions[index] = new Vector3(luxels[index].X, luxels[index].Y, luxels[index].Z);
+            }
+
+            displacements.Add(new DecalDisplacement(surface.FaceIndex, low, high, corners) { Luxels = positions });
         }
 
         return displacements;

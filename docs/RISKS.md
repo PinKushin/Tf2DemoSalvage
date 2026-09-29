@@ -8018,7 +8018,7 @@ and `StaticPropModelsWiringTests.Load_KothHarvest_…` (the three flagged placem
 
 ---
 
-### B425 — dynamic lights (`cl_dlights`) — models, static-prop bit and world lightmaps FIXED 2026-09-29; displacements, brush entities and three allocators OPEN
+### B425 — dynamic lights (`cl_dlights`) — models, static-prop bit, world lightmaps, displacements and brush entities FIXED 2026-09-29; three allocators OPEN
 
 **The premise was wrong.** In TF2, explosions, muzzle flashes and burning players allocate no light at all. The
 explosion light is `//FIXME`d out of `C_BaseExplosionEffect::Create`, TF2 overrides every muzzle-flash elight, and
@@ -8041,9 +8041,18 @@ driven) are in `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
   before the decay. Formulas and addresses: findings 66. Tests: `WorldDynamicLightConformanceTests`,
   `MomentSceneTests.Pose_TheRecordersFireballAboveAFloor_…`, `CorpusWorldDynamicLightTests` (lcor, no face lit).
 
+- **Displacements and brush entities, built 2026-09-29.** A displacement is marked by box from its leaf and lit by each
+  luxel's 3D position, rebuilt from lump 34 and `CPowerInfo::m_pTriInfos` (`0x1800d4680`, slots 0x38/0x30
+  `0x1800c4540`/`0x1800c3130`, `0x1800c0600`, adders `0x1800c0ad0`/`0x1800c0c40`); a drawn brush entity walks the lights
+  from its head node in its own space (`0x1800e03a0`), its faces rebuilt reading them through the same matrix. The
+  step-2 `GetBumpNormals` flip was checked against `0x18027a090`: it matches. Formulas: findings 66. Tests:
+  `DisplacementLuxelPositionConformanceTests`, `WorldDynamicLightDisplacementAndBrushConformanceTests`,
+  `MomentSceneTests.Pose_TheRecordersFireballOverTerrainAndADoor_…`.
+
 **Open.**
-- **Displacements** (`CDispInfo` slots 0x30/0x38, `0x1800c0600`: per-luxel 3D position) and **brush entities**
-  (`0x1800e03a0`): read, not built. A fireball over terrain or a door lights neither.
+- **Displacement remainders, named:** the alpha lights (`flags & 0xc`, `0x1800bf7d0`, the blend alpha); the per-vertex
+  normal (the parent plane's stands in for `CalcNormalFromEdges` and neighbour smoothing, so a bumped slope's pages are
+  lit as if flat); the leaves' displacement lists, pushed down by box (interpolated, as `DecalWorld.LeafDisplacements`).
 - `0x1801b7dd0`'s hand-off of every active light to the material system.
 - ~~**The static-prop bit (`FUN_1801b5260`, `+0x1a4`) — ambiguous, not built.**~~ **Built 2026-09-29 (B424's
   correction).** On DX9 (slot `0x150` true) the colour mesh is kept and `FUN_1801ba590(handle, 6 + bit)` adds the

@@ -119,8 +119,56 @@ published source for `GetBumpNormals` (`mathlib/bumpvects.cpp`) and `TexLightToL
   its first. Reproduced, not corrected.
 - **Displacements** take their own path: the leaf's list, then `CDispInfo` (vtable `0x18038d8b8`) slot 0x38
   (`0x1800c4540`: the bits, flag 1 only, no plane test) and slot 0x30 (`0x1800c3130` → `0x1800c0600`: a 3D position,
-  normal and bump basis rebuilt per luxel from the disp's triangles). **Not built.**
-- **Brush entities** (`0x1800e03a0`) move the light into the model's space and walk its own nodes. **Not built.**
+  normal and bump basis rebuilt per luxel from the disp's triangles). Built 2026-09-29, below.
+- **Brush entities** (`0x1800e03a0`) move the light into the model's space and walk its own nodes. Built 2026-09-29,
+  below.
+
+## Displacements and brush entities, read from `engine.dll` (2026-09-29)
+
+Evidence class: **disassembly** for the engine (the three `CDispInfo` adders are thunks whose only difference is the
+callback they store at `+0x28` of a stack functor, read in the listing, not the decompiler); **published source** for
+the tables the engine reads (`disp_powerinfo.cpp`, `disp_vbsp.cpp`, `builddisp.cpp`).
+
+- **Marking a displacement.** The leaf pass (`0x1800d4680`) walks the leaf's displacements BEFORE its faces: a parent face
+  not already carrying the bit this frame, whose box (slot 0x18) meets the sphere by `IsBoxIntersectingSphere`
+  (`0x180172c60`, squared gap strictly below `r²`), takes the bit, the frame and `SURFDRAW_HASDLIGHT`.
+- **Keeping.** `0x1800d0ba0` hands a `SURFDRAW_HAS_DISP` face to slot 0x38 (`0x1800c4540`): a light is kept when active,
+  carried, `flags & 1` clear and under the `r_maxdlights` budget (`0x1800d0300`). No `0xd` mask and no plane test; no
+  bit is dropped one by one.
+- **Where a luxel is.** `0x1800c0600` walks the luxels row by row through `LUMP_DISP_LIGHTMAP_SAMPLE_POSITIONS` (34) at
+  `ddispinfo_t::m_iLightmapSamplePositionStart` (offset 44): a triangle byte, 255 escaping to `255 + next`, then three
+  bytes times `0.003921569` — the barycentric weights vbsp wrote as `(unsigned char)(b · 255.9)`
+  (`disp_vbsp.cpp:93-136`). The triangle indexes `CPowerInfo::m_pTriInfos` (`+0x28` of the power info at `+0x268`,
+  `disp_powerinfo.h:164`), wound by `InitPowerInfoTriInfos_R` (`disp_powerinfo.cpp:319-370`): from the centre into the
+  four children, and at a node one step from the grid eight triangles round it from `g_TesselateVerts`. These are the
+  full grid's triangles, NOT the drawn tesselation, which `m_AllowedVerts` thins.
+- **Adding.** Slot 0x30 (`0x1800c3130`) sends a light with `flags & 0xc` to the alpha path (`0x1800bf7d0`, the blend alpha,
+  not built), otherwise `0x1800bf8d0` (one page) or `0x1800bf9d0` (bumped, `SURFDRAW_BUMPLIGHT` via `0x1800cba50`). The
+  functor carries `max(minlight, 1/256)·r²`, `1/r²`, the colour (as a face's), `r²` and the WORLD origin. Flat
+  (`0x1800c0ad0`): `d² = |o − p|²`, the face's falloff by the true 3D distance. Bumped (`0x1800c0c40`):
+  `dir = (o − p)·rsqrt(d² + 1e-10)` (one Newton step), n, s, t its dots on the luxel's interpolated normal (`+0xb0`) and
+  tangents (`+0x108`, `+0x110`); page 0 takes `max(n, 0)·f` and pages 1–3 `max(g_localBumpBasis_k·(s, t, n), 0)·f`.
+  **Unlike a face, no division by the normal's share and page 0 is not the full falloff.**
+- **The tangents** are `GenerateDispSurfTangentSpaces` (`builddisp.cpp:1692-1727`): `T = |tAxis|`, `S = |N × T|`,
+  `T = |S × N|`, `S` negated when `(sAxis × tAxis)·planeNormal > 0`. *Interpolated:* `+0x108` as `m_TangentS` and `+0x110`
+  as `m_TangentT`, from which page each dot feeds.
+- **Brush entities.** `R_MarkDlightsOnBrushModel` (`0x1800e03a0`), per drawn brush, while any light is active: the
+  render matrix (`0x18027c260`: `AngleMatrix` and the origin); each dlight with `time <= die` and `radius > 0` — **no
+  flag test, unlike `R_PushDlights`** — has its origin replaced by `Rᵀ(o − t)` and is walked from the model's head node
+  (`0x1800d4520`) when that node's box meets it (`IsBoxIntersectingSphereExtents` `0x180172d10`, strict), then restored.
+  The rebuild reads the light through the same matrix: `0x180279620` moves it before `0x1800d0ba0`'s plane test and
+  before `0x1800cfca0` calls the adders. The spotlight direction is NOT moved.
+- **`GetBumpNormals`**, the step-2 open item: the engine's copy (`0x18027a090`, called from `0x1800d0340`) tests
+  `(s × t)·flat < 0`, builds `|phong × s|` then `|that × phong|`, negates the second when left-handed, and rotates
+  `g_localBumpBasis` by `VectorIRotate` — `bumpvects.cpp` line for line, which is what the port does. Closed.
+
+**Built:** `BspTerrain.SampleTriangles`/`LuxelPositions`/`ReadLuxelPositions` into `DecalDisplacement.Luxels`;
+`WorldDynamicLights` marks and rebuilds displacements and takes `LitBrush`es (`BrushesOf` the frame's drawn `*N` props)
+with `DecalNode`'s box. Tests: `DisplacementLuxelPositionConformanceTests`,
+`WorldDynamicLightDisplacementAndBrushConformanceTests`, `MomentSceneTests.Pose_TheRecordersFireballOverTerrainAndADoor_…`.
+**Named, not built:** the displacement alpha lights; the vertex normal, where the parent plane's stands in for
+`CalcNormalFromEdges` and its neighbour smoothing (the port's terrain mesh has none either); and the leaves' displacement
+lists, pushed down the tree by box because the load-time builder was not found.
 
 **Built:** `WorldDynamicLights` (marking, the per-face pass, both additions), `LightmapAtlas.Rebuild`, the frame's
 lights copied before the decay (`MomentScene.WorldLights`, as `EndUpdateLightmaps` `0x1800d5fa0` copies `cl_dlights`),
