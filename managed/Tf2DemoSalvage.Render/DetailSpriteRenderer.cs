@@ -356,9 +356,27 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     public void Draw(
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
-        float[] viewProjection)
+        float[] viewProjection) =>
+        Draw(device, context, viewProjection, 0, _corners);
+
+    /// <summary>Draws a run of the uploaded corners — one leaf's sprites, or part of them (B434).</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="context">The device context.</param>
+    /// <param name="viewProjection">The camera, row major, sixteen floats.</param>
+    /// <param name="firstCorner">The first corner to draw.</param>
+    /// <param name="cornerCount">How many; clamped to what was uploaded.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="viewProjection"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="viewProjection"/> is not sixteen floats.</exception>
+    public void Draw(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        float[] viewProjection,
+        int firstCorner,
+        int cornerCount)
     {
         ArgumentNullException.ThrowIfNull(viewProjection);
+
+        cornerCount = Math.Min(cornerCount, _corners - firstCorner);
 
         if (viewProjection.Length != CameraConstants)
         {
@@ -366,7 +384,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
                 "A camera matrix is sixteen floats.", nameof(viewProjection));
         }
 
-        if (!HasSprites)
+        if (!HasSprites || firstCorner < 0 || cornerCount <= 0)
         {
             return;
         }
@@ -398,7 +416,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         context.OMSetDepthStencilState(_testNoWrite, 0);
         context.RSSetState(_noCull);
 
-        context.Draw((uint)_corners, 0);
+        context.Draw((uint)cornerCount, (uint)firstCorner);
 
         // **Blending is turned back OFF here, and this is not tidiness.** The model pass that
         // follows binds its own shaders, layout and camera through `BindPipeline` — but it does

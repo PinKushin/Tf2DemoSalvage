@@ -1138,19 +1138,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 _world.Draw(_context);
 
-                // **The grass, after the world and before the models** (B361). The engine draws
-                // detail sprites in the translucent pass, which runs after the world's surfaces
-                // and its opaque renderables; here the models come next and are opaque, so drawing
-                // the sprites first lets the depth buffer they test against contain the ground
-                // they stand on and nothing that has not been drawn yet.
-                //
-                // **They own every piece of state they need** — blend, depth and rasteriser — so
-                // this cannot be the pass that leaks one onto the models below, which is the defect
-                // the long comment beneath is about.
-                if (_detailSprites is not null && _worldCamera is { } grassCamera)
-                {
-                    _detailSprites.Draw(_device, _context, grassCamera.Matrix);
-                }
+                // **The grass is NOT drawn here** but in the translucent pass below, leaf by leaf
+                // (B434): `RenderOpaqueDetailObjects` has an empty body (`detailobjectsystem.cpp:1954`).
 
                 // **After the map, and through the depth buffer**, so a model behind a wall is
                 // hidden by it rather than by draw order. The map's own identity matrix is set at
@@ -1291,7 +1280,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 if (worldLeaves is null)
                 {
                     _world.DrawTranslucentWorld(_context);
+
+                    // No leaves to interleave the grass by either: all of it, after the translucent world (B434).
+                    if (_detailSprites is not null && _worldCamera is { } grassCamera)
+                    {
+                        _detailSprites.Draw(_device, _context, grassCamera.Matrix);
+                    }
                 }
+
+                // `BeginTranslucentDetailRendering` (`viewrender.cpp:4564`): every leaf's sprite cursor rewound.
+                _detailLeaves.Begin();
 
                 // **The see-through parts of models, after every solid one.** A hologram, a glass
                 // visor and a cloaked spy all have to blend against what is behind them, so they
@@ -1353,10 +1351,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 // **The interleave** (`viewrender.cpp:4554-4695`): each leaf's world surfaces, back to front, with
                 // that leaf's models after them — so a cloaked spy behind glass is covered by it (B426).
-                TranslucentInterleave.Plan(worldLeaves?.LeafCount ?? 0, _translucentLeaves, _translucentSteps);
+                // The grass goes in the same walk, per leaf, split around each entity in its leaf (B434).
+                TranslucentInterleave.Plan(
+                    worldLeaves?.LeafCount ?? 0, _translucentLeaves, _hasDetailAtPlace ??= HasDetailAtPlace,
+                    _translucentSteps);
 
                 foreach (InterleaveStep step in _translucentSteps)
                 {
+                    if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailBeyond)
+                    {
+                        DrawDetailStep(step);
+                        continue;
+                    }
+
                     if (!step.IsEntity)
                     {
                         // The world's pass binds its own pipeline; the models' depth state goes back after it.
@@ -1819,6 +1826,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _detailController = controller;
 
         _detailCorners.Clear();
+        _detailLeaves.Clear();
         _detailBuiltFor = null;
 
         if (props.Count == 0 || rectangles.Count == 0 || sheet is null)
@@ -1949,6 +1957,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private IReadOnlyList<BspDetailProp> _detailProps = [];
     private IReadOnlyList<BspDetailSprite> _detailRectangles = [];
     private readonly List<DetailSpriteVertex> _detailCorners = [];
+
+    /// <summary>The uploaded sprite quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
+    private readonly DetailSpriteLeaves _detailLeaves = new();
     private (float X, float Y, float Z, float Distance, float Fade)? _detailBuiltFor;
     private (float FadeStart, float FadeEnd)? _detailController;
 
@@ -2026,7 +2037,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _detailRectangles,
             eye,
             fade,
-            _detailCorners);
+            _detailCorners,
+            _detailLeaves);
 
         _detailSprites.Upload(_device, _context, _detailCorners);
 
@@ -2717,6 +2729,66 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>The translucent pass's steps, reused a frame to the next.</summary>
     private readonly List<InterleaveStep> _translucentSteps = [];
+
+    /// <summary>The planner's detail question, bound once so a frame allocates no delegate.</summary>
+    private Func<int, bool>? _hasDetailAtPlace;
+
+    /// <summary>Whether a leaf place has detail sprites — <c>ShouldDrawDetailObjectsInLeaf</c> (B434).</summary>
+    /// <remarks>
+    /// The engine asks whether the leaf lies within <c>cl_detaildist</c> and holds props
+    /// (<c>clientleafsystem.cpp:1380</c>); a leaf whose sprites all faded out draws nothing either way, so "has a
+    /// sprite this view" draws the same pixels.
+    /// </remarks>
+    private bool HasDetailAtPlace(int place) =>
+        _detailSprites is not null && _culling is { } culling && _detailLeaves.Has(culling.LeafAt(place));
+
+    /// <summary>Draws one detail step of the interleave: a leaf's remaining sprites, or those farther than an entity.</summary>
+    /// <remarks>
+    /// <c>RenderTranslucentDetailObjectsInLeaf</c> (<c>detailobjectsystem.cpp:2633</c>) with the entity's
+    /// <c>GetRenderOrigin()</c> (<c>viewrender.cpp:4606</c>) or NULL (<c>:4639</c>); a leaf with no entity draws all
+    /// of its sprites (<c>RenderTranslucentDetailObjects</c>, <c>:2394</c>).
+    /// </remarks>
+    private void DrawDetailStep(InterleaveStep step)
+    {
+        if (_detailSprites is null || _culling is not { } culling || _worldCamera is not { } camera)
+        {
+            return;
+        }
+
+        float? nearest = null;
+        int place = step.Index;
+
+        if (step.Kind == InterleaveKind.DetailBeyond)
+        {
+            place = _translucentLeaves[step.Index];
+
+            ModelInstance instance = _translucentDraw[step.Index].Entry.Instance;
+            (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
+            (float x, float y, float z) = instance.Origin ??
+                (WorldSpaceBounds.IsPlaced(instance.WorldBounds)
+                    ? ((minX + maxX) * 0.5f, (minY + maxY) * 0.5f, (minZ + maxZ) * 0.5f)
+                    : _translucentEye);
+
+            x -= _translucentEye.X;
+            y -= _translucentEye.Y;
+            z -= _translucentEye.Z;
+            nearest = (x * x) + (y * y) + (z * z);
+        }
+
+        (int first, int count) = _detailLeaves.Take(culling.LeafAt(place), nearest);
+
+        if (count == 0)
+        {
+            return;
+        }
+
+        _detailSprites.Draw(
+            _device, _context, camera.Matrix,
+            first * DetailSprites.CornersPerQuad, count * DetailSprites.CornersPerQuad);
+
+        // The sprite pass owns its state; the models' depth state goes back after it, as after a world leaf.
+        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+    }
 
     /// <summary>A translucent model's leaf place — <c>m_iWorldListInfoLeaf</c>, the nearest listed leaf it touches.</summary>
     /// <param name="instance">The model.</param>
