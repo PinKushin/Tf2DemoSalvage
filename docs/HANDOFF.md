@@ -2,6 +2,20 @@
 
 Written 2026-09-14, superseding the handoff at `e47dc3f1` (same direction, earlier state).
 
+**2026-09-29 — state on `main` (`103b9400`), every item 3-phase gated. Session ended for a PC restart.**
+- Static props: B426 all as models (D198), B427 lighting origin, B429 CPU vertex bake + const-directional, B436 refused
+  `.vhv` → CPU bake, `.vhv` decode `GammaToLinear(2c)` (findings 67), DX9 static+dynamic path (baked colours + styled/dynamic
+  lights; B424 corrected), B430/B432 distance and screen fades.
+- Draw order: B426 per-leaf translucent interleave; B434/B435 detail sprites in the translucent walk + fast lane.
+- B425 dlights: list/decay/models, lightmaps, displacements, brush entities. Open: 3 allocators, disp alpha lights,
+  smoothed disp normal (findings 66).
+- B428 GDI font leak (red X's); B431 first frame after seek; B433/D199 memory: z1800 working set 11 → 4.2 GB.
+- **Owner's first task after the restart:** the Oracle box isn't running everything it should — see
+  `PinKushin/MEASUREMENT-BOX-LOG.md` 2026-09-29 [BLOCKER].
+- **Restart kills pmux Ghidra sessions.** Engine server: `pmux new-session -d -s ghidra-mcp -- D:\ghidra-proj\ghidra-mcp-engine.bat`
+  (8089; the MCP reaches only 8089 — other DLLs: `ghidra-mcp-studiorender.bat`, `ghidra-mcp-materialsystem-8089.bat`).
+- Subagents skip TDD unless the brief demands a separate red commit (memory `one-subagent-and-prefer-cheap-models`).
+
 **2026-09-19 — state on `main` (`7cb8e559`), every item gated in three phases and merged:**
 - **B408** hang fixed (one rebased IVP event queue); **B409** gibs simulated, fade over their last second, placement settled
   (no `placementOrigin` on TF2 player models); the 1 unit/s burst toward `WorldSpaceCenter` is filed, not carried.
