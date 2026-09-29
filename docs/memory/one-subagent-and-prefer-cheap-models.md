@@ -41,3 +41,6 @@ before, it took us a little over a week to do physics, but the hud system … to
 Split: main loop reads engine (Ghidra/SDK), writes brief; opus subagent implements; main loop reviews,
 runs gates 2/3, merges, fixes CI. **Engine read before brief, always** — B426 brief skipped it, lighting
 origin left open.
+
+**Subagents skip TDD even when the brief says TESTS FIRST** (B429, B436, 2026-09-29): they report "code first, sabotaged
+after". Brief must require a separate red commit or a logged red run BEFORE the implementation edit.
