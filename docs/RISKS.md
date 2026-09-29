@@ -7713,7 +7713,7 @@ list, its decay, the client code that allocates them, and their reach into world
 
 ---
 
-### B424 — a baked static prop ignores light styles — OPEN 2026-09-28
+### B424 — a baked static prop ignores light styles — animated-style fallback FIXED, one-frame rebake open 2026-09-28
 
 **Read from `engine.dll`, the model draw `0x1800f1bd0` with a static prop's lighting handle** (`param_4`): a prop with baked
 colours (`*param_7`) is drawn with **no cube and no local lights** — which the port already does — except that
@@ -7731,6 +7731,27 @@ Style-0 lights never enter the list — they are what vrad baked.
 
 **Unblocked by B426**: a baked prop is a model draw carrying `ModelInstance.BakedColours`; setting it null for a
 frame (and supplying the cube and lamps) is the fallback this needs.
+
+**`DAT_18069dd40` is the pattern LENGTH** (read from `R_AnimateLight` `0x1800d3ec0`: it stores the `lightstyles` entry's
+length minus the terminator, 0 for an empty one), so "animated" is "more than one letter" — `"mm"` counts, as the engine
+counts it (`LightStyleValues.PatternLength`/`Animates`).
+
+**Built, the animated-style fallback:** `LevelLighting.StyledLights` is `FUN_1801b6bf0` (style nonzero, the light's own
+`dworldlight_t.cluster` — now read, `BspWorldLight.Cluster` — in the PVS of the origin's cluster, and
+`LocalLights.Reaches`: `FUN_1801b9570` with flags `9|2`, i.e. distance falloff with radius cutoff, spot/surface cone,
+`r_worldlightmin` except for surface lights, no style scale, no trace). `LevelLighting.TakesFullLighting` builds it once
+per entity at the prop's lighting point and each frame asks only the listed styles; `EntityModelSet.BakedFallsBack`
+(set by `MomentScene.Lighting`) drops the colours for that frame, so the prop takes the cube, sun and local lights.
+`FUN_1801b99a0`'s bounds pre-culls are skipped (a lighting origin inside its bounds loses nothing). Tests:
+`StyledLightFallbackConformanceTests`, `MomentSceneTests.Pose_ABakedStaticPropBesideAStyledLamp_…`,
+`HdrLumpChoiceConformanceTests.WorldLightsRead_ALightsClusterAndStyle_…`, and on `koth_dryfield`
+`StaticPropModelsWiringTests.Instances_KothDryfieldWithStyleOne_…`. Census (`styledprops` probe, 2026-09-28): no gcor
+map has a styled world light; of 234 shipped maps 53 do, and eight carry world.cpp's animated styles 1–12 near props
+(`cp_fulgur`, `cp_junction_final`, `koth_boardwalk`, `koth_dryfield`, `koth_sawmill_event`, `pd_watergate`,
+`pl_hasslecastle`, `pl_sludgepit_event`); the rest are switchable styles 32+, static unless their pattern animates.
+
+**Still open: the one-frame-style rebake** (`FUN_1801bb8b0` → `FUN_1800f36e0`, stamp `+0x1d0` against
+`DAT_1806998a0[style]`): a baked prop under a SWITCHED (single-letter) style keeps the colours vrad baked.
 
 ---
 

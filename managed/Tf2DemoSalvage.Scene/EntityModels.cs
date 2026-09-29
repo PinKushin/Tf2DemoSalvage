@@ -531,6 +531,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
         }
     } = new Dictionary<int, float[]>();
 
+    /// <summary>
+    /// Whether a baked static prop takes full lighting this frame, by entity and lighting origin
+    /// (<see cref="LevelLighting.TakesFullLighting"/>, B424); null keeps every baked prop baked.
+    /// </summary>
+    public Func<int, float, float, float, bool>? BakedFallsBack { get; set; }
+
     /// <summary>A baked static prop's colours in its model buffer's order, or null when it has none.</summary>
     /// <remarks>
     /// Null also when the colours do not cover the model's corners — a geometry this set packed differently
@@ -5348,6 +5354,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **A baked static prop draws its colour mesh and nothing else** (B426): `engine.dll` `0x1800f1bd0`
             // gives a prop with baked colours no ambient cube and no local lights — the colours ARE its light.
             float[]? baked = BakedColoursOf(prop);
+
+            // **B424**: `FUN_1801bb830` drops them for a frame where a light in the handle's list animates.
+            if (baked is not null && BakedFallsBack?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) == true)
+            {
+                baked = null;
+            }
 
             if (baked is not null)
             {

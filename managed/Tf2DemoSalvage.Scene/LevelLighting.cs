@@ -195,6 +195,7 @@ public sealed class LevelLighting
     /// Whether a `MASK_OPAQUE` world trace between two points is clear, for placing the light cache's cell point
     /// (<see cref="LightCacheCell"/>); without one a model is lit where it stands.
     /// </param>
+    /// <param name="visibility">The PVS, for <see cref="StyledLights"/>; without one every cluster is admitted.</param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
         BspLeafTree? leaves,
@@ -203,9 +204,11 @@ public sealed class LevelLighting
         BspWorldLight? sun,
         ILogger render,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null,
+        BspVisibility? visibility = null)
     {
         _reaches = reaches;
+        _visibility = visibility;
         ArgumentNullException.ThrowIfNull(ambient);
         ArgumentNullException.ThrowIfNull(worldLights);
         ArgumentNullException.ThrowIfNull(render);
@@ -255,7 +258,82 @@ public sealed class LevelLighting
             level.Sun,
             render,
             level.StrikesSky,
-            (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f);
+            (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f,
+            level.Visibility);
+    }
+
+    /// <summary>The PVS, for a static prop's styled-light list; null or empty admits every cluster.</summary>
+    private readonly BspVisibility? _visibility;
+
+    /// <summary>Each baked static prop's styled-light list, by entity, built on first ask — once per map, as the handle's.</summary>
+    private readonly Dictionary<int, int[]> _styledByEntity = [];
+
+    /// <summary>Whether a light style animates now, `DAT_18069dd40[style] &gt; 1` (<see cref="LightStyleValues.Animates"/>); none does unless set.</summary>
+    public Func<int, bool>? StyleAnimates { get; set; }
+
+    /// <summary>The world lights a static prop's lighting handle lists: `engine.dll` `FUN_1801b6bf0`.</summary>
+    /// <param name="x">The prop's lighting origin.</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <returns>Indices into the world lights, in lump order.</returns>
+    /// <remarks>
+    /// Every light whose style (`+0x2c`) is nonzero — style 0 is what vrad baked — whose cluster (`+0x24`) is in the
+    /// PVS of the leaf holding the origin, and whose contribution there is positive (<see cref="LocalLights.Reaches"/>).
+    /// A map without vis data admits every cluster.
+    /// </remarks>
+    public int[] StyledLights(float x, float y, float z)
+    {
+        List<int> listed = [];
+        int from = _leaves?.ClusterAt(x, y, z) ?? -1;
+        bool anyCluster = _visibility is not { HasData: true };
+
+        for (int index = 0; index < _worldLights.Count; index++)
+        {
+            BspWorldLight light = _worldLights[index];
+
+            if (light.Style != 0 &&
+                (anyCluster || _visibility!.Visible(from, light.Cluster)) &&
+                LocalLights.Reaches(light, x, y, z))
+            {
+                listed.Add(index);
+            }
+        }
+
+        return [.. listed];
+    }
+
+    /// <summary>Whether a baked static prop drops its colours this frame for full lighting: `engine.dll` `FUN_1801bb830`.</summary>
+    /// <param name="entity">The prop's entity index, which keys its list.</param>
+    /// <param name="x">The prop's lighting origin.</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <returns>True when a listed light's style animates now.</returns>
+    /// <remarks>
+    /// The list is built once (<see cref="StyledLights"/>, `FUN_1801b8350` from `CStaticPropMgr::PrecacheLighting`
+    /// `0x180205b20`); each frame only the listed styles are asked. The one-frame-style rebake (`FUN_1801bb8b0`) is not here.
+    /// </remarks>
+    public bool TakesFullLighting(int entity, float x, float y, float z)
+    {
+        if (StyleAnimates is not { } animates)
+        {
+            return false;
+        }
+
+        if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
+        {
+            listed = StyledLights(x, y, z);
+            _styledByEntity[entity] = listed;
+        }
+
+        foreach (int index in listed)
+        {
+            if (animates(_worldLights[index].Style))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>The ambient light at a world position.</summary>

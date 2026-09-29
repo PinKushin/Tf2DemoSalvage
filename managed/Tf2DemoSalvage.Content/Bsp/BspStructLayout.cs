@@ -74,6 +74,9 @@ internal static class BspStructLayout
     /// <remarks>After <c>origin</c>, <c>intensity</c>, <c>normal</c>, <c>cluster</c> and <c>type</c>: 12 + 12 + 12 + 4 + 4.</remarks>
     public const int WorldLightStyleOffset = 44;
 
+    /// <summary>Where <c>dworldlight_t.cluster</c> sits: the PVS cluster the light is in (read at <c>+0x24</c> by <c>engine.dll</c> <c>FUN_1801b6bf0</c>).</summary>
+    public const int WorldLightClusterOffset = 36;
+
     /// <summary>Where <c>dworldlight_t.stopdot</c> sits: the start of a spotlight's penumbra.</summary>
     public const int WorldLightStopDotOffset = 48;
 
