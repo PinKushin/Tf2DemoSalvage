@@ -148,8 +148,15 @@ publish_shared_corpus() {
 }
 
 # A function so build/test-box-lock.sh can extract and run exactly this.
+#
+# **The re-exec keeps the description it already locked** (fuzz-box, 2026-09-29): reopening fd 9
+# dropped this process's hold and asked afresh on a new description, while a background git left by
+# the pull still held the old one - so the run refused itself. `flock -n` on a description that
+# already holds the lock succeeds, so the second pass only re-asserts it.
 take_box_lock() {
-  exec 9>"$LOCK"
+  if [ -z "${RUNNER_REEXECED:-}" ] || ! { true >&9; } 2>/dev/null; then
+    exec 9>"$LOCK"
+  fi
   if ! flock -n 9; then
     echo "ERROR: another measurement run holds $LOCK. One at a time." >&2
     # Deleting the lock FILE does nothing: flock is on the open file description, not the path.
@@ -272,11 +279,13 @@ if [ "$PULL" != "--no-pull" ] && [ -z "${RUNNER_REEXECED:-}" ]; then
   # Skipping the smudge leaves pointer stubs, which is correct for the synthetic modes and
   # harmless for the others: the explicit `git lfs pull` below restores real content, and the
   # size check after it is what proves the restore happened.
-  GIT_LFS_SKIP_SMUDGE=1 git fetch --quiet origin main
-  GIT_LFS_SKIP_SMUDGE=1 git reset --quiet --hard origin/main
+  # `9>&-` here too: `git fetch` can leave a background `git maintenance` running, and one that
+  # inherited fd 9 holds the box lock after this script has finished (2026-09-29).
+  GIT_LFS_SKIP_SMUDGE=1 git fetch --quiet origin main 9>&-
+  GIT_LFS_SKIP_SMUDGE=1 git reset --quiet --hard origin/main 9>&-
   # Demos live in Git LFS. Without this the working tree holds ~130-byte pointer stubs and every
   # corpus test degrades to a passing no-op — RISKS B20, as a shell step.
-  [ "$NEEDS_CORPUS" = 1 ] && git lfs pull
+  [ "$NEEDS_CORPUS" = 1 ] && git lfs pull 9>&-
 
   # RE-EXEC, because the reset above may have just rewritten THIS FILE while bash is reading it.
   #

@@ -49,6 +49,10 @@ check "the re-exec keeps its own lock despite a lingering child" "$reexec" taken
 [ -n "$lingering" ] && kill "$lingering" 2>/dev/null
 lingering=""
 
+# 4. RUNNER_REEXECED inherited from an environment with no fd 9 open must still open and take it.
+stale=$( (exec 9>&-; export RUNNER_REEXECED=1; take_box_lock 2>/dev/null && echo taken) || echo refused)
+check "a stale RUNNER_REEXECED without fd 9 still takes the lock" "$stale" taken
+
 # 3. The control: another run on its own description holds the lock, so we must be refused.
 ( exec 8>"$LOCK"; flock -n 8 && sleep 30 ) &
 holder=$!
