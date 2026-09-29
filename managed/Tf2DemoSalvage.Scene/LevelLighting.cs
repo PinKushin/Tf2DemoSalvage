@@ -330,9 +330,6 @@ public sealed class LevelLighting
     /// <summary>Each baked static prop's styled-light list, by entity, built on first ask — once per map, as the handle's.</summary>
     private readonly Dictionary<int, int[]> _styledByEntity = [];
 
-    /// <summary>Whether a light style animates now, `DAT_18069dd40[style] &gt; 1` (<see cref="LightStyleValues.Animates"/>); none does unless set.</summary>
-    public Func<int, bool>? StyleAnimates { get; set; }
-
     /// <summary>The world lights a static prop's lighting handle lists: `engine.dll` `FUN_1801b6bf0`.</summary>
     /// <param name="x">The prop's lighting origin.</param>
     /// <param name="y">The prop's lighting origin.</param>
@@ -364,38 +361,69 @@ public sealed class LevelLighting
         return [.. listed];
     }
 
-    /// <summary>Whether a baked static prop drops its colours this frame for full lighting: `engine.dll` `FUN_1801bb830`.</summary>
-    /// <param name="entity">The prop's entity index, which keys its list.</param>
-    /// <param name="x">The prop's lighting origin.</param>
+    /// <summary>The cube a colour-mesh static prop's lighting state starts from: zero, since flags 6 omit bit 1.</summary>
+    public static readonly AmbientCube NoStaticState;
+
+    /// <summary>
+    /// The local lights a static prop with a colour mesh draws with on top of its colours: `engine.dll` `0x1800f1bd0`'s
+    /// DX9 branch, `FUN_1801ba590(handle, …, 6 + FUN_1801bb8a0(handle))` (B424, B425).
+    /// </summary>
+    /// <param name="entity">The prop's entity index, which keys its handle's list.</param>
+    /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
     /// <param name="y">The prop's lighting origin.</param>
     /// <param name="z">The prop's lighting origin.</param>
-    /// <returns>True when a listed light's style animates now.</returns>
+    /// <returns>At most four lights, strongest first; empty when none reaches, which leaves the colours alone.</returns>
     /// <remarks>
-    /// The list is built once (<see cref="StyledLights"/>, `FUN_1801b8350` from `CStaticPropMgr::PrecacheLighting`
-    /// `0x180205b20`); each frame only the listed styles are asked. The one-frame-style rebake (`FUN_1801bb8b0`) is not here.
+    /// **The DX9 path only.** Hardware config `+0x150` (`SupportsStaticPlusDynamicLighting`) is true on every DX9 part, so
+    /// the colour mesh is kept and this state is ADDED by the shader. The other branch — drop the colours for full lighting
+    /// under a dlight or an animated style (`FUN_1801bb830`) — is what non-DX9 hardware does, and this port does not
+    /// target it.
+    ///
+    /// Without bit 1 the state holds no leaf cube and no style-0 light (<see cref="NoStaticState"/>). Bit 4
+    /// (`FUN_1801b5400`) adds every light of the handle's list (<see cref="StyledLights"/>, built once, as
+    /// `FUN_1801b8350` builds it) at its current style value; bit 2 adds each LIVE dlight (`DAT_1806996c4`) whose bit
+    /// `FUN_1801b5260` set — the prop in the dlight's PVS — through `FUN_1801bb940` and `FUN_1801b6550`. Both rank into
+    /// the four slots and fold a loser into the cube; the port drops the loser, as <see cref="ModelLightingAt"/> does.
+    /// ponytail: one ranking over both sets; the engine gives a dlight precedence when evicting (`FUN_1801b6550` ranks
+    /// it at 100000), which differs only past four lights at one prop.
     /// </remarks>
-    public bool TakesFullLighting(int entity, float x, float y, float z)
+    public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
-        if (StyleAnimates is not { } animates)
-        {
-            return false;
-        }
-
         if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
         {
             listed = StyledLights(x, y, z);
             _styledByEntity[entity] = listed;
         }
 
-        foreach (int index in listed)
+        List<BspWorldLight> lights = [.. listed.Select(index => _worldLights[index])];
+
+        if (Dynamic is { } dynamic && _leaves is { } tree)
         {
-            if (animates(_worldLights[index].Style))
+            int from = tree.ClusterAt(x, y, z);
+            bool anyCluster = _visibility is not { HasData: true };
+
+            for (int index = 0; index < dynamic.Dlights.Count; index++)
             {
-                return true;
+                DynamicLight light = dynamic.Dlights[index];
+                int cluster = tree.ClusterAt(light.X, light.Y, light.Z);
+
+                if (dynamic.LightsModels(index) && (anyCluster || (cluster >= 0 && _visibility!.Visible(cluster, from))))
+                {
+                    lights.Add(DynamicLights.ToWorldLight(light, cluster));
+                }
             }
         }
 
-        return false;
+        if (lights.Count == 0)
+        {
+            return [];
+        }
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return nearest;
     }
 
     /// <summary>

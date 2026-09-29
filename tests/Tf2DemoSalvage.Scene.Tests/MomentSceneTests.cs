@@ -533,18 +533,20 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
-    /// **B424, through the production route.** `FUN_1801bb830` (`engine.dll`) sends a baked prop to full lighting
-    /// (`FUN_1801ba590(…, 7)`, baked colours unused) in a frame where a light in its handle's list — styled, in the
-    /// PVS of its leaf, reaching its lighting origin (`FUN_1801b6bf0`) — has `DAT_18069dd40[style] > 1`, the pattern
-    /// length `R_AnimateLight` (`0x1800d3ec0`) stores. Style 0 never enters the list; nor does a light out of PVS or reach.
+    /// **B424 corrected, through the production route.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150`
+    /// true) a baked prop KEEPS its colours and draws with `FUN_1801ba590(handle, 6 + bit)`: no static state, plus the
+    /// handle's styled lights (`FUN_1801b6bf0`: style nonzero, in PVS, in reach) at their current values. A switched-on
+    /// style lights it, whether it animates or not; one at 'a' (value 0), style 0, out of PVS or out of reach does not.
+    /// The first version of this test asserted the colours DROPPED under a flicker — the non-DX9 branch TF2 never takes.
     /// </remarks>
-    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 0, 0f, true)]
-    [TestCase("m", 5, 0, 0f, false)]
-    [TestCase(StyledLightFallbackConformanceTests.Flicker, 0, 0, 0f, false)]
-    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 1, 0f, false)]
-    [TestCase(StyledLightFallbackConformanceTests.Flicker, 5, 0, 10f, false)]
-    public void Pose_ABakedStaticPropBesideAStyledLamp_TakesFullLightingOnlyWhenItAnimates(
-        string pattern, int style, int cluster, float radius, bool full)
+    [TestCase(StaticPlusDynamicLightingConformanceTests.Flicker, 5, 0, 0f, true)]
+    [TestCase("m", 5, 0, 0f, true)]
+    [TestCase("a", 5, 0, 0f, false)]
+    [TestCase("m", 0, 0, 0f, false)]
+    [TestCase("m", 5, 1, 0f, false)]
+    [TestCase("m", 5, 0, 10f, false)]
+    public void Pose_ABakedStaticPropBesideAStyledLamp_KeepsItsColoursAndTakesTheLitLamp(
+        string pattern, int style, int cluster, float radius, bool lamp)
     {
         EntityModelSet models = new()
         {
@@ -559,10 +561,11 @@ public sealed class MomentSceneTests
 
         LightStyleValues values = new();
         values.Set(style, pattern);
+        values.Advance(0d);
 
-        LevelLighting lighting = StyledLightFallbackConformanceTests.Map(
-            [StyledLightFallbackConformanceTests.Lamp(style, cluster, radius)]);
-        lighting.StyleAnimates = values.Animates;
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(
+            [StaticPlusDynamicLightingConformanceTests.Lamp(style, cluster, radius)]);
+        lighting.StyleScale = values.Scale;
 
         MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
         {
@@ -578,17 +581,70 @@ public sealed class MomentSceneTests
 
         ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
 
-        if (full)
+        drawn.BakedColours.ShouldBe([.5f, .5f, .5f], "DX9 keeps the colour mesh");
+        drawn.Sun.ShouldBeNull("the sun is a style-0 light, in the colours");
+
+        if (lamp)
         {
-            drawn.BakedColours.ShouldBeNull("an animated listed light drops the baked colours for the frame");
-            drawn.Light.ShouldNotBeNull("the handle's cube");
             drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+            drawn.Light.ShouldBe(LevelLighting.NoStaticState, "flags 6: the cube starts at zero");
         }
         else
         {
-            drawn.BakedColours.ShouldBe([.5f, .5f, .5f]);
             drawn.Locals.ShouldBeEmpty();
+            drawn.Light.ShouldBeNull();
         }
+    }
+
+    /// <remarks>
+    /// **B425's static-prop bit.** `FUN_1801b5260` sets a dlight's bit in the handle's `+0x1a4` when the dlight's PVS
+    /// holds the prop, and `FUN_1801ba590` bit 2 ranks it in on top of the colours; once `CL_DecayLights` kills it the
+    /// live mask `DAT_1806996c4` clears the bit and the colours stand alone.
+    /// </remarks>
+    [Test]
+    public void Pose_ABakedStaticPropUnderTheRecordersFireball_KeepsItsColoursAndTakesTheLightUntilItDies()
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true]),
+            StaticPropColours = new Dictionary<int, float[]> { [PropModels.FirstStaticPropEntityIndex] = [.5f, .5f, .5f] },
+        };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = StaticPlusDynamicLightingConformanceTests.Map([]),
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 120f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+
+        scene.Build([], [fireball], Info() with { Recorder = 9 });
+        scene.Pose(Info() with { Recorder = 9 });
+
+        ModelInstance lit = scene.Instances.Single(instance => instance.EntityIndex == PropModels.FirstStaticPropEntityIndex);
+        lit.BakedColours.ShouldBe([.5f, .5f, .5f]);
+        lit.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+
+        MomentInfo later = Info() with { Tick = 10d, CurrentTick = 10, Recorder = 9 };
+        scene.Build([], [], later);
+        scene.Pose(later);
+        scene.Instances.ShouldHaveSingleItem().Locals.ShouldNotBeNull().Count.ShouldBe(1, "drawn before this frame's CL_DecayLights");
+
+        MomentInfo after = Info() with { Tick = 11d, CurrentTick = 11, Recorder = 9 };
+        scene.Build([], [], after);
+        scene.Pose(after);
+
+        ModelInstance dark = scene.Instances.ShouldHaveSingleItem();
+        dark.BakedColours.ShouldBe([.5f, .5f, .5f]);
+        dark.Locals.ShouldBeEmpty("a dead dlight's bit is masked off");
     }
 
     /// <remarks>
@@ -651,6 +707,9 @@ public sealed class MomentSceneTests
 
         scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldBe(before);
 
+        // DX9 lights it on top instead (`FUN_1801ba590` flags 6): the styled lamp, now on, is a local light of the draw.
+        scene.Instances.ShouldHaveSingleItem().Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+
         // The control: lit by both lamps, the corner's byte would differ — so a rebake that took the styled one would show.
         System.Numerics.Vector3 both = StudioPointLighting.At(
             lighting.LightingAt(0f, 0f, 100f), null, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ);
@@ -703,7 +762,7 @@ public sealed class MomentSceneTests
         Content.Bsp.BspWorldLight Dim(int style) =>
             LevelLightingTests.Lamp((0f, 0f, 120f), 200f) with { Style = style, Cluster = 0 };
 
-        lighting = StyledLightFallbackConformanceTests.Map(styled ? [Dim(0), Dim(5)] : [Dim(0)]);
+        lighting = StaticPlusDynamicLightingConformanceTests.Map(styled ? [Dim(0), Dim(5)] : [Dim(0)]);
         lighting.StyleScale = style => style == 5 ? styleScale[0] : 1f;
 
         return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())

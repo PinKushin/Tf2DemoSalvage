@@ -190,8 +190,8 @@ public sealed class StaticPropVertexLightingConformanceTests
     [Test]
     public void StaticPropLightingAt_AStyledAndAStyleZeroLamp_HoldsOnlyTheStyleZeroOne()
     {
-        LevelLighting lighting = StyledLightFallbackConformanceTests.Map(
-            [StyledLightFallbackConformanceTests.Lamp(5, 0), StyledLightFallbackConformanceTests.Lamp(0, 0)]);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map(
+            [StaticPlusDynamicLightingConformanceTests.Lamp(5, 0), StaticPlusDynamicLightingConformanceTests.Lamp(0, 0)]);
 
         lighting.LightingAt(0f, 0f, 100f).Locals.ShouldNotBeNull().Count.ShouldBe(2, "the control");
         lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Locals.ShouldNotBeNull().ShouldHaveSingleItem();

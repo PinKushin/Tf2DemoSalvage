@@ -217,7 +217,7 @@ public sealed class DynamicLightConformanceTests
     [Test]
     public void ModelLightingAt_ALiveDlightInPvs_IsALocalLight()
     {
-        LevelLighting lighting = StyledLightFallbackConformanceTests.Map([]);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
         DynamicLights lights = new() { Time = 1f };
         lighting.Dynamic = lights;
         DynamicLight light = lights.AllocDlight(1);
@@ -232,7 +232,7 @@ public sealed class DynamicLightConformanceTests
     [Test]
     public void ModelLightingAt_ADlightOutOfPvs_IsNotALocalLight()
     {
-        LevelLighting lighting = StyledLightFallbackConformanceTests.Map([]);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
         DynamicLights lights = new() { Time = 1f };
         lighting.Dynamic = lights;
         DynamicLight light = lights.AllocDlight(1);
@@ -244,7 +244,7 @@ public sealed class DynamicLightConformanceTests
     [Test]
     public void ModelLightingAt_AfterTheDlightDies_HasNoLocalLight()
     {
-        LevelLighting lighting = StyledLightFallbackConformanceTests.Map([]);
+        LevelLighting lighting = StaticPlusDynamicLightingConformanceTests.Map([]);
         DynamicLights lights = new() { Time = 1f };
         lighting.Dynamic = lights;
         DynamicLight light = lights.AllocDlight(1);

@@ -240,7 +240,7 @@ public sealed class DynamicLights
 
         for (int index = 0; index < _dlights.Length; index++)
         {
-            if ((_active & (1u << index)) != 0 && (_dlights[index].Flags & NotOnModels) == 0)
+            if (LightsModels(index))
             {
                 into.Add(_dlights[index]);
             }
@@ -254,6 +254,16 @@ public sealed class DynamicLights
             }
         }
     }
+
+    /// <summary>Whether a dlight can light a static prop's handle this frame: live in `r_dlightactive`, with no bit in `0xe`.</summary>
+    /// <param name="index">The dlight's slot.</param>
+    /// <returns>True when `FUN_1801ba590` bit 2 would keep its bit.</returns>
+    /// <remarks>
+    /// The live mask is `DAT_1806996c4`, which `FUN_1801ba590` ANDs into the handle's `+0x1a4`. *Interpolated:* the flag
+    /// test, taken from the model draw's `0x1801b7a10`, because the enumerator that calls `FUN_1801b5260` is unread.
+    /// </remarks>
+    public bool LightsModels(int index) =>
+        index is >= 0 and < MaxDlights && (_active & (1u << index)) != 0 && (_dlights[index].Flags & NotOnModels) == 0;
 
     /// <summary>`CL_ClearState` (`0x18008b030`): both arrays zeroed, as at a level change.</summary>
     public void Clear()

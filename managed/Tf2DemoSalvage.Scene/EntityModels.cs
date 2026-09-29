@@ -532,10 +532,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
     } = new Dictionary<int, float[]>();
 
     /// <summary>
-    /// Whether a baked static prop takes full lighting this frame, by entity and lighting origin
-    /// (<see cref="LevelLighting.TakesFullLighting"/>, B424); null keeps every baked prop baked.
+    /// The styled and dynamic lights a static prop with a colour mesh draws on top of its colours, by entity and lighting
+    /// origin (<see cref="LevelLighting.StaticPlusDynamicLights"/>, B424, B425); null gives it none.
     /// </summary>
-    public Func<int, float, float, float, bool>? BakedFallsBack { get; set; }
+    public Func<int, float, float, float, IReadOnlyList<LocalLight>>? StaticPlusDynamicLights { get; set; }
 
     /// <summary>
     /// A static prop handle's static lighting state at its lighting origin (<see cref="LevelLighting.StaticPropLightingAt"/>),
@@ -5406,21 +5406,16 @@ public sealed class EntityModelSet : Hud.IMdlCache
             SunLight? sun = lit.Sun;
             IReadOnlyList<LocalLight> locals = lit.Locals;
 
-            // **A baked static prop draws its colour mesh and nothing else** (B426): `engine.dll` `0x1800f1bd0`
-            // gives a prop with baked colours no ambient cube and no local lights — the colours ARE its light.
+            // **A static prop with a colour mesh draws its colours PLUS its styled and dynamic lights** (B426, B424,
+            // B425): `engine.dll` `0x1800f1bd0` on DX9 keeps the mesh and lights it with `FUN_1801ba590` flags 6 or 7 —
+            // no cube, no sun, no style-0 light, since the colours hold those. With none reaching, the colours alone.
             float[]? baked = BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
-
-            // **B424**: `FUN_1801bb830` drops them for a frame where a light in the handle's list animates.
-            if (baked is not null && BakedFallsBack?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) == true)
-            {
-                baked = null;
-            }
 
             if (baked is not null)
             {
-                light = null;
+                locals = StaticPlusDynamicLights?.Invoke(prop.EntityIndex, lit.X, lit.Y, lit.Z) ?? [];
+                light = locals.Count > 0 ? LevelLighting.NoStaticState : null;
                 sun = null;
-                locals = [];
             }
 
             // **The point the cube was sampled at, carried so the RENDERER can choose a cubemap

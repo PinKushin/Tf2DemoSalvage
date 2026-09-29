@@ -65,16 +65,6 @@ public sealed class LightStyleValues
     /// <returns>The value; 264 is as stored.</returns>
     public int Value(int style) => style is >= 0 and < Count ? _values[style] : 0;
 
-    /// <summary>A style's pattern length, `DAT_18069dd40[style]`: `R_AnimateLight` stores the length of its pattern, zero when empty.</summary>
-    /// <param name="style">The style.</param>
-    /// <returns>How many letters its pattern has.</returns>
-    public int PatternLength(int style) => style is >= 0 and < Count ? (_patterns[style] ?? string.Empty).Length : 0;
-
-    /// <summary>Whether a style animates: `DAT_18069dd40[style] > 1`, the test `FUN_1801bb830` and `FUN_1801b6bf0` make.</summary>
-    /// <param name="style">The style.</param>
-    /// <returns>True when its pattern has more than one letter — even letters that repeat, as the engine counts it.</returns>
-    public bool Animates(int style) => PatternLength(style) > 1;
-
     /// <summary>What a style's lightmap is multiplied by: its value over 264.</summary>
     /// <param name="style">The style.</param>
     /// <returns>The scale.</returns>

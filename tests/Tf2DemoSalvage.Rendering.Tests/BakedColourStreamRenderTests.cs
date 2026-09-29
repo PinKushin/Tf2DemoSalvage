@@ -10,10 +10,10 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// <remarks>
 /// `engine.dll` `0x1800f1bd0` draws a static prop with baked colours through the model draw with its
 /// per-placement colour mesh — one colour per vertex of the shared model. Here that mesh is a second
-/// vertex stream, multiplied into the vertex colour. `mat_drawflat` makes the albedo white and an even cube
-/// lights the quad alike, so with no stream the picture is one grey, and with one each triangle keeps that
-/// grey in its own channel only: red where the stream says red, blue where it says blue. (An offscreen draw
-/// binds no lightmap, which is why the test lights through a cube rather than as a real baked prop draws.)
+/// vertex stream which, with no cube, multiplies the light. `mat_drawflat` makes the albedo white, so with no
+/// stream the picture is one grey, and with one each triangle keeps that grey in its own channel only: red
+/// where the stream says red, blue where it says blue. (This test drew through an even cube until B424's
+/// correction, when a colour mesh with a cube became the static-plus-dynamic sum rather than a product.)
 /// </remarks>
 public sealed class BakedColourStreamRenderTests
 {
@@ -46,7 +46,6 @@ public sealed class BakedColourStreamRenderTests
                 Camera(),
                 Identity(),
                 assets,
-                light: Even,
                 bothSides: true,
                 debug: new DebugModes(DrawFlat: true),
                 bakedColours: colours);
@@ -72,10 +71,65 @@ public sealed class BakedColourStreamRenderTests
         coloured.UpperLeft.ShouldBe((0, 0, none.LowerRight.Red), "the second triangle's vertices are blue");
     }
 
-    /// <summary>The same light from every side, so every face of the quad is lit alike.</summary>
-    private static AmbientCube Even =>
-        new((0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f),
-            (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f), (0.5f, 0.5f, 0.5f));
+    /// <remarks>
+    /// **B424 corrected: static plus dynamic, ADDED.** On DX9 the model draw keeps the colour mesh and hands the studio
+    /// render the static-plus-dynamic flag (`engine.dll` `0x1800f1bd0`, `param_8 + 0x40`) with a lighting state of zero
+    /// cube plus local lights (`FUN_1801ba590` flags 6). The shader sums them: `PixelShaderDoLightingLinear`,
+    /// `common_vertexlitgeneric_dx9.h:268-315` — static colour, then cube, then each light, all `+=`. So in linear light
+    /// the pixel is the colours-only pixel plus the lamp-only pixel, within one step of the 8-bit target.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ColoursWithALamp_AddTheLampToTheColours()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (GameInstall.Root is not { } tf ||
+            !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With().Assets;
+
+        (int Red, int Green, int Blue) Draw(AmbientCube? light, float[]? colours, LocalLight[]? locals)
+        {
+            target.Clear(0f, 0f, 0f);
+            target.DrawModelPose(
+                Face(), [new WorldBatch(0, 0, 6)], Camera(), Identity(), assets,
+                light: light, bothSides: true, debug: new DebugModes(DrawFlat: true), bakedColours: colours, locals: locals);
+
+            return target.PixelAt(32, 32);
+        }
+
+        float[] dim = [.. System.Linq.Enumerable.Repeat(0.1f, 18)];
+
+        // A red lamp 150 in front of the quad, so the sum shows in one channel and not the others.
+        LocalLight[] lamp = [new LocalLight(0f, -150f, 0f, 0.3f, 0f, 0f, 0f, 0f, 1f / (150f * 150f), 1000f)];
+
+        (int Red, int Green, int Blue) colours = Draw(null, dim, null);
+        (int Red, int Green, int Blue) lampOnly = Draw(default(AmbientCube), null, lamp);
+        (int Red, int Green, int Blue) both = Draw(default(AmbientCube), dim, lamp);
+
+        TestContext.Out.WriteLine($"STATIC+DYNAMIC colours {colours} / lamp {lampOnly} / both {both}");
+
+        colours.Red.ShouldBeGreaterThan(0, "the control: the colours alone draw");
+        lampOnly.Red.ShouldBeGreaterThan(0, "the control: the lamp alone lights");
+        lampOnly.Green.ShouldBe(0, "the control: the lamp is red");
+
+        both.Green.ShouldBeInRange(colours.Green - 1, colours.Green + 1, "the lamp adds no green");
+
+        // The offscreen target stores the shader's output as it is (0.1 of colour under the white texel's light of 2
+        // reads 51, 0.2 · 255), so the sum is a sum of bytes.
+        int predicted = colours.Red + lampOnly.Red;
+        both.Red.ShouldBeInRange(predicted - 1, predicted + 1, "colours plus lamp");
+    }
 
     /// <summary>Two triangles facing the camera: the first lower right, the second upper left.</summary>
     private static WorldVertex[] Face() =>
