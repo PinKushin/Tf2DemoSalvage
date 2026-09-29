@@ -435,6 +435,31 @@ public sealed class MomentSceneTests
         scene.Instances.Count.ShouldBe(2);
     }
 
+    /// <remarks>
+    /// **B425 step 2, the production route to the world.** The recorder's fireball (`tf_projectile_dragons_fury.cpp:509-525`:
+    /// (255,100,30) at 2^8, radius 100, no flags) 90 units above a floor's first luxel. The lights the frame was drawn with
+    /// are the ones before `CL_DecayLights`, and `R_AddDynamicLights` (`engine.dll` `0x1800ceb00`) adds
+    /// `colour · 2^8 · (39.0625 / dist²) · (1 − dist² / 10000)` to each luxel — at dist² 8100, 65280 · 0.00091628 = 59.81
+    /// red, stored halved: 29; the next luxel along, dist² 8356, 50.17: 25.
+    /// </remarks>
+    [Test]
+    public void Pose_TheRecordersFireballAboveAFloor_LightsItsLuxelsByTheEnginesFalloff()
+    {
+        MomentScene scene = Posable();
+        SceneProp fireball = new(
+            300, "models/empty.mdl", SceneModelKind.Studio, new ScenePose { Z = 90f }, OwnedBy: 9,
+            ClassName: "CTFProjectile_BallOfFire");
+        MomentInfo info = Info() with { Recorder = 9 };
+        LightmapAtlas atlas = WorldDynamicLightConformanceTests.Atlas(size: 9);
+
+        scene.Build([], [fireball], info);
+        scene.Pose(info);
+        new WorldDynamicLights(WorldDynamicLightConformanceTests.World(9)).Frame(scene.WorldLights, atlas, _ => 1f, []);
+
+        WorldDynamicLightConformanceTests.Texel(atlas, 0, 0, 0, 9).ShouldBe((byte)29);
+        WorldDynamicLightConformanceTests.Texel(atlas, 0, 1, 0, 9).ShouldBe((byte)25);
+    }
+
     [Test]
     public void Pose_AfterTheRecordersFireballIsGone_KeepsItsLightOneFrameThenDropsIt()
     {

@@ -62,8 +62,11 @@ public sealed class LightmapAtlas
     /// </remarks>
     private const int Padding = 1;
 
-    /// <summary>Each face lit by more than style 0: where it sits, and its style layers.</summary>
-    private readonly List<(int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)> _styled;
+    /// <summary>Every lit face by index: where it sits, and its style layers (empty for style 0 alone); null where it has no lightmap.</summary>
+    private readonly (int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)?[] _faces;
+
+    /// <summary>The atlas as packed, the base an unstyled face is rebuilt from; copied before the first dlight rebuild.</summary>
+    private byte[]? _baked;
 
     private LightmapAtlas(
         int width,
@@ -71,14 +74,75 @@ public sealed class LightmapAtlas
         byte[] pixels,
         IReadOnlyList<AtlasRect> rectangles,
         IReadOnlyList<float> directionalSteps,
-        List<(int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)> styled)
+        (int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)?[] faces)
     {
         Width = width;
         Height = height;
         Pixels = pixels;
         Rectangles = rectangles;
         DirectionalSteps = directionalSteps;
-        _styled = styled;
+        _faces = faces;
+    }
+
+    /// <summary>How many lightmaps a face carries: four when bump lit, one otherwise, zero when it has none.</summary>
+    /// <param name="face">The face's index.</param>
+    /// <returns>The set count.</returns>
+    public int SetsOf(int face) => face >= 0 && face < _faces.Length && _faces[face] is { } placed ? placed.Sets : 0;
+
+    /// <summary>`R_BuildLightMap` for one face: its styles at their values, plus light added on top, stored and reported.</summary>
+    /// <param name="face">The face's index.</param>
+    /// <param name="scale">Each style's value over 264.</param>
+    /// <param name="added">Three floats a luxel per set, in the samples' units; empty for none.</param>
+    /// <param name="dirty">The face's region, added to.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public void Rebuild(int face, Func<int, float> scale, ReadOnlySpan<float> added, ICollection<AtlasRegion> dirty)
+    {
+        ArgumentNullException.ThrowIfNull(scale);
+        ArgumentNullException.ThrowIfNull(dirty);
+
+        if (face < 0 || face >= _faces.Length || _faces[face] is not { } placed)
+        {
+            return;
+        }
+
+        _baked ??= (byte[])Pixels.Clone();
+
+        (int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) = placed;
+        int luxels = setWidth * height;
+
+        for (int set = 0; set < sets; set++)
+        {
+            for (int luxel = 0; luxel < luxels; luxel++)
+            {
+                int at = ((((y + (luxel / setWidth)) * Width) + x + (set * setWidth) + (luxel % setWidth)) * 4);
+
+                for (int channel = 0; channel < 3; channel++)
+                {
+                    float light = layers.Count > 0 ? Styled(layers, set, luxel, channel, scale) : _baked[at + channel] * 2f;
+
+                    if (!added.IsEmpty)
+                    {
+                        light += added[(((set * luxels) + luxel) * 3) + channel];
+                    }
+
+                    Pixels[at + channel] = BspLightmaps.Overbright(light);
+                }
+            }
+        }
+
+        dirty.Add(new AtlasRegion(x, y, setWidth * sets, height));
+
+        static float Styled(IReadOnlyList<BspStyleLayer> layers, int set, int luxel, int channel, Func<int, float> scale)
+        {
+            float sum = 0f;
+
+            foreach (BspStyleLayer layer in layers)
+            {
+                sum += layer.Sets[set][(luxel * 3) + channel] * scale(layer.Style);
+            }
+
+            return sum;
+        }
     }
 
     /// <summary>Rebuilds every styled face that answers to a changed style — `R_BuildLightMap` for a stamped style.</summary>
@@ -99,9 +163,11 @@ public sealed class LightmapAtlas
 
         byte[] row = [];
 
-        foreach ((int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) in _styled)
+        foreach ((int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)? face in _faces)
         {
-            if (!Answers(layers, changed))
+            if (face is not (int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) ||
+                layers.Count == 0 ||
+                !Answers(layers, changed))
             {
                 continue;
             }
@@ -253,17 +319,14 @@ public sealed class LightmapAtlas
         pixels[(WhiteTexel * 4) + 2] = 255;
         pixels[(WhiteTexel * 4) + 3] = 255;
 
-        List<(int, int, int, int, int, IReadOnlyList<BspStyleLayer>)> styled = [];
+        (int, int, int, int, int, IReadOnlyList<BspStyleLayer>)?[] faces = new (int, int, int, int, int, IReadOnlyList<BspStyleLayer>)?[lightmaps.Count];
 
         foreach ((int face, int x, int y, int _, int height) in placements)
         {
             int setWidth = lightmaps[face].Width;
             int set = 0;
 
-            if (lighting[face].Styles.Count > 0)
-            {
-                styled.Add((x, y, setWidth, height, 1 + lighting[face].Directional.Count, lighting[face].Styles));
-            }
+            faces[face] = (x, y, setWidth, height, 1 + lighting[face].Directional.Count, lighting[face].Styles);
 
             // Set 0 first, then each directional set one lightmap further along, which is the
             // order the shader's stepped coordinates expect to find them in.
@@ -295,6 +358,6 @@ public sealed class LightmapAtlas
             steps[face] = steps[face] / atlasWidth;
         }
 
-        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles, steps, styled);
+        return new LightmapAtlas(atlasWidth, atlasHeight, pixels, rectangles, steps, faces);
     }
 }

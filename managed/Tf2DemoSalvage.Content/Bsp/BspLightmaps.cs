@@ -555,6 +555,6 @@ public static class BspLightmaps
     /// A sample of 255 at exponent 0 is full brightness, so the range is a byte; halving leaves
     /// room for light above white, which is what "overbright" means and why the shader doubles.
     /// </remarks>
-    private static byte Overbright(float linear) =>
+    public static byte Overbright(float linear) =>
         (byte)Math.Clamp(linear / 2f, 0f, 255f);
 }

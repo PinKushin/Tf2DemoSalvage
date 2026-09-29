@@ -8018,7 +8018,7 @@ and `StaticPropModelsWiringTests.Load_KothHarvest_…` (the three flagged placem
 
 ---
 
-### B425 — dynamic lights (`cl_dlights`) — models and static-prop bit FIXED 2026-09-29; world lightmaps and three allocators OPEN
+### B425 — dynamic lights (`cl_dlights`) — models, static-prop bit and world lightmaps FIXED 2026-09-29; displacements, brush entities and three allocators OPEN
 
 **The premise was wrong.** In TF2, explosions, muzzle flashes and burning players allocate no light at all. The
 explosion light is `//FIXME`d out of `C_BaseExplosionEffect::Create`, TF2 overrides every muzzle-flash elight, and
@@ -8034,8 +8034,17 @@ driven) are in `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
   decays at the end of `Pose` (after the frame, as `_Host_RunFrame_Render` does) and clears on a backward jump.
 - Tests: `DynamicLightConformanceTests` and `MomentSceneTests.Pose_AFireballAboveAStaticProp_…` / `…FireballIsGone_…`.
 
+- **World lightmaps, built 2026-09-29.** `WorldDynamicLights`: `R_PushDlights` (`0x1800d48b0`) and its node/leaf walk,
+  `R_TryLightMarkSurface` (`0x1800d4970`), the per-face pass (`0x1800d0ba0`) and `R_AddDynamicLights` flat
+  (`0x1800ceb00`) and bumped (`0x1800cf1b0`, the row-only direction reproduced), into `LightmapAtlas.Rebuild`; a lit face
+  rebuilds every frame and once more, baked, when the light leaves or dies. `MomentScene.WorldLights` copies the lights
+  before the decay. Formulas and addresses: findings 66. Tests: `WorldDynamicLightConformanceTests`,
+  `MomentSceneTests.Pose_TheRecordersFireballAboveAFloor_…`, `CorpusWorldDynamicLightTests` (lcor, no face lit).
+
 **Open.**
-- **World lightmaps:** `R_AddDynamicLights`, and `0x1801b7dd0`'s hand-off of every active light to the material system.
+- **Displacements** (`CDispInfo` slots 0x30/0x38, `0x1800c0600`: per-luxel 3D position) and **brush entities**
+  (`0x1800e03a0`): read, not built. A fireball over terrain or a door lights neither.
+- `0x1801b7dd0`'s hand-off of every active light to the material system.
 - ~~**The static-prop bit (`FUN_1801b5260`, `+0x1a4`) — ambiguous, not built.**~~ **Built 2026-09-29 (B424's
   correction).** On DX9 (slot `0x150` true) the colour mesh is kept and `FUN_1801ba590(handle, 6 + bit)` adds the
   handle's styled lights and every live dlight whose bit is set; `LevelLighting.StaticPlusDynamicLights` ranks

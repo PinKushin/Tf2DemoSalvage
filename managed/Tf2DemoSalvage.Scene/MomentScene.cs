@@ -139,6 +139,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The client's dlights and elights (B425), handed to every <see cref="Lighting"/> this scene is given.</summary>
     private readonly DynamicLights _dynamic = new();
 
+    /// <summary>The dlights as the last posed frame drew them, before its decay: what the world's lightmaps are built from.</summary>
+    public DynamicLights WorldLights { get; } = new();
+
     /// <summary>The demo time of the last `CL_DecayLights`, which the next one's frame time is measured from.</summary>
     private double? _decayedAt;
 
@@ -647,6 +650,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         long reportedAt = Stopwatch.GetTimestamp();
 
         ReportInstances();
+
+        // The world's lightmaps are rebuilt after this pass, so they read the lights as the frame drew them (B425).
+        _dynamic.CopyTo(WorldLights);
 
         // After everything this frame lit, as `_Host_RunFrame_Render` calls `CL_DecayLights` after `SCR_UpdateScreen`.
         DecayDynamicLights(info);

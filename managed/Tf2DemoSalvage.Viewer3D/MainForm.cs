@@ -1463,6 +1463,7 @@ internal class MainForm : Form, IFrameSteps
         _decalReplay = null;
         _decalVersion = -1;
         _decalWorld = null;
+        _worldLights = null;
         _surfaceColour = null;
         _lightStyles = new();
         _thumbnails.Clear();
@@ -5414,6 +5415,11 @@ internal class MainForm : Form, IFrameSteps
 
         _lightmapRegions.Clear();
         assets.Lightmaps.Recompose(_lightStyles.Scale, changed, _lightmapRegions);
+
+        // B425: after the styles, so a dlit styled face is rebuilt with both; from the lights as the frame drew them.
+        _worldLights ??= new WorldDynamicLights(DecalWorldOf(_loaded));
+        _worldLights.Frame(_moment.WorldLights, assets.Lightmaps, _lightStyles.Scale, _lightmapRegions);
+
         _device.UpdateLightmap(assets.Lightmaps.Pixels, assets.Lightmaps.Width, _lightmapRegions);
 
         // Once per style change past the first frame, so a toggle is visible in the log with what it rebuilt.
@@ -5429,6 +5435,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Every light style's value, animated once a frame.</summary>
     private LightStyleValues _lightStyles = new();
+
+    /// <summary>The world's faces under the dlights, built with the map's decal world.</summary>
+    private WorldDynamicLights? _worldLights;
 
     /// <summary>The atlas regions rebuilt this frame, reused.</summary>
     private readonly List<AtlasRegion> _lightmapRegions = [];

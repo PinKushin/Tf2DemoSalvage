@@ -85,4 +85,44 @@ ETF2L POV, `pl_badwater_pro`, `pass_sanctum`, `hackermgereddit`, and a `cp_proce
 (the ranking), and `MomentScene` (thinks in `Build`, decays at the end of `Pose`, and clears on a backward jump,
 because the engine cannot seek).
 
-The world lightmap half (`R_AddDynamicLights`, and `0x1801b7dd0`'s hand-off to the material system) is the next step.
+The world lightmap half is below.
+
+## The world's lightmaps, read from `engine.dll` (2026-09-29)
+
+Evidence class: **disassembly** (decompiler output, with the one surprising result checked in the listing), plus
+published source for `GetBumpNormals` (`mathlib/bumpvects.cpp`) and `TexLightToLinear` (`mathlib.h:975`).
+
+- **Marking.** `R_PushDlights` (`0x1800d48b0`) takes each dlight with `time <= die`, `radius > 0` and no
+  `DLIGHT_NO_WORLD_ILLUMINATION` (flag 1 only) and walks the world's nodes (`0x1800d4520`). A node plane distance
+  above `radius` goes to child 0, below `−radius` to child 1; otherwise the node's own faces are tried and both
+  children walked. A leaf (`0x1800d4680`) tries its faces that are not `SURFDRAW_NODE` and lie within `±radius` of
+  their plane, and its displacements by a sphere-against-box test. `R_TryLightMarkSurface` (`0x1800d4970`) needs
+  `d = n·o − dist ≥ −15` and `r² − d² > 0`, then a circle of `luxelsPerWorldUnit · √(r² − d²)` luxels round the light's
+  lightmap coordinate must reach the face's luxel rectangle `[mins, mins + extents]` (`0x1801735f0`). A hit ORs the
+  light's bit into the face's bits (never reset there), stamps the frame and sets `SURFDRAW_HASDLIGHT`.
+- **Which faces rebuild.** `R_RenderDynamicLightmaps` (`0x1800d09a0`) rebuilds a face whose style changed, or — with
+  `r_dynamic` (default **"1"**, `0x180007c90`) — one marked this frame **or still carrying bits**. The per-face pass
+  (`0x1800d0ba0`) ANDs the bits with `r_dlightactive`; a face not marked this frame loses them all, and a marked one
+  keeps a light only if it is active, has no bit in `flags & 0xd`, and passes the same plane test. So a light that
+  leaves or dies costs its faces exactly one more rebuild, without it, and then nothing. `r_maxdlights` (default 32,
+  `0x180005f70`) caps distinct lights per frame and cannot bind with 32 slots.
+- **The addition** (`R_BuildLightMap` `0x1800cfca0` → `0x1800ceb00`). With `s, t` the light's lightmap coordinate less
+  the face's mins and `wupl = 1 / |lightmapVecs[0].xyz|` (`Mod_LoadTexinfo` `0x180103da0`), each luxel `(col, row)` has
+  `dist² = ((s − col)·wupl)² + ((t − row)·wupl)² + d²`, and below `r²` it gains
+  `colour · 2^e/255 · style/264 · min( (dist² == 0 ? 1 : minlight · r² / dist²) · (1 − dist²/r²), 2 )`, `minlight` floored
+  at 1/256. A spotlight aimed with the face's normal adds nothing. The base lightmap is in `TexLightToLinear` units,
+  `byte · 2^e / 255`; this port stores `byte · 2^e`, so its dlight colour is the engine's times 255.
+- **Bumped faces** (`0x1800cf1b0`): the flat page as above; page `k` gains the same `· max(dir·bump_k, 0) /
+  max(dir·n, 0.001)`, the basis from `GetBumpNormals` on the normalised lightmap vectors and the plane normal. **The
+  direction is taken from the ROW's position only** — `origin + t_vec · row · wupl²`, loaded once per row at
+  `0x1800cf460` and never moved by the column loop at `0x1800cf4d5`. Every luxel in a row shares the direction of
+  its first. Reproduced, not corrected.
+- **Displacements** take their own path: the leaf's list, then `CDispInfo` (vtable `0x18038d8b8`) slot 0x38
+  (`0x1800c4540`: the bits, flag 1 only, no plane test) and slot 0x30 (`0x1800c3130` → `0x1800c0600`: a 3D position,
+  normal and bump basis rebuilt per luxel from the disp's triangles). **Not built.**
+- **Brush entities** (`0x1800e03a0`) move the light into the model's space and walk its own nodes. **Not built.**
+
+**Built:** `WorldDynamicLights` (marking, the per-face pass, both additions), `LightmapAtlas.Rebuild`, the frame's
+lights copied before the decay (`MomentScene.WorldLights`, as `EndUpdateLightmaps` `0x1800d5fa0` copies `cl_dlights`),
+and the viewer's `StepLightStyles` calling it after the styles. On `tf2-2026-pub-pov-clean` no light reaches the world
+(`CorpusWorldDynamicLightTests`, with a recorder-17 control that finds them).
