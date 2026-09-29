@@ -7710,6 +7710,25 @@ fades disabled on every corpus map, and the scale reaches nothing else. Tests: `
 (entry, lerp, factor, the wiring, and `koth_harvest_final`'s `lightbulb001` at 1,300 units → 132),
 `BspStaticPropLayoutTests.ReadPayload_FadeDistances_…`, `StaticPropConformanceTests.StaticProp_TheFadeDistances_…`.
 
+**Census of every installed map, 2026-09-29 (`static-prop-fades` with no argument; controls: 234 worldspawns of
+234, 0 disagreements between its raw record walk and `BspStaticProps` on `m_FadeMinDist`).** 234 maps, 354,469 props,
+135,412 fade entries. **Flag 0x20: 201 props on 4 maps, 140 with a screen-space entry** — `pl_cactuscanyon` 185,
+`pl_barnblitz` 10, `koth_overcast_final` 4, `cp_cowerhouse` 2 — so the "0 screen-space" above held only for its three
+maps. **Level screen fade enabled (`maxpropscreenwidth` > `minpropscreenwidth`) on 2 maps: `cp_mountainlab` 10..20,
+`koth_overcast_final` 2..4**; the other 232 carry min absent (0) and max −1. This measurement is NEW for static props:
+`EntityFade`'s nine were corpus maps and neither of these. `m_flForcedFadeScale` ≠ 1 on 20,610 props (it only divides
+the level/view pixel width, so it matters on those two maps only). The view fade stays off (`r_screenfademinsize` 0).
+
+**Read from `engine.dll` (not yet built).** Screen-space branch of `FUN_180202c60` (`0x180202e98`): `px =
+matctx->vtbl[0x268](origin, prop+0x98)` — `IMatRenderContext::ComputePixelWidthOfSphere`, the radius at `prop+0x98`;
+alpha 0 at `px ≤ entry.max`, 255 at `entry.min < 0` or `px ≥ entry.min`, else `clamp((int)((px − max)·scale))`.
+`+0x110`/`+0x118` are thunks (`0x1801c9ed0`/`0x1801c9ef0`) into `FUN_1801cb810` with the range at `modelinfo+0x70`
+(level) / `+0x7c` (view): 255 when `range.min ≤ 0` or forced scale `≤ 0`; `px' = px / forcedScale`; 0 at `px' ≤ min`,
+255 at `max < 0` or `px' ≥ max`, else `(px' − min)·scale`. The setter `FUN_1801c9e50` stores `{min, max, 255/(max−min)}`,
+or `{min, min, 255}` when `max ≤ min`. The min of the two is applied only when lower than the current alpha.
+**Blocked:** `ComputePixelWidthOfSphere` lives in `materialsystem.dll`; its project was not reachable through the
+MCP bridge (8089 serves `engine.dll` only), and porting the projection without reading it would be a guess.
+
 ---
 
 ### B429 — an unbaked static prop was lit per frame; the engine lights it once on the CPU — FIXED 2026-09-28
