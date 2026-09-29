@@ -7664,6 +7664,44 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B434 — detail sprites drew before the opaque models, not in the translucent walk — FIXED 2026-09-29
+
+**Read from published source.** `RenderOpaqueDetailObjects` has an empty body (`detailobjectsystem.cpp:1954`), so
+no sprite ever draws opaque. `DrawTranslucentRenderables` (`viewrender.cpp:4465`) calls
+`BeginTranslucentDetailRendering` (`:4564`); `DrawTranslucentWorldAndDetailPropsInLeaves` (`:4298`) queues each
+leaf's sprites after its surfaces (`:4316-4320`) and flushes the queue before the next leaf's surfaces
+(`:4308-4310`). In an entity's leaf the other queued leaves draw "up to but not including this leaf"
+(`:4594-4598`), then before each entity the leaf's sprites farther than its `GetRenderOrigin()` (`:4605-4607`),
+then the rest (`:4639`); a leaf with none takes the unsplit branch (`:4643`); what is queued after the loop goes
+last (`:4697-4698`). Within a leaf, sprites sort farthest first by squared distance (`SortSpritesBackToFront`,
+`:2042`; `SortLessFunc`'s `>`, `:2035`) and `RenderTranslucentDetailObjectsInLeaf` draws from a cursor while
+`m_flDistance >= flMinDistance` (`:2708`). `r_drawtranslucentworld 0` (`DrawTranslucentRenderablesNoWorld`,
+`:4387`) draws no sprites at all — not a path this viewer has.
+
+**Ported:** `TranslucentInterleave.Plan` emits `Detail` / `DetailBeyond` steps in the B426 walk;
+`DetailSprites.Build` groups quads by BSP leaf, each farthest first, into `DetailSpriteLeaves` (the cursor);
+`Device3D` draws each step's run through `DetailSpriteRenderer.Draw(first, count)`; `WorldCulling.LeafAt` maps a
+place to its leaf. Flushing each leaf's sprites straight after its surfaces rather than as late as the engine
+does draws the same order, since nothing draws between. A sprite in a leaf outside the view's list is no longer
+drawn, as in the engine. A map that cannot be culled draws all sprites after the translucent world, before the
+translucent models.
+
+**Not ported:** the "fast sprite" lane (`cl_fastdetailsprites 1`, `DetailObjectIsFastSprite`, `:1644` —
+orientation 2, no light style, sway or shape). The engine draws a flush's fast sprites before its ordinary ones
+(`:2404`), builds their quads its own way (`BuildOutSortedSprites`, `:2131`, which also drops sprites behind the
+eye plane), and needs the lump's light-style count, which `BspDetailProps` does not decode.
+
+**What changes on screen:** grass in front of a translucent model (a cloaked spy, a fading prop, a detail model
+mid-fade) now draws over it instead of under it; grass behind world glass is covered by the glass; grass in leaves
+outside the visible list is gone. Opaque models still hide grass behind them, now by depth.
+
+Tests: `TranslucentInterleaveTests.Plan_Detail…`, `ScenePassOrderConformanceTests.DrawTranslucentRenderables_DetailSprites_…`,
+`DetailSpritesConformanceTests.Build_SpritesInTwoLeaves_…` and `Take_AroundAnEntity_…`, and
+`TranslucentWorldOrderRenderTests.DetailSprites_InTheTranslucentPass_…` — each red under a sabotage of the code it
+covers, except the opaque-model depth case, which no sabotage of the sprite pass reddened.
+
+---
+
 ### B433 — z1800 logs a 12 GB managed heap after load; the live set is under half of it — OPEN 2026-09-29
 
 **The report:** `memory after load: working set 11267 MB, managed heap 12264 MB (committed 12270 MB, fragmented 56 MB);
@@ -8013,8 +8051,8 @@ the 3D-sky room's glass at literal size in the main view). Tests: `TranslucentIn
 `ScenePassOrderConformanceTests.DrawTranslucentRenderables_TheLeafInterleave_…`, and
 `TranslucentWorldOrderRenderTests.DrawTranslucentLeaf_…` (a translucent model behind world glass is covered, one
 in the glass's leaf is not). **Not done:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
-TF2 maps without water use group 0 only; translucent detail sprites in this walk — the grass is still drawn
-before the opaque models (B361), so there is nothing here to interleave.
+TF2 maps without water use group 0 only. (Translucent detail sprites in this walk were not done here either —
+the grass was then drawn before the opaque models; B434 moved it into this walk.)
 
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
 `LightingOrigin` (`STATIC_PROP_USE_LIGHTING_ORIGIN`), which the lump reader does not read. Static props still have

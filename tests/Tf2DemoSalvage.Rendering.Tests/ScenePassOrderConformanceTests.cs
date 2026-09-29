@@ -157,10 +157,64 @@ public sealed class ScenePassOrderConformanceTests
 
         steps.ShouldBe(
         [
-            new InterleaveStep(false, 2),
-            new InterleaveStep(false, 1),
-            new InterleaveStep(true, 0),
-            new InterleaveStep(false, 0),
+            new InterleaveStep(InterleaveKind.World, 2),
+            new InterleaveStep(InterleaveKind.World, 1),
+            new InterleaveStep(InterleaveKind.Entity, 0),
+            new InterleaveStep(InterleaveKind.World, 0),
+        ]);
+    }
+
+    /// <remarks>
+    /// **Detail sprites draw inside the translucent pass, never before the opaque models** (B434).
+    /// <c>RenderOpaqueDetailObjects</c> has an empty body marked unimplemented (<c>detailobjectsystem.cpp:1954</c>),
+    /// so no sprite is ever drawn opaque. <c>DrawTranslucentWorldAndDetailPropsInLeaves</c> queues each leaf's
+    /// sprites after its surfaces (<c>viewrender.cpp:4316-4320</c>) and flushes the queue before the next leaf's
+    /// surfaces (<c>:4308-4310</c>); an entity's leaf draws the other queued leaves "up to but not including this
+    /// leaf" (<c>:4594-4598</c>), then per entity the sprites farther than it (<c>:4605-4607</c>), then the rest
+    /// (<c>:4639</c>); what is queued after the loop goes last (<c>:4697-4698</c>). Within a leaf the sprites are
+    /// sorted farthest first (<c>SortLessFunc</c>'s <c>&gt;</c>, <c>:2037</c>) and drawn while
+    /// <c>m_flDistance &gt;= flMinDistance</c> (<c>:2708</c>).
+    /// </remarks>
+    [Test]
+    public void DrawTranslucentRenderables_DetailSprites_AreInterleavedPerLeafAroundEachEntity()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string view = SourceSdk.Text("src/game/client/viewrender.cpp")
+            ?? throw new InvalidOperationException("viewrender.cpp is missing from the SDK");
+        string detail = SourceSdk.Text("src/game/client/detailobjectsystem.cpp")
+            ?? throw new InvalidOperationException("detailobjectsystem.cpp is missing from the SDK");
+
+        Regex.IsMatch(
+            detail,
+            @"RenderOpaqueDetailObjects\( int nLeafCount, LeafIndex_t \*pLeafList \)\s*\{\s*// FIXME: Implement!\s*\}")
+            .ShouldBeTrue("RenderOpaqueDetailObjects is no longer empty, so some sprites may draw opaque");
+        detail.ShouldContain("return TREATASINT( left.m_flDistance ) > TREATASINT( right.m_flDistance );");
+        detail.ShouldContain("while ( m_nFirstSprite < m_nSpriteCount && m_pSortInfo[m_nFirstSprite].m_flDistance >= flMinDistance )");
+        view.ShouldContain("DetailObjectSystem()->BeginTranslucentDetailRendering();");
+        view.ShouldContain("// Draw detail props up to but not including this leaf");
+        view.ShouldContain("// Draw any detail props in this leaf that's farther than the entity");
+        view.ShouldContain("DetailObjectSystem()->RenderTranslucentDetailObjectsInLeaf( CurrentViewOrigin(), CurrentViewForward(), CurrentViewRight(), CurrentViewUp(), nLeaf, NULL );");
+
+        // Ours: leaves 0..2, sprites in all three, one entity in leaf 1.
+        List<InterleaveStep> steps = [];
+
+        TranslucentInterleave.Plan(3, [1], static _ => true, steps);
+
+        steps.ShouldBe(
+        [
+            new InterleaveStep(InterleaveKind.World, 2),
+            new InterleaveStep(InterleaveKind.Detail, 2),
+            new InterleaveStep(InterleaveKind.World, 1),
+            new InterleaveStep(InterleaveKind.DetailBeyond, 0),
+            new InterleaveStep(InterleaveKind.Entity, 0),
+            new InterleaveStep(InterleaveKind.Detail, 1),
+            new InterleaveStep(InterleaveKind.World, 0),
+            new InterleaveStep(InterleaveKind.Detail, 0),
         ]);
     }
 

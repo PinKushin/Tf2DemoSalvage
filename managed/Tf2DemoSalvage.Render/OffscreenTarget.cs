@@ -233,6 +233,33 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="position">The leaf's place.</param>
     public void DrawTranslucentLeaf(int position) => _world?.DrawTranslucentLeaf(_context, position);
 
+    private DetailSpriteRenderer? _detail;
+    private ComPtr<ID3D11ShaderResourceView> _detailSheet;
+
+    /// <summary>Draws a run of detail sprite quads through the real sprite pass — the interleave's detail step (B434).</summary>
+    /// <param name="corners">Every quad, six corners each.</param>
+    /// <param name="sheet">The sprite sheet.</param>
+    /// <param name="camera">The view-projection matrix.</param>
+    /// <param name="firstQuad">The first quad to draw.</param>
+    /// <param name="quads">How many.</param>
+    /// <exception cref="ArgumentNullException">A list or the camera is null.</exception>
+    public void DrawDetailSprites(
+        IReadOnlyList<DetailSpriteVertex> corners, MapTexture sheet, float[] camera, int firstQuad, int quads)
+    {
+        ArgumentNullException.ThrowIfNull(corners);
+        ArgumentNullException.ThrowIfNull(camera);
+
+        _detail ??= DetailSpriteRenderer.Create(_device);
+
+        // Uploaded afresh each call; a test draws a handful.
+        _detailSheet.Dispose();
+        _detailSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+
+        _detail.SetSheet(_detailSheet);
+        _detail.Upload(_device, _context, corners);
+        _detail.Draw(_device, _context, camera, firstQuad * DetailSprites.CornersPerQuad, quads * DetailSprites.CornersPerQuad);
+    }
+
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
     /// <param name="batches">Its runs over those vertices.</param>
@@ -498,6 +525,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.Flush();
 
         _points?.Dispose();
+        _detail?.Dispose();
+        _detailSheet.Dispose();
         _world?.Dispose();
         _view.Dispose();
         _depthView.Dispose();

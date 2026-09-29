@@ -262,6 +262,11 @@ public sealed class WorldCulling
         return runs;
     }
 
+    /// <summary>The BSP leaf at a place in the last view's front-to-back list (B434).</summary>
+    /// <param name="place">The place.</param>
+    /// <returns>The leaf, or −1 for a place outside the list.</returns>
+    public int LeafAt(int place) => place >= 0 && place < _mainLeaves.Count ? _mainLeaves[place] : -1;
+
     private readonly List<int> _placed = [];
     private readonly int[] _positionByLeaf;
     private ViewFrustum _lastFrustum;

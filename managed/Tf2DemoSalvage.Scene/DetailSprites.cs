@@ -89,6 +89,9 @@ public static class DetailSprites
     /// </remarks>
     public const string Material = BspEntities.DefaultDetailSpriteMaterial;
 
+    /// <summary>Corners per sprite quad: two triangles.</summary>
+    public const int CornersPerQuad = 6;
+
     /// <summary>Applies Valve's non-square sheet correction to a sprite dictionary.</summary>
     /// <param name="sprites">The dictionary, as the <c>dprp</c> lump wrote it.</param>
     /// <param name="ratio">The sheet's width divided by its height.</param>
@@ -163,6 +166,7 @@ public static class DetailSprites
     /// <param name="eye">Where the view is, in world units.</param>
     /// <param name="fade">The distance fade for this view.</param>
     /// <param name="into">The vertex list to append to.</param>
+    /// <param name="leaves">Cleared, then given each quad's leaf and squared distance in emission order; or null.</param>
     /// <returns>What was built, dropped and turned.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -170,11 +174,12 @@ public static class DetailSprites
     /// quad primitive: Valve emits four vertices and lets the mesh builder make a quad, and this
     /// path takes triangles, so the four corners are issued as 0-1-2 and 0-2-3.
     ///
-    /// **Sorted back to front across the whole view, where the engine sorts within a leaf.** Valve
-    /// walks the visible leaves and sorts each leaf's sprites among themselves
-    /// (`SortSpritesBackToFront`, `detailobjectsystem.cpp:2112`), which orders two sprites in
-    /// different leaves by the order their leaves came out of the tree. Sorting the whole set is
-    /// strictly better ordering for the same blend, and it is one sort rather than one per leaf.
+    /// **Grouped by leaf, each leaf sorted back to front, as the engine does** (B434). Valve sorts
+    /// each leaf's sprites among themselves (`SortSpritesBackToFront`, `detailobjectsystem.cpp:2042`,
+    /// farthest first by `SortLessFunc` at `:2035`), because the translucent pass draws a leaf's
+    /// sprites between that leaf's world surfaces and entities. An earlier version sorted across
+    /// the whole view and drew them all before the opaque models; the leaves ascend here and
+    /// <paramref name="leaves"/> records where each one's quads are.
     ///
     /// **A sprite the fade reduced to zero is not emitted at all**, which is what the engine does
     /// with it: `SortSpritesBackToFront` skips `GetAlpha() == 0` before it ever reaches a mesh.
@@ -184,7 +189,8 @@ public static class DetailSprites
         IReadOnlyList<BspDetailSprite> sprites,
         (float X, float Y, float Z) eye,
         DetailFade fade,
-        IList<DetailSpriteVertex> into)
+        IList<DetailSpriteVertex> into,
+        DetailSpriteLeaves? leaves = null)
     {
         ArgumentNullException.ThrowIfNull(objects);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -227,13 +233,19 @@ public static class DetailSprites
             visible.Add((index, squared, alpha));
         }
 
-        visible.Sort(static (first, second) => second.Squared.CompareTo(first.Squared));
+        visible.Sort((first, second) =>
+            objects[first.Index].Leaf != objects[second.Index].Leaf                ? objects[first.Index].Leaf.CompareTo(objects[second.Index].Leaf)
+                : second.Squared.CompareTo(first.Squared));
+
+        leaves?.Clear();
 
         int aligned = 0;
 
-        foreach ((int index, float _, byte alpha) in visible)
+        foreach ((int index, float squared, byte alpha) in visible)
         {
             BspDetailProp prop = objects[index];
+
+            leaves?.Add(prop.Leaf, squared);
 
             (float Pitch, float Yaw, float Roll) angles = Facing(prop, eye);
 

@@ -164,6 +164,133 @@ public sealed class TranslucentWorldOrderRenderTests
         Distance(inFront, modelOver).ShouldBeLessThanOrEqualTo(3, "a model in the glass's own leaf drew under it");
     }
 
+    /// <remarks>
+    /// **Detail sprites in the translucent pass, drawn** (B434). An opaque model in front of a sprite hides it by
+    /// depth, since the sprite now draws after it and tests against its depth. A TRANSLUCENT model in the same leaf
+    /// is split around: a sprite farther than it draws before it (<c>viewrender.cpp:4607</c>), a nearer one after
+    /// it (<c>:4639</c>) — the second is what drawing the grass before the models got wrong. Each case is predicted
+    /// by its hand order, and the two hand orders must differ or the test cannot fail.
+    /// </remarks>
+    [Test]
+    public void DetailSprites_InTheTranslucentPass_AreHiddenByAnOpaqueModelAndSplitAroundATranslucentOne()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        if (TranslucentMaterials(assets) is not [int sheetMaterial, int modelMaterial, ..])
+        {
+            Assert.Ignore("fewer than two translucent materials in this map");
+            return;
+        }
+
+        (List<WorldVertex> wall, WorldBatch wallBatch) = Quad(0.9f, 0, 0, (0f, 0f, 1f));
+        (List<WorldVertex> solid, WorldBatch solidBatch) = Quad(0.5f, 0, 0, (0f, 1f, 0f));
+        (List<WorldVertex> model, WorldBatch modelBatch) = Quad(0.5f, modelMaterial, 0, (0f, 1f, 0f));
+        MapTexture sheet = assets.Textures[sheetMaterial] ?? throw new InvalidOperationException("the chosen sheet has no texture");
+        const float EntitySquared = 0.5f * 0.5f;
+
+        // One leaf; its runs are empty, so only sprites and the model decide the pixel.
+        TranslucentLeafRuns runs = new([], [0, 0]);
+
+        (int red, int green, int blue) Draw(Action opaque, Action translucents)
+        {
+            target.Clear(0f, 0f, 0f);
+            target.DrawWorld(wall, [wallBatch], Identity, assets, translucent: false);
+            opaque();
+            target.SetTranslucentLeaves(runs);
+            translucents();
+            return target.PixelAt(32, 32);
+        }
+
+        void Nothing()
+        {
+            // No draw: the pass under test is empty in this case.
+        }
+
+        void Solid() =>
+            target.DrawModelPose(solid, [solidBatch], Identity, Identity, assets, bothSides: true, clearDepth: false);
+
+        void Model() =>
+            target.DrawModelPose(model, [modelBatch], Identity, Identity, assets, bothSides: true, clearDepth: false);
+
+        void Sprite(float depth) => target.DrawDetailSprites(SpriteQuad(depth), sheet, Identity, 0, 1);
+
+        // Runs the planner's steps for one sprite at one depth, the way Device3D does.
+        void Planned(float depth, bool entity)
+        {
+            List<DetailSpriteVertex> corners = SpriteQuad(depth);
+            DetailSpriteLeaves leaves = new();
+            leaves.Add(0, depth * depth);
+            leaves.Begin();
+
+            List<InterleaveStep> steps = [];
+            TranslucentInterleave.Plan(runs.LeafCount, entity ? [0] : [], leaves.Has, steps);
+
+            foreach (InterleaveStep step in steps)
+            {
+                switch (step.Kind)
+                {
+                    case InterleaveKind.Entity:
+                        Model();
+                        break;
+                    case InterleaveKind.World:
+                        target.DrawTranslucentLeaf(step.Index);
+                        break;
+                    default:
+                        (int first, int count) = leaves.Take(
+                            step.Kind == InterleaveKind.Detail ? step.Index : 0,
+                            step.Kind == InterleaveKind.Detail ? null : EntitySquared);
+                        target.DrawDetailSprites(corners, sheet, Identity, first, count);
+                        break;
+                }
+            }
+        }
+
+        // An opaque model in front of the sprite: the control is the sprite alone, which must change the wall.
+        (int red, int green, int blue) wallOnly = Draw(Nothing, Nothing);
+        (int red, int green, int blue) spriteOnly = Draw(Nothing, () => Planned(0.7f, entity: false));
+        (int red, int green, int blue) solidOnly = Draw(Solid, Nothing);
+        (int red, int green, int blue) solidOverSprite = Draw(Solid, () => Planned(0.7f, entity: false));
+
+        TestContext.Out.WriteLine($"WALL {wallOnly}  SPRITE {spriteOnly}  SOLID {solidOnly}  SOLID+SPRITE {solidOverSprite}");
+        Distance(spriteOnly, wallOnly).ShouldBeGreaterThan(6, "the sprite did not draw, so this test cannot fail");
+        Distance(solidOverSprite, solidOnly).ShouldBeLessThanOrEqualTo(3, "a sprite behind an opaque model showed over it");
+
+        // A translucent model: the two hand orders, which must differ.
+        (int red, int green, int blue) spriteFirst = Draw(Nothing, () => { Sprite(0.7f); Model(); });
+        (int red, int green, int blue) modelFirst = Draw(Nothing, () => { Model(); Sprite(0.3f); });
+        (int red, int green, int blue) spriteFirstNear = Draw(Nothing, () => { Sprite(0.3f); Model(); });
+
+        TestContext.Out.WriteLine($"SPRITE FIRST {spriteFirst}  MODEL FIRST {modelFirst}  SPRITE(NEAR) FIRST {spriteFirstNear}");
+        Distance(modelFirst, spriteFirstNear).ShouldBeGreaterThan(6, "the two orders draw the same pixel, so this test cannot fail");
+
+        (int red, int green, int blue) behind = Draw(Nothing, () => Planned(0.7f, entity: true));
+        (int red, int green, int blue) inFront = Draw(Nothing, () => Planned(0.3f, entity: true));
+
+        TestContext.Out.WriteLine($"BEHIND {behind}  IN FRONT {inFront}");
+        Distance(behind, spriteFirst).ShouldBeLessThanOrEqualTo(3, "a sprite behind a translucent model drew after it");
+        Distance(inFront, modelFirst).ShouldBeLessThanOrEqualTo(3, "a sprite in front of a translucent model drew under it");
+    }
+
+    /// <summary>One full-screen detail sprite at a depth, red, sampling the sheet's centre.</summary>
+    private static List<DetailSpriteVertex> SpriteQuad(float depth)
+    {
+        DetailSpriteVertex Corner(float x, float y) => new(x, y, depth, 0.5f, 0.5f, 1f, 0f, 0f, 1f, 0.5f, 0.5f, 0f);
+
+        return [Corner(-1f, -1f), Corner(1f, 1f), Corner(1f, -1f), Corner(-1f, -1f), Corner(-1f, 1f), Corner(1f, 1f)];
+    }
+
     private static int Distance((int red, int green, int blue) a, (int red, int green, int blue) b) =>
         Math.Abs(a.red - b.red) + Math.Abs(a.green - b.green) + Math.Abs(a.blue - b.blue);
 

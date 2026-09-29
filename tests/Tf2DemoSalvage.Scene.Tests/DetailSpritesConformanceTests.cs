@@ -284,6 +284,77 @@ public sealed class DetailSpritesConformanceTests
     }
 
     /// <remarks>
+    /// **Sorted within each leaf, not across the view** — <c>RenderTranslucentDetailObjects</c> sorts
+    /// "each leaf independently" (<c>detailobjectsystem.cpp:2454</c>), farthest first by squared distance
+    /// (<c>SortLessFunc</c>'s <c>&gt;</c>, <c>:2037</c>), because the translucent pass draws a leaf's sprites
+    /// between that leaf's world and entities (B434). The nearer leaf's far sprite (x 900) must NOT come
+    /// before the farther leaf's sprites, which a whole-view sort would put first.
+    /// </remarks>
+    [Test]
+    public void Build_SpritesInTwoLeaves_GroupsEachLeafFarthestFirst()
+    {
+        List<DetailSpriteVertex> world = [];
+        DetailSpriteLeaves leaves = new();
+
+        DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), origin: (300f, 0f, 0f), leaf: 7),
+             Prop(angles: (0f, 0f, 0f), origin: (900f, 0f, 0f), leaf: 7),
+             Prop(angles: (0f, 0f, 0f), origin: (600f, 0f, 0f), leaf: 3),
+             Prop(angles: (0f, 0f, 0f), origin: (400f, 0f, 0f), leaf: 3)],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            leaves);
+
+        leaves.Begin();
+
+        leaves.Take(3, null).ShouldBe((0, 2));
+        leaves.Take(7, null).ShouldBe((2, 2));
+        world[0].X.ShouldBe(600f, Tolerance);
+        world[6].X.ShouldBe(400f, Tolerance);
+        world[12].X.ShouldBe(900f, Tolerance);
+        world[18].X.ShouldBe(300f, Tolerance);
+        leaves.Has(3).ShouldBeTrue();
+        leaves.Has(5).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The within-leaf split around an entity** — <c>RenderTranslucentDetailObjectsInLeaf</c>
+    /// (<c>detailobjectsystem.cpp:2708</c>) draws from its cursor while
+    /// <c>m_flDistance &gt;= flMinDistance</c>, the entity's squared render-origin distance, and advances
+    /// <c>m_nFirstSprite</c>; a NULL point (<c>viewrender.cpp:4639</c>) draws the rest.
+    /// <c>BeginTranslucentDetailRendering</c> (<c>:1562</c>) resets it each view.
+    /// </remarks>
+    [Test]
+    public void Take_AroundAnEntity_DrawsTheFartherThenTheRestOnce()
+    {
+        List<DetailSpriteVertex> world = [];
+        DetailSpriteLeaves leaves = new();
+
+        DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), origin: (300f, 0f, 0f)),
+             Prop(angles: (0f, 0f, 0f), origin: (900f, 0f, 0f)),
+             Prop(angles: (0f, 0f, 0f), origin: (600f, 0f, 0f))],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            leaves);
+
+        leaves.Begin();
+
+        // An entity at 600: the sprite at 900 and the one at exactly 600 (>=) go before it.
+        leaves.Take(0, 600f * 600f).ShouldBe((0, 2));
+        leaves.Take(0, 100f * 100f).ShouldBe((2, 1));
+        leaves.Take(0, null).ShouldBe((3, 0));
+
+        leaves.Begin();
+
+        leaves.Take(0, null).ShouldBe((0, 3));
+    }
+
+    /// <remarks>
     /// A model detail prop indexes the MODEL dictionary, so reading it as a sprite would index the
     /// sprite dictionary with a model number. The engine draws those through `DrawTypeModel`; here
     /// they are left out rather than drawn wrongly, and the control is the sprite beside it.
@@ -419,7 +490,8 @@ public sealed class DetailSpritesConformanceTests
         DetailPropType type = DetailPropType.Sprite,
         (float Red, float Green, float Blue) lighting = default,
         bool flipped = false,
-        (float X, float Y, float Z) origin = default) =>
-        new(origin, angles, sprite, Leaf: 0, type, orientation,
+        (float X, float Y, float Z) origin = default,
+        int leaf = 0) =>
+        new(origin, angles, sprite, leaf, type, orientation,
             SwayAmount: 0, ShapeAngle: 0, ShapeSize: 0, scale, lighting, flipped);
 }
