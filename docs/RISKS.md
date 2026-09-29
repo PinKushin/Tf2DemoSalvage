@@ -4979,7 +4979,7 @@ plausible one.
 
 Whether it now runs CORRECTLY is still a question for eyes — moving legs were never the evidence.
 
-### B85 — LINQ in the per-tick entity walk, noted rather than changed — OPEN
+### B85 — LINQ in the per-tick entity walk, noted rather than changed — FIXED (a77a454a: class index `_byClass`; heading corrected 2026-09-29)
 
 **Not a defect, and recorded so it is not rediscovered as one.** The question was whether this
 project already spends frame time in LINQ. Measured across the repeated paths, it does not — with one
@@ -5498,7 +5498,7 @@ exactly as much as no finding.
 timing failure should be reported as a distinct outcome from a thrown exception. Both would have
 made this a two-minute diagnosis instead of a day and a half.
 
-### B93 — DXT textures are decoded on the CPU and uploaded eight times larger — OPEN
+### B93 — DXT textures are decoded on the CPU and uploaded eight times larger — FIXED (16e0f7c3, 94a0ebce: BC1/2/3 upload compressed; heading corrected 2026-09-29)
 
 **Raised by the owner asking whether more should be pushed onto the GPU.** The answer for the map
 load is mostly no — it is I/O, LZMA decompression and pointer-chasing parses, none of which suit a
@@ -5570,7 +5570,7 @@ matters.
 That happened minutes after auditing the suite for exactly this failure, which is the honest measure
 of how easy it is.
 
-### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
+### B90 — (mislabeled copy) the rocket track slot-reuse defect — FIXED (d317dc28, written up as "B92 RESOLVED"; heading corrected 2026-09-29)
 
 **Found by auditing tests that assert a policy**, after a roster test was discovered certifying a
 real bug. This is the same shape in a different file, and it is still live.
@@ -5612,7 +5612,7 @@ the logic is exercised only through corpus runs, where a merged rocket track is 
 somebody is looking at rockets. The comment asserting the policy was the only statement of intent,
 and it was wrong on its own example.
 
-### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — OPEN
+### B90 — the map is loaded on the UI thread, so the window exists and answers nothing — FIXED (6dbf1e7e decode, 76190d3d map read off the UI thread, 5214a597 D182 loading overlay; heading corrected 2026-09-29)
 
 **Found by CI going red, and the report named the wrong thing.** The UI job failed with
 `System.TimeoutException : UIA Timeout` inside `Application.GetMainWindow`, which reads as a viewer
@@ -6050,7 +6050,7 @@ under those lamps and stay put for anything genuinely in shade. Since this viewe
 deterministically — two identical launches produce byte-identical captures — a frame hash plus this
 table is a usable check that the change did something and did it where expected.
 
-### B96 — no visibility culling, so a roof hides the map from above — OPEN, owner-diagnosed
+### B96 — no visibility culling, so a roof hides the map from above — FIXED for the stated cause (8754cfdf frustum, 05f1bee7 BSP leaf/PVS, D112); a free camera above the map is unchecked against TF2 (heading corrected 2026-09-29)
 
 **Not a lighting defect, and it was nearly chased as one.** The large black regions in the viewer's
 top-down screenshots are a roof, drawn because this project has no visibility culling. TF2's own
@@ -6199,7 +6199,7 @@ everything is projected to screen space.
 The frame log now reports the LONGEST frame each second beside the rate, because a mean hides jitter
 by construction — the average barely moved while the worst frame grew.
 
-### B99 — playback costs twenty milliseconds a frame on the CPU, and rendering costs three — OPEN
+### B99 — playback costs twenty milliseconds a frame on the CPU, and rendering costs three — FIXED (8b7df17b light cache, then the bone pipeline and PVS entity cull; ~2 ms frames per docs/verification; heading corrected 2026-09-29)
 
 **Owner's target: a thousand frames a second, which TF2 itself reaches.** Measured on cp_process at
 a 300 fps cap with vertical sync off: about **48 frames a second** standing still with the demo
@@ -6289,7 +6289,7 @@ what the engine computes; the engine simply does not recompute them for every en
 A frame rate measured while playing was measuring the wrong thing for the whole of this entry's
 first draft, and the fix it pointed at — culling — was the one thing the numbers do not support.
 
-### B100 — every player plays one of two animations, chosen by speed alone — OPEN
+### B100 — every player plays one of two animations, chosen by speed alone — FIXED (5b11832a movement activity, weapon suffix and jump phases after it; remainder in B105/B112; heading corrected 2026-09-29)
 
 **Owner's observation, and it outranks the remaining performance work:** the legs move, but "most of
 the models are not doing anything but their running animation, and the animation being blanket
@@ -6648,7 +6648,7 @@ authored for is left alone rather than scaled past the edge of the grid.
 
 B101 is now closed in full.
 
-### B104 — a solution-wide `dotnet test` once reported a TRUNCATED total — OPEN
+### B104 — a solution-wide `dotnet test` once reported a TRUNCATED total — RESOLVED (7f96d2b9 count-checked gate; see the second B104 heading; heading corrected 2026-09-29)
 
 Observed 2026-08-17 during the active-weapon work. One invocation of the merge gate reported
 
@@ -6759,7 +6759,7 @@ holder's class is on the wire, so this is implementable.
 
 The econ `anim_slot` override from `items_game.txt` is also still unread.
 
-### B106 — a scout is reported holding an engineer's shotgun — OPEN
+### B106 — a scout is reported holding an engineer's shotgun — NOT A DEFECT (367a9cff: 9 ticks in 929,371, a sampling skew; heading corrected 2026-09-29)
 
 Seen while verifying the per-class weapon translation on
 `demostf-cp_process_f12-2026-08-08-2207`. The viewer logs each weapon with the class holding it:
@@ -6905,7 +6905,7 @@ Not implemented from the same branch: **`ACT_MP_FALLING_STOMP`**, which replaces
 `m_flFallVelocity > PLAYER_MAX_SAFE_FALL_SPEED` and `CanFallStomp()` — the Mantreads. It needs a
 fall-velocity accumulator and an item check, and it is one animation for one item.
 
-### B109 — nobody aimed: body_pitch was never set — RESOLVED for pitch, OPEN for yaw
+### B109 — nobody aimed: body_pitch was never set — RESOLVED (pitch 81c3b5ec; yaw is B61, ee5ced53; heading corrected 2026-09-29)
 
 `ComputePoseParam_AimPitch` is one line (`multiplayer_animstate.cpp:1689`):
 
@@ -9754,7 +9754,7 @@ asks whether the spectator code ran. That test exists now
 (`Click_TheCycleTargetButton_ReachesTheSpectatorCode`), and it was verified by removing the
 `CycleTarget` call and watching it, and only it, go red.
 
-## B146 — loading a demo blocks the UI thread for seconds, and Windows calls it hung — OPEN
+## B146 — loading a demo blocks the UI thread for seconds, and Windows calls it hung — FIXED (same as B90: 6dbf1e7e, 76190d3d, 5214a597; heading corrected 2026-09-29)
 
 **Observed by the owner watching a UI run, 2026-08-23:** *"the program is stalling for a few seconds
 on every load, windows even thinks the program is hung"*.
@@ -9928,7 +9928,7 @@ second demo was tried to separate "reloading a demo" from "changing map" and the
 inconclusive — its first render report was already degraded, so there was no healthy baseline in it
 to compare against. That experiment is worth repeating with the report forced out early.
 
-## B149 — every texture is DXT-decoded on the CPU, and it is the entire load time — OPEN
+## B149 — every texture is DXT-decoded on the CPU, and it is the entire load time — FIXED (16e0f7c3, 94a0ebce: 16.87 s of decode became 0.10 s; heading corrected 2026-09-29)
 
 **Measured 2026-08-23**, opening `cp_badlands` in the viewer:
 
@@ -10839,7 +10839,7 @@ about where sound belongs in the presenter split.
 Valve's formats. Whether a demo produces audio is a question no test in this repository currently
 asks, and the first thing to add alongside the wiring is one that does.
 
-### B182 — the pose path has no denominator, so nobody can say how far it diverged — OPEN
+### B182 — the pose path has no denominator, so nobody can say how far it diverged — FIXED (2b6111ae, 917b90a6: BoneSetupConformanceTests, gate floor `animation`; heading corrected 2026-09-29)
 
 **Update 2026-09-03: the procedural half now has a MEASURED size, not a predicted one.** The
 `bone-flags` probe added for B292 counts `BONE_ALWAYS_PROCEDURAL` at **22 of 379 bones** on
@@ -11086,7 +11086,7 @@ that guarantee free, and it is the one thing the rewrite must not lose.
 the pose path. And the observable check the owner already made by eye: weapons in other players'
 hands, holstered ones absent, wearables (Mantreads, demo shields, Razorback) present.
 
-### B180 — a chained child merges onto its parent's UNMERGED bones — OPEN, CONFIRMED STRUCTURALLY
+### B180 — a chained child merges onto its parent's UNMERGED bones — FIXED (4c6e3a45 BoneMergeCache, D88; heading corrected 2026-09-29)
 
 **Filed 2026-08-24 as unverified; upgraded the same day by reading both sides.** With the depth sort
 in place, a prop hanging off another prop now finds its parent recorded. What is recorded is
@@ -11507,7 +11507,7 @@ same, and only the spy does. Spy is the one class whose active weapon changes on
 disguise, and the watch as a second viewmodel — so a draw animation selected from "which weapon is
 active" would retrigger for ever. Unmeasured.
 
-### B199 — Packed entity models are never cleared between maps — OPEN
+### B199 — Packed entity models are never cleared between maps — FIXED (fbff17b0 `EntityModelSet.LevelShutdown`; heading corrected 2026-09-29)
 
 **Found while investigating B198, and real regardless of it.** `EntityModelSet` has no reset method
 and nothing clears `_byModel`, `_frames` or `_raw`. `ClearMap` resets the LOADER
@@ -11646,7 +11646,7 @@ are packed, which is a behaviour change wanting its own measurement — how many
 real demo, and whether the difference is the brush/sprite filter or the roster. A refactor that
 quietly changes what is drawn is the thing this whole effort is trying to stop.
 
-### B193 — Nothing catches the view failing to hand the scene a source it needs — OPEN
+### B193 — Nothing catches the view failing to hand the scene a source it needs — FIXED (e46b7fb6 DemoSystems + tests, WiringUiTests; heading corrected 2026-09-29)
 
 **Twice in three commits, and the second one SHIPPED.** This is the defect class of the whole
 refactor: a scene that is handed its collaborators cannot tell "nobody wired this" from "the demo
@@ -11697,7 +11697,7 @@ that `Viewer3D` gets the same treatment `MainForm` is getting, and its tests mov
 `Viewer3D`, asserting it needs neither a window nor an install. Until then the warning is the
 instrument, and it fires once rather than per frame.
 
-### B192 — A scene rebuild still spikes to ~120 ms, and the fat column is still the subtracted one — OPEN
+### B192 — A scene rebuild still spikes to ~120 ms, and the fat column is still the subtracted one — FIXED (7d8615db: `rest` 108.7 → 3.4 ms; heading corrected 2026-09-29)
 
 **After B191 was fixed**, the recurring stall is gone from the frame rate — but three to five moments
 in four minutes still reach 60-125 ms, and the shape is the one that has now caught two bugs:
@@ -11761,7 +11761,7 @@ literally the same thing we learned during the last optimization run"* — the a
 adopt Valve's arrangement wholesale rather than optimise around our own, and the packed-vertex-buffer
 proposal that tried the latter was overruled. See `an-optimisation-is-not-a-skippable-departure`.
 
-### B190 — Viewmodels intermittently do not draw, while the pass reports two instances — OPEN
+### B190 — Viewmodels intermittently do not draw, while the pass reports two instances — FIXED as B222 (04e74f07 animation sections; owner confirmed on screen); the lone "drawing 1" reading was never explained (heading corrected 2026-09-29)
 
 **The owner, 2026-08-25:** *"the viewmodels are intermittently not drawing idk why though"*
 
@@ -12224,7 +12224,7 @@ Worth pairing with B184's observation that 115 of 119 files here need nothing fr
 that ran on the Linux measurement boxes could be given a memory ceiling and would fail loudly instead
 of at random.
 
-### B184 — 115 of 119 test files are pinned to Windows for no reason — OPEN
+### B184 — 115 of 119 test files are pinned to Windows for no reason — FIXED (428cadd3, 1e3cf8f7; only Fonts.Tests, Viewer3D.Tests and Viewer3D.UiTests stay on net10.0-windows; heading corrected 2026-09-29)
 
 **Filed 2026-08-24**, prompted by the owner:
 
@@ -12346,7 +12346,7 @@ which is deliberate — an assembly with no tests reports as a suite whose total
 (`net10.0`) needs it for the pose-pipeline denominator and cannot reference a Windows-only assembly.
 The remaining ~114 are a separate job; the count is recorded here so it is not rediscovered.
 
-### B183 — a merged item's own animation is computed and thrown away — OPEN
+### B183 — a merged item's own animation is computed and thrown away — FIXED (4c6e3a45 and after: `SkeletonPose.Build` poses unmatched bones from the item's own animation; heading corrected 2026-09-29)
 
 **Filed 2026-08-24, from finding 35 §2.** Two defects with one cause.
 
@@ -12974,6 +12974,9 @@ Filed here so nobody spends another session looking for a bug in the sound path.
 
 ### B170 — some viewmodels on modern demos are washed out — OPEN, narrowed to the lighting term 2026-08-27; the sun-gated phong residual FIXED 2026-09-29
 
+**Owner confirmed on screen, 2026-09-29** (f12, Beleleu first-person, tick 600, RED spawn, before/after crops of the
+launcher, a medic and a scout): *"looks good to me"*.
+
 The owner, 2026-08-23: *"some of the new demo viewmodels are not displaying right either, they are
 basically washed out, like the old demos weapon models that were drawing on top for that demo that
 was on the transition."*
@@ -13497,7 +13500,7 @@ and `ScenePropTrack`, which are a different Valve function (`AngleQuaternion`) a
 audited for duplication here. **`up` is not provided at all**, because nothing needed it — adding it
 later means adding the `roll` parameter the full formula requires, not amending these two.
 
-### B205 — The overhead camera survives D49 as a fallback nobody chose — OPEN, needs the owner
+### B205 — The overhead camera survives D49 as a fallback nobody chose — FIXED (050a6912, D98: the ortho camera is gone; heading corrected 2026-09-29)
 
 **Found while auditing the mouse wheel for B204, and deliberately not acted on.** This is a question
 about our own design intent, not a Valve divergence, so it is the owner's to settle.
@@ -14777,7 +14780,7 @@ still instant"*.
 scene to reset the flag, so the original symptom survives there. It is an error path that already
 reports "Textures unavailable", so it is visible rather than silent.
 
-### B220 — the trace prints `svc_setconvar` and never says which convars — OPEN
+### B220 — the trace prints `svc_setconvar` and never says which convars — FIXED (6a36232b; heading corrected 2026-09-29)
 
 Found while measuring D104's emulated-convar category, 2026-08-27.
 
@@ -14811,7 +14814,7 @@ and never reaching the output somebody reads. `docs/memory/output-level-assertio
 is the standing rule, and the assertion this needs is one that reads a traced line rather than one
 that checks the parser.
 
-### B221 — no entity can fade, because `m_clrRender` and `m_nRenderMode` are never decoded — OPEN, found while implementing D114
+### B221 — no entity can fade, because `m_clrRender` and `m_nRenderMode` are never decoded — FIXED (202c9c63: decoded, ComputeFxBlend transcribed; heading corrected 2026-09-29), found while implementing D114
 
 **Named rather than discovered.** Transcribing `C_BaseEntity::GetRenderGroup` for two-pass drawing
 made the missing inputs explicit: the engine's grouping reads `GetFxBlend()` and `m_nRenderMode`, and
@@ -27920,7 +27923,7 @@ count as first person, so the view stays in first person, in the wrong player's 
 `m_hObserverTarget` in-eye on a POV demo, as `C_BasePlayer::CalcInEyeCamView` does, and to read which
 viewmodel is drawn from the same answer.
 
-### B415 OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
+### B415 FIXED for the headline (built 2026-09-20→25: tracers, explosions, impacts, decals, blood, muzzle flashes, medigun beam; residuals listed in the entry; heading corrected 2026-09-29) — was OPEN 2026-09-20: every temp entity but one is decoded and then dropped — no tracers, impacts, explosions or decals
 
 **The owner, listing what he can see missing**: *"we still dont have the hitscan particle stuff either or explosion
 particles or decals when they hit, i think the medibeam is also not drawing, but that might be part of the hitscan bullet
@@ -28524,7 +28527,7 @@ actually executed: the content run above went from ~7 minutes to testing 6,376 m
 when it died. Every module's slot will need re-timing, and the booked cron spacing in
 `PokemonBattleJournal/build/measurement-schedule.md` was sized for culled runs.
 
-### B410 OPEN 2026-09-19: Stryker's Safe Mode drops ~300 whole methods from mutation testing
+### B410 FIXED 2026-09-20 (b1734834, c6bf17e3; recurs whenever new code adds a trigger shape, so the box's runs are the check; heading corrected 2026-09-29) — was OPEN 2026-09-19: Stryker's Safe Mode drops ~300 whole methods from mutation testing
 
 **Found auditing the mutation box at the owner's request.** Every scheduled module runs and finishes, but a mutation that
 leaves a local or struct field possibly unassigned fails to compile (CS0165 / CS0170 — e.g. `origin.Y` in
@@ -28699,7 +28702,7 @@ a divergence the code itself documented ("It goes away when the two queues becom
 *Evidence class: measured (trace of the hung process), read from the binary (the rebase), regression test with a control.*
 **Not established:** why no test or gate saw it — nothing in either plays a real demo; that check is the next gate addition.
 
-### B407 OPEN 2026-09-18: the viewer holds about 16 GB after a map loads
+### B407 FIXED (77daf5bf and after: f12 live heap 6.4 → 3.66 GB; B433/D199 took z1800's working set to 4.2 GB; the reload-after-failed-upload path is unexercised; heading corrected 2026-09-29) — was OPEN 2026-09-18: the viewer holds about 16 GB after a map loads
 
 Measured on `cp_process_f12` (26-minute demo): 2.5 GB after the 80 s timeline decode, then 9.7 and 16.5 GB within 18 seconds of
 the map load starting (`reading textures took 7.54s`, `loading entity models took 3.03s`), and still near 16 GB while playback
@@ -29538,7 +29541,7 @@ model the camera's sweep stops against at (−2858, −2195, 704) and look for i
 `map-collision` where the second route is the control. The engine's collision limit is
 read-from-source.*
 
-### B399 OPEN 2026-09-11: a paused viewer still draws `cl_interp` behind, where a paused client draws the last received position
+### B399 FIXED 2026-09-11 (c2c92e6c; the owner has not looked yet; heading corrected 2026-09-29) — was OPEN: a paused viewer still draws `cl_interp` behind, where a paused client draws the last received position
 
 **The engine stops interpolating while paused, and this is the whole chain.**
 `C_BaseEntity::InterpolateServerEntities` (`client/c_baseentity.cpp:3219`):
@@ -29637,7 +29640,7 @@ item 513, centered).
 *Evidence class: read from source (the SDK guard), measured (roster probe, `PlayersAt` entity 1 =
 team 1 class 0, entity 2 = red soldier with item 513), and looked at.*
 
-### B397 OPEN 2026-09-11: from Beleleu's camera, the soldier firing rocket 407 is drawn on a ledge where the real client shows him on the ground
+### B397 SUPERSEDED by B399 (the gap was the paused-sample delay; the owner has not compared; heading corrected 2026-09-29) — was OPEN 2026-09-11: from Beleleu's camera, the soldier firing rocket 407 is drawn on a ledge where the real client shows him on the ground
 
 **The owner, looking at the same rocket the reconfirmation above used**: neither the overhead nor the
 first-person capture look like the rocket comes from the right place — the visible soldier's rocket
@@ -30538,7 +30541,7 @@ on was a modern POV that is not yet identified — *"idk whos pov it was, maybe 
 *Evidence class: measured, both demos, same instrument. The causal link to B377 is read-from-source plus
 arithmetic; it has NOT been confirmed by watching.*
 
-### B378 OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+### B378 DRAWN (185c1199, fa04d312; residual: no fractional GPU occlusion, and models do not hide a glow; heading corrected 2026-09-29) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
 
 **Found by the `viewer-census` probe the owner asked for**, on its first run against a real match:
 
@@ -31245,7 +31248,7 @@ entries"*. The offsets fix satisfies both sentences; clearing satisfies neither,
 the engine's literal code. **Only one of the two should land** — they touch the same method and the
 same file.
 
-### B387 OPEN 2026-09-10: `--shot` had no test at all, and it has now broken silently twice
+### B387 FIXED (3bf86fd2 CaptureUiTests, 567e98a7 as B401; heading corrected 2026-09-29) — was OPEN 2026-09-10: `--shot` had no test at all, and it has now broken silently twice
 
 **`MainForm` has said so in a comment since B196**: *"Nothing failed. No test passes `--shot`, so the
 whole option was covered by nobody."* That was written after the line applying the option went
@@ -32353,7 +32356,7 @@ in B372 already proved would fail loudly if it were not.
 
 *Evidence class: measured (the probe's counts), confirmed by looking (the screenshot, this session).*
 
-### B395 OPEN 2026-09-11: a soldier corpse draws with no head
+### B395 FIXED for the mechanism (73b707db: a corpse carries the engine-computed bodygroups; the owner's screenshot was never tied to a tick, and a decapitated corpse is headless in TF2 too; heading corrected 2026-09-29) — was OPEN 2026-09-11: a soldier corpse draws with no head
 
 **Reported by the owner, F5 screenshot from the same f12 session**: a red soldier ragdoll with its
 torso and legs drawn, arm reaching down, and nothing where the head should be. Two captures a few
