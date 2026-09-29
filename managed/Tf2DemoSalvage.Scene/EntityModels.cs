@@ -5702,12 +5702,22 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // Measured at the prop's illumination point, which is where this loop already decided
             // the model IS — the same point the cubemap and the lighting use, so all three agree
             // about its position rather than each deriving one.
-            byte fade = ViewOrigin is { } eye
-                ? EntityFade.DistanceAlpha(
-                    prop.Pose.FadeMinimumDistance,
-                    prop.Pose.FadeMaximumDistance,
-                    EntityFade.Distance(eye, origin))
-                : (byte)255;
+            //
+            // **A static prop takes its own entry instead** (B430): `engine.dll` `FUN_180202c60` writes
+            // the prop's alpha from the entry `UnserializeModels` built, measured from its render
+            // origin — the placement, not the illumination point. The factor is 1 for the reason
+            // `EntityFade.DistanceAlpha` gives: no local player's zoom to look through.
+            byte fade = 255;
+
+            if (ViewOrigin is { } eye)
+            {
+                fade = prop.StaticFade is { } staticFade
+                    ? staticFade.Alpha((prop.Pose.X, prop.Pose.Y, prop.Pose.Z), eye, 1f)
+                    : EntityFade.DistanceAlpha(
+                        prop.Pose.FadeMinimumDistance,
+                        prop.Pose.FadeMaximumDistance,
+                        EntityFade.Distance(eye, origin));
+            }
 
             FxBlendResult fx = FxBlend.Compute(
                 prop.Pose.RenderFx,

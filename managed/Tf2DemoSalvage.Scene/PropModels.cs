@@ -214,7 +214,8 @@ public static class PropModels
                 Skin = placement.Skin,
             },
             ClassName: "prop_static",
-            LightingOrigin: placement.UsesLightingOrigin ? placement.LightingOrigin : null);
+            LightingOrigin: placement.UsesLightingOrigin ? placement.LightingOrigin : null,
+            StaticFade: StaticPropFade.For(placement.Flags, placement.FadeMinimum, placement.FadeMaximum));
 
     /// <summary>Hands one placement to the model draw, with its baked colours when it has them (B426).</summary>
     private static void StaticModelOf(

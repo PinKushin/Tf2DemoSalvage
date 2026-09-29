@@ -43,9 +43,12 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// here instead of at its illumination point when <see cref="UsesLightingOrigin"/> —
 /// <c>CStaticProp::Init</c>, `engine.dll` `0x1802052c0` (B427).
 /// </param>
+/// <param name="FadeMinimum"><c>m_FadeMinDist</c>, at 36 in every version (B430).</param>
+/// <param name="FadeMaximum"><c>m_FadeMaxDist</c>, at 40 in every version (B430).</param>
 public readonly record struct BspStaticProp(
     string Model, float X, float Y, float Z, float Pitch, float Yaw, float Roll, float Scale,
-    int Skin = 0, int Solid = 0, int Flags = 0, (float X, float Y, float Z) LightingOrigin = default)
+    int Skin = 0, int Solid = 0, int Flags = 0, (float X, float Y, float Z) LightingOrigin = default,
+    float FadeMinimum = 0f, float FadeMaximum = 0f)
 {
     /// <summary><c>STATIC_PROP_USE_LIGHTING_ORIGIN</c>, `public/gamebspfile.h:127`.</summary>
     public const int UseLightingOriginFlag = 0x2;
@@ -159,6 +162,12 @@ public static class BspStaticProps
 
     /// <summary><c>m_LightingOrigin</c>, after skin and the two fade distances, in every version (`gamebspfile.h:164,218`).</summary>
     internal const int LightingOriginOffset = 44;
+
+    /// <summary><c>m_FadeMinDist</c>, after <c>m_Skin</c>, in every version (`gamebspfile.h:162`).</summary>
+    internal const int FadeMinimumOffset = 36;
+
+    /// <summary><c>m_FadeMaxDist</c>, in every version (`gamebspfile.h:163`).</summary>
+    internal const int FadeMaximumOffset = 40;
 
     /// <summary><c>SOLID_NONE</c> — the one value that means the prop is not collided.</summary>
     /// <remarks>
@@ -296,7 +305,9 @@ public static class BspStaticProps
                 ReadFlags(prop, version, stride),
                 (BinaryPrimitives.ReadSingleLittleEndian(prop[LightingOriginOffset..]),
                  BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 4)..]),
-                 BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 8)..]))));
+                 BinaryPrimitives.ReadSingleLittleEndian(prop[(LightingOriginOffset + 8)..])),
+                BinaryPrimitives.ReadSingleLittleEndian(prop[FadeMinimumOffset..]),
+                BinaryPrimitives.ReadSingleLittleEndian(prop[FadeMaximumOffset..])));
         }
 
         return placements;

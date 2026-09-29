@@ -59,6 +59,23 @@ public sealed class BspStaticPropLayoutTests
         prop.UsesLightingOrigin.ShouldBeFalse("no flag was written");
     }
 
+    [TestCase(6, 64)]
+    [TestCase(10, 72)]
+    [TestCase(11, 76)]
+    public void ReadPayload_FadeDistances_AreTheFloatsAt36And40(int version, int stride)
+    {
+        byte[] record = new byte[stride];
+        BinaryPrimitives.WriteInt32LittleEndian(record.AsSpan(32), 3); // m_Skin, the neighbour below
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(36), 1200f);
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(40), 1500f);
+        BinaryPrimitives.WriteSingleLittleEndian(record.AsSpan(44), 9f); // m_LightingOrigin, above
+
+        BspStaticProp prop = BspStaticProps.ReadPayload(Payload(record), version).ShouldHaveSingleItem();
+
+        prop.FadeMinimum.ShouldBe(1200f);
+        prop.FadeMaximum.ShouldBe(1500f);
+    }
+
     /// <summary>One dictionary entry, no leaves, and the one placement.</summary>
     private static byte[] Payload(byte[] record)
     {

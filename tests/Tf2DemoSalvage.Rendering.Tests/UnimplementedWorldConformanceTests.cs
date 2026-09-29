@@ -38,20 +38,8 @@ public sealed class UnimplementedWorldConformanceTests
         }
     }
 
-    [Test]
-    public void World_AStaticProp_FadesOutBetweenTwoDistances()
-    {
-        // **The most visible of the unread prop fields.** m_FadeMinDist and m_FadeMaxDist are at
-        // offsets 36 and 40 in every declared version, and V5 onward adds m_flForcedFadeScale at 56.
-        // The game fades a prop out between those distances and stops drawing it past the far one.
-        //
-        // This viewer draws every prop at every distance, which is not merely a cost: the map author
-        // chose those distances because the prop looks wrong far away, and detail clutter meant to
-        // vanish stays visible through the whole level.
-        RequireStaticPropField("Fade");
-
-        Assert.Fail("unreachable once implemented; see RequireStaticPropField");
-    }
+    // The static prop distance fade was specified here until B430 built it; its conformance now lives
+    // in `StaticPropFadeConformanceTests` (Scene.Tests).
 
     [Test]
     public void World_AStaticProp_CanBeExcludedByDetailLevel()
