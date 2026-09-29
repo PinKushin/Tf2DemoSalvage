@@ -7924,8 +7924,8 @@ placed position and normal, `AngleMatrix` with no scale, then `lineartovertex` f
 
 **Built:** `StaticPropVertexLighting` (the conversion and the flag gate), `LevelLighting.StaticPropLightingAt` (the
 handle's static state), `ModelFrames.StudioFlags`, and `EntityModelSet.StaticPropLighting` (set by `MomentScene.Lighting`),
-which builds the colours at a prop's first draw and draws them as `BakedColours` — so B424's animated-style fallback
-applies to them too. Tests: `StaticPropVertexLightingConformanceTests`, `MomentSceneTests.Pose_AnUnbakedStaticPropUnderALamp_…`
+which builds the colours at a prop's first draw and draws them as `BakedColours` — so B424's static-plus-dynamic
+lighting (styled and dynamic lights added on top, corrected 2026-09-29) applies to them too. Tests: `StaticPropVertexLightingConformanceTests`, `MomentSceneTests.Pose_AnUnbakedStaticPropUnderALamp_…`
 and `…_AStyledLampSwitchedBesideACpuLitProp_…`, and on `koth_harvest_final`
 `StaticPropModelsWiringTests.Instances_KothHarvestUnbakedPlacements_…` (8 of 8 unbaked placements compiled static, all
 drawn with a colour mesh).
@@ -7972,14 +7972,14 @@ through V6 and a `uint` at 64 from version 10 (`StaticPropLump_t`, where 31 is p
 
 **Built:** `BspStaticProp.Flags` and `.LightingOrigin`; `PropModels.StaticModel` puts the lump point on
 `SceneProp.LightingOrigin` when flagged, and `EntityModelSet`'s illumination point returns it first, so the cube,
-sun, lamps and reflection origin all sample there. It only changes unbaked props (and a B424 fallback): a baked
-prop draws its `.vhv` colours with no per-draw lighting. Tests: `BspStaticPropLayoutTests` (V6, V10, V11 hand-built
+sun, lamps and reflection origin all sample there. It only changes unbaked props (and where a baked one's styled
+and dynamic lights are ranked, B424): a baked prop draws its `.vhv` colours with no cube, sun or style-0 lamp. Tests: `BspStaticPropLayoutTests` (V6, V10, V11 hand-built
 records with a decoy in the other version's flag slot), `MomentSceneTests.Pose_AStaticPropWithALightingOriginUnderALamp_…`,
 and `StaticPropModelsWiringTests.Load_KothHarvest_…` (the three flagged placements carry their lump point).
 
 ---
 
-### B425 — dynamic lights (`cl_dlights`) — models FIXED 2026-09-29; world lightmaps, static-prop bit and three allocators OPEN
+### B425 — dynamic lights (`cl_dlights`) — models and static-prop bit FIXED 2026-09-29; world lightmaps and three allocators OPEN
 
 **The premise was wrong.** In TF2, explosions, muzzle flashes and burning players allocate no light at all. The
 explosion light is `//FIXME`d out of `C_BaseExplosionEffect::Create`, TF2 overrides every muzzle-flash elight, and
@@ -7997,11 +7997,13 @@ driven) are in `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
 
 **Open.**
 - **World lightmaps:** `R_AddDynamicLights`, and `0x1801b7dd0`'s hand-off of every active light to the material system.
-- **The static-prop bit (`FUN_1801b5260`, `+0x1a4`) — ambiguous, not built.** In `0x1800f1bd0` the bit sends a baked
-  prop to full lighting only when hardware-config slot `0x150` answers false. B429 names that slot
-  `SupportsStaticPlusDynamicLighting` and calls it true on DX9. On the true branch the colour mesh is kept and
-  `FUN_1801ba590(handle, 6 + bit)` supplies styled and dynamic lighting on top. If B429 is right, B424's
-  `BakedFallsBack` sits on the branch TF2 does not take. Settle slot `0x150` first.
+- ~~**The static-prop bit (`FUN_1801b5260`, `+0x1a4`) — ambiguous, not built.**~~ **Built 2026-09-29 (B424's
+  correction).** On DX9 (slot `0x150` true) the colour mesh is kept and `FUN_1801ba590(handle, 6 + bit)` adds the
+  handle's styled lights and every live dlight whose bit is set; `LevelLighting.StaticPlusDynamicLights` ranks
+  `DynamicLights.LightsModels` dlights in the prop's PVS. *Interpolated:* the `0xe` flag test, from `0x1801b7a10`,
+  since the enumerator calling `FUN_1801b5260` (vtable `0x1803adb80`) has no readable cross-reference. Tests:
+  `StaticPlusDynamicLightingConformanceTests.StaticPlusDynamicLights_ADlight…`,
+  `MomentSceneTests.Pose_ABakedStaticPropUnderTheRecordersFireball_…`.
 - **Allocators:** `light_dynamic` (`C_DynamicLight`, needs `DT_DynamicLight` decoded), `EF_BRIGHTLIGHT`/`EF_DIMLIGHT`
   (`CreateLightEffects`, a random radius each frame) and `CTEDynamicLight`. None appears in any demo measured.
 - **Two approximations, both in the code:** v19 maps take a 20/256 floor, and the port's vrad all-zero rule would
@@ -8009,7 +8011,29 @@ driven) are in `docs/findings/66-tf2-barely-uses-dynamic-lights.md`.
 
 ---
 
-### B424 — a baked static prop ignores light styles — animated-style fallback FIXED, one-frame rebake open 2026-09-28
+### B424 — a baked static prop ignores light styles — FIXED 2026-09-29 (static plus dynamic; the 2026-09-28 fallback was the wrong branch)
+
+**Corrected 2026-09-29 — the fallback below is the NON-DX9 branch.** Everything from "a prop with baked colours" to
+"Built, the animated-style fallback" describes what `0x1800f1bd0` does when hardware config `+0x150`
+(`SupportsStaticPlusDynamicLighting`) answers FALSE. On DX9 it answers true: the colour mesh is KEPT and the draw's
+lighting state is `FUN_1801ba590(handle, …, 6 + (+0x1a4 != 0))` — no static state (bit 1 absent), the handle's styled
+lights at their current values (bit 4, `FUN_1801b5400`), and live marked dlights (bit 2, `FUN_1801b6550`), ranked into
+four local lights. The shader ADDS them to the colours (`PixelShaderDoLightingLinear`,
+`common_vertexlitgeneric_dx9.h:268-315`). So a styled light counts whether it animates or not. The account, and the
+wrong turn: `docs/findings/67-a-baked-prop-adds-its-lights.md`.
+
+**Built, replacing the fallback:** `LevelLighting.StaticPlusDynamicLights` (the styled list built once per entity by
+`StyledLights`, at `StyleScale`, plus `DynamicLights.LightsModels` dlights in PVS); `EntityModelSet.StaticPlusDynamicLights`
+(set by `MomentScene.Lighting`) keeps `BakedColours` and draws a zero cube (`LevelLighting.NoStaticState`) with those
+lights; `WorldRenderer.SetModel(staticLight)` sets `ambientCube[1].w`, and the model shader adds the colour term
+(`light · baked`, as the colours-only draw already lit it) to the cube and lamps. Deleted: `TakesFullLighting`,
+`StyleAnimates`, `BakedFallsBack`, `LightStyleValues.PatternLength`/`Animates`, and the tests that asserted the dropped
+colours — they described behaviour TF2 on DX9 never shows. Tests: `StaticPlusDynamicLightingConformanceTests`,
+`MomentSceneTests.Pose_ABakedStaticPropBesideAStyledLamp_KeepsItsColoursAndTakesTheLitLamp` and
+`…UnderTheRecordersFireball_…`, `BakedColourStreamRenderTests.DrawModelPose_ColoursWithALamp_AddTheLampToTheColours`, and
+on `koth_dryfield` `StaticPropModelsWiringTests.Instances_KothDryfieldWithStyleOne_KeepBakedColoursAndCarryTheLampWhileItIsLit`.
+**Open, named:** the colour term takes no `GammaToLinear` (B426's `FromVertexByte`, unchanged); an evicted light is
+dropped, not folded into the cube; one ranking without the dlight's eviction precedence.
 
 **Read from `engine.dll`, the model draw `0x1800f1bd0` with a static prop's lighting handle** (`param_4`): a prop with baked
 colours (`*param_7`) is drawn with **no cube and no local lights** — which the port already does — except that
@@ -8080,7 +8104,8 @@ into `MapAssets.StaticModelColours`, keyed by entity index; `LevelSystems` hands
 material) and puts them on `ModelInstance.BakedColours` with **no cube, no sun and no local lights** — `engine.dll`
 `0x1800f1bd0` with a colour mesh. The renderer binds them as a second vertex stream (slot 1, `TEXCOORD11`,
 multiplied into the vertex colour); every other draw binds one white element at stride zero. **`BakedColours`
-null is the B424 switch**: a prop whose colours are dropped for a frame draws with full lighting. The world
+null was the B424 switch** (a prop whose colours were dropped for a frame drew with full lighting — the non-DX9
+branch, replaced 2026-09-29 by adding the lights to the colours). The world
 batches hold no prop. Found on the way: the model draw finds geometry only in `MapAssets.EntityModels`, which held
 only what the demo precaches, so a static prop whose model the demo never named drew nothing — the prop loader's
 models now join it at level load, as the engine loads them. Tests: `MomentSceneTests.Pose_ABakedStaticPropBesideALamp_…`,

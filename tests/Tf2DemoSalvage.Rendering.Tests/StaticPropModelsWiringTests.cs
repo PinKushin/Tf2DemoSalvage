@@ -60,15 +60,16 @@ public sealed class StaticPropModelsWiringTests
     }
 
     /// <remarks>
-    /// **B424, on a real map.** `FUN_1801bb830` (`engine.dll`) drops a baked prop's colours for full lighting in a frame
-    /// where a light in its handle's list (`FUN_1801b6bf0`) has an animated style, `DAT_18069dd40[style] &gt; 1`. Measured
-    /// 2026-09-28 (`styledprops`): no gcor map carries a styled world light; `koth_dryfield` carries one light on style 1,
-    /// `world.cpp`'s FLICKER, reaching 56 placements. So with style 1 flickering some baked placements must reach the draw
-    /// without colours and lit, and with style 1 a single letter none may.
+    /// **B424 corrected, on a real map.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150` true) a baked
+    /// prop keeps its colours and takes `FUN_1801ba590(handle, 6)`: its handle's styled lights (`FUN_1801b6bf0`) at their
+    /// current values. Measured 2026-09-28 (`styledprops`): `koth_dryfield` carries one light on style 1, `world.cpp`'s
+    /// FLICKER, reaching 56 placements. So with style 1 at 'n' some baked placements must reach the draw WITH their colours
+    /// and a local light, and with style 1 at 'a' (value 0) none may carry one. The first version asserted the colours
+    /// dropped — the non-DX9 branch.
     /// </remarks>
-    [TestCase("mmnmmommommnonmmonqnmmo", true)]
-    [TestCase("m", false)]
-    public void Instances_KothDryfieldWithStyleOne_DropsBakedColoursOnlyWhileItFlickers(string pattern, bool flickers)
+    [TestCase("n", true)]
+    [TestCase("a", false)]
+    public void Instances_KothDryfieldWithStyleOne_KeepBakedColoursAndCarryTheLampWhileItIsLit(string pattern, bool on)
     {
         const string Map = "koth_dryfield";
         MapAssets assets = MapCache.With(mapName: Map).Assets;
@@ -76,13 +77,14 @@ public sealed class StaticPropModelsWiringTests
 
         LightStyleValues values = new();
         values.Set(1, pattern);
-        lighting.StyleAnimates = values.Animates;
+        values.Advance(0d);
+        lighting.StyleScale = values.Scale;
 
         EntityModelSet models = new()
         {
             Geometry = assets.Geometry,
             StaticPropColours = assets.StaticModelColours,
-            BakedFallsBack = lighting.TakesFullLighting,
+            StaticPlusDynamicLights = lighting.StaticPlusDynamicLights,
         };
 
         models.Add(assets.StaticModels);
@@ -90,17 +92,19 @@ public sealed class StaticPropModelsWiringTests
         List<ModelInstance> drawn = [];
         models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
 
-        List<ModelInstance> dropped =
-            [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex) && instance.BakedColours is null)];
+        List<ModelInstance> baked = [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
+        baked.Count(instance => instance.BakedColours is null).ShouldBe(0, "DX9 never drops the colour mesh");
 
-        if (flickers)
+        List<ModelInstance> lit = [.. baked.Where(instance => instance.Locals is { Count: > 0 })];
+
+        if (on)
         {
-            dropped.Count.ShouldBeInRange(1, 56);
-            dropped.ShouldAllBe(instance => instance.Light != null, "a dropped placement takes its handle's cube");
+            lit.Count.ShouldBeInRange(1, 56);
+            lit.ShouldAllBe(instance => instance.Light == LevelLighting.NoStaticState, "flags 6 hold no static state");
         }
         else
         {
-            dropped.ShouldBeEmpty();
+            lit.ShouldBeEmpty();
         }
     }
 

@@ -300,6 +300,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// Clear depth first; false draws over a <see cref="DrawWorld"/> just made, as a static prop is drawn after
     /// the world and its overlays (B135, B426).
     /// </param>
+    /// <param name="locals">The lamps lighting the model, or null (B424's static-plus-dynamic test).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -325,7 +326,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         string? overrideMaterial = null,
         float[]? bakedColours = null,
         bool surfaceColours = false,
-        bool clearDepth = true)
+        bool clearDepth = true,
+        IReadOnlyList<LocalLight>? locals = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -387,7 +389,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
-            origin: origin, overrideMaterial: overrideMaterial, bakedColours: bakedColours);
+            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours);
     }
 
     /// <summary>

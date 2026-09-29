@@ -211,7 +211,7 @@ public sealed class MomentScene : IGameSystemPerFrame
 
             field = value;
             value.Dynamic = _dynamic;
-            _models.BakedFallsBack = value.TakesFullLighting;
+            _models.StaticPlusDynamicLights = value.StaticPlusDynamicLights;
             _models.StaticPropLighting = value.StaticPropLightingAt;
         }
     } = LevelLighting.Unlit(NullLogger.Instance);

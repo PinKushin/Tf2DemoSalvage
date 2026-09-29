@@ -212,6 +212,10 @@ in any public writeup found:
   light is commented out in the SDK and TF2 overrides every muzzle-flash elight away. The one allocator a match
   reaches is the recorder's own Dragon's Fury fireball, and 19 demos drove none
   ([66](66-tf2-barely-uses-dynamic-lights.md)).
+- **A baked static prop keeps its colours under a changing light; the light is added on top.** The first port
+  dropped the colours for full lighting whenever a nearby style animated — a branch of the model draw that only
+  non-DX9 hardware takes. On DX9 the colours stay and the handle's styled and dynamic lights are summed onto them in
+  the shader ([67](67-a-baked-prop-adds-its-lights.md)).
 
 ## Conventions used throughout
 

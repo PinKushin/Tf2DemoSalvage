@@ -143,6 +143,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // TF2 looks like, and a smoother result here would be this renderer diverging from the
             // game it is reproducing.
             float4 lampAtten : TEXCOORD10;
+
+            // **The colour mesh, kept apart from the vertex colour** (B424): it multiplies the light where no cube is
+            // supplied, and is ADDED to the cube and lamps in the static-plus-dynamic mode (ambientCube[1].w).
+            float3 baked : TEXCOORD7;
         };
 
         cbuffer Camera : register(b0)
@@ -713,7 +717,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             output.uv2 = float2(dot(coordinate, secondTransform0), dot(coordinate, secondTransform1));
             output.luv = input.luv;
             output.a = input.a;
-            output.vc = input.vc * input.baked;
+            output.vc = input.vc;
+            output.baked = input.baked;
 
             // The normal is in the model's own space, so it turns with the model. Rotation only:
             // the translation would move a direction, and the scale cancels once it is normalised.
@@ -1031,6 +1036,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // ambientCube[0].w says whether a cube was supplied. Without one the model keeps its
             // full brightness rather than going black, because a model lit by a cube nobody
             // measured is worse than a model that is merely too bright.
+            // **The colour mesh's own term, as this pipeline has always lit it**: the white texel's light times the
+            // colours. Where no cube is supplied it is the whole light; in the static-plus-dynamic mode it is ADDED
+            // (below), `PixelShaderDoLightingLinear`'s first `+=` (common_vertexlitgeneric_dx9.h:268-274).
+            float3 staticTerm = light * input.baked;
+            bool staticPlusDynamic = ambientCube[1].w > 0.5f;
+
             if (ambientCube[0].w > 0.5f)
             {
                 float3 nSquared = input.nrm * input.nrm;
@@ -1134,6 +1145,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
                         }
                     }
                 }
+
+                // Static plus dynamic: the colours, then the cube, then each lamp, all summed.
+                if (staticPlusDynamic)
+                {
+                    light += staticTerm;
+                }
+            }
+            else
+            {
+                light = staticTerm;
             }
 
             // **mat_fullbright, and it is a texture SUBSTITUTION in the engine rather than a
@@ -3858,6 +3879,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// The direct lights near this model, at most four. Null or empty where none reach it, which
     /// the shader reads as "no lamp" rather than as a black one at the origin.
     /// </param>
+    /// <param name="staticLight">A colour mesh is bound and is ADDED to the cube and lamps (B424); needs a cube.</param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **Valve's arrangement, and the reason it matters here.**
@@ -3877,7 +3899,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         SunLight? sun = null,
         float blend = 0f,
         int bones = 0,
-        IReadOnlyList<LocalLight>? locals = null)
+        IReadOnlyList<LocalLight>? locals = null,
+        bool staticLight = false)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -3915,6 +3938,10 @@ internal sealed unsafe class WorldRenderer : IDisposable
             WriteFace(contents, 36, cube.NegativeZ);
 
             contents[19] = 1f;
+
+            // ambientCube[1].w: the colour mesh is ADDED to the cube and lamps — the studio render's static-plus-dynamic
+            // mode, `param_8 + 0x40` in `engine.dll` `0x1800f1bd0` (B424).
+            contents[23] = staticLight ? 1f : 0f;
         }
 
         // The sun follows the cube: colour and "is it reaching this model", then the direction it
@@ -6231,7 +6258,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </param>
     /// <param name="bakedColours">
     /// A baked static prop's colour mesh in the model buffer's order, or null (B426). Bound as a second
-    /// stream and multiplied into the vertex colour; the caller passes no cube and no lamps with it.
+    /// stream. With no cube it is the light; with one (zero, B424) the shader ADDS it to the cube and the lamps.
     /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -6311,7 +6338,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // unbound again at the end so no later draw reads it.
         BindColours(context, bakedColours);
 
-        SetModel(context, matrix, light, sun, blend, bones, locals);
+        SetModel(context, matrix, light, sun, blend, bones, locals, staticLight: bakedColours is not null);
 
         // **Which of the map's cubemaps this model reflects, chosen once for the whole model.** A
         // model's material says the literal `env_cubemap`, which VertexLitGeneric keeps to runtime

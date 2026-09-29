@@ -48,7 +48,8 @@ Evidence class: **disassembly**. `dlight_t` itself is published (`public/dlight.
   **but only on the branch where the hardware-config slot `0x150` answers false.** When it answers true, the draw
   keeps the colour mesh and asks `FUN_1801ba590(handle, 6 + bit)`. B429 records slot `0x150` as
   `SupportsStaticPlusDynamicLighting` and says it is true on every DX9 part. If so, both B424's fallback and this
-  one sit on the branch TF2 does not take. **Open question, recorded in B425. Not built.**
+  one sit on the branch TF2 does not take. **Open question, recorded in B425. Not built.** *Settled 2026-09-29:*
+  they do; the DX9 path is built, [67](67-a-baked-prop-adds-its-lights.md).
 
 ## Who allocates, read from the SDK
 
