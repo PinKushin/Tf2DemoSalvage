@@ -208,12 +208,65 @@ public sealed class ScenePassOrderConformanceTests
         steps.ShouldBe(
         [
             new InterleaveStep(InterleaveKind.World, 2),
+            new InterleaveStep(InterleaveKind.DetailFast, 2),
             new InterleaveStep(InterleaveKind.Detail, 2),
             new InterleaveStep(InterleaveKind.World, 1),
             new InterleaveStep(InterleaveKind.DetailBeyond, 0),
             new InterleaveStep(InterleaveKind.Entity, 0),
+            new InterleaveStep(InterleaveKind.DetailFast, 1),
             new InterleaveStep(InterleaveKind.Detail, 1),
             new InterleaveStep(InterleaveKind.World, 0),
+            new InterleaveStep(InterleaveKind.DetailFast, 0),
+            new InterleaveStep(InterleaveKind.Detail, 0),
+        ]);
+    }
+
+    /// <remarks>
+    /// **The fast sprite lane** (B435). <c>cl_fastdetailsprites</c> defaults to "1" (<c>detailobjectsystem.cpp:1642</c>);
+    /// <c>DetailObjectIsFastSprite</c> (<c>:1644</c>) reads the light-style count, orientation 2, type, shape and sway.
+    /// A flush draws every queued leaf's fast sprites (<c>RenderFastSprites</c>, <c>:2404</c>) before any ordinary
+    /// one; an in-leaf draw takes the fast lane first (<c>:2637</c>); the queue is flushed only before a leaf with
+    /// translucent surfaces (<c>viewrender.cpp:4306-4310</c>). Ours: three grass leaves, glass in none, flushed at the end
+    /// (<c>:4698</c>) as one: every fast lane, then every ordinary lane, farthest leaf first.
+    /// </remarks>
+    [Test]
+    public void DrawTranslucentRenderables_FastDetailSprites_DrawBeforeTheOrdinaryOnesAcrossAFlush()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore(SourceSdk.Missing);
+            return;
+        }
+
+        string view = SourceSdk.Text("src/game/client/viewrender.cpp")
+            ?? throw new InvalidOperationException("viewrender.cpp is missing from the SDK");
+        string detail = SourceSdk.Text("src/game/client/detailobjectsystem.cpp")
+            ?? throw new InvalidOperationException("detailobjectsystem.cpp is missing from the SDK");
+
+        detail.ShouldContain("ConVar cl_fastdetailsprites( \"cl_fastdetailsprites\", \"1\", FCVAR_CHEAT");
+        detail.ShouldContain("( lump.m_LightStyleCount == 0 ) &&");
+        detail.ShouldContain("( lump.m_Orientation == 2 ) &&");
+        Regex.IsMatch(
+            detail,
+            @"// Here, we must draw all detail objects back-to-front\s*RenderFastSprites\(")
+            .ShouldBeTrue("RenderTranslucentDetailObjects no longer draws the fast lane first");
+        Regex.IsMatch(
+            detail,
+            @"RenderFastTranslucentDetailObjectsInLeaf\( viewOrigin, viewForward, viewRight, viewUp, nLeaf, pVecClosestPoint \);\s*// We may have already sorted this leaf")
+            .ShouldBeTrue("RenderTranslucentDetailObjectsInLeaf no longer draws the fast lane first");
+        view.ShouldContain("if ( render->LeafContainsTranslucentSurfaces( m_pWorldRenderList, nActualLeafIndex, nEngineDrawFlags ) )");
+
+        List<InterleaveStep> steps = [];
+
+        TranslucentInterleave.Plan(3, [], static _ => true, static _ => false, steps);
+
+        steps.ShouldBe(
+        [
+            new InterleaveStep(InterleaveKind.DetailFast, 2),
+            new InterleaveStep(InterleaveKind.DetailFast, 1),
+            new InterleaveStep(InterleaveKind.DetailFast, 0),
+            new InterleaveStep(InterleaveKind.Detail, 2),
+            new InterleaveStep(InterleaveKind.Detail, 1),
             new InterleaveStep(InterleaveKind.Detail, 0),
         ]);
     }

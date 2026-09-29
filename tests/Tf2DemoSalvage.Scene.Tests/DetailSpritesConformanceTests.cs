@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
@@ -158,7 +159,8 @@ public sealed class DetailSpritesConformanceTests
             [Sprite()],
             (500f, 0f, 900f),
             Near,
-            world);
+            world,
+            fastSprites: false);
 
         ShouldBeAt(world[0], (0f, 8f, 0f));
         ShouldBeAt(world[2], (0f, -8f, 16f));
@@ -179,7 +181,8 @@ public sealed class DetailSpritesConformanceTests
             [Sprite()],
             (0f, 500f, 0f),
             Near,
-            world);
+            world,
+            fastSprites: false);
 
         // Yaw 90: right = (1, 0, 0), up = (0, 0, 1). The first corner is at -8 along right.
         ShouldBeAt(world[0], (-8f, 0f, 0f));
@@ -478,6 +481,285 @@ public sealed class DetailSpritesConformanceTests
         // `_harvest`, `_granary`, `_trainyard`, `_2fort`, `_sawmill`, `_dustbowl`, `_viaduct_event`.
         DetailSprites.ScaleForSheet([Sprite()], 1f)[0].ShouldBe(Sprite());
     }
+
+    /// <remarks>
+    /// **`DetailObjectIsFastSprite`, `detailobjectsystem.cpp:1644`**: <c>cl_fastdetailsprites</c> (default "1",
+    /// <c>:1642</c>) and a SPRITE with no light style, orientation 2, and zero shape angle, shape size and sway.
+    /// Each row breaks exactly one clause; the first row is the control that qualifies.
+    /// </remarks>
+    [TestCase(DetailPropType.Sprite, 0, 2, 0, 0, 0, true, true)]
+    [TestCase(DetailPropType.Sprite, 0, 2, 0, 0, 0, false, false)]
+    [TestCase(DetailPropType.Model, 0, 2, 0, 0, 0, true, false)]
+    [TestCase(DetailPropType.ShapeCross, 0, 2, 0, 0, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 1, 2, 0, 0, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 0, 1, 0, 0, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 0, 0, 0, 0, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 0, 2, 1, 0, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 0, 2, 0, 1, 0, true, false)]
+    [TestCase(DetailPropType.Sprite, 0, 2, 0, 0, 1, true, false)]
+    public void IsFast_EachClauseOfDetailObjectIsFastSprite_DecidesTheLane(
+        DetailPropType type, int styles, int orientation, int shapeAngle, int shapeSize, int sway, bool enabled,
+        bool expected)
+    {
+        BspDetailProp prop = new(
+            default, default, 0, 0, type, orientation, (byte)sway, (byte)shapeAngle, (byte)shapeSize, 1f,
+            LightStyleCount: (byte)styles);
+
+        DetailSprites.IsFast(prop, enabled).ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The fast quad, `UnserializeFastSprite` (`:1917`) and `BuildOutSortedSprites` (`:2131`), worked by hand.**
+    /// An asymmetric rectangle (-4..12 wide, 0..16 tall) is what separates it from the ordinary quad.
+    ///
+    /// The anchor is `GetSpriteMiddleBottomPosition` (`:1885`), built from a FIXED direction (0, -100, 0): yaw 270,
+    /// so right = (-1, 0, 0) and up = (0, 0, 1). From origin (100, 0, 0): `+ ul.x*dx` = (104, 0, 0), `+ ul.y*dy`
+    /// adds 0, then `+ dy*16 + 0.5*dx*16` = (96, 0, 16). Half width 0.5*16 = 8, height 16 (`:1927-1928`).
+    ///
+    /// Per view (`:2160-2194`), eye (0, 0, 16): ofs = (96, 0, 0), dx1 = (-ofs.y, ofs.x, 0) normalised = (0, 1, 0).
+    /// c0 = P + 8*dx1 = (96, 8, 16); c1 = c0 - 16*up = (96, 8, 0); c2 = c1 - 16*dx1 = (96, -8, 0); c3 = (96, -8, 16).
+    /// Unflipped reads the FLIPPED dictionary (`:1929-1932`), TexUL.x and TexLR.x swapped, so the effective
+    /// TexUL.x is 0.5 and TexLR.x is 0; the UVs are (LR.x, LR.y), (LR.x, UL.y), (UL.x, UL.y), (UL.x, LR.y)
+    /// (`:2600-2617`). The ordinary quad for the same prop starts at (100, -4, 0), so it cannot pass this.
+    /// </remarks>
+    [Test]
+    public void Build_AFastSprite_BuildsTheQuadAboutItsMiddleBottomAnchor()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Frame frame = DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (100f, 0f, 0f), lighting: (255f, 127.5f, 0f))],
+            [new BspDetailSprite((-4f, 0f), (12f, 16f), (0f, 0f), (0.5f, 0.25f))],
+            (0f, 0f, 16f),
+            Near,
+            world);
+
+        frame.Fast.ShouldBe(1);
+        world.Count.ShouldBe(6);
+
+        ShouldBeAt(world[0], (96f, 8f, 16f));
+        ShouldBeAt(world[1], (96f, 8f, 0f));
+        ShouldBeAt(world[2], (96f, -8f, 0f));
+        ShouldBeAt(world[5], (96f, -8f, 16f));
+        ShouldBeAt(world[3], (96f, 8f, 16f));
+        ShouldBeAt(world[4], (96f, -8f, 0f));
+
+        (world[0].U, world[0].V).ShouldBe((0f, 0.25f));
+        (world[1].U, world[1].V).ShouldBe((0f, 0f));
+        (world[2].U, world[2].V).ShouldBe((0.5f, 0f));
+        (world[5].U, world[5].V).ShouldBe((0.5f, 0.25f));
+
+        // Colour as `UnserializeFastSprite` packs it (`:1934-1944`): the same TexLightToLinear the ordinary path reads.
+        foreach (DetailSpriteVertex corner in world)
+        {
+            (corner.Red, corner.Green, corner.Blue, corner.Alpha).ShouldBe((1f, 0.5f, 0f, 1f));
+        }
+    }
+
+    /// <remarks>
+    /// **The fast alpha is measured from the ANCHOR and ROUNDED** (`:2180-2184`): `1 - clamp((d² - fade²) /
+    /// (max² - fade²))`, times 255, plus the 2^23 magic number, whose low mantissa byte is the round-to-nearest
+    /// integer. Default fade: max² 1,440,000, fade² 640,000. Origin (1060, 16, -8) puts the anchor 16 above, at
+    /// (1060, 16, 8): d² = 1,123,920, so 255 * (1 - 483,920 / 800,000) = 100.75 — 101 here, where the ordinary
+    /// truncation (`EnumerateLeaf`, `:2767`) would give 100, and from the origin a different distance again.
+    /// </remarks>
+    [Test]
+    public void Build_AFastSpriteInTheFadeBand_RoundsItsAlphaFromTheAnchor()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (1060f, 16f, -8f))],
+            [Sprite()],
+            Eye,
+            DetailFade.For(distance: 1200f, fade: 400f),
+            world);
+
+        foreach (DetailSpriteVertex corner in world)
+        {
+            corner.Alpha.ShouldBe(101f / 255f);
+        }
+    }
+
+    /// <remarks>
+    /// **A flush draws a leaf's fast sprites BEFORE its ordinary ones**: `RenderTranslucentDetailObjectsInLeaf`
+    /// calls `RenderFastTranslucentDetailObjectsInLeaf` first (`:2637`), each lane with its own sort and cursor
+    /// (`m_nStartSpriteIndex`, `:2623`; `m_nFirstSprite`, `:2729`), and `RenderTranslucentDetailObjects` calls
+    /// `RenderFastSprites` first (`:2404`). The fast sprite here is the NEARER, so a single farthest-first sort
+    /// would put it last.
+    /// </remarks>
+    [Test]
+    public void Build_AFastAndAnOrdinarySpriteInOneLeaf_EmitsTheFastLaneFirst()
+    {
+        List<DetailSpriteVertex> world = [];
+        DetailSpriteLeaves leaves = new();
+
+        DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), origin: (900f, 0f, 0f), leaf: 4),
+             Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (300f, 0f, 0f), leaf: 4)],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            leaves);
+
+        leaves.Begin();
+
+        world[0].X.ShouldBe(300f, Tolerance);
+        world[6].X.ShouldBe(900f, Tolerance);
+        leaves.Take(4, null, fast: true).ShouldBe((0, 1));
+        leaves.Take(4, null, fast: false).ShouldBe((1, 1));
+        leaves.Take(4, null, fast: true).ShouldBe((1, 0));
+    }
+
+    /// <remarks>
+    /// **The two lanes' cursors are separate**: an entity split takes each lane's sprites at least as far as the
+    /// entity (`:2561` for the fast lane, `:2708` for the ordinary), and neither lane's take moves the other.
+    /// </remarks>
+    [Test]
+    public void Take_AroundAnEntity_SplitsEachLaneByItsOwnCursor()
+    {
+        List<DetailSpriteVertex> world = [];
+        DetailSpriteLeaves leaves = new();
+
+        DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), origin: (900f, 0f, 0f)),
+             Prop(angles: (0f, 0f, 0f), origin: (200f, 0f, 0f)),
+             Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (800f, 0f, -16f)),
+             Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (100f, 0f, -16f))],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            leaves);
+
+        leaves.Begin();
+
+        leaves.Take(0, 500f * 500f, fast: true).ShouldBe((0, 1));
+        leaves.Take(0, 500f * 500f, fast: false).ShouldBe((2, 1));
+        leaves.Take(0, null, fast: true).ShouldBe((1, 1));
+        leaves.Take(0, null, fast: false).ShouldBe((3, 1));
+    }
+
+    /// <remarks>
+    /// **The fast lane culls in groups of four behind the eye plane** (`:2160-2165`): `TestSignSIMD( OrSIMD(
+    /// ofsDotFwd, CmpGtSIMD( distanceSquared, maxsqdist ) ) )` skips a group only when all four lanes are behind
+    /// or too far. The groups are the leaf's fast sprites in lump order, four at a time (`:1806-1822`). Five
+    /// sprites behind, behind, behind, behind, in front: the first group goes, the second stays.
+    /// </remarks>
+    [Test]
+    public void Build_AGroupOfFourFastSpritesAllBehindTheEye_IsCulledAndTheNextGroupIsNot()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Frame frame = DetailSprites.Build(
+            [Fast(-100f), Fast(-200f), Fast(-300f), Fast(-400f), Fast(100f)],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            forward: (1f, 0f, 0f));
+
+        frame.Built.ShouldBe(1);
+        world[0].X.ShouldBe(100f, Tolerance);
+    }
+
+    /// <remarks>
+    /// **One lane in front keeps the whole group**, the three behind it included: the mask is 0xf only when all
+    /// four are culled. This is the case a per-sprite cull gets wrong.
+    /// </remarks>
+    [Test]
+    public void Build_AGroupWithOneFastSpriteInFront_KeepsAllFour()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Build(
+            [Fast(-100f), Fast(-200f), Fast(100f), Fast(-400f)],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            forward: (1f, 0f, 0f)).Built.ShouldBe(4);
+    }
+
+    /// <remarks>
+    /// **A new leaf starts a new group**: `UnserializeModels` rounds the fast index up to a multiple of four at each
+    /// leaf change (`:1794`, and `ScanForCounts` pads the same way at `:1685`). Three behind in leaf 1 and one in
+    /// front in leaf 2 are two groups, so leaf 1's three go; one group of four would keep them.
+    /// </remarks>
+    [Test]
+    public void Build_FastSpritesInTwoLeaves_GroupsEachLeafFromItsOwnStart()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Build(
+            [Fast(-100f, leaf: 1), Fast(-200f, leaf: 1), Fast(-300f, leaf: 1), Fast(100f, leaf: 2)],
+            [Sprite()],
+            Eye,
+            Near,
+            world,
+            forward: (1f, 0f, 0f)).Built.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`cl_fastdetailsprites 0` draws the same sprite through `DrawTypeSprite`** — the ordinary quad about the
+    /// origin, not the anchored one. The control for every fast-lane test above.
+    /// </remarks>
+    [Test]
+    public void Build_WithTheFastLaneOff_BuildsAnOrientation2SpriteTheOrdinaryWay()
+    {
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Frame frame = DetailSprites.Build(
+            [Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (100f, 0f, 0f))],
+            [new BspDetailSprite((-4f, 0f), (12f, 16f), (0f, 0f), (0.5f, 0.25f))],
+            (0f, 0f, 16f),
+            Near,
+            world,
+            fastSprites: false);
+
+        frame.Fast.ShouldBe(0);
+
+        // Yaw 180 toward the eye: right = (0, 1, 0); the first corner is origin + ul.x * right.
+        ShouldBeAt(world[0], (100f, -4f, 0f));
+    }
+
+    /// <remarks>
+    /// **The output-level check on a real map** (<c>docs/memory/output-level-assertion-or-it-is-not-done.md</c>):
+    /// every one of <c>cp_granary</c>'s 19,189 sprites is screen-aligned (orientation 2), so the count of those that
+    /// reach the fast lane is decided by the light-style byte this change reads. Built with no fade and no cull, the
+    /// census is carried from the build's own <see cref="DetailSprites.Frame"/>, and the leaf index must show each
+    /// leaf's fast lane ahead of its ordinary one.
+    /// </remarks>
+    [Test]
+    public void Build_OnCpGranary_SendsItsSpritesDownTheLanesTheLumpDecides()
+    {
+        string path = System.IO.Path.Combine(GameInstall.Require(), "maps", "cp_granary.bsp");
+
+        if (!System.IO.File.Exists(path))
+        {
+            Assert.Ignore("cp_granary.bsp is not installed.");
+        }
+
+        (_, IReadOnlyList<BspDetailSprite> sprites, IReadOnlyList<BspDetailProp> objects) =
+            BspDetailProps.Read(System.IO.File.ReadAllBytes(path));
+
+        List<DetailSpriteVertex> world = [];
+
+        DetailSprites.Frame frame = DetailSprites.Build(objects, sprites, Eye, Near, world);
+
+        TestContext.Out.WriteLine(
+            $"cp_granary: {frame.Built} sprites built, {frame.Fast} fast, {frame.Built - frame.Fast} ordinary");
+
+        frame.Built.ShouldBe(19_189);
+        frame.Fast.ShouldBe(FastOnGranary);
+    }
+
+    /// <summary>Measured 2026-09-29: every sprite, none with a light style (the ordinary lane is empty on this map).</summary>
+    private const int FastOnGranary = 19_189;
+
+    private static BspDetailProp Fast(float x, int leaf = 0) =>
+        Prop(angles: (0f, 0f, 0f), orientation: 2, origin: (x, 0f, 0f), leaf: leaf);
 
     private static BspDetailSprite Sprite() =>
         new((-8f, 0f), (8f, 16f), (0f, 0f), (0.5f, 0.25f));

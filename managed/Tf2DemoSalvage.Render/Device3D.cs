@@ -1354,11 +1354,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // The grass goes in the same walk, per leaf, split around each entity in its leaf (B434).
                 TranslucentInterleave.Plan(
                     worldLeaves?.LeafCount ?? 0, _translucentLeaves, _hasDetailAtPlace ??= HasDetailAtPlace,
-                    _translucentSteps);
+                    _hasTranslucentAtPlace ??= HasTranslucentAtPlace, _translucentSteps);
 
                 foreach (InterleaveStep step in _translucentSteps)
                 {
-                    if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailBeyond)
+                    if (step.Kind is InterleaveKind.Detail or InterleaveKind.DetailFast or InterleaveKind.DetailBeyond)
                     {
                         DrawDetailStep(step);
                         continue;
@@ -1960,7 +1960,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>The uploaded sprite quads by BSP leaf, with the translucent pass's per-leaf cursor (B434).</summary>
     private readonly DetailSpriteLeaves _detailLeaves = new();
-    private (float X, float Y, float Z, float Distance, float Fade)? _detailBuiltFor;
+    private (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward)? _detailBuiltFor;
     private (float FadeStart, float FadeEnd)? _detailController;
 
     /// <summary>The map's detail model dictionary — one path per entry (B363).</summary>
@@ -1995,11 +1995,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// nothing. That is the same trade `SetCamera`'s cull gate already makes — and it is why this
     /// project is faster than the engine while doing the same thing (D89).
     ///
-    /// **The angles do not enter it.** Turning on the spot changes which sprites are in frustum and
-    /// nothing about where they are or which way they face: `ComputeAngles` reads
-    /// `CurrentViewOrigin()` and the fade reads a distance, neither of which a turn changes.
+    /// **The view direction enters it too** (B435): the fast lane drops a group of four sprites all behind the eye
+    /// plane (`BuildOutSortedSprites`, `detailobjectsystem.cpp:2164`), so turning changes which are built.
     /// </remarks>
-    private void RebuildDetailSprites((float X, float Y, float Z) eye)
+    private void RebuildDetailSprites((float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
     {
         // **The fade is part of the key, not just the eye.** A config setting `cl_detaildist` while
         // the camera stands still would otherwise change nothing until it next moved, which reads
@@ -2007,8 +2006,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring` records.
         (float Distance, float Fade) live = LiveDetailFade;
 
-        (float X, float Y, float Z, float Distance, float Fade) key =
-            (eye.X, eye.Y, eye.Z, live.Distance, live.Fade);
+        (float X, float Y, float Z, float Distance, float Fade, (float, float, float) Forward) key =
+            (eye.X, eye.Y, eye.Z, live.Distance, live.Fade, forward);
 
         if (_detailProps.Count == 0 || _detailBuiltFor == key)
         {
@@ -2038,7 +2037,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             eye,
             fade,
             _detailCorners,
-            _detailLeaves);
+            _detailLeaves,
+            forward);
 
         _detailSprites.Upload(_device, _context, _detailCorners);
 
@@ -2327,11 +2327,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             ReportWorldCull();
         }
 
-        // **Outside the cull gate, because it turns on a different thing.** The cull is rebuilt
-        // when the whole view changes — origin, angles, lens — and the detail sprites depend only
-        // on where the eye IS. Sharing the gate would rebuild every blade of grass when the camera
-        // turned on the spot, which changes nothing about them.
-        RebuildDetailSprites((camera.Origin.X, camera.Origin.Y, camera.Origin.Z));
+        // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
+        // lane's behind-the-eye cull, B435), not the lens.
+        RebuildDetailSprites((camera.Origin.X, camera.Origin.Y, camera.Origin.Z), _translucentForward);
     }
 
 
@@ -2742,6 +2740,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private bool HasDetailAtPlace(int place) =>
         _detailSprites is not null && _culling is { } culling && _detailLeaves.Has(culling.LeafAt(place));
 
+    /// <summary>The planner's glass question, bound once (B435).</summary>
+    private Func<int, bool>? _hasTranslucentAtPlace;
+
+    /// <summary>Whether a leaf place has translucent world surfaces — <c>LeafContainsTranslucentSurfaces</c> (B435).</summary>
+    private bool HasTranslucentAtPlace(int place) => _world?.TranslucentLeaves is { } runs && runs.Leaf(place).Count > 0;
+
     /// <summary>Draws one detail step of the interleave: a leaf's remaining sprites, or those farther than an entity.</summary>
     /// <remarks>
     /// <c>RenderTranslucentDetailObjectsInLeaf</c> (<c>detailobjectsystem.cpp:2633</c>) with the entity's
@@ -2775,16 +2779,31 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             nearest = (x * x) + (y * y) + (z * z);
         }
 
-        (int first, int count) = _detailLeaves.Take(culling.LeafAt(place), nearest);
+        int leaf = culling.LeafAt(place);
 
-        if (count == 0)
+        // An entity split is one `RenderTranslucentDetailObjectsInLeaf`: the fast lane first (`:2637`), then the ordinary.
+        if (step.Kind != InterleaveKind.Detail)
+        {
+            DrawDetailRun(camera, _detailLeaves.Take(leaf, nearest, fast: true));
+        }
+
+        if (step.Kind != InterleaveKind.DetailFast)
+        {
+            DrawDetailRun(camera, _detailLeaves.Take(leaf, nearest, fast: false));
+        }
+    }
+
+    /// <summary>Draws one run of uploaded sprite quads.</summary>
+    private void DrawDetailRun((float[] Matrix, bool Colours) camera, (int First, int Count) run)
+    {
+        if (run.Count == 0 || _detailSprites is null)
         {
             return;
         }
 
         _detailSprites.Draw(
             _device, _context, camera.Matrix,
-            first * DetailSprites.CornersPerQuad, count * DetailSprites.CornersPerQuad);
+            run.First * DetailSprites.CornersPerQuad, run.Count * DetailSprites.CornersPerQuad);
 
         // The sprite pass owns its state; the models' depth state goes back after it, as after a world leaf.
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
@@ -2851,7 +2870,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _render.LogDebug(
             "{Message}",
             $"detail sprites: {frame.Built} quads of {_detailProps.Count} props " +
-            $"({frame.Aligned} turned toward the eye, {frame.Faded} beyond {LiveDetailFade.Distance:0}" +
+            $"({frame.Fast} fast, {frame.Aligned} turned toward the eye, {frame.Faded} beyond {LiveDetailFade.Distance:0}" +
             $"{(_detailController is null ? string.Empty : ", the map's own")}), " +
             $"{_detailCorners.Count} corners");
     }

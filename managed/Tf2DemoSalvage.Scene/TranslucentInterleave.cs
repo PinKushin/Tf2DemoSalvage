@@ -12,8 +12,11 @@ public enum InterleaveKind
     /// <summary>One translucent entity; the index is its place in the caller's list.</summary>
     Entity,
 
-    /// <summary>A leaf's detail sprites not yet drawn; the index is the leaf's place (B434).</summary>
+    /// <summary>A leaf's ordinary detail sprites not yet drawn; the index is the leaf's place (B434).</summary>
     Detail,
+
+    /// <summary>A leaf's fast-lane detail sprites not yet drawn; the index is the leaf's place (B435).</summary>
+    DetailFast,
 
     /// <summary>
     /// The detail sprites of an entity's leaf farther than that entity; the index is the entity's place (B434).
@@ -48,8 +51,8 @@ public readonly record struct InterleaveStep(InterleaveKind Kind, int Index)
 /// the other queued leaves go first (<c>:4594-4598</c>), then before each entity the leaf's sprites farther than it
 /// (<c>:4605-4607</c>), then the rest (<c>:4639</c>); an entity leaf with no sprites is not split (<c>:4643</c>).
 /// Flushing the queue as late as the engine does draws the same sprites in the same order, because nothing else
-/// draws between — except that <c>RenderTranslucentDetailObjects</c> draws the queued leaves' "fast" sprites before
-/// their ordinary ones (<c>detailobjectsystem.cpp:2404</c>), a split this port does not make (filed with B434).
+/// draws between. Each detail step draws the leaf's "fast" sprites before its ordinary ones
+/// (<c>detailobjectsystem.cpp:2637</c>, and <c>:2404</c> for a whole flush) — see <see cref="DetailSpriteLeaves"/> (B435).
 /// </remarks>
 public static class TranslucentInterleave
 {
@@ -70,14 +73,41 @@ public static class TranslucentInterleave
     /// <param name="into">Cleared, then filled with the steps in draw order.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public static void Plan(
-        int leafCount, IReadOnlyList<int> entityLeaves, Func<int, bool> hasDetail, IList<InterleaveStep> into)
+        int leafCount, IReadOnlyList<int> entityLeaves, Func<int, bool> hasDetail, IList<InterleaveStep> into) =>
+        Plan(leafCount, entityLeaves, hasDetail, static _ => true, into);
+
+    /// <summary>Plans the translucent pass, knowing which leaves have translucent surfaces.</summary>
+    /// <param name="leafCount">How many leaves the world list holds.</param>
+    /// <param name="entityLeaves">Each entity's leaf place, in list order.</param>
+    /// <param name="hasDetail">Whether a leaf place has detail sprites to draw.</param>
+    /// <param name="hasTranslucent">
+    /// Whether a leaf place has translucent world surfaces — <c>LeafContainsTranslucentSurfaces</c> (<c>viewrender.cpp:4306</c>).
+    /// </param>
+    /// <param name="into">Cleared, then filled with the steps in draw order.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **The sprite queue is flushed only before a leaf WITH translucent surfaces** (<c>:4306-4310</c>), before an
+    /// entity leaf (<c>:4598</c>, <c>:4645</c>) and at the end (<c>:4698</c>), and a flush of several leaves draws
+    /// every queued leaf's fast sprites before any of their ordinary ones (<c>RenderTranslucentDetailObjects</c>,
+    /// <c>detailobjectsystem.cpp:2404</c>) — so a run of grass leaves with no glass draws as one flush, fast lane first
+    /// (B435). A leaf with no translucent surfaces draws no world step.
+    /// </remarks>
+    public static void Plan(
+        int leafCount,
+        IReadOnlyList<int> entityLeaves,
+        Func<int, bool> hasDetail,
+        Func<int, bool> hasTranslucent,
+        IList<InterleaveStep> into)
     {
         ArgumentNullException.ThrowIfNull(entityLeaves);
         ArgumentNullException.ThrowIfNull(hasDetail);
+        ArgumentNullException.ThrowIfNull(hasTranslucent);
         ArgumentNullException.ThrowIfNull(into);
 
         into.Clear();
 
+        // The queue is always the leaves walked since the last flush that have sprites, so a descending range.
+        int queuedFrom = -1;
         int previous = leafCount - 1;
         int entity = entityLeaves.Count - 1;
 
@@ -85,19 +115,15 @@ public static class TranslucentInterleave
         {
             int leaf = entityLeaves[entity];
 
-            for (; previous > leaf; previous--)
-            {
-                Leaf(previous, hasDetail, into);
-            }
-
-            if (previous == leaf)
-            {
-                into.Add(new InterleaveStep(InterleaveKind.World, leaf));
-            }
+            Walk(previous, leaf, hasDetail, hasTranslucent, into, ref queuedFrom);
 
             previous = leaf - 1;
 
             bool detail = leaf >= 0 && leaf < leafCount && hasDetail(leaf);
+
+            // `:4594-4598`: the entity's own leaf is taken off the end of the queue before the flush.
+            Flush(queuedFrom, detail ? leaf + 1 : 0, hasDetail, into);
+            queuedFrom = -1;
 
             for (; entity >= 0 && entityLeaves[entity] == leaf; entity--)
             {
@@ -111,24 +137,61 @@ public static class TranslucentInterleave
 
             if (detail)
             {
+                // `RenderTranslucentDetailObjectsInLeaf( …, NULL )` (`:4639`): the fast lane's rest, then the ordinary.
+                into.Add(new InterleaveStep(InterleaveKind.DetailFast, leaf));
                 into.Add(new InterleaveStep(InterleaveKind.Detail, leaf));
             }
         }
 
-        for (; previous >= 0; previous--)
+        Walk(previous, 0, hasDetail, hasTranslucent, into, ref queuedFrom);
+        Flush(queuedFrom, 0, hasDetail, into);
+    }
+
+    /// <summary><c>DrawTranslucentWorldAndDetailPropsInLeaves</c> (<c>viewrender.cpp:4298</c>), from one place down to another.</summary>
+    private static void Walk(
+        int from,
+        int to,
+        Func<int, bool> hasDetail,
+        Func<int, bool> hasTranslucent,
+        IList<InterleaveStep> into,
+        ref int queuedFrom)
+    {
+        for (int place = from; place >= to; place--)
         {
-            Leaf(previous, hasDetail, into);
+            if (hasTranslucent(place))
+            {
+                Flush(queuedFrom, place + 1, hasDetail, into);
+                queuedFrom = -1;
+                into.Add(new InterleaveStep(InterleaveKind.World, place));
+            }
+
+            if (queuedFrom < 0 && hasDetail(place))
+            {
+                queuedFrom = place;
+            }
         }
     }
 
-    /// <summary>A leaf with no entity: its surfaces, then its sprites.</summary>
-    private static void Leaf(int place, Func<int, bool> hasDetail, IList<InterleaveStep> into)
+    /// <summary>
+    /// <c>RenderTranslucentDetailObjects</c> over the queued places <paramref name="from"/> down to <paramref name="to"/>:
+    /// every fast lane (<c>detailobjectsystem.cpp:2404</c>), then every ordinary one (<c>:2447</c>), in queue order.
+    /// </summary>
+    private static void Flush(int from, int to, Func<int, bool> hasDetail, IList<InterleaveStep> into)
     {
-        into.Add(new InterleaveStep(InterleaveKind.World, place));
-
-        if (hasDetail(place))
+        for (int place = from; place >= to; place--)
         {
-            into.Add(new InterleaveStep(InterleaveKind.Detail, place));
+            if (hasDetail(place))
+            {
+                into.Add(new InterleaveStep(InterleaveKind.DetailFast, place));
+            }
+        }
+
+        for (int place = from; place >= to; place--)
+        {
+            if (hasDetail(place))
+            {
+                into.Add(new InterleaveStep(InterleaveKind.Detail, place));
+            }
         }
     }
 }
@@ -143,61 +206,76 @@ public static class TranslucentInterleave
 /// <c>RenderTranslucentDetailObjectsInLeaf</c> draws from <c>m_nFirstSprite</c> while
 /// <c>m_flDistance &gt;= flMinDistance</c>, advancing it (<c>:2708</c>); <c>BeginTranslucentDetailRendering</c>
 /// resets it each view (<c>:1562</c>).
+///
+/// **Two lanes per leaf, each with its own cursor**: the fast sprites (<c>m_nStartSpriteIndex</c>, <c>:2623</c>) and
+/// the ordinary ones (<c>m_nFirstSprite</c>, <c>:2729</c>); a flush takes the fast lane first (<c>:2637</c>).
 /// </remarks>
 public sealed class DetailSpriteLeaves
 {
     private readonly List<float> _squared = [];
-    private readonly Dictionary<int, (int First, int Count)> _leaves = [];
-    private readonly Dictionary<int, int> _drawn = [];
-    private int _lastLeaf = int.MinValue;
+    private readonly Dictionary<(int Leaf, bool Fast), (int First, int Count)> _lanes = [];
+    private readonly Dictionary<(int Leaf, bool Fast), int> _drawn = [];
+    private (int Leaf, bool Fast)? _last;
 
     /// <summary>Forgets every quad.</summary>
     public void Clear()
     {
         _squared.Clear();
-        _leaves.Clear();
+        _lanes.Clear();
         _drawn.Clear();
-        _lastLeaf = int.MinValue;
+        _last = null;
     }
 
-    /// <summary>Records the next quad — leaves contiguous, each leaf's quads farthest first.</summary>
+    /// <summary>Records the next quad — each leaf's lanes contiguous, each lane's quads farthest first.</summary>
     /// <param name="leaf">The BSP leaf the sprite sits in.</param>
     /// <param name="squared">Its squared distance from the eye.</param>
-    public void Add(int leaf, float squared)
+    /// <param name="fast">Whether it is in the leaf's fast lane.</param>
+    public void Add(int leaf, float squared, bool fast = false)
     {
-        if (leaf != _lastLeaf)
+        (int, bool) lane = (leaf, fast);
+
+        if (_last != lane)
         {
-            _leaves[leaf] = (_squared.Count, 0);
-            _lastLeaf = leaf;
+            _lanes[lane] = (_squared.Count, 0);
+            _last = lane;
         }
 
-        (int first, int count) = _leaves[leaf];
-        _leaves[leaf] = (first, count + 1);
+        (int first, int count) = _lanes[lane];
+        _lanes[lane] = (first, count + 1);
         _squared.Add(squared);
     }
 
     /// <summary>Whether a BSP leaf has any sprite this view.</summary>
     /// <param name="leaf">The BSP leaf.</param>
     /// <returns>True when it has at least one.</returns>
-    public bool Has(int leaf) => _leaves.ContainsKey(leaf);
+    public bool Has(int leaf) => _lanes.ContainsKey((leaf, false)) || _lanes.ContainsKey((leaf, true));
 
-    /// <summary>Rewinds every leaf's cursor — <c>BeginTranslucentDetailRendering</c>.</summary>
+    /// <summary>Rewinds every leaf's cursors — <c>BeginTranslucentDetailRendering</c>.</summary>
     public void Begin() => _drawn.Clear();
 
-    /// <summary>Takes a leaf's next undrawn quads, advancing its cursor.</summary>
+    /// <summary>Takes a leaf's next undrawn ordinary quads, advancing its cursor.</summary>
     /// <param name="leaf">The BSP leaf.</param>
     /// <param name="nearest">
     /// The squared distance of the entity about to draw: only quads at least this far are taken. Null takes the rest.
     /// </param>
     /// <returns>The first quad and how many, in the order <see cref="Add"/> was called.</returns>
-    public (int First, int Count) Take(int leaf, float? nearest)
+    public (int First, int Count) Take(int leaf, float? nearest) => Take(leaf, nearest, fast: false);
+
+    /// <summary>Takes one lane's next undrawn quads in a leaf, advancing that lane's cursor.</summary>
+    /// <param name="leaf">The BSP leaf.</param>
+    /// <param name="nearest">As for <see cref="Take(int, float?)"/>.</param>
+    /// <param name="fast">The fast lane rather than the ordinary one.</param>
+    /// <returns>The first quad and how many.</returns>
+    public (int First, int Count) Take(int leaf, float? nearest, bool fast)
     {
-        if (!_leaves.TryGetValue(leaf, out (int First, int Count) range))
+        (int, bool) lane = (leaf, fast);
+
+        if (!_lanes.TryGetValue(lane, out (int First, int Count) range))
         {
             return (0, 0);
         }
 
-        int start = range.First + _drawn.GetValueOrDefault(leaf);
+        int start = range.First + _drawn.GetValueOrDefault(lane);
         int end = range.First + range.Count;
         int at = start;
 
@@ -206,7 +284,7 @@ public sealed class DetailSpriteLeaves
             at++;
         }
 
-        _drawn[leaf] = at - range.First;
+        _drawn[lane] = at - range.First;
 
         return (start, at - start);
     }

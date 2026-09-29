@@ -51,7 +51,31 @@ public sealed class TranslucentInterleaveTests
     public void Plan_DetailInEveryLeaf_SplitsTheEntityLeafAroundEachEntity()
     {
         Steps(3, [1, 1], detail: [0, 1, 2])
-            .ShouldBe(["L2", "D2", "L1", "B1", "E1", "B0", "E0", "D1", "L0", "D0"]);
+            .ShouldBe(["L2", "F2", "D2", "L1", "B1", "E1", "B0", "E0", "F1", "D1", "L0", "F0", "D0"]);
+    }
+
+    /// <remarks>
+    /// **A leaf with no translucent surfaces does not flush the queue** (<c>viewrender.cpp:4306-4310</c>), so three grass
+    /// leaves with no glass are one flush at the end (<c>:4698</c>), and <c>RenderTranslucentDetailObjects</c> draws every
+    /// queued leaf's fast sprites before any ordinary one (<c>detailobjectsystem.cpp:2404</c>, then <c>:2447</c>), each
+    /// pass in queue order — farthest leaf first. Leaf 1 has glass: the queue [2] flushes before it.
+    /// </remarks>
+    [Test]
+    public void Plan_GrassLeavesWithoutGlass_FlushTogetherFastLaneFirst()
+    {
+        Steps(4, [], detail: [0, 1, 2, 3], translucent: [2])
+            .ShouldBe(["F3", "D3", "L2", "F2", "F1", "F0", "D2", "D1", "D0"]);
+    }
+
+    /// <remarks>
+    /// In an entity's leaf the queued leaves before it flush together (<c>:4598</c>), fast lane first, and the entity's
+    /// own leaf is split (<c>:4607</c>) and finished (<c>:4639</c>) apart from them.
+    /// </remarks>
+    [Test]
+    public void Plan_AnEntityLeafAfterGrass_FlushesTheFartherLeavesThenSplitsItsOwn()
+    {
+        Steps(3, [0], detail: [0, 1, 2], translucent: [])
+            .ShouldBe(["F2", "F1", "D2", "D1", "B0", "E0", "F0", "D0"]);
     }
 
     /// <remarks>
@@ -61,20 +85,29 @@ public sealed class TranslucentInterleaveTests
     [Test]
     public void Plan_DetailOnlyInAFartherLeaf_DrawsItBeforeTheEntityWithNoSplit()
     {
-        Steps(2, [0], detail: [1]).ShouldBe(["L1", "D1", "L0", "E0"]);
+        Steps(2, [0], detail: [1]).ShouldBe(["L1", "F1", "D1", "L0", "E0"]);
     }
 
-    private static string[] Steps(int leaves, int[] entityLeaves, int[]? detail = null)
+    private static string[] Steps(int leaves, int[] entityLeaves, int[]? detail = null, int[]? translucent = null)
     {
         List<InterleaveStep> steps = [];
         HashSet<int> withDetail = [.. detail ?? []];
 
-        TranslucentInterleave.Plan(leaves, entityLeaves, withDetail.Contains, steps);
+        if (translucent is null)
+        {
+            TranslucentInterleave.Plan(leaves, entityLeaves, withDetail.Contains, steps);
+        }
+        else
+        {
+            HashSet<int> withGlass = [.. translucent];
+            TranslucentInterleave.Plan(leaves, entityLeaves, withDetail.Contains, withGlass.Contains, steps);
+        }
 
         return [.. steps.Select(step => step.Kind switch
         {
             InterleaveKind.Entity => "E",
             InterleaveKind.Detail => "D",
+            InterleaveKind.DetailFast => "F",
             InterleaveKind.DetailBeyond => "B",
             _ => "L",
         } + step.Index.ToString(CultureInfo.InvariantCulture))];

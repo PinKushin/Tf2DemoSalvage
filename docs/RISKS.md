@@ -7664,6 +7664,57 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B435 — detail sprites had no fast lane: wrong anchor, alpha rounding, cull and flush order — FIXED 2026-09-29
+
+**Read from published source** (`detailobjectsystem.cpp`). `cl_fastdetailsprites` defaults to "1" and is
+`FCVAR_CHEAT` (`:1642`). `DetailObjectIsFastSprite` (`:1644`) takes a `SPRITE` with `m_LightStyleCount == 0`,
+orientation 2 and zero shape angle, shape size and sway. What differs from `DrawTypeSprite` in the picture:
+
+- **Anchor.** `UnserializeFastSprite` (`:1917`) stores `GetSpriteMiddleBottomPosition` (`:1885`), computed at load
+  from a FIXED direction (0, -100, 0) — the rectangle's middle-bottom along world −X — and the quad turns about that
+  point each view, symmetric half width either side (`BuildOutSortedSprites`, `:2167-2194`). The ordinary quad turns
+  about the origin and spans `ul.x..lr.x`. Same on a centred sprite, apart from the pivot; different on any other.
+- **Fade distance and rounding.** The alpha is from the anchor's distance, `1 - clamp((d²-fade²)/(max²-fade²))`,
+  rounded to nearest by the 2^23 magic number (`:2180-2184`); the ordinary lane truncates from the origin. ±1/255.
+- **Cull.** A group of four (the leaf's fast sprites in lump order, restarted at each leaf, `:1794`) is skipped only
+  when all four are behind the eye plane or beyond the maximum (`:2164-2165`). So a sprite beside the camera whose
+  anchor is just behind the plane — its quad reaching forward into view — vanishes when its three neighbours are
+  also behind.
+- **Order.** Each flush draws every queued leaf's fast sprites, then every ordinary one (`RenderTranslucentDetail
+  Objects`, `:2404` then `:2447`); an entity split draws the leaf's fast lane then its ordinary lane, each with its
+  own cursor (`:2637`, `:2561`, `:2708`). And the queue (`viewrender.cpp:4306-4320`) is flushed only before a leaf
+  with translucent surfaces, before an entity leaf and at the end — so a run of grass leaves with no glass is ONE flush.
+- **Same:** the colour (`:1934-1944` is `GetColorModulation` less dynamic lights, which this port does not apply to
+  sprites anyway), the UVs and flip, the height. Performance-only: the SIMD batching, the alpha-zero quads it builds.
+
+**Ported:** `BspDetailProp.LightStyleCount` (byte 36; `m_LightStyles` is not read — the lane does not use it);
+`DetailSprites.IsFast`, `Anchor`, the fast quad and alpha, the grouped cull (Build takes the view `forward`, and the
+device's rebuild key now includes it); `DetailSpriteLeaves` keeps two lanes per leaf; `TranslucentInterleave.Plan`
+models the queue (`InterleaveKind.DetailFast`) given which leaves have translucent surfaces. `cl_fastdetailsprites`
+is `DetailSprites.FastDetailSprites`, not a viewer setting: a cheat cvar does nothing from a config.
+
+**Census:** `cp_granary` — 19,189 sprites, **19,189 fast, 0 ordinary**. Every sprite on that map now draws through
+this lane.
+
+**Not ported:** a map that cannot be culled still draws all sprites in one run, leaf by leaf, rather than all fast
+then all ordinary; RenderTranslucentDetailObjects's reuse of the fast sort buffer without resetting
+`m_nSortedFastLeaf` (a stale-buffer quirk if a flushed leaf is later split — not reachable in the walk).
+
+**What changes on screen:** grass tufts are pivoted about their middle-bottom anchor, not their origin (visible on
+off-centre sprites as a slightly different sweep as the camera circles); fade-band alpha rounds up where it truncated
+and fades by the tuft's base; some grass right beside the camera drops out when looking away from it in fours; and
+where ordinary and fast sprites mix, the fast ones now draw first across a whole flush.
+
+Tests: `DetailPropConformanceTests.ReadPayload_TheLightStyleCount_ComesFromOffset36`,
+`DetailSpritesConformanceTests.IsFast_*`, `Build_AFastSprite_*`, `Build_AFastSpriteInTheFadeBand_*`,
+`Build_AFastAndAnOrdinarySpriteInOneLeaf_*`, `Take_AroundAnEntity_SplitsEachLane*`, the three group-cull tests,
+`Build_WithTheFastLaneOff_*`, `Build_OnCpGranary_*`, and `TranslucentInterleaveTests.Plan_GrassLeavesWithoutGlass_*` /
+`Plan_AnEntityLeafAfterGrass_*`, and `ScenePassOrderConformanceTests.DrawTranslucentRenderables_FastDetailSprites_*`
+(the SDK lines cited above, then our plan) — each red under a sabotage of the code it covers. `Device3D.DrawDetailStep`'s lane
+dispatch has no test of its own.
+
+---
+
 ### B434 — detail sprites drew before the opaque models, not in the translucent walk — FIXED 2026-09-29
 
 **Read from published source.** `RenderOpaqueDetailObjects` has an empty body (`detailobjectsystem.cpp:1954`), so
@@ -7686,10 +7737,10 @@ does draws the same order, since nothing draws between. A sprite in a leaf outsi
 drawn, as in the engine. A map that cannot be culled draws all sprites after the translucent world, before the
 translucent models.
 
-**Not ported:** the "fast sprite" lane (`cl_fastdetailsprites 1`, `DetailObjectIsFastSprite`, `:1644` —
-orientation 2, no light style, sway or shape). The engine draws a flush's fast sprites before its ordinary ones
-(`:2404`), builds their quads its own way (`BuildOutSortedSprites`, `:2131`, which also drops sprites behind the
-eye plane), and needs the lump's light-style count, which `BspDetailProps` does not decode.
+**Not ported here:** the "fast sprite" lane (`cl_fastdetailsprites 1`, `DetailObjectIsFastSprite`, `:1644`) —
+ported since as **B435**, which also found that a flush can hold many leaves: the queue is flushed only before a
+leaf WITH translucent surfaces, so "flushing each leaf straight after its surfaces" above holds only for ordinary
+sprites, and B435 replaced it with the engine's queue.
 
 **What changes on screen:** grass in front of a translucent model (a cloaked spy, a fading prop, a detail model
 mid-fade) now draws over it instead of under it; grass behind world glass is covered by the glass; grass in leaves

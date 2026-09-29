@@ -52,6 +52,10 @@ public enum DetailPropType
 /// list can only re-derive by knowing it was never filtered. Getting it wrong draws every blade of
 /// grass facing the same way where TF2 alternates them, and half a map's sprites are mirrored.
 /// </param>
+/// <param name="LightStyleCount">
+/// <c>m_LightStyleCount</c>, byte 36: how many switchable light styles relight it. Non-zero keeps a sprite out of the
+/// fast lane (<c>DetailObjectIsFastSprite</c>, <c>detailobjectsystem.cpp:1649</c>).
+/// </param>
 public readonly record struct BspDetailProp(
     (float X, float Y, float Z) Origin,
     (float Pitch, float Yaw, float Roll) Angles,
@@ -64,7 +68,8 @@ public readonly record struct BspDetailProp(
     byte ShapeSize,
     float Scale,
     (float Red, float Green, float Blue) Lighting = default,
-    bool Flipped = false);
+    bool Flipped = false,
+    byte LightStyleCount = 0);
 
 /// <summary>One entry of the sprite sheet — <c>DetailSpriteDictLump_t</c>.</summary>
 /// <param name="UpperLeft">The quad's upper-left corner, in world units about the origin.</param>
@@ -326,7 +331,8 @@ public static class BspDetailProps
                 // **Alternating, and the first object is NOT flipped.** `bFlipped` starts true and
                 // is toggled at the top of each iteration, so object 0 is false, object 1 is true,
                 // and so on — see the remarks on the parameter.
-                (index % 2) == 1));
+                (index % 2) == 1,
+                entry[36]));
         }
 
         return (models, sprites, objects);

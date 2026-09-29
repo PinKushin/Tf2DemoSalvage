@@ -51,6 +51,18 @@ public sealed class DetailPropConformanceTests
     }
 
     /// <remarks>
+    /// **`m_LightStyleCount` is the byte at 36** (<c>gamebspfile.h:96</c>, after the four-byte
+    /// <c>m_LightStyles</c> at 32), and it is what <c>DetailObjectIsFastSprite</c> reads
+    /// (<c>detailobjectsystem.cpp:1649</c>) to send a sprite down the fast lane. The fixture puts 10
+    /// there and 11 (the sway) beside it, so a reader one byte off in either direction reads the wrong one.
+    /// </remarks>
+    [Test]
+    public void ReadPayload_TheLightStyleCount_ComesFromOffset36()
+    {
+        BspDetailProps.ReadPayload(Payload()).Objects[0].LightStyleCount.ShouldBe((byte)10);
+    }
+
+    /// <remarks>
     /// **The type is at offset 44, not 45**, and this is the assertion that pins it. `m_Padding3`
     /// FOLLOWS the type rather than preceding it, so a reader off by one byte reads the first
     /// padding byte — zero on every real map — and reports every detail prop in the game as
