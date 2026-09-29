@@ -105,6 +105,59 @@ public sealed class StaticPropModelsWiringTests
     }
 
     /// <remarks>
+    /// **B429, on a real map.** `FUN_1800eac60` (`engine.dll`) gives an unbaked placement a CPU-lit colour mesh
+    /// (`FUN_1800f36e0` → `FUN_1800ee4a0`) when its model has `STUDIOHDR_FLAGS_STATIC_PROP`; one without stays lit per
+    /// frame. `koth_harvest_final` has 8 unbaked placements of 652; the census of their models' flags is below, and every
+    /// one must reach the draw on the path its flags choose.
+    /// </remarks>
+    [Test]
+    public void Instances_KothHarvestUnbakedPlacements_TakeACpuColourMeshExactlyWhenCompiledStatic()
+    {
+        const string Map = "koth_harvest_final";
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            StaticPropLighting = lighting.StaticPropLightingAt,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        List<ModelInstance> unbaked = [.. drawn.Where(instance => !assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
+        unbaked.Count.ShouldBe(8, "the control: koth_harvest_final's unbaked placements");
+
+        Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
+        int compiledStatic = 0;
+
+        foreach (ModelInstance instance in unbaked)
+        {
+            string path = byEntity[instance.EntityIndex].ModelPath;
+            int flags = assets.Geometry(path).ShouldNotBeNull().StudioFlags;
+            bool cpu = StaticPropVertexLighting.Lights(flags);
+
+            if (cpu)
+            {
+                compiledStatic++;
+                instance.BakedColours.ShouldNotBeNull(path).Length.ShouldBeGreaterThan(0);
+                (instance.Light is null && instance.Locals is not { Count: > 0 }).ShouldBeTrue(path);
+            }
+            else
+            {
+                instance.BakedColours.ShouldBeNull(path);
+                instance.Light.ShouldNotBeNull(path);
+            }
+        }
+
+        compiledStatic.ShouldBe(8, "measured 2026-09-28: all eight are box_cluster01/02 and tractor_tire001, flags 0x11");
+    }
+
+    /// <remarks>
     /// **B427, on the map the loader actually builds.** `CStaticProp::Init` (`engine.dll` `0x1802052c0`)
     /// lights a `STATIC_PROP_USE_LIGHTING_ORIGIN` prop at the lump's `m_LightingOrigin`. Measured
     /// 2026-09-28: 161 of 234 shipped maps flag some props (4,542 of 354,469); `cp_process_final` flags

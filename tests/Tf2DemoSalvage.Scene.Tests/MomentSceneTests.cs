@@ -539,6 +539,110 @@ public sealed class MomentSceneTests
         }
     }
 
+    /// <remarks>
+    /// **B429, through the production route.** `FUN_1800eac60` (`engine.dll`) gives an unbaked static prop a colour mesh
+    /// when its model has `STUDIOHDR_FLAGS_STATIC_PROP` (0x10), lit on the CPU by `FUN_1800ee4a0` from the handle's static
+    /// state, and the draw then takes no cube and no locals; a model without the flag, or with the unported
+    /// const-directional flag, stays lit per frame. The corner stands at the prop's origin, 20 units under a style-0 lamp.
+    /// </remarks>
+    [TestCase(0x10, true)]
+    [TestCase(0x0, false)]
+    [TestCase(0x2010, false)]
+    public void Pose_AnUnbakedStaticPropUnderALamp_IsLitOnTheCpuOnlyWhenCompiledStatic(int studioFlags, bool cpu)
+    {
+        MomentScene scene = UnbakedStaticProp(studioFlags, out LevelLighting lighting, out _);
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+
+        if (!cpu)
+        {
+            drawn.BakedColours.ShouldBeNull();
+            drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem().Z.ShouldBe(120f);
+            return;
+        }
+
+        (Content.Bsp.PointLighting state, SunLight? sun) = lighting.StaticPropLightingAt(0f, 0f, 100f);
+        System.Numerics.Vector3 light = StudioPointLighting.At(state, sun, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ);
+
+        drawn.BakedColours.ShouldBe(
+        [
+            PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(light.X)),
+            PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(light.Y)),
+            PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(light.Z)),
+        ]);
+        state.Locals.ShouldNotBeNull().ShouldHaveSingleItem("the control: the lamp is in the handle's state");
+        System.Numerics.Vector3 cubeOnly = StudioPointLighting.At(
+            Content.Bsp.PointLighting.Bounce(state.Cube), sun, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ);
+        StaticPropVertexLighting.ToByte(light.X).ShouldBeGreaterThan(StaticPropVertexLighting.ToByte(cubeOnly.X), "the control: the lamp lit it");
+        drawn.Light.ShouldBeNull("a colour-mesh prop takes no cube");
+        drawn.Locals.ShouldBeEmpty("nor the lamp");
+    }
+
+    /// <remarks>
+    /// **B429, the rebake.** `FUN_1801bb8b0` rebuilds the colour mesh (`FUN_1800f36e0`) when a listed one-frame style
+    /// changes, but the rebuild reads the handle's static state (`FUN_1801ba590` flags 1), which holds no styled light
+    /// (`FUN_1801b5a50`) — so switching a styled lamp beside the prop from dark to full leaves its colours as they were.
+    /// </remarks>
+    [Test]
+    public void Pose_AStyledLampSwitchedBesideACpuLitProp_LeavesItsColours()
+    {
+        MomentScene scene = UnbakedStaticProp(0x10, out LevelLighting lighting, out float[] scale, styled: true);
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+        float[] before = [.. scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldNotBeNull()];
+
+        scale[0] = 1f;
+        lighting.StylesChanged();
+        scene.Pose(Info());
+
+        scene.Instances.ShouldHaveSingleItem().BakedColours.ShouldBe(before);
+
+        // The control: lit by both lamps, the corner's byte would differ — so a rebake that took the styled one would show.
+        System.Numerics.Vector3 both = StudioPointLighting.At(
+            lighting.LightingAt(0f, 0f, 100f), null, new(0f, 0f, 100f), System.Numerics.Vector3.UnitZ);
+        PropModels.FromVertexByte(StaticPropVertexLighting.ToByte(both.X)).ShouldNotBe(before[0]);
+    }
+
+    private static MomentScene UnbakedStaticProp(
+        int studioFlags, out LevelLighting lighting, out float[] scale, bool styled = false)
+    {
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { new PropVertex(0, 0f, 0f, 0f, 0f, MaterialIndex: 3) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = studioFlags,
+            },
+        };
+
+        float[] styleScale = [0f];
+        scale = styleScale;
+
+        // 200 over 20² is 0.5 a lamp on top of the cube's 0.5: one lamp or two stay under the table's clamp of 4, so a
+        // styled lamp would show if it were taken.
+        Content.Bsp.BspWorldLight Dim(int style) =>
+            LevelLightingTests.Lamp((0f, 0f, 120f), 200f) with { Style = style, Cluster = 0 };
+
+        lighting = StyledLightFallbackConformanceTests.Map(styled ? [Dim(0), Dim(5)] : [Dim(0)]);
+        lighting.StyleScale = style => style == 5 ? styleScale[0] : 1f;
+
+        return new MomentScene(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = lighting,
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+    }
+
 
     /// <summary>
     /// One weapon with a display model, so <c>Weapons.For</c> can answer in a unit test.

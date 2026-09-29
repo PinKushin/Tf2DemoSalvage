@@ -205,6 +205,9 @@ in any public writeup found:
   and localisation live in `vgui2.dll` and `vguimatsurface.dll`. Among the findings: a localisation conditional's `!`
   is read in two places and one never sees it, and an empty scheme paints the screen white
   ([64](64-the-hud-is-vgui-and-half-of-it-is-closed.md)).
+- **An unbaked static prop is lit once, not every frame.** A model compiled `$staticprop` with no `.vhv` gets a
+  colour mesh the engine lights on the CPU at load, from the handle's static state, which holds no styled light — so
+  the engine's own "rebake" of it reproduces the same colours ([65](65-an-unbaked-static-prop-is-lit-once.md)).
 
 ## Conventions used throughout
 
