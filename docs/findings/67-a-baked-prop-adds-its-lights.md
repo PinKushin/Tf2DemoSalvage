@@ -59,9 +59,34 @@ reaching, nothing changes: the colours alone.
 Three simplifications, each in the code:
 - the evicted light is dropped rather than folded into the cube, as `ModelLightingAt` already does;
 - one ranking over styled and dynamic lights, without the dlight's eviction precedence (differs only past four);
-- the static term is the colour mesh as this pipeline already lit it (`FromVertexByte`, `min(1, 2c)`) — no
-  `GammaToLinear`. That is B426's existing choice, kept so an unlit baked prop draws exactly as before; whether
-  it is right is a separate question about every baked prop, not this one.
+- ~~the static term is the colour mesh as this pipeline already lit it (`FromVertexByte`, `min(1, 2c)`) — no
+  `GammaToLinear`.~~ Settled the same day, below.
+
+## The static term, settled from source
+
+Every DX9 route through the vertex-lit shader reads the colour mesh one way: `DoLighting` and `DoLightingUnrolled` in
+the vertex shader (`common_vs_fxc.h:870-874`, `:902`) and `PixelShaderDoLightingLinear` in the pixel shader
+(`common_vertexlitgeneric_dx9.h:272`) all add `GammaToLinear( staticLightingColor * cOverbright )`, `cOverbright` 2.0
+(`common_vs_fxc.h:59`), `GammaToLinear` `pow( x, 2.2 )` (`common_fxc.h:189-192`). Only `_X360` differs (`col * col`). No
+HDR/LDR branch touches it, so which combo TF2 picks does not matter. *Read from published source.*
+
+The bytes are the exact inverse. vrad writes each `.vhv` colour through `ConvertRGBExp32ToRGBA8888` →
+`ConvertLinearToRGBA8888` → `LinearToVertexLight` (`vradstaticprops.cpp:1583-1586`, `lightmap.cpp:3553-3599`); `g_bHDR`
+only picks the name, `sp_hdr_%d` or `sp_%d` (`:1534-1540`). `LinearToVertexLight` is the engine's `lineartovertex`
+table, `min( 1, pow( L, 1/2.2 ) · 0.5 )` (`color_conversion.cpp:248-255`), which the CPU bake of
+[65](65-an-unbaked-static-prop-is-lit-once.md) uses too. So `pow( 2c, 2.2 )` returns `L` within a byte step.
+*Read from published source; round trip checked by arithmetic in the tests.*
+
+**The wrong turn.** The port read the byte as `min( 1, 2c )` — the gamma-space value used as light — from when the
+whole pipeline worked in display space (B54). It then also multiplied it by the model's white lightmap texel,
+`1 · OverbrightScale` = 2. So the drawn static term was `min( 2, 4c )` against Valve's `pow( 2c, 2.2 )`. They cross
+only near byte 227; below that the port was brighter, and at the reference map's average byte, about 59, it was
+0.93 against 0.18 — five times too bright in linear, about twice on screen. That agrees with the measurement that
+first called props "too dark" (0.23 raw against lightmaps at 0.47 in display space): `0.47^2.2` is 0.19, the same
+light as `pow( 0.46, 2.2 )` = 0.18. A baked prop now matches the wall beside it.
+
+Fixed in `PropModels.FromVertexByte` (one place, both `.vhv` and CPU-lit bytes) and in the model shader, which takes
+the colour stream as the whole static term when one is bound (`ambientCube[1].w`, now written with or without a cube).
 
 *Interpolated:* the dlight flag test (`0xe`) is taken from the model draw's `0x1801b7a10`, because the
 enumerator calling `FUN_1801b5260` has no direct cross-reference to read.

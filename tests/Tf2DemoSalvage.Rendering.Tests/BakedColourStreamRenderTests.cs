@@ -72,6 +72,43 @@ public sealed class BakedColourStreamRenderTests
     }
 
     /// <remarks>
+    /// **The colour mesh IS the static light, decoded and nothing else.** `DoLighting` (`common_vs_fxc.h:870-874`) and
+    /// `PixelShaderDoLightingLinear` (`common_vertexlitgeneric_dx9.h:272`) take <c>GammaToLinear( colour · 2 )</c> as the
+    /// whole static term: no lightmap multiplies it. So a colour byte of 64 drawn over a white albedo with no cube
+    /// writes pow( 128 / 255, 2.2 ) = 0.2196 → 56 to the offscreen target, which stores the shader's output as it is.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_ABakedByteWithNoCube_WritesGammaToLinearOfTwiceIt()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (GameInstall.Root is not { } tf ||
+            !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With().Assets;
+        float term = PropModels.FromVertexByte(64);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawModelPose(
+            Face(), [new WorldBatch(0, 0, 6)], Camera(), Identity(), assets,
+            bothSides: true, debug: new DebugModes(DrawFlat: true), bakedColours: [.. System.Linq.Enumerable.Repeat(term, 18)]);
+
+        int expected = (int)System.MathF.Round(System.MathF.Pow(128f / 255f, 2.2f) * 255f);
+        expected.ShouldBe(56, "worked by hand");
+        target.PixelAt(32, 32).ShouldBe((expected, expected, expected));
+    }
+
+    /// <remarks>
     /// **B424 corrected: static plus dynamic, ADDED.** On DX9 the model draw keeps the colour mesh and hands the studio
     /// render the static-plus-dynamic flag (`engine.dll` `0x1800f1bd0`, `param_8 + 0x40`) with a lighting state of zero
     /// cube plus local lights (`FUN_1801ba590` flags 6). The shader sums them: `PixelShaderDoLightingLinear`,
@@ -125,8 +162,8 @@ public sealed class BakedColourStreamRenderTests
 
         both.Green.ShouldBeInRange(colours.Green - 1, colours.Green + 1, "the lamp adds no green");
 
-        // The offscreen target stores the shader's output as it is (0.1 of colour under the white texel's light of 2
-        // reads 51, 0.2 · 255), so the sum is a sum of bytes.
+        // The offscreen target stores the shader's output as it is (0.1 of colour reads 26, 0.1 · 255), so the sum is a
+        // sum of bytes.
         int predicted = colours.Red + lampOnly.Red;
         both.Red.ShouldBeInRange(predicted - 1, predicted + 1, "colours plus lamp");
     }
