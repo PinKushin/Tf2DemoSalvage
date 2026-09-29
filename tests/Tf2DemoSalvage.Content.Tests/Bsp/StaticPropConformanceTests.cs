@@ -135,6 +135,19 @@ public sealed class StaticPropConformanceTests
         latest.Offset("m_Skin").ShouldBe(BspStaticProps.SkinOffset);
     }
 
+    [TestCase("StaticPropLumpV4_t")]
+    [TestCase("StaticPropLumpV6_t")]
+    [TestCase("StaticPropLump_t")]
+    public void StaticProp_TheFadeDistances_AreAt36And40InEveryVersion(string version)
+    {
+        // `m_FadeMinDist` and `m_FadeMaxDist`, which `UnserializeModels` (`engine.dll` `0x180206590`)
+        // turns into the fade entry `FUN_180202c60` lerps across (B430). Against the reader's constants.
+        CLayout layout = Layout(version);
+
+        layout.Offset("m_FadeMinDist").ShouldBe(BspStaticProps.FadeMinimumOffset);
+        layout.Offset("m_FadeMaxDist").ShouldBe(BspStaticProps.FadeMaximumOffset);
+    }
+
     /// <summary>Adds a complaint when a field is not where every version should put it.</summary>
     private static void Check(
         string version, CLayout layout, string field, int expected, List<string> moved)

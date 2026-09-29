@@ -7664,6 +7664,32 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B430 — static props never faded with distance — FIXED 2026-09-28
+
+**Read from `engine.dll`.** `UnserializeModels` (`0x180206590`) gives a fade entry, at `mgr+0x78` (stride 0x10:
+`{ prop, min, max, scale }`), only to a prop whose lump flags carry `STATIC_PROP_FLAG_FADES` (0x1); min and max are
+stored squared unless `STATIC_PROP_SCREEN_SPACE_FADE` (0x20); scale is 255 when they are equal, else `255/(max−min)`
+(`255/(min−max)` for screen space). `ComputePropOpacity` (`0x180203030`, slot 5 of the `IStaticPropMgrClient` table at
+`0x1803b7100`) only STORES the view origin and the FOV factor (`mgr+0x9c..0xa8`); the per-prop work is `FUN_180202c60`:
+opaque when the factor is negative (`cl_leveloverview`), when `-makedevshots` is on, under pyrovision with a
+material-config flag, or with no entry; otherwise `d² = |(origin − view)·factor|²`, alpha 0 at `d² ≥ max`, 255 at
+`d² ≤ min` (or `min < 0`), else `clamp((int)((max − d²)·scale), 0, 255)`, written to `prop+0x3c`, then lowered to the
+minimum of the level and view screen fades (`modelinfo` `+0x110`/`+0x118`, with `m_flForcedFadeScale` at `prop+0x4c`).
+
+**Built:** `BspStaticProp.FadeMinimum`/`FadeMaximum` (lump 36/40, every version), `StaticPropFade.For` (the entry) and
+`.Alpha` (the distance branch), carried as `SceneProp.StaticFade` from `PropModels.StaticModel`; `EntityModelSet`
+feeds it into `FxBlend`'s `clientSideFade` in place of `EntityFade`, so a fading prop takes the entity path's render
+group (translucent below 255, dropped at 0). Measured from the placement origin, factor 1 (as `EntityFade`).
+
+**Census (`static-prop-fades` probe):** `cp_process_final` 237 of 1,631 props fade, `koth_harvest_final` 377 of 652,
+`cp_process_f12` 218 of 1,353; **0 screen-space** on all three, so that branch draws opaque (`ponytail:` in
+`StaticPropFade.Alpha`). The screen fades and `m_flForcedFadeScale` are not ported: `EntityFade` measured both screen
+fades disabled on every corpus map, and the scale reaches nothing else. Tests: `StaticPropFadeConformanceTests`
+(entry, lerp, factor, the wiring, and `koth_harvest_final`'s `lightbulb001` at 1,300 units → 132),
+`BspStaticPropLayoutTests.ReadPayload_FadeDistances_…`, `StaticPropConformanceTests.StaticProp_TheFadeDistances_…`.
+
+---
+
 ### B429 — an unbaked static prop was lit per frame; the engine lights it once on the CPU — FIXED 2026-09-28
 
 **Read from `engine.dll`** (full account: `docs/findings/65-an-unbaked-static-prop-is-lit-once.md`). `FUN_1800eac60`

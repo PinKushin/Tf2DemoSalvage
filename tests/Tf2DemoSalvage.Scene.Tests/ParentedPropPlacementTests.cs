@@ -191,6 +191,11 @@ public sealed class ParentedPropPlacementTests
                 // STATIC_PROP_USE_LIGHTING_ORIGIN has one, set in `PropModels.StaticModel`; null is
                 // "light at the illumination point", the true answer for every other site.
                 nameof(SceneProp.LightingOrigin),
+
+                // **`StaticFade` (B430)**: only a static prop flagged STATIC_PROP_FLAG_FADES has an
+                // entry, built in `PropModels.StaticModel`; an entity fades by its own
+                // `m_fadeMinDist`/`m_fadeMaxDist`, so null is its true answer.
+                nameof(SceneProp.StaticFade),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

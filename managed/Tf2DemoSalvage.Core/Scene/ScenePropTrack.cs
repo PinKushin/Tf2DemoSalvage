@@ -631,6 +631,7 @@ public readonly record struct ScenePose
 /// handle's lighting origin that <c>CStaticPropMgr::PrecacheLighting</c> (`0x180205b20`) builds the
 /// light cache from. Null everywhere else.
 /// </param>
+/// <param name="StaticFade">A static prop's distance fade entry (B430); null everywhere else.</param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -773,7 +774,12 @@ public sealed record SceneProp(
     (float X, float Y, float Z)? RagdollVelocity = null,
 
     // Appended, for the reason every parameter above says.
-    (float X, float Y, float Z)? LightingOrigin = null);
+    (float X, float Y, float Z)? LightingOrigin = null,
+
+    // **A static prop's fade entry, built at load as `UnserializeModels` builds it** (B430). Null for
+    // every entity, which fades by `m_fadeMinDist`/`m_fadeMaxDist` instead, and for a static prop
+    // without `STATIC_PROP_FLAG_FADES`.
+    StaticPropFade? StaticFade = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
