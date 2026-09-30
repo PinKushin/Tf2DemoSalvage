@@ -121,6 +121,47 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
+    /// **An entity whose own clock runs behind its arrival: every history settles before the first
+    /// stated pose stops being the answer.**
+    /// </summary>
+    /// <remarks>
+    /// `At` answers the first keyframe's pose until the target passes that keyframe's tick, without
+    /// asking any history. A sticky bomb on the 2026 pub POV arrived at tick 4237 and was restated at
+    /// 4239 stamped 4234, before its own arrival, so its origin history settled at 4242 while `At` went
+    /// on answering the first pose until 4245: stepped, it held 352 units from where a scrub put it (the
+    /// `sample-history` probe, entity 583). Here the entity arrives at 100 and restates itself at 102
+    /// stamped 95, and both clocks agree on 95, so the origin, the cycle and the pose parameters are
+    /// all settled from tick 103 while the answer moves at 108.
+    /// </remarks>
+    [Test]
+    public void PropsAt_SteppedWhileTheFirstPoseAnswersPastASettledHistory_MatchesAFreshTimelineEverywhere()
+    {
+        static List<ScenePropTrack> Corrected()
+        {
+            ScenePropTrack sticky = new(entityIndex: 1, "models/weapons/w_models/w_stickybomb.mdl");
+
+            sticky.Add(100, new ScenePose { X = 0f }, appliedAt: 100, animationAppliedAt: 95);
+            sticky.Add(102, new ScenePose { X = 64f }, appliedAt: 95, animationAppliedAt: 95);
+
+            return [sticky];
+        }
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(Corrected());
+
+        List<SceneProp> props = [];
+
+        for (double tick = 100d; tick <= 120d; tick += 0.5)
+        {
+            stepped.PropsAt(tick, props);
+
+            ShouldMatch(props, Fresh(Corrected, tick), $"at tick {tick}");
+        }
+
+        // The prediction, not only the agreement: past the first keyframe, the one live entry.
+        props.Single().Pose.X.ShouldBe(64f, "the restatement is the only entry the history still holds");
+    }
+
+    /// <summary>
     /// **A parent's interpolation turns on its children, so a child's update must reach it.**
     /// </summary>
     /// <remarks>
