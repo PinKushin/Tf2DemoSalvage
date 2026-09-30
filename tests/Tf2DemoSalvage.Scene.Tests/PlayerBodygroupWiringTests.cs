@@ -377,7 +377,7 @@ public sealed class PlayerBodygroupWiringTests
             playerClass == SpyClass ? "models/player/spy.mdl" : "models/player/scout.mdl";
 
         /// <inheritdoc/>
-        public string? WeaponSuffix(string? weaponClass, int? playerClass) => "PRIMARY";
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => "PRIMARY";
 
         /// <inheritdoc/>
         public bool Airwalks(int playerClass) => true;

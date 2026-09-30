@@ -37,14 +37,14 @@ public sealed class PlayerActivityStateTests
     private const float Still = 0f;
 
     [Test]
-    public void StandingStillOnTheGround_Idles()
+    public void For_StandingStillOnTheGround_Idles()
     {
         PlayerActivityState.For(OnGround, Still, waistDeep: false, alive: true)
             .ShouldBe(PlayerActivity.StandIdle);
     }
 
     [Test]
-    public void MovingOnTheGround_Runs()
+    public void For_MovingOnTheGround_Runs()
     {
         // **There is no walk.** HandleMoving carries the comment "In TF we run all the time now"
         // and sets ACT_MP_RUN for any speed over the threshold, so a slow player runs slowly rather
@@ -57,7 +57,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void TheMovingThreshold_IsHalfAUnitASecond()
+    public void For_AtHalfAUnitASecond_StillStands()
     {
         // MOVING_MINIMUM_SPEED, and strictly greater — the engine's test is `>`, so exactly the
         // threshold is still standing. Interpolated positions jitter by tiny amounts and this is
@@ -70,7 +70,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void Crouched_IdlesOrWalks()
+    public void For_Crouched_IdlesOrWalksBySpeed()
     {
         PlayerActivityState.For(OnGround | Ducking, Still, waistDeep: false, alive: true)
             .ShouldBe(PlayerActivity.CrouchIdle);
@@ -80,7 +80,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_Crouching_BeatsRunning()
+    public void For_CrouchingWhileMoving_IsNotARun()
     {
         // **The precedence, not the mapping.** HandleDucking runs before HandleMoving and returns
         // true, so a moving crouched player never reaches the running case. An implementation that
@@ -123,7 +123,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_AJump_StartsBeforeItFloats()
+    public void For_AJumpUpToHalfASecondOld_IsThePushOff()
     {
         // **Half a second, strictly** — `gpGlobals->curtime - m_flJumpStartTime > 0.5` in
         // CTFPlayerAnimState::HandleJumping, so exactly the threshold is still the push-off. Both
@@ -139,7 +139,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_AirWalking_BeatsBothJumpPhases()
+    public void For_AirWalkingAtEitherJumpPhase_AirWalks()
     {
         // **HandleJumping checks the air-walk BEFORE the jump and it supersedes it**, so a
         // fast-rising player runs in the air rather than tucking — whatever the jump clock says.
@@ -154,7 +154,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_Ducking_CancelsTheAirWalk()
+    public void For_AnAirWalkWhileDucking_IsThePushOff()
     {
         // `( bValidAirWalkClass && ( vecVelocity.z > 300.0f || m_bInAirWalk ) && !bInDuck )` — a
         // crouched rocket jump tucks rather than running in the air, which is what a crouch-jump
@@ -165,7 +165,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_WithoutTheAirWalk_TheJumpPhasesStillApply()
+    public void For_AnAirborneJumpWithoutTheAirWalk_IsThePushOff()
     {
         // The control for the two above: the air-walk must not swallow every airborne case. This
         // is the same input with the flag cleared, and it has to answer differently.
@@ -175,27 +175,24 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_TheAirWalk_HasItsOwnName()
+    public void IdealName_TheAirWalk_IsItsOwnActivity()
     {
-        PlayerActivityState.NameOf(PlayerActivity.Airwalk).ShouldBe("ACT_MP_AIRWALK_PRIMARY");
+        PlayerActivityState.IdealName(PlayerActivity.Airwalk).ShouldBe("ACT_MP_AIRWALK");
     }
 
     [Test]
-    public void PlayerActivity_TheJumpPhases_HaveTheirOwnNames()
+    public void IdealName_TheJumpPhases_AreTwoActivities()
     {
         // The land is deliberately not here: ACT_MP_JUMP_LAND is started with
         // RestartGesture( GESTURE_SLOT_JUMP, ... ), so it is a layered gesture over whatever the
         // body is doing rather than a body activity. Returning it as one would replace the run a
         // player lands into.
-        PlayerActivityState.NameOf(PlayerActivity.JumpStart).ShouldBe("ACT_MP_JUMP_START_PRIMARY");
-        PlayerActivityState.NameOf(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT_PRIMARY");
-
-        PlayerActivityState.NameOf(PlayerActivity.JumpStart, "MELEE")
-            .ShouldBe("ACT_MP_JUMP_START_MELEE");
+        PlayerActivityState.IdealName(PlayerActivity.JumpStart).ShouldBe("ACT_MP_JUMP_START");
+        PlayerActivityState.IdealName(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT");
     }
 
     [Test]
-    public void PlayerActivity_Water_StopsTheJump()
+    public void For_JumpingIntoWaistDeepWater_Swims()
     {
         // HandleJumping clears the jump the moment the water reaches the waist, before it can
         // return true. So a player who leaps into water swims rather than falling with their legs
@@ -208,7 +205,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_TheWaist_IsWhereSwimmingStarts()
+    public void For_WaterBelowTheWaist_IsStillAJump()
     {
         // **WL_Waist is 2**, from Valve's own comment at player.cpp:1961 — 0 dry, 1 feet, 2 waist,
         // 3 eyes — and both HandleJumping and HandleSwimming test `>= WL_Waist`. Feet-deep water is
@@ -224,7 +221,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_Crouching_BeatsSwimming()
+    public void For_CrouchingInWaistDeepWater_CrouchIdles()
     {
         // HandleDucking is asked before HandleSwimming. Ordering these the other way is the kind of
         // thing that looks right in shallow water and wrong in deep.
@@ -233,7 +230,7 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void TheDeadDie_WhateverTheyWereDoing()
+    public void For_TheDeadWhateverTheyWereDoing_Die()
     {
         // A corpse is not running, and its position keeps changing as the ragdoll settles — so the
         // speed test would otherwise have it sprinting along the floor.
@@ -256,35 +253,32 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void PlayerActivity_EveryActivity_HasTheEnginesName()
+    public void IdealName_EveryActivity_IsCalcMainActivitysOwnName()
     {
-        // **The name is the lookup.** studio.h says mstudioseqdesc_t.activity is "initialized at
-        // loadtime to game DLL values", so a model file stores the activity's NAME rather than its
-        // number — matching on the name is how a sequence is found, and a typo here resolves to
-        // nothing and freezes the model in its reference pose.
-        // **Weapon-suffixed, because that is what a model actually ships.** The bare ACT_MP_RUN that
-        // CalcMainActivity returns appears in no model at all; TranslateActivity adds the slot. That
-        // is measured against the scout in SequenceActivityTests rather than assumed here.
+        // **The engine's own answer, before any weapon has touched it** — `idealActivity` in
+        // `CMultiPlayerAnimState::ComputeMainSequence` (`multiplayer_animstate.cpp:1168`), which
+        // `TranslateActivity` then hands to the held weapon's table. No model ships these names:
+        // the table turns ACT_MP_STAND_IDLE into ACT_MP_STAND_PRIMARY, ACT_MP_CROUCH_IDLE into
+        // ACT_MP_CROUCH_PRIMARY, and ACT_MP_RUN into whatever the weapon's role runs with (B105) —
+        // which is why the name is the table's key and not a string to paste a suffix onto.
         //
-        // The naming is also irregular, so every one of these is taken from the model rather than
-        // composed from the enum: standing is STAND and not STAND_IDLE, crouching idle is CROUCH
-        // with no IDLE, and a jump has no single name — start, float and land are three activities.
-        PlayerActivityState.NameOf(PlayerActivity.StandIdle).ShouldBe("ACT_MP_STAND_PRIMARY");
-        PlayerActivityState.NameOf(PlayerActivity.Run).ShouldBe("ACT_MP_RUN_PRIMARY");
-        PlayerActivityState.NameOf(PlayerActivity.CrouchIdle).ShouldBe("ACT_MP_CROUCH_PRIMARY");
-        PlayerActivityState.NameOf(PlayerActivity.CrouchWalk).ShouldBe("ACT_MP_CROUCHWALK_PRIMARY");
-        PlayerActivityState.NameOf(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT_PRIMARY");
-
-        // Another slot, to show the suffix is a parameter rather than baked in.
-        PlayerActivityState.NameOf(PlayerActivity.Run, "MELEE").ShouldBe("ACT_MP_RUN_MELEE");
+        // Both swims are ACT_MP_SWIM: HandleSwimming sets the one activity whether or not the
+        // player is moving, and the difference is the move_x pose parameter.
+        PlayerActivityState.IdealName(PlayerActivity.StandIdle).ShouldBe("ACT_MP_STAND_IDLE");
+        PlayerActivityState.IdealName(PlayerActivity.Run).ShouldBe("ACT_MP_RUN");
+        PlayerActivityState.IdealName(PlayerActivity.CrouchIdle).ShouldBe("ACT_MP_CROUCH_IDLE");
+        PlayerActivityState.IdealName(PlayerActivity.CrouchWalk).ShouldBe("ACT_MP_CROUCHWALK");
+        PlayerActivityState.IdealName(PlayerActivity.SwimIdle).ShouldBe("ACT_MP_SWIM");
+        PlayerActivityState.IdealName(PlayerActivity.Swim).ShouldBe("ACT_MP_SWIM");
+        PlayerActivityState.IdealName(PlayerActivity.Die).ShouldBe("ACT_DIESIMPLE");
     }
 
     [Test]
-    public void PlayerActivity_AnUnknownActivity_Throws()
+    public void IdealName_AnUnknownActivity_Throws()
     {
         // Rather than defaulting, because a wrong name resolves to no sequence and a model frozen
         // in its reference pose reads as a model fault rather than a lookup one.
         Should.Throw<ArgumentOutOfRangeException>(
-            () => PlayerActivityState.NameOf((PlayerActivity)999));
+            () => PlayerActivityState.IdealName((PlayerActivity)999));
     }
 }

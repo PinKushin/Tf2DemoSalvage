@@ -20,7 +20,7 @@ internal sealed class StubAppearance : IPlayerAppearance
     public string? ModelOf(int playerClass) => "models/player/scout.mdl";
 
     /// <inheritdoc/>
-    public string? WeaponSuffix(string? weaponClass, int? playerClass) => "PRIMARY";
+    public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => "PRIMARY";
 
     /// <inheritdoc/>
     public bool Airwalks(int playerClass) => true;

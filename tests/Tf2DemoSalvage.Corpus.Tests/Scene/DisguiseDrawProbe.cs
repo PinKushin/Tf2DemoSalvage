@@ -243,7 +243,7 @@ public sealed class DisguiseDrawProbe
         public string? ModelOf(int playerClass) =>
             $"models/player/class{playerClass.ToString(CultureInfo.InvariantCulture)}.mdl";
 
-        public string? WeaponSuffix(string? weaponClass, int? playerClass) => null;
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => null;
 
         public bool Airwalks(int playerClass) => true;
 
