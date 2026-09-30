@@ -20,6 +20,12 @@ database on first `didOpen`. So: `start_lsp(root_dir=F:/src/source-sdk-2013/src)
 `RetireExpiredDeathNotices` found both TF and HL2MP versions. Query a distinctive method when a class
 misses.
 
+**References come back as a count, not as places** (2026-09-29, B105): `find_references` prints `ref_N` nodes
+with no file or line, `callers` answers only from OPEN files whose AST builds (tf_weaponbase.cpp's does not:
+"Unknown type name 'CEconItemView'"), and `rename_symbol` dry-run lists only the declaration and definition.
+`find_symbol` with `detail_level: "hover"` DOES print each definition's file and 0-based line — so trace a
+call path top-down from its entry point by definitions, and say which call sites stayed unlocated.
+
 **Closed code isn't there, correctly empty**: `CScheme`/`CSchemeManager`, vguimatsurface, engine and
 materialsystem are Ghidra work under `D:\ghidra-proj` (`tf2vgui2`, `tf2enginex64`,
 `tf2materialsystem`).

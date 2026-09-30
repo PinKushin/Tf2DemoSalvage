@@ -6785,8 +6785,17 @@ carries the item index held each launcher in the other's stance. Measured with t
 the fix, every row "drawn" equal to "script": z1800 45,638 player-ticks on an overriding item (45 player+item
 pairs: launchers 19/20/206/207/904/971/1150/1151/265, Necro Smasher, Sharp Dresser, Eyelander, pan, FaN…);
 the 2011 viaduct POV and STV 1,348 and 1,201; the 2013 badlands POV 814, foundry STV 57; the 2007-2008
-specimens none (no item index before 2009) and the 2009 POV none (its items name no slot). Every lcor match
-with a demoman carries tens of thousands (f12 2026-08-07: 187,752 of 1,040,858).
+specimens none (no item index before 2009) and the 2009 POV none (its items name no slot). The lcor matches
+with a demoman carry from 11,030 such player-ticks (2014 badlands) to 278,900 (snakewater 2026-08-09); f12
+2026-08-07 carries 187,752 of 1,040,858. Pass Time recordings hold the passtime gun for up to 20,329 ticks
+(pass_coastal) — its own table is unported, so it keeps its script's PRIMARY, as before. Across all 55
+decodable demos: 4,537,598 player-ticks on an item that names a slot, 3,915,504 of them a slot that changes the
+table, and 3,779,161 of those (97%) the demoman's launchers.
+
+After the fix, the same probe: every overriding row draws the item's table — z1800 36,556 player-ticks move,
+f12 187,535 (the Half-Zatoichi's 217 leave the count: its slot now reads -1, and `CTFKatana` makes it ITEM1). The
+serial check moves 552 player-ticks of `tf2-2026-pub-pov-clean` from "holding whatever took the slot" to
+"holding nothing", as `GetActiveWeapon()` would; z1800 and f12 are unchanged by it.
 
 **Three things beyond the lookup had to change:**
 

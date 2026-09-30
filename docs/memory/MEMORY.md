@@ -151,3 +151,4 @@
 - [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) — no dlight for explosions/muzzle/fire; only the recorder's Dragon's Fury (B425).
 - [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) — events vanish; use `PacketAfter`.
 - [A handle resolves through its serial](a-handle-resolves-through-its-serial.md) — `EntityStateTable.Resolve`, never slot alone.
+- [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — an item's own `""` hides its prefab's; opt in per key (B105).
