@@ -9387,3 +9387,18 @@ B433 offered four options after measuring that most of z1800's logged 12 GB heap
 after load, a keyframe timeline, dropping model source frames, and relabelling the log line. The assistant recommended
 the first and the last, because they keep a seek a lookup (D181). The owner: *"Sure sounds good, good job."* Keyframes
 and dropping source frames are not built; they stay filed in B433.
+
+## D200 — decode comes first: every demo in the pool decodes and round-trips at 100% (2026-09-30)
+
+The first full superset (B439) found two protocol-15 SourceTV demos misread from their first bytes (B440), a Speex
+voice layout not read (B441) and entity removal lists that do not re-encode (B443), all hidden for weeks by gcor-only
+gates, a sweep that dropped undecodable demos silently, and per-demo loops that stop at the first bad demo. The owner:
+*"Ok the demo decode is the biggest fix right now. I need the decode to be perfect before we fuck everything up by not
+having it decoding and converted to quake script at 100%. Fuck I really thought the parser was already completed but I
+guess not."*
+
+**So:** decode takes priority over other work until the whole pool — not only gcor and lcor, but the D81 pool:
+`D:/tf2-demo-archive` (ETF2L seasons 29/30/32, ESEA seasons 29-31, pin), the game installs' own recordings, and
+`tf2-comp-archive`, about 460 demos — decodes completely and its Quake-style trace compiles back to the same bytes. The
+measure is a census over every demo through the production path, with each failure a regression specimen and a
+test. "100%" is a claim about a named set of demos, stated with its count; it is re-measured when the pool grows.
