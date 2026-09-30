@@ -3287,6 +3287,45 @@ samples, and a community report ties an incorrect setting to a viewmodel reload 
 the bug could as easily be a viewmodel cycle problem as a view interpolation one. Do not build on
 it without checking.
 
+> **Read from the disassembly, 2026-09-30 — ready to port; no longer "must be measured".** In `engine.dll` (x64,
+> project `tf2enginex64`), `CDemoPlayer::InterpolateViewpoint` is `FUN_180072180` (CDemoPlayer vtable slot 18,
+> +0x90). `SCR_UpdateScreen` (`0x1800e8b40`) calls it every rendered frame while playing back, immediately BEFORE
+> `ClientDLL_FrameStageNotify(5)` (FRAME_RENDER_START), so its output is what that frame's animation reads.
+>
+> - **Target tick** = `GetPlaybackTick()` (+0x18). Only when `cl.m_nMaxClients == 1` (`DAT_180536be4`) is it
+>   pulled back: by 1, or by `1 + (int)(GetClientInterpAmount() / TICK_INTERVAL + 0.5)` when
+>   `demo_legacy_rollback` (default "1") is nonzero.
+> - **Frames**: `CDemoPlayer::ReadPacket` (`FUN_180072ee0`) sets `m_bInterpolateView` (+0x63c) from
+>   `ParseAheadForInterval(tick, 8)` (`FUN_180072af0`) on every packet. That keeps a list (+0x5d0, count +0x5e0,
+>   0x54-byte entries: tick, `democmdinfo_t`, file position) from `tick - 32` to the first packet more than 8 ticks
+>   ahead. It returns false (no interpolation) when `dem_stop` falls inside the window.
+>   `FUN_180071fd0` picks `prev.tick <= target < next.tick`. If an `FDEMO_NOINTERP` frame lies in
+>   `(lastTarget(+0x554), target]`, it takes the pair ending at that frame instead.
+> - **Fraction** = `((target - prev.tick) * TICK_INTERVAL + host_remainder(DAT_18053f47c)) / ((next.tick -
+>   prev.tick) * TICK_INTERVAL)`, clamped to [0, 1].
+> - **Snap** (use the last-read packet's info as-is, and clear `m_bResetInterpolation` +0x63d) when any of these hold:
+>   - `|next.GetViewOrigin() - current.GetViewOrigin()| / dt > demo_interplimit` (default "4000");
+>   - the largest per-component `|wrap180(anglemod(next.local[i]) - anglemod(prev.local[i]))| / dt > demo_avellimit`
+>     (default "2000"), computed on the LOCAL view angles;
+>   - the reset flag is set (`0x180073990` sets it; its callers are unread).
+> - **Otherwise**: the origin lerps. `viewAngles` and `localViewAngles` each go through `AngleQuaternion`,
+>   `QuaternionSlerp` (align, then no-align slerp: `FUN_180278c60`) and `QuaternionAngles`. Every
+>   `Get*()` honours `FDEMO_USE_ORIGIN2`/`FDEMO_USE_ANGLES2`.
+>   `demo_interpolateview` defaults to "1"; when it is 0, or `m_bInterpolateView` is false, the current info is used.
+> - **Output** goes through `g_pClientSidePrediction` (`VClientPrediction001`; `iprediction.h` slots +0x48/+0x58/+0x68):
+>   `SetViewOrigin(origin)` is the local player's origin, with origin history reset (`prediction.cpp:1837-1847`);
+>   `SetViewAngles(viewAngles)`; and `SetLocalViewAngles(localViewAngles)`, which sets `pl.v_angle`.
+>
+> **This is also B442's remaining divergence.** For the local player, `C_TFPlayer::UpdateClientSideAnimation`
+> animates from `EyeAngles()` (`c_tf_player.cpp:4279-4284`). For the local player outside killcam, that is
+> `C_BasePlayer::EyeAngles()` = `pl.v_angle` (`c_tf_player.cpp:7280-7290`, `baseplayer_shared.cpp:303-321`),
+> which is the interpolated `localViewAngles` above. `EstimateAbsVelocity` returns his networked velocity
+> (`c_baseentity.cpp:5854-5858`). One port (a single `InterpolateViewpoint` owner, per the rule below) serves
+> three consumers: the POV camera (origin + `viewAngles`), the recorder's drawn origin, and the recorder's
+> animation eye angles (`localViewAngles`, which `RecordedView` does not yet parse). Still unread: whether
+> `m_vecVelocity` has interpolation history on the client. `C_BasePlayer`'s constructor adds none
+> (`c_baseplayer.cpp:418-459`); check `C_BaseEntity`'s. *Evidence class: disassembly and published source.*
+
 **Shape it must take, and this is the owner's standing rule rather than a preference.** One place
 turns recorded view samples into a camera pose, with interpolation as a flag on it. Not view logic
 in the POV path and again in the free-camera path: anything copied between two files goes out of
