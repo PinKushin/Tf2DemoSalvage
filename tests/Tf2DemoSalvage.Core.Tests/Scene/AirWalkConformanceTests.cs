@@ -102,7 +102,7 @@ public sealed class AirWalkConformanceTests
     [Test]
     public void DoAnimationEvent_TheDoubleJump_StartsTheJumpAndForcesTheAirWalkOff()
     {
-        // :1181-1203 — a double jump sets m_bJumping only when it is not already set, then clears the
+        // :1177-1203 — a double jump sets m_bJumping only when it is not already set, then clears the
         // latch unconditionally, then picks the loser's gesture or the ordinary one.
         Text(TfAnimState).ShouldMatch(
             @"(?s)case\s+PLAYERANIMEVENT_DOUBLEJUMP:.{0,200}?if\s*\(\s*!m_bJumping\s*\)\s*\{\s*m_bJumping\s*=\s*true;" +

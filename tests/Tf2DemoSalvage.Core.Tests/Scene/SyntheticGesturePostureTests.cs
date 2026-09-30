@@ -48,6 +48,12 @@ public sealed class SyntheticGesturePostureTests
     /// <summary>`GR_STATE_RND_RUNNING` (:60).</summary>
     private const int RoundRunning = 4;
 
+    /// <summary>`m_nMatchGroupType` with no match group: `k_eTFMatchGroup_Invalid`.</summary>
+    private const int NoMatchGroup = -1;
+
+    /// <summary>`m_nMatchGroupType` of a ladder 6v6 match, whose description is `MATCH_TYPE_COMPETITIVE`.</summary>
+    private const int LadderMatchGroup = 2;
+
     [Test]
     public void Build_AReloadMidAirWalk_TakesTheAirwalkActivity()
     {
@@ -177,19 +183,19 @@ public sealed class SyntheticGesturePostureTests
 
     /// <remarks>
     /// **A grappling hook sets the latch without any rise** — `GetGrapplingHookTarget() != NULL` stands beside
-    /// the velocity in `:1446`. The target has to be an entity the client holds, which the game rules entity is.
+    /// the velocity in `:1446`. The target has to be an entity the client holds, which the game rules entity is;
+    /// a handle naming a slot the client holds nothing in is a null `Get()`, and no hook at all.
     /// </remarks>
-    [TestCase(true, "ACT_MP_RELOAD_AIRWALK")]
-    [TestCase(false, "ACT_MP_RELOAD_STAND")]
-    public void Build_AGrappledPlayerRisingSlowly_AirWalksOnlyWhileHooked(bool hooked, string expected)
+    [TestCase(SyntheticPlayer.GestureRulesEntityIndex, "ACT_MP_RELOAD_AIRWALK")]
+    [TestCase(SyntheticPlayer.GestureRulesEntityIndex + 1, "ACT_MP_RELOAD_STAND")]
+    [TestCase(null, "ACT_MP_RELOAD_STAND")]
+    public void Build_AGrappledPlayerRisingSlowly_AirWalksOnlyWhileHooked(int? target, string expected)
     {
-        int? target = hooked ? SyntheticPlayer.GestureRulesEntityIndex : null;
-
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Soldier,
-            (RoundRunning, SceneTeams.Unassigned),
+            (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
             alwaysLoser: false,
             At(100, 0f, OnGround),
             At(101, 1f, InAir) with { GrapplingHookTarget = target },
@@ -211,12 +217,51 @@ public sealed class SyntheticGesturePostureTests
             Interval,
             SceneTeams.Red,
             Scout,
-            (TeamWin, winningTeam),
+            (TeamWin, winningTeam, NoMatchGroup),
             alwaysLoser: false,
             At(100, 0f, OnGround),
             At(101, 4f, InAir) with { Events = [PlayerAnimEvent.DoubleJump] }));
 
         Gesture(timeline, 101, GestureSlot.Jump).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **"No loser mode in competitive"** (`tf_player_shared.cpp:13663`), read by the timeline from the game rules'
+    /// `m_nMatchGroupType`: in a ladder match the losing team's air dash is the ordinary one.
+    /// </remarks>
+    [TestCase(NoMatchGroup, "ACT_MP_DOUBLEJUMP_LOSERSTATE")]
+    [TestCase(LadderMatchGroup, "ACT_MP_DOUBLEJUMP")]
+    public void Build_ADoubleJumpDuringACompetitiveHumiliation_IsTheOrdinaryOne(int matchGroup, string expected)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+            Interval,
+            SceneTeams.Red,
+            Scout,
+            (TeamWin, SceneTeams.Blu, matchGroup),
+            alwaysLoser: false,
+            At(100, 0f, OnGround),
+            At(101, 4f, InAir) with { Events = [PlayerAnimEvent.DoubleJump] }));
+
+        Gesture(timeline, 101, GestureSlot.Jump).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **Waist-deep water clears the latch** (`tf_playeranimstate.cpp:1455-1458`), read by the timeline from
+    /// `m_nWaterLevel`; water at the feet does not, which is the control on the threshold.
+    /// </remarks>
+    [TestCase(2, "ACT_MP_RELOAD_STAND")]
+    [TestCase(1, "ACT_MP_RELOAD_AIRWALK")]
+    public void Build_AnAirWalkIntoWater_ClearsOnlyAtTheWaist(int waterLevel, string expected)
+    {
+        DemoTimeline timeline = Build(
+            Soldier,
+            At(100, 0f, OnGround),
+            At(101, 6f, InAir),
+            At(102, 8f, InAir) with { WaterLevel = waterLevel },
+            At(103, 9f, InAir),
+            At(104, 10f, InAir) with { Events = [PlayerAnimEvent.Reload] });
+
+        Reload(timeline, 104).ActivityName.ShouldBe(expected);
     }
 
     /// <remarks>
@@ -232,7 +277,7 @@ public sealed class SyntheticGesturePostureTests
             Interval,
             SceneTeams.Red,
             Scout,
-            (RoundRunning, SceneTeams.Unassigned),
+            (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
             alwaysLoser,
             At(100, 0f, OnGround),
             At(101, 4f, InAir) with { Events = [PlayerAnimEvent.DoubleJump] }));

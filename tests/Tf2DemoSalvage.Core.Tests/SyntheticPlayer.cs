@@ -122,7 +122,9 @@ internal static class SyntheticPlayer
             ]),
             new SendTable("DT_TFPlayer", NeedsDecoder: true,
             [
-                Int("m_nWaterLevel", bits: 2),
+                // Unsigned, as `SendPropInt( SENDINFO( m_nWaterLevel ), 2, SPROP_UNSIGNED )` sends it (tf_player.cpp:792).
+                // Declared signed it read waist deep, 2, back as -2, which no fixture noticed until one sent it (B112).
+                UnsignedInt("m_nWaterLevel", bits: 2),
                 Int("m_iTeamNum", bits: 3),
 
                 // **The three per-BONE scales** (B312), on `DT_TFPlayer` exactly as
@@ -381,7 +383,10 @@ internal static class SyntheticPlayer
     /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
     /// <param name="team">The player's <c>m_iTeamNum</c>.</param>
     /// <param name="playerClass">The player's <c>m_iClass</c>.</param>
-    /// <param name="rules"><c>m_iRoundState</c> and <c>m_iWinningTeam</c>, or null for a demo with no game rules.</param>
+    /// <param name="rules">
+    /// <c>m_iRoundState</c>, <c>m_iWinningTeam</c> and <c>m_nMatchGroupType</c> (-1 for none), or null for a demo with
+    /// no game rules.
+    /// </param>
     /// <param name="alwaysLoser">Whether the server sends <c>tf_always_loser 1</c> at signon.</param>
     /// <param name="snapshots">The snapshots, in tick order.</param>
     /// <returns>A demo's bytes.</returns>
@@ -397,7 +402,7 @@ internal static class SyntheticPlayer
         float intervalPerTick,
         int team,
         int playerClass,
-        (int RoundState, int WinningTeam)? rules,
+        (int RoundState, int WinningTeam, int MatchGroup)? rules,
         bool alwaysLoser,
         params GestureSnapshot[] snapshots)
     {
@@ -452,6 +457,7 @@ internal static class SyntheticPlayer
                     {
                         ["m_iRoundState"] = PropertyValue.FromInt(round.RoundState),
                         ["m_iWinningTeam"] = PropertyValue.FromInt(round.WinningTeam),
+                        ["m_nMatchGroupType"] = PropertyValue.FromInt(round.MatchGroup),
                     }) with { SerialNumber = 1 });
             }
 
@@ -572,9 +578,13 @@ internal static class SyntheticPlayer
             Int("m_iRoundState", bits: 5),
             Int("m_iWinningTeam", bits: 8),
         ]));
+        // `SendPropInt( SENDINFO( m_nMatchGroupType ) )` (tf_gamerules.cpp:1536): the default width, 32 bits and
+        // signed, so "no match group", -1, travels as itself.
+        tables.Add(new SendTable("DT_TFGameRules", NeedsDecoder: true, [Int("m_nMatchGroupType", bits: 32)]));
         tables.Add(new SendTable("DT_TFGameRulesProxy", NeedsDecoder: true,
         [
             Table("teamplayroundbased_gamerules_data", "DT_TeamplayRoundBasedRules"),
+            Table("tf_gamerules_data", "DT_TFGameRules"),
         ]));
         tables.Add(new SendTable("DT_TEPlayerAnimEvent", NeedsDecoder: true,
         [

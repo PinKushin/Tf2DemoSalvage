@@ -447,7 +447,7 @@ public sealed class PlayerGestureFeedTests
     }
 
     /// <remarks>
-    /// **A double jump is a jump when none is in force** (`:1185-1191`): `if ( !m_bJumping )` it sets the jump
+    /// **A double jump is a jump when none is in force** (`:1184-1190`): `if ( !m_bJumping )` it sets the jump
     /// and its start time, so a scout who walks off a ledge and air-dashes plays the jump phases from the dash.
     /// And it leaves a jump already in force alone, which is the other half of the same `if`.
     /// </remarks>
