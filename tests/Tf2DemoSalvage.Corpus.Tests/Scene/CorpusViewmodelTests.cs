@@ -84,7 +84,7 @@ public sealed class CorpusViewmodelTests
         // populates it.
         List<string> found = [];
 
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 

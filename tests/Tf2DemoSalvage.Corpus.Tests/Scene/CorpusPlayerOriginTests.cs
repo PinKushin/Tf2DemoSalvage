@@ -77,6 +77,7 @@ public sealed class CorpusPlayerOriginTests
         int sampled = 0;
 
         IReadOnlyList<string> available = Corpus.FilesWithSchema();
+        List<string> present = [];
 
         foreach (string fragment in Sampled)
         {
@@ -92,11 +93,17 @@ public sealed class CorpusPlayerOriginTests
                 continue;
             }
 
+            present.Add(path);
+        }
+
+        // In the order that joins the other sweeps' timelines rather than building its own (B439).
+        foreach (string path in TimelineCache.WarmFirst(present))
+        {
             DemoTimeline? timeline = TryTimeline(path);
 
             if (timeline is null)
             {
-                TestContext.Out.WriteLine($"unreadable: {fragment}");
+                TestContext.Out.WriteLine($"unreadable: {Path.GetFileName(path)}");
                 continue;
             }
 

@@ -26,7 +26,7 @@ public sealed class AttachmentUseTests
         int demosWithAny = 0;
         List<string> lines = [];
 
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 

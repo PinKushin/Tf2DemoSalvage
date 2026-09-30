@@ -115,8 +115,8 @@ public sealed class LruCacheTests
         Counter builds = new();
         LruCache<string, object> cache = new(1, key =>
         {
-            builds.Build(key);
-            return key == "a" ? gate.Hold() : new object();
+            object built = builds.Build(key);
+            return key == "a" ? gate.Hold() : built;
         });
 
         object? firstA = null;

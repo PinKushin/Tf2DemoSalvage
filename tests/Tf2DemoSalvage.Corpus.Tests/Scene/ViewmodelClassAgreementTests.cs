@@ -53,7 +53,7 @@ public sealed class ViewmodelClassAgreementTests
         // kind of change that could do it by filtering out one demo entirely.
         HashSet<string> compared = [];
 
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 

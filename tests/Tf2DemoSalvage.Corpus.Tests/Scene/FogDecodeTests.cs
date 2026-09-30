@@ -35,11 +35,16 @@ public sealed class FogDecodeTests
     [Test]
     public void Fog_AcrossTheCorpus_IsDecodedFromEveryDemo()
     {
-        List<string> paths = [.. Corpus.FilesWithSchema()];
-        List<DemoTimeline> timelines = [.. paths.Select(TimelineCache.For)];
+        // **Each demo is read down to its numbers and let go** (B439). This used to hold every
+        // timeline in one list, which with the local corpus present is tens of gigabytes at once
+        // whatever the cache keeps.
+        List<(int Properties, int Samples)> fog = [];
 
-        foreach ((string path, DemoTimeline timeline) in paths.Zip(timelines))
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
+            DemoTimeline timeline = TimelineCache.For(path);
+            fog.Add((timeline.FogControllerProperties, timeline.FogSamples.Count));
+
             TestContext.Out.WriteLine(
                 $"{Path.GetFileName(path)}: {timeline.FogControllersSeen} sightings, " +
                 $"{timeline.FogControllerProperties} properties, " +
@@ -49,11 +54,10 @@ public sealed class FogDecodeTests
         // **A controller holds fifteen properties, not "some".** That is the count its send table
         // declares and the count a trace of any corpus demo prints, so a merge that dropped one
         // would show here rather than as a value quietly taking its default.
-        timelines.Select(timeline => timeline.FogControllerProperties).Distinct()
-            .ShouldBe([15]);
+        fog.Select(demo => demo.Properties).Distinct().ShouldBe([15]);
 
         // Every demo, every era: protocols 11 through 24 all carry a fog controller and all decode.
-        timelines.Count(timeline => timeline.FogSamples.Count > 0).ShouldBe(timelines.Count);
+        fog.Count(demo => demo.Samples > 0).ShouldBe(fog.Count);
     }
 
     [Test]

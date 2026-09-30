@@ -22,7 +22,7 @@ public sealed class DemoTimelinePropsTests
     [Test]
     public void Build_FindsModelsOnEveryEra()
     {
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 
@@ -70,7 +70,7 @@ public sealed class DemoTimelinePropsTests
         // at all; afterwards it holds model index 1 — `maps/<name>.bsp` — and became a prop track
         // covering the whole map. C_BaseEntity::ShouldDraw ends `&& (index != 0)`, at
         // c_baseentity.cpp:1450, and that is the rule this checks.
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 
@@ -94,7 +94,7 @@ public sealed class DemoTimelinePropsTests
         // on an arithmetic argument; this is the check that the argument holds on real data rather
         // than only on paper. If entities re-sent changing poses constantly the two would converge
         // and the design would be wrong.
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 

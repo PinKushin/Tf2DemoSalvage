@@ -7883,6 +7883,72 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B439 — the corpus suite kept every demo's timeline, and the full superset stopped fitting in memory — FIXED 2026-09-30
+
+**Found by B438's superset run.** `TimelineCache` (Corpus.Tests) kept each demo's timeline for the
+life of the run. With all 49 lcor demos present the corpus host held 39 GB private on this 32 GB
+machine 43 minutes in, and was stopped — so the full superset, which a decode change needs, could not
+be run at all.
+
+**Filed on a premise that was wrong by seven times.** The largest timeline was taken to be z1800's
+635 MB (B433). z1800 is a 9 MB gcor demo; lcor's run to 97 MB, and `timeline-heap` measures their
+timelines at forty to seventy-five times the file — 4,692 MB for the largest, on the order of 80 GB for the
+local corpus (`docs/verification/README.md`, "One demo's timeline"). A count sized on z1800 would have
+been a count of 4.7 GB slots.
+
+**A bounded cache alone was not enough, because of how the suite asks.** Twelve tests in the gate walk
+every demo, and they do not start together: in the last gcor run with three lcor demos (`corpus.trx`,
+2026-09-30 06:48) five began within 6 s of the run's start and travelled as one — each waiting on the
+same build — and the other seven began 111 to 140 s later. With a small cap and the order
+`FilesWithSchema` gives, a late sweep rebuilds every timeline the first ones have passed, one more pass
+for every group that starts late. And one of the twelve, `Fog_AcrossTheCorpus_IsDecodedFromEveryDemo`,
+held every timeline in one list, which no cache can bound.
+
+**The three options filed, weighed:**
+- *LRU with a small cap* bounds what the cache keeps; on its own it multiplies the builds above.
+- *Scoped by fixture*: every sweeping class builds every demo itself — more builds and more copies.
+- *Ordering the tests by demo*: NUnit cannot order across fixtures under `ParallelScope.All`, so it is
+  done by the order each sweep asks in instead. Taken, with the LRU.
+
+**Fix.**
+- `LruCache<TKey, TValue>` (SdkReference): keeps at most `capacity` BUILT values, least recently used
+  released first; never evicts one still building, whose callers hold it, so a second caller joins that
+  build; builds different keys at once — its lock guards the bookkeeping, never a build; keeps a failed
+  build's exception as before; and hands back a released value somebody still holds, through a weak
+  reference, instead of building a second copy.
+- `WarmFirst`: at each step a sweep asks for a demo the cache already has — kept, building, or released
+  but still held — before a cold one. A late sweep joins the others where they are, and the demos it
+  missed are built once more at the end, shared by every other late sweep.
+- `TimelineCache`: two built timelines kept beyond those tests are holding (at most 9.4 GB), and every
+  build logged as `TIMELINE built <demo> in <s> s`, so a run shows its rebuilds.
+- The twelve sweeps ask in `WarmFirst` order — `DemoTimelinePropsTests` (3), `RecordedViewOrigin-
+  ConformanceTests` (2), `CorpusRecordedViewTests`, `AttachmentUseTests`, `BrushEntityMotionTests`,
+  `CorpusViewmodelTests`, `NoDrawTrackTests`, `ViewmodelClassAgreementTests` and the fog sweep, which
+  now keeps two numbers per demo instead of the timeline — and so does `CorpusPlayerOriginTests`'
+  sample of eight.
+
+**Tests** (`LruCacheTests`, Core.Tests/TestSupport, beside `SkipTests` for the same project; red at
+8567eb09 as a compile failure). Nine; each rule sabotaged with a precise inverse edit, the other tests
+run each time:
+
+| sabotage | red |
+|---|---|
+| a hit builds a fresh value | `Get_TheSameKeyTwice…`, `Get_PastCapacity…`, `Get_ManyCallers…`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| a hit moves to the back instead of the front | `Get_PastCapacity_ReleasesTheLeastRecentlyUsed` alone |
+| the cap multiplied by 1,000 | `Get_PastCapacity_ReleasesTheLeastRecentlyUsed` alone |
+| `PublicationOnly` for `ExecutionAndPublication` | `Get_ManyCallers…`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| entries still building evicted too | `Get_PastCapacityWhileAKeyIsStillBuilding_DoesNotBuildItAgain` alone |
+| released values not remembered | `Get_AValueTheCacheReleasedButACallerStillHolds…`, `WarmFirst_AKeyReleasedButStillHeld…` |
+| the build run inside the lock | `Get_TwoKeysAtOnce_BuildAtTheSameTime`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| cold keys first | the three `WarmFirst` tests |
+| the order decided once, up front | `WarmFirst_AKeyBuiltPartWayThrough_IsVisitedNext` alone |
+| a released-but-held key not warm | `WarmFirst_AKeyReleasedButStillHeld_CountsAsWarm` alone |
+
+Whether the cache still holds a value is read from a weak reference after a full collection; threads
+meet on conditions — a build started, a caller blocked — and a 30-second tripwire only stops a hang.
+
+---
+
 ### B438 — `PropsAt`'s kept sample answered what the previous call asked, and two threads tore it — FIXED 2026-09-30
 
 **Found in B105's work** (2b7de6f4): four parallel `[TestCase]`s on `TimelineCache`'s z1800 — three found no

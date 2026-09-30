@@ -129,7 +129,7 @@ public sealed class CorpusRecordedViewTests
 
         buildable.ShouldNotBeEmpty("no corpus demo has a usable schema");
 
-        foreach (string path in buildable)
+        foreach (string path in TimelineCache.WarmFirst(buildable))
         {
             DemoTimeline timeline = TimelineCache.For(path);
             bool pointOfView = IsPointOfView(path);
