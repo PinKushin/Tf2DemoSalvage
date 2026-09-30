@@ -15,6 +15,7 @@ melee. `ItemSchema.Search` treats "" as absent and walks on into the prefab. B10
 **How to apply:** before trusting an inherited key, count `"<key>" ""` over a prefab in items_game.txt (18
 `model_player`, measured 2026-09-30: none over a prefab with a model, but "" is still an ANSWER a weapon's world model
 is built from — [[a-weapons-world-model-is-its-items]]). A reader of such a key needs `emptyAnswers: true` and a test
-row with the empty override; `anim_slot` and `model_player` have both. Every scalar key an item's "" hides from a
+row with the empty override; `anim_slot`, `model_player` and `model_world` (none shipped empty; its readers test the
+pointer) have both. Every scalar key an item's "" hides from a
 prefab, counted: `craft_class` 1,412, `craft_material_type` 279, `armory_remap` 15, `xifier_class_remap` 1, `anim_slot`
 1, `item_slot` 1 (5838, a tool). See [[a-default-is-not-a-constant]].

@@ -223,3 +223,30 @@ beside an empty control measures nothing.
 
 *Evidence class: counted in shipped data (the declarations, the key census); read from published source (the merge,
 the weapon's and the wearable's world model); measured on the corpus through the production path (the census).*
+
+## 11. The wire was right, and the item overwrote it — `model_world` (B105, 2026-09-30)
+
+**What was filed:** `GetWorldModel` asks a valid item's `model_world` before its `model_player` (`tf_weaponbase.cpp:686-687`),
+four shipped weapons declare one, and the port read `model_player` for the world weapon. The expectation, going in, was
+the same as §10's: parity for a case the corpus does not hold, since three of the four — the Ap-Sap, the Festive Sapper,
+the Snack Attack — name their `model_player` again, and only the Hot Hand's `w_slapping_glove.mdl` differs from its
+first-person `c_slapping_glove.mdl`.
+
+**What the census said:** a pyro holds a Hot Hand in `tf2-2026-pub-pov-clean` for 148 ticks, seen by a soldier recording
+in the first person, **and the wire already named `w_slapping_glove.mdl`**. The server precaches `GetWorldModel()` into
+`m_iWorldModelIndex` when the weapon spawns with its item (`basecombatweapon_shared.cpp:291-300`), so the networked index
+carried the right answer and `WeaponPropModels.Resolve`'s item-wins rule replaced it with the first-person glove. §5's rule
+— the item wins over the wire — is the engine's for an econ entity's `SetModel`; a TF weapon's world model has its own
+answer, and it was already on the wire. The sappers' draws were right throughout: their `model_world` repeats their
+`model_player`, and every stock sapper (a `CTFWeaponBuilder`, whose owner-only object type would pick `objects.txt`'s
+`Playermodel` — `c_sapper.mdl` again) draws its item.
+
+**The instrument lied once, in the test harness rather than the probe.** The first output test ran its four z1800 moments
+as parallel `[TestCase]`s on `TimelineCache`'s shared timeline, and three found no sapper at ticks where the census had
+found one; each case alone passed. `PropsAt` keeps a sample between calls (B259's incremental rebuild), so the "finished,
+only queried" timeline the cache hands every test is not read-only, and two tests sampling it at once read each other's
+state. The corpus tests for this build their own timeline and walk it in tick order.
+
+*Evidence class: read from published source (the rule, the builder classes, the server's precache); counted in shipped
+data (four `model_world` keys); measured on the corpus through the production path (`item-props`, and `MomentScene.Build`
+in `CorpusHeldWeaponWorldModelTests`).*

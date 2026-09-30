@@ -93,7 +93,7 @@ public sealed class AutoplayProbe : IProbe
 
         // The production resolution step, for the same reason `props` runs it: a model named only
         // by an item is absent until this happens (B263).
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         LoadedMap map = LoadedMap.Read(
             File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);

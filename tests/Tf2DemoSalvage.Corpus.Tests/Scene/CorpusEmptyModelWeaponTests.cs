@@ -16,8 +16,8 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </summary>
 /// <remarks>
 /// **The assertion on the output of the step**: `MomentScene.Build` runs `WeaponPropModels.Resolve` handed the installed
-/// game's `WeaponModels.For` over the props the timeline holds at the tick, and this reads back the model it gave the
-/// prop. The rule and its citations are `WeaponWorldModelConformanceTests`.
+/// game's `WeaponModels.For` and `WorldDisplayModel` over the props the timeline holds at the tick, and this reads back the
+/// model it gave the prop. The rule and its citations are `WeaponWorldModelConformanceTests`.
 ///
 /// **The specimen is the census's only one** (`item-props` probe over gcor and lcor, 2026-09-30). The items are common —
 /// the Duel MiniGame on most modern matches, fists and spellbooks from 2009 on — but everywhere else the wire names no
@@ -54,7 +54,7 @@ public sealed class CorpusEmptyModelWeaponTests
         props[at].WeaponState.ShouldNotBeNull("a combat weapon, which the client re-derives from its item");
         props[at].ModelPath.ShouldBe("models/weapons/c_models/c_engineer_arms.mdl", "the wire's model: his hands");
 
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         props[at].ModelPath.ShouldBe(string.Empty, "the item's \"\" is the world model, and it indexes none");
     }

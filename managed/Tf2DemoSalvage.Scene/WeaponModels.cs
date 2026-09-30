@@ -124,6 +124,17 @@ public sealed class WeaponModels
         return null;
     }
 
+    /// <summary>The model an item names for its weapon in the WORLD — `model_world` — or null when it names none.</summary>
+    /// <param name="item">The item definition index.</param>
+    /// <returns>The path; empty for an item's own <c>""</c>; null when the item declares none or no game is installed.</returns>
+    /// <remarks>
+    /// **`CEconItemView::GetWorldDisplayModel` (econ_item_view.cpp:1034-1041), which `CTFWeaponBase::GetWorldModel` asks
+    /// before `GetPlayerDisplayModel`** (tf_weaponbase.cpp:686-687). One string per item, no class or team, and the
+    /// third-person weapon is its only reader here: the viewmodel keeps <see cref="For(int?, string?, int?)"/>
+    /// (econ_entity.cpp:1167), and `WeaponPropModels.Resolve` asks this for a weapon alone.
+    /// </remarks>
+    public string? WorldDisplayModel(int item) => Schema()?.WorldDisplayModel(item);
+
     /// <summary>Every weapon model any player holds at any point in a demo.</summary>
     /// <remarks>
     /// **Resolved up front for the same reason the class models are.** A player switches weapon
@@ -358,6 +369,14 @@ public sealed class WeaponModels
                 {
                     yield return model;
                 }
+            }
+
+            // **And its `model_world`, which a held weapon draws instead** (`CTFWeaponBase::GetWorldModel`,
+            // tf_weaponbase.cpp:686-687) and no track need name: an attach-to-hands weapon sending no world index carries
+            // only its carrier's arms (B105).
+            if (WorldDisplayModel(item) is { Length: > 0 } world && named.Add(world))
+            {
+                yield return world;
             }
         }
     }

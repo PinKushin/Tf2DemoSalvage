@@ -93,7 +93,7 @@ public sealed class WeaponModelProbe : IProbe
                 .GroupBy(prop => prop.EntityIndex)
                 .ToDictionary(group => group.Key, group => group.First().ModelPath);
 
-            resolver.Resolve(props, players, game.Weapons.For);
+            resolver.Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
             foreach (SceneProp prop in props.Where(prop => prop.ItemDefinitionIndex is not null))
             {
