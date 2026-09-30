@@ -22,7 +22,7 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// **Bounded, because a timeline is large** (B439). Until 2026-09-30 this kept every demo's timeline
 /// for the life of the run; with the 49 local demos present the host reached 39 GB private on a 32
 /// GB machine, 43 minutes in, and was stopped (B438). The largest timeline is not z1800's 635 MB but
-/// a local one's 4.7 GB, and a timeline runs forty to seventy-five times its demo's size, so the local
+/// a local one's 4.7 GB, and a timeline runs forty to eighty-four times its demo's size, so the local
 /// corpus alone is on the order of 80 GB of them — B439 has the measurements.
 ///
 /// **So at most two are kept that nobody is using: up to 9.4 GB.** Tests hold the timelines they

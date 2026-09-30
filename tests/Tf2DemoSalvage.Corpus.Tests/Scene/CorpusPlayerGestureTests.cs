@@ -46,7 +46,7 @@ public sealed class CorpusPlayerGestureTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<ScenePlayer> players = [];
 
@@ -84,7 +84,7 @@ public sealed class CorpusPlayerGestureTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<ScenePlayer> players = [];
 
@@ -122,7 +122,7 @@ public sealed class CorpusPlayerGestureTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<SceneProp> props = [];
         List<ScenePlayer> players = [];
@@ -162,7 +162,7 @@ public sealed class CorpusPlayerGestureTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         List<ScenePlayer> players = [];
 

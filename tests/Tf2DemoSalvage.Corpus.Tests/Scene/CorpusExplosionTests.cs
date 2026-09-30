@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -36,7 +35,7 @@ public sealed class CorpusExplosionTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         IReadOnlyList<SceneExplosion> blasts = timeline.Explosions.All;
 
@@ -70,7 +69,7 @@ public sealed class CorpusExplosionTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         IReadOnlyList<SceneExplosion> blasts = timeline.Explosions.All;
 
@@ -101,7 +100,7 @@ public sealed class CorpusExplosionTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         IReadOnlyList<SceneExplosion> blasts = timeline.Explosions.All;
 

@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -28,7 +27,7 @@ public sealed class CorpusWorldDynamicLightTests
             return;
         }
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
         int recorder = timeline.RecorderEntityIndex.ShouldNotBeNull();
 
         (int fireballs, int pushed) = Walk(timeline, recorder);

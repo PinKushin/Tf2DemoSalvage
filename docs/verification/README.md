@@ -67,7 +67,7 @@ across five measured protocols. The full superset adds lcor, **49 demos and 774 
 **`tools/corpus/local/` is not all of lcor.** The real pool is several gigabytes across at least
 four locations (the owner, 2026-08-26); 774 MB is the part a test currently sees.
 
-### One demo's timeline: forty to seventy-five times the file
+### One demo's timeline: forty to eighty-four times the file
 
 **2026-09-30**, `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- timeline-heap <demo>`
 — the live heap after a full compacting collection — and the wall time of that command, `dotnet run`
@@ -81,9 +81,10 @@ rgl-pug-2026-08-10-pov                         52.2 MB   2,778 MB   119 s
 demostf-cp_process_f12-2026-08-08-2207         58.2 MB   2,603 MB    96 s
 20150119_2240_cp_process_final_(ovo)_blu       43.0 MB   1,997 MB    80 s
 demostf-koth_ashville_final2-1491186           35.5 MB   1,764 MB    59 s
+demostf-cp_process_f12-2026-08-07              33.0 MB   2,773 MB   (not timed)
 ```
 
-z1800, 8.5 MB, holds 635 MB (B433). Forty to seventy-five times the file, so no lcor timeline is small
+z1800, 8.5 MB, holds 635 MB (B433). Forty to eighty-four times the file, so no lcor timeline is small
 and the whole local corpus is on the order of 80 GB of them — the numbers `TimelineCache`'s bound
 was sized by (B439).
 

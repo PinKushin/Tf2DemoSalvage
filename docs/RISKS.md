@@ -7892,7 +7892,7 @@ be run at all.
 
 **Filed on a premise that was wrong by seven times.** The largest timeline was taken to be z1800's
 635 MB (B433). z1800 is a 9 MB gcor demo; lcor's run to 97 MB, and `timeline-heap` measures their
-timelines at forty to seventy-five times the file — 4,692 MB for the largest, on the order of 80 GB for the
+timelines at forty to eighty-four times the file — 4,692 MB for the largest, on the order of 80 GB for the
 local corpus (`docs/verification/README.md`, "One demo's timeline"). A count sized on z1800 would have
 been a count of 4.7 GB slots.
 
@@ -7946,6 +7946,25 @@ run each time:
 
 Whether the cache still holds a value is read from a weak reference after a full collection; threads
 meet on conditions — a build started, a caller blocked — and a 30-second tripwire only stops a hang.
+
+**The superset with the cache alone, and two more holders it found.** `TF2DEMOSALVAGE_GCOR_ONLY=0 bash
+build/gate.sh` on 9eadede9: the corpus assembly finished — 50 min, where the unbounded cache was stopped
+at 43 — with its host at a 23.4 GB private peak (18.8 GB working set), and the machine's free memory
+touched 0.09 GB. The trx start and end times put the two rises on two tests:
+
+- **16 → 23 GB, 08:16–08:20, is `EveryDemo_CompilesBackToItsOwnBytes`**, which appended every demo's
+  decompiled text to one `StringBuilder` for a report at the end. Over the superset that outgrew the
+  longest string .NET holds, so it threw — having compared no demo after the one that overflowed it. It
+  now tallies each demo's text as it is written, keeps one copy (the writer cleared, lines walked as
+  spans rather than split into an array of the whole text): alone, over the same demos, 8.04 GB → 4.42
+  GB and 276 → 241 s. And it now reaches its real failure, B440.
+- **0 → 16 GB in the first five minutes** is the sweeps setting off together beside eight builds OUTSIDE
+  the cache: `CorpusExplosionTests` built the f12 demo three times over (a 2.8 GB timeline each, beside
+  the cache's own), `CorpusPlayerGestureTests` z1800 four times, and
+  `CorpusWorldDynamicLightTests` the pub POV once. They ask `TimelineCache` now: 9 tests, 3 builds.
+- **Builds:** 97 of 55 demos, 4,509 s of build time, from the `TIMELINE built` lines. 42 were rebuilds
+  worth about 1,300 s, nearly all single-demo tests asking for a big lcor timeline the sweeps had
+  already passed; they ran beside the sweeps rather than in their path, which are one build at a time.
 
 ---
 
