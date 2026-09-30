@@ -1,159 +1,159 @@
-- [Write tests before codecs](tests-before-codecs.md) — red step is a compile failure; [conformance first](conformance-test-before-implementation.md).
+- [Tests before codecs](tests-before-codecs.md) — red = compile failure; [conformance first](conformance-test-before-implementation.md).
 - [Layer 2 is a dependency chain](layer2-is-a-dependency-chain.md) — no length prefixes; [length arithmetic](length-arithmetic-identifies-a-layout.md) IDs a layout.
-- [Fixtures are the weak point](fixtures-are-the-weak-point.md) — real file or SDK; [author the specimen](author-the-specimen-the-corpus-lacks.md) the corpus lacks.
-- [Numeric decoding traps](numeric-decoding-traps.md) — plausible numbers; [padding is not zero](padding-is-not-zero.md), read it.
-- [Span guards testable without allocation](span-guards-testable-without-allocation.md); [per-item APIs](per-item-apis-hide-quadratic-reads.md) hide quadratic reads.
+- [Fixtures are the weak point](fixtures-are-the-weak-point.md); [author the specimen](author-the-specimen-the-corpus-lacks.md) the corpus lacks.
+- [Numeric decoding traps](numeric-decoding-traps.md) — plausible numbers; [padding is not zero](padding-is-not-zero.md).
+- [Span guards without allocation](span-guards-testable-without-allocation.md); [per-item APIs](per-item-apis-hide-quadratic-reads.md) hide quadratic reads.
 - [Mutation score is not the goal](mutation-score-is-not-the-goal.md) — a ratchet; [Stryker Safe Mode](stryker-safe-mode-needs-an-inline-comment.md) needs a comment.
-- [Research before code](research-before-code.md) — bitbuf is published; [read the encoder](read-the-encoder-not-the-decoder.md), not the decoder.
+- [Research before code](research-before-code.md) — bitbuf is published; [read the encoder](read-the-encoder-not-the-decoder.md).
 - [Ask whether the data arrived](ask-whether-the-data-arrived.md) — a drop imitates a desync; [decoding must be total](decode-must-be-total.md).
-- [Fallbacks do not make guesses safe](fallbacks-do-not-make-guesses-safe.md); [a fallback that makes sound](a-fallback-that-makes-sound-hides-itself.md) hides.
+- [Fallbacks don't make guesses safe](fallbacks-do-not-make-guesses-safe.md); [a fallback that makes sound](a-fallback-that-makes-sound-hides-itself.md) hides.
 - [Arithmetic settles disputes](arithmetic-settles-disputes.md) — a bit width excludes a candidate.
-- [NUnit over xUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md) — deprecation breaks Zero Warnings.
+- [NUnit, never deprecated packages](nunit-over-xunit-never-deprecated-packages.md).
 - [International names are required](international-names-are-required.md) — ASCII corrupts plausibly.
-- [The era axis is measured](era-axis-is-measured.md) — a protocol dates nothing; [hl2sdk branches](hl2sdk-branches-are-per-era-headers.md) are per-era.
-- [Record both points of view](record-both-points-of-view.md) — POV/STV pair is the control; [demo dates its own fields](the-demo-dates-its-own-fields.md).
-- [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md); [wire-faithful ≠ state-faithful](wire-faithful-is-not-state-faithful.md).
-- [Measure the output, not the capability](measure-the-output-not-the-capability.md); [output-level assertion or not done](output-level-assertion-or-it-is-not-done.md).
+- [The era axis is measured](era-axis-is-measured.md) — a protocol dates nothing; [hl2sdk branches](hl2sdk-branches-are-per-era-headers.md) per era.
+- [Record both points of view](record-both-points-of-view.md) — POV/STV is the control; [a demo dates its own fields](the-demo-dates-its-own-fields.md).
+- [Round trips need the encoding shape](round-trip-needs-the-encoding-shape.md); [wire- ≠ state-faithful](wire-faithful-is-not-state-faithful.md).
+- [Measure the output](measure-the-output-not-the-capability.md); [output-level assertion or not done](output-level-assertion-or-it-is-not-done.md).
 - [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays ours.
 - [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — only a REPAIR note lags.
-- [Fixture lifetime is per test-kind](nunit-shared-fixture-is-the-standard.md) — isolation for unit, shared for UI.
-- [Branch granularity is fine here](branch-granularity-is-fine-here.md) — a drifting name means too big.
+- [Fixture lifetime per test-kind](nunit-shared-fixture-is-the-standard.md) — isolated unit, shared UI.
+- [Branch granularity is fine](branch-granularity-is-fine-here.md) — a drifting name means too big.
 - [A header written last is absent](a-header-written-last-is-absent.md) — 43% declare zero ticks; [ticks don't start at zero](demo-ticks-do-not-start-at-zero.md).
-- [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic is not the lump](vrad-key-arithmetic-is-not-the-lump.md).
-- [UI tests run every time](ui-tests-run-every-time.md) — foreground ≠ focus; [take the desktop lock](take-the-desktop-lock-dont-defer.md), don't defer.
+- [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic ≠ the lump](vrad-key-arithmetic-is-not-the-lump.md).
+- [UI tests run every time](ui-tests-run-every-time.md) — foreground ≠ focus; [take the desktop lock](take-the-desktop-lock-dont-defer.md).
 - [A test can outlive its design](a-test-can-outlive-its-design.md) — it blamed the app for a deleted demand.
-- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control; [denominator decides loss](the-denominator-decides-what-can-be-lost.md).
+- [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control; a walk reads what production reads (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md).
 - [Logs are the debugger](logs-are-the-debugger.md) — log BEFORE a step that can crash.
 - [One place or it drifts](one-place-or-it-drifts.md) — fix where data is produced; [key a lookup on the question](key-a-lookup-on-the-question.md).
 - [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — sabotage each branch.
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md); [a neutral default must be neutral](a-neutral-default-must-be-neutral.md).
-- [Edit files with the file tools](edit-files-with-the-file-tools.md) — no Python/perl/sed; insert BELOW the member.
+- [Edit with the file tools](edit-files-with-the-file-tools.md) — no Python/sed; insert BELOW the member.
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — the owner's bones by name.
-- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — DynamicModels holds cosmetics.
-- [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — top-down culls broke free look.
-- [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what it is.
-- [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — exact ticks, angles and inputs.
-- [Wire names are strings](wire-names-are-strings.md); [any table can declare a property](a-property-can-be-declared-by-any-table.md), [needs its table](a-property-name-needs-its-declaring-table.md); local/non-local is one member, last write wins (B442).
-- [Nothing is closed](nothing-is-closed.md) — settle a constant in DISASSEMBLY; [rename decompiled functions](rename-decompiled-functions.md) (D174).
-- [Death is EF_NODRAW](death-is-ef-nodraw-not-an-animation.md) — a separate CTFRagdoll; [a corpse is simulated](a-tf2-corpse-is-simulated-not-sent.md), not sent.
+- [Negative model indices are dynamic](negative-model-indices-are-dynamic.md) — cosmetics.
+- [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md).
+- [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP.
+- [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — exact ticks, angles, inputs.
+- [Wire names are strings](wire-names-are-strings.md); [any table can declare a property](a-property-can-be-declared-by-any-table.md), [needs its table](a-property-name-needs-its-declaring-table.md); local/non-local: last write wins (B442).
+- [Nothing is closed](nothing-is-closed.md) — settle constants in DISASSEMBLY; [rename decompiled functions](rename-decompiled-functions.md) (D174).
+- [Death is EF_NODRAW](death-is-ef-nodraw-not-an-animation.md); [a corpse is simulated](a-tf2-corpse-is-simulated-not-sent.md), not sent.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is group-local.
-- [Material variables split three ways](material-variables-split-three-ways.md) — params, flags, standard vars; proxies per draw.
-- [Struct padding is on disk](struct-padding-is-on-disk.md) — stride is sizeof(), not the field sum.
-- [Test naming convention](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}.
-- [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md) — compiles, never fires.
-- [A player has two viewmodels](a-player-has-two-viewmodels.md) — a weapon is never one model.
+- [Material variables split three ways](material-variables-split-three-ways.md) — proxies per draw.
+- [Struct padding is on disk](struct-padding-is-on-disk.md) — stride is sizeof().
+- [Test naming](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}.
+- [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md).
+- [A player has two viewmodels](a-player-has-two-viewmodels.md).
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — index plus items_game.txt.
-- [Two matrix conventions, on purpose](two-matrix-conventions-on-purpose.md) — cross over once; IVP is a THIRD, in metres (D173).
+- [Two matrix conventions](two-matrix-conventions-on-purpose.md) — cross once; IVP a THIRD, metres (D173).
 - [A default is not a constant](a-default-is-not-a-constant.md) — grep `ConVar`; [a constant carries no scope](a-constant-carries-no-scope.md).
-- [Where the game and clients live](where-the-game-and-clients-live.md) — game on `F:`, decompilation on `D:`.
-- [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md) — grep before building.
+- [Where the game and clients live](where-the-game-and-clients-live.md) — game `F:`, decompilation `D:`.
+- [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md).
 - [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md) — a dilemma means unread source.
 - [Clip the surface to the projection](clip-the-surface-to-the-projection.md) — an overlay is a volume.
-- [Name the reading you picked](name-the-reading-you-picked.md) — a requirement cannot be revisited.
-- [Never revert without asking](never-revert-without-asking.md) — asked-for and working is not yours to discard.
+- [Name the reading you picked](name-the-reading-you-picked.md).
+- [Never revert without asking](never-revert-without-asking.md).
 - [Name the trade before fixing Valve](name-the-trade-before-fixing-valve.md) — arbitrary AND precise means a trick.
-- [Read the trx total, not console](read-the-trx-total-not-the-console.md) — exact floors; `reap-dotnet.ps1`; [gate once per merge](gate-once-per-merge-not-per-commit.md).
-- [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md) — it questions the assumed structure.
-- [A config is a program](a-config-is-a-program.md) — aliases redefine at runtime; a running client serves a STALE cfg.
-- [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md) — falling back is not overriding.
-- [A pass must establish its own state](a-pass-must-establish-its-own-state.md) — the symptom is in what moved.
+- [Read the trx total](read-the-trx-total-not-the-console.md) — `reap-dotnet.ps1`; [gate once per merge](gate-once-per-merge-not-per-commit.md).
+- [Boundaries find what tests cannot](boundaries-find-what-tests-cannot.md).
+- [A config is a program](a-config-is-a-program.md) — a running client serves a STALE cfg.
+- [Silence about a missing feature is not a preference](silence-about-a-missing-feature-is-not-a-preference.md).
+- [A pass must establish its own state](a-pass-must-establish-its-own-state.md).
 - [A picture is assertable](a-picture-is-assertable.md) — no reference image needed.
-- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md) — a bone guard vetoed mustSkin.
-- [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are client-predicted; [a loop is state](a-loop-is-state-not-an-event.md), not an event.
-- [Valve parity is the first principle](valve-parity-is-the-first-principle.md) — D89, D143, D148, D172; [Valve's shape](valve-shape-beyond-parity.md) everywhere, so a Source dev reads it at once; C# names that map (D163); [never assume it's broken](never-assume-valve-is-broken.md).
-- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md) — six at 3 ms, remainder at 126.
-- [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; do not "fix" it.
-- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md) — the TFM enforces, not the file.
-- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md) — an absent check is in both.
-- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — announce demo changes by name.
-- [Ask if the view must hold it](ask-if-the-view-must-hold-it.md) — a passed-along field belongs elsewhere.
-- [The game folder is the user's to provide](the-game-folder-is-the-users-to-provide.md) — a missing install must error.
-- [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — never gate that failure away; read CI before pushing.
-- [No hardcoded controls ever](no-hardcoded-controls-ever.md) — D101; every key through the config.
-- [Portable half and adapter half](portable-half-and-adapter-half.md) — only a tiny adapter names the toolkit.
-- [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md) — parse on assignment, publish a snapshot.
-- [An empty box must never cull](an-empty-box-must-never-cull.md) — a zero bound tests the map origin.
-- [A demo names a map version](a-demo-names-a-map-version.md) — a mismatched .bsp imitates bugs; MapHash, never MapCrc.
-- [A gap can be filed backwards](a-gap-can-be-filed-backwards.md) — "we do not" and "we always" set one task.
-- [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md) — he is looking at it.
-- [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md) — a green suite missed it.
-- [Ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md) — the rule asked its neighbour.
-- [Measure the route before building on it](measure-the-route-before-building-on-it.md) — zero of 1191 faces.
-- [One look can be two mechanisms](one-look-can-be-two-mechanisms.md) — right texture, undrawn mesh.
+- [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md).
+- [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are predicted; [a loop is state](a-loop-is-state-not-an-event.md).
+- [Valve parity first](valve-parity-is-the-first-principle.md) — D89/D143/D148/D172; [Valve's shape](valve-shape-beyond-parity.md), C# names that map (D163); [never assume it's broken](never-assume-valve-is-broken.md).
+- [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md).
+- [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; don't "fix".
+- [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md).
+- [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md).
+- [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — announce demo changes.
+- [Ask if the view must hold it](ask-if-the-view-must-hold-it.md).
+- [The game folder is the user's](the-game-folder-is-the-users-to-provide.md) — a missing install errors.
+- [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — read CI before pushing.
+- [No hardcoded controls](no-hardcoded-controls-ever.md) — D101; every key via the config.
+- [Portable half and adapter half](portable-half-and-adapter-half.md).
+- [A lazy cache makes reading a write](a-lazy-cache-makes-reading-a-write.md).
+- [An empty box must never cull](an-empty-box-must-never-cull.md).
+- [A demo names a map version](a-demo-names-a-map-version.md) — MapHash, never MapCrc.
+- [A gap can be filed backwards](a-gap-can-be-filed-backwards.md).
+- [State the assumptions the owner can falsify](state-the-assumptions-the-owner-can-falsify.md).
+- [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md).
+- [Ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md).
+- [Measure the route before building on it](measure-the-route-before-building-on-it.md).
+- [One look can be two mechanisms](one-look-can-be-two-mechanisms.md).
 - [Parity is the search, not the defence](parity-is-the-search-not-the-defence.md) — read every branch.
-- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA + --shot; a still capture is a PAUSED frame.
-- [Subagent models, reviewed](one-subagent-and-prefer-cheap-models.md) — opus for implementation (D196), sonnet for a bounded task, haiku only for sabotage.
-- [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md) — the last transform sets it.
-- [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md) — the client rebuilds it.
-- [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md) — rarity sets priority, not permission.
-- [A .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md) — masses, bones and joint limits are KeyValues.
-- [Address a struct by name, not from its end](address-a-struct-by-name-not-from-its-end.md) — reflections went white.
-- [A guard you remove may be the mechanism](a-guard-you-remove-may-be-the-mechanism.md) — ask what the narrow version REFUSED.
-- [An exception type can be load-bearing](an-exception-type-can-be-load-bearing.md) — context attached to one type only.
-- [A player is not a prop track](a-player-is-not-a-prop-track.md) — two populations, two paths to the renderer.
-- [The base is not the behaviour](the-base-is-not-the-behaviour.md) — read the overrides; some are dead.
-- [Prove the equivalence before building it](prove-the-equivalence-before-building-it.md) — measure what makes it visible.
-- [Point the camera from the data](point-the-camera-from-the-data.md) — eight guessed cameras hit walls.
-- [A flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md) — absence from the struct proves nothing.
-- [The view origin is the camera, not a player](the-view-origin-is-the-camera-not-a-player.md) — killed every distance fade.
-- [Precache what the engine precaches](precache-what-the-engine-precaches.md) — a lookup is not a loader.
-- [Two accumulators cannot see order](two-accumulators-cannot-see-order.md) — the observer must read the observed.
-- [A map cannot have a hole](a-map-cannot-have-a-hole.md) — a complete COUNT is not a correct reading.
-- [Determinism does not require flattening a draw](determinism-does-not-require-flattening-a-draw.md) — seed by particle id.
-- [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md) — read the directory.
-- [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — key on index PLUS tick.
-- [The interpolation pair is found by changetime](the-interpolation-pair-is-found-by-changetime.md) — a fraction of zero is an oracle.
-- [An unused method may be the engine's](an-unused-method-may-be-the-engines.md) — S1144 can mean a lost call site.
-- [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md) — top-down retrofits facts into the wrong object.
-- [A visibility set is four questions](a-visibility-set-is-four-questions.md) — ask which predicate, not which frame.
+- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA + --shot; a still is PAUSED.
+- [Subagent models](one-subagent-and-prefer-cheap-models.md) — opus implements (D196), sonnet bounded, haiku sabotage.
+- [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md).
+- [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md).
+- [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md).
+- [A .phy is text except for the hulls](a-phy-is-text-except-for-the-hulls.md).
+- [Address a struct by name](address-a-struct-by-name-not-from-its-end.md).
+- [A guard you remove may be the mechanism](a-guard-you-remove-may-be-the-mechanism.md).
+- [An exception type can be load-bearing](an-exception-type-can-be-load-bearing.md).
+- [A player is not a prop track](a-player-is-not-a-prop-track.md).
+- [The base is not the behaviour](the-base-is-not-the-behaviour.md) — read the overrides.
+- [Prove the equivalence before building it](prove-the-equivalence-before-building-it.md).
+- [Point the camera from the data](point-the-camera-from-the-data.md).
+- [A flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md).
+- [The view origin is the camera](the-view-origin-is-the-camera-not-a-player.md).
+- [Precache what the engine precaches](precache-what-the-engine-precaches.md).
+- [Two accumulators cannot see order](two-accumulators-cannot-see-order.md).
+- [A map cannot have a hole](a-map-cannot-have-a-hole.md).
+- [Determinism without flattening a draw](determinism-does-not-require-flattening-a-draw.md) — seed by particle id.
+- [A computed offset is a guess the file can answer](a-computed-offset-is-a-guess-the-file-can-answer.md).
+- [An entity index does not name a track](an-entity-index-does-not-name-a-track.md) — index PLUS tick.
+- [The interpolation pair is found by changetime](the-interpolation-pair-is-found-by-changetime.md).
+- [An unused method may be the engine's](an-unused-method-may-be-the-engines.md) — S1144.
+- [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md).
+- [A visibility set is four questions](a-visibility-set-is-four-questions.md).
 - [A picked option is not a voiced decision](a-picked-option-is-not-a-voiced-decision.md) — D183; [thinking aloud ≠ decision](thinking-aloud-is-not-a-decision.md).
-- [American English for new text](american-english-for-new-text.md) — D158; old British spellings stay.
-- [One run at a time](one-run-at-a-time.md) — never loop a viewer or UI test; [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md).
-- [Check at the owner's moment](check-at-the-owners-moment.md) — his demo, his action, his camera.
-- [The first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md) — skip exactly one.
-- [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md) — one per process.
-- [No task cards](no-task-cards.md) — D169/D171; reviewed sonnet subagents, never cards or sibling sessions.
-- [Spend fewer tokens](spend-fewer-tokens.md) — ponytail ultra; the cost is essay remarks and whole-log reads.
-- [Push when work piles up](push-when-work-piles-up.md) — commit a green state first, never mid-sabotage.
-- [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md) — two-NaN results follow operand order.
-- [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) — D175; its field has no writer here.
+- [American English for new text](american-english-for-new-text.md) — D158.
+- [One run at a time](one-run-at-a-time.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md).
+- [Check at the owner's moment](check-at-the-owners-moment.md).
+- [The first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md).
+- [A native API wrapper owns a library handle](a-native-api-wrapper-owns-a-library-handle.md).
+- [No task cards](no-task-cards.md) — D169/D171.
+- [Spend fewer tokens](spend-fewer-tokens.md) — essay remarks and whole-log reads cost.
+- [Push when work piles up](push-when-work-piles-up.md) — commit green first.
+- [The JIT picks the NaN destination](the-jit-picks-the-nan-destination.md).
+- [Sticking friction is out of scope](sticking-friction-is-out-of-scope.md) — D175.
 - [Use Bash, not the PowerShell tool](use-bash-not-powershell-tool.md) — its pre-parse tripped Defender.
-- [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176; measure the build he looks at.
-- [My own processes are mine](my-own-processes-are-mine.md) — a leftover viewer is almost always my launch.
-- [Unread by production is dead](unread-by-production-is-dead.md) — D180; delete with its tests and probes.
-- [Ask what the request is for](ask-what-the-request-is-for.md) — "splash on boot" meant "let me see boot time".
-- [A parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md) — the corpse fade caps a seek's replay at ~15 s.
-- [A measure needs focus](a-measure-needs-focus.md) — no fps comparisons unless asked; the viewer is often backgrounded.
-- [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md) — maps need all VPKs; synthetic first.
-- [SourceTV has a local player](sourcetv-has-a-local-player.md) — the STV client itself, team 1; what STV lacks is a recorded VIEW.
-- [A POV demo follows the recorder in everything](a-pov-demo-follows-the-recorder-in-everything.md) — recorded camera always; in-eye, "me" is his target (D188).
-- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — z1800 at 8x in the shared session; found B418.
-- [Driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON; jpeg needs a rendered frame.
-- [Interp is the watcher's setting](interp-is-the-watchers-setting.md) — D190; from the config, bounded by the server.
-- [Compare with the same camera](compare-with-the-same-camera.md) — the impact gate is 1024 from the camera; STV has no getpos.
-- [Verify origin/main after a push](verify-origin-main-after-push.md) — a detached main checkout swallows merges silently.
-- [A `with` switch expression can hang the compiler](a-with-switch-expression-can-hang-the-compiler.md) — csc 7+ min; a stuck project build is the edit.
-- [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — git-ignored; use the main checkout's absolute path.
-- [A reference count can depend on fps](a-reference-count-can-depend-on-fps.md) — per-frame lists; compare at same +fps_max.
-- [A RISKS heading can be stale](a-risks-heading-can-be-stale.md) — B396/B316/B306 were done; check git log and probes first.
-- [A test demo is not demo repair](a-test-demo-is-not-demo-repair.md) — a throwaway synthetic demo for a golden shot; D1 is a different product.
-- [Defaults are highest quality](defaults-are-highest-quality.md) — TF2's high tier by default; performance modes downgrade.
-- [A parent branch defers the gate](parent-branch-defers-the-gate.md) — chained fixes merge to a parent; gate once, to main.
-- [Keep packages current](keep-packages-current.md) — latest always, majors too; hold back only for a security reason (D191).
-- [clangd on the SDK](clangd-on-the-sdk.md) — SDK .cpp through clangd, never grep; open a file first, then search; query a method if a class misses.
-- [Modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md) — his custom HUD and cfg; era clients are stock.
-- [Auto-exposure settles](auto-exposure-settles.md) — D192; on by default, captures wait; HUDs before post-processing.
-- [Read the HDR set](read-the-hdr-set.md) — TF2 default is HDR; every paired lighting input reads its HDR half; sRGB only for pictures.
-- [Review subagents deeply](review-subagents-deeply.md) — full-context briefs, line-by-line review, no nested hand-offs.
-- [Announce before launching](announce-before-launching.md) — say a desktop-taking run is starting before the call, never after.
-- [$TEMP is shared across worktrees](temp-is-shared-across-worktrees.md) — name logs per run; trust the exit code and trx.
-- [CI gates are soft for now](ci-gates-are-soft-for-now.md) — D195; a small coverage drop is undertesting, only a massive one matters.
-- [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) — no dlight for explosions/muzzle/fire; only the recorder's Dragon's Fury (B425).
-- [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) — events vanish; use `PacketAfter`.
-- [A handle resolves through its serial](a-handle-resolves-through-its-serial.md) — `EntityStateTable.Resolve`, never slot alone.
-- [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — an item's own `""` hides its prefab's; opt in per key (B105).
-- [A weapon's world model is its item's](a-weapons-world-model-is-its-items.md) — `model_world` first, then `model_player`; `""` draws nothing; wearables keep the wire.
-- [A cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) — `PropsAt`'s kept sample must answer as a cold one; locked, shareable (B438).
-- [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) — timelines are 40–84x the demo; only via `TimelineCache`, sweeps `WarmFirst` (B439).
-- [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — name demos in full; a per-demo loop hides the second bad demo (B440).
-- [A protocol can hide two builds](a-protocol-can-hide-two-builds.md) — protocol 15 is two wire dialects (B440); the demo's bits decide, not the number.
+- [Debug is what the owner runs](debug-is-what-the-owner-runs.md) — D176.
+- [My own processes are mine](my-own-processes-are-mine.md).
+- [Unread by production is dead](unread-by-production-is-dead.md) — D180.
+- [Ask what the request is for](ask-what-the-request-is-for.md).
+- [A parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md).
+- [A measure needs focus](a-measure-needs-focus.md) — no unasked fps comparisons.
+- [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md).
+- [SourceTV has a local player](sourcetv-has-a-local-player.md) — STV lacks a recorded VIEW.
+- [A POV demo follows the recorder](a-pov-demo-follows-the-recorder-in-everything.md) — D188.
+- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — B418.
+- [Driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON.
+- [Interp is the watcher's setting](interp-is-the-watchers-setting.md) — D190.
+- [Compare with the same camera](compare-with-the-same-camera.md).
+- [Verify origin/main after a push](verify-origin-main-after-push.md).
+- [A `with` switch can hang the compiler](a-with-switch-expression-can-hang-the-compiler.md).
+- [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — the main checkout's path; junction it for a superset.
+- [A reference count can depend on fps](a-reference-count-can-depend-on-fps.md).
+- [A RISKS heading can be stale](a-risks-heading-can-be-stale.md).
+- [A test demo is not demo repair](a-test-demo-is-not-demo-repair.md).
+- [Defaults are highest quality](defaults-are-highest-quality.md).
+- [A parent branch defers the gate](parent-branch-defers-the-gate.md).
+- [Keep packages current](keep-packages-current.md) — D191.
+- [clangd on the SDK](clangd-on-the-sdk.md) — never grep; open a file first.
+- [Modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md).
+- [Auto-exposure settles](auto-exposure-settles.md) — D192.
+- [Read the HDR set](read-the-hdr-set.md) — TF2 default is HDR.
+- [Review subagents deeply](review-subagents-deeply.md).
+- [Announce before launching](announce-before-launching.md).
+- [$TEMP is shared across worktrees](temp-is-shared-across-worktrees.md).
+- [CI gates are soft for now](ci-gates-are-soft-for-now.md) — D195.
+- [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) — B425.
+- [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) — use `PacketAfter`; a late corpus reader too (B443).
+- [A handle resolves through its serial](a-handle-resolves-through-its-serial.md).
+- [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — B105.
+- [A weapon's world model is its item's](a-weapons-world-model-is-its-items.md) — `model_world` first.
+- [A cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) — B438.
+- [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) — `TimelineCache` (B439).
+- [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — B440.
+- [A protocol can hide two builds](a-protocol-can-hide-two-builds.md) — the bits decide (B440).

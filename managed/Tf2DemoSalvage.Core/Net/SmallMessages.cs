@@ -61,6 +61,22 @@ public sealed record SetViewMessage(int EntityIndex) : INetMessage
 }
 
 /// <summary>
+/// <c>svc_SetPause</c> — the server pausing or resuming the game.
+/// </summary>
+/// <param name="Paused">Whether the game is now paused.</param>
+/// <remarks>
+/// One bit: <c>SVC_SetPause::ReadFromBuffer</c> (engine.dll <c>0x1801df5c0</c>) reads <c>m_bPaused</c> with a
+/// single <c>ReadOneBit</c>, and <c>WriteToBuffer</c> (<c>0x1801e4de0</c>) writes the type and that bit. Kept as a
+/// message rather than stepped over (B447), because the assembly text can only render what the reader keeps, and
+/// a pause is a moment in the match a reader of the text wants to find.
+/// </remarks>
+public sealed record SetPauseMessage(bool Paused) : INetMessage
+{
+    /// <inheritdoc />
+    public NetMessageType Type => NetMessageType.SetPause;
+}
+
+/// <summary>
 /// <c>net_SignonState</c> — connection handshake progress.
 /// </summary>
 /// <param name="State">The signon stage reached.</param>

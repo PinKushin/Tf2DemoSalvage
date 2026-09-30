@@ -7935,6 +7935,58 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B447 — `svc_SetPause` had no text form, the last kind the local pool kept as bits — FIXED 2026-09-30
+
+**`asm-raw` over the whole local pool: 14 `SetPause` lines in nine demos** (z1800, both koth_cascade and
+product-era demostf recordings, esea, leeko and others), the last message kind still written as raw bits
+outside the two schema-less 2007 SourceTV demos (B24). The reader consumed the pause bit and kept no message,
+so the text writer had nothing to render.
+
+- **Engine**: `SVC_SetPause::ReadFromBuffer` (engine.dll `0x1801df5c0`) is one `ReadOneBit` into `m_bPaused`;
+  `WriteToBuffer` (`0x1801e4de0`) writes the type and that bit. Now `SetPauseMessage(bool Paused)`, with a
+  writer case, an assembly line (`svc_setpause 1`) and a trace line (`svc_setpause paused` / `resumed`).
+- **Tests**: a packet laid by hand pins the width (the `svc_SetView` after it is what a second bit would
+  misalign); writer and text round trips in both states; the every-kind demo carries one; the trace names the
+  direction (red first — the line did not exist). **Sabotaged**: a 2-bit read reddens 8 tests, among them the
+  pre-existing `SetPause_IsASingleBit`; an inverted text parse reddens the text round trip and the every-kind
+  assembly, where the writer's own check fell back to raw.
+- **Knock-on, and why it is right**: the every-kind demo's packet stopped ending on a byte boundary once seven
+  more bits joined it, so a `padding` line appeared and `Assemble_EveryWritableKind_LeavesOnlyKnownKindsAsBits`
+  failed. Padding is not a kind — the bits after a packet's last message — and the test now leaves it out, as
+  the corpus report and `asm-raw` already did; its set was relying on an alignment accident.
+- **On the corpus**: z1800 and koth_cascade carry nothing but padding, and z1800 decompiles and compiles back
+  byte-identical, 8,964,241 bytes. **With B446, the whole local pool's assembly text is structured except
+  padding and the two 2007 SourceTV demos whose schema was truncated on the wire.**
+  *Evidence class: disassembly; measured (probes, CLI round trip).*
+
+---
+
+### B446 — an array's element shapes did not survive the assembly text, so PASS Time snapshots stayed bits — FIXED 2026-09-30
+
+**Found by the `asm-raw` probe**, which names per demo what the assembly writer still carries as bits. Over
+the whole local pool, seven `PacketEntities declined` came from outside the two schema-less 2007 SourceTV
+demos: `demostf-pass_coastal_rc8-1491292` at packet ticks 1, 347, 23594 and 45972, and three in
+`demostf-pass_sanctum_a2a-1491285`. In binary they decode and re-encode exactly (`entity-overrun` over the
+whole of pass_coastal: 71,814 of 71,814); the writer declined them because their TEXT did not assemble back.
+
+**The cause is B27's, one layer up.** Each element of an array carries the coordinate form its sender chose,
+and the value does not say which; B27 taught the codec to keep `DecodedProperty.ElementShapes`. The text
+form wrote a property's index width and coordinate shape and never the element shapes, and `ReadEntity`
+rebuilt every array at shape 0 — so PASS Time's 16-element `m_trackPoints` re-encoded at another width.
+
+- **The index token grows a fourth field**: `prop 12/4/0/1.0.1.0 …` — one shape per element, in element
+  order, written only when one is nonzero (all-zero shapes encode exactly as absent ones). Old text, which
+  never has the field, reads as before.
+- **Tests** (`EntityAssemblyTests`, synthetic): shapes `[1, 0, 1, 0]` round-trip to the same bits; the line
+  states them; all-zero shapes state nothing (control). **Sabotaged**: a parser that ignores the field
+  reddens only the round trip; a writer that always states shapes reddens only the control.
+- **On the corpus**: both PASS Time demos now carry nothing but padding (pass_coastal: 4 raw snapshots became
+  3,608 structured lines), and pass_sanctum decompiles and compiles back byte-identical, 11,671,620 bytes.
+  What is still bits in the whole pool after this: the two 2007 SourceTV demos (B24, no schema) and
+  `SetPause`. *Evidence class: measured (probes, CLI round trip); arithmetic (the width).*
+
+---
+
 ### B445 — the assembly round trip held each demo's whole text as one string, and the largest outgrew it — FIXED 2026-09-30
 
 **Found when B440 let `EveryDemo_CompilesBackToItsOwnBytes` run past the CEVO demo.** In B439's superset
@@ -8009,9 +8061,12 @@ of snapshots that did not decode at all (sunshine from tick 338 — `Entity inde
 without counting. Production builds the same demo cleanly (`timeline-cost`: 109,339 frames, no exception —
 `DemoTimeline.Build` has no catch around `Decode`), so the walk was at fault, and the difference was one
 line: the test read no packet until it had built a decoder from `dem_datatables`. The signon packets that
-come BEFORE it create the string tables, so the decode state lacked them, every later
-`svc_UpdateStringTable` was read at the wrong widths, and whatever followed it in its packet — including
-`svc_PacketEntities` — was read from the wrong bit. The two "removal list" failures were misaligned bodies
+come BEFORE it carry `svc_ServerInfo` and create the string tables, so the decode state lacked both. With no
+ServerInfo the reader takes the protocol as 0, so every `svc_TempEntities` length was read at the legacy
+17-bit width instead of protocol 24's varint — the decode census measured this independently, 10,642
+cascade snapshots thrown into the test's silent `continue` (its commit `5a83d9c1`) — and every
+`svc_UpdateStringTable` was read without its table. Whatever followed either in its packet, including
+`svc_PacketEntities`, was read from the wrong bit. The two "removal list" failures were misaligned bodies
 that happened to decode.
 
 | demo | the test's walk | the production walk |

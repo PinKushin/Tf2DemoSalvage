@@ -50,6 +50,7 @@ public sealed class EveryMessageKindDemoTests
         read.OfType<StringCmdMessage>().ShouldHaveSingleItem().Command.ShouldBe("echo hello");
         read.OfType<PrefetchMessage>().ShouldHaveSingleItem().SoundIndex.ShouldBe(1234);
         read.OfType<SetViewMessage>().ShouldHaveSingleItem().EntityIndex.ShouldBe(19);
+        read.OfType<SetPauseMessage>().ShouldHaveSingleItem().Paused.ShouldBeTrue();
         read.OfType<GetCvarValueMessage>().ShouldHaveSingleItem().CvarName.ShouldBe("cl_interp");
 
         NetTickMessage tick = read.OfType<NetTickMessage>().ShouldHaveSingleItem();
@@ -164,6 +165,14 @@ public sealed class EveryMessageKindDemoTests
     }
 
     [Test]
+    public void Trace_SetPause_SaysWhichWayItWent()
+    {
+        // B220's lesson applied at the start (B447): kept by the reader is not shown in the trace. The every-kind
+        // demo pauses, so the line must say so, not only name the message.
+        Trace().ShouldContain("svc_setpause paused");
+    }
+
+    [Test]
     public void RoundTrip_EveryWritableKind_ReproducesBytes()
     {
         // **The criterion the Quake demo tools set**, applied to a demo built to hold every kind
@@ -229,7 +238,16 @@ public sealed class EveryMessageKindDemoTests
             }
 
             int marker = trimmed.IndexOf("# ", StringComparison.Ordinal);
-            labels.Add(marker < 0 ? "unlabelled" : trimmed[(marker + 2)..]);
+            string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..];
+
+            // **Padding is not a kind, and this test is about kinds.** It is the bits after a packet's last
+            // message, present whenever the messages do not end on a byte boundary. This demo happened to end
+            // on one until svc_SetPause's seven bits joined it (B447) — an alignment accident the set below was
+            // silently relying on. The corpus report and the asm-raw probe count it apart for the same reason.
+            if (label != "padding")
+            {
+                labels.Add(label);
+            }
         }
 
         labels.OrderBy(label => label, StringComparer.Ordinal).ShouldBe(StillBits);
@@ -416,6 +434,7 @@ public sealed class EveryMessageKindDemoTests
         ClassInfo(),
         new PrefetchMessage(SoundIndex: 1234),
         new SetViewMessage(EntityIndex: 19),
+        new SetPauseMessage(Paused: true),
 
         // A negative pitch, for the saturation bug described in the round-trip test above.
         new FixAngleMessage(IsRelative: true, Pitch: -45f, Yaw: 90f, Roll: 0f),
