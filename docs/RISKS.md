@@ -7883,6 +7883,105 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B443 — two entity removal lists do not re-encode to their own bits — OPEN 2026-09-30
+
+**Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
+demo's first 900 commands and asserts every entity snapshot re-encodes exactly: 33,234 of 33,242 did.
+The eight, from the test's own report:
+
+| demo | exact | first mismatch |
+|---|---|---|
+| `demostf-cp_sunshine-2026-08-08-2233.dem` | 799 of 800 | tick 376, bit 1339 of 1339, "in the removal list rather than in any entity" |
+| `demostf-koth_cascade_rc1a-1491232.dem` | 647 of 654 | tick 1481, bit 3673 of 3673, in the removal list |
+
+Every other demo re-encodes 100%, including the other twenty-one demostf recordings, so the entities
+themselves came back bit for bit and what differs is the explicit-delete list written after them. Why
+it differs — order, a repeat, an index — is not established. *Evidence class: measured.* Not fixed here;
+an encoder change wants its own branch and a synthetic removal list that reproduces it first.
+
+---
+
+### B442 — `move_x` runs backward at two settled forward ticks of the movement POV — OPEN 2026-09-30
+
+**Found by `RunningForward_DrivesMoveXPositive` in the first full superset run** (B439). Its demo,
+`movement-test-pov-cp_process.dem`, is lcor, so a gcor run never meets it. The recorded `CUserCmd` at
+every sampled tick is `forwardmove 450` with `IN_FORWARD` held, mid-way through an unbroken run of at
+least 60 forward ticks, and the recorder is the only player. Nine samples:
+
+| tick | move_x | move_y |
+|---|---|---|
+| 218, 640, 878 | 1.000 | 0.388, 0.112, 0.136 |
+| 1187, 1399, 4375, 4872 | 1.000 | -0.416, -0.409, -0.183, -0.207 |
+| **5541** | **-0.674** | **1.000** |
+| **5681** | **-0.499** | **1.000** |
+
+**Deterministic:** an isolated rerun gives the identical values. The test arrived with B101's fix
+(a29a63c5, 2026-08-17), and B438 found it already failing at 1eff3478; the window between is not
+bisected here. A negative `move_x` drives the legs from the backward half of the blend grid — B101's
+backward-run symptom, returning at two ticks. Cause unknown; `ComputePoseParam_MoveYaw` is the engine
+function to read first. *Evidence class: measured; the reading of the grid is from B101.*
+
+---
+
+### B441 — the 2012 gullywash demo's Speex voice is not fixed-width frames — OPEN 2026-09-30
+
+**Found by `EverySpeexFrame_DecodesToPcm` in the first full superset run** (B439): "a 20-byte Speex
+payload is not a whole number of 28-byte frames", in `20120909_1804_cp_gullywash_final1_red_fags.dem`
+(protocol 22, lcor).
+
+- It declares what every era specimen declares — `svc_voiceinit codec "vaudio_speex" quality 5` (CLI
+  trace) — and every era specimen's packets are whole multiples of 28 (`findings/02-net-messages.md`; the
+  test passes over gcor).
+- **Its 515 `svc_voicedata` payloads are not:** 61 empty, 33 of 20 bytes, 13 of 15, 6 of 28, and the rest
+  scattered — 329 bytes eight times, 365 and 361 six, 440, 417, 389 and 344 five. Of the 454 non-empty,
+  14 are multiples of 28 and 64 of 20, so no single width slices them.
+- **Nothing the viewer draws or plays depends on it today:** `SpeexVoiceDecoder`'s only callers are the
+  tests and the fuzzer. What is missing is the rule for this demo's framing.
+
+The width may follow the quality through a table, or the frames may carry their own lengths; Source's
+Speex encoder (`vaudio_speex`) says which. Research first, on its own branch. *Evidence class: measured.*
+
+---
+
+### B440 — both protocol-15 SourceTV demos misread from their first bytes: the schema and every message — OPEN 2026-09-30
+
+**Found by the first full superset run** (B439). Two lcor demos, both SourceTV recordings at network
+protocol 15, and both wrong at every layer:
+
+| demo | header | first signon payload |
+|---|---|---|
+| `auto-20101109-2141-cp_badlands.dem` | "CEVO TF2 Match Server", 130,314 ticks, 32,508 frames | `00 00 c8 03 c0 02 00 00 c0 ff ff ff ff f9 00 3d …` |
+| `esea_match_2184869.dem` | "ESEA LAN 1618", `cp_snakewater_b9` | `00 00 c8 03 80 02 00 00 c0 ff ff ff ff fe 00 30 …` |
+
+- **Schema:** both throw in `SendTableParser` — "class list declares 26207 items needing at least 838624
+  bits, but only 752986 (761042 for esea) remain". The same 26,207 in two recordings is a layout read
+  one way that these write another, not corruption. The control: `tf2-2009-build3862-pov-cp_badlands`,
+  protocol 15 but a POV, parses (334 tables, 232 classes) and passes everything.
+- **Messages:** the first signon block reads `svc_serverinfo protocol 30 map "<garbage>" max_classes 499
+  tickrate -108.39` (esea: `max_classes 509 tickrate -7037294`), then nine `svc_empty`, a garbage
+  `svc_entitymessage`, `svc_voiceinit codec ".pcf" quality 17`, and "Unrecognised message id 1 at bit
+  1610". Every later signon block stops within bits; esea's trace carries 106,415 "stopped after" lines.
+- **Five tests fail on the CEVO demo:** `EveryWritableMessage_ReproducesItsOwnBitsExactly` (ServerInfo at
+  bit 0: 536 bits on the wire re-encode to 840), `NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock`
+  (the offset spreads 790 inside an unbroken run of 192 packets), `PayloadRoundTrip_TheCorpus_IsReported`
+  (GameEvent 13,082 and SetPause 6 do not round-trip), `EveryDemo_TracesWithoutAnUnreadableBlock`, and
+  `EveryDemo_CompilesBackToItsOwnBytes` (10,914,237 bytes rebuilt from 10,914,193).
+- **The container fields differ between the two** — the CEVO demo's first `dem_signon` has tick
+  `0x80000000` and sequence numbers `0xfc980252` in and out, esea's tick 337,777 and 120,405 — and both
+  fail alike, so these are probably not the cause. *Not established.*
+
+**esea's failure was invisible twice over, which is worth more than the defect.** Each message-level test
+above stops at the first bad demo, and `auto-…` sorts before `esea_…`, so esea was never reached. And
+every timeline sweep walks `Corpus.FilesWithSchema`, which drops a demo whose schema throws — rightly for
+the two 2007 SourceTV specimens whose tables are truncated on the wire, silently for these two.
+`EntityRoundTrip_TheCorpus_IsReported` skips a demo with no snapshots, which both are.
+
+*Hypothesis, interpolated:* the protocol-15 POV decodes and both protocol-15 SourceTV demos fail from the
+first command, so that era's SourceTV writer differs in something every layer reads. Not fixed here: a
+decode change needs its own branch, and a synthetic specimen to red it first.
+
+---
+
 ### B439 — the corpus suite kept every demo's timeline, and the full superset stopped fitting in memory — FIXED 2026-09-30
 
 **Found by B438's superset run.** `TimelineCache` (Corpus.Tests) kept each demo's timeline for the
