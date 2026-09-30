@@ -406,7 +406,8 @@ internal static class SyntheticPlayer
         DemoSchema schema = SchemaWithGestures();
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
-        List<INetMessage> signon = [ServerInfo(intervalPerTick)];
+        ServerInfoMessage serverInfo = ServerInfo(intervalPerTick);
+        List<INetMessage> signon = [serverInfo];
 
         if (alwaysLoser)
         {
@@ -477,7 +478,9 @@ internal static class SyntheticPlayer
                 messages.Add(new TempEntitiesMessage(Count: snapshot.Events.Count, BodyBits: effects.Length * 8, Body: effects));
             }
 
-            commands.Add(SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, snapshot.Tick, [.. messages]));
+            // After the signon's server info, as the reader reads it: the temp entities' length field is a VarInt at this
+            // protocol and a 17-bit field before ServerInfo, and a packet written without it is read nine bits out.
+            commands.Add(SyntheticDemo.PacketAfter(serverInfo, snapshot.Tick, [.. messages]));
         }
 
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);

@@ -233,12 +233,40 @@ internal static class SyntheticDemo
     /// <returns>The command.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="messages"/> is null.</exception>
     /// <exception cref="InvalidOperationException">A message has no encoder.</exception>
-    public static DemoCommand Packet(ushort protocol, int tick, params INetMessage[] messages)
+    public static DemoCommand Packet(ushort protocol, int tick, params INetMessage[] messages) =>
+        Encode(new NetDecodeState { NetworkProtocol = protocol }, tick, messages);
+
+    /// <summary>One packet command, encoded as a reader reads it once <c>svc_ServerInfo</c> has arrived.</summary>
+    /// <param name="serverInfo">The server info an earlier packet carried.</param>
+    /// <param name="tick">The tick the packet is stamped with.</param>
+    /// <param name="messages">What the packet should decode to.</param>
+    /// <returns>The command.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <exception cref="InvalidOperationException">A message has no encoder.</exception>
+    /// <remarks>
+    /// **<see cref="Packet(ushort, int, INetMessage[])"/> encodes each packet with a fresh state**, and the writer takes
+    /// the protocol from ServerInfo exactly as the reader does — so a later packet is written at protocol 0 while a
+    /// reader that saw ServerInfo earlier reads it at the demo's real one. Every width that depends on the protocol
+    /// then disagrees: <c>svc_TempEntities</c> states its length in 17 bits at protocol 23 and below and as a VarInt
+    /// above, and the body lands nine bits from where it was written — which surfaced as a gesture event decoding to
+    /// "no class" and every gesture in a synthetic timeline silently missing (B112).
+    /// </remarks>
+    public static DemoCommand PacketAfter(ServerInfoMessage serverInfo, int tick, params INetMessage[] messages)
+    {
+        ArgumentNullException.ThrowIfNull(serverInfo);
+
+        return Encode(
+            new NetDecodeState { NetworkProtocol = serverInfo.NetworkProtocol, ServerInfo = serverInfo },
+            tick,
+            messages);
+    }
+
+    /// <summary>One packet command, its messages written against the state given.</summary>
+    private static DemoCommand Encode(NetDecodeState state, int tick, INetMessage[] messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
 
         BitWriter writer = new();
-        NetDecodeState state = new() { NetworkProtocol = protocol };
 
         foreach (INetMessage message in messages)
         {
