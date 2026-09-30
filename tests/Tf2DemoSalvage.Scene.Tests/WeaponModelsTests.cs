@@ -79,6 +79,21 @@ public sealed class WeaponModelsTests
         Weapons().For(Soldier() with { WeaponItem = 999_999 }).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **A known item that names no model has answered, and the stock item is not asked** (B105's open item). A TF
+    /// weapon's world model is its item's whenever the item is valid — `CTFWeaponBase::GetWorldModel` returns
+    /// `GetPlayerDisplayModel` as it is, "" included, and reaches the script only for an invalid item
+    /// (tf_weaponbase.cpp:681-701) — so the class route, this project's stand-in for that script, is for an item the
+    /// schema cannot name. The Fists and the four spellbooks are the shipped case. The control is the class route
+    /// itself: <see cref="For_APlayerWhoseItemWasNeverSent_FallsBackToTheStockItemForTheirWeaponClass"/> and
+    /// <see cref="AllWornIn_ForAnItemTheSchemaDoesNotKnow_FallsBackToTheStockModelForItsClass"/>, same class, same stock item.
+    /// </remarks>
+    [Test]
+    public void For_AKnownItemWhoseOwnModelPlayerIsEmpty_AnswersEmptyNotTheStockModel()
+    {
+        Weapons().For(NoModelLauncherItem, RocketLauncherServerClass, forClass: 3).ShouldBe(string.Empty);
+    }
+
     [Test]
     public void For_WithNoInstall_AnswersNullAndSaysWhyOnce()
     {
@@ -303,6 +318,12 @@ public sealed class WeaponModelsTests
                         "baseitem"          "1"
                         "model_player"      "{{StockRocketLauncherModel}}"
                     }
+                    "{{NoModelLauncherItem}}"
+                    {
+                        "name"              "A Launcher That Names No Model"
+                        "item_class"        "tf_weapon_rocketlauncher"
+                        "model_player"      ""
+                    }
                     "{{HatItem}}"
                     {
                         "name"              "A Hat With Two Faces"
@@ -335,4 +356,7 @@ public sealed class WeaponModelsTests
 
     /// <summary>An item index the schema has never heard of, for the class fallback.</summary>
     private const int UnknownItem = 4242;
+
+    /// <summary>A known item whose own `model_player` is "", of a class whose stock item names a model.</summary>
+    private const int NoModelLauncherItem = 196;
 }

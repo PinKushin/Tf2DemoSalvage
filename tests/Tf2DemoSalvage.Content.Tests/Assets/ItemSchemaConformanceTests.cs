@@ -185,6 +185,73 @@ public sealed class ItemSchemaConformanceTests
             .ShouldBe("models/player/items/soldier/soldier_bill.mdl");
     }
 
+    /// <remarks>
+    /// **The eighteen `"model_player" ""` declarations the shipped file carries, and every item they reach** (B105's open
+    /// item, counted 2026-09-30). Fifteen are items' own: the Web Easteregg Medal and the three CheatDetected items over
+    /// `base_misc`, the Upgradeable Fists over `weapon_fists`, two gifts and the Duel MiniGame over `valve`, the Pallet of
+    /// Crates with no prefab, and six key and token gifts over `robokey_rules` and `eotlkey_rules`. Three are prefabs with
+    /// no parent — `weapon_fists`, `halloween2013_spellbook`, `randomgift` — which nineteen more items inherit.
+    ///
+    /// **No chain above them names a model, so the value hides nothing here; what it changes is the answer**, "" where a
+    /// reader skipping empties answers nothing. The merge keeps the nearest value whatever it holds
+    /// (econ_item_schema.cpp:2909, :2962, :2967), `BInitFromKV` reads it with a NULL default (:3158) and
+    /// `GetPlayerDisplayModel` returns it as it is (econ_item_view.cpp:969). Each index was read off the file, not produced
+    /// by the reader.
+    ///
+    /// **The control is 5838**, the Winter 2015 Mystery Box: `randomgift`'s "" is two prefabs up and its own `model_player`
+    /// is nearer, so it keeps it. Every index is also asked whether the schema has it at all, because an unknown item
+    /// answers null too and would fail here for the wrong reason.
+    /// </remarks>
+    [Test]
+    public void ModelFor_TheShippedEmptyModelPlayers_AreEmpty()
+    {
+        if (!File.Exists(SchemaPath))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ItemSchema schema = ItemSchema.Read(File.ReadAllBytes(SchemaPath));
+        List<string> wrong = [];
+
+        foreach (int item in EmptyModelPlayers)
+        {
+            schema.ItemBaseName(item).ShouldNotBeNull($"item {item} is in the shipped schema");
+
+            for (int playerClass = 0; playerClass <= LastClass; playerClass++)
+            {
+                string? model = schema.ModelFor(item, playerClass);
+
+                if (model is not { Length: 0 })
+                {
+                    wrong.Add($"item {item} class {playerClass}: '{model ?? "(null)"}'");
+                }
+            }
+        }
+
+        wrong.ShouldBeEmpty();
+        schema.ModelFor(5838, playerClass: 0).ShouldBe("models/items/gift_festive.mdl", "its own model is nearer than randomgift's \"\"");
+    }
+
+    /// <summary><c>TF_CLASS_ENGINEER</c>, the last of the nine.</summary>
+    private const int LastClass = 9;
+
+    /// <summary>The 34 items whose nearest `model_player` in the shipped file is "".</summary>
+    private static readonly int[] EmptyModelPlayers =
+    [
+        // Their own "".
+        121, 122, 123, 124, 195, 233, 234, 241, 1037, 5637, 5638, 5776, 5777, 5779, 5780,
+
+        // weapon_fists'.
+        5,
+
+        // halloween2013_spellbook's.
+        1069, 1070, 1132, 5605,
+
+        // randomgift's.
+        5639, 5658, 5659, 5718, 5741, 5886, 5900, 5910, 5923, 5936, 5945, 5955, 5966, 5974,
+    ];
+
     [Test]
     public void DropType_ALaunchEraHatInTheShippedSchema_IsDrop()
     {
