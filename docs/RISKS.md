@@ -6289,7 +6289,7 @@ what the engine computes; the engine simply does not recompute them for every en
 A frame rate measured while playing was measuring the wrong thing for the whole of this entry's
 first draft, and the fix it pointed at — culling — was the one thing the numbers do not support.
 
-### B100 — every player plays one of two animations, chosen by speed alone — FIXED (5b11832a movement activity, weapon suffix and jump phases after it; remainder in B105/B112; heading corrected 2026-09-29)
+### B100 — every player plays one of two animations, chosen by speed alone — FIXED (5b11832a movement activity, weapon suffix and jump phases after it; remainder in B105/B112, both since resolved; heading corrected 2026-09-29)
 
 **Owner's observation, and it outranks the remaining performance work:** the legs move, but "most of
 the models are not doing anything but their running animation, and the animation being blanket
@@ -6684,7 +6684,7 @@ every time**, rather than reading the pass/fail word. Current sizes at this comm
 
 A total that drops without the suite shrinking is a failed run wearing a pass.
 
-### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — OPEN
+### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — RESOLVED (wiring below; per-class a85b8136; the item's `anim_slot` 2026-09-29, the last B105 section)
 
 The chain from a demo to a weapon's animation role is complete and tested, and the last hop into the
 viewer is not done. Recorded so the half-built state is visible rather than looking finished.
@@ -6721,7 +6721,7 @@ A weapon whose script cannot be found falls back to `PRIMARY`, which is the engi
 indistinguishable from a correct primary, which is why the name mapping is enumerated against the
 SDK rather than trusted to a rule.
 
-### B105 — RESOLVED for the wiring; the per-class translation remains
+### B105 — RESOLVED for the wiring; the per-class translation remains (since done: a85b8136)
 
 The suffix now reaches the renderer. `ScenePose` carries `Slot` beside `Flags`, the viewer builds a
 `WeaponRoles` from the weapon classes a recording mentions, and `PlayerAnimation.For` passes it to
@@ -6757,7 +6757,71 @@ the shotgun is the case where the role differs: `_soldier`, `_hwg` and `_pyro` a
 the engineer's `_primary` is a primary. So a soldier's shotgun currently animates as a primary. The
 holder's class is on the wire, so this is implementable.
 
-The econ `anim_slot` override from `items_game.txt` is also still unread.
+The econ `anim_slot` override from `items_game.txt` is also still unread. (Per-class translation:
+a85b8136. The `anim_slot`: the next section.)
+
+### B105 — RESOLVED 2026-09-29: the item's `anim_slot` decides the table, and every demoman's launchers were swapped
+
+`CTFWeaponBase::GetActivityWeaponRole` (`tf_weaponbase.cpp:4185-4205`) starts from the script's
+`WeaponType` and replaces it with `CEconItemView::GetAnimationSlot` (`econ_item_view.cpp:1093-1103`)
+whenever that is `>= 0`; `ActivityList` (`:4208-4280`) then switches the role onto one of twelve tables.
+Ported as `WeaponRoles.Suffix(weapon, class, animSlot)` over `WeaponRoles.ActivityList`, fed by
+`GameAppearance.WeaponSuffix(weapon, class, item)` with the held weapon's `m_iItemDefinitionIndex` and
+`ItemSchema.AnimSlot` (`tf_item_schema.cpp:893`, `:1014-1026`, `:1591`).
+
+**The mapping as ported**, `TF_WPN_TYPE` (`tf_item_constants.h:19-34`) to table: 0 PRIMARY, 1 SECONDARY,
+2 MELEE, 4 BUILDING, 5 PDA, 6 ITEM1, 7 ITEM2, 10 MELEEALLCLASS, 11 SECONDARY2, 12 PRIMARY2, 13 ITEM3,
+14 ITEM4; GRENADE (3), HEAD (8), MISC (9) and PASSTIME_BALL (15) fall to `default:`, the primary table. -1
+(no `anim_slot`, no item, an item the schema lacks) and -2 (`FORCE_NOT_USED`) keep the script. Two classes
+answer otherwise: `CTFKatana` is ITEM1 for a demoman before the item is asked (`tf_weapon_sword.cpp:577-587`),
+and `CTFGrapplingHook` and `CPasstimeGun` replace `ActivityList` and never read the item
+(`tf_weapon_grapplinghook.cpp:150`, `tf_weapon_passtime_gun.cpp:304`). `mp_forceactivityset` (`:4200`) is
+`FCVAR_DEVELOPMENTONLY`, -1 in every shipped build, and not read.
+
+**It was not a residual for six items; it was every demoman.** The stock stickybomb launcher (20) inherits
+`"anim_slot" "primary"` from `weapon_stickybomb_launcher` and the stock grenade launcher (19) `"secondary"`
+from `weapon_grenade_launcher` — each the reverse of its script — so every demoman in every recording that
+carries the item index held each launcher in the other's stance. Measured with the `anim-slot` probe before
+the fix, every row "drawn" equal to "script": z1800 45,638 player-ticks on an overriding item (45 player+item
+pairs: launchers 19/20/206/207/904/971/1150/1151/265, Necro Smasher, Sharp Dresser, Eyelander, pan, FaN…);
+the 2011 viaduct POV and STV 1,348 and 1,201; the 2013 badlands POV 814, foundry STV 57; the 2007-2008
+specimens none (no item index before 2009) and the 2009 POV none (its items name no slot). Every lcor match
+with a demoman carries tens of thousands (f12 2026-08-07: 187,752 of 1,040,858).
+
+**Three things beyond the lookup had to change:**
+
+1. **The body goes through the table.** `PlayerActivityState.NameOf` pasted the role onto a name, which is
+   the table for ten roles of twelve: `s_acttablePrimary2` runs with the PRIMARY rows (`:3780-3795`) and the
+   all-class melee table is keyed MELEEALLCLASS while its rows say `_MELEE_ALLCLASS` (`:4143-4153`).
+   `IdealName` is now `CalcMainActivity`'s own answer (`multiplayer_animstate.cpp:851-953`) and
+   `PlayerAnimation.Translate` sends it through `WeaponActivityTable`, as `TranslateActivity` does
+   (`tf_playeranimstate.cpp:124-133`) — the table gestures already used.
+2. **An item's own empty `anim_slot` hides its prefab's.** `RecursiveInheritKeyValues` sets an item's keys
+   over its prefabs' whatever the value (`econ_item_schema.cpp:2909`, `:2967`) and `BInitFromKV` skips the
+   empty one (`tf_item_schema.cpp:1016`). The Half-Zatoichi (357, `""` over `weapon_sword`'s `item1`) read as
+   ITEM1 for a soldier; the prefab search skipped empty values.
+3. **`m_hActiveWeapon` resolves through its serial** (`EntityStateTable.Resolve`, B231): the item is what the
+   role reads now, so a slot that changed hands must name no weapon. One resolution per player feeds every
+   field that describes the held weapon.
+
+**The viewmodel needs nothing.** `TranslateViewmodelHandActivityInternal` (`tf_weaponbase.cpp:4513-4542`) reads
+the same override, but runs on the server inside `SendWeaponAnim` and arrives as the viewmodel's `m_nSequence`
+(`docs/PARITY-AUDIT.md`, "TranslateViewmodelHandActivity").
+
+**`GetAnimationSlot`'s call sites:** clangd counts twelve references. Located and read: `tf_weaponbase.cpp:4192`
+(the role) and `:4527` (viewmodel hands), `tf_weapon_sword.cpp:98` (decapitation viewmodel), and
+`vgui/tf_playermodelpanel.cpp:275, :332, :364, :783, :994` (the loadout panel, already `TfPlayerModelPanel`).
+Four were not located — the clangd MCP returns a count without locations and a text search for a C symbol is
+hook-refused — and none can reach a demo player's body, whose only weapon step was traced top-down above.
+
+**Filed, not ported:** `ActivityList`'s disguise branch — an enemy disguised spy animates with
+`m_hDisguiseWeapon`'s table (`tf_weaponbase.cpp:4214-4222`, already named in `Disguise.cs`); the grappling
+hook's and passtime gun's own tables (`tf_weapon_grapplinghook.cpp:52-148`, `tf_weapon_passtime_gun.cpp:251-300`);
+two rows `WeaponActivityTable` carries that the SDK has commented out, ITEM1's and ITEM2's
+`ACT_MP_ATTACK_*_PRIMARY_DEPLOYED` (`tf_weaponbase.cpp:3949-3950`, `:3999-4000` — the conformance parse does not
+skip `//`); eighteen items declare `"model_player" ""` over a prefab, where the same empty-wins merge applies and
+the model search still skips empties (unmeasured); `WeaponType` is compared case-sensitively
+(`tf_weapon_parse.cpp:136`) and ignoring case here (every shipped script is lower case).
 
 ### B106 — a scout is reported holding an engineer's shotgun — NOT A DEFECT (367a9cff: 9 ticks in 929,371, a sampling skew; heading corrected 2026-09-29)
 

@@ -18,8 +18,14 @@ public interface IPlayerAppearance
     /// <summary>The model a class is drawn with, or null when the install cannot say.</summary>
     public string? ModelOf(int playerClass);
 
-    /// <summary>The activity suffix a held weapon drives, or null.</summary>
-    public string? WeaponSuffix(string? weaponClass, int? playerClass);
+    /// <summary>The activity table a held weapon drives, or null.</summary>
+    /// <param name="weaponClass">The weapon's server class, or null when nothing is held.</param>
+    /// <param name="playerClass">Who is holding it.</param>
+    /// <param name="weaponItem">
+    /// The weapon's <c>m_iItemDefinitionIndex</c>, or null when the demo names none — whose <c>anim_slot</c> replaces the
+    /// script's type in <c>GetActivityWeaponRole</c> (<c>tf_weaponbase.cpp:4189-4197</c>, B105).
+    /// </param>
+    public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem);
 
     /// <summary>Whether a class air-walks at all. Only the medic opts out.</summary>
     public bool Airwalks(int playerClass);
@@ -200,8 +206,16 @@ public sealed record GameAppearance(
     public string? ModelOf(int playerClass) => Classes?.Model(playerClass);
 
     /// <inheritdoc/>
-    public string? WeaponSuffix(string? weaponClass, int? playerClass) =>
-        Roles?.Suffix(weaponClass, playerClass);
+    /// <remarks>
+    /// **The item's slot comes from the same schema the models do**, and an item the schema does not know — or no item
+    /// at all — answers -1, `GetAnimationSlot`'s own answer when the view has no static data
+    /// (`econ_item_view.cpp:1095-1096`), which leaves the script's type in place.
+    /// </remarks>
+    public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) =>
+        Roles?.Suffix(
+            weaponClass,
+            playerClass,
+            weaponItem is { } item && Items is { } items ? items.AnimSlot(item) : -1);
 
     /// <inheritdoc/>
     /// <remarks>
@@ -398,7 +412,10 @@ public static class PlayerProps
                     // `PlayerPoseWiringCompletenessTests` now guards this hop as a CLASS rather
                     // than one field at a time — it has lost four now (B259, B312 x3, B346).
                     DiscontinuitySeconds = player.DiscontinuitySeconds,
-                    Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass),
+
+                    // **With the item, whose `anim_slot` outranks the script** (B105) — the demoman's launchers are
+                    // each the other's table without it.
+                    Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass, player.WeaponItem),
                     AirborneSeconds = player.AirborneSeconds,
                     EyePitch = player.EyePitch,
                     EyeYaw = player.EyeYaw,

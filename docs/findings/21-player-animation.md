@@ -232,3 +232,35 @@ the rest of `CTFPlayerAnimState`.
 
 *Evidence class: read from published source, plus one owner observation of the drawn result. The
 claim that it FIXES the picture is not yet measured.*
+
+## The item, not the weapon's script, decides how a player holds it (B105, 2026-09-29)
+
+**What was believed:** a weapon's stance is its script's `WeaponType`, and the item's `anim_slot` was a
+residual for a handful of odd weapons — the Scottish Resistance, the Quickiebomb, the banners, the
+Gunslinger, the Dragon's Fury. B105 filed it that way for six weeks.
+
+**What the census said, before a line of the fix** (the `anim-slot` probe, which reads the item's slot and
+the role `PlayerProps.Add` actually drew): the override touched every demoman in every recording with an
+item index. `items_game.txt` gives the stock stickybomb launcher `"anim_slot" "primary"` through the
+`weapon_stickybomb_launcher` prefab and the stock grenade launcher `"secondary"` through
+`weapon_grenade_launcher` — the reverse of both scripts — so each launcher had been drawn in the other's
+stance: z1800 spends 45,638 player-ticks on an overriding item, a modern f12 match 187,752. The six named
+weapons were the tail, not the case.
+
+**Two wrong turns the fix had to undo, both invisible to the tests that existed:**
+
+- **A role pasted onto an activity name is not a table.** The body's activity was composed as
+  `ACT_MP_RUN_` plus the role, which agrees with `ActivityList`'s tables for ten roles of twelve. The
+  Cow Mangler's PRIMARY2 runs with the primary rows (`tf_weaponbase.cpp:3785`), and the all-class melee
+  table is keyed MELEEALLCLASS while its rows say `_MELEE_ALLCLASS` (`:4145`). The engine never pastes:
+  `TranslateActivity` hands `CalcMainActivity`'s bare answer to the weapon's table
+  (`tf_playeranimstate.cpp:124-133`) — which the gesture path here had already learned (B284).
+- **An empty value in `items_game.txt` is an answer.** The prefab merge writes an item's own keys over its
+  prefabs' whatever they hold (`econ_item_schema.cpp:2909`, `:2967`), so the Half-Zatoichi's `"anim_slot" ""`
+  hides `weapon_sword`'s `item1` and a soldier's katana stays melee. The port's prefab search treated empty
+  as absent and read the slot as ITEM1 — the census's own column says 6 — and every katana it found was a
+  demoman's, which `CTFKatana`'s override makes ITEM1 anyway (`tf_weapon_sword.cpp:577-587`). Only a soldier's
+  would have shown it, and no recording here has one.
+
+*Evidence class: read from published source (the rules), measured on the corpus (the census), read from
+shipped data (the slots).*

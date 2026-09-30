@@ -1703,12 +1703,19 @@ public sealed class ItemSchema
         "MELEE_ALLCLASS", "SECONDARY2", "PRIMARY2", "ITEM3", "ITEM4", "PASSTIME_BALL",
     ];
 
-    /// <summary>`GetAnimSlot()`: `m_iAnimationSlot`, -1 by default (tf_item_schema.cpp:1015-1026).</summary>
+    /// <summary>`GetAnimSlot()`: `m_iAnimationSlot`, -1 by default (tf_item_schema.cpp:893, :1015-1026).</summary>
     /// <param name="definitionIndex">The item.</param>
     /// <returns>A `TF_WPN_TYPE_*`, <see cref="AnimSlotNotUsed"/>, or -1.</returns>
+    /// <remarks>
+    /// **An item's own EMPTY `anim_slot` hides its prefab's** (B105): the merge sets the item's value over the prefab's
+    /// (econ_item_schema.cpp:2909) and `if ( pszAnimSlot &amp;&amp; pszAnimSlot[0] )` (tf_item_schema.cpp:1016) then
+    /// skips it, leaving -1. The Half-Zatoichi is the shipped case — `"anim_slot" ""` over `weapon_sword`'s `item1` —
+    /// so a soldier's katana takes his script's melee where the sword prefab would have made it ITEM1.
+    /// </remarks>
     public int AnimSlot(int definitionIndex)
     {
-        if (Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("anim_slot")) is not { } raw)
+        if (Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("anim_slot"), emptyAnswers: true) is not
+            { Length: > 0 } raw)
         {
             return -1;
         }
@@ -2128,20 +2135,27 @@ public sealed class ItemSchema
         Search(item, entry => entry.VisualsSections.Contains(section) ? "declared" : null, LongestChain) is not null;
 
     /// <summary>Searches an item and then its prefabs, in order, for the first answer.</summary>
-    private string? Inherited(int definitionIndex, Func<Entry, string?> ask)
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="ask">What each definition says, or null when it says nothing.</param>
+    /// <param name="emptyAnswers">
+    /// Whether an empty value is the nearest definition's answer rather than silence. It is, in the engine, for every
+    /// key: `RecursiveInheritKeyValues` sets each of an item's own keys over its prefabs' whatever the value
+    /// (econ_item_schema.cpp:2909, :2967). Opt-in here because only `anim_slot` is known to need it.
+    /// </param>
+    private string? Inherited(int definitionIndex, Func<Entry, string?> ask, bool emptyAnswers = false)
     {
         if (!_items.TryGetValue(definitionIndex, out Entry? item))
         {
             return null;
         }
 
-        return Search(item, ask, LongestChain);
+        return Search(item, ask, LongestChain, emptyAnswers);
     }
 
     /// <summary>Depth-first through the prefab chain, nearest definition winning.</summary>
-    private string? Search(Entry entry, Func<Entry, string?> ask, int remaining)
+    private string? Search(Entry entry, Func<Entry, string?> ask, int remaining, bool emptyAnswers = false)
     {
-        if (ask(entry) is { Length: > 0 } answer)
+        if (ask(entry) is { } answer && (emptyAnswers || answer.Length > 0))
         {
             return answer;
         }
@@ -2154,7 +2168,7 @@ public sealed class ItemSchema
         foreach (string name in entry.Prefabs)
         {
             if (_prefabs.TryGetValue(name, out Entry? prefab) &&
-                Search(prefab, ask, remaining - 1) is { } inherited)
+                Search(prefab, ask, remaining - 1, emptyAnswers) is { } inherited)
             {
                 return inherited;
             }
@@ -2190,8 +2204,21 @@ public sealed class ItemSchema
     /// <summary>Records one key from an entry.</summary>
     private static void Apply(Entry entry, string key, string? value)
     {
-        if (value is not { Length: > 0 })
+        if (value is null)
         {
+            return;
+        }
+
+        // **An empty value is kept only among the scalar keys**, whose searches pass over it unless asked not to —
+        // which `anim_slot` is, because an item's own `""` hides its prefab's slot (B105). Everywhere else it is
+        // dropped here, as it always was.
+        if (value.Length == 0)
+        {
+            if (PanelKeys.Contains(key))
+            {
+                entry.Keys[key] = value;
+            }
+
             return;
         }
 

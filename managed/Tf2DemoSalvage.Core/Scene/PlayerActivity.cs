@@ -240,59 +240,40 @@ public static class PlayerActivityState
         return moving ? PlayerActivity.Run : PlayerActivity.StandIdle;
     }
 
-    /// <summary>
-    /// The weapon slot an activity is suffixed with, when the demo does not say which is out.
-    /// </summary>
-    /// <remarks>
-    /// **Every activity a model claims is weapon-suffixed, which is measured and was a surprise.**
-    /// A scout ships <c>ACT_MP_RUN_PRIMARY</c>, <c>ACT_MP_RUN_SECONDARY</c>, <c>ACT_MP_RUN_MELEE</c>
-    /// and more; the bare <c>ACT_MP_RUN</c> that <c>CalcMainActivity</c> returns appears nowhere in a
-    /// model. <c>CTFPlayerAnimState::TranslateActivity</c> is what adds the suffix, which is why that
-    /// step exists rather than being an optimisation.
-    ///
-    /// The primary slot is assumed because <c>m_hActiveWeapon</c> is not decoded yet, and every class
-    /// has the primary forms so the name always resolves. It is the same assumption the earlier
-    /// guess-the-label code made, now for a stated reason instead of by accident.
-    /// </remarks>
-    public const string DefaultWeaponSlot = "PRIMARY";
-
-    /// <summary>The engine's name for an activity, which is what a model file stores.</summary>
+    /// <summary><c>CalcMainActivity</c>'s own name for an activity, before any weapon has touched it.</summary>
     /// <param name="activity">The activity.</param>
-    /// <param name="weaponSlot">Which weapon slot to suffix with.</param>
-    /// <returns>Its <c>ACT_MP_</c> name, as a model spells it.</returns>
+    /// <returns>The engine's <c>idealActivity</c>, such as <c>ACT_MP_RUN</c>.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The activity is not one of the known values.</exception>
     /// <remarks>
-    /// **Measured against a real model rather than composed from the enum.** The naming is not
-    /// regular: standing is <c>ACT_MP_STAND_PRIMARY</c> rather than <c>STAND_IDLE</c>, crouching
-    /// idle is <c>ACT_MP_CROUCH_PRIMARY</c> with no IDLE at all, and a jump is three activities —
-    /// start, float and land — so there is no single name for it.
+    /// **No model ships these names, and that is the point of them** (B105). A scout carries
+    /// <c>ACT_MP_RUN_PRIMARY</c>, <c>ACT_MP_RUN_SECONDARY</c> and the rest and never a bare
+    /// <c>ACT_MP_RUN</c>: <c>CTFPlayerAnimState::TranslateActivity</c> (<c>tf_playeranimstate.cpp:124</c>) hands this
+    /// name to the held weapon's table, which rewrites it — so it is the table's KEY. Pasting a slot onto the end
+    /// instead was a table for ten roles of twelve: the Cow Mangler's PRIMARY2 runs with the primary rows
+    /// (<c>tf_weaponbase.cpp:3785</c>) and the all-class melee table is keyed MELEEALLCLASS while its rows say
+    /// <c>_MELEE_ALLCLASS</c>.
     ///
-    /// Thrown rather than defaulted for an unknown value: a wrong activity name resolves to no
-    /// sequence and freezes the model in its reference pose, which reads as a model fault rather
-    /// than a lookup one.
+    /// Each value is the handler's own (<c>multiplayer_animstate.cpp</c>): <c>ACT_MP_STAND_IDLE</c> is
+    /// <c>CalcMainActivity</c>'s starting value (:953), <c>HandleMoving</c> only ever runs (:940),
+    /// <c>HandleDucking</c> crouch-idles or crouch-walks (:851, :855), <c>HandleSwimming</c> swims whether or not the
+    /// player moves (:880), <c>HandleDying</c> dies (:913), and TF's <c>HandleJumping</c> air-walks, pushes off or
+    /// floats. The LAND is deliberately absent: <c>ACT_MP_JUMP_LAND</c> is started with
+    /// <c>RestartGesture( GESTURE_SLOT_JUMP, ... )</c>, a layer over whatever the body is doing, not a body activity.
+    ///
+    /// Thrown rather than defaulted for an unknown value: a wrong activity name resolves to no sequence and freezes the
+    /// model in its reference pose, which reads as a model fault rather than a lookup one.
     /// </remarks>
-    public static string NameOf(PlayerActivity activity, string weaponSlot = DefaultWeaponSlot) =>
+    public static string IdealName(PlayerActivity activity) =>
         activity switch
         {
-            PlayerActivity.StandIdle => $"ACT_MP_STAND_{weaponSlot}",
-            PlayerActivity.Run => $"ACT_MP_RUN_{weaponSlot}",
-            PlayerActivity.CrouchIdle => $"ACT_MP_CROUCH_{weaponSlot}",
-            PlayerActivity.CrouchWalk => $"ACT_MP_CROUCHWALK_{weaponSlot}",
-
-            // **The push-off and the float, split at half a second.** A demo carries no jump event,
-            // so the moment of leaving the ground is derived from when FL_ONGROUND cleared — see
-            // ScenePlayer.AirborneSeconds.
-            //
-            // The LAND is deliberately absent, and that is a fact about the engine rather than a
-            // gap here: ACT_MP_JUMP_LAND is started with RestartGesture( GESTURE_SLOT_JUMP, ... ),
-            // so it is a layered gesture played over whatever the body is doing, not a body
-            // activity. Returning it here would replace the run a player lands into.
-            PlayerActivity.Airwalk => $"ACT_MP_AIRWALK_{weaponSlot}",
-            PlayerActivity.JumpStart => $"ACT_MP_JUMP_START_{weaponSlot}",
-            PlayerActivity.Jump => $"ACT_MP_JUMP_FLOAT_{weaponSlot}",
-
-            PlayerActivity.SwimIdle => $"ACT_MP_SWIM_{weaponSlot}",
-            PlayerActivity.Swim => $"ACT_MP_SWIM_{weaponSlot}",
+            PlayerActivity.StandIdle => "ACT_MP_STAND_IDLE",
+            PlayerActivity.Run => "ACT_MP_RUN",
+            PlayerActivity.CrouchIdle => "ACT_MP_CROUCH_IDLE",
+            PlayerActivity.CrouchWalk => "ACT_MP_CROUCHWALK",
+            PlayerActivity.Airwalk => "ACT_MP_AIRWALK",
+            PlayerActivity.JumpStart => "ACT_MP_JUMP_START",
+            PlayerActivity.Jump => "ACT_MP_JUMP_FLOAT",
+            PlayerActivity.SwimIdle or PlayerActivity.Swim => "ACT_MP_SWIM",
             PlayerActivity.Die => "ACT_DIESIMPLE",
             _ => throw new ArgumentOutOfRangeException(nameof(activity)),
         };
