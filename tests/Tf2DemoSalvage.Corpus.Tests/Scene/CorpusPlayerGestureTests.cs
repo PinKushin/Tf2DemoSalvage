@@ -216,8 +216,10 @@ public sealed class CorpusPlayerGestureTests
         DemoTimeline timeline = TimelineCache.For(path);
         Dictionary<(int Player, int Tick), bool> independent = IndependentAirWalkAtReloads(path);
 
-        // Once per gesture: a slot's gesture is carried on every frame until something replaces it.
-        HashSet<(int Player, double Started, string Activity, int? PlayerClass)> reloads = [];
+        // Once per gesture: a slot's gesture is carried on every frame until something replaces it. Keyed on the
+        // gesture alone, with the class it was first seen under beside it — a key that included the class counted a
+        // gesture twice when it outlived a respawn into another class.
+        Dictionary<(int Player, double Started, string Activity), int?> reloads = [];
 
         foreach (TimelineFrame frame in timeline.Frames)
         {
@@ -229,7 +231,7 @@ public sealed class CorpusPlayerGestureTests
                         gesture.ActivityName is { } name &&
                         name.StartsWith(ReloadActivityPrefix, StringComparison.Ordinal))
                     {
-                        reloads.Add((player.EntityIndex, gesture.StartedSeconds, name, player.PlayerClass));
+                        reloads.TryAdd((player.EntityIndex, gesture.StartedSeconds, name), player.PlayerClass);
                     }
                 }
             }
@@ -240,7 +242,7 @@ public sealed class CorpusPlayerGestureTests
         List<string> disagreements = [];
         Dictionary<int, int> airWalkingByClass = [];
 
-        foreach ((int who, double started, string activity, int? playerClass) in reloads)
+        foreach (((int who, double started, string activity), int? playerClass) in reloads)
         {
             // A gesture's start is its event's arrival, `tick * interval`, so the tick comes back exactly.
             int tick = (int)Math.Round(started / timeline.IntervalPerTick);
