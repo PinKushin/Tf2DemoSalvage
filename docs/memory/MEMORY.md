@@ -152,3 +152,4 @@
 - [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) — events vanish; use `PacketAfter`.
 - [A handle resolves through its serial](a-handle-resolves-through-its-serial.md) — `EntityStateTable.Resolve`, never slot alone.
 - [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — an item's own `""` hides its prefab's; opt in per key (B105).
+- [A weapon's world model is its item's](a-weapons-world-model-is-its-items.md) — the client rebuilds it over the wire; `""` draws nothing; wearables keep the wire.
