@@ -7935,6 +7935,32 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B446 — an array's element shapes did not survive the assembly text, so PASS Time snapshots stayed bits — FIXED 2026-09-30
+
+**Found by the `asm-raw` probe**, which names per demo what the assembly writer still carries as bits. Over
+the whole local pool, seven `PacketEntities declined` came from outside the two schema-less 2007 SourceTV
+demos: `demostf-pass_coastal_rc8-1491292` at packet ticks 1, 347, 23594 and 45972, and three in
+`demostf-pass_sanctum_a2a-1491285`. In binary they decode and re-encode exactly (`entity-overrun` over the
+whole of pass_coastal: 71,814 of 71,814); the writer declined them because their TEXT did not assemble back.
+
+**The cause is B27's, one layer up.** Each element of an array carries the coordinate form its sender chose,
+and the value does not say which; B27 taught the codec to keep `DecodedProperty.ElementShapes`. The text
+form wrote a property's index width and coordinate shape and never the element shapes, and `ReadEntity`
+rebuilt every array at shape 0 — so PASS Time's 16-element `m_trackPoints` re-encoded at another width.
+
+- **The index token grows a fourth field**: `prop 12/4/0/1.0.1.0 …` — one shape per element, in element
+  order, written only when one is nonzero (all-zero shapes encode exactly as absent ones). Old text, which
+  never has the field, reads as before.
+- **Tests** (`EntityAssemblyTests`, synthetic): shapes `[1, 0, 1, 0]` round-trip to the same bits; the line
+  states them; all-zero shapes state nothing (control). **Sabotaged**: a parser that ignores the field
+  reddens only the round trip; a writer that always states shapes reddens only the control.
+- **On the corpus**: both PASS Time demos now carry nothing but padding (pass_coastal: 4 raw snapshots became
+  3,608 structured lines), and pass_sanctum decompiles and compiles back byte-identical, 11,671,620 bytes.
+  What is still bits in the whole pool after this: the two 2007 SourceTV demos (B24, no schema) and
+  `SetPause`. *Evidence class: measured (probes, CLI round trip); arithmetic (the width).*
+
+---
+
 ### B445 — the assembly round trip held each demo's whole text as one string, and the largest outgrew it — FIXED 2026-09-30
 
 **Found when B440 let `EveryDemo_CompilesBackToItsOwnBytes` run past the CEVO demo.** In B439's superset
