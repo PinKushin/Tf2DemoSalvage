@@ -328,6 +328,7 @@ internal static class CensusSummary
         text.Append(Invariant($"# Decode census\n\nFrom {string.Join(", ", csvPaths)}.\n\n"));
         Membership(text, rows, demos);
         Headline(text, demos);
+        Protocols(text, demos);
         PerStage(text, demos);
         Classes(text, demos);
         EveryFailure(text, demos);
@@ -377,6 +378,24 @@ internal static class CensusSummary
             $"counts, which is how `EveryDemo_CompilesBackToItsOwnBytes` reads it (a prefix of the file).\n\n");
         text.Append(Invariant(
             $"{unmeasured} fail nothing but were not measured by every stage (a budget, unavailable or not-asked skip).\n\n"));
+    }
+
+    /// <summary>The pool by network protocol and point of view — the era axis `docs/TIMELINE.md` keeps.</summary>
+    private static void Protocols(StringBuilder text, List<CensusRow> demos)
+    {
+        text.Append("## Protocols\n\n| network protocol | demos | SourceTV | POV | pass every stage | MB |\n|---|---|---|---|---|---|\n");
+
+        foreach (IGrouping<long, CensusRow> protocol in demos.GroupBy(row => Long(row, "network_protocol")).OrderBy(group => group.Key))
+        {
+            text.Append(
+                CultureInfo.InvariantCulture,
+                $"| {protocol.Key} | {protocol.Count()} | {protocol.Count(row => row["view"] == "SourceTV")} | " +
+                $"{protocol.Count(row => row["view"] == "POV")} | " +
+                $"{protocol.Count(row => CensusRow.Stages.All(stage => Passed(row, stage)))} | " +
+                $"{protocol.Sum(row => Long(row, "bytes")) / 1048576.0:N0} |\n");
+        }
+
+        text.Append('\n');
     }
 
     private static void PerStage(StringBuilder text, List<CensusRow> demos)
