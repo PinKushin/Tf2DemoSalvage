@@ -37,10 +37,11 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// both: tests stay in their own classes, run in parallel exactly as before, and simply receive a
 /// timeline that is already built.
 ///
-/// **A timeline is safe to share because it is finished when it is returned.**
-/// <see cref="DemoTimeline"/> is built once from a byte array and then only queried —
-/// <c>PlayersAt</c>, <c>PropsAt</c> and <c>TrackFor</c> read the frames it already holds. Sharing a
-/// mutable object across parallel tests would be a race; sharing an immutable result is not.
+/// **A timeline is NOT read-only once built, and this was written when it was.** <c>PropsAt</c> keeps a
+/// sample between calls (<c>_sampledTo</c>, B259's incremental rebuild), so two tests sampling one
+/// cached timeline at once read each other's state: 2026-09-30, three of four parallel cases on z1800
+/// found no prop at ticks where each, run alone, found it. A test that samples <c>PropsAt</c> builds its
+/// own timeline (<c>docs/memory/a-cached-timeline-samples-for-everyone.md</c>).
 /// </remarks>
 internal static class TimelineCache
 {
