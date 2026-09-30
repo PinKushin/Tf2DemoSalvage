@@ -180,6 +180,14 @@ public sealed class MessageAssemblyTests
     }
 
     [Test]
+    public void MessageAssembly_SetPause_RoundTripsBothStates()
+    {
+        // The last kind the whole local pool still carried as bits (14 lines in nine demos, asm-raw, B447).
+        TextRoundTrip(new SetPauseMessage(true)).ShouldBeOfType<SetPauseMessage>().Paused.ShouldBeTrue();
+        TextRoundTrip(new SetPauseMessage(false)).ShouldBeOfType<SetPauseMessage>().Paused.ShouldBeFalse();
+    }
+
+    [Test]
     public void MessageAssembly_SetViewAndPrefetch_RoundTripAtTheirWidestValues()
     {
         TextRoundTrip(new SetViewMessage(2047)).ShouldBeOfType<SetViewMessage>()
@@ -264,6 +272,7 @@ public sealed class MessageAssemblyTests
             new StringCmdMessage("x"),
             new SignOnStateMessage(1, 2),
             new SetViewMessage(1),
+            new SetPauseMessage(true),
             new PrefetchMessage(1),
             new FixAngleMessage(false, 0f, 0f, 0f),
             new FileMessage(1u, "x", false),

@@ -50,6 +50,7 @@ public sealed class EveryMessageKindDemoTests
         read.OfType<StringCmdMessage>().ShouldHaveSingleItem().Command.ShouldBe("echo hello");
         read.OfType<PrefetchMessage>().ShouldHaveSingleItem().SoundIndex.ShouldBe(1234);
         read.OfType<SetViewMessage>().ShouldHaveSingleItem().EntityIndex.ShouldBe(19);
+        read.OfType<SetPauseMessage>().ShouldHaveSingleItem().Paused.ShouldBeTrue();
         read.OfType<GetCvarValueMessage>().ShouldHaveSingleItem().CvarName.ShouldBe("cl_interp");
 
         NetTickMessage tick = read.OfType<NetTickMessage>().ShouldHaveSingleItem();
@@ -416,6 +417,7 @@ public sealed class EveryMessageKindDemoTests
         ClassInfo(),
         new PrefetchMessage(SoundIndex: 1234),
         new SetViewMessage(EntityIndex: 19),
+        new SetPauseMessage(Paused: true),
 
         // A negative pitch, for the saturation bug described in the round-trip test above.
         new FixAngleMessage(IsRelative: true, Pitch: -45f, Yaw: 90f, Roll: 0f),
