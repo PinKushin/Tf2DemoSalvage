@@ -98,12 +98,60 @@ client's own frame times are not recorded. The composition of that layer over th
 delta, per-bone weighted) is slices 1 and 2; see `Content/Assets/StudioPoseBlend.Layer` and
 `StudioGestureWeights`.
 
+## What the event reads that no demo carries (B112, 2026-09-29)
+
+The mapping was right from the start and still drew the wrong reload, because two of its inputs were
+never filled. `DoAnimationEvent` picks the reload's air-walking form from `m_bInAirWalk`
+(`tf_playeranimstate.cpp:1141`, `:1154`, `:1167`) and the double jump's loser form from
+`IsLoser()` (`:1196`), and neither is a field on the wire: the first is the animation state's own
+memory, the second a rule over the round, the winning team and the player.
+
+**`m_bInAirWalk` is a latch with one setter and five clearers** — read from published source. Only
+`HandleJumping` sets it: `( vz > 300 || m_bInAirWalk || grapple ) && !bInDuck`, then on the ground
+and latched it clears, waist deep it clears, in the air it sets (`:1446-1472`). The double jump
+forces it off (`:1193`), and `ClearAnimationState` (`:114`) clears it on a respawn and on every frame
+`Update` gives up on the player — dead, `EF_NODRAW`, **dormant**, or a custom model without the
+class's animations (`multiplayer_animstate.cpp:1381-1395`). A dormant player stays in the client's
+animation list (it leaves only in `PostDataUpdate` and `UpdateOnRemove`), which is why the dormancy
+test in `ShouldUpdateAnimState` is live rather than defensive.
+
+**`m_bDying` is a dead guard in TF2** — read from published source, then measured on the corpus.
+`ShouldUpdateAnimState` keeps animating a dead player while it is set (`return IsAlive() || m_bDying`,
+`multiplayer_animstate.cpp:1394`), and the only line that sets it is the base's `PLAYERANIMEVENT_DIE`
+case, which begins `Assert( 0 )` under "not supporting this yet" (`:299-305`). TF's `DoAnimationEvent`
+has no case for the event and hands it down, so a server that sent one would keep a dead player
+animating. None does: z1800's 40,288 player animation events include 192 spawns and no death, and the
+2011 and 2013 SourceTV specimens (154 and 165 events, 4 spawns each) have none either. The spawn is the
+control — every respawn follows a death, so a server that announced deaths would show them in similar
+numbers. The count is of `m_iEvent 8` lines in the text trace, which prints only what changed from the
+event before it, and any run of deaths would have to begin with one. So the dead branch is `!IsAlive()`
+alone, which is what the timeline asks.
+
+**The wrong turn it corrected.** This project already kept a latch, for the body's air-walk, and it
+looked like the engine's: set on a fast rise, cleared on landing. It latched while ducked and cleared
+on any landing. The engine's duck test guards the whole block, so a crouched rise never latches and a
+latched player who crouches keeps it through a crouched landing — a reload begun crouched after a
+rocket jump is the air-walking one. The body and the reload now read one latch, as the engine's do.
+
+**The class script's half stays out of the latch.** `bValidAirWalkClass` gates the block, so a class
+whose script sets `DontDoAirwalk` never latches, and the medic's is the only script that sets it,
+measured. The timeline cannot
+read scripts, so a gesture the latch changed carries the base class's choice beside it and the scene
+picks — the same split the body's air-walk already had.
+
+**Measured, with a control** — `CorpusPlayerGestureTests`: on z1800, 28 of the 1985 reload gestures
+that reach a sampled player take the air-walking form (scout 6, soldier 6, demoman 16), and a second
+reading of the raw wire that shares only the decoder with the timeline sets its latch at exactly those
+28 reload events and no others of 2002.
+
+**Two instruments lied on the way, both caught by asking why a number moved.** The synthetic demo's
+event packets were written at protocol 0, because the writer takes its protocol from `svc_ServerInfo`
+and only the first packet carried it; `svc_TempEntities`' length is 17 bits there and a VarInt at 24,
+so every event decoded nine bits out, as "no class", and the timeline silently dropped them all. And
+the census first reported 2004 reloads, then 1985: its key included the player's class, and the old
+timeline carried a stale reload across a respawn into another class, so one gesture counted twice.
+
 ## Open
 
-Slice 3b — reading `m_iEvent` as a `PlayerAnimEvent_t`, carrying the persistent-instance state
-across events, and running `DoAnimationEvent`'s event→slot+activity mapping — remains to be built,
-but it is no longer blocked on an era question. The mapping is one table for all eras. Decompiling
-the 2007/2008 launch client would upgrade the Orange Box row from "read from the cleaned OB SDK
-snapshot" to "verified against the shipping binary" for the earliest protocols, where several demo
-updates landed in a single year; the SDK and the corpus already agree, so this is confirmation
-rather than discovery.
+Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What the same engine
+functions do besides is B437.

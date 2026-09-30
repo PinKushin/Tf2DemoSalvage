@@ -53,20 +53,11 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     /// <summary>`TF_COND_RUNE_KNOCKOUT` (tf_shareddefs.h:793): `GetCarryingRuneType() == RUNE_KNOCKOUT`, read as the condition it is.</summary>
     private const int ConditionRuneKnockout = 103;
 
-    /// <summary>`TF_COND_STUNNED` (tf_shareddefs.h:705): "Any type of stun. Check iStunFlags for more info."</summary>
-    private const int ConditionStunned = 15;
-
     /// <summary>`TF_STUN_CONTROLS` (tf_shareddefs.h:1334): `1&lt;&lt;1`.</summary>
     private const int StunControls = 1 << 1;
 
-    /// <summary>`TF_STUN_LOSER_STATE` (:1339): `1&lt;&lt;6`.</summary>
-    private const int StunLoserState = 1 << 6;
-
     /// <summary>`GR_STATE_RND_RUNNING` (teamplayroundbased_gamerules.h:59).</summary>
     private const int RoundStateRndRunning = 4;
-
-    /// <summary>`GR_STATE_TEAM_WIN` (:63).</summary>
-    private const int RoundStateTeamWin = 5;
 
     /// <summary>`GR_STATE_BETWEEN_RNDS` (:78).</summary>
     private const int RoundStateBetweenRounds = 10;
@@ -935,48 +926,36 @@ public abstract class TfTargetId : VguiEditablePanel, IHudElement
     }
 
     /// <summary>`CTFPlayerShared::IsLoserStateStunned` (tf_player_shared.cpp:9966): stunned, and the stun says so.</summary>
+    /// <remarks>The rule is <see cref="LoserState.IsLoserStateStunned"/>, which the gesture context asks too (B112).</remarks>
+    private static bool IsLoserStateStunned(ScenePlayer local) =>
+        LoserState.IsLoserStateStunned(local.Conditions, local.StunIndex, local.StunFlags);
+
+    /// <summary>`CTFPlayerShared::IsControlStunned` (:9952) — as <see cref="IsLoserStateStunned"/>, `TF_STUN_CONTROLS`.</summary>
     /// <remarks>
     /// `GetActiveStunInfo()` on the CLIENT is non-null exactly when `m_iStunIndex &gt;= 0` (:7474-7475) and its
     /// `iStunFlags` is `m_iStunFlags` verbatim (:7462-7463) — the client keeps no separate per-attacker stun list, so
     /// this reads the two networked fields directly rather than reconstructing one.
     /// </remarks>
-    private static bool IsLoserStateStunned(ScenePlayer local) =>
-        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunLoserState) != 0;
-
-    /// <summary>`CTFPlayerShared::IsControlStunned` (:9952) — as <see cref="IsLoserStateStunned"/>, `TF_STUN_CONTROLS`.</summary>
     private static bool IsControlStunned(ScenePlayer local) =>
-        local.StunIndex is >= 0 && local.Conditions.Has(ConditionStunned) && ((local.StunFlags ?? 0) & StunControls) != 0;
+        local.StunIndex is >= 0 && local.Conditions.Has(PlayerConditions.Stunned) && ((local.StunFlags ?? 0) & StunControls) != 0;
 
-    /// <summary>`CTFPlayerShared::IsLoser` (:13654).</summary>
-    private static bool IsLoser(HudState state, ScenePlayer local)
-    {
-        if (state.ConVars.GetBool("tf_always_loser")) // :13656
-        {
-            return true;
-        }
-
-        // "No loser mode in competitive" (:13663) — `IsMatchTypeCompetitive()`, not `IsCompetitiveMode()` (D89 audit).
-        if (state.Rules.IsMatchTypeCompetitive)
-        {
-            return false;
-        }
-
-        if (state.RoundState != RoundStateTeamWin) // :13666
-        {
-            return IsLoserStateStunned(local);
-        }
-
-        bool loser = state.Rules.WinningTeam != local.Team; // :13671
-
-        // "don't reveal disguised spies" (:13675-13680).
-        if (loser && local.PlayerClass == ClassSpy && local.Conditions.Has(PlayerConditions.Disguised)
-            && local.DisguiseTeam == state.Rules.WinningTeam)
-        {
-            loser = false;
-        }
-
-        return loser;
-    }
+    /// <summary>`CTFPlayerShared::IsLoser` (:13654), of the local player.</summary>
+    /// <remarks>
+    /// **The rule is <see cref="LoserState.IsLoser"/>**, shared with the gesture context, which asks it of whoever
+    /// raised an event (B112). `IsMatchTypeCompetitive()` and not `IsCompetitiveMode()` is the D89 audit's reading.
+    /// </remarks>
+    private static bool IsLoser(HudState state, ScenePlayer local) =>
+        LoserState.IsLoser(
+            alwaysLoser: state.ConVars.GetBool(LoserState.AlwaysLoserConVar),
+            matchTypeCompetitive: state.Rules.IsMatchTypeCompetitive,
+            roundState: state.RoundState,
+            winningTeam: state.Rules.WinningTeam,
+            team: local.Team,
+            playerClass: local.PlayerClass,
+            conditions: local.Conditions,
+            disguiseTeam: local.DisguiseTeam,
+            stunIndex: local.StunIndex,
+            stunFlags: local.StunFlags);
 
     /// <summary>The active weapon among a player's items, or null — the same lookup `TfAmmo.For` makes.</summary>
     private static SceneItem? ActiveWeaponItem(ScenePlayer local)

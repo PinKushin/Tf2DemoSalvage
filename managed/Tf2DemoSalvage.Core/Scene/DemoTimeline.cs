@@ -693,7 +693,16 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
     /// (`tf_match_description_comp.cpp`'s `CLadderMatchGroupDescription`, which the placeholder also derives from); casual
     /// 12v12 (7) sets `MATCH_TYPE_CASUAL` (`tf_match_description_casual.cpp:54`).
     /// </summary>
-    public bool IsMatchTypeCompetitive => MatchGroup is 2 or 8;
+    public bool IsMatchTypeCompetitive => MatchTypeCompetitive(MatchGroup);
+
+    /// <summary><see cref="IsMatchTypeCompetitive"/> of a raw `m_nMatchGroupType`, for a reader holding no rules (B112).</summary>
+    /// <param name="matchGroup">`m_nMatchGroupType`, -1 when unsent.</param>
+    /// <returns>Whether the match group's description is `MATCH_TYPE_COMPETITIVE`.</returns>
+    /// <remarks>
+    /// **The one copy of the rule.** The gesture context asks it at the moment an event arrives, from the live game
+    /// rules entity, before any <see cref="SceneGameRules"/> for that tick exists.
+    /// </remarks>
+    public static bool MatchTypeCompetitive(int matchGroup) => matchGroup is 2 or 8;
 
     /// <summary>`IsHolidayMap( n )`: `m_nMapHolidayType` (tf_gamerules.h:595), 0 (`kHoliday_None`) when unsent.</summary>
     public int MapHolidayType { get; init; }
@@ -944,6 +953,15 @@ public sealed class DemoTimeline
 
     /// <summary>Where the round state is, flattened.</summary>
     private const string RoundStateProperty = "DT_TeamplayRoundBasedRules.m_iRoundState";
+
+    /// <summary>`GetWinningTeam()`: `m_iWinningTeam` (teamplayroundbased_gamerules.cpp:89), read by the HUD and by `IsLoser`.</summary>
+    private const string WinningTeamProperty = "DT_TeamplayRoundBasedRules.m_iWinningTeam";
+
+    /// <summary>`GetCurrentMatchGroup()`: `m_nMatchGroupType` (tf_gamerules.cpp:1536), read by the HUD and by `IsLoser`.</summary>
+    private const string MatchGroupProperty = "DT_TFGameRules.m_nMatchGroupType";
+
+    /// <summary>`TF_CLASS_HEAVYWEAPONS` (tf_shareddefs.h:212), whose minigun freezes the air-walk while it spins.</summary>
+    private const int HeavyClass = 6;
 
     /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
     private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
@@ -2354,10 +2372,9 @@ public sealed class DemoTimeline
         // feet lag the eyes and catch up over several of them.
         Dictionary<int, FeetYaw> feet = [];
 
-        // **Sticky, because the engine's condition is `vz > 300 || m_bInAirWalk`.** Once an
-        // air-walk starts it continues until the player lands, so a rocket jump does not flicker
-        // back to the jump animation as the rise slows.
-        HashSet<int> airwalkingSince = [];
+        // **No air-walk latch here: the gesture feed keeps `m_bInAirWalk`** (B112). This set was a second latch for the
+        // body alone — set on a fast rise even while ducked, cleared only by the ground — and the reload read nothing,
+        // so the two could not have agreed. The engine has one, read by both; so does the feed.
 
         // Each player's last carried-items list, handed out again while nothing in it changes (B433).
         Dictionary<int, List<SceneItem>> carriedBefore = [];
@@ -2670,6 +2687,9 @@ public sealed class DemoTimeline
                             command.Tick,
                             interval,
                             client.Amount(serverConVars),
+
+                            // `tf_always_loser.GetBool()`: the int of the float, as `ConVar::GetBool` reads it.
+                            (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0,
                             effectClassNames,
                             entities,
                             gestures,
@@ -2998,10 +3018,19 @@ public sealed class DemoTimeline
                     lastHeld[player.EntityIndex] = holding;
                 }
 
+                // **A dormant player's animation state is cleared, every frame it stays dormant** (B112). The client
+                // keeps a dormant player in its animation list, and `Update` finds `IsDormant()` and calls
+                // `ClearAnimationState` (`multiplayer_animstate.cpp:1390`, `tf_playeranimstate.cpp:370-374`).
+                if (!player.IsVisible)
+                {
+                    gestures.ClearAnimationState(player.EntityIndex);
+                    continue;
+                }
+
                 // Stryker disable once : a mutant that empties the guard body leaves 'origin's
                 // fields unassigned (CS0170), and Safe Mode then drops every mutation in this
                 // method — B410.
-                if (!player.IsVisible || player.Origin() is not { } origin)
+                if (player.Origin() is not { } origin)
                 {
                     continue;
                 }
@@ -3083,7 +3112,26 @@ public sealed class DemoTimeline
 
                 lastHeight[player.EntityIndex] = (command.Tick, origin.X, origin.Y, origin.Z);
 
-                if (player.Flags() is { } stateFlags)
+                // **A dead player's origin is not where they died — it is where they are
+                // WATCHING.** The entity follows whoever they spectate, so drawing a corpse at its
+                // current origin puts it standing inside a living player, and several of them
+                // stack into one heap.
+                //
+                // So the last position held while alive is kept and used until they respawn, which
+                // leaves a body roughly where it fell. TF2 leaves a ragdoll there; this is a
+                // standing stand-in for one until ragdolls are simulated (B58).
+                int? life = player.LifeState();
+                bool alive = life is null or 0;
+
+                // **`CTFPlayerAnimState::Update`'s own gate, ahead of anything `HandleJumping` does** (B112). A custom
+                // model without the class's animations (`tf_playeranimstate.cpp:340-366`), `EF_NODRAW` or death
+                // (`multiplayer_animstate.cpp:1381-1395`) mean the frame is not animated at all: `ClearAnimationState`
+                // runs instead, which clears the air-walk, the jump and every gesture slot.
+                if (!player.IsDrawn || !alive || player.CustomModelWithoutClassAnimations())
+                {
+                    gestures.ClearAnimationState(player.EntityIndex);
+                }
+                else if (player.Flags() is { } stateFlags)
                 {
                     // **The jump clock is the jump EVENT's** (`m_flJumpStartTime`), not the moment the ground flag
                     // cleared: a rocket jump or a fall is airborne without jumping, and HandleJumping lets it through to
@@ -3099,8 +3147,6 @@ public sealed class DemoTimeline
 
                     if ((stateFlags & PlayerActivityState.OnGround) != 0)
                     {
-                        airwalkingSince.Remove(player.EntityIndex);
-
                         // **Landing ends the jump gesture, and this is what was missing** (B284).
                         // `CTFPlayerAnimState::HandleJumping` (`tf_playeranimstate.cpp:1498`):
                         //
@@ -3122,27 +3168,20 @@ public sealed class DemoTimeline
                         // That is what laid one scout flat while every other player stood.
                         gestures.Landed(player.EntityIndex, command.Tick * interval);
                     }
-                    else
-                    {
-                        // The engine's threshold, and it latches: once rising this fast the
-                        // air-walk holds until the ground flag returns.
-                        if (rising is { } climb && climb > PlayerActivityState.AirwalkRiseSpeed)
-                        {
-                            airwalkingSince.Add(player.EntityIndex);
-                        }
-                    }
-                }
 
-                // **A dead player's origin is not where they died — it is where they are
-                // WATCHING.** The entity follows whoever they spectate, so drawing a corpse at its
-                // current origin puts it standing inside a living player, and several of them
-                // stack into one heap.
-                //
-                // So the last position held while alive is kept and used until they respawn, which
-                // leaves a body roughly where it fell. TF2 leaves a ragdoll there; this is a
-                // standing stand-in for one until ragdolls are simulated (B58).
-                int? life = player.LifeState();
-                bool alive = life is null or 0;
+                    // **`m_bInAirWalk`, stepped once a tick as `HandleJumping` steps it once a frame** (B112) — the one
+                    // latch both the body's air-walk and the reload read. The rise is the differenced height above, which
+                    // is the client's own `EstimateAbsVelocity`; a heavy spinning his minigun returns before the air walk
+                    // (`tf_playeranimstate.cpp:1439-1440`); a grappling hook whose handle resolves, serial and all, keeps
+                    // the block alive with no rise at all (`:1446`).
+                    gestures.AirWalk(
+                        player.EntityIndex,
+                        rising,
+                        stateFlags,
+                        waistDeep: player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
+                        grappling: entities.Resolve(player.GrapplingHookTarget()) is not null,
+                        firingHeavy: player.PlayerClass() == HeavyClass && player.Conditions().Has(PlayerConditions.Aiming));
+                }
 
                 // **The yaw has to be carried here too, and was not.** Every argument below is
                 // positional and the list stopped at LifeState, so Yaw took the record's default of
@@ -3252,7 +3291,7 @@ public sealed class DemoTimeline
                     // is, and only this loop can see both. Resolved rather than carried as a bare
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     AirborneSeconds: airborne,
-                    Airwalking: airwalkingSince.Contains(player.EntityIndex),
+                    Airwalking: gestures.InAirWalk(player.EntityIndex),
 
                     // **In seconds, like every other clock on this record**, so the consumer
                     // compares stamps rather than converting ticks itself (B346).
@@ -3346,8 +3385,8 @@ public sealed class DemoTimeline
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
                     CarryingObject = player.Integer("DT_TFPlayerShared.m_bCarryingObject") is > 0,
-                    StunFlags = player.Integer("DT_TFPlayerShared.m_iStunFlags"),
-                    StunIndex = player.Integer("DT_TFPlayerShared.m_iStunIndex"),
+                    StunFlags = player.StunFlags(),
+                    StunIndex = player.StunIndex(),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
                     KillStreak = player.Integer("m_nStreaks.000"),
@@ -3422,7 +3461,7 @@ public sealed class DemoTimeline
                 MapResetTime = gameRules?.Number("DT_TeamplayRoundBasedRules.m_flMapResetTime") ?? 0f,
                 ActiveMinigame = entities.OfClass("CTFMinigameLogic").FirstOrDefault() is { } minigameLogic
                     && EntityState.Slot(minigameLogic.Integer("DT_TFMinigameLogic.m_hActiveMinigame")) is not null,
-                MatchGroup = gameRules?.Integer("DT_TFGameRules.m_nMatchGroupType") ?? -1,
+                MatchGroup = gameRules?.Integer(MatchGroupProperty) ?? -1,
                 Koth = gameRules?.Integer("DT_TFGameRules.m_bPlayingKoth") is > 0,
                 ShowMatchSummary = gameRules?.Integer("DT_TFGameRules.m_bShowMatchSummary") is > 0,
                 MapHasMatchSummaryStage = gameRules?.Integer("DT_TFGameRules.m_bMapHasMatchSummaryStage") is > 0,
@@ -3433,7 +3472,7 @@ public sealed class DemoTimeline
                 RedKothTimer = EntityState.Slot(gameRules?.Integer("DT_TFGameRules.m_hRedKothTimer")),
                 TimerToShowInHud = entities.OfClass(ObjectiveResourceClass).FirstOrDefault()?.Integer("DT_BaseTeamObjectiveResource.m_iTimerToShowInHUD") ?? 0,
                 InTraining = gameRules?.Integer("DT_TFGameRules.m_bIsInTraining") is > 0,
-                WinningTeam = gameRules?.Integer("DT_TeamplayRoundBasedRules.m_iWinningTeam"),
+                WinningTeam = gameRules?.Integer(WinningTeamProperty),
                 MapHolidayType = gameRules?.Integer("DT_TFGameRules.m_nMapHolidayType") ?? 0,
                 NextRespawnWave = (gameRules?.Number("m_flNextRespawnWave.002") ?? 0f, gameRules?.Number("m_flNextRespawnWave.003") ?? 0f),
                 TeamRespawnWaveTimes = (gameRules?.Number("m_TeamRespawnWaveTimes.002") ?? -1f, gameRules?.Number("m_TeamRespawnWaveTimes.003") ?? -1f),
@@ -3623,6 +3662,7 @@ public sealed class DemoTimeline
     /// <param name="tick">The demo tick the packet arrived on.</param>
     /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
     /// <param name="interpolation">`GetClientInterpAmount()`, in seconds.</param>
+    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`, the first line of `IsLoser`.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
     /// <param name="entities">
     /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
@@ -3650,6 +3690,7 @@ public sealed class DemoTimeline
         int tick,
         double interval,
         double interpolation,
+        bool alwaysLoser,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
         PlayerGestureFeed gestures,
@@ -3676,7 +3717,7 @@ public sealed class DemoTimeline
 
                 if (string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
                 {
-                    gestures.Record(className, effect, tick * interval, PostureOf(effect, entities));
+                    gestures.Record(className, effect, tick * interval, PostureOf(effect, entities, alwaysLoser));
                 }
             }
         }
@@ -3745,11 +3786,15 @@ public sealed class DemoTimeline
     /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
     /// <param name="effect">The gesture event.</param>
     /// <param name="entities">The entity table.</param>
+    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`.</param>
     /// <returns>The context the activity choice is made against.</returns>
     /// <remarks>
-    /// **Six of the seven context fields.** Each changes WHICH activity a gesture resolves to, and
-    /// an activity that resolves to no sequence draws nothing at all — so a field left unread is a
-    /// missing animation rather than a slightly wrong one.
+    /// **Five of the seven context fields; the feed fills the other two** (B112). `NData` is the event's own
+    /// `m_nData`, and `InAirWalk` is `m_bInAirWalk` — the anim state's memory rather than anything on the player —
+    /// which `PlayerGestureFeed.Record` reads from the latch it keeps. Each field changes WHICH activity a gesture
+    /// resolves to, and an activity that resolves to no sequence draws nothing at all — so a field left unread is a
+    /// missing animation rather than a slightly wrong one. `InAirWalk` and `IsLoser` were left false until B112's
+    /// residual: every reload begun mid-rocket-jump stood, and a losing scout's air dash was the winner's.
     ///
     /// **The weapon in hand answers two of them**, exactly as the engine asks
     /// (`tf_playeranimstate.cpp:987`): `bIsMinigun` is
@@ -3761,18 +3806,12 @@ public sealed class DemoTimeline
     /// **`TF_COND_ZOOMED` is condition bit 1** (`tf_shareddefs.h:691`), and the zoom matters as
     /// much as the rifle: an unzoomed sniper fires the ordinary stand activity.
     ///
-    /// **`IsLoser` is NOT read, and it needs more than this pass has.**
-    /// `CTFPlayerShared::IsLoser` (`tf_player_shared.cpp:13654`) wants the round state, the winning
-    /// team, whether the match is competitive, the stun flags and a disguised spy's disguise team.
-    /// It selects `ACT_MP_DOUBLEJUMP_LOSERSTATE` over `ACT_MP_DOUBLEJUMP` and nothing else, so the
-    /// gap is one animation during humiliation.
-    ///
-    /// **Air-walk is not asked here either.** It is derived over time from vertical speed
-    /// (`PlayerActivity.AirwalkRiseSpeed`) rather than read off the entity, and this runs inside
-    /// the packet walk where that history is not to hand. A reload begun mid-rocket-jump therefore
-    /// resolves to the standing form rather than the air-walking one.
+    /// **`IsLoser` is asked of the live entities as the event arrives** — the double jump asks
+    /// `m_Shared.IsLoser()` when it fires (`tf_playeranimstate.cpp:1196`). The game rules entity gives the round
+    /// state, the winning team and the match group; the player gives his own team and class, conditions, disguise
+    /// team and stun. The rule is <see cref="LoserState.IsLoser"/>, which the HUD asks too.
     /// </remarks>
-    private static GestureContext PostureOf(DecodedTempEntity effect, EntityStateTable entities)
+    private static GestureContext PostureOf(DecodedTempEntity effect, EntityStateTable entities, bool alwaysLoser)
     {
         int player = 0;
 
@@ -3798,10 +3837,23 @@ public sealed class DemoTimeline
                 ? carried.ClassName
                 : null;
 
+        EntityState? rules = entities.OfClass(GameRulesClass).FirstOrDefault();
+
         return new GestureContext(
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0,
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
+            IsLoser: LoserState.IsLoser(
+                alwaysLoser,
+                SceneGameRules.MatchTypeCompetitive(rules?.Integer(MatchGroupProperty) ?? -1),
+                rules?.Integer(RoundStateProperty),
+                rules?.Integer(WinningTeamProperty),
+                First(state, TeamProperties),
+                state.PlayerClass(),
+                state.Conditions(),
+                state.DisguiseTeam(),
+                state.StunIndex(),
+                state.StunFlags()),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
                 state.Conditions().Has(PlayerConditions.Zoomed));

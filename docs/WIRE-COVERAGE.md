@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**259 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**262 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -80,12 +80,12 @@ m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonu
 
 ### DT_TFPlayer
 
-**10 of 44** mentioned.
+**11 of 44** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHelpmeButtonPressTime, m_flInspectTime, m_flMvMLastDamageTime, m_flTauntYaw, m_flVehicleReverseTime, m_hGrapplingHookTarget, m_hHighFivePartner, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartState, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
+m_AttributeManager, m_PlayerClass, m_Shared, m_bAllowMoveDuringTaunt, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flCurrentTauntMoveSpeed, m_flHelpmeButtonPressTime, m_flInspectTime, m_flMvMLastDamageTime, m_flTauntYaw, m_flVehicleReverseTime, m_hHighFivePartner, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartState, m_iTauntItemDefIndex, m_nActiveTauntSlot, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
 ```
 
 ### DT_TFPlayerShared
@@ -174,7 +174,6 @@ Not declared in this SDK.
 | `DT_EntityDissolve` | 9 | 10 |
 | `DT_PropCoreBall` | 9 | 9 |
 | `DT_PropScalable` | 9 | 9 |
-| `DT_TFPlayerClassShared` | 9 | 10 |
 | `DT_BaseObject` | 8 | 26 |
 | `DT_BreakableSurface` | 8 | 9 |
 | `DT_PointCommentaryNode` | 8 | 8 |
@@ -185,4 +184,5 @@ Not declared in this SDK.
 | `DT_SlideshowDisplay` | 7 | 8 |
 | `DT_SporeExplosion` | 7 | 7 |
 | `DT_SporeTrail` | 7 | 7 |
+| `DT_TFPlayerClassShared` | 7 | 10 |
 | `DT_BaseFlex` | 6 | 6 |

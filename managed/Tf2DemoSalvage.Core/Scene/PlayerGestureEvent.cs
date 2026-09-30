@@ -178,8 +178,15 @@ public enum GestureSlot
 /// <c>GetWaterLevel() &gt;= WL_Waist</c> — and they agree in practice; waist-deep is the single
 /// signal the demo gives.
 /// </param>
-/// <param name="InAirWalk">Rising fast enough to air-walk (TF's reload-airwalk variants).</param>
-/// <param name="IsLoser">In the loser state, which has its own double-jump gesture.</param>
+/// <param name="InAirWalk">
+/// <c>m_bInAirWalk</c>, the latch <c>HandleJumping</c> keeps — the reload's air-walking form (B112). It is the
+/// anim state's memory rather than anything on the player, so <see cref="PlayerGestureFeed.Record"/> fills it from
+/// its own latch and does not read what a caller passes.
+/// </param>
+/// <param name="IsLoser">
+/// <c>CTFPlayerShared::IsLoser</c> when the event fires, which has its own double-jump gesture (B112) — see
+/// <see cref="LoserState"/>.
+/// </param>
 /// <param name="IsMinigun">Holding a minigun, which has stand/crouch/swim fire and windup gestures.</param>
 /// <param name="IsSniperZoomed">A scoped sniper rifle or bow, which fires a deployed gesture.</param>
 /// <param name="NData">The <c>m_nData</c> payload, an activity number for the two dynamic events.</param>

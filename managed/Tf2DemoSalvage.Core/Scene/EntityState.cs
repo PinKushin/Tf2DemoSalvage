@@ -1580,6 +1580,43 @@ public sealed class EntityState
     /// </remarks>
     public int? DisguiseMaskClass() => Integer($"{PlayerSharedTable}.m_nMaskClass");
 
+    /// <summary>`m_iStunFlags` (<c>tf_player_shared.cpp:372</c>, sent to everyone): <c>TF_STUN_*</c>.</summary>
+    /// <remarks>On the client this is what <c>GetActiveStunInfo()-&gt;iStunFlags</c> reads (<c>:7462-7463</c>).</remarks>
+    public int? StunFlags() => Integer($"{PlayerSharedTable}.m_iStunFlags");
+
+    /// <summary>`m_iStunIndex` (<c>:420</c>, sent to everyone): the client's stun is active exactly when it is at least zero.</summary>
+    public int? StunIndex() => Integer($"{PlayerSharedTable}.m_iStunIndex");
+
+    /// <summary>Which class the player is: <c>m_iClass</c>, <c>GetPlayerClass()-&gt;GetClassIndex()</c>.</summary>
+    /// <remarks>
+    /// **The player's OWN field, which is what the animation state asks** — the heavy's air-walk freeze and
+    /// <c>IsLoser</c>'s spy test both read <c>m_pOuter-&gt;GetPlayerClass()</c> (B112). The class the scoreboard shows
+    /// is the player resource's copy, which is where <c>ScenePlayer.PlayerClass</c> comes from.
+    /// </remarks>
+    public int? PlayerClass() => Integer($"{PlayerClassTable}.m_iClass");
+
+    /// <summary>
+    /// <c>HasCustomModel() &amp;&amp; !CustomModelUsesClassAnimations()</c>: a model <c>CTFPlayerAnimState::Update</c>
+    /// does not animate, clearing the animation state instead (<c>tf_playeranimstate.cpp:340-366</c>).
+    /// </summary>
+    /// <remarks>
+    /// On the client a custom model is present when <c>m_iszCustomModel</c> is not empty
+    /// (<c>tf_playerclass_shared.h:46</c>); an absent <c>m_bUseClassAnimations</c> is its default, false.
+    /// </remarks>
+    public bool CustomModelWithoutClassAnimations() =>
+        Text($"{PlayerClassTable}.m_iszCustomModel") is { Length: > 0 } &&
+        Integer($"{PlayerClassTable}.m_bUseClassAnimations") is null or 0;
+
+    /// <summary><c>m_hGrapplingHookTarget</c>, the handle as the wire carried it — a live grapple air-walks (B112).</summary>
+    /// <remarks>
+    /// A handle, not a slot: <see cref="EntityStateTable.Resolve"/> turns it into an entity and checks its serial,
+    /// as <c>GetGrapplingHookTarget()</c>'s <c>Get()</c> does, so a slot that changed hands names nothing (B231).
+    /// </remarks>
+    public int? GrapplingHookTarget() => Integer($"{TfPlayerTable}.m_hGrapplingHookTarget");
+
+    /// <summary>Where a TF player's class — and a custom model in its place — lives on the wire.</summary>
+    private const string PlayerClassTable = "DT_TFPlayerClassShared";
+
     /// <summary>Whether this cosmetic or weapon belongs to its owner's DISGUISE.</summary>
     /// <remarks>
     /// **Two fields, one question.** A wearable declares <c>m_bDisguiseWearable</c> on
