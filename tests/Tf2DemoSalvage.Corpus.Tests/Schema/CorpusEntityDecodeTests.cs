@@ -270,37 +270,14 @@ public sealed class CorpusEntityDecodeTests
     /// <summary>The demo's schema, parsed once per process by <see cref="Corpus"/>.</summary>
     private static DemoSchema Schema(string path) => Corpus.Schema(path);
 
-    private static IEnumerable<PacketEntitiesMessage> Snapshots(string path)
-    {
-        byte[] bytes = File.ReadAllBytes(path);
-
-        // Seeded from the header. Without it this yielded *zero* snapshots for the protocol-15
-        // demo rather than wrong ones (RISKS B17), so every corpus test built on it looped no
-        // times and passed vacuously - a test that cannot fail because its condition never
-        // occurs, which is the hardest kind to notice.
-        NetDecodeState state = new()
-        {
-            NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol,
-        };
-
-        foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
-        {
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-            {
-                continue;
-            }
-
-            foreach (PacketEntitiesMessage message in
-                NetMessageReader.Read(command.Payload.Span, state)
-                    .Messages.OfType<PacketEntitiesMessage>())
-            {
-                if (!message.Body.IsEmpty)
-                {
-                    yield return message;
-                }
-            }
-        }
-    }
+    /// <remarks>
+    /// The one production walk, <c>DemoCorpus.EntitySnapshots</c> (B443) — this was the copy of it that
+    /// read every packet and seeded the protocol from the header (without which the protocol-15 demo
+    /// yielded zero snapshots and every test built on it passed vacuously, RISKS B17), while two other
+    /// copies did not. Now none of them can.
+    /// </remarks>
+    private static IEnumerable<PacketEntitiesMessage> Snapshots(string path) =>
+        Corpus.EntitySnapshots(path).Select(entry => entry.Snapshot);
 
 
 

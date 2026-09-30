@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
+
 namespace Tf2DemoSalvage.Probe;
 
 /// <summary>
@@ -141,4 +144,74 @@ public static class DemoCorpus
         return Files(log).FirstOrDefault(
             file => Path.GetFileName(file).Contains(fragment, StringComparison.Ordinal));
     }
+
+    /// <summary>Header bits of <c>svc_PacketEntities</c> between its type field and its body, delta tick excluded.</summary>
+    /// <remarks>Max entries 11, delta flag 1, baseline 1, updated entries 11, length 20, update-baseline 1.</remarks>
+    private const int SnapshotHeaderBits = 11 + 1 + 1 + 11 + 20 + 1;
+
+    /// <summary>The delta-from tick, present only on a delta.</summary>
+    private const int DeltaTickBits = 32;
+
+    /// <summary>Every entity snapshot in a demo, read the way <c>DemoTimeline.Build</c> reads them (B443).</summary>
+    /// <param name="bytes">The whole demo file.</param>
+    /// <param name="commandLimit">How many commands to walk from the start.</param>
+    /// <returns>Each snapshot with a body, in stream order, with the command it came in.</returns>
+    /// <remarks>
+    /// **Every signon and packet command is read, before <c>dem_datatables</c> as well as after.** The
+    /// signon packets that precede the schema create the string tables, and the decode state has to
+    /// hold them: two corpus walks skipped every packet until they had a decoder, so each later
+    /// <c>svc_UpdateStringTable</c> was read at the wrong widths and misaligned whatever followed it in
+    /// its packet. The snapshots it misaligned threw, a catch skipped them, and the two walks reported
+    /// 799 of 800 and 647 of 654 exact re-encodes where the production walk reads 894 of 894 — B443,
+    /// filed as an encoder defect, was the instrument.
+    ///
+    /// **An empty body is skipped, as production skips it** (<c>snapshot.LengthBits &lt;= 0</c>): it
+    /// carries nothing to decode. Held here so the walk cannot differ between its callers again —
+    /// <c>CorpusEntityDecodeTests</c> had it right, <c>CorpusEntityRoundTripTests</c> and
+    /// <c>EntitySectionLengthTests</c> had it wrong, and nothing compared them.
+    /// </remarks>
+    public static IEnumerable<DemoEntitySnapshot> EntitySnapshots(byte[] bytes, int commandLimit = int.MaxValue)
+    {
+        // Checked here, eagerly, rather than in the iterator, which would not run until the first MoveNext.
+        ArgumentNullException.ThrowIfNull(bytes);
+
+        return WalkEntitySnapshots(bytes, commandLimit);
+    }
+
+    /// <summary>The walk <see cref="EntitySnapshots"/> describes, once its argument is known to be there.</summary>
+    private static IEnumerable<DemoEntitySnapshot> WalkEntitySnapshots(byte[] bytes, int commandLimit)
+    {
+        NetDecodeState state = new() { NetworkProtocol = (ushort)DemoHeader.Parse(bytes).NetworkProtocol };
+
+        foreach (DemoCommand command in
+            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(commandLimit))
+        {
+            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            {
+                continue;
+            }
+
+            NetMessageReadResult read = NetMessageReader.Read(command.Payload.Span, state);
+
+            for (int i = 0; i < read.Messages.Count; i++)
+            {
+                if (read.Messages[i] is not PacketEntitiesMessage snapshot || snapshot.LengthBits <= 0)
+                {
+                    continue;
+                }
+
+                int bodyStart = read.MessageStartBits[i] + state.MessageTypeBits + SnapshotHeaderBits
+                    + (snapshot.IsDelta ? DeltaTickBits : 0);
+
+                yield return new DemoEntitySnapshot(command, snapshot, bodyStart);
+            }
+        }
+    }
 }
+
+/// <summary>One entity snapshot as a corpus walk meets it.</summary>
+/// <param name="Command">The demo command it arrived in.</param>
+/// <param name="Snapshot">The message.</param>
+/// <param name="BodyStartBit">Where its body starts in the command's payload, for a reader that looks past it.</param>
+public readonly record struct DemoEntitySnapshot(
+    DemoCommand Command, PacketEntitiesMessage Snapshot, int BodyStartBit);
