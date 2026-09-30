@@ -111,6 +111,13 @@ internal static class Corpus
     /// </summary>
     public static string? Directory() => DemoCorpus.Directory();
 
+    /// <summary>Every entity snapshot in a demo, read as production reads them — see <see cref="DemoCorpus.EntitySnapshots"/>.</summary>
+    /// <param name="path">Path to a corpus demo.</param>
+    /// <param name="commandLimit">How many commands to walk from the start.</param>
+    /// <returns>Each snapshot with a body, in stream order.</returns>
+    public static IEnumerable<DemoEntitySnapshot> EntitySnapshots(string path, int commandLimit = int.MaxValue) =>
+        DemoCorpus.EntitySnapshots(File.ReadAllBytes(path), commandLimit);
+
     /// <summary>Parsed schemas, keyed by demo path.</summary>
     private static readonly ConcurrentDictionary<string, DemoSchema> Schemas =
         new(StringComparer.Ordinal);

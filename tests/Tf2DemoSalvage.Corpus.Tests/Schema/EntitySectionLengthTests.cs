@@ -32,86 +32,62 @@ public sealed class EntitySectionLengthTests
         Dictionary<int, int> deltas = [];
         long snapshots = 0;
         List<string> examples = [];
+        List<string> undecodable = [];
 
-        foreach (string path in Corpus.Files())
+        // **The production walk and schema** (B443): see DemoCorpus.EntitySnapshots for what the walk
+        // this replaced skipped, and why that misaligned the packets it did read.
+        foreach (string path in Corpus.FilesWithSchema())
         {
-            byte[] bytes = File.ReadAllBytes(path);
-            ushort protocol = Corpus.ProtocolOf(path);
-            NetDecodeState state = new() { NetworkProtocol = protocol };
-            EntityDecoder? decoder = null;
+            DemoSchema schema = Corpus.Schema(path);
+            EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
-            foreach (DemoCommand command in
-                DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(4000))
+            foreach ((DemoCommand command, PacketEntitiesMessage snapshot, _) in
+                Corpus.EntitySnapshots(path, 4000))
             {
-                if (command.Type == DemoCommandType.DataTables)
+                IReadOnlyList<DecodedEntity> entities;
+                try
                 {
-                    try
-                    {
-                        DemoSchema schema = SendTableParser.Parse(command.Payload.Span, protocol);
-                        decoder = new EntityDecoder(
-                            schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-                    }
-                    catch (InvalidDataException)
-                    {
-                        decoder = null;
-                    }
-
+                    entities = decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
+                }
+                catch (Exception error)
+                    when (error is InvalidDataException or EndOfStreamException)
+                {
+                    // **A failure, never a skip** (B443): a snapshot that does not decode is one this
+                    // test never compared, and dropping it silently is how a misaligned walk passed.
+                    undecodable.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{Path.GetFileName(path)} tick {command.Tick}: {error.Message}"));
                     continue;
                 }
 
-                if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet) ||
-                    decoder is null)
+                int consumed = decoder.EntitySectionBits;
+                decoder.EncodeEntities(
+                    entities, [], isDelta: false, lengthBits: 0, out int producedWithFlag);
+
+                // The encode above appends no removal list, but EncodeEntities always writes
+                // the property terminator per entity - so what it produced IS the entity
+                // section and nothing else.
+                int difference = producedWithFlag - consumed;
+                deltas[difference] = deltas.GetValueOrDefault(difference) + 1;
+                snapshots++;
+
+                if (difference != 0 && examples.Count < 12)
                 {
-                    continue;
-                }
-
-                foreach (INetMessage message in
-                    NetMessageReader.Read(command.Payload.Span, state).Messages)
-                {
-                    if (message is not PacketEntitiesMessage snapshot)
-                    {
-                        continue;
-                    }
-
-                    IReadOnlyList<DecodedEntity> entities;
-                    try
-                    {
-                        entities = decoder.Decode(
-                            snapshot.Body.Span, snapshot, snapshot.LengthBits);
-                    }
-                    catch (Exception error)
-                        when (error is InvalidDataException or EndOfStreamException)
-                    {
-                        continue;
-                    }
-
-                    int consumed = decoder.EntitySectionBits;
-                    decoder.EncodeEntities(
-                        entities, [], isDelta: false, lengthBits: 0, out int producedWithFlag);
-
-                    // The encode above appends no removal list, but EncodeEntities always writes
-                    // the property terminator per entity - so what it produced IS the entity
-                    // section and nothing else.
-                    int difference = producedWithFlag - consumed;
-                    deltas[difference] = deltas.GetValueOrDefault(difference) + 1;
-                    snapshots++;
-
-                    if (difference != 0 && examples.Count < 12)
-                    {
-                        // The file name matters more than it looks. A residue this small - nine
-                        // snapshots in a hundred and eleven thousand - is only tractable if you
-                        // can tell which recording produced it, and the answer turned out to be
-                        // the discriminator: whether the shortfall is the writer giving up
-                        // mid-message or a genuine encoder bug depends on the demo it came from.
-                        examples.Add(string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"{Path.GetFileName(path)}: consumed {consumed}, " +
-                            $"produced {producedWithFlag}, {entities.Count} entities, last is " +
-                            $"{entities[^1].UpdateType} with {entities[^1].Properties.Count} props, " +
-                            $"delta={snapshot.IsDelta}, stated={snapshot.LengthBits}"));
-                    }
+                    // The file name matters more than it looks: which recording produced a residue
+                    // is what tells the writer giving up mid-message from a genuine encoder bug.
+                    examples.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"{Path.GetFileName(path)}: consumed {consumed}, " +
+                        $"produced {producedWithFlag}, {entities.Count} entities, last is " +
+                        $"{entities[^1].UpdateType} with {entities[^1].Properties.Count} props, " +
+                        $"delta={snapshot.IsDelta}, stated={snapshot.LengthBits}"));
                 }
             }
+        }
+
+        foreach (string failure in undecodable.Take(12))
+        {
+            TestContext.Out.WriteLine("    does not decode - " + failure);
         }
 
         TestContext.Out.WriteLine(string.Create(
@@ -131,6 +107,7 @@ public sealed class EntitySectionLengthTests
 
         // A corpus that stopped being read would otherwise pass without comparing anything.
         snapshots.ShouldBeGreaterThan(1000);
+        undecodable.ShouldBeEmpty("every snapshot must decode; one that does not was never compared (B443)");
         deltas.Keys.Where(difference => difference != 0).ShouldBeEmpty(
             "the encoder must write exactly what the decoder consumed");
     }

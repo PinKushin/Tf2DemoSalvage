@@ -33,10 +33,11 @@ namespace Tf2DemoSalvage.Core.Tests.Schema;
 /// decoder defect. Over whole demos that read as 96.87%; measured over the content it is 99.59%,
 /// and the difference was never about the decoder at all.
 ///
-/// The leftover is reported separately because it is a fact about the format: 32,407 snapshots end
-/// before their stated length, 3.47 M bits in total. <c>EntityDecoder.EncodeEntities</c>
-/// cannot reproduce those - it is given entities, not the sender's buffer - which is exactly why
-/// the assembly writer carries them on a <c>slack</c> line instead.
+/// The leftover is reported separately because a body is stated in bits and built in bytes, so it
+/// COULD end early with bits <c>EntityDecoder.EncodeEntities</c> cannot invent. **This used to say
+/// "32,407 snapshots end before their stated length, 3.47 M bits", and that was the walk, not the
+/// format** (B443): read the way production reads, the corpus's first 900 commands of every demo
+/// carry 0 such snapshots. The count stays, so a real one would show.
 /// </remarks>
 public sealed class CorpusEntityRoundTripTests
 {
@@ -52,7 +53,10 @@ public sealed class CorpusEntityRoundTripTests
         long slackBits = 0;
         List<string> firstFailures = [];
 
-        foreach (string path in Corpus.Files())
+        // FilesWithSchema, because a demo whose dem_datatables does not parse has no entities to
+        // re-encode — the protocol-11 SourceTV recording truncated at 64 KiB (RISKS B24) — and it names
+        // what it leaves out, which the per-demo skip this replaced did not.
+        foreach (string path in Corpus.FilesWithSchema())
         {
             string name = Path.GetFileName(path);
             (long total, long matched, long bearing, long bits, string? failure) = Measure(path);
@@ -120,10 +124,13 @@ public sealed class CorpusEntityRoundTripTests
     private static (long Total, long Exact, long SlackBearing, long SlackBits, string? FirstFailure)
         Measure(string path)
     {
-        byte[] bytes = File.ReadAllBytes(path);
-        ushort protocol = Corpus.ProtocolOf(path);
-        NetDecodeState state = new() { NetworkProtocol = protocol };
-        EntityDecoder? decoder = null;
+        // **The production walk, and the production schema** (B443). This walk read no packet until it
+        // had built a decoder from dem_datatables — but the signon packets before that create the string
+        // tables, so the decode state lacked them and every later svc_UpdateStringTable misaligned its
+        // packet. The snapshots that misaligned threw, the catch below skipped them uncounted, and two
+        // demos reported 799 of 800 and 647 of 654 where the production walk reads 894 of 894 exactly.
+        DemoSchema schema = Corpus.Schema(path);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         long total = 0;
         long exact = 0;
@@ -131,96 +138,65 @@ public sealed class CorpusEntityRoundTripTests
         long slackBits = 0;
         string? firstFailure = null;
 
-        foreach (DemoCommand command in
-            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(CommandLimit))
+        foreach ((DemoCommand command, PacketEntitiesMessage snapshot, _) in
+            Corpus.EntitySnapshots(path, CommandLimit))
         {
-            if (command.Type == DemoCommandType.DataTables)
-            {
-                try
-                {
-                    DemoSchema schema = SendTableParser.Parse(command.Payload.Span, protocol);
-                    decoder = new EntityDecoder(
-                        schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
-                }
-                catch (InvalidDataException)
-                {
-                    // One corpus demo has no readable schema at all: a protocol-11 SourceTV
-                    // recording whose writer truncated dem_datatables at 64 KiB (RISKS B24). It
-                    // has no entities to re-encode, and that is the writer's fault rather than
-                    // this decoder's, so it is skipped rather than counted as a failure.
-                    return (0, 0, 0, 0, null);
-                }
+            total++;
 
+            IReadOnlyList<DecodedEntity> entities;
+            try
+            {
+                entities = decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits);
+            }
+            catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
+            {
+                // **Counted, never skipped** (B443): a snapshot that does not decode was not re-encoded
+                // either, and leaving it out of the total is how the walk's own misalignment read as 99.9%.
+                firstFailure ??= string.Create(
+                    CultureInfo.InvariantCulture, $"tick {command.Tick}: does not decode - {error.Message}");
                 continue;
             }
 
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet) ||
-                decoder is null)
+            byte[] rewritten = decoder.EncodeEntities(
+                entities, decoder.RemovedEntities, snapshot.IsDelta, snapshot.LengthBits,
+                out int encodedBits);
+
+            // **Compared over the content, not over the stated length.** EncodeEntities
+            // encodes entities; it is not given the bits the sender left after them and
+            // cannot invent them. Comparing the padded region measured the caller's zero-fill
+            // against the demo's leftovers and reported it as a decoder defect - which is
+            // what made this instrument disagree with the assembly round trip, where those
+            // bits travel explicitly on a `slack` line.
+            if (snapshot.LengthBits > encodedBits)
             {
+                slackBearing++;
+                slackBits += snapshot.LengthBits - encodedBits;
+            }
+
+            // Clamped, because the encoder can also write MORE than the stated length - a
+            // field wider than the one that was read. That is a mismatch to report, not an
+            // index to run off the end of the original with.
+            int comparable = Math.Min(encodedBits, snapshot.LengthBits);
+            int difference = encodedBits > snapshot.LengthBits
+                ? comparable
+                : FirstDifferingBit(snapshot.Body.Span, rewritten, comparable);
+
+            if (difference < 0)
+            {
+                exact++;
                 continue;
             }
 
-            foreach (INetMessage message in
-                NetMessageReader.Read(command.Payload.Span, state).Messages)
-            {
-                if (message is not PacketEntitiesMessage snapshot)
-                {
-                    continue;
-                }
-
-                IReadOnlyList<DecodedEntity> entities;
-                try
-                {
-                    entities = decoder.Decode(
-                        snapshot.Body.Span, snapshot, snapshot.LengthBits);
-                }
-                catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
-                {
-                    continue;
-                }
-
-                total++;
-                byte[] rewritten = decoder.EncodeEntities(
-                    entities, decoder.RemovedEntities, snapshot.IsDelta, snapshot.LengthBits,
-                    out int encodedBits);
-
-                // **Compared over the content, not over the stated length.** EncodeEntities
-                // encodes entities; it is not given the bits the sender left after them and
-                // cannot invent them. Comparing the padded region measured the caller's zero-fill
-                // against the demo's leftovers and reported it as a decoder defect - which is
-                // what made this instrument disagree with the assembly round trip, where those
-                // bits travel explicitly on a `slack` line.
-                if (snapshot.LengthBits > encodedBits)
-                {
-                    slackBearing++;
-                    slackBits += snapshot.LengthBits - encodedBits;
-                }
-
-                // Clamped, because the encoder can also write MORE than the stated length - a
-                // field wider than the one that was read. That is a mismatch to report, not an
-                // index to run off the end of the original with.
-                int comparable = Math.Min(encodedBits, snapshot.LengthBits);
-                int difference = encodedBits > snapshot.LengthBits
-                    ? comparable
-                    : FirstDifferingBit(snapshot.Body.Span, rewritten, comparable);
-
-                if (difference < 0)
-                {
-                    exact++;
-                    continue;
-                }
-
-                // Separated because they are different findings. A difference at or past the last
-                // bit this encoder wrote is in the sender's trailing slack - the body is stated in
-                // bits but built in bytes, and nothing says the leftover bits are zero. A
-                // difference before that point is a field this project got wrong.
-                firstFailure ??= difference >= encodedBits
-                    ? string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"tick {command.Tick}, bit {difference} of {snapshot.LengthBits}, past " +
-                        $"the {encodedBits} bits of content - trailing slack, not a field")
-                    : Describe(decoder, snapshot, entities, command.Tick, difference);
-            }
+            // Separated because they are different findings. A difference at or past the last
+            // bit this encoder wrote is in the sender's trailing slack - the body is stated in
+            // bits but built in bytes, and nothing says the leftover bits are zero. A
+            // difference before that point is a field this project got wrong.
+            firstFailure ??= difference >= encodedBits
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"tick {command.Tick}, bit {difference} of {snapshot.LengthBits}, past " +
+                    $"the {encodedBits} bits of content - trailing slack, not a field")
+                : Describe(decoder, snapshot, entities, command.Tick, difference);
         }
 
         return (total, exact, slackBearing, slackBits, firstFailure);

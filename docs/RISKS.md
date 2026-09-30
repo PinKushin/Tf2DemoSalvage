@@ -7935,6 +7935,31 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B445 — the assembly round trip held each demo's whole text as one string, and the largest outgrew it — FIXED 2026-09-30
+
+**Found when B440 let `EveryDemo_CompilesBackToItsOwnBytes` run past the CEVO demo.** In B439's superset
+the test stopped at that demo's byte mismatch — the loop asserts per demo, so every demo sorted after it
+was never compared. With B440 fixed the loop carried on, and the full pool (49 lcor demos plus gcor) threw
+`OutOfMemoryException` from `StringBuilder.ToString()`: a demo's text runs to hundreds of megabytes (one
+was 350 MB and still being written when measured), and the largest pass the ~1.07 G-character ceiling of a
+.NET string. It is the harness's ceiling, not the format's — the CLI writes the text through a
+`StreamWriter` and compiles it through a `StreamReader`, and neither holds a demo's text at once.
+
+- **The test now takes the CLI's route**: each demo's text is written to a temp file with the CLI's own
+  `new StreamWriter(path)`, compiled back with its `new StreamReader(path)`, and tallied line by line from
+  the file. So it tests the path the owner runs (`--asm -o`, `--compile`), CRLF line endings included,
+  rather than an in-memory stand-in with `\n` that the CLI never produces.
+- **What it hid:** every demo after `auto-20101109-2141-cp_badlands` in ordinal order had not been
+  round-tripped by the superset since at least B439.
+- **Re-measured over the whole local pool:** 59 demos, 1,857,274,762 bytes decompiled to text and
+  compiled back byte for byte, in 27 minutes; 449,427,636 of 452,177,660 message lines structured
+  (99.4%). What is still bits: 2,741,453 `padding` lines (the bits after each packet's last message —
+  never a message), **8,192 `PacketEntities declined`** (3,163,204 bits), **365 `TempEntities declined`**
+  and **14 `SetPause`** — the three that stand between the text and 100% structured (D200).
+  *Evidence class: measured (the trx of the full run, the temp file's size).*
+
+---
+
 ### B444 — protocol 15's later builds registered one more user message before `CheapBreakModel`, and ids above 33 are named from build 3862's table — OPEN 2026-09-30
 
 **Found in B440's work**, once the two later-build protocol-15 SourceTV demos decoded. Their only user
@@ -7961,7 +7986,7 @@ when a layout decides.
 
 ---
 
-### B443 — two entity removal lists do not re-encode to their own bits — OPEN 2026-09-30
+### B443 — two entity removal lists do not re-encode to their own bits — FIXED 2026-09-30 (the instrument, not the encoder)
 
 **Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
 demo's first 900 commands and asserts every entity snapshot re-encodes exactly: 33,234 of 33,242 did.
@@ -7976,6 +8001,42 @@ Every other demo re-encodes 100%, including the other twenty-one demostf recordi
 themselves came back bit for bit and what differs is the explicit-delete list written after them. Why
 it differs — order, a repeat, an index — is not established. *Evidence class: measured.* Not fixed here;
 an encoder change wants its own branch and a synthetic removal list that reproduces it first.
+
+**Fixed: nothing was wrong with the encoder; the test's walk misaligned the packets it read.** The
+`entity-overrun` probe, walking the demo the way the test did, printed what the report could not: dozens
+of snapshots that did not decode at all (sunshine from tick 338 — `Entity index 108003339 is outside
+0..2047`, `Property index 96 is past the 44 properties of class 7`), which the test caught and skipped
+without counting. Production builds the same demo cleanly (`timeline-cost`: 109,339 frames, no exception —
+`DemoTimeline.Build` has no catch around `Decode`), so the walk was at fault, and the difference was one
+line: the test read no packet until it had built a decoder from `dem_datatables`. The signon packets that
+come BEFORE it create the string tables, so the decode state lacked them, every later
+`svc_UpdateStringTable` was read at the wrong widths, and whatever followed it in its packet — including
+`svc_PacketEntities` — was read from the wrong bit. The two "removal list" failures were misaligned bodies
+that happened to decode.
+
+| demo | the test's walk | the production walk |
+|---|---|---|
+| `demostf-cp_sunshine-2026-08-08-2233` | 799 of 800 exact, undecodable ones uncounted | **894 of 894** exact, 0 undecodable |
+| `demostf-koth_cascade_rc1a-1491232` | 647 of 654 | **894 of 894**, 0 undecodable |
+
+- **One walk, `DemoCorpus.EntitySnapshots`**, now serves `CorpusEntityRoundTripTests`,
+  `EntitySectionLengthTests`, `CorpusEntityDecodeTests` and the probe. There were three copies:
+  `CorpusEntityDecodeTests` read every packet (and was right), the other two skipped packets until they had
+  a decoder, and nothing compared them.
+- **A snapshot that does not decode is now a failure in both round-trip tests**, never a skip. The catch
+  that skipped them is what let a misaligned walk report 99.98%.
+- **What it cost:** the entity round trip's "every corpus demo re-encodes 100%" was measured over whichever
+  snapshots survived the misalignment. `EntitySectionLengthTests`' "nine snapshots in a hundred and eleven
+  thousand" residue came through the same walk, and so did the round-trip test's "32,407 snapshots end
+  before their stated length, 3.47 M bits", which it called a fact about the format.
+- **Re-measured over the whole local pool (57 demos with a schema; the two 2007 SourceTV demos truncate
+  `dem_datatables` at 64 KiB, B24):** 37,711 of 37,711 snapshots re-encode exactly, none undecodable;
+  168,484 entity sections, every one 0 bits off; 0 snapshots end before their stated length.
+- **Sabotaged**: the old walk (read nothing before `dem_datatables`) put back into
+  `DemoCorpus.EntitySnapshots` reddens 4 of the 6 entity tests — `EntityRoundTrip`, `EntitySection`,
+  `ContinuousDecoding` and `OpeningSnapshot` — each naming the snapshots that no longer decode.
+  *Evidence class: measured (probe, both walks, whole pool); the engine side read from `engine.dll`
+  (`0x1801dec90`, `0x18006a120`).*
 
 ---
 

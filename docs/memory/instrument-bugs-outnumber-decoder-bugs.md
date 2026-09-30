@@ -436,3 +436,15 @@ best-behaved member of a set.
 
 **When the thing under test is a SET, report its WORST member and name it, never the first or the
 average.**
+
+## `a-walk-must-read-what-production-reads` — B443, an "encoder defect" that was the test's walk
+
+**`EntityRoundTrip` blamed two removal lists for a week; the encoder was right.** Its walk read no
+packet until it had a decoder, so the signon string tables (created BEFORE `dem_datatables`) never
+reached the decode state; later `svc_UpdateStringTable`s misaligned their packets, the snapshots behind
+them threw, and a `catch { continue; }` dropped them uncounted. Production walk: 894 of 894 exact.
+
+**How to apply:** a corpus harness walks the demo through the SAME helper production's order uses
+(`DemoCorpus.EntitySnapshots`), and an undecodable item is a counted failure, never a skip. Before
+filing a decode defect from a harness, run production on the same demo (`timeline-cost`): if production
+decodes it cleanly, the harness is the suspect.
