@@ -6684,7 +6684,7 @@ every time**, rather than reading the pass/fail word. Current sizes at this comm
 
 A total that drops without the suite shrinking is a failed run wearing a pass.
 
-### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — RESOLVED (wiring below; per-class a85b8136; the item's `anim_slot` 2026-09-29, the last B105 section)
+### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — RESOLVED (wiring below; per-class a85b8136; the item's `anim_slot` 2026-09-29; an empty `model_player` 2026-09-30, the last B105 section)
 
 The chain from a demo to a weapon's animation role is complete and tested, and the last hop into the
 viewer is not done. Recorded so the half-built state is visible rather than looking finished.
@@ -6828,9 +6828,55 @@ hook-refused — and none can reach a demo player's body, whose only weapon step
 hook's and passtime gun's own tables (`tf_weapon_grapplinghook.cpp:52-148`, `tf_weapon_passtime_gun.cpp:251-300`);
 two rows `WeaponActivityTable` carries that the SDK has commented out, ITEM1's and ITEM2's
 `ACT_MP_ATTACK_*_PRIMARY_DEPLOYED` (`tf_weaponbase.cpp:3949-3950`, `:3999-4000` — the conformance parse does not
-skip `//`); eighteen items declare `"model_player" ""` over a prefab, where the same empty-wins merge applies and
-the model search still skips empties (unmeasured); `WeaponType` is compared case-sensitively
-(`tf_weapon_parse.cpp:136`) and ignoring case here (every shipped script is lower case).
+skip `//`); `WeaponType` is compared case-sensitively (`tf_weapon_parse.cpp:136`) and ignoring case here (every
+shipped script is lower case). (The eighteen `"model_player" ""` declarations once filed here: the next section.)
+
+### B105 — RESOLVED 2026-09-30: an item's own empty `model_player` is its answer, and a TF weapon naming one draws nothing
+
+**The premise filed above was wrong, and the defect was a layer further down.** Counted over the shipped
+`items_game.txt`, the eighteen declarations — fifteen items' own, three prefabs' (`weapon_fists`,
+`halloween2013_spellbook`, `randomgift`, none with a parent) reaching nineteen more — sit over no prefab that names a
+model, so the skip-empties search leaked no model. What differed was the ANSWER: the merge keeps the nearest value
+whatever it holds (`econ_item_schema.cpp:2909`, `:2962`, `:2967`; an empty token is a string, `KeyValues.cpp:2537-2540`),
+`BInitFromKV` reads it with a NULL default (`:3158`) and `GetPlayerDisplayModel` returns it (`econ_item_view.cpp:969`)
+— "" where the port said null, "unknown".
+
+**For a TF weapon, "unknown" drew the wrong thing.** The client rebuilds a weapon's world model from a valid item and
+writes it over the networked index — `m_iWorldModelIndex = m_iCachedModelIndex`, cached from
+`GetModelIndex( GetWorldModel() )` (`tf_weaponbase.cpp:3597-3607`), `GetWorldModel` being the item's
+`GetPlayerDisplayModel` as it is (`:681-701`) — so "" indexes no model and the weapon is not drawn: 0 fails
+`ShouldDraw` (`c_basecombatweapon.cpp:401`), -1 is the invalid index, and which of the two the closed `GetModelIndex`
+gives an empty name is unread. The port asked the class's stock item (also "") and kept the wire, which for an
+attach-to-hands weapon sending no world index is `m_nModelIndex`: the carrier's first-person hands. A wearable is right
+to keep the wire — `C_TFWearable::GetWorldModelIndex` reads the networked index (`tf_item_wearable.cpp:453-509`) — and
+every other consumer draws the same for "" as for null (`econ_entity.cpp:414`, `:1167`; `tf_playermodelpanel.cpp:1030`,
+`:1442-1446`).
+
+**Ported where `anim_slot`'s went:** `ItemSchema` keeps an empty `model_player` and `ModelFor` opts in
+(`emptyAnswers: true`); `WeaponModels.For` returns the item's "" without asking the stock route; `WeaponPropModels.Resolve`
+draws a weapon (`WeaponState` set) whose item answers "" with no model and leaves a wearable on the wire.
+
+**Census** (`item-props`, the 34 items and 5838, gcor + lcor, 59 demos: 4 undecodable, 4 with no item index, 39 with
+one of the items): 248 tracks. The Duel MiniGame on 80 worn props in 24 demos, a Gift - 1 Player and a 2018 Stocking
+Stuffer once each — wearables whose wire names no model; the fists on 52 tracks in 21 demos and the two spellbooks on
+114 in 28, never a prop at any sample (`EF_NODRAW`, 152) or naming no model on the wire (13) — all but ONE: the Basic Spellbook an
+engineer carries for the first 54 ticks of `20150119_2240_cp_process_final_(ovo)_blu`, whose wire names
+`c_engineer_arms.mdl` and which resolved to it. It is holstered at all 54 (`m_iState` 0), so `WeaponVisibility`
+(`c_basecombatweapon.cpp:399`) hid it before and after. **Nothing drawn in the corpus changes**; what changes is the
+model a held fists or spellbook would draw, and the first report of this census called that prop "drawn" — resolved
+is not shown, and the probe now asks the visibility rule too.
+
+**Filed, not ported — the same weapon path, other inputs:** an item with NO `model_player` anywhere in its chain —
+the Gunslinger (142) and the B.A.S.E. Jumper (1101) are the two weapons — gets NULL from `GetWorldModel` and draws
+nothing, while the port still keeps the wire (`item-props`, 59 demos: the Gunslinger on 53 tracks in 11 demos, shown —
+held — at 3,852 of 23,006 samples, and the Jumper on 11 in 2, shown at 8; the wire never names a model for either, so
+nothing in the corpus differs); `model_world`, which `GetWorldModel` prefers (`:686-687`)
+and four shipped weapons declare (the p2rec, two sappers, the slapping glove), is not read for the world weapon, which
+draws their `model_player`. No shipped item declares an empty `model_world` or an empty class entry in
+`model_player_per_class`, so neither opts in. A file-wide count of every scalar key an item's "" hides from a prefab:
+`craft_class` 1,412, `craft_material_type` 279, `armory_remap` 15, `xifier_class_remap` 1 (none read here), `anim_slot`
+1 (357, above) and `item_slot` 1 — 5838, a tool, where the port reads `randomgift`'s ACTION and the engine none; no
+tool is ever an entity on a player.
 
 ### B106 — a scout is reported holding an engineer's shotgun — NOT A DEFECT (367a9cff: 9 ticks in 929,371, a sampling skew; heading corrected 2026-09-29)
 

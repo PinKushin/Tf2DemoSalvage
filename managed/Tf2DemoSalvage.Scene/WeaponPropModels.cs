@@ -120,9 +120,17 @@ public sealed class WeaponPropModels
             // condition: `if ( pszModel && pszModel[0] )` means an item that names nothing leaves
             // the entity drawing what it already had. That matters here beyond parity — the lookup
             // answers null on a machine with no game installed, which is every CI run.
-            if (named is { Length: > 0 } && !string.Equals(named, prop.ModelPath, StringComparison.Ordinal))
+            //
+            // **Except that a TF WEAPON's client never draws the networked world model** (B105). It caches
+            // `GetModelIndex( GetWorldModel() )` over `m_iWorldModelIndex` (`tf_weaponbase.cpp:3597-3607`), and for a
+            // valid item `GetWorldModel` is the item's `GetPlayerDisplayModel` as it is (`:681-701`) — so an item whose
+            // `model_player` is "" indexes no model and the weapon draws nothing (`c_basecombatweapon.cpp:401`), where
+            // keeping the wire drew `m_nModelIndex`: the carrier's hands. A wearable reads the networked index
+            // (`tf_item_wearable.cpp:453-509`) and keeps it.
+            if (named is { } answer && (answer.Length > 0 || prop.WeaponState is not null)
+                && !string.Equals(answer, prop.ModelPath, StringComparison.Ordinal))
             {
-                drawn[index] = prop with { ModelPath = named };
+                drawn[index] = prop with { ModelPath = answer };
             }
         }
     }

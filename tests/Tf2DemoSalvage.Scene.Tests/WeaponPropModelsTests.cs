@@ -201,7 +201,68 @@ public sealed class WeaponPropModelsTests
         asked.ShouldBe([3, 9], "a different class is a different question");
     }
 
-    private static SceneProp Weapon(string model, int? item, int owner) =>
+    /// <remarks>
+    /// **A TF weapon whose item names an empty model draws no world model, whatever the wire says** (B105's open item).
+    /// The client rebuilds a TF weapon's world index from its item and writes it over the networked one —
+    /// `m_iCachedModelIndex = modelinfo->GetModelIndex( GetWorldModel() )`, then `m_iWorldModelIndex = m_iCachedModelIndex`
+    /// (tf_weaponbase.cpp:3597-3607) — and `GetWorldModel` hands back the item's `GetPlayerDisplayModel` as it is, ""
+    /// included (:681-701). An empty name indexes no model: 0 fails `C_BaseCombatWeapon::ShouldDraw`
+    /// (c_basecombatweapon.cpp:401) and -1 is the invalid index (c_baseentity.cpp:1775-1779). Measured with the
+    /// `item-props` probe: a Basic Spellbook on an engineer in `20150119_2240_cp_process_final_(ovo)_blu` carries
+    /// `c_engineer_arms.mdl` — `m_nModelIndex`, his hands, with no world index sent — and resolved to it. That one is
+    /// holstered throughout, so `WeaponVisibility` hid it either way; held, it would have drawn a second pair of arms.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWeaponWhoseItemNamesAnEmptyModel_DrawsNothing()
+    {
+        List<SceneProp> drawn = [Weapon(model: EngineerArms, item: BasicSpellbook, owner: 3, state: EntityState.WeaponActive)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty);
+
+        drawn[0].ModelPath.ShouldBe(string.Empty, "the item's empty model, not the hands the wire named");
+    }
+
+    /// <remarks>
+    /// **The control: a WEARABLE keeps the wire's model.** `C_TFWearable::GetWorldModelIndex` returns the networked
+    /// `m_nWorldModelIndex`, or `m_nModelIndex` when that is zero (tf_item_wearable.cpp:453-509), and never asks the item —
+    /// so an item naming "" leaves a wearable drawing what the server set. The Duel MiniGame is the shipped case.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWearableWhoseItemNamesAnEmptyModel_KeepsTheWiresModel()
+    {
+        List<SceneProp> drawn = [Weapon(model: AWearable, item: DuelMiniGame, owner: 3, state: null, className: "CTFWearable")];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty);
+
+        drawn[0].ModelPath.ShouldBe(AWearable);
+    }
+
+    /// <remarks>
+    /// **The other control: a weapon whose item goes unanswered keeps the wire's model**, as before. Null is "nothing
+    /// named", not "named nothing" — an item the schema lacks, or no game installed at all — and blanking on it would
+    /// empty every weapon on a machine without TF2.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWeaponWhoseItemIsUnanswered_KeepsTheWiresModel()
+    {
+        List<SceneProp> drawn = [Weapon(model: EngineerArms, item: BasicSpellbook, owner: 3, state: EntityState.WeaponActive)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
+
+        drawn[0].ModelPath.ShouldBe(EngineerArms);
+    }
+
+    /// <summary>The Basic Spellbook, whose `model_player` is `halloween2013_spellbook`'s "".</summary>
+    private const int BasicSpellbook = 1070;
+
+    /// <summary>The Duel MiniGame, whose own `model_player` is "".</summary>
+    private const int DuelMiniGame = 241;
+
+    private const string EngineerArms = "models/weapons/c_models/c_engineer_arms.mdl";
+
+    private const string AWearable = "models/player/items/all_class/a_wearable.mdl";
+
+    private static SceneProp Weapon(string model, int? item, int owner, int? state = null, string className = "CWeaponMedigun") =>
         new(
             EntityIndex: 40,
             ModelPath: model,
@@ -210,10 +271,10 @@ public sealed class WeaponPropModelsTests
             AttachedTo: owner,
             AttachmentPoint: null,
             OwnedBy: owner,
-            WeaponState: null,
+            WeaponState: state,
             BoneMerged: true,
             ItemDefinitionIndex: item,
-            ClassName: "CWeaponMedigun");
+            ClassName: className);
 
     private static ScenePlayer Player(int entityIndex, int playerClass) =>
         new(entityIndex, 0f, 0f, 0f, Team: 3, Health: 150, PlayerClass: playerClass);

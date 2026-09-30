@@ -74,7 +74,9 @@ public sealed class WeaponModels
     /// <param name="weaponItem">The item definition index, when the weapon carries one.</param>
     /// <param name="weaponClass">Its entity class, for the stock route.</param>
     /// <param name="forClass">Which player class is holding it; models differ per class.</param>
-    /// <returns>The display model, or <c>null</c> when neither route names one.</returns>
+    /// <returns>
+    /// The display model; empty when the item's own answer is <c>""</c>; or <c>null</c> when neither route names one.
+    /// </returns>
     /// <remarks>
     /// **Split out so the VIEWMODEL can ask about its own weapon** (B222). `DT_BaseViewModel`
     /// networks `m_hWeapon`, which is the engine's answer to what is in this hand; the player's
@@ -96,8 +98,12 @@ public sealed class WeaponModels
         // **The item first, because it is what the player actually equipped.** The class route only
         // knows the stock version, so preferring it would draw a stock rocket launcher for every
         // unusual and reskin in the game.
+        //
+        // **An item whose `model_player` is "" has answered too** (B105): `CTFWeaponBase::GetWorldModel` hands back
+        // `GetPlayerDisplayModel` as it is for any valid item and reaches the script only for an invalid one
+        // (`tf_weaponbase.cpp:681-701`), so the class route — the stand-in for that script — is not asked.
         if (weaponItem is { } item &&
-            schema.ModelFor(item, playerClass) is { Length: > 0 } named)
+            schema.ModelFor(item, playerClass) is { } named)
         {
             return named;
         }

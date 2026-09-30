@@ -59,6 +59,11 @@ public sealed class ItemSchemaTests
                         "spy" "models/player/items/spy/special_badge.mdl"
                     }
                 }
+                "names_no_model"
+                {
+                    "prefab" "weapon_scattergun"
+                    "model_player" ""
+                }
             }
             "items"
             {
@@ -91,6 +96,23 @@ public sealed class ItemSchemaTests
                 {
                     "name" "A_BADGE"
                     "prefab" "badge"
+                }
+                "196"
+                {
+                    "name" "OWN_EMPTY_MODEL_OVER_A_PREFABS"
+                    "prefab" "weapon_scattergun"
+                    "model_player" ""
+                }
+                "197"
+                {
+                    "name" "OWN_MODEL_OVER_A_PREFABS"
+                    "prefab" "weapon_scattergun"
+                    "model_player" "models/weapons/c_models/c_own.mdl"
+                }
+                "198"
+                {
+                    "name" "INHERITS_A_PREFABS_EMPTY_MODEL"
+                    "prefab" "names_no_model"
                 }
             }
         }
@@ -232,6 +254,37 @@ public sealed class ItemSchemaTests
         // is the common case for a weapon whose owner has left.
         Read().ModelFor(500, playerClass: 0)
             .ShouldBe("models/weapons/c_models/c_special.mdl");
+    }
+
+    /// <remarks>
+    /// **An item's own empty `model_player` is its answer, and hides the prefab's model** (B105's open item).
+    /// `MergeDefinitionPrefab` applies the prefabs and then `RecursiveInheritKeyValues` sets each of the item's own keys
+    /// over them whatever the string (econ_item_schema.cpp:2909, :2967), and `BInitFromKV` reads the merged key with a
+    /// NULL default (:3158) — so the base model is "", which `GetPlayerDisplayModel` returns as it is
+    /// (econ_item_view.cpp:969). The two controls share the prefab: item 13 declares nothing and inherits, item 197
+    /// declares its own model and keeps it. Asked for a class and for none, because the base model is read at both.
+    /// </remarks>
+    [Test]
+    public void ModelFor_AnItemsOwnEmptyModelPlayerOverAPrefabsModel_IsEmpty()
+    {
+        ItemSchema schema = Read();
+
+        schema.ModelFor(196, playerClass: 1).ShouldBe(string.Empty, "the item's own empty value, not the prefab's model");
+        schema.ModelFor(196, playerClass: 0).ShouldBe(string.Empty, "the undefined class reads the same base model");
+
+        schema.ModelFor(13, playerClass: 1).ShouldBe("models/weapons/c_models/c_scattergun.mdl", "no key of its own: the prefab's");
+        schema.ModelFor(197, playerClass: 1).ShouldBe("models/weapons/c_models/c_own.mdl", "its own model over the prefab's");
+    }
+
+    /// <remarks>
+    /// **A PREFAB's own empty `model_player` is inherited like any value** — the shape nineteen shipped items take, through
+    /// `weapon_fists`, `halloween2013_spellbook` and `randomgift`. The prefab's merge sets its "" over its own parent's
+    /// model before the item's keys land (econ_item_schema.cpp:2962, :2967), so an item declaring nothing reads "".
+    /// </remarks>
+    [Test]
+    public void ModelFor_AnItemInheritingAPrefabsOwnEmptyModelPlayer_IsEmpty()
+    {
+        Read().ModelFor(198, playerClass: 6).ShouldBe(string.Empty, "names_no_model's own \"\" hides weapon_scattergun's model");
     }
 
     private static ItemSchema Read() => ItemSchema.Read(Encoding.UTF8.GetBytes(Schema));
