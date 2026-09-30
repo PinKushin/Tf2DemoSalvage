@@ -225,6 +225,10 @@ vecCurrentMoveYaw.y = -sin( DEG2RAD( flYaw ) );
 unit vector of movement **in the body's own frame** — and TF2 snaps it to eight compass points
 first (`SnapYawTo`, :1443, thresholds 23/67/113/157).
 
+*(Both halves of that are wrong, and B103 corrected the code: `flAngle` is `AngleNormalize( m_flEyeYaw )`
+and `m_flEstimateYaw` is the direction of travel, `atan2( vel.y, vel.x )`; the snap runs only under
+`mp_slammoveyaw`, which is `"0"` and development-only. The pair is still travel in the body's frame.)*
+
 **Both inputs are recoverable from a demo.** Direction of travel comes from consecutive positions,
 which `DemoTimeline.SpeedAt` already differentiates for speed; the body's facing is
 `m_angEyeAngles`, which is decoded. Nothing new has to come off the wire — this is emulation, like
@@ -264,3 +268,48 @@ weapons were the tail, not the case.
 
 *Evidence class: read from published source (the rules), measured on the corpus (the census), read from
 shipped data (the slots).*
+
+## The recorder faced his spawn direction for a whole demo, and it was called a rocket jump (B442, 2026-09-30)
+
+**What was believed:** B101's ground truth — the POV recording's own `CUserCmd`, sampled in the middle of
+every long run of `forwardmove 450` — gave `move_x = 1` at seven ticks and `(−0.707, −0.707)` at 5541 and
+5681, and those two were put down to rocket jumps, "where `forwardmove` and the direction of travel
+legitimately disagree because the player is airborne". The test written that day failed on exactly those
+two ticks from its first commit (built at a29a63c5, it still does). The demo is lcor, the gate is gcor, and
+nothing ran it until the first full superset (B439).
+
+**What killed it was the recorder's other inputs, which a POV demo also carries.** At 5541 he has
+`FL_ONGROUND`, his networked `m_vecVelocity` is (−206.18, −122.84) — 240 units a second at −149.2°, a
+soldier's full speed — and his command's view yaw is −150.7. He is running exactly where he looks. The eye
+yaw the timeline fed `ComputePoseParam_MoveYaw` was −23.6, and the `move-yaw` probe found −23.6 at every
+tick from 200 to 5700: the recorder faced the way he spawned for the whole recording.
+
+**One member, two writers.** `C_TFPlayer` has one `m_angEyeAngles` and both exclusive receive tables write
+it — `RecvPropFloat( RECVINFO( m_angEyeAngles[0] ) )` and `[1]` in `DT_TFLocalPlayerExclusive`
+(`c_tf_player.cpp:3745-3746`) and again in `DT_TFNonLocalPlayerExclusive` (`:3764-3765`) — so each
+component holds whichever table wrote it last. Every player's ENTER carries both tables, local first
+(`tf_player.cpp:801`, `:804`; all thirteen players of the f12 SourceTV demo). After it one table speaks:
+the non-local one for everyone but a POV recorder, the local one for him — 2,033 writes against one here,
+14,473 against one in `tf2-2026-pub-pov-clean`. `EntityState.EyeAngles()` read the non-local table first
+whenever it held anything. That is exactly the shape c7d65f1b took out of `Origin()` in August, when
+deltas stopped wiping entity state and "a stale entry in an earlier table won permanently"; the accessor
+beside it kept the fixed order, and only the recorder ever had a stale entry to lose to.
+
+**The seven good samples were good by coincidence**: he happened to be running within 23° of his spawn
+facing, and their ±0.4 `move_y` was that gap rather than noise. With the last write per component all nine
+are `move_x` 1.000. SourceTV demos change nowhere; every POV recorder's body now turns, pitches its torso
+and runs where he looks, wherever it is drawn.
+
+**The fixture had the wrong premise written into it.** `SyntheticPlayer.Schema` declared one exclusive
+table, "never both — a fixture declaring both would describe a combination no recording contains", which is
+the one combination every recording starts with. A synthetic test could not have written the ENTER that hid
+this until the claim went.
+
+**Still different for the recorder, and named rather than fixed here:** for the LOCAL player the engine's
+animation reads `EyeAngles()` — `pl.v_angle`, the engine's view angles (`c_tf_player.cpp:4279-4284`) — and
+`EstimateAbsVelocity` returns his networked velocity instead of differencing the interpolated origin
+(`c_baseentity.cpp:5854-5858`). This project animates him like any other player. Both routes give `move_x`
+1.000 at the nine samples; `move_y` differs by up to 0.13.
+
+*Evidence class: read from published source (the one member, the local-player branch), measured on the
+corpus (the frozen yaw, the table counts, the control at a29a63c5), arithmetic (the move values).*

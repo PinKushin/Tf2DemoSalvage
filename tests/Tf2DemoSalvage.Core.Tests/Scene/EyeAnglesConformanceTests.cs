@@ -29,8 +29,9 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// <c>RECVINFO( m_angEyeAngles[1] )</c> is the same offset of the same <c>C_TFPlayer</c> in both, so each
 /// received component overwrites whatever either table put there before: the member holds the LAST write,
 /// component by component. Which table a client is sent is the server's choice (<c>tf_player.cpp:800-804</c>,
-/// "Data that only gets sent to the local player" / "Data that gets sent to all other players") — but a
-/// point-of-view recorder's own ENTER carries BOTH, and every later update only the local one.
+/// "Data that only gets sent to the local player" / "Data that gets sent to all other players") — but
+/// every player's ENTER carries BOTH (all thirteen of <c>demostf-cp_process_f12-2026-08-07</c>), and after
+/// it one table speaks: the non-local one for everybody but a POV demo's recorder, the local one for him.
 ///
 /// **B442 was this, read in a fixed order.** <c>EyeAngles()</c> took the non-local table whenever it held
 /// anything. For the recorder of <c>movement-test-pov-cp_process</c> that table was written once, at the
@@ -52,19 +53,19 @@ public sealed class EyeAnglesConformanceTests
     {
         // **The premise, read rather than assumed**: if either table wrote a member of its own, the two
         // would be separate values and last-write-wins across them would be wrong.
-        SourceSdk.Require();
-
-        string source = SourceSdk.Text(ClientPlayer).ShouldNotBeNull();
-        string opening = $"BEGIN_RECV_TABLE_NOBASE( C_TFPlayer, {table} )";
-        int start = source.IndexOf(opening, StringComparison.Ordinal);
-
-        start.ShouldBeGreaterThanOrEqualTo(0, $"{opening} is not in {ClientPlayer}");
-
-        int end = source.IndexOf("END_RECV_TABLE()", start, StringComparison.Ordinal);
-        string block = source[start..end];
+        string block = Block($"BEGIN_RECV_TABLE_NOBASE( C_TFPlayer, {table} )");
 
         block.ShouldContain($"RecvPropFloat( RECVINFO( {Pitch} ) )");
         block.ShouldContain($"RecvPropFloat( RECVINFO( {Yaw} ) )");
+    }
+
+    [Test]
+    public void RecvTable_ATableOpenedBeforeThePair_DoesNotReachIntoIt()
+    {
+        // **The control for the reading above.** The animation-event table opens three thousand lines before
+        // the pair and writes no eye angles, so a block that ran on past its own END_RECV_TABLE() would find
+        // the pair's and pass the test above for a table that never wrote the member.
+        Block("BEGIN_RECV_TABLE_NOBASE( C_TEPlayerAnimEvent, DT_TEPlayerAnimEvent )").ShouldNotContain(Yaw);
     }
 
     [Test]
@@ -109,6 +110,44 @@ public sealed class EyeAnglesConformanceTests
         player.Set($"{LocalTable}.{Yaw}", PropertyValue.FromFloat(30f));
 
         player.EyeAngles().ShouldBe((40f, 30f));
+    }
+
+    [Test]
+    public void EyeAngles_AnEntityNeitherTableWrote_IsNull()
+    {
+        // **Null, not (0, 0), because a caller takes any answer over the entity's own rotation**: the timeline
+        // replaces a pose's pitch and yaw with the eye angles whenever there are some, so an answer here for a
+        // rocket that sends only m_angRotation (tf_weaponbase_rocket.cpp:44) would point it due east, level.
+        EntityState rocket = new(40, 0, 0, "CTFProjectile_Rocket");
+
+        rocket.Set("DT_TFBaseRocket.m_angRotation", PropertyValue.FromVector(10f, 90f, 0f));
+
+        rocket.EyeAngles().ShouldBeNull();
+    }
+
+    [Test]
+    public void EyeAngles_AComponentNeitherTableWrote_ReadsZero()
+    {
+        // **Zero, because that is what the member holds before anything writes it**: C_BaseEntity::operator
+        // new memsets the whole object (c_baseentity.cpp:3833-3840). A yaw with no pitch is still a facing.
+        EntityState player = new(2, 0, 0, "CTFPlayer");
+
+        player.Set($"{LocalTable}.{Yaw}", PropertyValue.FromFloat(209.384f));
+
+        player.EyeAngles().ShouldBe((0f, 209.384f));
+    }
+
+    /// <summary>One receive table's declarations, from its opening line to its own <c>END_RECV_TABLE()</c>.</summary>
+    private static string Block(string opening)
+    {
+        SourceSdk.Require();
+
+        string source = SourceSdk.Text(ClientPlayer).ShouldNotBeNull();
+        int start = source.IndexOf(opening, StringComparison.Ordinal);
+
+        start.ShouldBeGreaterThanOrEqualTo(0, $"{opening} is not in {ClientPlayer}");
+
+        return source[start..source.IndexOf("END_RECV_TABLE()", start, StringComparison.Ordinal)];
     }
 
     private static void Write(EntityState player, string table, float pitch, float yaw)

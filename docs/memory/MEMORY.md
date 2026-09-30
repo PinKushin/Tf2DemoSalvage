@@ -33,7 +33,7 @@
 - [Build-time shortcuts assume the camera](build-time-shortcuts-assume-the-camera.md) — top-down culls broke free look.
 - [Read the map before the renderer](read-the-map-before-the-renderer.md) — ask the BSP what it is.
 - [Surf and jump are an audience](surf-and-jump-are-an-audience.md) — exact ticks, angles and inputs.
-- [Wire names are strings](wire-names-are-strings.md); [any table can declare a property](a-property-can-be-declared-by-any-table.md), [needs its table](a-property-name-needs-its-declaring-table.md).
+- [Wire names are strings](wire-names-are-strings.md); [any table can declare a property](a-property-can-be-declared-by-any-table.md), [needs its table](a-property-name-needs-its-declaring-table.md); local/non-local is one member, last write wins (B442).
 - [Nothing is closed](nothing-is-closed.md) — settle a constant in DISASSEMBLY; [rename decompiled functions](rename-decompiled-functions.md) (D174).
 - [Death is EF_NODRAW](death-is-ef-nodraw-not-an-animation.md) — a separate CTFRagdoll; [a corpse is simulated](a-tf2-corpse-is-simulated-not-sent.md), not sent.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is group-local.

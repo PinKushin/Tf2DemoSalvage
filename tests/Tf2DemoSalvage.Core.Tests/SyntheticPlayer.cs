@@ -75,9 +75,10 @@ internal static class SyntheticPlayer
     /// <returns>The schema.</returns>
     /// <remarks>
     /// **"Never both" was this comment's claim, and it was wrong** (B442). TF2's schema declares both for
-    /// every player (<c>tf_player.cpp:801</c>, <c>:804</c>), and a point-of-view recorder's ENTER carries
-    /// both — measured on <c>movement-test-pov-cp_process</c>, where every later update carries the local
-    /// one alone. A fixture that could only declare one could not write the demo that hid B442.
+    /// every player (<c>tf_player.cpp:801</c>, <c>:804</c>), and every player's ENTER carries both —
+    /// measured on all thirteen of <c>demostf-cp_process_f12-2026-08-07</c> and on the recorder of
+    /// <c>movement-test-pov-cp_process</c>, whose later updates carry the local one alone. A fixture that
+    /// could only declare one could not write the demo that hid B442.
     /// </remarks>
     public static DemoSchema Schema(OriginTable origin) => new(
         [

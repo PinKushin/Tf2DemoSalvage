@@ -2827,34 +2827,46 @@ public sealed class EntityState
         return null;
     }
 
+    /// <summary>Each eye-angle component's key in the local table and in the non-local one, built once (B407).</summary>
+    private static readonly (string Local, string NonLocal) EyePitchKeys =
+        ($"{LocalOriginTable}.{EyeAnglesPitch}", $"{NonLocalOriginTable}.{EyeAnglesPitch}");
+
+    private static readonly (string Local, string NonLocal) EyeYawKeys =
+        ($"{LocalOriginTable}.{EyeAnglesYaw}", $"{NonLocalOriginTable}.{EyeAnglesYaw}");
+
     /// <summary>The entity's view angles, if the demo carries them for it.</summary>
     /// <returns>Pitch and yaw, or <c>null</c> when neither table sent them.</returns>
     /// <remarks>
-    /// **A point-of-view demo does not contain the recorder's own eye angles.** They are not sent
-    /// as entity properties to the client that already knows them, so for that one player the
-    /// angles come from <c>dem_usercmd</c> and <c>democmdinfo_t</c> instead — which is where the
-    /// user command work pays off for the viewer. SourceTV recordings have the opposite shape:
-    /// every player is non-local, so every player's angles are here and there are no user
-    /// commands at all.
+    /// **One member, two writers, and the last write is the value** (B442). The client's
+    /// <c>C_TFPlayer</c> has one <c>m_angEyeAngles</c>, and both exclusive tables write it —
+    /// <c>RecvPropFloat( RECVINFO( m_angEyeAngles[0] ) )</c> and <c>[1]</c> in
+    /// <c>DT_TFLocalPlayerExclusive</c> (<c>c_tf_player.cpp:3745-3746</c>) and again in
+    /// <c>DT_TFNonLocalPlayerExclusive</c> (<c>:3764-3765</c>) — so each component holds whichever table
+    /// wrote it last. The same rule as <see cref="Origin"/>, for the same reason (c7d65f1b).
     ///
-    /// Pitch and yaw are sent independently, and a player who is turning without looking up or
-    /// down sends only yaw. Roll is never sent for players.
+    /// **A fixed order was wrong for exactly one player: a POV demo's recorder.** Every player's ENTER
+    /// carries both tables (declared at <c>tf_player.cpp:801</c> and <c>:804</c>; all thirteen players of
+    /// <c>demostf-cp_process_f12-2026-08-07</c>), and after it one table speaks — the non-local one for
+    /// everybody but the recorder, the local one for him. Reading the non-local table first froze the
+    /// recorder at the angles he entered with: 336.4 for the whole of <c>movement-test-pov-cp_process</c>,
+    /// where a run at 209.4 drove <c>move_x</c> to -0.674.
+    ///
+    /// **A POV demo DOES carry the recorder's eye angles** — <c>tf_player.cpp:731-732</c> sends both to the
+    /// local player — which this comment used to deny. Pitch and yaw are sent independently, and a player
+    /// turning without looking up or down sends only yaw. Roll is never sent for players. A component
+    /// neither table wrote reads 0, as the client's zeroed entity does (<c>c_baseentity.cpp:3833-3840</c>).
     /// </remarks>
     public (float Pitch, float Yaw)? EyeAngles()
     {
-        foreach (string table in (string[])[NonLocalOriginTable, LocalOriginTable])
-        {
-            float? pitch = Number($"{table}.{EyeAnglesPitch}");
-            float? yaw = Number($"{table}.{EyeAnglesYaw}");
+        float? pitch = LastWritten(EyePitchKeys);
+        float? yaw = LastWritten(EyeYawKeys);
 
-            if (pitch is not null || yaw is not null)
-            {
-                return (pitch ?? 0f, yaw ?? 0f);
-            }
-        }
-
-        return null;
+        return pitch is null && yaw is null ? null : (pitch ?? 0f, yaw ?? 0f);
     }
+
+    /// <summary>Whichever of two keys was written last, as one member written by two receive tables holds.</summary>
+    private float? LastWritten((string Local, string NonLocal) keys) =>
+        Number(Sequence(keys.Local) > Sequence(keys.NonLocal) ? keys.Local : keys.NonLocal);
 
     internal void Set(string key, PropertyValue value)
     {
