@@ -1269,6 +1269,22 @@ large map, and the second closes it. The gravelpit demo lives in `tools/corpus/l
 the committed corpus: it is a second specimen of an era already represented, and the finding it
 supports is recorded here.
 
+**"Not fixable" was wrong about what was lost (2026-09-30).** The schema was never written into the
+SourceTV file, but it exists whole in the same build's other recordings. Measured byte by byte:
+
+| comparison | result |
+|---|---|
+| the two build-3258 POV schemas (cp_granary, the damage recording) | **byte-identical**, 85,063 bytes each — the schema does not depend on the map |
+| the two build-3258 SourceTV payloads (cp_granary, cp_gravelpit) | **byte-identical**, 65,536 bytes each |
+| SourceTV payload against the POV schema's first 65,536 bytes | the first **65,535** match; byte 65,535 is `0E` against `2E` |
+
+The one differing byte is the cut itself: the SourceTV writer's buffer ended part-way through it, so
+its bits after the cut were never written. So the truncated schema is exactly build 3258's schema up
+to 2^16 bytes, and the build's full schema is the rest of it. Decoding the two SourceTV demos' 8,185
+snapshots against it would be exact rather than a guess. That is salvage beyond what the engine does
+— the real client cannot parse the truncated table either — and it draws on another file, so it is
+the owner's call, asked 2026-09-30. *Evidence class: measured (the payloads compared byte for byte).*
+
 ## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
 
 **Found by re-encoding, and by nothing else, because both forms decode to the same number.**
