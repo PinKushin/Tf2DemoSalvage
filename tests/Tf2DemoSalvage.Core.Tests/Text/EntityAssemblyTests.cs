@@ -234,4 +234,96 @@ public sealed class EntityAssemblyTests
         Should.Throw<ArgumentNullException>(
             () => EntityAssembly.Write(Header(0, 0, []), null!));
     }
+
+    /// <summary><c>SPROP_INSIDEARRAY</c>: the element template sits before its array.</summary>
+    private const int InsideArray = 1 << 8;
+
+    /// <summary><c>SPROP_COORD_MP</c>: a coordinate whose form — integer, fraction, both — the sender chose.</summary>
+    private const int CoordMp = 1 << 13;
+
+    /// <summary>An array of multiplayer coordinates, as <c>ArrayElementShapeTests</c> builds it (RISKS B27).</summary>
+    private static DemoSchema ArraySchema()
+    {
+        List<SendProperty> properties =
+        [
+            new(SendPropType.Float, "m_flPoint", CoordMp | InsideArray, string.Empty, 0f, 0f, 0, 0),
+            new(SendPropType.Array, "m_vecPoints", 0, string.Empty, 0f, 0f, 0, 8),
+        ];
+
+        return new DemoSchema(
+            [new SendTable("DT_Test", true, properties)],
+            [new ServerClass(0, "CTest", "DT_Test"), new ServerClass(1, "COther", "DT_Test")]);
+    }
+
+    /// <summary>One entering entity whose array's elements took the shapes given, encoded by the codec itself.</summary>
+    private static (byte[] Payload, int Bits) ArrayEntity(IReadOnlyList<int> shapes, params float[] values)
+    {
+        EntityDecoder encoder = new(ArraySchema(), ClassBits);
+        FlatProperty flat = encoder.FlattenedFor(0)[0];
+        DecodedEntity entity = new(
+            3, 0, 7, EntityUpdateType.Enter,
+            [new DecodedProperty(0, flat, PropertyValue.FromArray([.. values.Select(PropertyValue.FromFloat)]), 0, 0, shapes)]);
+
+        byte[] payload = encoder.EncodeEntities([entity], [], isDelta: false, lengthBits: 0, out int bits);
+
+        return (payload, bits);
+    }
+
+    /// <summary>Renders an array snapshot and reads its text back, each side with a decoder of its own.</summary>
+    private static (IReadOnlyList<string> Lines, PacketEntitiesMessage Rebuilt) ArrayRoundTrip(byte[] payload, int bits)
+    {
+        IReadOnlyList<string>? lines = EntityAssembly.Write(Header(1, bits, payload), new EntityDecoder(ArraySchema(), ClassBits));
+        lines.ShouldNotBeNull("the array snapshot did not render");
+
+        List<string> head = [.. lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries)];
+        int next = 1;
+        PacketEntitiesMessage rebuilt = EntityAssembly.Build(
+            head, () => next < lines.Count ? lines[next++] : null, new EntityDecoder(ArraySchema(), ClassBits));
+
+        return (lines, rebuilt);
+    }
+
+    [Test]
+    public void Build_AnArrayWhoseElementsTookDifferentShapes_RoundTripsToTheSameBits()
+    {
+        // **B446: the text dropped what B27 taught the codec to keep.** Each element of an array is sent in the
+        // form its sender chose, and the value does not say which — so the text must, or the rebuilt body is a
+        // different width that says the same thing. PASS Time's 16-element m_trackPoints is the case in the
+        // corpus: its snapshots went out as raw bits because their text re-encoded short. Shapes that differ
+        // between elements, so a text form carrying one shape for the whole array cannot pass.
+        (byte[] payload, int bits) = ArrayEntity([1, 0, 1, 0], 8.5f, 2.25f, -4.75f, 16f);
+
+        (_, PacketEntitiesMessage rebuilt) = ArrayRoundTrip(payload, bits);
+
+        rebuilt.LengthBits.ShouldBe(bits);
+        rebuilt.Body.ToArray().ShouldBe(payload);
+    }
+
+    [Test]
+    public void Write_AnArrayWhoseElementsTookDifferentShapes_StatesEachShapeOnItsIndex()
+    {
+        // The shapes follow the property's own index/width/coord, one per element, in element order: what the
+        // reader needs, where the other encoding choices already are.
+        (byte[] payload, int bits) = ArrayEntity([1, 0, 1, 0], 8.5f, 2.25f, -4.75f, 16f);
+
+        (IReadOnlyList<string> lines, _) = ArrayRoundTrip(payload, bits);
+
+        lines.Single(line => line.TrimStart().StartsWith("prop ", StringComparison.Ordinal))
+            .Trim().ShouldStartWith("prop 0/4/0/1.0.1.0 DT_Test.m_vecPoints ");
+    }
+
+    [Test]
+    public void Write_AnArrayWhoseElementsAllTookShapeZero_StatesNoShapes()
+    {
+        // **The control, and the compact case.** All-zero shapes encode exactly as absent ones — the encoder
+        // writes shape 0 for a missing entry — so the text says nothing it does not need to, and still
+        // round-trips.
+        (byte[] payload, int bits) = ArrayEntity([0, 0], 8.5f, 2.25f);
+
+        (IReadOnlyList<string> lines, PacketEntitiesMessage rebuilt) = ArrayRoundTrip(payload, bits);
+
+        lines.Single(line => line.TrimStart().StartsWith("prop ", StringComparison.Ordinal))
+            .Trim().ShouldStartWith("prop 0/4/0 DT_Test.m_vecPoints ");
+        rebuilt.Body.ToArray().ShouldBe(payload);
+    }
 }
