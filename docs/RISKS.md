@@ -7883,6 +7883,124 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B438 — `PropsAt`'s kept sample answered what the previous call asked, and two threads tore it — FIXED 2026-09-30
+
+**Found in B105's work** (2b7de6f4): four parallel `[TestCase]`s on `TimelineCache`'s z1800 — three found no
+sapper at ticks where each alone found it. Filed then as a test race and worked around with a timeline
+per test. **It was two faults, and the one the owner can see is not the race.**
+
+**The state** — the only mutable state any timeline sampler touches. `DemoTimeline`: `_wakes`, `_lerping`,
+`_sampleSynced`, `_sampledTo`, `_sampledTeam`, `_sampledInterpolating` (`DemoTimeline.cs`, beside
+`ResyncSample`), and `_moveChildren`, a deterministic lazy map; `ScenePropTrack.Live` and `.Lerping`
+(`ScenePropTrack.cs:1430`, `:1438`). The fix adds `_sampledView` and the lock. Everything else is read-only: `PlayersAt`, `FrameAt` and its
+`RulesAt`/`RoundTimersAt`/… family, `TrackFor`, `FogAt`, `SoundscapeAt`, `ViewmodelAt`, `RecordedViewAt`,
+`DirectorAt` and the feeds' queries; `Sounds` is a list `SoundSchedule` walks with its own cursor.
+`MomentScene` samples nothing — `MomentPresenter` hands it `TimelineMoments`' two lists. **The one write
+the viewer makes into a timeline** is `TimelineMoments.OnNewModel` → `ScenePropTrack.OnNewModel`, which
+resizes and resets the pose-parameter history; it cannot change a parked track's answer, because a
+settled pair has equal ends and `PoseBetween` then answers the keyframe's own list, and a track still
+blending is re-sampled every frame.
+
+**Fault 1, order: the stepped path was not the cold path** (viewer-visible). Stage C re-derives a track
+only at its wakes and parks it once `Motion` says it has settled. Four inputs to the answer were not
+wakes:
+
+- **the cycle and the pose parameters.** `Motion` settled on the origin history alone. The engine leaves
+  `g_InterpolationList` only when every variable has stopped: `Interp_Interpolate` ANDs `bNoMoreChanges`
+  over the whole var map (`c_baseentity.cpp:861-893`) and `C_BaseEntity::Interpolate` removes on that AND
+  (`:2925-2928`; `C_BaseAnimating::Interpolate`, `c_baseanimating.cpp:4474-4489`);
+- **the first stated pose.** `At` answers it until the delayed target passes the first keyframe, asking no
+  history, so an entity whose clock runs behind its arrival settles before that answer changes;
+- **a move child's visibility**, which `ShouldInterpolate`'s fourth clause reads (`c_baseentity.cpp:3029`)
+  and which changes at the CHILD's keyframes, not the parent's;
+- **the view entity**, the clause the caller supplies, which never triggered a rebuild.
+
+Measured with `sample-history` (a4453d48: stepped against a second build rebuilt cold every sample; cold
+against cold and "the scene moves" as controls), 2000 ticks at 0.25 unless stated:
+
+| demo | stepped ≠ cold | what |
+|---|---|---|
+| z1800 20000..21000 (0.5) | 84.0% | one sentry: cycle, pose parameter up to 0.031 |
+| 2013 foundry STV | 93.6% | one sentry |
+| pl_upward_f12 (lcor) | 91.4% | two sentries |
+| koth_ashville (lcor) | 52.5% | sentries (pose parameter up to 0.235), a teleporter (0.502) |
+| 2026 pub POV 4000..6000 (0.5) | 2.7% | sticky 583: position up to 352 units, angle 245.7° |
+| f12 20000..22000, granary 2007 POV / 2008 STV / 2013, viaduct 2011 STV | 0 | |
+
+**What playback showed:** a sentry's scan and idle animation and a teleporter's spin stepped at the
+packet rate, and a scrub to the same tick drew another pose; a sticky fired into a
+server clock correction hung at its first position for three ticks. After the fix, all ten windows
+measure 0 differences, and playback is what a scrub shows. The probe's own "scene moves" control shows the
+same change from the other side: on foundry, consecutive stepped samples differed at 502 of 8000 steps
+before and 7989 after — the sentry now moves every frame instead of every packet.
+
+**Fault 2, threads** (test harness only; the viewer samples from one thread). Nothing guarded the state,
+and the corpus suite shares one timeline per demo under `ParallelScope.All`.
+
+**Fix.** `Motion` settles on all three histories, and not while the target has yet to pass the first
+keyframe; a wake one tick past `born + delay` ends that regime (the pose parameters need no moments of
+their own — `Add` stamps them with the cycle). The view entity joins the resync triggers.
+`ScenePropTrack.HeldChangesAfter` is `Held`'s boundaries, shared by `Motion` and by the move-child walk,
+which makes a walked child's next change the parent's wake. `PropsAt` takes a lock. **Cost, `sample-cost`,
+2000 repeats, Release, two runs of z1800:** z1800 tick 20500 (166 props of 3364 tracks), a stepped call
+0.055/0.054 → 0.070/0.079 ms and a repeated tick 0.057/0.055 → 0.081/0.080 ms; koth_ashville tick 20900
+(242 of 2546), stepped 0.078 → 0.119 ms, repeated 0.065 → 0.086 ms. Tens of microseconds a frame, still
+proportional to what is blending rather than to what exists: the sentries are back on the list, which is
+where the engine keeps them.
+
+**Tests** (`DemoTimelineSampleOrderTests`: six red at 1eff3478 and 0713ba69; the lerp-list one guards the
+fix's own wake, which no wrong answer can show), each sabotaged with a precise inverse edit, the rest of
+the file and `PersistentSampleTests` green each time:
+
+| test | sabotage | red |
+|---|---|---|
+| `TwoCallersInterleavedOnOneTimeline` (tick 14, 10, 14) | animation history out of `Motion` | it alone |
+| `SteppedWhileAStationaryPropsPoseParameterBlends` | pose-parameter history out | it alone |
+| `SteppedWhileTheFirstPoseAnswersPastASettledHistory` | `target > born` out | it and the next |
+| `PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList` | the `born + delay + 1` wake out | it alone |
+| `TheViewEntityChangedBetweenCalls` | the trigger fires only when the view clears | it alone |
+| `AMoveChildShownBetweenItsParentsUpdates` | the child's horizon pushed a million ticks out | it alone |
+| `ManyThreadsSharingOneTimeline` (8 threads, control: a timeline each) | lock taken and released at once | it alone, 3 of 3 runs |
+
+**The harness.** `TimelineCache`'s remark says what is true now; `CorpusHeldWeaponWorldModelTests` is back
+on the cache, its own-timeline workaround removed; the memory entry
+(`docs/memory/a-cached-timeline-samples-for-everyone.md`) is rewritten from workaround to rule. Corpus
+tests that sample `PropsAt` on a shared timeline, all latently racy before: `NoDrawTrackTests`,
+`WearableTrackTests` (two on one demo), `CorpusEmptyModelWeaponTests`, and the `[Explicit]`
+`BrushEntityStateDiagnostic`, `MissingPropDiagnostic`, `DisguiseDrawProbe`, `ParentedPropDiagnostic`,
+`MedigunPlacementProbe`.
+
+**Still open** (the first two older than B438, the third its own cost):
+- **The fourth clause is evaluated at the sample tick, on both paths now.** The engine evaluates
+  `ShouldInterpolate` at the parent's own latch (`c_baseentity.cpp:2583-2591` → `:2832`), so the two
+  differ only when a child's visibility changes between two of its parent's updates.
+- **`OnNewModel`'s reset is stamped with the tick the model resolved in this viewing session**
+  (`TimelineMoments._lastTick`, B389) where the engine loads a model when the entity is created, so a
+  pose-parameter blend near that tick can depend on where playback began. A property of the data the
+  viewer writes, not of the sample.
+- **The lock serialises callers of one timeline.** Corpus tests sharing one alternate their ticks, so
+  each call there rebuilds cold — right, and slower than the viewer's stepped path.
+
+**Found on the way, older than B438 and not fixed here.** The full superset (`TF2DEMOSALVAGE_GCOR_ONLY=0`,
+all 49 lcor demos, now 1.8 GB against the 774 MB `docs/verification` timed at 30 minutes) no longer fits
+this 32 GB machine: `TimelineCache` keeps every demo's timeline for the life of the run, and 43 minutes
+into the corpus assembly its host held 39 GB private with the commit charge 1.4 GB from its limit, so it
+was stopped. Of the 178 tests it had finished, 13 failed, none through the sampler: eleven decode checks
+on lcor demos newer than their constants (four headers outside the protocol list, a Speex frame size, a
+voice codec, a trace that stops, the writer's round trips, the net tick clock);
+`RunningForward_DrivesMoveXPositive`, which builds its own timeline and reads only `PlayersAt`, failing
+alone; and `WearableTracks_Cosmetics_NameTheirWearer`, failing identically on 1eff3478's production — 70
+attached item tracks name no model on the wire (B379's shape) and the test's control still demands one.
+Rerun over gcor and the three lcor demos the sampling tests name: the corpus assembly 125 passed, 5
+failed, 14 skipped of 144, and all five fail identically on 1eff3478's production with the same demos —
+`WearableTracks_Cosmetics_NameTheirWearer` again, `Fog_AcrossTheCorpus_IsDecodedFromEveryDemo`,
+`EveryDemo_CompilesBackToItsOwnBytes`, `OneDecoderPerSpeaker_KeepsInterleavedStreamsInSync`,
+`VoiceInit_EraSpecimens2007To2013_DeclareSpeex`. Every timeline sharer passed: `NoDrawTrackTests`,
+`WearableTracks_OrdinaryProps_NameNoWearer`, `CorpusEmptyModelWeaponTests` and the three
+`CorpusHeldWeaponWorldModelTests`, now on the cache.
+
+---
+
 ### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — OPEN 2026-09-29
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant

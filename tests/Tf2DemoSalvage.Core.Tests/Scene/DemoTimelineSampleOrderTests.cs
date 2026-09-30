@@ -38,8 +38,8 @@ public sealed class DemoTimelineSampleOrderTests
     /// </summary>
     /// <remarks>
     /// **The origin settles while the cycle does not**, which is the whole point of the cast: the
-    /// sampler's own interpolation history is identical from entry to entry while the animation
-    /// history carries a new value each time.
+    /// origin's history is identical from entry to entry while the animation history carries a new
+    /// value each time.
     /// </remarks>
     private static List<ScenePropTrack> AnimatingInPlace()
     {
@@ -54,8 +54,8 @@ public sealed class DemoTimelineSampleOrderTests
     }
 
     /// <summary>
-    /// **The user's interleave: tick A, tick B, tick A — and the second A must answer as the first
-    /// did.** Two callers share one timeline; neither knows the other exists.
+    /// **Tick A, tick B, tick A — and the second A must answer as the first did.** Two callers share
+    /// one timeline; neither knows the other exists.
     /// </summary>
     /// <remarks>
     /// A caller asking tick 14 cold gets the cycle blended six-tenths of the way from 0.0 to 0.1 —
@@ -136,16 +136,6 @@ public sealed class DemoTimelineSampleOrderTests
     [Test]
     public void PropsAt_SteppedWhileTheFirstPoseAnswersPastASettledHistory_MatchesAFreshTimelineEverywhere()
     {
-        static List<ScenePropTrack> Corrected()
-        {
-            ScenePropTrack sticky = new(entityIndex: 1, "models/weapons/w_models/w_stickybomb.mdl");
-
-            sticky.Add(100, new ScenePose { X = 0f }, appliedAt: 100, animationAppliedAt: 95);
-            sticky.Add(102, new ScenePose { X = 64f }, appliedAt: 95, animationAppliedAt: 95);
-
-            return [sticky];
-        }
-
         DemoTimeline stepped = DemoTimeline.ForTracks(Corrected());
 
         List<SceneProp> props = [];
@@ -159,6 +149,50 @@ public sealed class DemoTimelineSampleOrderTests
 
         // The prediction, not only the agreement: past the first keyframe, the one live entry.
         props.Single().Pose.X.ShouldBe(64f, "the restatement is the only entry the history still holds");
+    }
+
+    /// <summary>
+    /// **Once the first pose stops answering, the entity leaves the lerp list** — a wake ends what the
+    /// rule above starts.
+    /// </summary>
+    /// <remarks>
+    /// The rule keeps a track blend-sampled every frame while the first pose answers, because no history
+    /// can say when that ends. Something must take it off the list again, or an entity born this way is
+    /// re-sampled every frame for the rest of its life — the cost `g_InterpolationList` bounds by dropping
+    /// an entity once nothing more can change (`c_baseentity.cpp:2925-2928`). After tick 103 nothing else
+    /// is due for this sticky, so only a wake one tick past `born + delay` can end it; a wrong answer
+    /// cannot show that it is missing, only the list can.
+    /// </remarks>
+    [Test]
+    public void PropsAt_PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList()
+    {
+        List<ScenePropTrack> cast = Corrected();
+
+        DemoTimeline stepped = DemoTimeline.ForTracks(cast);
+
+        List<SceneProp> props = [];
+
+        stepped.PropsAt(103d, props);
+
+        cast[0].Lerping.ShouldBeTrue("the first pose still answers, so it is re-sampled every frame");
+
+        stepped.PropsAt(110d, props);
+
+        cast[0].Lerping.ShouldBeFalse("past it, every history is settled and nothing is left to blend");
+    }
+
+    /// <summary>
+    /// An entity at 100 restated at 102 stamped 95 on both clocks, so every history settles at 103 while
+    /// the first stated pose answers until 108.
+    /// </summary>
+    private static List<ScenePropTrack> Corrected()
+    {
+        ScenePropTrack sticky = new(entityIndex: 1, "models/weapons/w_models/w_stickybomb.mdl");
+
+        sticky.Add(100, new ScenePose { X = 0f }, appliedAt: 100, animationAppliedAt: 95);
+        sticky.Add(102, new ScenePose { X = 64f }, appliedAt: 95, animationAppliedAt: 95);
+
+        return [sticky];
     }
 
     /// <summary>

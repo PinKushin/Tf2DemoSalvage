@@ -37,11 +37,13 @@ namespace Tf2DemoSalvage.Core.Tests;
 /// both: tests stay in their own classes, run in parallel exactly as before, and simply receive a
 /// timeline that is already built.
 ///
-/// **A timeline is NOT read-only once built, and this was written when it was.** <c>PropsAt</c> keeps a
-/// sample between calls (<c>_sampledTo</c>, B259's incremental rebuild), so two tests sampling one
-/// cached timeline at once read each other's state: 2026-09-30, three of four parallel cases on z1800
-/// found no prop at ticks where each, run alone, found it. A test that samples <c>PropsAt</c> builds its
-/// own timeline (<c>docs/memory/a-cached-timeline-samples-for-everyone.md</c>).
+/// **A timeline keeps a sample between calls, and it is safe to share anyway** (B438). <c>PropsAt</c>
+/// caches what it built for the last tick it was asked (B259's incremental rebuild), and until B438 that
+/// cache was neither locked nor exact: 2026-09-30, three of four parallel cases on z1800 found no prop
+/// at ticks where each, run alone, found it. It is now taken under a lock, and every path through it
+/// answers what a timeline built cold answers — <c>DemoTimelineSampleOrderTests</c> interleaves callers
+/// and runs them on threads to hold it to that. So a test here may ask any tick of a shared timeline,
+/// in any order.
 /// </remarks>
 internal static class TimelineCache
 {

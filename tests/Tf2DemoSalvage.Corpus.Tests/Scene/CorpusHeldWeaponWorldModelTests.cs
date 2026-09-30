@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,10 +33,9 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// agrees at every sapper moment, so those cannot tell the item from the wire; what they guard is the draw list — a
 /// weapon draws its item's world model, not "" and not nothing. Each moment is the first the census found in hand.
 ///
-/// **Each demo gets its own timeline, walked in tick order, rather than `TimelineCache`'s.** `PropsAt` advances a sample it
-/// keeps between calls (`_sampledTo`, B259), so two tests sampling one shared timeline at once read each other's state: run
-/// as four parallel cases on the cached z1800, three found no sapper at a tick where the census, and each case alone,
-/// found it.
+/// **`TimelineCache`'s timeline, shared with every other test on the demo.** This file first built its own and walked its
+/// ticks in order, because four parallel cases on the cached z1800 once found no sapper where each alone did — `PropsAt`'s
+/// kept sample was neither locked nor exact. B438 made it both, so the workaround is gone.
 /// </remarks>
 public sealed class CorpusHeldWeaponWorldModelTests
 {
@@ -94,7 +92,7 @@ public sealed class CorpusHeldWeaponWorldModelTests
     {
         string path = Corpus.Demo(demo);
         string root = GameInstall.Require();
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        DemoTimeline timeline = TimelineCache.For(path);
 
         MomentScene scene = new(new EntityModelSet(), new ViewmodelScene(), NullLogger.Instance)
         {
