@@ -321,6 +321,274 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>Class id of the <c>CTFGameRulesProxy</c> in <see cref="DemoOfGestures"/>.</summary>
+    private const int GestureRulesClassId = 1;
+
+    /// <summary>Class id of <c>CTEPlayerAnimEvent</c> in <see cref="DemoOfGestures"/>.</summary>
+    private const int AnimEventClassId = 2;
+
+    /// <summary>
+    /// The game rules entity's slot in <see cref="DemoOfGestures"/> — and an entity that exists, for a grappling
+    /// hook to name.
+    /// </summary>
+    public const int GestureRulesEntityIndex = 40;
+
+    /// <summary>`INVALID_NETWORKED_EHANDLE_VALUE`: eleven index bits and ten serial bits, all set.</summary>
+    private const int InvalidNetworkedHandle = (1 << 21) - 1;
+
+    /// <summary>One snapshot of the player <see cref="DemoOfGestures"/> describes (B112).</summary>
+    /// <param name="Tick">The snapshot's tick.</param>
+    /// <param name="Z">The player's height.</param>
+    /// <param name="Flags"><c>m_fFlags</c>: <c>FL_ONGROUND</c> 1, <c>FL_DUCKING</c> 2.</param>
+    /// <remarks>
+    /// **Every field is sent on every snapshot**, including the ones at their default, so a test that changes one
+    /// for a single tick changes it back the next without relying on the delta decoder to do it.
+    /// </remarks>
+    internal sealed record GestureSnapshot(int Tick, float Z, int Flags)
+    {
+        /// <summary><c>m_lifeState</c>: 0 alive, 2 dead.</summary>
+        public int LifeState { get; init; }
+
+        /// <summary><c>m_fEffects</c>; <c>EF_NODRAW</c> is 0x020.</summary>
+        public int Effects { get; init; }
+
+        /// <summary><c>m_nWaterLevel</c>: 2 is waist deep.</summary>
+        public int WaterLevel { get; init; }
+
+        /// <summary><c>m_nPlayerCond</c>; <c>TF_COND_AIMING</c> is bit 0.</summary>
+        public int PlayerCond { get; init; }
+
+        /// <summary><c>m_iszCustomModel</c>, empty for none.</summary>
+        public string CustomModel { get; init; } = string.Empty;
+
+        /// <summary><c>m_bUseClassAnimations</c>.</summary>
+        public bool UsesClassAnimations { get; init; }
+
+        /// <summary>The entity <c>m_hGrapplingHookTarget</c> names, or null for the invalid handle.</summary>
+        public int? GrapplingHookTarget { get; init; }
+
+        /// <summary>Leaves the PVS at this snapshot: a LEAVE update and nothing else, then an ENTER after it.</summary>
+        public bool Dormant { get; init; }
+
+        /// <summary>The events the player raises in this snapshot's packet, after its entities, in order.</summary>
+        public IReadOnlyList<PlayerAnimEvent> Events { get; init; } = [];
+    }
+
+    /// <summary>
+    /// A player whose height, flags and state change over several snapshots and who raises gesture events,
+    /// beside a game rules entity (B112).
+    /// </summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="team">The player's <c>m_iTeamNum</c>.</param>
+    /// <param name="playerClass">The player's <c>m_iClass</c>.</param>
+    /// <param name="rules"><c>m_iRoundState</c> and <c>m_iWinningTeam</c>, or null for a demo with no game rules.</param>
+    /// <param name="alwaysLoser">Whether the server sends <c>tf_always_loser 1</c> at signon.</param>
+    /// <param name="snapshots">The snapshots, in tick order.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="snapshots"/> is null.</exception>
+    /// <remarks>
+    /// **The corpus cannot give ground truth for this, and a synthetic demo can.** Whether a reload is the
+    /// air-walking one depends on a latch the demo never carries — it is the client's, rebuilt from the height
+    /// and the flags — so the only way to predict the answer rather than compare two readings is to author the
+    /// rise, the landing and the event at known ticks. The events travel as the wire carries them, as
+    /// <c>CTEPlayerAnimEvent</c> temp entities after the snapshot in the same packet.
+    /// </remarks>
+    public static byte[] DemoOfGestures(
+        float intervalPerTick,
+        int team,
+        int playerClass,
+        (int RoundState, int WinningTeam)? rules,
+        bool alwaysLoser,
+        params GestureSnapshot[] snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+
+        DemoSchema schema = SchemaWithGestures();
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<INetMessage> signon = [ServerInfo(intervalPerTick)];
+
+        if (alwaysLoser)
+        {
+            signon.Add(new SetConVarMessage([new KeyValuePair<string, string>("tf_always_loser", "1")]));
+        }
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [.. signon]),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        bool present = false;
+
+        for (int index = 0; index < snapshots.Length; index++)
+        {
+            GestureSnapshot snapshot = snapshots[index];
+            List<DecodedEntity> entities = [];
+
+            if (snapshot.Dormant)
+            {
+                entities.Add(new DecodedEntity(1, PlayerClassId, 1, EntityUpdateType.Leave, []));
+                present = false;
+            }
+            else
+            {
+                entities.Add(Entity(decoder, PlayerClassId, 1, GesturePlayerValues(snapshot, team, playerClass)) with
+                {
+                    SerialNumber = 1,
+                    UpdateType = present ? EntityUpdateType.Delta : EntityUpdateType.Enter,
+                });
+                present = true;
+            }
+
+            if (index == 0 && rules is { } round)
+            {
+                entities.Add(Entity(
+                    decoder,
+                    GestureRulesClassId,
+                    GestureRulesEntityIndex,
+                    new Dictionary<string, PropertyValue>
+                    {
+                        ["m_iRoundState"] = PropertyValue.FromInt(round.RoundState),
+                        ["m_iWinningTeam"] = PropertyValue.FromInt(round.WinningTeam),
+                    }) with { SerialNumber = 1 });
+            }
+
+            byte[] body = decoder.EncodeEntities(entities, [], isDelta: index > 0, 0, out int bits);
+
+            List<INetMessage> messages =
+            [
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? snapshots[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body),
+            ];
+
+            if (snapshot.Events.Count > 0)
+            {
+                byte[] effects = decoder.EncodeTempEntities(
+                    [.. snapshot.Events.Select(anEvent => AnimEvent(decoder, 1, anEvent))], reliable: false, lengthBits: 0);
+
+                messages.Add(new TempEntitiesMessage(Count: snapshot.Events.Count, BodyBits: effects.Length * 8, Body: effects));
+            }
+
+            commands.Add(SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, snapshot.Tick, [.. messages]));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
+    /// <summary>What <see cref="DemoOfGestures"/> sends for its player on one snapshot.</summary>
+    private static Dictionary<string, PropertyValue> GesturePlayerValues(GestureSnapshot snapshot, int team, int playerClass) =>
+        new()
+        {
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 0f),
+            ["m_vecOrigin[2]"] = PropertyValue.FromFloat(snapshot.Z),
+            ["m_fFlags"] = PropertyValue.FromInt(snapshot.Flags),
+            ["m_lifeState"] = PropertyValue.FromInt(snapshot.LifeState),
+            ["m_fEffects"] = PropertyValue.FromInt(snapshot.Effects),
+            ["m_nWaterLevel"] = PropertyValue.FromInt(snapshot.WaterLevel),
+
+            // Qualified, because the fixture's DT_TFPlayer declares an m_iTeamNum too and the timeline reads this one.
+            ["DT_BaseEntity.m_iTeamNum"] = PropertyValue.FromInt(team),
+            ["m_iClass"] = PropertyValue.FromInt(playerClass),
+            ["m_iszCustomModel"] = PropertyValue.FromString(snapshot.CustomModel),
+            ["m_bUseClassAnimations"] = PropertyValue.FromInt(snapshot.UsesClassAnimations ? 1 : 0),
+            ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
+
+            // Serial 1 above the eleven index bits, the serial every entity in this fixture enters with.
+            ["m_hGrapplingHookTarget"] = PropertyValue.FromInt(
+                snapshot.GrapplingHookTarget is { } target ? target | (1 << 11) : InvalidNetworkedHandle),
+        };
+
+    /// <summary>One <c>CTEPlayerAnimEvent</c>, carrying every field as a full update.</summary>
+    private static DecodedTempEntity AnimEvent(EntityDecoder decoder, int player, PlayerAnimEvent anEvent)
+    {
+        IReadOnlyList<FlatProperty> flat = decoder.FlattenedFor(AnimEventClassId);
+
+        List<DecodedProperty> properties =
+        [
+            new(IndexOf(flat, "m_iPlayerIndex"), flat[IndexOf(flat, "m_iPlayerIndex")], PropertyValue.FromInt(player)),
+            new(IndexOf(flat, "m_iEvent"), flat[IndexOf(flat, "m_iEvent")], PropertyValue.FromInt((int)anEvent)),
+            new(IndexOf(flat, "m_nData"), flat[IndexOf(flat, "m_nData")], PropertyValue.FromInt(0)),
+        ];
+
+        properties.Sort((left, right) => left.Index.CompareTo(right.Index));
+
+        return new DecodedTempEntity(ClassId: AnimEventClassId, DelaySeconds: 0f, Properties: properties);
+    }
+
+    /// <summary>
+    /// The player schema with the tables <see cref="DemoOfGestures"/> needs: the class and its custom model, the
+    /// conditions, the grappling hook, the round, and the temp entity a gesture travels in.
+    /// </summary>
+    /// <remarks>
+    /// **A variant rather than a change to <see cref="Schema()"/>**, for the reason
+    /// <see cref="SchemaWithConditions"/> gives: a property added to the shared schema shifts every flattened index
+    /// for every test that uses it. The round state is reached through
+    /// <c>teamplayroundbased_gamerules_data</c> as TF2's proxy reaches it, so the key the timeline reads is
+    /// <c>DT_TeamplayRoundBasedRules.m_iRoundState</c>.
+    /// </remarks>
+    private static DemoSchema SchemaWithGestures()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_TFPlayer"
+                    ? table with
+                    {
+                        Properties =
+                        [
+                            .. table.Properties,
+                            UnsignedInt("m_hGrapplingHookTarget", bits: 21),
+                            Table("playerclass", "DT_TFPlayerClassShared"),
+                            Table("playershared", "DT_TFPlayerShared"),
+                        ],
+                    }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerClassShared", NeedsDecoder: true,
+        [
+            UnsignedInt("m_iClass", bits: 4),
+            String("m_iszCustomModel"),
+            UnsignedInt("m_bUseClassAnimations", bits: 1),
+        ]));
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true, [UnsignedInt("m_nPlayerCond", bits: 32)]));
+        tables.Add(new SendTable("DT_TeamplayRoundBasedRules", NeedsDecoder: true,
+        [
+            Int("m_iRoundState", bits: 5),
+            Int("m_iWinningTeam", bits: 8),
+        ]));
+        tables.Add(new SendTable("DT_TFGameRulesProxy", NeedsDecoder: true,
+        [
+            Table("teamplayroundbased_gamerules_data", "DT_TeamplayRoundBasedRules"),
+        ]));
+        tables.Add(new SendTable("DT_TEPlayerAnimEvent", NeedsDecoder: true,
+        [
+            UnsignedInt("m_iPlayerIndex", bits: 7),
+            UnsignedInt("m_iEvent", bits: 6),
+            Int("m_nData", bits: 32),
+        ]));
+
+        return new DemoSchema(
+            tables,
+            [
+                .. baseline.ServerClasses,
+                new ServerClass(GestureRulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
+                new ServerClass(AnimEventClassId, "CTEPlayerAnimEvent", "DT_TEPlayerAnimEvent"),
+            ]);
+    }
+
     /// <summary>One of Valve's generated array sub-tables: properties named 000, 001, …</summary>
     private static SendTable ArrayTable(string name, int bits = 5) => new(
         name,

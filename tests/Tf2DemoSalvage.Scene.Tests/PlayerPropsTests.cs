@@ -286,6 +286,50 @@ public sealed class PlayerPropsTests
     }
 
     [Test]
+    public void Add_AnAirwalkReloadOnAClassThatDoesNot_TakesTheReloadWithoutIt()
+    {
+        // **The reload has the same two halves as the body** (B112). `bValidAirWalkClass` gates the whole latch
+        // (`tf_playeranimstate.cpp:1444-1446`), so a class whose script sets `DontDoAirwalk` never has
+        // `m_bInAirWalk` set and its reload is the base class's choice. The timeline cannot read the script, so
+        // it carries that choice beside the air-walking one and this layer picks.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add(
+            [Soldier() with { PlayerClass = MedicClass, Gestures = [AirwalkReload, Flinch] }],
+            drawn,
+            new Appearance(),
+            NoParts);
+
+        IReadOnlyList<SceneGesture> gestures = drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldNotBeNull();
+
+        gestures.Count.ShouldBe(2, "the flinch beside it is kept");
+        gestures[0].ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+        gestures[0].StartedSeconds.ShouldBe(AirwalkReload.StartedSeconds, "the same gesture, not a new one");
+        gestures[1].ShouldBe(Flinch);
+    }
+
+    [Test]
+    public void Add_AnAirwalkReloadOnAClassThatDoes_KeepsIt()
+    {
+        // The control for the pair. Without it, "always take the reload without the air-walk" passes the test above.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add([Soldier() with { Gestures = [AirwalkReload] }], drawn, new Appearance(), NoParts);
+
+        drawn.ShouldHaveSingleItem().Pose.Gestures.ShouldNotBeNull().ShouldHaveSingleItem()
+            .ActivityName.ShouldBe("ACT_MP_RELOAD_AIRWALK");
+    }
+
+    /// <summary>A reload begun mid-air-walk, carrying the base class's choice for a class that never air-walks.</summary>
+    private static SceneGesture AirwalkReload =>
+        new(GestureSlot.AttackAndReload, "ACT_MP_RELOAD_AIRWALK", null, AutoKill: true, 1.5d,
+            ActivityWithoutAirwalk: "ACT_MP_RELOAD_STAND");
+
+    /// <summary>A gesture in another slot, which the air-walk has nothing to say about.</summary>
+    private static SceneGesture Flinch =>
+        new(GestureSlot.Flinch, "ACT_MP_GESTURE_FLINCH_CHEST", null, AutoKill: true, 1.6d);
+
+    [Test]
     public void Add_APlayerHoldingAWeapon_CarriesItsSuffix()
     {
         // Resolved where the player is known and used a pass later where the model is, so it has to

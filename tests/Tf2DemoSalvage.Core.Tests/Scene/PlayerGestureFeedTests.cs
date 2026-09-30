@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Scene;
@@ -304,6 +305,223 @@ public sealed class PlayerGestureFeedTests
         feed.StopScene(4, "scenes/player/heavy/low/taunt01.vcd", 4d);
         Gestures(feed, 4).ShouldHaveSingleItem().StoppedSeconds.ShouldBe(4d);
     }
+
+    /// <remarks>
+    /// **In the air with no jump, the latch sets; on the ground it clears** (B112). A rocket jump raises no
+    /// `PLAYERANIMEVENT_JUMP`, and `m_bInAirWalk` does not need one: it is set by the rise alone
+    /// (`tf_playeranimstate.cpp:1446`, `:1472`) and held while the rise slows, until the ground returns
+    /// (`:1449-1451`). The jump clock is untouched throughout, which is the separation the engine keeps.
+    /// </remarks>
+    [Test]
+    public void AirWalk_ARocketJumpWithNoJumpEvent_LatchesInTheAirAndClearsOnTheGround()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.InAirWalk(4).ShouldBeFalse("nothing has happened yet");
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue();
+        feed.AirWalk(4, 120f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue("held as the rise slows");
+        feed.AirWalk(4, -500f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue("and on the way down");
+        feed.Jumping(4, 1d, onGround: false, waistDeep: false).ShouldBeNull("no jump event, so no jump");
+
+        feed.AirWalk(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeFalse();
+        feed.InAirWalk(4).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The latch is per player.** With one player in a fixture, a feed holding one latch for everybody would
+    /// pass every test above.
+    /// </remarks>
+    [Test]
+    public void AirWalk_OnePlayersRise_LeavesTheOthersAlone()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+
+        feed.InAirWalk(4).ShouldBeTrue();
+        feed.InAirWalk(9).ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **The reload is chosen from the latch the feed holds** (B112), through the same mapping every gesture
+    /// takes. `CTFPlayerAnimState::DoAnimationEvent` plays the air-walking form whenever `m_bInAirWalk` holds
+    /// (`tf_playeranimstate.cpp:1141`, `:1154`, `:1167`) and defers to the base's stand, crouch or swim choice
+    /// otherwise. The base's choice is carried beside it, because a class whose script sets `DontDoAirwalk`
+    /// never sets the latch at all and only the scene can read the script.
+    /// </remarks>
+    [TestCase(PlayerAnimEvent.Reload, "ACT_MP_RELOAD_AIRWALK", "ACT_MP_RELOAD_STAND")]
+    [TestCase(PlayerAnimEvent.ReloadLoop, "ACT_MP_RELOAD_AIRWALK_LOOP", "ACT_MP_RELOAD_STAND_LOOP")]
+    [TestCase(PlayerAnimEvent.ReloadEnd, "ACT_MP_RELOAD_AIRWALK_END", "ACT_MP_RELOAD_STAND_END")]
+    public void Record_AReloadWhileAirWalking_TakesTheAirwalkActivity(PlayerAnimEvent reload, string airwalk, string without)
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)reload), 13.6d, default);
+
+        SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
+
+        gesture.Slot.ShouldBe(GestureSlot.AttackAndReload);
+        gesture.ActivityName.ShouldBe(airwalk);
+        gesture.ActivityWithoutAirwalk.ShouldBe(without);
+    }
+
+    /// <remarks>
+    /// **The override asks the latch before the base asks the duck**, and the duck does not clear the latch
+    /// (`:1446`'s `!bInDuck` guards the whole block). So a soldier who crouches through a rocket jump and reloads
+    /// plays the air-walking reload — the engine's answer, however odd it looks.
+    /// </remarks>
+    [Test]
+    public void Record_AReloadCrouchedAfterTheLatchSet_IsStillTheAirwalkReload()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 0f, OnGround | Ducking, waistDeep: false, grappling: false, firingHeavy: false)
+            .ShouldBeTrue("a ducked landing does not reach the clear");
+
+        feed.Record(
+            PlayerGestureFeed.EventClassName,
+            Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload),
+            13.6d,
+            new GestureContext(InDuck: true));
+
+        SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
+
+        gesture.ActivityName.ShouldBe("ACT_MP_RELOAD_AIRWALK");
+        gesture.ActivityWithoutAirwalk.ShouldBe("ACT_MP_RELOAD_CROUCH");
+    }
+
+    /// <remarks>
+    /// **The control for the pair above: no latch, no air-walk, and nothing carried beside it.** A reload with
+    /// an alternative on it would let the scene swap an ordinary reload for another ordinary one.
+    /// </remarks>
+    [Test]
+    public void Record_AReloadWithNoLatch_StandsAndCarriesNoAlternative()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), 13.6d, default);
+
+        SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
+
+        gesture.ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+        gesture.ActivityWithoutAirwalk.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **Only the reloads read the latch**, so an attack begun mid-air-walk is the attack it always was and has
+    /// no second form to carry.
+    /// </remarks>
+    [Test]
+    public void Record_AnAttackWhileAirWalking_CarriesNoAlternative()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary), 13.6d, default);
+
+        SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
+
+        gesture.ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_PRIMARYFIRE");
+        gesture.ActivityWithoutAirwalk.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **"Force the air walk off."** (`tf_playeranimstate.cpp:1192-1193`) — a scout's air dash clears the latch
+    /// when it fires, so the next reload stands even though the scout is still in the air.
+    /// </remarks>
+    [Test]
+    public void Record_ADoubleJump_ForcesTheAirWalkOff()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.DoubleJump), 13.6d, default);
+
+        feed.InAirWalk(4).ShouldBeFalse();
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), 13.7d, default);
+        Gestures(feed, 4).Single(one => one.Slot == GestureSlot.AttackAndReload).ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+    }
+
+    /// <remarks>
+    /// **A double jump is a jump when none is in force** (`:1185-1191`): `if ( !m_bJumping )` it sets the jump
+    /// and its start time, so a scout who walks off a ledge and air-dashes plays the jump phases from the dash.
+    /// And it leaves a jump already in force alone, which is the other half of the same `if`.
+    /// </remarks>
+    [Test]
+    public void Record_ADoubleJump_StartsTheJumpOnlyWhenNoneIsInForce()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.DoubleJump), 10d, default);
+        feed.Jumping(4, 10.3d, onGround: false, waistDeep: false).ShouldNotBeNull().ShouldBe(0.3d, 1e-9);
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 9, anEvent: (int)PlayerAnimEvent.Jump), 20d, default);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 9, anEvent: (int)PlayerAnimEvent.DoubleJump), 20.4d, default);
+        feed.Jumping(9, 20.5d, onGround: false, waistDeep: false).ShouldNotBeNull().ShouldBe(
+            0.5d, 1e-9, "timed from the jump, not restarted by the dash");
+    }
+
+    /// <remarks>
+    /// **A respawn clears the animation state** (`multiplayer_animstate.cpp:310-313`), and
+    /// `ClearAnimationState` is the TF override's `m_bInAirWalk = false` (`tf_playeranimstate.cpp:114`) over the
+    /// base's `m_bJumping = false` and `ResetGestureSlots()` (`multiplayer_animstate.cpp:139`, `:145`).
+    /// </remarks>
+    [Test]
+    public void Record_ASpawn_ClearsTheLatchTheJumpAndEverySlot()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 13.5d, default);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.FlinchChest), 13.6d, default);
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Spawn), 13.7d, default);
+
+        feed.InAirWalk(4).ShouldBeFalse();
+        feed.Jumping(4, 13.8d, onGround: false, waistDeep: false).ShouldBeNull();
+        Gestures(feed, 4).ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Everything `ClearAnimationState` resets, for the player it names and nobody else** — the same call
+    /// the timeline makes on every tick a player is not being animated: dead, `EF_NODRAW` or dormant
+    /// (`multiplayer_animstate.cpp:1381-1395`).
+    /// </remarks>
+    [Test]
+    public void ClearAnimationState_OnePlayer_LeavesTheOthersAlone()
+    {
+        PlayerGestureFeed feed = new();
+
+        foreach (int player in new[] { 4, 9 })
+        {
+            feed.AirWalk(player, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+            feed.Record(PlayerGestureFeed.EventClassName, Event(player, anEvent: (int)PlayerAnimEvent.Jump), 13.5d, default);
+            feed.Record(PlayerGestureFeed.EventClassName, Event(player, anEvent: (int)PlayerAnimEvent.Reload), 13.6d, default);
+        }
+
+        feed.ClearAnimationState(4);
+
+        feed.InAirWalk(4).ShouldBeFalse();
+        feed.Jumping(4, 13.8d, onGround: false, waistDeep: false).ShouldBeNull();
+        Gestures(feed, 4).ShouldBeEmpty();
+
+        feed.InAirWalk(9).ShouldBeTrue();
+        feed.Jumping(9, 13.8d, onGround: false, waistDeep: false).ShouldNotBeNull();
+        Gestures(feed, 9).ShouldHaveSingleItem();
+    }
+
+    /// <summary>`m_fFlags` of a player in the air, standing.</summary>
+    private const int InAir = 0;
+
+    /// <summary>`FL_ONGROUND`.</summary>
+    private const int OnGround = PlayerActivityState.OnGround;
+
+    /// <summary>`FL_DUCKING`.</summary>
+    private const int Ducking = PlayerActivityState.Ducking;
 
     private static List<SceneGesture> Gestures(PlayerGestureFeed feed, int player)
     {
