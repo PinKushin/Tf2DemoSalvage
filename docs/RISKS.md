@@ -6868,7 +6868,9 @@ is not shown, and the probe now asks the visibility rule too.
 
 **Filed, not ported — the same weapon path, other inputs:** an item with NO `model_player` anywhere in its chain —
 the Gunslinger (142) and the B.A.S.E. Jumper (1101) are the two weapons — gets NULL from `GetWorldModel` and draws
-nothing, while the port still keeps the wire (unmeasured when filed); `model_world`, which `GetWorldModel` prefers (`:686-687`)
+nothing, while the port still keeps the wire (`item-props`, 59 demos: the Gunslinger on 53 tracks in 11 demos, shown —
+held — at 3,852 of 23,006 samples, and the Jumper on 11 in 2, shown at 8; the wire never names a model for either, so
+nothing in the corpus differs); `model_world`, which `GetWorldModel` prefers (`:686-687`)
 and four shipped weapons declare (the p2rec, two sappers, the slapping glove), is not read for the world weapon, which
 draws their `model_player`. No shipped item declares an empty `model_world` or an empty class entry in
 `model_player_per_class`, so neither opts in. A file-wide count of every scalar key an item's "" hides from a prefab:
