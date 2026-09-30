@@ -31,7 +31,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// sweep). Every file is a row: a `demo` with each stage's outcome, a `duplicate` (same SHA-256 as a demo
 /// already decoded — decoded once), `excluded` with its reason (not a Source demo, or a game directory other than
 /// `tf`), or `unreached` with its reason (a compressed archive, an unreadable directory, a link not followed).
-/// A file with any extension is a candidate if it starts with the `HL2DEMO` stamp.
+/// A file of any extension but Source's own content formats is opened, and is a candidate if it starts with the
+/// `HL2DEMO` stamp.
 ///
 /// **One demo at a time, and its memory is released before the next**: its bytes, commands, text and timeline
 /// never outlive its row, and a full compacting collection runs between demos. Anything whose predicted peak
@@ -50,6 +51,23 @@ public sealed class DecodeCensusProbe : IProbe
 
     /// <summary>Extensions of archives a demo may sit inside, which the census reports rather than opens.</summary>
     private static readonly string[] ArchiveExtensions = [".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".tar", ".tgz"];
+
+    /// <summary>Source's own content formats, which are never a demo and so are not opened to look for the stamp.</summary>
+    /// <remarks>
+    /// **Measured, not guessed**: every extension on a file of 1,072 bytes or more under the pool's roots, 2026-09-30 —
+    /// about 130,000 files, most of them models, sounds and textures in the three game installs. Opening every one to
+    /// read eight bytes took over half an hour and was still going, because each open is scanned; a file with any
+    /// extension NOT listed here — `.dat`, `.tmp`, `.bin`, none — is still opened and checked.
+    /// </remarks>
+    private static readonly HashSet<string> ContentExtensions = new(
+        [
+            ".vtx", ".wav", ".vtf", ".mdl", ".vvd", ".phy", ".jpg", ".txt", ".vcd", ".res", ".vmt", ".dll", ".vcs",
+            ".bsp", ".vpk", ".tga", ".mp3", ".vfe", ".ani", ".pcf", ".lst", ".ctx", ".ttf", ".cfg", ".bik", ".exe",
+            ".manifest", ".webm", ".ico", ".bcs", ".scr", ".vdf", ".mov", ".vbsp", ".asi", ".qci", ".gcf", ".flt",
+            ".cur", ".mmt", ".dmx", ".xsc", ".icns", ".dsp", ".bmp", ".rad", ".log", ".image", ".fgd", ".bat", ".so",
+            ".lmp", ".dylib", ".com", ".wc", ".vpd", ".snd", ".nav", ".msu",
+        ],
+        StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc/>
     public string Name => "decode-census";
@@ -98,7 +116,7 @@ public sealed class DecodeCensusProbe : IProbe
         }
 
         List<(string Path, string Root, string Reason)> unreached = [];
-        List<Candidate> candidates = Enumerate(options.Roots, unreached);
+        List<Candidate> candidates = Enumerate(options.Roots, unreached, output);
 
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
@@ -272,12 +290,15 @@ public sealed class DecodeCensusProbe : IProbe
     /// memory — come last. Directories are walked by hand rather than with `EnumerateFiles`, whose
     /// `IgnoreInaccessible` would drop an unreadable folder without a word.
     /// </remarks>
-    private static List<Candidate> Enumerate(IReadOnlyList<string> roots, List<(string Path, string Root, string Reason)> unreached)
+    private static List<Candidate> Enumerate(
+        IReadOnlyList<string> roots, List<(string Path, string Root, string Reason)> unreached, TextWriter output)
     {
         List<Candidate> found = [];
 
         foreach (string root in roots)
         {
+            int before = found.Count;
+
             if (File.Exists(root))
             {
                 Consider(new FileInfo(root), root, found, unreached);
@@ -297,6 +318,8 @@ public sealed class DecodeCensusProbe : IProbe
             {
                 Walk(pending.Pop(), root, pending, found, unreached);
             }
+
+            output.WriteLine(Invariant($"walked {root}: {found.Count - before} candidates"));
         }
 
         return [.. found.OrderBy(candidate => candidate.Length).ThenBy(candidate => candidate.Path, StringComparer.Ordinal)];
@@ -344,7 +367,7 @@ public sealed class DecodeCensusProbe : IProbe
             return;
         }
 
-        if (!demo && file.Length >= DemoHeader.SizeBytes)
+        if (!demo && file.Length >= DemoHeader.SizeBytes && !ContentExtensions.Contains(file.Extension))
         {
             try
             {
