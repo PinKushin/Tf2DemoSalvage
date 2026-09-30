@@ -206,10 +206,11 @@ public sealed class WeaponPropModelsTests
     /// The client rebuilds a TF weapon's world index from its item and writes it over the networked one —
     /// `m_iCachedModelIndex = modelinfo->GetModelIndex( GetWorldModel() )`, then `m_iWorldModelIndex = m_iCachedModelIndex`
     /// (tf_weaponbase.cpp:3597-3607) — and `GetWorldModel` hands back the item's `GetPlayerDisplayModel` as it is, ""
-    /// included (:681-701). An empty name indexes no model: zero fails `C_BaseCombatWeapon::ShouldDraw`
-    /// (c_basecombatweapon.cpp:401) and anything else sets none (c_baseentity.cpp:1775-1779). Measured with the
+    /// included (:681-701). An empty name indexes no model: 0 fails `C_BaseCombatWeapon::ShouldDraw`
+    /// (c_basecombatweapon.cpp:401) and -1 is the invalid index (c_baseentity.cpp:1775-1779). Measured with the
     /// `item-props` probe: a Basic Spellbook on an engineer in `20150119_2240_cp_process_final_(ovo)_blu` carries
-    /// `c_engineer_arms.mdl` — `m_nModelIndex`, his hands, with no world index sent — and was drawn as a second pair of arms.
+    /// `c_engineer_arms.mdl` — `m_nModelIndex`, his hands, with no world index sent — and resolved to it. That one is
+    /// holstered throughout, so `WeaponVisibility` hid it either way; held, it would have drawn a second pair of arms.
     /// </remarks>
     [Test]
     public void Resolve_AWeaponWhoseItemNamesAnEmptyModel_DrawsNothing()

@@ -34,16 +34,18 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// merged KeyValues string — the nearest declaration wins whatever it holds (econ_item_schema.cpp:2909, :2962, :2967), an
 /// empty token parses as a string (KeyValues.cpp:2537-2540), and `BInitFromKV` reads it with a NULL default (:3158) — and
 /// `GetPlayerDisplayModel` returns it as it is (econ_item_view.cpp:969). So the four spellbooks and the two fists, whose
-/// nearest value is "", index no model, and a weapon indexing none is not drawn: zero fails `C_BaseCombatWeapon::ShouldDraw`
-/// (c_basecombatweapon.cpp:401), anything else sets no model (c_baseentity.cpp:1775-1779). The wire does not enter into it.
+/// nearest value is "", index no model, and a weapon indexing none is not drawn: 0 fails `C_BaseCombatWeapon::ShouldDraw`
+/// (c_basecombatweapon.cpp:401) and -1 is the invalid index `SetModelIndex` looks up (c_baseentity.cpp:1775-1779). Which
+/// of the two the closed engine's `GetModelIndex` gives an empty name is not read here. The wire does not enter into it.
 /// </remarks>
 public sealed class WeaponWorldModelConformanceTests
 {
     /// <remarks>
     /// **The shipped shape, read off `items_game.txt`**: `halloween2013_spellbook` declares `"model_player" ""` and no
     /// parent, and the Basic Spellbook and the stock spellbook name it and nothing else. The wire's model is what the
-    /// `item-props` census measured for the one spellbook drawn in the corpus — `c_engineer_arms.mdl`, the carrier's hands
-    /// out of `m_nModelIndex` with no world index sent — so the rule is asked against the model it has to refuse.
+    /// `item-props` census measured for the one spellbook in the corpus whose wire names a model — `c_engineer_arms.mdl`,
+    /// the carrier's hands out of `m_nModelIndex` with no world index sent — so the rule is asked against the model it has
+    /// to refuse, on a weapon in hand.
     /// </remarks>
     [Test]
     public void Resolve_ASpellbookWhoseItemsModelPlayerIsEmpty_DrawsNoWorldModel()
