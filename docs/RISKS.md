@@ -7943,7 +7943,8 @@ accessor beside it. Now each component is whichever table wrote it last.
 | 4872 (control), after | −5.6 (command −5.7) | −11.9 | −6.3 | 1.000, 0.110 |
 
 - **The seven good samples were good by coincidence** — he happened to run within 23° of his spawn
-  facing, and their ±0.4 `move_y` was that gap. After the fix all nine are 1.000, `|move_y|` ≤ 0.232.
+  facing, and their ±0.4 `move_y` was that gap. After the fix all nine are 1.000; the largest `move_y`
+  is −0.411 at 4375, where he is airborne and the engine's own local-player route gives −0.412.
 - **No commit broke the test; it never passed.** Built at its own commit a29a63c5, it fails on the same
   two ticks with (−0.707, −0.707) — the values B101 put down to rocket jumps. The fixed order dates from
   51f6ae65; it became a freeze when 199275ed stopped deltas wiping entity state (2026-08-13), four days
