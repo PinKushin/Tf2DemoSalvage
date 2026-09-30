@@ -153,4 +153,4 @@
 - [A handle resolves through its serial](a-handle-resolves-through-its-serial.md) — `EntityStateTable.Resolve`, never slot alone.
 - [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — an item's own `""` hides its prefab's; opt in per key (B105).
 - [A weapon's world model is its item's](a-weapons-world-model-is-its-items.md) — `model_world` first, then `model_player`; `""` draws nothing; wearables keep the wire.
-- [A cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) — `PropsAt` keeps state; parallel tests on `TimelineCache` race.
+- [A cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) — `PropsAt`'s kept sample must answer as a cold one; locked, shareable (B438).
