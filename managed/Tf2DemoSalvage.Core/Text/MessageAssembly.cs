@@ -48,7 +48,7 @@ public static class MessageAssembly
         ArgumentNullException.ThrowIfNull(message);
 
         return message is NetEmptyMessage or NetTickMessage or PrintMessage or StringCmdMessage or
-            SetConVarMessage or SignOnStateMessage or SetViewMessage or FixAngleMessage or
+            SetConVarMessage or SignOnStateMessage or SetViewMessage or SetPauseMessage or FixAngleMessage or
             FileMessage or GetCvarValueMessage or PrefetchMessage or ServerInfoMessage or
             ClassInfoMessage or VoiceInitMessage or BspDecalMessage or EntityMessage or
             VoiceDataMessage or UserMessage or ChatMessage or SoundsMessage or
@@ -110,6 +110,8 @@ public static class MessageAssembly
                 [Line("net_signonstate", signon.State, signon.SpawnCount)],
 
             SetViewMessage view => [Line("svc_setview", view.EntityIndex)],
+
+            SetPauseMessage pause => [Line("svc_setpause", pause.Paused ? 1 : 0)],
 
             PrefetchMessage prefetch => [Line("svc_prefetch", prefetch.SoundIndex)],
 
@@ -340,6 +342,8 @@ public static class MessageAssembly
         "net_signonstate" => new SignOnStateMessage(Integer(tokens, 1), Integer(tokens, 2)),
 
         "svc_setview" => new SetViewMessage(Integer(tokens, 1)),
+
+        "svc_setpause" => new SetPauseMessage(Integer(tokens, 1) != 0),
 
         "svc_prefetch" => new PrefetchMessage(Integer(tokens, 1)),
 

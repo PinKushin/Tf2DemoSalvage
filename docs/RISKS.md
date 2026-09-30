@@ -7935,6 +7935,32 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B447 — `svc_SetPause` had no text form, the last kind the local pool kept as bits — FIXED 2026-09-30
+
+**`asm-raw` over the whole local pool: 14 `SetPause` lines in nine demos** (z1800, both koth_cascade and
+product-era demostf recordings, esea, leeko and others), the last message kind still written as raw bits
+outside the two schema-less 2007 SourceTV demos (B24). The reader consumed the pause bit and kept no message,
+so the text writer had nothing to render.
+
+- **Engine**: `SVC_SetPause::ReadFromBuffer` (engine.dll `0x1801df5c0`) is one `ReadOneBit` into `m_bPaused`;
+  `WriteToBuffer` (`0x1801e4de0`) writes the type and that bit. Now `SetPauseMessage(bool Paused)`, with a
+  writer case, an assembly line (`svc_setpause 1`) and a trace line (`svc_setpause paused` / `resumed`).
+- **Tests**: a packet laid by hand pins the width (the `svc_SetView` after it is what a second bit would
+  misalign); writer and text round trips in both states; the every-kind demo carries one; the trace names the
+  direction (red first — the line did not exist). **Sabotaged**: a 2-bit read reddens 8 tests, among them the
+  pre-existing `SetPause_IsASingleBit`; an inverted text parse reddens the text round trip and the every-kind
+  assembly, where the writer's own check fell back to raw.
+- **Knock-on, and why it is right**: the every-kind demo's packet stopped ending on a byte boundary once seven
+  more bits joined it, so a `padding` line appeared and `Assemble_EveryWritableKind_LeavesOnlyKnownKindsAsBits`
+  failed. Padding is not a kind — the bits after a packet's last message — and the test now leaves it out, as
+  the corpus report and `asm-raw` already did; its set was relying on an alignment accident.
+- **On the corpus**: z1800 and koth_cascade carry nothing but padding, and z1800 decompiles and compiles back
+  byte-identical, 8,964,241 bytes. **With B446, the whole local pool's assembly text is structured except
+  padding and the two 2007 SourceTV demos whose schema was truncated on the wire.**
+  *Evidence class: disassembly; measured (probes, CLI round trip).*
+
+---
+
 ### B446 — an array's element shapes did not survive the assembly text, so PASS Time snapshots stayed bits — FIXED 2026-09-30
 
 **Found by the `asm-raw` probe**, which names per demo what the assembly writer still carries as bits. Over

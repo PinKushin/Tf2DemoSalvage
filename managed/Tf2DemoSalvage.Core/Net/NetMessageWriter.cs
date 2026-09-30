@@ -84,7 +84,7 @@ public static class NetMessageWriter
             NetEmptyMessage or NetTickMessage or PrintMessage or StringCmdMessage or
             SetConVarMessage or ServerInfoMessage or PacketEntitiesMessage or PrefetchMessage or
             SoundsMessage or TempEntitiesMessage or FixAngleMessage or FileMessage or
-            GetCvarValueMessage or SetViewMessage or SignOnStateMessage or
+            GetCvarValueMessage or SetViewMessage or SetPauseMessage or SignOnStateMessage or
             GameEventListMessage or VoiceInitMessage or VoiceDataMessage or EntityMessage or
             UserMessage or ChatMessage or ClassInfoMessage or BspDecalMessage => true,
 
@@ -220,6 +220,11 @@ public static class NetMessageWriter
 
             case SetViewMessage view:
                 writer.Write((uint)view.EntityIndex, NetMessageReader.SetViewBits);
+                break;
+
+            case SetPauseMessage pause:
+                // SVC_SetPause::WriteToBuffer (engine.dll 0x1801e4de0): m_bPaused, one bit.
+                writer.WriteBit(pause.Paused);
                 break;
 
             case SignOnStateMessage signon:

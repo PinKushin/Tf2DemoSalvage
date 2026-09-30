@@ -758,6 +758,9 @@ public static class DemoTraceWriter
 
         // Stryker restore all
 
+        // A pause is a moment in the match, so the trace says which way it went rather than just the name.
+        SetPauseMessage pause => pause.Paused ? "svc_setpause paused" : "svc_setpause resumed",
+
         // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
         // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
         // then drops every mutation in this method — B410.
