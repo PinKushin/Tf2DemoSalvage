@@ -23,7 +23,9 @@ public sealed class NetDecodeState
     /// **Taken from the demo header rather than from <see cref="ServerInfo"/>, and it has to
     /// be.** It sizes the message type field, and <c>svc_ServerInfo</c> is itself a message —
     /// reading it already requires knowing the width. The header is the only source available
-    /// before the first message is read.
+    /// before the first message is read. At protocol 15, which two builds wrote at two widths, it
+    /// is also the check: the width is the one at which the first packet's ServerInfo restates
+    /// this number (<see cref="MessageTypeBits"/>, B440).
     ///
     /// Defaulting to <see cref="CurrentProtocol"/> rather than to zero is deliberate: an
     /// unqualified <see cref="NetDecodeState"/> should behave as a modern demo, which is what
@@ -34,28 +36,50 @@ public sealed class NetDecodeState
     /// <summary>The protocol current builds record at.</summary>
     private const ushort CurrentProtocol = 24;
 
-    /// <summary>Last protocol whose message type field was five bits wide.</summary>
+    /// <summary>
+    /// Last protocol any build wrote five-bit message type fields at — and the one protocol that
+    /// was written at both widths.
+    /// </summary>
     /// <remarks>
-    /// **Exact, and measured on both sides.** Protocol 15 is five bits, confirmed against a demo
-    /// recorded on TF2 build 3862 (June 2009). Protocol 16 is six, confirmed against a demo
-    /// recorded on build 4604 (June 2011): it decodes end to end, 11,131 commands with no stops,
-    /// which a five-bit read cannot produce.
+    /// **Measured on both sides, and the protocol turned out not to be the boundary.** TF2 build
+    /// 3862 (June 2009) records protocol 15 at five bits; build 4604 (June 2011) records 16 at six.
+    /// That was read as "the flip is at 15→16", on the reasoning that a protocol number only moves
+    /// when the wire format does. It does not: two SourceTV demos from later protocol-15 builds (one
+    /// named for 9 November 2010) write six, and read at five they are noise from the first
+    /// message — 32,497 of 32,511 packets stopped, a server protocol of 30 (B440).
     ///
-    /// This was a guess until that demo arrived — the flip was known only to be somewhere in
-    /// 16–23, and 15 was chosen because 16 is where Replay shipped and a protocol number only
-    /// moves when the wire format does. The reasoning was right; it is now evidence.
-    ///
-    /// The failure mode is loud rather than silent, which is what made guessing tolerable in the
-    /// meantime. A wrong width desynchronises the first message of the signon: the 2009 demo
-    /// produced 11,002 unreadable packets and a server protocol of 25,482 before this was fixed,
-    /// and zero afterwards. There is no reading of a wrong width that quietly produces plausible
-    /// output — see <c>RISKS.md</c> B17.
+    /// **So below 15 the protocol decides the width, above it too, and at 15 the demo does** — see
+    /// <see cref="MessageTypeBits"/>. The failure is loud either way: a wrong width desynchronises
+    /// the first message of the signon, and the 2009 POV read at six produced 11,002 unreadable
+    /// packets and a server protocol of 25,482 (B17).
     /// </remarks>
     private const ushort FiveBitTypeProtocol = 15;
 
-    /// <summary>Width of a message's type field at this demo's protocol.</summary>
-    public int MessageTypeBits =>
-        NetworkProtocol > FiveBitTypeProtocol ? NetMessage.TypeBits : NetMessage.OldTypeBits;
+    /// <summary>The width a packet decided, or null while nothing has.</summary>
+    private int? _messageTypeBits;
+
+    /// <summary>Width of a message's type field in this demo.</summary>
+    /// <remarks>
+    /// **The protocol decides it everywhere but 15.** Build 3862 wrote five bits at 15 and the
+    /// builds after it wrote six, still announcing 15, and nothing Valve versioned tells them apart
+    /// (B440). So a state at 15 leaves the width to the first packet it reads —
+    /// <see cref="NetMessageReader.Read(System.ReadOnlySpan{byte}, NetDecodeState)"/> sets it there,
+    /// and until then this answers five, build 3862's width.
+    ///
+    /// **Settable because a writer has no packet to read it from.** A demo compiled from text states
+    /// its width, and a test writing what a reader learned copies it; the value set is the value
+    /// used, at any protocol.
+    /// </remarks>
+    public int MessageTypeBits
+    {
+        get => _messageTypeBits ??
+            (NetworkProtocol > FiveBitTypeProtocol ? NetMessage.TypeBits : NetMessage.OldTypeBits);
+        set => _messageTypeBits = value;
+    }
+
+    /// <summary>Whether the next packet read has to decide <see cref="MessageTypeBits"/>.</summary>
+    internal bool MessageTypeBitsUndecided =>
+        _messageTypeBits is null && NetworkProtocol == FiveBitTypeProtocol;
 
     /// <summary>
     /// The server's own description of itself, once seen. Its <c>MaxClasses</c> determines the

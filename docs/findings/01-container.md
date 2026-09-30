@@ -131,6 +131,13 @@ Nobody is pressing keys on a SourceTV recording, so it carries no input stream a
 structural difference between the modes and it is why a POV demo of the same session is
 substantially larger.
 
+**The mix differs; the layout does not.** Two protocol-15 SourceTV demos that were noise from their
+first bit were filed as "SourceTV at that era writes its packets differently" (B440). Their
+`dem_signon` carries the same 76-byte `democmdinfo_t` and two sequence numbers as a POV's
+(`public/demofile/demoformat.h:78-157` declares the one struct), and the payload the reader hands
+over opens exactly on `svc_ServerInfo`. What differed was the BUILD — see
+[06](06-protocol-eras.md#protocol-15-was-two-builds-and-the-change-was-never-at-16-b440).
+
 ## Size is dominated by the signon
 
 A one-frame cut of a 460 KB demo is still **160 KB**. The signon — schema and string tables — is a

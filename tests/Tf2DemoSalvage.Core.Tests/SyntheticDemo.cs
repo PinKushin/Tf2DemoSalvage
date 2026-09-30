@@ -261,6 +261,42 @@ internal static class SyntheticDemo
             messages);
     }
 
+    /// <summary>
+    /// One packet as a protocol-15 build from after June 2009 wrote it: every type field six bits
+    /// wide (B440).
+    /// </summary>
+    /// <param name="after">
+    /// The <c>svc_ServerInfo</c> an earlier packet carried, so this one is written the way a reader
+    /// reads it once that has arrived — <see cref="PacketAfter"/>'s rule — or null for the packet
+    /// that carries it.
+    /// </param>
+    /// <param name="tick">The tick the packet is stamped with.</param>
+    /// <param name="messages">What the packet should decode to.</param>
+    /// <returns>The command.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="messages"/> is null.</exception>
+    /// <exception cref="InvalidOperationException">A message has no encoder.</exception>
+    /// <remarks>
+    /// **Protocol 15 was written at two widths.** <see cref="Packet(ushort, int, INetMessage[])"/>
+    /// and <see cref="PacketAfter"/> write the one its first build, 3862, used: five bits. TF2's
+    /// servers went on announcing protocol 15 after the engine widened the field to six, and the two
+    /// SourceTV recordings B440 is about were made then.
+    ///
+    /// **Written against a state at protocol 16, which is not a shortcut.** A writer's own protocol
+    /// sizes exactly one field — the type — and every width inside a body comes from
+    /// <c>svc_ServerInfo</c>, the way the reader takes it (<c>NetMessageWriter.TryWrite</c>). So a
+    /// state at 16 carrying a protocol-15 ServerInfo writes byte for byte what those builds wrote,
+    /// and does it without asking the code under test how wide the field is.
+    /// </remarks>
+    public static DemoCommand SixBitPacket(
+        ServerInfoMessage? after, int tick, params INetMessage[] messages) =>
+        Encode(
+            new NetDecodeState { NetworkProtocol = SixBitTypeProtocol, ServerInfo = after },
+            tick,
+            messages);
+
+    /// <summary>The first protocol at which every build wrote six-bit type fields.</summary>
+    private const ushort SixBitTypeProtocol = 16;
+
     /// <summary>One packet command, its messages written against the state given.</summary>
     private static DemoCommand Encode(NetDecodeState state, int tick, INetMessage[] messages)
     {

@@ -213,7 +213,9 @@ Taken from `tf-demo-parser`'s `MessageType` enum. Not available from Valve: `pro
 `netmessages.h` are absent from source-sdk-2013, so prior art is the only route (RISKS B3).
 
 **The type field is 6 bits**, matching Source's `NETMSG_TYPE_BITS`. Each `dem_packet` payload
-is a bit stream of `[6-bit type][message body]` repeated.
+is a bit stream of `[6-bit type][message body]` repeated. **Five bits in the older builds**: every
+protocol up to 14, and TF2 build 3862 at protocol 15 — whose later builds write six at the same
+protocol, so at 15 the demo's first packet decides (B440; the eras are `docs/TIMELINE.md`).
 
 | Id | Message | Id | Message |
 |---|---|---|---|
@@ -857,7 +859,10 @@ the SDK defines `SPROP_NUMFLAGBITS_NETWORKED` (16) as "the ones which are networ
 prominently named constant, which is the trap.
 
 `SendPropType` enum order gives the on-wire type ids: `DPT_Int` 0, `DPT_Float` 1,
-`DPT_Vector` 2, `DPT_VectorXY` 3, `DPT_String` 4, `DPT_Array` 5, `DPT_DataTable` 6.
+`DPT_Vector` 2, `DPT_VectorXY` 3, `DPT_String` 4, `DPT_Array` 5, `DPT_DataTable` 6. **The older
+numbering has no `DPT_VectorXY`** — String 3, Array 4, DataTable 5 — and is what protocols up to 14
+and build 3862 at 15 wrote; protocol 15's later builds wrote the current one, so at 15 the schema is
+read whichever way reads it whole (B440).
 
 Note a discrepancy worth not papering over: VDC says 1024 networked members per entity,
 the SDK says `MAX_DATATABLE_PROPS` 4096. These are probably different limits (per entity

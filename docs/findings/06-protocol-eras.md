@@ -168,8 +168,8 @@ From `proto_version.h` where it says so, from measurement where it does not:
 | Change | Boundary | Source |
 |---|---|---|
 | String table compression flag | above 14 | `proto_version.h` |
-| Message type field 5 bits → 6 bits | between 15 and 16 | **measured** |
-| `SendPropType` renumbering | above 15 | measured + differential |
+| Message type field 5 bits → 6 bits | **inside 15**, after build 3862 | **measured** — see below (B440) |
+| `SendPropType` renumbering | **inside 15**, after build 3862 | measured + hl2sdk history (B440) |
 | `svc_ServerInfo` replay flag | above 15 | measured at 16, the first value that carries it |
 | MD5 replaces 4-byte map CRC | above 17 | `proto_version.h` |
 | Sound index width | above 22 | `proto_version.h` |
@@ -196,14 +196,93 @@ Protocol 16 also holds a combination nothing else does: new `SendPropType` numbe
 message type *together with* a 13-bit prefetch index and fixed temp-entity lengths. That is exactly
 the interpolation the 15-to-24 jump had forced the parser to guess at.
 
+**And the adjacent value was the wrong place to look.** Both of those changes turned out to sit
+inside protocol 15, not at 16 — the section below. A boundary is tested at the value where it
+changes only if the NUMBER changes where the wire does, and here it did not.
+
+## Protocol 15 was two builds, and the change was never at 16 (B440)
+
+Found 2026-09-30. Evidence classes inline.
+
+**What was believed.** The message type field widened from five bits to six, and `DPT_VectorXY`
+entered the property numbering, between protocols 15 and 16 — measured on the June 2009 POV at 15
+(five bits, the Orange Box numbering) and the June 2011 pair at 16 (six, the new one). `RISKS.md`
+wrote both as "SETTLED at 15→16", and `TIMELINE.md` carried a deduction on top: a protocol number only
+moves when the wire format does, so neither change could have happened inside protocol 15.
+
+**What broke it.** The first full superset run (B439) reached two SourceTV demos at protocol 15 —
+CEVO's match server, named by `tv_autorecord` for 9 November 2010, and an ESEA LAN match on
+`cp_snakewater_b9` — and both were noise from their first bit: a ServerInfo announcing protocol 30,
+32,497 of 32,511 packets stopped, a schema claiming 26,207 classes.
+
+**Wrong turn one: SourceTV.** A protocol-15 POV decoded and two protocol-15 SourceTV demos did not, so
+the filed hypothesis was that SourceTV at that era wrote something differently — an extra prologue, a
+different header on an HLTV connection. It fit every symptom, and the evidence against it had simply
+not been asked for: the 2007 and 2008 SourceTV specimens read at five bits with the old numbering, and
+`demoformat.h` declares one `demoheader_t` and one `democmdinfo_t` for every recording
+(`public/demofile/demoformat.h:48-61, 78-157`). *Read from published source, and measured.*
+
+**Wrong turn two: a leading field.** The payload was quoted as `00 00 c8 03 c0 02 …`, and two zero
+bytes at the head of a SourceTV payload are exactly the extra field that hypothesis wanted. They are the
+top half of the length field before it, `ab 9a 00 00`. The payload starts at `c8`.
+
+**What settled it: one reading, and one subtraction.** `0xc8`'s low six bits are 8, `svc_ServerInfo`,
+and read from bit 6 the protocol field is **15**. Read from bit 5, as a five-bit type leaves it, it is
+**30** — the same value one bit to the left, the type's sixth bit taken as the protocol's lowest. That
+is the number the trace had printed. At six bits every field lands: SourceTV, dedicated, 249 classes,
+interval 0.015, platform `l`, and the strings begin on bit 192, a byte boundary. Then every packet of
+both demos decodes to its end, 32,511 and 106,425 of them. *Measured.*
+
+The schema, read with VectorXY numbered in, parses to 360 tables and 249 classes (esea 367 and 254) —
+ServerInfo's number, reached by a separate route — and ends seven bits short of its payload. It sends
+`m_vecOrigin` in both player-exclusive tables as `DPT_VectorXY`, as the 2011 client does; build 3862
+sends a `Vector`. *Measured.*
+
+**26,207 was never about these demos.** Read with the old numbering, every VectorXY-numbered schema in
+the corpus stops at one table and a class count of 26,207 — the protocol-16, 21, 22 and 24 demos alike —
+because every TF2 schema opens with the same table and the misreading goes wrong at the same bit of it.
+Build 3862's reads to 60,833 under the new numbering. The number named a numbering, not a pair of
+recordings. *Measured.*
+
+**Wrong turn three, the one upstream of all of it: the protocol as the dialect.** One specimen each side
+of a number can only say a change lies somewhere between them. The branch B18 diffed had the date in
+its own history — hl2sdk's `tf2` branch took `DPT_VectorXY` in `c789d33e` on 14 August 2009, two months
+after build 3862 — and `proto_version.h` has no constant between `PROTOCOL_VERSION_14` and
+`PROTOCOL_VERSION_REPLAY` (`common/proto_version.h:40-47`). The type field grew when
+`svc_CmdKeyValues` took id 32 (`public/inetmsghandler.h:148-149`; the Orange Box list ends at
+`svc_GetCvarValue`, 31). Valve changed the wire twice and left the number where it was. *Read from
+published source.*
+
+**Protocol 15, as it now reads:**
+
+| | build 3862, June 2009 | later protocol-15 builds, by November 2010 |
+|---|---|---|
+| message type field | 5 bits | 6 bits |
+| `SendPropType` numbering | Orange Box: String 3, Array 4, DataTable 5 | `dt_common.h`: VectorXY 3 … DataTable 6 |
+| `max_classes` | 232 | 249, 254 |
+| player `m_vecOrigin` | `Vector` | `VectorXY` and a Z |
+| `CheapBreakModel`'s user message id | 40 | 41 (B444) |
+
+The dates are a bracket: five bits on 4 June 2009 (the client's own `version`), six by 9 November 2010
+(the CEVO demo's `tv_autorecord` name bounds the build that recorded it from above); VectorXY
+interpolated to August 2009 from the hl2sdk commit. Whether both changes shipped in one build is not
+established, and the parser does not assume it: the first packet decides the width — six only when six
+bits read its ServerInfo back as the header's protocol — and the schema is read whichever way reads it
+whole.
+
+**What generalises.** A protocol number is a promise that a client and a server can talk, and TF2's
+clients and servers were always one build; it was never a promise about which build wrote a file. A
+boundary is located by specimens either side of the CHANGE, and the number is only evidence of where the
+change is if something says the number moved with it.
+
 ## Numbers that move, and numbers that do not
 
 Useful because a fingerprint that does not vary is worthless as one:
 
-| Quantity | 11 | 14 | 15 | 16 | 24 |
-|---|---|---|---|---|---|
-| String table **count** | 16 | 16 | 16 | 16 | 16 |
-| `max_classes` | 216 | 216 | 232 | 256 | 275 |
+| Quantity | 11 | 14 | 15 | 15, later builds | 16 | 24 |
+|---|---|---|---|---|---|---|
+| String table **count** | 16 | 16 | 16 | 16 | 16 | 16 |
+| `max_classes` | 216 | 216 | 232 | 249, 254 | 256 | 275 |
 
 The table count never moves across eighteen years, so it dates nothing — the table *names* are the
 discriminator. `max_classes` grows monotonically but is **non-decreasing rather than strictly

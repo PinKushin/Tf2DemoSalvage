@@ -27,8 +27,10 @@ static dating needs no launch. Archive.org serves single-member downloads from a
 Detail: D30.
 
 **What each era changes:** ≤14 no string-table compression flag, 6-bit schema bit-count (B23), no
-`dem_stringtables`; ≤15 5-bit message type, old `SendPropType` numbering; 16 first with replay flag;
-≤22 13-bit `svc_Prefetch`; ≤23 fixed rather than varint lengths.
+`dem_stringtables`; ≤15 5-bit message type, old `SendPropType` numbering — **but at 15 only build
+3862**: later protocol-15 builds write six bits and VectorXY, so at 15 the demo decides (B440,
+[[a-protocol-can-hide-two-builds]]); 16 first with replay flag; ≤22 13-bit `svc_Prefetch`; ≤23 fixed
+rather than varint lengths.
 
 **Fingerprints:** `max_classes` is non-decreasing (216,216,232,256,362,363) — bounds age from below,
 but 2007/2008 tie. **String table COUNT dates nothing** — 16 at protocols 11,14,15,16,24 and even

@@ -234,6 +234,13 @@ public static class SourceSdk
     /// are decoded, and the wrong selection produces an image rather than an error. So the counter
     /// is modelled the way C does it — start at zero, an explicit assignment resets it, every
     /// member takes the next value.
+    ///
+    /// **Both spellings of a named enum are read**: <c>enum Name { … }</c> and the older
+    /// <c>typedef enum { … } Name;</c>, which is how <c>dt_common.h</c> declares <c>SendPropType</c>
+    /// — the numbering every schema in every demo is written in (B440). A member inside a
+    /// preprocessor block (<c>#if 0</c>, <c>#ifdef</c>) shares its chunk with the directive, so it is
+    /// skipped rather than counted; <c>SendPropType</c>'s <c>DPT_Quaternion</c> and <c>DPT_Int64</c>
+    /// are both compiled out, and both follow every member that is not.
     /// </remarks>
     public static IReadOnlyDictionary<string, int> Enumerators(string relativePath, string name)
     {
@@ -254,7 +261,8 @@ public static class SourceSdk
 
         Match declaration = Regex.Match(
             text,
-            @"enum\s+" + Regex.Escape(name) + @"\s*\{(?<body>[^}]*)\}",
+            @"enum\s+" + Regex.Escape(name) + @"\s*\{(?<body>[^}]*)\}" +
+                @"|typedef\s+enum\s*\{(?<body>[^}]*)\}\s*" + Regex.Escape(name) + @"\s*;",
             RegexOptions.Singleline,
             PatternLimit);
 

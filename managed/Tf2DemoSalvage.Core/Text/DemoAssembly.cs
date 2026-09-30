@@ -49,6 +49,9 @@ public static class DemoAssembly
     /// <summary>Introduces a command's payload.</summary>
     private const string DataKeyword = "data";
 
+    /// <summary>The header field stating how wide every message's type field is (B440).</summary>
+    private const string TypeBitsKeyword = "messagetypebits";
+
     /// <summary>
     /// The grammar's command keywords, stated rather than derived from the enum's names.
     /// </summary>
@@ -106,12 +109,22 @@ public static class DemoAssembly
         WriteField(writer, "playbackticks", header.PlaybackTicks);
         WriteField(writer, "playbackframes", header.PlaybackFrames);
         WriteField(writer, "signonlength", header.SignonLengthBytes);
+
+        // **Stated, because the compiler has no bytes to ask** (B440). The type field is five bits
+        // below protocol 15, six above it, and either at 15 — two builds wrote it — where reading
+        // decides it from the first packet. Compiling writes that packet, so the width has to be in
+        // the text before any packet is: the protocol alone would compile a six-bit demo at five.
+        int typeBits = MessageTypeBitsOf(header, commands);
+        WriteField(writer, TypeBitsKeyword, typeBits);
         writer.WriteLine(EndKeyword);
 
-        // The same state the reader keeps, for the same reason: the message type field is five
-        // bits at or below protocol 15 and six above, so a payload cannot be split into messages
-        // without knowing which.
-        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+        // The same state the reader keeps, for the same reason: a payload cannot be split into
+        // messages without knowing the width of their type fields.
+        NetDecodeState state = new()
+        {
+            NetworkProtocol = (ushort)header.NetworkProtocol,
+            MessageTypeBits = typeBits,
+        };
 
         // Built when dem_datatables goes past, and carried from there on: an entity snapshot is
         // meaningless without the schema, and the schema arrives once as its own command.
@@ -124,7 +137,11 @@ public static class DemoAssembly
         // width or meaning depends on an earlier one: svc_ServerInfo sizes a prefetch, a game
         // event list types every event, a create string table sizes an update's indices. All three
         // arrive in signon and were forgotten immediately.
-        NetDecodeState check = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+        NetDecodeState check = new()
+        {
+            NetworkProtocol = (ushort)header.NetworkProtocol,
+            MessageTypeBits = typeBits,
+        };
 
         foreach (DemoCommand command in commands)
         {
@@ -214,6 +231,13 @@ public static class DemoAssembly
                 {
                     state.NetworkProtocol = ushort.Parse(
                         fields["networkprotocol"], CultureInfo.InvariantCulture);
+                }
+
+                // The same, and it outranks the protocol: text written before this field existed
+                // lacks it, and there the protocol's own width is right.
+                if (line[..space] == TypeBitsKeyword)
+                {
+                    state.MessageTypeBits = TypeBits(fields[TypeBitsKeyword]);
                 }
 
                 continue;
@@ -558,6 +582,52 @@ public static class DemoAssembly
 
     /// <summary>What a refusal about the header calls the thing it was reading.</summary>
     private const string HeaderSubject = "The header";
+
+    /// <summary>The width a demo's message type fields were written at.</summary>
+    /// <remarks>
+    /// Asked of the reader rather than worked out here, so the text states the width every packet
+    /// below it is then read at: a state reads its first packet and keeps what that decided.
+    /// </remarks>
+    private static int MessageTypeBitsOf(DemoHeader header, IReadOnlyList<DemoCommand> commands)
+    {
+        NetDecodeState first = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+
+        foreach (DemoCommand command in commands)
+        {
+            if (command.Type is DemoCommandType.Signon or DemoCommandType.Packet)
+            {
+                _ = NetMessageReader.Read(command.Payload.Span, first);
+                break;
+            }
+        }
+
+        return first.MessageTypeBits;
+    }
+
+    /// <summary>The stated type width, refusing one no build ever wrote.</summary>
+    /// <remarks>
+    /// A trust boundary: the text is edited by hand, and any other width compiles every message
+    /// after it into bits no client can read, without anything failing on the way.
+    /// </remarks>
+    private static int TypeBits(string text)
+    {
+        int bits = AssemblyText.Number(text, $"'{TypeBitsKeyword}' field", HeaderSubject);
+
+        if (bits is NetMessage.OldTypeBits or NetMessage.TypeBits)
+        {
+            return bits;
+        }
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
+        throw new InvalidDataException(string.Create(
+            CultureInfo.InvariantCulture,
+            $"The header's '{TypeBitsKeyword}' is {bits}; a message type field is " +
+            $"{NetMessage.OldTypeBits} or {NetMessage.TypeBits} bits."));
+
+        // Stryker restore all
+    }
 
     private static int Integer(Dictionary<string, string> fields, string name) =>
         AssemblyText.Number(Text(fields, name), $"'{name}' field", HeaderSubject);

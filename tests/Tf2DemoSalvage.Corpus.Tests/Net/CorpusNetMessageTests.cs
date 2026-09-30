@@ -37,11 +37,12 @@ public sealed class CorpusNetMessageTests
         foreach (string path in Corpus.Files())
         {
             ushort protocol = ProtocolOf(path);
+            int typeBits = TypeBitsOf(path, protocol);
             List<int> offsets =
             [
                 .. ReadPackets(path)
                     .Take(PacketsToSample)
-                    .Select(packet => (packet, first: FirstMessage(packet, protocol)))
+                    .Select(packet => (packet, first: FirstMessage(packet, protocol, typeBits)))
                     .Where(pair => pair.first is NetTickMessage)
                     .Select(pair => ((NetTickMessage)pair.first!).Tick - pair.packet.Tick)
             ];
@@ -73,7 +74,7 @@ public sealed class CorpusNetMessageTests
             List<List<int>> runs = [[]];
             int previousTick = int.MinValue;
 
-            foreach ((DemoCommand packet, INetMessage? first) in Sampled(path, protocol))
+            foreach ((DemoCommand packet, INetMessage? first) in Sampled(path, protocol, typeBits))
             {
                 if (first is not NetTickMessage tick)
                 {
@@ -126,10 +127,10 @@ public sealed class CorpusNetMessageTests
     private const int ImplausibleOffset = 100_000_000;
 
     private static IEnumerable<(DemoCommand Packet, INetMessage? First)> Sampled(
-        string path, ushort protocol) =>
+        string path, ushort protocol, int typeBits) =>
         ReadPackets(path)
             .Take(PacketsToSample)
-            .Select(packet => (packet, FirstMessage(packet, protocol)));
+            .Select(packet => (packet, FirstMessage(packet, protocol, typeBits)));
 
 
     /// <summary>First decoded message of a packet, or <c>null</c> if none could be read.</summary>
@@ -142,13 +143,29 @@ public sealed class CorpusNetMessageTests
     /// SAME value whenever the sixth bit happens to be zero, which for the 2009 demo's first
     /// message it usually was - so the omission looked correct until a protocol-14 demo arrived
     /// and the coincidence stopped holding.
+    ///
+    /// **Nor is the protocol enough at 15**, which two builds wrote at two widths (B440). A packet
+    /// read on its own cannot say which — only a demo's first packet carries the ServerInfo that
+    /// decides it — so the width comes from <see cref="TypeBitsOf"/>, once per demo.
     /// </remarks>
-    private static INetMessage? FirstMessage(DemoCommand packet, ushort networkProtocol)
+    private static INetMessage? FirstMessage(DemoCommand packet, ushort networkProtocol, int typeBits)
     {
-        NetDecodeState state = new() { NetworkProtocol = networkProtocol };
+        NetDecodeState state = new() { NetworkProtocol = networkProtocol, MessageTypeBits = typeBits };
         IReadOnlyList<INetMessage> messages =
             NetMessageReader.Read(packet.Payload.Span, state).Messages;
         return messages.Count > 0 ? messages[0] : null;
+    }
+
+    /// <summary>The width the demo's first packet settles for every packet after it.</summary>
+    private static int TypeBitsOf(string path, ushort networkProtocol)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        NetDecodeState state = new() { NetworkProtocol = networkProtocol };
+
+        _ = NetMessageReader.Read(
+            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).First().Payload.Span, state);
+
+        return state.MessageTypeBits;
     }
 
     /// <summary>The demo's network protocol, from its header.</summary>
