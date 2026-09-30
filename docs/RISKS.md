@@ -6468,6 +6468,9 @@ tick 4872 move_x 1.000 move_y  0.000
 
 The two exceptions, ticks 5541 and 5681, are `-0.707, -0.707` and both fall inside a rocket jump,
 where `forwardmove` and the direction of travel legitimately disagree because the player is airborne.
+**(Wrong, and B442 is what it hid.** At both ticks he is on the ground running at 240 where he looks;
+the −0.707 was his eye yaw, frozen at his ENTER's by a fixed table order. The explanation was never
+checked against `FL_ONGROUND` or his networked velocity, both of which a POV demo carries.)
 
 `Studio_LocalPoseParameter` was checked too and our port matches it, including the `groupsize > 2`
 test that looked like an off-by-one and is Valve's own.
@@ -7901,7 +7904,7 @@ an encoder change wants its own branch and a synthetic removal list that reprodu
 
 ---
 
-### B442 — `move_x` runs backward at two settled forward ticks of the movement POV — OPEN 2026-09-30
+### B442 — `move_x` runs backward at two settled forward ticks of the movement POV — FIXED 2026-09-30
 
 **Found by `RunningForward_DrivesMoveXPositive` in the first full superset run** (B439). Its demo,
 `movement-test-pov-cp_process.dem`, is lcor, so a gcor run never meets it. The recorded `CUserCmd` at
@@ -7920,6 +7923,51 @@ least 60 forward ticks, and the recorder is the only player. Nine samples:
 bisected here. A negative `move_x` drives the legs from the backward half of the blend grid — B101's
 backward-run symptom, returning at two ticks. Cause unknown; `ComputePoseParam_MoveYaw` is the engine
 function to read first. *Evidence class: measured; the reading of the grid is from B101.*
+
+**Fixed: the recorder's eye yaw was frozen at his ENTER's for the whole demo.** At 5541 he is on the
+ground, his networked `m_vecVelocity` is (−206.18, −122.84) — 240 u/s at −149.2° — and his command's view
+yaw is −150.7: running exactly where he looks. The eye yaw the timeline handed `ComputePoseParam_MoveYaw`
+was −23.6, and the `move-yaw` probe reads −23.6 at every tick from 200 to 5700. The client holds ONE
+`m_angEyeAngles`, written by both exclusive receive tables (`c_tf_player.cpp:3745-3746`, `:3764-3765`),
+so it holds the last write, per component. Every player's ENTER carries both tables (all thirteen in
+`demostf-cp_process_f12-2026-08-07`); after it only the recorder of a POV demo takes local updates —
+2,033 here, against one non-local write. `EntityState.EyeAngles()` read the non-local table first
+whenever it held anything, which is the fixed order c7d65f1b removed from `Origin()` and left in the
+accessor beside it. Now each component is whichever table wrote it last.
+
+| tick | eye yaw used | heading | flYaw | move_x, move_y |
+|---|---|---|---|---|
+| 5541, before | −23.6 (stale) | −147.5 | −123.9 | −0.674, 1.000 |
+| 5541, after | −151.0 (local; command −150.7) | −147.5 | 3.4 | 1.000, −0.060 |
+| 4872 (control), before | −23.6 (stale) | −11.9 | 11.7 | 1.000, −0.207 |
+| 4872 (control), after | −5.6 (command −5.7) | −11.9 | −6.3 | 1.000, 0.110 |
+
+- **The seven good samples were good by coincidence** — he happened to run within 23° of his spawn
+  facing, and their ±0.4 `move_y` was that gap. After the fix all nine are 1.000; the largest `move_y`
+  is −0.411 at 4375, where he is airborne and the engine's own local-player route gives −0.412.
+- **No commit broke the test; it never passed.** Built at its own commit a29a63c5, it fails on the same
+  two ticks with (−0.707, −0.707) — the values B101 put down to rocket jumps. The fixed order dates from
+  51f6ae65; it became a freeze when 199275ed stopped deltas wiping entity state (2026-08-13), four days
+  before the test (read from the commits, not built).
+- **Every POV demo's recorder was affected**, SourceTV demos not at all: `tf2-2026-pub-pov-clean`'s
+  recorder (entity 9) takes 13,227 local writes and non-local ones only in his three ENTERs (ticks 0,
+  4553, 4612), so he was frozen at each ENTER's angles until the next.
+- **Tests:** `EyeAnglesConformanceTests` (the SDK's two blocks, with a control that a block cannot read
+  past its own `END_RECV_TABLE()`; last write per component; null when neither table wrote; zero for a
+  component neither wrote, `c_baseentity.cpp:3833-3840`), and `SyntheticFacingTests`' two tick-5541
+  reproductions through `DemoTimeline.Build`. Sabotages, each reddening only what it should: non-local
+  first (the defect) — four new tests and the corpus test at −0.674/−0.499; local first — the control
+  and the per-component test; the newest table deciding both components — the per-component test; never
+  null and both-components-required — the two edge tests, which were added because both survived the
+  suite before them; a block read to the end of the file — its control.
+- **Still different for the recorder, deliberately not changed here:** for the LOCAL player the engine
+  animates from `EyeAngles()`, which is `pl.v_angle` (`c_tf_player.cpp:4279-4284`,
+  `baseplayer_shared.cpp:303-310`), and `EstimateAbsVelocity` returns his networked `m_vecVelocity`
+  rather than a derivative of the interpolated origin (`c_baseentity.cpp:5854-5858`). The timeline
+  animates him like everyone else — the server's copy of his view angles and differenced positions. At
+  the nine samples both give `move_x` 1.000; `move_y` differs by up to 0.13 (tick 5681: 0.232 here, 0.100
+  by the local route). *Evidence class: read from published source; that `pl.v_angle` is the recorded
+  view during playback is the engine's (`engine->GetViewAngles`, `prediction.cpp:1753`) and inferred.*
 
 ---
 

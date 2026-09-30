@@ -21,6 +21,15 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class SyntheticFacingTests
 {
+    /// <summary>The tick B442 was measured at.</summary>
+    private const int B442Tick = 5541;
+
+    /// <summary>The recorder's eye yaw at <see cref="B442Tick"/>: 209.384, in the fixture's −180..180.</summary>
+    private const float LookingYaw = 209.384f - 360f;
+
+    /// <summary>Half a step of the fixture's 12-bit eye yaw over 360 degrees, which is as close as it can say.</summary>
+    private const float EyeYawQuantum = 0.05f;
+
     [Test]
     public void PlayersAt_TheYaw_IsWhatTheTrackHolds()
     {
@@ -84,6 +93,53 @@ public sealed class SyntheticFacingTests
         player.EyePitch.ShouldNotBeNull().ShouldBe(-60f, 1f);
         player.EyeYaw.ShouldNotBeNull().ShouldBe(0f, 1f);
     }
+
+    [Test]
+    public void PlayersAt_ARecorderLookingAwayFromItsEnter_FacesItsLocalEyeYaw()
+    {
+        // **The drawn body, and B442's cause.** The recorder's ENTER stated 336.422 in both exclusive tables;
+        // every update since said 209.384 in the local one. The client holds one m_angEyeAngles and the last
+        // write is what it holds (c_tf_player.cpp:3745-3746, :3764-3765); this reported 336.422 for the whole
+        // demo, so the recorder's body faced the way they spawned.
+        ScenePlayer recorder = DemoTimeline.Build(B442Recorder()).PlayersAt(B442Tick).ShouldHaveSingleItem();
+
+        recorder.EyeYaw.ShouldNotBeNull().ShouldBe(LookingYaw, EyeYawQuantum);
+    }
+
+    [Test]
+    public void PlayersAt_ARecorderRunningWhereItLooks_DrivesMoveXForward()
+    {
+        // **Tick 5541 of movement-test-pov-cp_process, input for input** (B442): travel of (-3.093, -1.843) a
+        // tick (240 units a second, its networked m_vecVelocity), 209.384 in the local table since tick 5540,
+        // and 336.422 left in the non-local one by the tick-0 ENTER. ComputePoseParam_MoveYaw
+        // (multiplayer_animstate.cpp:1566-1620), with the estimate yaw atan2(-1.843, -3.093) = -149.211 and the
+        // eye yaw 209.384 - 360 = -150.616:
+        //
+        //     flYaw = AngleNormalize( -( -150.616 - -149.211 ) ) = 1.405
+        //     x =  cos 1.405 = 0.99970,  y = -sin 1.405 = -0.02452,  pushed out by 0.99970: (1.000, -0.0245)
+        //
+        // Read from the stale 336.422 instead, flYaw is -125.63 and the answer is (-0.717, 1.000) — the
+        // backward half of the grid, which is what the corpus reported (-0.674 there, from its own heading).
+        List<ScenePlayer> players = [];
+        DemoTimeline.Build(B442Recorder()).PlayersAt((double)B442Tick, players);
+
+        ScenePlayer recorder = players.ShouldHaveSingleItem();
+
+        recorder.MoveX.ShouldBe(1f, 1e-3f);
+        recorder.MoveY.ShouldBe(-0.0245f, 1e-3f);
+    }
+
+    /// <summary>The recorder of <see cref="PlayersAt_ARecorderRunningWhereItLooks_DrivesMoveXForward"/>.</summary>
+    /// <remarks>
+    /// One hundred ticks of the same travel, ENTERing at tick 5441 where that travel puts them at 5541's
+    /// recorded origin — the heading window and the interpolation delay both sit well inside the run.
+    /// </remarks>
+    private static byte[] B442Recorder() => SyntheticPlayer.DemoOfARecorder(
+        intervalPerTick: 0.015f,
+        ticks: (B442Tick - 100, B442Tick),
+        enter: (-1481.491f + (100 * 3.093f), -2408.251f + (100 * 1.843f), 336.422f - 360f),
+        perTick: (-3.093f, -1.843f),
+        eyeYaw: LookingYaw);
 
     /// <summary>A positioned player looking in a chosen direction.</summary>
     private static Dictionary<string, PropertyValue> Facing(

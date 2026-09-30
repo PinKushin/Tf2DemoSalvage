@@ -54,6 +54,12 @@ internal static class SyntheticPlayer
 
         /// <summary><c>DT_TFLocalPlayerExclusive</c>.</summary>
         Local,
+
+        /// <summary>
+        /// Both, as TF2's own schema always declares them (<c>tf_player.cpp:801</c>, <c>:804</c>) and as a
+        /// point-of-view recorder's ENTER carries them (B442).
+        /// </summary>
+        Both,
     }
 
     /// <summary>A schema with the tables a player's position and pose are read from.</summary>
@@ -64,12 +70,15 @@ internal static class SyntheticPlayer
     /// </remarks>
     public static DemoSchema Schema() => Schema(OriginTable.NonLocal);
 
-    /// <summary>A schema carrying the player's position in the chosen exclusive table.</summary>
-    /// <param name="origin">Which of the two mutually exclusive tables to declare.</param>
+    /// <summary>A schema carrying the player's position in the chosen exclusive table, or in both.</summary>
+    /// <param name="origin">Which of the two exclusive tables to declare.</param>
     /// <returns>The schema.</returns>
     /// <remarks>
-    /// One or the other, never both — a demo carries whichever the server sent for that player, and
-    /// a fixture declaring both would describe a combination no recording contains.
+    /// **"Never both" was this comment's claim, and it was wrong** (B442). TF2's schema declares both for
+    /// every player (<c>tf_player.cpp:801</c>, <c>:804</c>), and every player's ENTER carries both —
+    /// measured on all thirteen of <c>demostf-cp_process_f12-2026-08-07</c> and on the recorder of
+    /// <c>movement-test-pov-cp_process</c>, whose later updates carry the local one alone. A fixture that
+    /// could only declare one could not write the demo that hid B442.
     /// </remarks>
     public static DemoSchema Schema(OriginTable origin) => new(
         [
@@ -99,27 +108,9 @@ internal static class SyntheticPlayer
                 Table("baseanimating", "DT_BaseAnimating"),
             ]),
 
-            // One exclusive table, named by the caller. They are complements — a player's position
-            // arrives in one or the other, never both — so declaring both would describe a
-            // combination no recording contains.
-            new SendTable(
-                origin == OriginTable.Local
-                    ? "DT_TFLocalPlayerExclusive"
-                    : "DT_TFNonLocalPlayerExclusive",
-                NeedsDecoder: true,
-            [
-                // **VectorXY, not Vector, and the two are different ERAS rather than a style
-                // choice.** A three-component vector is the launch shape and carries height
-                // inside itself; the modern shape sends the horizontal pair here and height in
-                // m_vecOrigin[2]. EntityState branches on which arrived, so a fixture declaring a
-                // full Vector *and* a separate Z describes a demo that has never existed — the
-                // vector wins, the separate height is never read, and the test fails on a
-                // coordinate the fixture never sent.
-                VectorXy("m_vecOrigin", bits: 32),
-                Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
-                Float("m_angEyeAngles[0]", low: -90f, high: 90f, bits: 12),
-                Float("m_angEyeAngles[1]", low: -180f, high: 180f, bits: 12),
-            ]),
+            // The exclusive tables the caller named, the local one first as tf_player.cpp:801 and :804
+            // declare them.
+            .. ExclusiveTables(origin).Select(exclusive => Exclusive(exclusive.Table)),
             new SendTable("DT_TFPlayer", NeedsDecoder: true,
             [
                 // Unsigned, as `SendPropInt( SENDINFO( m_nWaterLevel ), 2, SPROP_UNSIGNED )` sends it (tf_player.cpp:792).
@@ -138,14 +129,41 @@ internal static class SyntheticPlayer
                 Float("m_flTorsoScale", low: 0f, high: 8f, bits: 16),
                 Float("m_flHandScale", low: 0f, high: 8f, bits: 16),
                 Table("baseplayer", "DT_BasePlayer"),
-                Table(
-                    "exclusivedata",
-                    origin == OriginTable.Local
-                        ? "DT_TFLocalPlayerExclusive"
-                        : "DT_TFNonLocalPlayerExclusive"),
+                .. ExclusiveTables(origin).Select(exclusive => Table(exclusive.Property, exclusive.Table)),
             ]),
         ],
         [new ServerClass(PlayerClassId, "CTFPlayer", "DT_TFPlayer")]);
+
+    /// <summary>The exclusive tables a schema declares, with the names <c>DT_TFPlayer</c> gives them, in TF2's order.</summary>
+    private static (string Property, string Table)[] ExclusiveTables(OriginTable origin) => origin switch
+    {
+        OriginTable.Local => [LocalExclusive],
+        OriginTable.NonLocal => [NonLocalExclusive],
+        _ => [LocalExclusive, NonLocalExclusive],
+    };
+
+    private static readonly (string Property, string Table) LocalExclusive =
+        ("tflocaldata", "DT_TFLocalPlayerExclusive");
+
+    private static readonly (string Property, string Table) NonLocalExclusive =
+        ("tfnonlocaldata", "DT_TFNonLocalPlayerExclusive");
+
+    /// <summary>One exclusive table: where a player's position and eye angles arrive.</summary>
+    /// <remarks>
+    /// **VectorXY, not Vector, and the two are different ERAS rather than a style choice.** A
+    /// three-component vector is the launch shape and carries height inside itself; the modern shape
+    /// sends the horizontal pair here and height in m_vecOrigin[2]. EntityState branches on which
+    /// arrived, so a fixture declaring a full Vector *and* a separate Z describes a demo that has never
+    /// existed — the vector wins, the separate height is never read, and the test fails on a coordinate
+    /// the fixture never sent.
+    /// </remarks>
+    private static SendTable Exclusive(string name) => new(name, NeedsDecoder: true,
+    [
+        VectorXy("m_vecOrigin", bits: 32),
+        Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+        Float("m_angEyeAngles[0]", low: -90f, high: 90f, bits: 12),
+        Float("m_angEyeAngles[1]", low: -180f, high: 180f, bits: 12),
+    ]);
 
     /// <summary>Class id of the <c>CTFPlayerResource</c> entity, when the schema declares one.</summary>
     public const int ResourceClassId = 1;
@@ -1843,7 +1861,88 @@ internal static class SyntheticPlayer
     {
         ArgumentNullException.ThrowIfNull(positions);
 
-        DemoSchema schema = Schema();
+        return DemoOfSnapshots(
+            Schema(),
+            intervalPerTick,
+            [
+                .. positions.Select(position => (position.Tick, (IReadOnlyDictionary<string, PropertyValue>)
+                    new Dictionary<string, PropertyValue>
+                    {
+                        ["m_vecOrigin"] = PropertyValue.FromVectorXY(position.X, position.Y),
+                        ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    })),
+            ]);
+    }
+
+    /// <summary>
+    /// A point-of-view recorder running in a straight line, entering facing one way and looking another (B442).
+    /// </summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="ticks">The ENTER's tick, and the last delta's.</param>
+    /// <param name="enter">Where the ENTER puts them, and the eye yaw it carries in BOTH exclusive tables.</param>
+    /// <param name="perTick">How far each later tick moves them.</param>
+    /// <param name="eyeYaw">The eye yaw every later update carries, in the local table alone.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **The shape <c>movement-test-pov-cp_process</c> recorded for its recorder**: the tick-0 ENTER wrote
+    /// <c>DT_TFLocalPlayerExclusive</c> and then <c>DT_TFNonLocalPlayerExclusive</c> with the same values,
+    /// and each of the 2,033 eye-angle writes after it came through the local table alone. Entity 1, because
+    /// the synthetic <c>svc_ServerInfo</c> names player slot 0 — the recorder.
+    /// </remarks>
+    public static byte[] DemoOfARecorder(
+        float intervalPerTick,
+        (int First, int Last) ticks,
+        (float X, float Y, float EyeYaw) enter,
+        (float X, float Y) perTick,
+        float eyeYaw)
+    {
+        List<(int Tick, IReadOnlyDictionary<string, PropertyValue> Values)> snapshots = [];
+
+        for (int tick = ticks.First; tick <= ticks.Last; tick++)
+        {
+            int moved = tick - ticks.First;
+
+            Dictionary<string, PropertyValue> values = ExclusiveValues(
+                LocalExclusive.Table,
+                enter.X + (perTick.X * moved),
+                enter.Y + (perTick.Y * moved),
+                moved == 0 ? enter.EyeYaw : eyeYaw);
+
+            if (moved == 0)
+            {
+                // The local table and THEN the non-local one, as the flattened order sends them.
+                foreach ((string key, PropertyValue value) in
+                    ExclusiveValues(NonLocalExclusive.Table, enter.X, enter.Y, enter.EyeYaw))
+                {
+                    values[key] = value;
+                }
+            }
+
+            snapshots.Add((tick, values));
+        }
+
+        return DemoOfSnapshots(Schema(OriginTable.Both), intervalPerTick, snapshots);
+    }
+
+    /// <summary>One exclusive table's position and eye angles, keyed by table so two tables can travel together.</summary>
+    private static Dictionary<string, PropertyValue> ExclusiveValues(string table, float x, float y, float eyeYaw) => new()
+    {
+        [$"{table}.m_vecOrigin"] = PropertyValue.FromVectorXY(x, y),
+        [$"{table}.m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+        [$"{table}.m_angEyeAngles[0]"] = PropertyValue.FromFloat(0f),
+        [$"{table}.m_angEyeAngles[1]"] = PropertyValue.FromFloat(eyeYaw),
+    };
+
+    /// <summary>Entity 1 over several snapshots: the first an ENTER, the rest deltas carrying only what they name.</summary>
+    /// <remarks>
+    /// Team and life state ride on the entering update and are retained, which is the delta behaviour a
+    /// viewer depends on.
+    /// </remarks>
+    private static byte[] DemoOfSnapshots(
+        DemoSchema schema,
+        float intervalPerTick,
+        List<(int Tick, IReadOnlyDictionary<string, PropertyValue> Values)> snapshots)
+    {
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
@@ -1854,19 +1953,12 @@ internal static class SyntheticPlayer
             SyntheticDemo.DataTables(schema),
         ];
 
-        for (int index = 0; index < positions.Length; index++)
+        for (int index = 0; index < snapshots.Count; index++)
         {
-            (int tick, float x, float y) = positions[index];
+            (int tick, IReadOnlyDictionary<string, PropertyValue> stated) = snapshots[index];
 
-            Dictionary<string, PropertyValue> values = new()
-            {
-                ["m_vecOrigin"] = PropertyValue.FromVectorXY(x, y),
-                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-            };
+            Dictionary<string, PropertyValue> values = new(stated);
 
-            // Only the first snapshot introduces the entity; the rest move it. Team and life state
-            // ride on the entering update and are retained, which is the delta behaviour a viewer
-            // depends on.
             if (index == 0)
             {
                 values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
@@ -1887,7 +1979,7 @@ internal static class SyntheticPlayer
                 new PacketEntitiesMessage(
                     MaxEntries: 64,
                     IsDelta: index > 0,
-                    DeltaFromTick: index > 0 ? positions[index - 1].Tick : null,
+                    DeltaFromTick: index > 0 ? snapshots[index - 1].Tick : null,
                     BaselineIndex: false,
                     UpdatedEntries: 1,
                     LengthBits: bits,
