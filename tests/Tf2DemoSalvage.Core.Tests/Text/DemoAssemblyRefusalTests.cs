@@ -49,6 +49,19 @@ public sealed class DemoAssemblyRefusalTests
         Refuse(HeaderWithout("networkprotocol")).ShouldContain("networkprotocol");
     }
 
+    [TestCase("7")]
+    [TestCase("four")]
+    public void Parse_AMessageTypeBitsThatIsNotFiveOrSix_NamesTheField(string width)
+    {
+        // A type field is five bits or six — the two widths protocol 15's builds wrote (B440). Any
+        // other would assemble every message after it into bits no build ever sent, and the demo
+        // would compile.
+        string text = string.Join(
+            '\n', HeaderLines.SkipLast(1).Append($"  messagetypebits {width}").Append("end")) + "\n";
+
+        Refuse(text).ShouldContain("messagetypebits");
+    }
+
     [Test]
     public void Parse_AnUnknownCommandKeyword_NamesTheKeyword()
     {

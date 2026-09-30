@@ -134,9 +134,10 @@ public sealed class SyntheticSchemaTests
     [Test]
     public void Write_VectorXyAtProtocol15_IsRefusedRatherThanRenumberedWrongly()
     {
-        // There is no code for it before 16, so silently writing one would produce a schema no
-        // client ever sent. A fixture builder that invents wire forms is worse than one that
-        // refuses, because the tests built on it look real.
+        // There is no code for it in the numbering protocol 15 was first recorded with (build 3862),
+        // so silently writing one would produce a schema no client ever sent. A fixture builder that
+        // invents wire forms is worse than one that refuses, because the tests built on it look real.
+        // Protocol 15's later builds DID number it (B440); a test wanting that schema says so.
         DemoSchema sent = Schema(
             new SendProperty(SendPropType.VectorXY, "m_vecMins", 0, "", -1f, 1f, 20, 0));
 

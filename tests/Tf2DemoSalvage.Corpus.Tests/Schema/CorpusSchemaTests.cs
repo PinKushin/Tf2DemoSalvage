@@ -54,6 +54,58 @@ public sealed class CorpusSchemaTests
     }
 
     [Test]
+    public void FilesWithSchema_EveryDemoItLeavesOut_HasASchemaCutOnTheWire()
+    {
+        // **The control on the selection every entity sweep walks** (B440). FilesWithSchema leaves
+        // out a demo whose schema does not parse — rightly for the launch-build SourceTV recordings,
+        // whose writer cut dem_datatables at 65,536 bytes (the test above), and for a month wrongly
+        // for two protocol-15 SourceTV demos whose schema this parser misread. Every sweep over it
+        // passed while never reaching them. So whatever it leaves out has to be the writer's cut,
+        // and anything else is named here, with what the parser said about it.
+        HashSet<string> kept = [.. Corpus.FilesWithSchema()];
+        List<string> leftOut = [.. Corpus.Files().Where(file => !kept.Contains(file))];
+
+        // The control: a check that sees no exclusion at all is not looking, and gcor carries one.
+        leftOut.Select(Path.GetFileName).ShouldContain("tf2-2007-build3258-stv-cp_granary.dem");
+
+        List<string> unexplained = [];
+        foreach (string path in leftOut)
+        {
+            int length = DataTablesLength(path);
+            if (length == CutAt)
+            {
+                continue;
+            }
+
+            string reason;
+            try
+            {
+                _ = Corpus.Schema(path);
+                reason = "it parses when asked on its own";
+            }
+            catch (InvalidDataException failure)
+            {
+                reason = failure.Message;
+            }
+
+            unexplained.Add($"{Path.GetFileName(path)} (dem_datatables {length:N0} bytes): {reason}");
+        }
+
+        unexplained.ShouldBeEmpty(string.Join(" || ", unexplained));
+    }
+
+    /// <summary>Where the launch build's SourceTV writer cut <c>dem_datatables</c>: 2^16 bytes.</summary>
+    private const int CutAt = 65_536;
+
+    /// <summary>The length of a demo's <c>dem_datatables</c> payload.</summary>
+    private static int DataTablesLength(string path)
+    {
+        byte[] bytes = File.ReadAllBytes(path);
+        return DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))
+            .First(command => command.Type == DemoCommandType.DataTables).Payload.Length;
+    }
+
+    [Test]
     public void Schema_ParsesAndNamesAreRecognisable()
     {
         foreach (string path in Corpus.FilesWithSchema())

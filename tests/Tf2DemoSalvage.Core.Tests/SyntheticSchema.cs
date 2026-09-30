@@ -59,18 +59,31 @@ internal static class SyntheticSchema
     private const int OldBitCountBits = 6;
     private const ushort SixBitBitCountProtocol = 14;
 
-    /// <summary>Last protocol numbering property types without <c>DPT_VectorXY</c>.</summary>
+    /// <summary>
+    /// Last protocol any build numbered property types without <c>DPT_VectorXY</c> — and not every
+    /// build at it did (B440).
+    /// </summary>
     private const ushort VectorXyProtocol = 15;
 
     /// <summary>Encodes tables and classes as a <c>dem_datatables</c> payload.</summary>
     /// <param name="schema">The schema to write.</param>
     /// <param name="networkProtocol">Protocol, which sizes the bit-count field and numbers types.</param>
+    /// <param name="vectorXyNumbering">
+    /// Whether types are numbered with <c>DPT_VectorXY</c> at 3, or null for the numbering the
+    /// protocol's first builds used. Only protocol 15 needs saying: TF2 build 3862 (June 2009)
+    /// numbered without it and the builds after it at the same protocol numbered with it, which is
+    /// what the two SourceTV demos of B440 are.
+    /// </param>
     /// <returns>The payload bytes, as the command would carry them.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="schema"/> is null.</exception>
-    public static byte[] Write(DemoSchema schema, ushort networkProtocol = SyntheticDemo.DefaultProtocol)
+    public static byte[] Write(
+        DemoSchema schema,
+        ushort networkProtocol = SyntheticDemo.DefaultProtocol,
+        bool? vectorXyNumbering = null)
     {
         ArgumentNullException.ThrowIfNull(schema);
 
+        bool vectorXy = vectorXyNumbering ?? networkProtocol > VectorXyProtocol;
         BitWriter writer = new();
 
         foreach (SendTable table in schema.Tables)
@@ -82,7 +95,7 @@ internal static class SyntheticSchema
 
             foreach (SendProperty property in table.Properties)
             {
-                WriteProperty(writer, property, networkProtocol);
+                WriteProperty(writer, property, networkProtocol, vectorXy);
             }
         }
 
@@ -99,9 +112,10 @@ internal static class SyntheticSchema
         return writer.Build();
     }
 
-    private static void WriteProperty(BitWriter writer, SendProperty property, ushort protocol)
+    private static void WriteProperty(
+        BitWriter writer, SendProperty property, ushort protocol, bool vectorXy)
     {
-        writer.Write(WireType(property.Type, protocol), TypeBits);
+        writer.Write(WireType(property.Type, vectorXy), TypeBits);
         writer.WriteString(property.Name);
         writer.Write((uint)property.Flags, FlagBits);
 
@@ -127,16 +141,17 @@ internal static class SyntheticSchema
                 protocol > SixBitBitCountProtocol ? BitCountBits : OldBitCountBits);
     }
 
-    /// <summary>Turns a canonical type back into the code its era puts on the wire.</summary>
+    /// <summary>Turns a canonical type back into the code its numbering puts on the wire.</summary>
     /// <remarks>
     /// The inverse of the parser's own mapping, and it exists because <c>DPT_VectorXY</c> was
-    /// inserted at 3 rather than appended — so String, Array and DataTable each sit one lower
-    /// before protocol 16. Writing the modern numbering into an old demo turns every nested table
-    /// into an array, which is what makes a whole schema unreadable a few hundred bits in.
+    /// inserted at 3 rather than appended — so String, Array and DataTable each sit one lower in the
+    /// numbering without it. Writing the modern numbering where the old one belongs turns every
+    /// nested table into an array, which is what makes a whole schema unreadable a few hundred bits
+    /// in.
     /// </remarks>
-    private static uint WireType(SendPropType type, ushort protocol)
+    private static uint WireType(SendPropType type, bool vectorXy)
     {
-        if (protocol > VectorXyProtocol)
+        if (vectorXy)
         {
             return (uint)type;
         }
@@ -145,7 +160,8 @@ internal static class SyntheticSchema
         {
             throw new ArgumentOutOfRangeException(
                 nameof(type),
-                $"VectorXY does not exist at protocol {protocol}; it was added at 16.");
+                "VectorXY has no code in the numbering without it — the one protocols 11 to 14 and " +
+                "TF2 build 3862 of June 2009 wrote (B440).");
         }
 
         return type < SendPropType.VectorXY ? (uint)type : (uint)type - 1;
