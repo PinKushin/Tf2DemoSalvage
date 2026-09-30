@@ -99,7 +99,7 @@ public sealed class CarriedProbe : IProbe
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         // Each filter's SURVIVORS, so a prop's absence can be attributed to the rule that removed
         // it rather than reported as a bare absence.

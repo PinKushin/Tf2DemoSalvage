@@ -331,7 +331,10 @@ public sealed class MomentScene : IGameSystemPerFrame
         //
         // Before the visibility filters, because a prop with no model would otherwise be judged on
         // a name it has not been given yet.
-        _weaponModels.Resolve(_drawn, players, Weapons.For);
+        //
+        // **A held weapon asks the item's `model_world` first** (`CTFWeaponBase::GetWorldModel`,
+        // `tf_weaponbase.cpp:686-687`); the Hot Hand's is not its first-person glove (B105).
+        _weaponModels.Resolve(_drawn, players, Weapons.For, Weapons.WorldDisplayModel);
 
         // **An item's `attached_models`, asked per prop because the answer needs the owner's TEAM**
         // — `GetNumAttachedModels( GetTeamNumber() )`, and the Quick-Fix's `c_overhealer.mdl` is

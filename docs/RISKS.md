@@ -6684,7 +6684,7 @@ every time**, rather than reading the pass/fail word. Current sizes at this comm
 
 A total that drops without the suite shrinking is a failed run wearing a pass.
 
-### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — RESOLVED (wiring below; per-class a85b8136; the item's `anim_slot` 2026-09-29; an empty `model_player` 2026-09-30, the last B105 section)
+### B105 — the weapon's activity suffix is computed but not yet wired to the renderer — RESOLVED (wiring below; per-class a85b8136; the item's `anim_slot` 2026-09-29; an empty `model_player` and the world weapon's `model_world` 2026-09-30, the last two B105 sections)
 
 The chain from a demo to a weapon's animation role is complete and tested, and the last hop into the
 viewer is not done. Recorded so the half-built state is visible rather than looking finished.
@@ -6872,11 +6872,72 @@ nothing, while the port still keeps the wire (`item-props`, 59 demos: the Gunsli
 held — at 3,852 of 23,006 samples, and the Jumper on 11 in 2, shown at 8; the wire never names a model for either, so
 nothing in the corpus differs); `model_world`, which `GetWorldModel` prefers (`:686-687`)
 and four shipped weapons declare (the p2rec, two sappers, the slapping glove), is not read for the world weapon, which
-draws their `model_player`. No shipped item declares an empty `model_world` or an empty class entry in
-`model_player_per_class`, so neither opts in. A file-wide count of every scalar key an item's "" hides from a prefab:
+draws their `model_player` (ported, and one recording drew the wrong glove: the next section). No shipped item declares an empty `model_world` or an empty class entry in
+`model_player_per_class`, so neither opts in (`model_world` since does: the next section). A file-wide count of every scalar key an item's "" hides from a prefab:
 `craft_class` 1,412, `craft_material_type` 279, `armory_remap` 15, `xifier_class_remap` 1 (none read here), `anim_slot`
 1 (357, above) and `item_slot` 1 — 5838, a tool, where the port reads `randomgift`'s ACTION and the engine none; no
 tool is ever an entity on a player.
+
+### B105 — RESOLVED 2026-09-30: a held weapon draws its item's `model_world` before its `model_player`, and a pyro's Hot Hand was the wrong glove
+
+**The rule, read whole.** `CTFWeaponBase::GetWorldModel` (`tf_weaponbase.cpp:681-701`) returns a valid item's
+(`m_bInitialized`, `econ_item_view.h:217`) `GetWorldDisplayModel()` whenever it is non-NULL (`:686-687`), and only then
+`GetPlayerDisplayModel( class, team )`; an invalid item reaches the script. `GetWorldDisplayModel` is one string per item —
+`m_pszWorldDisplayModel = GetString( "model_world", NULL )` (`econ_item_view.cpp:1034-1041`, `econ_item_schema.h:1342`,
+`econ_item_schema.cpp:3160`), no class, team or style — and the test is on the pointer, so an item's own "" wins and
+names no model (`KeyValues.cpp:1451-1457`, `:2537-2540`). The client caches `GetModelIndex( GetWorldModel() )` over
+`m_iWorldModelIndex` once (`:3597-3607`) and draws it for an owner drawn in the third person (`UpdateModelIndex`,
+`:3462-3484`). **Nothing else a weapon draws reads it**: the first-person attachment is `GetPlayerDisplayModel`
+(`econ_entity.cpp:1167`), a wearable draws its networked index (`tf_item_wearable.cpp:453-509`), an `extra_wearable` is a
+separate `tf_wearable` given that key's model (`tf_weaponbase.cpp:999-1016`), and attached models are their own list
+(`:3323-3399`). The loadout panel is the one other reader, already ported (`tf_playermodelpanel.cpp:1024-1030`).
+
+**The builder classes, which every sapper is.** `C_TFWeaponSapper::GetWorldModel` skips the builder's own to reach the
+rule above (`c_tf_weapon_builder.cpp:456-460`). `C_TFWeaponBuilder::GetWorldModel` answers `GetObjectInfo( m_iObjectType
+)->m_pPlayerModel` — `scripts/objects.txt`'s `Playermodel` (`tf_shareddefs.cpp:1503`) — only with an owner and an object
+type (`:406-419`), and `m_iObjectType` rides `DT_BuilderLocalData`, which goes to the owner alone
+(`tf_weapon_builder.cpp:32-40`, `basecombatweapon_shared.cpp:2739-2755`); every other player's builder asks its item.
+The stock sapper (735, 736) is a builder — `weapon_sapper` declares `"item_class" "tf_weapon_builder"` — and objects.txt's
+`OBJ_ATTACHMENT_SAPPER` `Playermodel` is `c_sapper.mdl`, its item's `model_player`, so both routes draw one file. Every
+item declaring a `model_world` is a `tf_weapon_sapper` or the slap.
+
+**The wire already named it.** The server precaches `GetWorldModel()` into `m_iWorldModelIndex` as the weapon spawns
+with its item (`basecombatweapon_shared.cpp:291-300`), and gives an attach-to-hands weapon its class's hands as
+`m_nModelIndex` (`econ_entity.cpp:398-402`) — so the wire names `model_world` when the world index is sent and the
+carrier's arms when it is not. The port's item-wins rule (`WeaponPropModels.Resolve`) overwrote it with `model_player`.
+
+**Shipped data**: four `"model_world"` keys, every one an item's own, none empty. The Ap-Sap (933), the Festive Sapper
+(1080) and the Snack Attack (1102) name their `model_player` again; the Hot Hand (1181) names `w_slapping_glove.mdl`
+beside a first-person `c_slapping_glove.mdl`.
+
+**Census** (`item-props 933,1080,1102,1181,735,736,810,831`, every 33 ticks, gcor + lcor: 59 demos, 4 undecodable, 4
+with no item index, 51 with one). "Held" is a sample `WeaponVisibility` keeps; wire, drawn and engine at the first:
+
+| item | class | tracks (demos) | held samples | wire | drawn before | engine, drawn after |
+|---|---|---|---|---|---|---|
+| 933 Ap-Sap | `CTFWeaponSapper` | 1 (pub-pov-clean) | 0 — never a prop | — | — | — |
+| 1080 Festive Sapper | `CTFWeaponSapper` | 4 (ashville, product 08-07, upward, pub-pov-clean) | 86 | `c_sapper_xmas` | same | same |
+| 1102 Snack Attack | `CTFWeaponSapper` | 3 (ashville, cascade, product 08-08) | 146 | `c_breadmonster_sapper` | same | same |
+| **1181 Hot Hand** | `CTFSlap` | 1 (pub-pov-clean) | 5 — **148 at every tick** | **`w_slapping_glove`** | **`c_slapping_glove`** | **`w_slapping_glove`** |
+| 735 stock sapper (control) | `CTFWeaponBuilder` | 53 (23 demos) | 516 | `c_sapper`; `w_sapper` on the 2012 server; the spy's arms holstered | `c_sapper` | `c_sapper` |
+| 736 upgradeable (control) | `CTFWeaponBuilder` | 6 (6 demos) | 130 | `c_sapper` | `c_sapper` | `c_sapper` |
+| 810 Red-Tape Recorder (control) | `CTFWeaponSapper` | 1 | 0 | — | — | — |
+
+The pub POV's recorder is a soldier (player 9); the pyro holding the glove is player 17, seen in the third person from
+tick 5133. **That is the one change on screen**: his glove is the world model where it was the first-person one. As
+dropped weapons 1080, 1102, 735 and 736 lie on 2, 3, 5 and 3 tracks, each named on the wire as the item names it.
+
+**Ported where the B105 fixes put the lookup.** `ItemSchema.WorldDisplayModel` opts in to an empty answer;
+`WeaponModels.WorldDisplayModel` asks it; `WeaponPropModels.Resolve` takes it as a fourth argument and asks it for a weapon
+(`WeaponState` set) before `model_player`, caching both answers; `AllWornIn` — `Needed`, `ToPack`, `Worn` — packs it;
+`MomentScene.Build` and the eight probes replaying that step hand it over.
+
+**Filed, not ported — a dropped weapon keeps the wire.** `C_TFDroppedWeapon` is a `CBaseAnimating`, not an econ entity
+(`tf_dropped_weapon.h:24`); its model is the dropper's `GetWorldModel()` (`tf_player.cpp:13076`, `:13096`) and the client
+draws the wire. The port gives it the item's `model_player` (it carries an item index and no `WeaponState`), for class 0
+since it has no owner. Equal on every dropped track above, and the Hot Hand never drops (`DontDrop`,
+`tf_player.cpp:13036-13059`); it differs only for a dropper whose class picks another `model_player_per_class` entry, not
+counted.
 
 ### B106 — a scout is reported holding an engineer's shotgun — NOT A DEFECT (367a9cff: 9 ticks in 929,371, a sampling skew; heading corrected 2026-09-29)
 

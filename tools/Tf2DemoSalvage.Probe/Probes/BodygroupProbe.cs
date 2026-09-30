@@ -123,7 +123,7 @@ public sealed class BodygroupProbe : IProbe
         List<SceneProp> props = [];
         timeline.PropsAt(tick, props);
 
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         int equipment = props.Count;
 

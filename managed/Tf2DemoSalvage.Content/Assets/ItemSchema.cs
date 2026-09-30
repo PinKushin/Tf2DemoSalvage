@@ -1766,8 +1766,14 @@ public sealed class ItemSchema
 
     /// <summary>`GetWorldDisplayModel()`: `model_world` (econ_item_schema.cpp:3160), or null.</summary>
     /// <param name="definitionIndex">The item.</param>
-    /// <returns>The path, or null.</returns>
-    public string? WorldDisplayModel(int definitionIndex) => Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("model_world"));
+    /// <returns>The path; empty when the nearest `model_world` is <c>""</c>; or null when none is declared.</returns>
+    /// <remarks>
+    /// **An item's own "" is its answer** (B105): `GetString( "model_world", NULL )` returns it as it is and both readers
+    /// test the pointer — `CTFWeaponBase::GetWorldModel` (tf_weaponbase.cpp:686) and the loadout panel
+    /// (tf_playermodelpanel.cpp:1024-1025) — so it wins over `model_player` and names no model. The shipped file declares none.
+    /// </remarks>
+    public string? WorldDisplayModel(int definitionIndex) =>
+        Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("model_world"), emptyAnswers: true);
 
     /// <summary>`GetExtraWearableModel()`: `extra_wearable` (econ_item_schema.cpp:3161), or null.</summary>
     /// <param name="definitionIndex">The item.</param>
@@ -2152,8 +2158,8 @@ public sealed class ItemSchema
     /// <param name="emptyAnswers">
     /// Whether an empty value is the nearest definition's answer rather than silence. It is, in the engine, for every
     /// key: `RecursiveInheritKeyValues` sets each of an item's own keys over its prefabs' whatever the value
-    /// (econ_item_schema.cpp:2909, :2967). Opt-in here, per key, for the two this port reads that the shipped file gives
-    /// an empty value: `anim_slot` and `model_player` (B105).
+    /// (econ_item_schema.cpp:2909, :2967). Opt-in here, per key: `anim_slot` and `model_player`, the two this port reads that
+    /// the shipped file gives an empty value, and `model_world`, whose readers test the pointer and so take "" too (B105).
     /// </param>
     private string? Inherited(int definitionIndex, Func<Entry, string?> ask, bool emptyAnswers = false)
     {
@@ -2231,8 +2237,8 @@ public sealed class ItemSchema
         }
 
         // **An empty value is kept only here and among the scalar keys**, whose searches pass over it unless asked not
-        // to — which `anim_slot` is, because an item's own `""` hides its prefab's slot (B105). Everywhere else it is
-        // dropped here, as it always was.
+        // to — which `anim_slot` and `model_world` are, because an item's own `""` hides its prefab's value (B105).
+        // Everywhere else it is dropped here, as it always was.
         if (value.Length == 0)
         {
             if (PanelKeys.Contains(key))

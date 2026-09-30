@@ -99,7 +99,7 @@ public sealed class BoneFlagProbe : IProbe
         PlayerProps.Add(
             players, props, new GameAppearance(game.Classes, null), NoBodygroups.Instance);
 
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         LoadedMap map = LoadedMap.Read(
             File.ReadAllBytes(mapPath), game, timeline, 0, NullLoggerFactory.Instance);
@@ -834,7 +834,7 @@ public sealed class BoneFlagProbe : IProbe
             PlayerProps.Add(
                 players, props, new GameAppearance(game.Classes, null), NoBodygroups.Instance);
 
-            new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+            new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
             EntityModelSet models = new() { Geometry = assets.Geometry };
 

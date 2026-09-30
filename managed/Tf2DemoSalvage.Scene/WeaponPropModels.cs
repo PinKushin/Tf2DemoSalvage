@@ -62,9 +62,10 @@ public sealed class WeaponPropModels
     /// called from `OnOwnerClassChange` and `ReapplyProvision` (`econ_entity.cpp:288`, `:358`) — the
     /// model is re-derived when the ITEM or the owner's CLASS changes and at no other time, which is
     /// exactly this tuple. A null answer is cached too: a game that is not installed answers null
-    /// for every item, for ever, and re-asking is the same wasted work.
+    /// for every item, for ever, and re-asking is the same wasted work. Both of the item's answers are kept, since
+    /// which one a prop draws is a fact about the prop — weapon or wearable — rather than about the item.
     /// </remarks>
-    private readonly Dictionary<(int Item, string Class, int PlayerClass), string?> _resolved = [];
+    private readonly Dictionary<(int Item, string Class, int PlayerClass), (string? Player, string? World)> _resolved = [];
 
     /// <summary>Fills in the model of any prop whose item names one.</summary>
     /// <param name="drawn">The props for this moment, edited in place.</param>
@@ -73,15 +74,21 @@ public sealed class WeaponPropModels
     /// Resolves item, entity class and player class to a model path.
     /// <see cref="WeaponModels.For(int?, string?, int?)"/> in production.
     /// </param>
+    /// <param name="worldModel">
+    /// The item's `model_world`, which a WEAPON draws before the answer above.
+    /// <see cref="WeaponModels.WorldDisplayModel(int)"/> in production.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void Resolve(
         IList<SceneProp> drawn,
         IReadOnlyList<ScenePlayer> players,
-        Func<int?, string?, int?, string?> model)
+        Func<int?, string?, int?, string?> model,
+        Func<int, string?> worldModel)
     {
         ArgumentNullException.ThrowIfNull(drawn);
         ArgumentNullException.ThrowIfNull(players);
         ArgumentNullException.ThrowIfNull(model);
+        ArgumentNullException.ThrowIfNull(worldModel);
 
         for (int index = 0; index < drawn.Count; index++)
         {
@@ -101,11 +108,19 @@ public sealed class WeaponPropModels
             (int, string, int) key =
                 (prop.ItemDefinitionIndex.Value, prop.ClassName, playerClass ?? 0);
 
-            if (!_resolved.TryGetValue(key, out string? named))
+            if (!_resolved.TryGetValue(key, out (string? Player, string? World) answers))
             {
-                named = model(prop.ItemDefinitionIndex, prop.ClassName, playerClass);
-                _resolved[key] = named;
+                answers = (
+                    model(prop.ItemDefinitionIndex, prop.ClassName, playerClass),
+                    worldModel(prop.ItemDefinitionIndex.Value));
+                _resolved[key] = answers;
             }
+
+            // **A TF WEAPON asks the item's `model_world` first** — `CTFWeaponBase::GetWorldModel` returns
+            // `GetWorldDisplayModel()` whenever it is non-NULL, "" included, and only then `GetPlayerDisplayModel`
+            // (tf_weaponbase.cpp:686-698). The Hot Hand is the shipped case that differs: `w_slapping_glove.mdl` in the
+            // world, `c_slapping_glove.mdl` in first person. A wearable never asks it (tf_item_wearable.cpp:453-509).
+            string? named = (prop.WeaponState is not null ? answers.World : null) ?? answers.Player;
 
             // **The item WINS whenever it names something different**, which is Valve's rule
             // rather than the narrower "fill in when the wire said nothing" this shipped first.
@@ -123,9 +138,9 @@ public sealed class WeaponPropModels
             //
             // **Except that a TF WEAPON's client never draws the networked world model** (B105). It caches
             // `GetModelIndex( GetWorldModel() )` over `m_iWorldModelIndex` (`tf_weaponbase.cpp:3597-3607`), and for a
-            // valid item `GetWorldModel` is the item's `GetPlayerDisplayModel` as it is (`:681-701`) — so an item whose
-            // `model_player` is "" indexes no model and the weapon draws nothing (`c_basecombatweapon.cpp:401`), where
-            // keeping the wire drew `m_nModelIndex`: the carrier's hands. A wearable reads the networked index
+            // valid item `GetWorldModel` is the item's answer as it is, `model_world` before `model_player` (`:681-701`)
+            // — so an item whose answer is "" indexes no model and the weapon draws nothing (`c_basecombatweapon.cpp:401`),
+            // where keeping the wire drew `m_nModelIndex`: the carrier's hands. A wearable reads the networked index
             // (`tf_item_wearable.cpp:453-509`) and keeps it.
             if (named is { } answer && (answer.Length > 0 || prop.WeaponState is not null)
                 && !string.Equals(answer, prop.ModelPath, StringComparison.Ordinal))

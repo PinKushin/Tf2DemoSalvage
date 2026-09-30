@@ -15,9 +15,10 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// <summary>Which props carry the named items, the model the wire gave each, the one production resolves, and whether it is shown.</summary>
 /// <remarks>
 /// **The census for a question about the item schema** — first B105's 18 `"model_player" ""` declarations: does any
-/// recording carry one, and what does production do with it. Each prop track whose `m_iItemDefinitionIndex` is named is
-/// sampled through `WeaponPropModels.Resolve` handed `WeaponModels.For`, the step `MomentScene.Build` runs, so the resolved
-/// model is the one production CARRIED out of that step rather than a second reading of the rule (B243).
+/// recording carry one, and what does production do with it; then the four `model_world` items. Each prop track whose
+/// `m_iItemDefinitionIndex` is named is sampled through `WeaponPropModels.Resolve` handed `WeaponModels.For` and
+/// `WorldDisplayModel`, the step `MomentScene.Build` runs, so the resolved model is the one production CARRIED out of that
+/// step rather than a second reading of the rule (B243).
 ///
 /// **Resolved is not shown, and the first version said "drawn" for both.** A holstered weapon is resolved like any prop and
 /// then dropped by `WeaponVisibility` — `C_BaseCombatWeapon::ShouldDraw`, `c_basecombatweapon.cpp:399` — so the one change
@@ -166,7 +167,7 @@ public sealed class ItemPropProbe : IProbe
         SceneProp wire = props[at];
 
         // Resolve replaces an entry in place when the item wins, so the same slot holds what it resolved to.
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         SceneProp resolved = props[at];
         bool shown = WeaponVisibility.Visible(props).Any(prop => prop.EntityIndex == track.EntityIndex);

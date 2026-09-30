@@ -93,7 +93,7 @@ public sealed class DrawnPropProbe : IProbe
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For);
+        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
 
         // **Through the scene's own visibility rules, so this reports what a screen shows.** The
         // timeline holds everything the demo mentions; `MomentScene` then applies the engine's
