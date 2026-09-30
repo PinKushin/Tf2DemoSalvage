@@ -374,9 +374,13 @@ internal static class CensusSummary
         int unmeasured = demos.Count(row =>
             !CensusRow.Stages.Any(stage => row.Status(stage) == "fail") &&
             !CensusRow.Stages.All(stage => Passed(row, stage)));
+        int everyAsked = demos.Count(row => CensusRow.Stages.All(stage =>
+            Passed(row, stage) || (row.Status(stage) == "skip" && row[stage + "_skip"] == "not asked")));
 
         text.Append("## Headline\n\n");
         text.Append(Invariant($"**{every} of {demos.Count} demos pass every stage**, the round trip byte for byte.\n\n"));
+        text.Append(Invariant(
+            $"{everyAsked} of {demos.Count} pass every stage the run was asked for (a stage left out of `--stages` aside).\n\n"));
         text.Append(
             CultureInfo.InvariantCulture,
             $"{everyButTail} of {demos.Count} pass if a round trip that rebuilds all but a final command cut off mid-write " +
