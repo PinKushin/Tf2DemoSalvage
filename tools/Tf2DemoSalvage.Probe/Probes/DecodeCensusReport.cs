@@ -295,7 +295,11 @@ internal static class CensusSummary
         ("unreached", "Not reached"),
     ];
 
-    /// <summary>Merges the CSVs — a later file's pass or fail replaces an earlier file's skip — and summarises.</summary>
+    /// <summary>Merges the CSVs — a later file's outcome for a stage replaces an earlier one's — and summarises.</summary>
+    /// <remarks>
+    /// A later run is the later measurement, whatever it found, except where it was not asked to measure that stage
+    /// at all: a rerun of three stages must not erase the other five.
+    /// </remarks>
     /// <param name="csvPaths">CSVs from one or more runs over the same pool, earliest first.</param>
     /// <returns>The summary as Markdown.</returns>
     public static string Build(IReadOnlyList<string> csvPaths)
@@ -312,7 +316,8 @@ internal static class CensusSummary
                     continue;
                 }
 
-                foreach (string stage in CensusRow.Stages.Where(stage => row.Status(stage) is "pass" or "fail"))
+                foreach (string stage in CensusRow.Stages.Where(stage =>
+                             row.Status(stage).Length > 0 && row[stage + "_skip"] != "not asked"))
                 {
                     existing.TakeStage(row, stage);
                 }
