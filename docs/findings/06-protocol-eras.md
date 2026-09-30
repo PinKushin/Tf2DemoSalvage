@@ -248,10 +248,11 @@ recordings. *Measured.*
 of a number can only say a change lies somewhere between them. The branch B18 diffed had the date in
 its own history — hl2sdk's `tf2` branch took `DPT_VectorXY` in `c789d33e` on 14 August 2009, two months
 after build 3862 — and `proto_version.h` has no constant between `PROTOCOL_VERSION_14` and
-`PROTOCOL_VERSION_REPLAY` (`common/proto_version.h:40-47`). The type field grew when
-`svc_CmdKeyValues` took id 32 (`public/inetmsghandler.h:148-149`; the Orange Box list ends at
-`svc_GetCvarValue`, 31). Valve changed the wire twice and left the number where it was. *Read from
-published source.*
+`PROTOCOL_VERSION_REPLAY` (`common/proto_version.h:40-47`). The type field has to grow once any
+message takes id 32, and in the current list that is `svc_CmdKeyValues`
+(`public/inetmsghandler.h:148-149`; the Orange Box list ends at `svc_GetCvarValue`, 31). Valve changed
+the wire twice and left the number where it was. *Read from published source* — except which message
+first took id 32 in TF2, and when, which is *interpolated*.
 
 **Protocol 15, as it now reads:**
 
