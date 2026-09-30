@@ -145,6 +145,14 @@ public static class EngineConVars
         new("cl_drawleaf", "-1", Replicated: false, Cheat: true),
         new("cl_first_person_uses_world_model", "0", Replicated: false, Cheat: false),
 
+        // **What `CDemoPlayer::InterpolateViewpoint` reads** (`0x180072180`, B56). Engine ConVars, absent from the SDK:
+        // `ConVar::ConVar` calls at 0x180003bea, 0x180003baa, 0x180003a2a and 0x180003c2a, every one with no flags —
+        // the watcher's, never the server's. `DemoViewConVarConformanceTests` holds the registrations and the dump.
+        new("demo_interpolateview", "1", Replicated: false, Cheat: false),
+        new("demo_interplimit", "4000", Replicated: false, Cheat: false),
+        new("demo_avellimit", "2000", Replicated: false, Cheat: false),
+        new("demo_legacy_rollback", "1", Replicated: false, Cheat: false),
+
         // **Tournament mode, so `IsInTournamentMode` can be modelled instead of taken as off.**
         // All three `FCVAR_REPLICATED`, none `FCVAR_CHEAT` — a server sets them, not a player.
         // src/game/shared/teamplayroundbased_gamerules.cpp:202 and :227,
