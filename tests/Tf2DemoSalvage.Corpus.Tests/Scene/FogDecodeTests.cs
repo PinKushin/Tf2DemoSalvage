@@ -1,13 +1,13 @@
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>
-/// The atmosphere every corpus demo carries, read end to end.
+/// The atmosphere each corpus demo's map networks, read end to end.
 /// </summary>
 /// <remarks>
 /// **This class was written asserting the opposite and that is why B132 was found.** Its first
@@ -38,26 +38,57 @@ public sealed class FogDecodeTests
         // **Each demo is read down to its numbers and let go** (B439). This used to hold every
         // timeline in one list, which with the local corpus present is tens of gigabytes at once
         // whatever the cache keeps.
-        List<(int Properties, int Samples)> fog = [];
+        List<string> dropped = [];
+        List<string> unsampled = [];
+        List<string> invented = [];
+        int controllers = 0;
 
         foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
-            fog.Add((timeline.FogControllerProperties, timeline.FogSamples.Count));
+            string name = Path.GetFileName(path);
+
+            // **Every property the demo's OWN table declares, not "some" and not a constant.** This
+            // said fifteen, true of every demo through etf2l's 2020-07-23 STV; every 2026 recording
+            // declares a sixteenth, m_fog.radial, which TF2 added in between. A merge that dropped one
+            // still shows here, as a count below the table's rather than as a value quietly defaulted.
+            int declared = SchemaFlattener.Flatten(Corpus.Schema(path), "DT_FogController").Count;
 
             TestContext.Out.WriteLine(
-                $"{Path.GetFileName(path)}: {timeline.FogControllersSeen} sightings, " +
-                $"{timeline.FogControllerProperties} properties, " +
+                $"{name}: {timeline.FogControllersSeen} sightings, " +
+                $"{timeline.FogControllerProperties} of {declared} properties, " +
                 $"{timeline.FogSamples.Count} fog samples");
+
+            // **A map with no env_fog_controller networks none**, and three in lcor have none — both
+            // ultiduo maps and hackermgereddit's. Every demo's schema declares the class; a demo
+            // whose packets never carry one must then yield no fog rather than an invented default.
+            if (timeline.FogControllersSeen == 0)
+            {
+                if (timeline.FogSamples.Count > 0)
+                {
+                    invented.Add(name);
+                }
+
+                continue;
+            }
+
+            controllers++;
+
+            if (timeline.FogControllerProperties != declared)
+            {
+                dropped.Add($"{name}: {timeline.FogControllerProperties} of {declared}");
+            }
+
+            if (timeline.FogSamples.Count == 0)
+            {
+                unsampled.Add(name);
+            }
         }
 
-        // **A controller holds fifteen properties, not "some".** That is the count its send table
-        // declares and the count a trace of any corpus demo prints, so a merge that dropped one
-        // would show here rather than as a value quietly taking its default.
-        fog.Select(demo => demo.Properties).Distinct().ShouldBe([15]);
-
-        // Every demo, every era: protocols 11 through 24 all carry a fog controller and all decode.
-        fog.Count(demo => demo.Samples > 0).ShouldBe(fog.Count);
+        controllers.ShouldBeGreaterThan(0, "no demo networked a fog controller, so nothing was measured");
+        dropped.ShouldBeEmpty("a controller carries every property its own table declares");
+        unsampled.ShouldBeEmpty("every demo that networks a fog controller, every era, must yield fog");
+        invented.ShouldBeEmpty("a demo that networks no fog controller must yield no fog");
     }
 
     [Test]

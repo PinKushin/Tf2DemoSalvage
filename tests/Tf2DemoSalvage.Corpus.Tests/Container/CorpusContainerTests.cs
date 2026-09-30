@@ -94,7 +94,11 @@ public sealed class CorpusContainerTests
         // June 2009 client was added, and pinning it was an assumption that every demo is
         // modern - exactly the assumption this project exists to avoid. The real invariant is
         // that the protocol is one this parser knows how to read.
-        header.NetworkProtocol.ShouldBeOneOf(11, 14, 15, 16, 24);
+        //
+        // 21 and 22 since four GotFrag demos were recovered into lcor on 2026-08-22 (recorded in
+        // docs/TIMELINE.md by 64aebb65); this list was written on 2026-08-10, before them. A
+        // protocol outside it is still a finding: a new specimen to date, not one to wave through.
+        header.NetworkProtocol.ShouldBeOneOf(11, 14, 15, 16, 21, 22, 24);
         header.GameDirectory.ShouldBe("tf");
         header.MapName.ShouldNotBeNullOrWhiteSpace();
 

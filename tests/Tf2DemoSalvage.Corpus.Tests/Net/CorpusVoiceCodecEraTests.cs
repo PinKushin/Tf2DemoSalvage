@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
@@ -56,8 +57,13 @@ public sealed class CorpusVoiceCodecEraTests
         // POV and SourceTV both, deliberately. A codec differing by recording mode would be a
         // property of the writer rather than of the era, and the pairs in this corpus are what makes
         // that distinguishable.
-        List<string> dated = [.. Corpus.Files().Where(path =>
-            System.IO.Path.GetFileName(path).StartsWith("tf2-", StringComparison.Ordinal))];
+        //
+        // **By the specimens' own naming, `tf2-<year>-build<build>-`, and only the years claimed.**
+        // This took every file starting `tf2-`, which in gcor is the specimens alone; lcor has held
+        // two 2026 public matches under that prefix since 2026-08-11 — `tf2-2026-pub-pov-clean` and
+        // `-cheater`, both on the modern steam codec and no era specimen. Written 2026-08-16 over
+        // gcor, so this never held over the superset until it said what it meant.
+        List<string> dated = [.. Corpus.Files().Where(IsEraSpecimenFrom2007To2013)];
 
         dated.ShouldNotBeEmpty("the era specimens should be present");
 
@@ -97,5 +103,19 @@ public sealed class CorpusVoiceCodecEraTests
             "the codec transition is bracketed but not dated: speex through the 2013 build, celt by " +
             "z1800, and no specimen in between. Closing it needs a demo from 2014-2019 — the same " +
             "range the protocol axis is missing at 17-23.");
+    }
+
+    /// <summary>Whether a demo is an era specimen recorded on a 2007 to 2013 client.</summary>
+    /// <param name="path">The demo.</param>
+    /// <returns><c>true</c> for <c>tf2-2007-build3258-…</c> through <c>tf2-2013-build1729296-…</c>.</returns>
+    private static bool IsEraSpecimenFrom2007To2013(string path)
+    {
+        ReadOnlySpan<char> name = System.IO.Path.GetFileName(path.AsSpan());
+
+        return name.StartsWith("tf2-", StringComparison.Ordinal)
+            && name.Length > "tf2-2007-build".Length
+            && name[8..].StartsWith("-build", StringComparison.Ordinal)
+            && int.TryParse(name[4..8], NumberStyles.None, CultureInfo.InvariantCulture, out int year)
+            && year is >= 2007 and <= 2013;
     }
 }
