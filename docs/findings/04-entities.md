@@ -405,6 +405,13 @@ mentioned again in the file. Measured on `tf2-2011-build4604-stv-koth_viaduct.de
 appeared in the entity table on 3,762 consecutive packets holding zero properties, while a trace of
 the same file printed all fifteen. Nineteen of that table's 195 entities were empty the same way.
 
+**Fifteen is an era's count, not the controller's** (2026-09-30, the first full superset). Every 2026
+recording's own `DT_FogController` declares a sixteenth, `m_fog.radial`, which etf2l's 2020-07-23 STV
+does not — so TF2 added it in between, and each demo's table says which it is. And three maps in lcor
+network no controller at all (both ultiduo maps and `hackermgereddit`'s) though every schema declares
+the class, so a demo with no fog is not a decode failure. *Measured* with the `schema` probe and the
+corpus fog sweep, whose assertions now read each demo's own table.
+
 **The trace was right and the table was wrong, from the same decoder, on the same packet.** That is
 what made it hard to see: the trace writer had already been fixed to call `EffectiveProperties`, and
 its commit message noted that "DemoTimeline has always done this" — meaning it applied the baseline

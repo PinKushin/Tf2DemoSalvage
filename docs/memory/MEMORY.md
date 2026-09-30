@@ -154,3 +154,5 @@
 - [An empty schema value is an answer](an-empty-schema-value-is-an-answer.md) — an item's own `""` hides its prefab's; opt in per key (B105).
 - [A weapon's world model is its item's](a-weapons-world-model-is-its-items.md) — `model_world` first, then `model_player`; `""` draws nothing; wearables keep the wire.
 - [A cached timeline samples for everyone](a-cached-timeline-samples-for-everyone.md) — `PropsAt`'s kept sample must answer as a cold one; locked, shareable (B438).
+- [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) — timelines are 40–84x the demo; only via `TimelineCache`, sweeps `WarmFirst` (B439).
+- [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — name demos in full; a per-demo loop hides the second bad demo (B440).

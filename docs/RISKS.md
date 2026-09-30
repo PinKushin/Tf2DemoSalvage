@@ -8065,6 +8065,10 @@ touched 0.09 GB. The trx start and end times put the two rises on two tests:
   worth about 1,300 s, nearly all single-demo tests asking for a big lcor timeline the sweeps had
   already passed; they ran beside the sweeps rather than in their path, which are one build at a time.
 
+**After both, on 7e1030f1:** the corpus assembly over the superset in 50 min 5 s, its host at 14.59 GB
+private and 14.13 GB working set, the machine never below 2.83 GB free, 92 builds (37 rebuilds). The
+eight failures left are B440–B443. The numbers and command: `docs/verification/README.md`.
+
 ---
 
 ### B438 — `PropsAt`'s kept sample answered what the previous call asked, and two threads tore it — FIXED 2026-09-30
