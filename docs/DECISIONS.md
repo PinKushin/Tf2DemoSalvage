@@ -8547,6 +8547,15 @@ find the map or changed data"*. So playback holds while the recorded version dow
 downloading, the way the client's own map download does; the installed version is drawn only when no
 source has the recorded one. Swapping maps under a playing demo is refused as jarring.
 
+**Clarified 2026-09-30 — structure like Valve's, names in our own C# style.** Asked whether B438's sampling state should
+move into the viewer (behaviour identical) or stay on the timeline, as the engine keeps interpolation state on the
+entity, the owner chose the engine's shape: *"I'd rather it be closer to the valve source, that's why I say 100% valve
+parity. I want someone who knows source to be able to understand it immediately."* The assistant then read that as a new
+decision plus a rename to Valve's identifiers; the owner corrected it: *"a source expert should be able to tell from our
+c# style names what they are equivalent to"*, and *"I definitely don't want to change naming conventions right in the
+middle of the project, that would read and look horrible"*. So structure and ownership follow the engine; names stay
+C# style and must map recognisably to the engine concept; there is no rename pass.
+
 ## D164 — a player is namable by every spelling a person actually has (2026-09-11)
 
 **The owner, twice in one session.** First on the lookup being broken: *"its the right tick but out

@@ -44,3 +44,12 @@ origin left open.
 
 **Subagents skip TDD even when the brief says TESTS FIRST** (B429, B436, 2026-09-29): they report "code first, sabotaged
 after". Brief must require a separate red commit or a logged red run BEFORE the implementation edit.
+
+## 2026-09-30: parallel subagents OK, rigour never traded for speed
+
+Subagents ran 1.5-3 h each (B112 46 sabotage rounds, gate twice, 59-demo censuses, harness bugs). Owner approved:
+two in parallel, each `isolation: "worktree"`, on unrelated areas; sabotage every branch but run only the affected test
+project; gate once per branch. Owner: *"I don't want to lose the rigor though. Doing it right the first time, works
+faster overall, and uses less tokens overall, then getting it wrong and having to fix it."*
+**How to apply:** speed comes from parallelism and targeted runs, never from fewer sabotage rounds, skipped censuses
+or skipped engine reads. Desktop phases (2/3) stay serial under the lock.
