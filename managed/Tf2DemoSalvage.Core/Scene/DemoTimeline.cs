@@ -3013,7 +3013,7 @@ public sealed class DemoTimeline
                 // **Remembered before the visibility guard, because a dying player fails it.**
                 // The value is wanted at the moment of death and is absent exactly then, so the
                 // useful reading is the last one from while he was alive (B395).
-                if (player.ActiveWeapon() is { } holding)
+                if (entities.Resolve(player.ActiveWeaponHandle()) is { } holding)
                 {
                     lastHeld[player.EntityIndex] = holding;
                 }
@@ -3217,6 +3217,15 @@ public sealed class DemoTimeline
                 standing.Advance(facing, travelling, interval > 0f ? interval : 0f);
                 feet[player.EntityIndex] = standing;
 
+                // **The weapon in hand, dereferenced once as `GetActiveWeapon()` does** (B105). `m_hActiveWeapon` is a
+                // handle, and its serial is checked against the slot's occupant (B231), so a slot that has changed
+                // hands names no weapon — and no item for `GetActivityWeaponRole` to read the `anim_slot` of — rather
+                // than whatever moved in. Every field below that describes the weapon reads this one entity.
+                int? activeSlot = entities.Resolve(player.ActiveWeaponHandle());
+                EntityState? active = activeSlot is { } inHand && entities.TryGet(inHand, out EntityState? held)
+                    ? held
+                    : null;
+
                 // **The dead are reported where the entity actually is, which is wherever they are
                 // spectating from.** This used to hold the last living position and yaw so a body
                 // stayed roughly where it fell, standing in for a ragdoll nobody had built yet.
@@ -3302,19 +3311,13 @@ public sealed class DemoTimeline
                     EyePitch: lookingAt,
                     WaterLevel: player.WaterLevel(),
                     MaxSpeed: player.MaxSpeed(),
-                    ActiveWeapon: player.ActiveWeapon(),
-                    WeaponClass: player.ActiveWeapon() is { } held &&
-                        entities.TryGet(held, out EntityState? weapon)
-                            ? weapon.ClassName
-                            : null,
+                    ActiveWeapon: activeSlot,
+                    WeaponClass: active?.ClassName,
 
                     // Read here rather than left to the caller, because this is the only pass over
                     // the entity table there is — a viewer asking later would have to re-walk the
                     // demo to find out which item the weapon was.
-                    WeaponItem: player.ActiveWeapon() is { } carried &&
-                        entities.TryGet(carried, out EntityState? item)
-                            ? item.ItemDefinitionIndex()
-                            : null,
+                    WeaponItem: active?.ItemDefinitionIndex(),
 
                     // **The disguise, and whose side we are on.** `C_TFPlayer::ValidateModelIndex`
                     // and `GetSkin` both branch on
@@ -3372,12 +3375,8 @@ public sealed class DemoTimeline
                     HideHud = player.Integer("DT_Local.m_iHideHUD"),
                     // `SendPropIntWithMinusOneFlag`: sent through `SendProxy_IntAddOne`, so the wire holds the clip plus one
                     // and `RecvProxy_IntSubOne` takes it off (sendproxy.cpp:39, recvproxy.cpp:26) — -1, no clip, sends 0.
-                    WeaponClip1 = player.ActiveWeapon() is { } clipped && entities.TryGet(clipped, out EntityState? clipWeapon)
-                        ? clipWeapon.Integer("DT_LocalWeaponData.m_iClip1") - 1
-                        : null,
-                    WeaponPrimaryAmmoType = player.ActiveWeapon() is { } typed && entities.TryGet(typed, out EntityState? typedWeapon)
-                        ? typedWeapon.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType")
-                        : null,
+                    WeaponClip1 = active?.Integer("DT_LocalWeaponData.m_iClip1") - 1,
+                    WeaponPrimaryAmmoType = active?.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType"),
                     Ammo = AmmoCounts(player),
                     Items = SameAsBefore(carriedBefore, player.EntityIndex, CarriedItems(player, entities)),
                     OwnAttributes = player.EconAttributes(EconAttributeList.Local) is { Count: > 0 } own ? own : null,
@@ -3412,23 +3411,19 @@ public sealed class DemoTimeline
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
                         : null,
-                    WeaponAccountId = player.ActiveWeapon() is { } owned && entities.TryGet(owned, out EntityState? ownedWeapon)
-                        && ownedWeapon.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
-                            ? unchecked((uint)account)
-                            : null,
-                    WeaponQuality = player.ActiveWeapon() is { } graded && entities.TryGet(graded, out EntityState? gradedWeapon)
-                        ? gradedWeapon.Integer("DT_ScriptCreatedItem.m_iEntityQuality")
+                    WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
+                        ? unchecked((uint)account)
                         : null,
+                    WeaponQuality = active?.Integer("DT_ScriptCreatedItem.m_iEntityQuality"),
                     HasTheFlag = EntityState.Slot(player.Integer("DT_TFPlayer.m_hItem")) is { } heldItem
                         && entities.TryGet(heldItem, out EntityState? heldEntity)
                         && heldEntity.ClassName == "CCaptureFlag",
                     Medigun = MedigunOf(player, entities),
-                    ActiveMedigun = player.ActiveWeapon() is { } inHand && entities.TryGet(inHand, out EntityState? heldWeapon)
-                        && heldWeapon.ClassName == "CWeaponMedigun"
-                            ? (EntityState.Slot(heldWeapon.Integer("DT_WeaponMedigun.m_hHealingTarget")),
-                                heldWeapon.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
-                                    ?? heldWeapon.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel") ?? 0f)
-                            : null,
+                    ActiveMedigun = active is { ClassName: "CWeaponMedigun" } medigun
+                        ? (EntityState.Slot(medigun.Integer("DT_WeaponMedigun.m_hHealingTarget")),
+                            medigun.Number("DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel")
+                                ?? medigun.Number("DT_LocalTFWeaponMedigunData.m_flChargeLevel") ?? 0f)
+                        : null,
                     Fov = player.Integer("DT_BasePlayer.m_iFOV"),
                     FovStart = player.Integer("DT_BasePlayer.m_iFOVStart"),
                     FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),
@@ -3775,7 +3770,7 @@ public sealed class DemoTimeline
             return null;
         }
 
-        int? weapon = player.ActiveWeapon();
+        int? weapon = entities.Resolve(player.ActiveWeaponHandle());
         int? item = weapon is { } held && entities.TryGet(held, out EntityState? holding)
             ? holding.ItemDefinitionIndex()
             : null;
@@ -3832,7 +3827,7 @@ public sealed class DemoTimeline
             return default;
         }
 
-        string? weapon = state.ActiveWeapon() is { } held &&
+        string? weapon = entities.Resolve(state.ActiveWeaponHandle()) is { } held &&
             entities.TryGet(held, out EntityState? carried)
                 ? carried.ClassName
                 : null;
@@ -4361,7 +4356,7 @@ public sealed class DemoTimeline
             if (deadIndex is { } holder)
             {
                 held = entities.TryGet(holder, out EntityState? carrying)
-                    ? carrying.ActiveWeapon()
+                    ? entities.Resolve(carrying.ActiveWeaponHandle())
                     : null;
 
                 if (held is null && lastHeld.TryGetValue(holder, out int seen))

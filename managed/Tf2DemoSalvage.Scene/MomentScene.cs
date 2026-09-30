@@ -1633,7 +1633,7 @@ internal sealed class NoAppearance : IPlayerAppearance
     public string? ModelOf(int playerClass) => null;
 
     /// <inheritdoc/>
-    public string? WeaponSuffix(string? weaponClass, int? playerClass) => null;
+    public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => null;
 
     /// <inheritdoc/>
     /// <remarks>

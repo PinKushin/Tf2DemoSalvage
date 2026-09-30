@@ -1253,7 +1253,7 @@ public sealed class MomentSceneTests
         public string? ModelOf(int playerClass) =>
             playerClass == SoldierClass ? "models/player/soldier.mdl" : null;
 
-        public string? WeaponSuffix(string? weaponClass, int? playerClass) =>
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) =>
             RolesKnown && weaponClass is not null ? "PRIMARY" : null;
 
         public bool Airwalks(int playerClass) => true;

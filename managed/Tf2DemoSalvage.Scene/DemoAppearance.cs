@@ -72,9 +72,11 @@ public static class DemoAppearance
         // Only the classes this recording mentions: the archive holds 78 weapon scripts, a match
         // touches a handful, and each one costs an ICE decryption.
         //
-        // **Weapon AND holder**, because the role is not a property of the weapon alone: a shotgun
-        // is a primary for an engineer and a secondary for a soldier, a heavy and a pyro.
-        HashSet<(string Weapon, int? Class)> held = [];
+        // **Weapon, holder AND item**, because the role is not a property of the weapon alone: a
+        // shotgun is a primary for an engineer and a secondary for a soldier, a heavy and a pyro — and
+        // an item's `anim_slot` outranks the script, so a demoman's stock launchers are each the
+        // other's table (B105). The scripts are read per weapon and holder; the item is for the report.
+        HashSet<(string Weapon, int? Class, int? Item)> held = [];
 
         foreach (TimelineFrame frame in timeline.Frames)
         {
@@ -82,27 +84,12 @@ public static class DemoAppearance
             {
                 if (player.WeaponClass is { } weapon)
                 {
-                    held.Add((weapon, player.PlayerClass));
+                    held.Add((weapon, player.PlayerClass, player.WeaponItem));
                 }
             }
         }
 
-        WeaponRoles roles = WeaponRoles.Read(game.Archives.Read, held);
-
-        // **Built the moment the roles exist, because `GameAppearance` CAPTURES them.** It is a
-        // record over the two values, so an appearance made before the roles were read keeps
-        // answering null for every weapon suffix — which does not fail, it silently falls back to
-        // the primary forms and draws the wrong animation on everybody.
-
-        log.LogInformation(
-            "{Message}",
-            "weapon roles: " + string.Join(
-                ", ",
-                held.OrderBy(pair => pair.Weapon, StringComparer.Ordinal)
-                    .ThenBy(pair => pair.Class)
-                    .Select(pair =>
-                        $"{pair.Weapon}/{pair.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}=" +
-                        roles.Suffix(pair.Weapon, pair.Class))));
+        WeaponRoles roles = WeaponRoles.Read(game.Archives.Read, held.Select(each => (each.Weapon, each.Class)));
 
         // **Only the scenes this recording plays, resolved once each** (B351). The archive is 3.6 MB
         // carrying 9,939 scenes, and turning one filename into a plan costs a CRC search, an LZMA
@@ -146,8 +133,25 @@ public static class DemoAppearance
         // **The item schema comes along because a player's body number needs it** (B352): a hat
         // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
         // for here rather than by the scene for the same reason the class models are — this is the
-        // one place that already holds the install.
-        return new GameAppearance(game.Classes, roles, game.Weapons.Items, taunts);
+        // one place that already holds the install. Its `anim_slot` decides the weapon's table too (B105).
+        GameAppearance appearance = new(game.Classes, roles, game.Weapons.Items, taunts);
+
+        // **The role each held weapon is DRAWN with, asked of the appearance the scene will use**, so
+        // the report cannot say one table while the pose gets another — the script's answer alone
+        // says PRIMARY for every demoman's grenade launcher, which the engine animates as a secondary.
+        log.LogInformation(
+            "{Message}",
+            "weapon roles: " + string.Join(
+                ", ",
+                held.OrderBy(each => each.Weapon, StringComparer.Ordinal)
+                    .ThenBy(each => each.Class)
+                    .ThenBy(each => each.Item)
+                    .Select(each =>
+                        $"{each.Weapon}/{each.Class?.ToString(CultureInfo.InvariantCulture) ?? "?"}" +
+                        $"/{each.Item?.ToString(CultureInfo.InvariantCulture) ?? "-"}=" +
+                        appearance.WeaponSuffix(each.Weapon, each.Class, each.Item))));
+
+        return appearance;
     }
 
     /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>

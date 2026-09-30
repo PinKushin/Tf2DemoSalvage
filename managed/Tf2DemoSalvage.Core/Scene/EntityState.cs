@@ -1929,8 +1929,8 @@ public sealed class EntityState
             ? attachment
             : null;
 
-    /// <summary>Which entity is the weapon this one is holding, or null when it holds none.</summary>
-    /// <returns>The weapon's entity slot.</returns>
+    /// <summary>The handle of the weapon this one is holding, as the wire carried it.</summary>
+    /// <returns>The raw <c>m_hActiveWeapon</c> — slot and serial — or null when it was never sent.</returns>
     /// <remarks>
     /// **This decides how the whole body animates, not just what is in the hands.**
     /// <c>CTFWeaponBase::ActivityList</c> (<c>tf_weaponbase.cpp:4208</c>) selects an
@@ -1939,11 +1939,11 @@ public sealed class EntityState
     /// different animation from a scout holding a scattergun, and drawing both with the primary
     /// suffix is wrong for a large part of the game.
     ///
-    /// Through <see cref="Slot"/> like every other handle, so the invalid value is tested before
-    /// the mask rather than after it.
+    /// **A handle, not a slot** (B105): <see cref="EntityStateTable.Resolve"/> turns it into the weapon and
+    /// checks its serial, as <c>GetActiveWeapon()</c>'s <c>Get()</c> does — so a slot that changed hands
+    /// names no weapon, and no item, rather than whatever moved in (B231).
     /// </remarks>
-    public int? ActiveWeapon() =>
-        Slot(Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}"));
+    public int? ActiveWeaponHandle() => Integer($"{CombatCharacterTable}.{ActiveWeaponProperty}");
 
     /// <summary>`MAX_PLAYERS` on `TF_DLL` (`shareddefs.h:254`): `player_array`'s fixed length.</summary>
     private const int MaxTeamPlayers = 101;

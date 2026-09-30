@@ -56,7 +56,7 @@ public sealed class DemoAppearanceTests
         // The control for the case above: `None` must be recognisable AS empty, or `Ensure` cannot
         // tell "nothing built yet" from "built, and this demo genuinely has no models".
         DemoAppearance.None.ModelOf(3).ShouldBeNull();
-        DemoAppearance.None.WeaponSuffix("CTFRocketLauncher", 3).ShouldBeNull();
+        DemoAppearance.None.WeaponSuffix("CTFRocketLauncher", 3, 18).ShouldBeNull();
         DemoAppearance.None.Hands(3).ShouldBeNull();
     }
 

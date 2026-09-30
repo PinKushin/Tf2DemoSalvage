@@ -341,6 +341,23 @@ public sealed class PlayerPropsTests
         drawn[0].Pose.Slot.ShouldBe("PRIMARY");
     }
 
+    [Test]
+    public void Add_APlayerHoldingAnItem_AsksForTheRoleWithThatItem()
+    {
+        // **The hop B105's residual was missing**: `GetActivityWeaponRole` lets the item's `anim_slot` replace the
+        // script (tf_weaponbase.cpp:4189-4197), and the item is `m_iItemDefinitionIndex` on the weapon the timeline
+        // already carries — so the pose's role is only right if the player's item reaches the question. The test above,
+        // a weapon with no item, is the control: it keeps the script's answer.
+        List<SceneProp> drawn = [];
+
+        PlayerProps.Add([Soldier() with { WeaponClass = "CTFShovel", WeaponItem = FryingPan }], drawn, new Appearance(), NoParts);
+
+        drawn[0].Pose.Slot.ShouldBe("MELEEALLCLASS");
+    }
+
+    /// <summary>The Frying Pan, whose `anim_slot` is `MELEE_ALLCLASS` in `items_game.txt`.</summary>
+    private const int FryingPan = 264;
+
     private const int SoldierClass = 3;
     private const int MedicClass = 5;
 
@@ -372,8 +389,16 @@ public sealed class PlayerPropsTests
             return playerClass == MedicClass ? "models/player/medic.mdl" : null;
         }
 
-        public string? WeaponSuffix(string? weaponClass, int? playerClass) =>
-            weaponClass is null ? null : "PRIMARY";
+        // The item decides only when there is one, as `iMaybeOverrideAnimSlot >= 0` has it — the pan's slot here.
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem)
+        {
+            if (weaponClass is null)
+            {
+                return null;
+            }
+
+            return weaponItem == FryingPan ? "MELEEALLCLASS" : "PRIMARY";
+        }
 
         public bool Airwalks(int playerClass) => playerClass != MedicClass;
 

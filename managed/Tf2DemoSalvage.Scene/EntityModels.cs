@@ -4506,7 +4506,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// on <c>DT_BasePlayer</c> and reaches every player in the PVS.
     /// </param>
     /// <param name="alive">Whether the player is alive.</param>
-    /// <param name="slot">The suffix the held weapon drives, such as <c>SECONDARY</c>.</param>
+    /// <param name="slot">The table the held weapon drives, such as <c>SECONDARY</c>.</param>
     /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
     /// <param name="airwalking">Whether they are air-walking, which supersedes the jump.</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>

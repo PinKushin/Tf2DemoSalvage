@@ -372,16 +372,16 @@ public readonly record struct ScenePose
     /// </remarks>
     public int? Flags { get; init; }
 
-    /// <summary>The activity suffix the held weapon drives, such as <c>SECONDARY</c>.</summary>
+    /// <summary>The activity table the held weapon drives, such as <c>SECONDARY</c> or <c>MELEEALLCLASS</c>.</summary>
     /// <remarks>
     /// **Travels with the flags and for the same reason**: the weapon is known when the player
     /// becomes a prop, and the activity lookup that needs it happens a pass later, once the model
     /// has been read.
     ///
-    /// A string rather than an enumeration because it is pasted onto an activity name —
-    /// <c>ACT_MP_RUN_</c> plus this — and the set of suffixes is the game's data rather than this
-    /// project's. Null means nothing was resolved, and the lookup then uses the primary forms, which
-    /// is the engine's own default.
+    /// A table's NAME, as <c>WeaponActivityTable</c> keys it, and not a suffix to paste: every activity
+    /// the body or a gesture asks for goes through that table's rows, as <c>TranslateActivity</c> sends
+    /// it through the weapon's (B105). Null means nothing was resolved, and the lookup then uses the
+    /// primary table, which is the engine's own default.
     /// </remarks>
     public string? Slot { get; init; }
 

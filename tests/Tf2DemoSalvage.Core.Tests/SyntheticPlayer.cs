@@ -623,8 +623,16 @@ internal static class SyntheticPlayer
     /// <param name="weapons">Each weapon: its entity slot and item definition, in `m_hMyWeapons` order.</param>
     /// <param name="wearables">Each wearable, in `m_hMyWearables` order.</param>
     /// <param name="staleWearable">A wearable handle left in the vector past its length, which must not be read.</param>
+    /// <param name="activeWeaponSerial">
+    /// The serial `m_hActiveWeapon` carries for the first weapon, or null for that weapon's own — so a test can name a
+    /// slot whose occupant has changed.
+    /// </param>
     /// <returns>A demo's bytes.</returns>
-    public static byte[] DemoWithLoadout((int Entity, int Definition)[] weapons, (int Entity, int Definition)[] wearables, int? staleWearable = null)
+    public static byte[] DemoWithLoadout(
+        (int Entity, int Definition)[] weapons,
+        (int Entity, int Definition)[] wearables,
+        int? staleWearable = null,
+        int? activeWeaponSerial = null)
     {
         ArgumentNullException.ThrowIfNull(weapons);
         ArgumentNullException.ThrowIfNull(wearables);
@@ -677,7 +685,7 @@ internal static class SyntheticPlayer
 
         if (weapons.Length > 0)
         {
-            player["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(weapons[0].Entity);
+            player["DT_BaseCombatCharacter.m_hActiveWeapon"] = LoadoutHandle(weapons[0].Entity, activeWeaponSerial);
         }
 
         for (int slot = 0; slot < weapons.Length; slot++)
@@ -921,7 +929,14 @@ internal static class SyntheticPlayer
     }
 
     /// <summary>A handle: the slot with a serial above it — `NUM_ENT_ENTRY_BITS` is 11 — so the decoder has to mask.</summary>
-    private static PropertyValue LoadoutHandle(int entity) => PropertyValue.FromInt(entity | (7 << 11));
+    /// <param name="entity">The slot.</param>
+    /// <param name="serial">
+    /// The serial the handle carries: by default the one <see cref="Entity"/> gives the occupant — its own index — so the
+    /// handle dereferences as `RecvProxy_IntToEHandle` keeps it (client/recvproxy.cpp:80); any other names a slot that has
+    /// changed hands, which resolves to nothing (B231).
+    /// </param>
+    private static PropertyValue LoadoutHandle(int entity, int? serial = null) =>
+        PropertyValue.FromInt(entity | ((serial ?? entity) << 11));
 
     /// <summary>The recorder with `m_Shared.m_nPlayerState` (tf_player_shared.cpp:543) and `m_bIsMiniBoss` (c_tf_player.cpp:3779).</summary>
     /// <param name="playerState">`TF_STATE_*`.</param>
