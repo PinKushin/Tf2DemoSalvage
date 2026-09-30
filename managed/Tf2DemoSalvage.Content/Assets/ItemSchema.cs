@@ -77,7 +77,7 @@ public sealed class ItemSchema
         /// <summary>The prefabs it inherits from, in the order the schema names them.</summary>
         public List<string> Prefabs { get; } = [];
 
-        /// <summary>Its <c>model_player</c>, or null.</summary>
+        /// <summary>Its <c>model_player</c>, <c>""</c> included, or null.</summary>
         public string? Model { get; set; }
 
         /// <summary>Its <c>attach_to_hands</c>, or null when it does not say.</summary>
@@ -842,8 +842,17 @@ public sealed class ItemSchema
     /// <summary>The model an item shows in a given class's hands, or <c>null</c>.</summary>
     /// <param name="definitionIndex">The item, as <c>m_iItemDefinitionIndex</c> gives it.</param>
     /// <param name="playerClass">Whose hands, as <c>m_iClass</c> gives it.</param>
-    /// <returns>A model path, or <c>null</c> when the schema names none.</returns>
+    /// <returns>
+    /// A model path; empty when the nearest <c>model_player</c> is <c>""</c>, which is the item's answer (B105); or
+    /// <c>null</c> when the schema names none.
+    /// </returns>
     /// <remarks>
+    /// **An item's own empty `model_player` hides its prefab's model, and is returned as "".** The merge keeps the
+    /// nearest declaration whatever it holds (`econ_item_schema.cpp:2909`, `:2962`, `:2967`), `BInitFromKV` reads it with
+    /// a NULL default (`:3158`) and `GetPlayerDisplayModel` hands it back (`econ_item_view.cpp:969`). Eighteen shipped
+    /// declarations, reaching 34 items — the fists, the spellbooks, the Duel MiniGame, gifts and medals; none sits over a
+    /// prefab with a model, but a TF weapon's world model is exactly this answer, so "" is not "unknown" (B105).
+    ///
     /// **Styles are not implemented, and this is very nearly what the engine does anyway** — which
     /// is not what an earlier version of this note claimed. `CEconItemView::GetItemStyle`
     /// (`econ_item_view.cpp:731`) ends at `GetSOCData()->GetStyle()`, and `GetSOCData` finds an
@@ -865,7 +874,7 @@ public sealed class ItemSchema
         if (playerClass > 0 && playerClass < ClassNames.Length)
         {
             return PerClassModel(definitionIndex, playerClass)
-                ?? Inherited(definitionIndex, entry => entry.Model);
+                ?? Inherited(definitionIndex, entry => entry.Model, emptyAnswers: true);
         }
 
         // **`TF_CLASS_UNDEFINED` is not an empty slot, it is a copy of the first class's answer.**
@@ -882,7 +891,7 @@ public sealed class ItemSchema
             }
         }
 
-        return Inherited(definitionIndex, entry => entry.Model);
+        return Inherited(definitionIndex, entry => entry.Model, emptyAnswers: true);
     }
 
     /// <summary><c>TF_CLASS_DEMOMAN</c>, whose model files disagree with his schema name.</summary>
@@ -1227,7 +1236,10 @@ public sealed class ItemSchema
     /// <summary>The stock item's model for a weapon entity class, such as <c>tf_weapon_wrench</c>.</summary>
     /// <param name="itemClass">The weapon's entity class, from its script name.</param>
     /// <param name="playerClass">Whose hands, as <c>m_iClass</c> gives it.</param>
-    /// <returns>A model path, or <c>null</c> when no base item claims that class.</returns>
+    /// <returns>
+    /// A model path, empty when that item names <c>""</c> (<see cref="ModelFor"/>), or <c>null</c> when no base item claims
+    /// that class.
+    /// </returns>
     /// <remarks>
     /// **The fallback for a weapon whose item index never arrives**, which is a real and common
     /// case: measured on z1800, 22 of 56 held weapons carry no
@@ -2140,7 +2152,8 @@ public sealed class ItemSchema
     /// <param name="emptyAnswers">
     /// Whether an empty value is the nearest definition's answer rather than silence. It is, in the engine, for every
     /// key: `RecursiveInheritKeyValues` sets each of an item's own keys over its prefabs' whatever the value
-    /// (econ_item_schema.cpp:2909, :2967). Opt-in here because only `anim_slot` is known to need it.
+    /// (econ_item_schema.cpp:2909, :2967). Opt-in here, per key, for the two this port reads that the shipped file gives
+    /// an empty value: `anim_slot` and `model_player` (B105).
     /// </param>
     private string? Inherited(int definitionIndex, Func<Entry, string?> ask, bool emptyAnswers = false)
     {
@@ -2209,8 +2222,16 @@ public sealed class ItemSchema
             return;
         }
 
-        // **An empty value is kept only among the scalar keys**, whose searches pass over it unless asked not to —
-        // which `anim_slot` is, because an item's own `""` hides its prefab's slot (B105). Everywhere else it is
+        // Empty included: `ModelFor` asks for it, because an item's own `""` is its base model rather than a gap its
+        // prefab fills (B105).
+        if (string.Equals(key, "model_player", StringComparison.OrdinalIgnoreCase))
+        {
+            entry.Model = value;
+            return;
+        }
+
+        // **An empty value is kept only here and among the scalar keys**, whose searches pass over it unless asked not
+        // to — which `anim_slot` is, because an item's own `""` hides its prefab's slot (B105). Everywhere else it is
         // dropped here, as it always was.
         if (value.Length == 0)
         {
@@ -2230,12 +2251,6 @@ public sealed class ItemSchema
             entry.Prefabs.AddRange(value.Split(
                 ' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
-            return;
-        }
-
-        if (string.Equals(key, "model_player", StringComparison.OrdinalIgnoreCase))
-        {
-            entry.Model = value;
             return;
         }
 

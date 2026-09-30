@@ -188,3 +188,38 @@ right place, which is an argument about correctness rather than about the number
 props that still name no model are a different population and untouched — an item that names nothing
 leaves the networked model in place, which is the other half of `UpdateModelToClass`'s condition, so
 some of them may be correct. The 2,805 `light_glow03.vmt#Sprite` rejections are B378, unchanged.
+
+## 10. An item that names "" has answered — and a weapon draws its item, not the wire (B105, 2026-09-30)
+
+**What was believed:** B105 filed eighteen `"model_player" ""` declarations "over a prefab" — the engine's merge
+lets an item's own "" win (`econ_item_schema.cpp:2909`, `:2962`, `:2967`), the port's search skipped empties, so the
+port would draw a prefab's model where the engine draws none.
+
+**What the file said:** none of the eighteen sits over a model. Fifteen are items' own — medals, the Upgradeable
+Fists, gifts, the Duel MiniGame, the Pallet of Crates — over prefabs naming nothing; three are parentless prefabs,
+`weapon_fists`, `halloween2013_spellbook` and `randomgift`, reached by nineteen more. Counting every scalar key an
+item's "" hides from a prefab found no model key at all: `craft_class` 1,412, `craft_material_type` 279,
+`armory_remap` 15, `xifier_class_remap` 1, `anim_slot` 1 (the Half-Zatoichi), `item_slot` 1 (a tool). The leak the
+question predicted cannot happen on shipped data.
+
+**What was wrong was one layer down, in what "no model" meant.** The engine answers "" (`BInitFromKV`, `:3158`;
+`GetPlayerDisplayModel`, `econ_item_view.cpp:969`); the port answered null, and the two only look alike. For a TF
+weapon the client rebuilds the world model from a valid item's answer and writes it over the networked index
+(`tf_weaponbase.cpp:681-701`, `:3597-3607`), so "" draws nothing (`c_basecombatweapon.cpp:401`). The port read null as
+"unknown", asked the class's stock item — itself "" — and kept the wire, which for an attach-to-hands weapon sending no
+world index is `m_nModelIndex`: the carrier's first-person hands.
+
+**And then the census said nothing on screen changes.** Over 59 demos the items sit on 248 prop tracks — the Duel
+MiniGame on 80 worn props, the fists on 52, the spellbooks on 114 — and every one names no model on the wire or is never
+a prop at all, but one: an engineer's Basic Spellbook in `20150119_2240_cp_process_final_(ovo)_blu`, whose wire names
+`c_engineer_arms.mdl` for its 54 ticks. The census's first report called it drawn. It is holstered at every one of those
+ticks, so `WeaponVisibility` had hidden it all along: **resolved is not shown**, and the probe asks that rule now. The
+fix is parity for the model a held spellbook or fists would draw; the corpus holds no such moment.
+
+**The instrument needed its controls, besides the visibility rule above.** The `item-props` census first sampled each track at its first tick and
+found the stock sticky launcher absent — a holstered weapon is not a prop then — so it samples the whole life; and it
+prints the tracks carrying ANY item index beside the named ones, which is zero before 2009, because an empty census
+beside an empty control measures nothing.
+
+*Evidence class: counted in shipped data (the declarations, the key census); read from published source (the merge,
+the weapon's and the wearable's world model); measured on the corpus through the production path (the census).*
