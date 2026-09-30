@@ -7883,6 +7883,58 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — OPEN 2026-09-30
+
+**Found by the decode census** (2026-09-30). Two ETF2L Season 29 recordings are servers left recording while
+nobody played: `auto-20180301-2156-koth_product_rc8.dem`, 1,300,749,497 bytes, and
+`auto-20180308-2144-cp_prolands_b3b.dem`, 2,015,374,411 bytes (both `D:\tf2-demo-archive\ETF2L Season 29`).
+Each is tens of hours of the same few entities.
+
+- **prolands:** `DemoCommandReader.Read` ran out of memory under a 6 GiB heap limit and completed under 10 GiB.
+  Its assembly would need about 10 GB at the census's 5x budget and was skipped. *Measured.*
+- **koth_product:** every stage but the timeline passed under an 8 GB budget, with a 9,046 MB peak working set.
+  *Measured.*
+- **The timeline** at B439's 40–84x would need 52–170 GB. It is not attempted. *Arithmetic.*
+
+Every other stage of both demos that ran, passed; nothing is misread. The defect is that the reader holds the
+whole command list, so memory scales with the file, not with the state. That is harmless for a match and fatal for
+a server nobody stopped. A streaming read (command at a time) is the fix, and it is its own branch. Smallest
+specimen: koth_product, SHA-256 `3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9d6d9e1752a319f614`
+(`tools/corpus/manifest.json`, `censusSpecimens`). *Evidence class: measured.*
+
+---
+
+### B448 — a demo cut off mid-command compiles back without its tail: the assembly carries no bytes that are not a whole command — OPEN 2026-09-30
+
+**Found by the decode census over D200's pool** (`decode-census`, 2026-09-30; the decoder as of cd6995e1).
+**157 of the pool's 429 demos end inside a command** — every one of the 152 in ESEA Seasons 29–31, four in
+ETF2L Season 29 and one in Season 32 — and each compiles back to every byte up to its last whole command and
+none after. The tails run from 2 to 545 bytes. Everything before them decodes: the smallest,
+`esea_match_14634302.dem`, re-encodes 43,588 of 43,588 messages and 14,458 of 14,458 snapshots, traces 14,458
+`dem_packet` blocks without a stop, and rebuilds 5,558,091 of its 5,558,272 bytes.
+
+**The 181 missing bytes are one packet, by arithmetic.** The reader says "A Packet command declares 165 payload
+bytes at offset 5557112, but only 88 remain": 5 (type and tick) + 84 (`democmdinfo_t` and the two sequence
+numbers) + 4 (length) + 88 = 181. *Arithmetic.*
+
+**The ESEA files end on 4 KiB boundaries** — `esea_match_14231863.dem` is 13,811,712 bytes, 3,372 × 4,096, with
+a 2-byte tail — which is a buffered writer that flushed whole blocks and never the last. `DemoCommandReader`'s
+remark records the same shape across another ESEA archive (159 of 370). *Measured for the files named; the
+flush is interpolated.*
+
+**Why no gate saw it.** `EveryDemo_CompilesBackToItsOwnBytes` asserts `rebuilt.Length <= original.Length` and
+compares `original[..rebuilt.Length]` — the reasoning beside it is from the command cap that was removed — so a
+tail that is never rebuilt passes. And lcor holds no cut demo (0 of its 49, census), so nothing the suite reads
+could have shown one.
+
+**What byte-identical needs:** the assembly to carry the bytes after the last whole command — the reader already
+knows where they begin — and `DemoWriter` to write them back. Not fixed here; a format change wants its own
+branch, red first on a synthetic demo cut mid-packet. Specimen: `D:\tf2-demo-archive\ESEA Season 30\esea_match_14634302.dem`,
+5,558,272 bytes, SHA-256 `51cc146c6271d92cc83dedbdcfe63b7feacc97c049aabb4c9796215745c0efff`
+(`tools/corpus/manifest.json`, `censusSpecimens`).
+
+---
+
 ### B443 — the entity round-trip test reads with a state that never saw the first signon, and its two "removal list" mismatches are its own — OPEN 2026-09-30 (was: two entity removal lists do not re-encode to their own bits)
 
 **Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
@@ -7968,6 +8020,32 @@ payload is not a whole number of 28-byte frames", in `20120909_1804_cp_gullywash
 
 The width may follow the quality through a table, or the frames may carry their own lengths; Source's
 Speex encoder (`vaudio_speex`) says which. Research first, on its own branch. *Evidence class: measured.*
+
+**The decode census, 2026-09-30: not one demo — every Speex recording in the pool after the launch build.**
+Twenty-five of D200's 429 demos declare `vaudio_speex`; seven carry voice. The one that decodes is the 2007
+SourceTV `tf2-2007-build3258-stv-cp_granary.dem` (125 packets, 272 frames). The other six, POV recordings
+from 2012 to 2015 at protocols 21, 22 and 24, all carry payloads that are not whole 28-byte frames:
+
+| demo | protocol | packets | not a multiple of 28 | of the rest, frames libspeex rejects |
+|---|---|---|---|---|
+| `leeko_badlands_4_63800.dem` | 21 | 1 | 1 (262 bytes) | — |
+| `20120909_1804_cp_gullywash_final1_red_fags.dem` | 22 | 454 | 440 | 53 of 97 |
+| `20140607_2350_koth_pro_viaduct_rc4_red_red.dem` | 24 | 10 | 10 (the first 349 bytes) | — |
+| `20130518_0313_cp_granary_blu_blu.dem` | 24 | 557 | 538 | 166 of 240 |
+| `20130519_0130_cp_granary_red_-----.dem` | 24 | 4,949 | 4,762 | 1,349 of 2,256 |
+| `20150120_2113_cp_process_final_red_blu.dem` | 24 | 522 | 501 | 135 of 234 |
+
+The gullywash row reproduces this entry's own count (454 non-empty, 440 not a multiple of 28) — the census's
+control. Even the packets that ARE whole multiples decode badly, a third to two thirds of their frames refused,
+so a 28-byte slice is wrong for them too. The rule the framing needs is not a quirk of one recording: it is what
+Speex voice looked like from at least 2012. *Measured.*
+
+**The pool's archives add eleven more, and they are SourceTV.** Extracted from the 16 `.7z`/`.zip` archives the
+first pass could not reach, eleven protocol-21 SourceTV recordings of `cp_quay` (December 2011 to March 2012) fail
+the same way — seventeen Speex failures in all, across both points of view. So the 2007 STV is not the pass
+because it is SourceTV. The smallest specimen is now `20120324-2006-cp_quay_a9.dem`, 9,562,228 bytes, SHA-256
+`e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d`, from `20120324-2006-cp_quay_a9.7z` in
+`D:\tf2-demo-archive` (`tools/corpus/manifest.json`, `censusSpecimens`).
 
 ---
 

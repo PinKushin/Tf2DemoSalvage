@@ -332,6 +332,15 @@
       "notes": "First corpus entry. See docs/FORMAT_NOTES.md and docs/SPEC.md."
     }
   ],
+  "censusSpecimens": {
+    "why": "The smallest demo of each failure class the decode census (D200, 2026-09-30) found. All are lcor candidates, not gcor: none is a new protocol. They are recorded here by checksum, not copied. Two classes already have gcor specimens: B447 (svc_SetPause) is z1800.dem and B24 (the truncated schema) is demos/tf2-2007-build3258-stv-cp_granary.dem.",
+    "demos": [
+      { "class": "B448", "file": "D:\\tf2-demo-archive\\ESEA Season 30\\esea_match_14634302.dem", "sha256": "51cc146c6271d92cc83dedbdcfe63b7feacc97c049aabb4c9796215745c0efff", "sizeBytes": 5558272, "networkProtocol": 24, "failure": "assembly: 181-byte tail after the last whole command is not rebuilt" },
+      { "class": "B441", "file": "20120324-2006-cp_quay_a9.dem, inside D:\\tf2-demo-archive\\...\\20120324-2006-cp_quay_a9.7z", "sha256": "e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d", "sizeBytes": 9562228, "networkProtocol": 21, "pointOfView": "SourceTV", "failure": "voice: Speex payloads are not whole 28-byte frames" },
+      { "class": "B440", "file": "C:\\Users\\pinku\\source\\repos\\PinKushin\\Tf2DemoSalvage\\tools\\corpus\\local\\auto-20101109-2141-cp_badlands.dem", "sha256": "a156f8e76f74582d229f7a51a90924d66274d0d83dcf23c02a9c30247ca8fd14", "sizeBytes": 10914193, "failure": "schema: protocol-15 SourceTV misread from its first bytes (fixed on main eb60251f, after the census build)" },
+      { "class": "B449", "file": "D:\\tf2-demo-archive\\ETF2L Season 29\\auto-20180301-2156-koth_product_rc8.dem", "sha256": "3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9d6d9e1752a319f614", "sizeBytes": 1300749497, "networkProtocol": 24, "failure": "memory: an idle-server recording too large to hold whole" }
+    ]
+  },
   "corpusGaps": {
     "preTwentyTwenty": "EMPTY, and not for lack of trying. Checked 2026-08-07: RGL launched 2019 so its oldest demos are the same era as these. ETF2L's listing goes back to Sept 2014 but the files have rotted - every demo id below ~12010 returns HTTP 404, and the live floor is id 12025, dated 2020-07-23. ESEA's SourceTV demos shipped with expiry dates and were never permanently downloadable, so there is nothing to recover; community Mega collections catalogued on teamfortress.tv in 2013 are long dead. sizzlingstats, which did keep demos, is gone.",
     "consequence": "The parser has no historical coverage and no test that would reveal its absence. See D5 - the schema-driven design has to be right by construction, because it cannot be verified."
