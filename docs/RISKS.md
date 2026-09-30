@@ -1281,9 +1281,18 @@ SourceTV file, but it exists whole in the same build's other recordings. Measure
 The one differing byte is the cut itself: the SourceTV writer's buffer ended part-way through it, so
 its bits after the cut were never written. So the truncated schema is exactly build 3258's schema up
 to 2^16 bytes, and the build's full schema is the rest of it. Decoding the two SourceTV demos' 8,185
-snapshots against it would be exact rather than a guess. That is salvage beyond what the engine does
-— the real client cannot parse the truncated table either — and it draws on another file, so it is
-the owner's call, asked 2026-09-30. *Evidence class: measured (the payloads compared byte for byte).*
+snapshots against it would be exact rather than a guess. *Evidence class: measured (the payloads compared
+byte for byte).*
+
+**The owner, asked 2026-09-30, corrected the premise:** *"I thought those were playing fine even with
+the cut off? they did in the real client, so why cant we play them? for users number 2 or just playing
+it, is the only real option"*. This note had said the real client cannot parse the truncated table
+either — asserted, never tested, and wrong by the owner's account: the 2007 client plays them. So the
+parity question is what the 2007 engine does with a `dem_datatables` cut at 2^16 bytes, and the
+acceptable fallback is shipping the known schema for a truncated build (option 2), not borrowing one
+from the user's other demos, which a user would not have. And the specimens are first-hand: *"I literally
+made those 07 demos, so they are exactly what you get from that client"* — recorded on the 2007 client's
+own SourceTV, and played back by it.
 
 ## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
 
