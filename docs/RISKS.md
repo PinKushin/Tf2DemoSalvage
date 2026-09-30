@@ -7883,6 +7883,194 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B443 — two entity removal lists do not re-encode to their own bits — OPEN 2026-09-30
+
+**Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
+demo's first 900 commands and asserts every entity snapshot re-encodes exactly: 33,234 of 33,242 did.
+The eight, from the test's own report:
+
+| demo | exact | first mismatch |
+|---|---|---|
+| `demostf-cp_sunshine-2026-08-08-2233.dem` | 799 of 800 | tick 376, bit 1339 of 1339, "in the removal list rather than in any entity" |
+| `demostf-koth_cascade_rc1a-1491232.dem` | 647 of 654 | tick 1481, bit 3673 of 3673, in the removal list |
+
+Every other demo re-encodes 100%, including the other twenty-one demostf recordings, so the entities
+themselves came back bit for bit and what differs is the explicit-delete list written after them. Why
+it differs — order, a repeat, an index — is not established. *Evidence class: measured.* Not fixed here;
+an encoder change wants its own branch and a synthetic removal list that reproduces it first.
+
+---
+
+### B442 — `move_x` runs backward at two settled forward ticks of the movement POV — OPEN 2026-09-30
+
+**Found by `RunningForward_DrivesMoveXPositive` in the first full superset run** (B439). Its demo,
+`movement-test-pov-cp_process.dem`, is lcor, so a gcor run never meets it. The recorded `CUserCmd` at
+every sampled tick is `forwardmove 450` with `IN_FORWARD` held, mid-way through an unbroken run of at
+least 60 forward ticks, and the recorder is the only player. Nine samples:
+
+| tick | move_x | move_y |
+|---|---|---|
+| 218, 640, 878 | 1.000 | 0.388, 0.112, 0.136 |
+| 1187, 1399, 4375, 4872 | 1.000 | -0.416, -0.409, -0.183, -0.207 |
+| **5541** | **-0.674** | **1.000** |
+| **5681** | **-0.499** | **1.000** |
+
+**Deterministic:** an isolated rerun gives the identical values. The test arrived with B101's fix
+(a29a63c5, 2026-08-17), and B438 found it already failing at 1eff3478; the window between is not
+bisected here. A negative `move_x` drives the legs from the backward half of the blend grid — B101's
+backward-run symptom, returning at two ticks. Cause unknown; `ComputePoseParam_MoveYaw` is the engine
+function to read first. *Evidence class: measured; the reading of the grid is from B101.*
+
+---
+
+### B441 — the 2012 gullywash demo's Speex voice is not fixed-width frames — OPEN 2026-09-30
+
+**Found by `EverySpeexFrame_DecodesToPcm` in the first full superset run** (B439): "a 20-byte Speex
+payload is not a whole number of 28-byte frames", in `20120909_1804_cp_gullywash_final1_red_fags.dem`
+(protocol 22, lcor).
+
+- It declares what every era specimen declares — `svc_voiceinit codec "vaudio_speex" quality 5` (CLI
+  trace) — and every era specimen's packets are whole multiples of 28 (`findings/02-net-messages.md`; the
+  test passes over gcor).
+- **Its 515 `svc_voicedata` payloads are not:** 61 empty, 33 of 20 bytes, 13 of 15, 6 of 28, and the rest
+  scattered — 329 bytes eight times, 365 and 361 six, 440, 417, 389 and 344 five. Of the 454 non-empty,
+  14 are multiples of 28 and 64 of 20, so no single width slices them.
+- **Nothing the viewer draws or plays depends on it today:** `SpeexVoiceDecoder`'s only callers are the
+  tests and the fuzzer. What is missing is the rule for this demo's framing.
+
+The width may follow the quality through a table, or the frames may carry their own lengths; Source's
+Speex encoder (`vaudio_speex`) says which. Research first, on its own branch. *Evidence class: measured.*
+
+---
+
+### B440 — both protocol-15 SourceTV demos misread from their first bytes: the schema and every message — OPEN 2026-09-30
+
+**Found by the first full superset run** (B439). Two lcor demos, both SourceTV recordings at network
+protocol 15, and both wrong at every layer:
+
+| demo | header | first signon payload |
+|---|---|---|
+| `auto-20101109-2141-cp_badlands.dem` | "CEVO TF2 Match Server", 130,314 ticks, 32,508 frames | `00 00 c8 03 c0 02 00 00 c0 ff ff ff ff f9 00 3d …` |
+| `esea_match_2184869.dem` | "ESEA LAN 1618", `cp_snakewater_b9` | `00 00 c8 03 80 02 00 00 c0 ff ff ff ff fe 00 30 …` |
+
+- **Schema:** both throw in `SendTableParser` — "class list declares 26207 items needing at least 838624
+  bits, but only 752986 (761042 for esea) remain". The same 26,207 in two recordings is a layout read
+  one way that these write another, not corruption. The control: `tf2-2009-build3862-pov-cp_badlands`,
+  protocol 15 but a POV, parses (334 tables, 232 classes) and passes everything.
+- **Messages:** the first signon block reads `svc_serverinfo protocol 30 map "<garbage>" max_classes 499
+  tickrate -108.39` (esea: `max_classes 509 tickrate -7037294`), then nine `svc_empty`, a garbage
+  `svc_entitymessage`, `svc_voiceinit codec ".pcf" quality 17`, and "Unrecognised message id 1 at bit
+  1610". Every later signon block stops within bits; esea's trace carries 106,415 "stopped after" lines.
+- **Five tests fail on the CEVO demo:** `EveryWritableMessage_ReproducesItsOwnBitsExactly` (ServerInfo at
+  bit 0: 536 bits on the wire re-encode to 840), `NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock`
+  (the offset spreads 790 inside an unbroken run of 192 packets), `PayloadRoundTrip_TheCorpus_IsReported`
+  (GameEvent 13,082 and SetPause 6 do not round-trip), `EveryDemo_TracesWithoutAnUnreadableBlock`, and
+  `EveryDemo_CompilesBackToItsOwnBytes` (10,914,237 bytes rebuilt from 10,914,193).
+- **The container fields differ between the two** — the CEVO demo's first `dem_signon` has tick
+  `0x80000000` and sequence numbers `0xfc980252` in and out, esea's tick 337,777 and 120,405 — and both
+  fail alike, so these are probably not the cause. *Not established.*
+
+**esea's failure was invisible twice over, which is worth more than the defect.** Each message-level test
+above stops at the first bad demo, and `auto-…` sorts before `esea_…`, so esea was never reached. And
+every timeline sweep walks `Corpus.FilesWithSchema`, which drops a demo whose schema throws — rightly for
+the two 2007 SourceTV specimens whose tables are truncated on the wire, silently for these two.
+`EntityRoundTrip_TheCorpus_IsReported` skips a demo with no snapshots, which both are.
+
+*Hypothesis, interpolated:* the protocol-15 POV decodes and both protocol-15 SourceTV demos fail from the
+first command, so that era's SourceTV writer differs in something every layer reads. Not fixed here: a
+decode change needs its own branch, and a synthetic specimen to red it first.
+
+---
+
+### B439 — the corpus suite kept every demo's timeline, and the full superset stopped fitting in memory — FIXED 2026-09-30
+
+**Found by B438's superset run.** `TimelineCache` (Corpus.Tests) kept each demo's timeline for the
+life of the run. With all 49 lcor demos present the corpus host held 39 GB private on this 32 GB
+machine 43 minutes in, and was stopped — so the full superset, which a decode change needs, could not
+be run at all.
+
+**Filed on a premise that was wrong by seven times.** The largest timeline was taken to be z1800's
+635 MB (B433). z1800 is a 9 MB gcor demo; lcor's run to 97 MB, and `timeline-heap` measures their
+timelines at forty to eighty-four times the file — 4,692 MB for the largest, on the order of 80 GB for the
+local corpus (`docs/verification/README.md`, "One demo's timeline"). A count sized on z1800 would have
+been a count of 4.7 GB slots.
+
+**A bounded cache alone was not enough, because of how the suite asks.** Twelve tests in the gate walk
+every demo, and they do not start together: in the last gcor run with three lcor demos (`corpus.trx`,
+2026-09-30 06:48) five began within 6 s of the run's start and travelled as one — each waiting on the
+same build — and the other seven began 111 to 140 s later. With a small cap and the order
+`FilesWithSchema` gives, a late sweep rebuilds every timeline the first ones have passed, one more pass
+for every group that starts late. And one of the twelve, `Fog_AcrossTheCorpus_IsDecodedFromEveryDemo`,
+held every timeline in one list, which no cache can bound.
+
+**The three options filed, weighed:**
+- *LRU with a small cap* bounds what the cache keeps; on its own it multiplies the builds above.
+- *Scoped by fixture*: every sweeping class builds every demo itself — more builds and more copies.
+- *Ordering the tests by demo*: NUnit cannot order across fixtures under `ParallelScope.All`, so it is
+  done by the order each sweep asks in instead. Taken, with the LRU.
+
+**Fix.**
+- `LruCache<TKey, TValue>` (SdkReference): keeps at most `capacity` BUILT values, least recently used
+  released first; never evicts one still building, whose callers hold it, so a second caller joins that
+  build; builds different keys at once — its lock guards the bookkeeping, never a build; keeps a failed
+  build's exception as before; and hands back a released value somebody still holds, through a weak
+  reference, instead of building a second copy.
+- `WarmFirst`: at each step a sweep asks for a demo the cache already has — kept, building, or released
+  but still held — before a cold one. A late sweep joins the others where they are, and the demos it
+  missed are built once more at the end, shared by every other late sweep.
+- `TimelineCache`: two built timelines kept beyond those tests are holding (at most 9.4 GB), and every
+  build logged as `TIMELINE built <demo> in <s> s`, so a run shows its rebuilds.
+- The twelve sweeps ask in `WarmFirst` order — `DemoTimelinePropsTests` (3), `RecordedViewOrigin-
+  ConformanceTests` (2), `CorpusRecordedViewTests`, `AttachmentUseTests`, `BrushEntityMotionTests`,
+  `CorpusViewmodelTests`, `NoDrawTrackTests`, `ViewmodelClassAgreementTests` and the fog sweep, which
+  now keeps two numbers per demo instead of the timeline — and so does `CorpusPlayerOriginTests`'
+  sample of eight.
+
+**Tests** (`LruCacheTests`, Core.Tests/TestSupport, beside `SkipTests` for the same project; red at
+8567eb09 as a compile failure). Nine; each rule sabotaged with a precise inverse edit, the other tests
+run each time:
+
+| sabotage | red |
+|---|---|
+| a hit builds a fresh value | `Get_TheSameKeyTwice…`, `Get_PastCapacity…`, `Get_ManyCallers…`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| a hit moves to the back instead of the front | `Get_PastCapacity_ReleasesTheLeastRecentlyUsed` alone |
+| the cap multiplied by 1,000 | `Get_PastCapacity_ReleasesTheLeastRecentlyUsed` alone |
+| `PublicationOnly` for `ExecutionAndPublication` | `Get_ManyCallers…`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| entries still building evicted too | `Get_PastCapacityWhileAKeyIsStillBuilding_DoesNotBuildItAgain` alone |
+| released values not remembered | `Get_AValueTheCacheReleasedButACallerStillHolds…`, `WarmFirst_AKeyReleasedButStillHeld…` |
+| the build run inside the lock | `Get_TwoKeysAtOnce_BuildAtTheSameTime`, `Get_PastCapacityWhileAKeyIsStillBuilding…` |
+| cold keys first | the three `WarmFirst` tests |
+| the order decided once, up front | `WarmFirst_AKeyBuiltPartWayThrough_IsVisitedNext` alone |
+| a released-but-held key not warm | `WarmFirst_AKeyReleasedButStillHeld_CountsAsWarm` alone |
+
+Whether the cache still holds a value is read from a weak reference after a full collection; threads
+meet on conditions — a build started, a caller blocked — and a 30-second tripwire only stops a hang.
+
+**The superset with the cache alone, and two more holders it found.** `TF2DEMOSALVAGE_GCOR_ONLY=0 bash
+build/gate.sh` on 9eadede9: the corpus assembly finished — 50 min, where the unbounded cache was stopped
+at 43 — with its host at a 23.4 GB private peak (18.8 GB working set), and the machine's free memory
+touched 0.09 GB. The trx start and end times put the two rises on two tests:
+
+- **16 → 23 GB, 08:16–08:20, is `EveryDemo_CompilesBackToItsOwnBytes`**, which appended every demo's
+  decompiled text to one `StringBuilder` for a report at the end. Over the superset that outgrew the
+  longest string .NET holds, so it threw — having compared no demo after the one that overflowed it. It
+  now tallies each demo's text as it is written, keeps one copy (the writer cleared, lines walked as
+  spans rather than split into an array of the whole text): alone, over the same demos, 8.04 GB → 4.42
+  GB and 276 → 241 s. And it now reaches its real failure, B440.
+- **0 → 16 GB in the first five minutes** is the sweeps setting off together beside eight builds OUTSIDE
+  the cache: `CorpusExplosionTests` built the f12 demo three times over (a 2.8 GB timeline each, beside
+  the cache's own), `CorpusPlayerGestureTests` z1800 four times, and
+  `CorpusWorldDynamicLightTests` the pub POV once. They ask `TimelineCache` now: 9 tests, 3 builds.
+- **Builds:** 97 of 55 demos, 4,509 s of build time, from the `TIMELINE built` lines. 42 were rebuilds
+  worth about 1,300 s, nearly all single-demo tests asking for a big lcor timeline the sweeps had
+  already passed; they ran beside the sweeps rather than in their path, which are one build at a time.
+
+**After both, on 7e1030f1:** the corpus assembly over the superset in 50 min 5 s, its host at 14.59 GB
+private and 14.13 GB working set, the machine never below 2.83 GB free, 92 builds (37 rebuilds). The
+eight failures left are B440–B443. The numbers and command: `docs/verification/README.md`.
+
+---
+
 ### B438 — `PropsAt`'s kept sample answered what the previous call asked, and two threads tore it — FIXED 2026-09-30
 
 **Found in B105's work** (2b7de6f4): four parallel `[TestCase]`s on `TimelineCache`'s z1800 — three found no

@@ -67,7 +67,7 @@ public sealed class RecordedViewOriginConformanceTests
     {
         List<string> measured = [];
 
-        foreach (string path in Corpus.Files().Where(IsPointOfView))
+        foreach (string path in TimelineCache.WarmFirst(Corpus.Files().Where(IsPointOfView)))
         {
             if (Recorder(path) is not { } slot)
             {
@@ -174,7 +174,7 @@ public sealed class RecordedViewOriginConformanceTests
         List<string> report = [];
         List<string> divergent = [];
 
-        foreach (string path in Corpus.Files().Where(IsPointOfView))
+        foreach (string path in TimelineCache.WarmFirst(Corpus.Files().Where(IsPointOfView)))
         {
             if (Recorder(path) is not { } slot)
             {

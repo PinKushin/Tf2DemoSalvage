@@ -64,9 +64,13 @@ public sealed class CorpusAssemblyRoundTripTests
         long structured = 0;
         long raw = 0;
 
-        // Every demo's text, kept so the report counts what was written rather than what could
-        // have been.
-        System.Text.StringBuilder everything = new();
+        // What the writer still carries as bits, tallied from each demo's own text as it is written,
+        // so the report counts what was written rather than what could have been (B439). This kept
+        // every demo's text in one builder for a report at the end; over the full superset that
+        // outgrew the largest string .NET holds, so the test threw part-way — leaving the rest of the
+        // corpus uncompared — and the builder alone took the corpus host from 16 GB to 23.
+        Dictionary<string, long> rawBits = new(StringComparer.Ordinal);
+        Dictionary<string, long> rawLines = new(StringComparer.Ordinal);
 
         foreach (string path in Corpus.Files())
         {
@@ -79,8 +83,13 @@ public sealed class CorpusAssemblyRoundTripTests
 
             StringWriter text = new() { NewLine = "\n" };
             DemoAssembly.Write(text, header, commands);
+            string assembly = text.ToString();
 
-            using StringReader reader = new(text.ToString());
+            // One copy of a demo's text at a time: it runs to gigabytes on a large demo, and the
+            // writer's builder would otherwise hold a second through the parse and the compare.
+            text.GetStringBuilder().Clear();
+
+            using StringReader reader = new(assembly);
             (DemoHeader compiledHeader, IReadOnlyList<DemoCommand> compiledCommands) =
                 DemoAssembly.Parse(reader);
 
@@ -98,8 +107,8 @@ public sealed class CorpusAssemblyRoundTripTests
 
             demos++;
             bytes += original.Length;
-            Count(text.ToString(), ref structured, ref raw);
-            everything.Append(text.ToString());
+            Count(assembly, ref structured, ref raw);
+            TallyStillRaw(assembly, rawBits, rawLines);
         }
 
         // A corpus that stopped being found would otherwise pass this without comparing anything.
@@ -121,11 +130,12 @@ public sealed class CorpusAssemblyRoundTripTests
             $"{structured:N0} of {structured + raw:N0} message lines are structured " +
             $"({100.0 * structured / (structured + raw):F1}%)"));
 
-        ReportWhatIsStillRaw(everything.ToString());
+        ReportWhatIsStillRaw(rawBits, rawLines);
     }
 
     /// <summary>
-    /// Names what is still carried as bits, by what the writer actually emitted.
+    /// Adds what one demo's text still carries as bits to the running totals, by what the writer
+    /// actually emitted.
     /// </summary>
     /// <remarks>
     /// **Measured from the output, not from <c>CanWrite</c>, because that is the mistake this
@@ -137,28 +147,39 @@ public sealed class CorpusAssemblyRoundTripTests
     /// The writer labels each raw line with what it stands for and whether the type had a text
     /// form that declined, so counting the output cannot disagree with the output.
     /// </remarks>
-    private static void ReportWhatIsStillRaw(string assembly)
+    private static void TallyStillRaw(
+        string assembly, Dictionary<string, long> bits, Dictionary<string, long> counts)
     {
-        Dictionary<string, long> bits = new(StringComparer.Ordinal);
-        Dictionary<string, long> counts = new(StringComparer.Ordinal);
+        // Line by line over the one copy, never an array of every line: that is the whole text a
+        // second time, gigabytes on a large demo (B439).
+        ReadOnlySpan<char> text = assembly;
 
-        foreach (string line in assembly.Split('\n'))
+        foreach (Range range in text.Split('\n'))
         {
-            string trimmed = line.Trim();
+            ReadOnlySpan<char> trimmed = text[range].Trim();
             if (!trimmed.StartsWith("raw ", StringComparison.Ordinal))
             {
                 continue;
             }
 
-            string[] parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            // The token after "raw" — what Split(' ', RemoveEmptyEntries)[1] read.
+            ReadOnlySpan<char> afterRaw = trimmed[4..].TrimStart(' ');
+            int end = afterRaw.IndexOf(' ');
+            ReadOnlySpan<char> width = end < 0 ? afterRaw : afterRaw[..end];
+
             int marker = trimmed.IndexOf("# ", StringComparison.Ordinal);
-            string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..];
+            string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..].ToString();
 
             bits[label] = bits.GetValueOrDefault(label) +
-                int.Parse(parts[1], CultureInfo.InvariantCulture);
+                int.Parse(width, CultureInfo.InvariantCulture);
             counts[label] = counts.GetValueOrDefault(label) + 1;
         }
+    }
 
+    /// <summary>Names what is still carried as bits across every demo, largest first.</summary>
+    private static void ReportWhatIsStillRaw(
+        Dictionary<string, long> bits, Dictionary<string, long> counts)
+    {
         TestContext.Out.WriteLine("still bits, by what they are:");
         foreach ((string label, long total) in bits.OrderByDescending(entry => entry.Value))
         {
@@ -170,10 +191,14 @@ public sealed class CorpusAssemblyRoundTripTests
     /// <summary>Counts message lines by whether they carry text or bits.</summary>
     private static void Count(string assembly, ref long structured, ref long raw)
     {
-        foreach (string line in assembly.Split('\n'))
+        ReadOnlySpan<char> text = assembly;
+
+        foreach (Range range in text.Split('\n'))
         {
+            ReadOnlySpan<char> line = text[range];
+
             // Message lines are the indented ones; commands and the header are not.
-            if (line.Length == 0 || line[0] != ' ')
+            if (line.IsEmpty || line[0] != ' ')
             {
                 continue;
             }

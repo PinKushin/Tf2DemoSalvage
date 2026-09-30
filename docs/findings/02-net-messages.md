@@ -239,6 +239,12 @@ and `svc_VoiceInit` independently reports quality 5 for every pre-2016 demo in t
 unrelated routes to the same parameter, in the sense of
 [01](01-container.md)'s view-angle cross-check.
 
+**The cross-check held for the specimens it was measured on, and one later demo breaks it**
+(2026-09-30, B441). `20120909_1804_cp_gullywash_final1_red_fags.dem`, a 2012 match at protocol 22,
+declares quality 5 exactly as they do — and of its 454 non-empty voice payloads only 14 are multiples of
+28, 64 of 20, the rest scattered from 300 to 600 bytes. So "quality 5, therefore bare 28-byte frames"
+was a fact about the era specimens, not a rule; this demo's framing is not yet known. *Measured.*
+
 ## Wiring the three voice codecs: what worked, and what CELT still refuses (2026-08-11)
 
 The framing above says where each codec's bytes are. This section is what happened when actual

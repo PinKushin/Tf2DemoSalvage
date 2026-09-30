@@ -22,6 +22,9 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class WearableTrackTests
 {
+    /// <summary>A modern match with a full roster in worn items: the f12 parity reference.</summary>
+    private const string F12Recording = "demostf-cp_process_f12-2026-08-07";
+
     [Test]
     public void WearableTracks_Cosmetics_NameTheirWearer()
     {
@@ -29,7 +32,12 @@ public sealed class WearableTrackTests
         // recordings, so they carry no other players and no worn items at all — measured: 11 props
         // and zero wearables in the 2013 badlands POV. A test pointed there would pass while
         // measuring nothing, so this one names the demo it needs and skips when it is absent.
-        string path = Corpus.Demo("cp_process");
+        //
+        // **Named in full, because a fragment moved.** "cp_process" found this f12 recording, which
+        // every number below was measured on, until 2026-08-18 — when
+        // `20150119_2240_cp_process_final_(ovo)_blu` joined lcor and, digits sorting first, silently
+        // became the subject instead.
+        string path = Corpus.Demo(F12Recording);
 
         DemoTimeline timeline = TimelineCache.For(path);
 
@@ -81,7 +89,14 @@ public sealed class WearableTrackTests
         foreach (SceneProp prop in attached)
         {
             prop.Pose.Hidden.ShouldBeFalse();
-            prop.ModelPath.ShouldNotBe(string.Empty);
+
+            // **A model named on the wire OR by the item, not necessarily on the track** (B263,
+            // c21d81c4). A worn item's model is its item's `model_player` — `CEconEntity::SetModel`
+            // asking `GetPlayerDisplayModel` — so the wire need not carry one: the track leaves the
+            // timeline with an empty path and `WeaponPropModels.Resolve` names it at draw time. This
+            // demanded a wire path, which B263 later showed a cosmetic need not have.
+            (prop.ModelPath.Length > 0 || prop.ItemDefinitionIndex is not null).ShouldBeTrue(
+                $"entity {prop.EntityIndex} is attached and names no model, on the wire or by its item");
         }
 
         // Every wearer is a player present at the same tick, not a stale handle.
@@ -101,7 +116,7 @@ public sealed class WearableTrackTests
         // recordings, so they carry no other players and no worn items at all — measured: 11 props
         // and zero wearables in the 2013 badlands POV. A test pointed there would pass while
         // measuring nothing, so this one names the demo it needs and skips when it is absent.
-        string path = Corpus.Demo("cp_process");
+        string path = Corpus.Demo(F12Recording);
 
         DemoTimeline timeline = TimelineCache.For(path);
 

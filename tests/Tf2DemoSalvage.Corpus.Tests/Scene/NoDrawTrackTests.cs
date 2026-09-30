@@ -42,7 +42,7 @@ public sealed class NoDrawTrackTests
     {
         int demosWithACycle = 0;
 
-        foreach (string path in Corpus.FilesWithSchema())
+        foreach (string path in TimelineCache.WarmFirst(Corpus.FilesWithSchema()))
         {
             DemoTimeline timeline = TimelineCache.For(path);
 

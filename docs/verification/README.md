@@ -26,15 +26,15 @@ drift the one-owner rule exists to prevent.
 
 ### The two-phase gate, per assembly
 
-**2026-09-09**, `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh`, then the UI phase separately:
+**2026-09-30**, `TF2DEMOSALVAGE_GCOR_ONLY=1 bash build/gate.sh` on 7e1030f1, 657 s, the `.trx` totals:
 
 ```
-core 1803 · cli 74 · logging 17 · fonts 7 · animation 252 · scene 639
-audio 183 · presentation 444 · content 1070 · corpus 156 · rendering 769 · viewer 108
+core 2163 · cli 74 · logging 17 · fonts 5 · animation 5335 · scene 2045
+audio 207 · presentation 542 · content 1445 · corpus 171 · rendering 860 · viewer 115
 ```
 
-0 failed in every assembly. The UI suite is **31**, run under `run-exclusive.ps1` because it takes
-the desktop:
+0 failed in every assembly; 12,979 in all. The UI suite was not re-run that day; on **2026-09-09** it was
+**31**, run under `run-exclusive.ps1` because it takes the desktop:
 
 ```
 pwsh run-exclusive.ps1 dotnet test tests/Tf2DemoSalvage.Viewer3D.UiTests
@@ -46,7 +46,7 @@ measured and refuses a drop until the reason is written next to it, which is a s
 than a number in a document.
 
 **This total was inline in `CLAUDE.md` and had already drifted.** It read *"roughly 4,690 and 31 as
-of 2026-09-03"* against 5,522 and 31 measured here — in the same file that warns, two paragraphs
+of 2026-09-03"* against 5,522 and 31 measured here on 2026-09-09 — in the same file that warns, two paragraphs
 below, that a per-assembly table *"drifted by about four hundred tests while the warning sat
 directly beneath it"*. A count in an always-loaded document is paid for every turn and corrected on
 none of them; that is why B1 exists and why the number now lives here with the command that
@@ -58,14 +58,52 @@ produces it.
 **10 seconds** inside a single-invocation gate, because `dotnet test` runs assemblies concurrently
 and the UI suite was competing with roughly **1,700** other tests for one desktop.
 
-### The corpus suite: gcor 28 seconds, lcor about 30 minutes
+### The corpus suite: gcor about a minute, the superset fifty
 
-**2026-08-10.** `TF2DEMOSALVAGE_GCOR_ONLY=1` runs the committed corpus alone — **10 demos, 20.3 MB**
-across five measured protocols. The full superset adds lcor, **49 demos and 774 MB** in
-`tools/corpus/local/`, which is why it is two orders of magnitude slower.
+**2026-09-30.** `TF2DEMOSALVAGE_GCOR_ONLY=1` runs the committed corpus alone — **10 demos, 20.3 MB**:
+the corpus assembly took **67 s** inside the gate above. The full superset adds lcor, **49 demos and
+1.8 GB** in the main checkout's `tools/corpus/local/` (it was 774 MB on 2026-08-10); the corpus assembly
+over both, on 7e1030f1:
+
+```
+TF2DEMOSALVAGE_GCOR_ONLY=0 dotnet test tests/Tf2DemoSalvage.Corpus.Tests
+Failed!  - Failed: 8, Passed: 181, Skipped: 1, Total: 190, Duration: 50 m 5 s
+.trx: total 220, executed 189, passed 181, failed 8
+host peak (the OS's own counters, sampled every 5 s): working set 14.13 GB, private 14.59 GB
+timeline builds (TIMELINE built lines): 92 of 55 demos, 4,056 s, 37 of them rebuilds
+```
+
+The eight failures are the filed B440 (five), B441, B442 and B443. **Every other assembly is unchanged
+by the switch** — the full gate under `TF2DEMOSALVAGE_GCOR_ONLY=0` on 9eadede9 gave the counts above for
+the nine before corpus, and rendering and viewer run on their own under it gave 860 and 115.
+
+**Where the memory went, run by run** (B439): the unbounded cache, B438 — 39 GB private at 43 minutes,
+stopped; the bounded cache alone, 9eadede9 — 23.39 GB private, 18.80 GB working set, 50 min 11 s, 97
+builds; with the round-trip test and the last builders fixed, above.
 
 **`tools/corpus/local/` is not all of lcor.** The real pool is several gigabytes across at least
-four locations (the owner, 2026-08-26); 774 MB is the part a test currently sees.
+four locations (the owner, 2026-08-26); 1.8 GB is the part a test currently sees.
+
+### One demo's timeline: forty to eighty-four times the file
+
+**2026-09-30**, `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -- timeline-heap <demo>`
+— the live heap after a full compacting collection — and the wall time of that command, `dotnet run`
+included:
+
+```
+demostf-cp_snakewater_final1-2026-08-09-0231   97.4 MB   4,692 MB   149 s
+demostf-koth_product_final-2026-08-08-2256     82.9 MB   3,995 MB   143 s
+etf2l-12030-stv-2020-07-23                     72.1 MB   2,852 MB    97 s
+rgl-pug-2026-08-10-pov                         52.2 MB   2,778 MB   119 s
+demostf-cp_process_f12-2026-08-08-2207         58.2 MB   2,603 MB    96 s
+20150119_2240_cp_process_final_(ovo)_blu       43.0 MB   1,997 MB    80 s
+demostf-koth_ashville_final2-1491186           35.5 MB   1,764 MB    59 s
+demostf-cp_process_f12-2026-08-07              33.0 MB   2,773 MB   (not timed)
+```
+
+z1800, 8.5 MB, holds 635 MB (B433). Forty to eighty-four times the file, so no lcor timeline is small
+and the whole local corpus is on the order of 80 GB of them — the numbers `TimelineCache`'s bound
+was sized by (B439).
 
 ---
 
