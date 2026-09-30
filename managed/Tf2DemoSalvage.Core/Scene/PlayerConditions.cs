@@ -36,6 +36,17 @@ namespace Tf2DemoSalvage.Core.Scene;
         + "name finds the code that reads it. docs/memory/wire-names-are-strings.md.")]
 public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex3, int Ex4)
 {
+    /// <summary><c>TF_COND_AIMING</c>, <c>tf_shareddefs.h:690</c> — a sniper aiming, a heavy's minigun spun up.</summary>
+    /// <remarks>
+    /// **On a heavy it freezes the air-walk.** <c>CTFPlayerAnimState::HandleJumping</c> returns before the air walk
+    /// while a heavy has it (<c>tf_playeranimstate.cpp:1439-1440</c>), so <c>m_bInAirWalk</c> is neither set nor
+    /// cleared until he stops.
+    /// </remarks>
+    public const int Aiming = 0;
+
+    /// <summary><c>TF_COND_STUNNED</c>, <c>tf_shareddefs.h:705</c> — "Any type of stun. Check iStunFlags for more info."</summary>
+    public const int Stunned = 15;
+
     /// <summary><c>TF_COND_ZOOMED</c>, <c>tf_shareddefs.h:691</c> — a scoped sniper rifle.</summary>
     /// <remarks>
     /// **It selects a different ATTACK gesture, not just a viewmodel.**

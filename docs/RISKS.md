@@ -6890,8 +6890,8 @@ jumps do not — because either alone is consistent with a latch that never fire
 
 **The latch is the engine's, not a convenience.** `vecVelocity.z > 300.0f || m_bInAirWalk` means the
 air-walk continues once started, so a rocket jump does not flicker back to the jump animation as the
-rise slows. `DemoTimeline` reproduces it by latching on the first fast-rising tick and clearing when
-the ground flag returns.
+rise slows. It is now the whole `m_bInAirWalk`, shared with the reload, in `PlayerGestureFeed` — B112's
+2026-09-29 note; the one this paragraph described latched while ducked and cleared only on the ground.
 
 **Vertical speed is differenced from position, which is what the client does too.** The animation
 state reads `GetOuterAbsVelocity`, and on the client that is `EstimateAbsVelocity` — an estimate
@@ -7066,7 +7066,7 @@ the "missing" scaling would have been a divergence dressed as a fix.
 Retracted rather than quietly deleted, because a wrong claim recorded without the reasoning that
 killed it is the kind that gets confidently repeated.
 
-### B112 — the gesture layer: jump-land, attacks, reloads, flinches — OPEN
+### B112 — the gesture layer: jump-land, attacks, reloads, flinches — FIXED (wired by B282, B284, B350 and B351; the context's air-walk and loser state 2026-09-29; the rest of the anim state is B437)
 
 `ComputeSequences` runs `ComputeMainSequence` and then `ComputeGestureSequence`. This project has
 the first and none of the second, so no player fires, reloads, lands or flinches — the body plays
@@ -7187,6 +7187,40 @@ rather than built on a guess:**
 de-risked — it can be built from one SDK mapping rather than needing per-era measurement, and the
 2007/2008 client decompile (owner-offered) would confirm the launch-era row rather than being needed
 to discover it.
+
+**2026-09-29 — the context's last two fields; FIXED for this residual.** `PostureOf` filled four of
+`GestureContext`'s seven fields and the feed a fifth (`NData`); `InAirWalk` and `IsLoser` stayed false, so every
+reload begun mid-rocket-jump played the standing form and a losing scout's air dash was the winner's.
+
+- **`m_bInAirWalk` is one latch in `PlayerGestureFeed`, read by the body and by the reload.** It is set only by
+  `HandleJumping` (`tf_playeranimstate.cpp:1446-1472`) and cleared there on the ground or waist deep; by the double
+  jump (`:1193`); and by `ClearAnimationState` (`:114`), which runs on a respawn and on every frame the player is dead,
+  `EF_NODRAW`, dormant, or wearing a custom model without the class's animations (`multiplayer_animstate.cpp:1381-1395`,
+  `tf_playeranimstate.cpp:340-374`). The base's `|| m_bDying` never keeps a dead TF2 player animating: the one event
+  that sets it is in no demo (`docs/findings/25-gesture-layer.md`). A firing heavy freezes the latch (`:1439-1440`); a
+  live grapple sets it with no rise.
+  `DemoTimeline` steps it once a tick from the differenced height, the flags and the water level, and a reload reads
+  the value the last step left. The body's old latch — set by a fast rise even while ducked, cleared only by the
+  ground — is gone, so the two cannot disagree.
+- **The duck is the surprise.** It shuts the whole block out, so a crouched rise never latches, and a latched player
+  who crouches keeps it — in the air and after a crouched landing — until he stands on the ground. A reload begun
+  crouched after a rocket jump is the air-walking one.
+- **`bValidAirWalkClass` stays the scene's**, as it is for the body: a gesture the latch changed carries the base
+  class's choice as `ActivityWithoutAirwalk`, and `PlayerProps` takes it for a class whose script sets `DontDoAirwalk`.
+- **`IsLoser` is `LoserState.IsLoser`**, one rule for the gesture context and the HUD (`tf_player_shared.cpp:13654`,
+  with `IsLoserStateStunned` at `:9966`), asked of the live entities as the event arrives.
+- **Ported with them because they are the same code:** the double jump starts the jump when none is in force
+  (`tf_playeranimstate.cpp:1184-1190`), and `ClearAnimationState` clears the jump and every gesture slot along with the
+  latch (`multiplayer_animstate.cpp:136-146`).
+
+**Measured on z1800** (`CorpusPlayerGestureTests`): 1985 reload gestures reach a sampled player and 28 take an
+air-walking activity — scout 6, soldier 6, demoman 16 — checked one by one against a latch read independently from the
+raw wire, which is set at exactly those 28 and at no other of the 2002 reload events. The red run's 2004 included 17
+stale reloads carried across a respawn into another class (an instrument fault, f8cb14bb) and 2 that arrived for a
+dying player, which the engine's reset removes.
+
+**Tests:** `AirWalkConformanceTests`, `LoserStateConformanceTests`, `PlayerGestureFeedTests`,
+`SyntheticGesturePostureTests`, `PlayerPropsTests` and the census. What the same functions do besides is B437.
 
 ### B113 — `WriteAngle` wrote every negative angle as zero — FIXED
 
@@ -7666,6 +7700,52 @@ set directly reddens both.
 
 **The general shape, worth carrying:** a cache that hands out a mutable reference is not a cache, it
 is shared state. Every consumer of one is trusted not to write to it, and one of six was not.
+
+---
+
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — OPEN 2026-09-29
+
+**Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
+reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
+in B112; each item below is something TF2 draws that this viewer does not. Evidence class: read from published source.
+
+- **A rocket jumper lands with no landing gesture.** When the air-walk ends on the ground `HandleJumping` restarts the
+  main sequence and plays `ACT_MP_JUMP_LAND` in the jump slot (`:1449-1453`) — with no `bNewJump` gate, unlike the
+  jump's own landing (`:1505-1508`). So a soldier, whose script sets `DontDoNewJump`, lands a rocket jump WITH the
+  gesture and an ordinary jump without it. `PlayerGestureFeed.Landed` only replaces a gesture already in the jump slot,
+  and `PlayerProps.Landing` drops every landing for a `DontDoNewJump` class, so neither half fits; this landing's gate
+  is `DontDoAirwalk`, since only an air-walking class ever latches.
+- **An air-walk suspends the jump's own bookkeeping.** The jumping branch runs only when the air-walk block's
+  condition is false (`:1446` against `:1476`), so while a latched player air-walks `m_bJumping` is neither cleared nor
+  timed; and a firing heavy's early return (`:1439-1440`) freezes the jump as it freezes the latch.
+  `PlayerGestureFeed.Jumping` clears the jump on the ground regardless of either.
+- **A latched player who ducks is drawn crouching; TF2 draws him standing.** `HandleJumping` returns
+  `m_bJumping || m_bInAirWalk` (`:1534`) even when the duck kept the block from running, so `CalcMainActivity` stops
+  there with `idealActivity` still `ACT_MP_STAND_IDLE` (or a jump phase): a soldier who crouches through the end of a
+  rocket jump, or lands crouched, stands idle until he stands up. `PlayerActivityState.For` asks the air-walk only of an
+  airborne player who is not ducking and falls through to the crouch.
+- **The duck both functions ask is the model's as well as the flag's.** `DoAnimationEvent` and `HandleJumping` each
+  drop `bInDuck` when the model has no sequence for the translated crouch walk (`:971-975`, `:1429-1433`). The gesture
+  context's `InDuck` and the latch's duck test read `FL_DUCKING` alone, because the sequence list is the scene's.
+  Whether any stock class model and weapon lacks that sequence has not been measured.
+- **A respawn does not re-seat the feet.** `ClearAnimationState` also clears `m_bCurrentFeetYawInitialized` and
+  `m_nSpecificMainSequence` (`multiplayer_animstate.cpp:141`, `:143`). The feet yaw is `DemoTimeline`'s `FeetYaw`,
+  which death, dormancy and a respawn leave where it was.
+- **A voice command cancels a reload.** `VOICE_COMMAND_GESTURE` restarts the attack-and-reload slot only
+  `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`:1053-1058`). `PlayerGestureEvent.Map` returns it
+  unconditionally, so the feed replaces a playing reload or attack with a numbered gesture that is then skipped at
+  draw. Whether the slot is active depends on the gesture's cycle, which needs the model, so the rule belongs where
+  `EntityModelSet.LayersFor` resolves the sequence. z1800 carries 251 of these events.
+- **The loser's other animations.** `IsLoser` also selects `s_acttableLoserState` in `ActivityOverride`
+  (`:223-269`, table `:170-184`), which rewrites the main sequence's stand, run, crouch, air-walk, jump and swim and the
+  landing gesture `ACT_MP_JUMP_LAND` to their `_LOSERSTATE` forms — the body of humiliation. Only the weapon's
+  own table is ported (`WeaponActivityTable`); the competitive-loser and kart tables are the same mechanism. B61 names
+  the loser state in its list.
+- **A gesture's posture is read when its event arrives, not when it fires.** `CL_QueueEvent` fires a temp entity an
+  interpolation window late (B415) and `DoAnimationEvent` reads `GetFlags()` then; the feed records at arrival, with the
+  arrival's posture and start time. The air-walk latch follows the same convention — the event reads the value the last
+  snapshot left, because `DoAnimationEvent` runs before that frame's `HandleJumping` — so moving gestures to the fire
+  tick moves both together.
 
 ---
 
@@ -18941,10 +19021,7 @@ One live reload layer; the stale doublejump and flinch correctly auto-killed.
 
 - **Weapon-switch has no `PLAYERANIMEVENT_*` at all**, so the owner's *"no weapon change
   animation"* is a separate mechanism still to find. Nothing in the enum names a draw or holster.
-- **`GestureContext` is filled with four of its seven fields.** `IsLoser`, `IsMinigun` and
-  `IsSniperZoomed` each change WHICH activity a gesture resolves to — a minigun's pre-fire
-  auto-kills where a sniper's holds — and air-walk is derived over time rather than read off the
-  entity, so a reload begun mid-rocket-jump takes the standing form.
+- ~~**`GestureContext` is filled with four of its seven fields.**~~ All seven are filled — B112's 2026-09-29 note.
 - **The two custom-gesture events carry an activity NUMBER**, and nothing resolves a number to a
   sequence yet. They are skipped rather than guessed at.
 - **`GetGesturePlaybackRate()` and the layer's own `m_flPlaybackRate`** are not applied; a gesture
@@ -19187,13 +19264,8 @@ one-to-one.
 
 ### Still open, and named rather than implied
 
-- **`IsLoser`** selects `ACT_MP_DOUBLEJUMP_LOSERSTATE` over `ACT_MP_DOUBLEJUMP` and nothing else.
-  `CTFPlayerShared::IsLoser` (`tf_player_shared.cpp:13654`) wants the round state, the winning team,
-  whether the match is competitive, the stun flags and a disguised spy's disguise team. The gap is
-  one animation during humiliation.
-- **Air-walk is not in the gesture context.** It is derived over time from vertical speed rather
-  than read off the entity, and the gesture decode runs inside the packet walk where that history is
-  not to hand. A reload begun mid-rocket-jump takes the standing form.
+- ~~**`IsLoser`** and **air-walk** are not in the gesture context.~~ Both are — B112's 2026-09-29 note. `IsLoser`'s
+  other reach, the loser act table, is B437.
 - **The two custom-gesture events** carry an activity NUMBER, which nothing resolves yet.
 - **`AddLocalLayers`** runs between `CalcPoseSingle` and `SlerpBones` in `AccumulatePose` and is not
   implemented, so a sequence with local layers loses them.

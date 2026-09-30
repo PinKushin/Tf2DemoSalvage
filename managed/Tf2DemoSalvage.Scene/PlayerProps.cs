@@ -473,8 +473,15 @@ public static class PlayerProps
                     // **And the taunt's scene is resolved here** for the same reason again: the
                     // wire names a compiled scene and only the installed game holds the sequence
                     // name inside it (B351).
+                    //
+                    // **So is the air-walking reload's class half** (B112), the gesture twin of
+                    // `Airwalking` above: a class that sets `DontDoAirwalk` never latches, and its
+                    // reload is the one the timeline carried beside the air-walking form.
                     Gestures = Choreographed(
-                        Landing(player.Gestures, appearance.Lands(playerClass)), appearance),
+                        Landing(
+                            Airwalk(player.Gestures, appearance.Airwalks(playerClass)),
+                            appearance.Lands(playerClass)),
+                        appearance),
                 },
                 ClientSideAnimated: player.ClientSideAnimated));
         }
@@ -557,6 +564,42 @@ public static class PlayerProps
         }
 
         return resolved.Count > 0 ? resolved : null;
+    }
+
+    /// <summary>Takes the reload without the air-walk for a class that never air-walks (B112).</summary>
+    /// <param name="gestures">What the timeline collected, or null.</param>
+    /// <param name="airwalks">Whether this class air-walks — its script does not set <c>DontDoAirwalk</c>.</param>
+    /// <returns>The gestures to draw.</returns>
+    /// <remarks>
+    /// **The engine never sets the latch for such a class** — <c>bValidAirWalkClass</c> gates the whole block that
+    /// sets it (<c>tf_playeranimstate.cpp:1444-1446</c>) — so its reload is always the base class's stand, crouch or
+    /// swim choice, which the timeline carries as <see cref="SceneGesture.ActivityWithoutAirwalk"/> because it cannot
+    /// read the script. Only the medic sets it, measured (<c>ClassAirwalkTests</c>); a Quick-Fix medic lifted by his
+    /// patient's rocket jump is the case this is for.
+    ///
+    /// **The common case allocates nothing**: an air-walking class, or no gesture the air-walk changed, hands the
+    /// timeline's list straight back.
+    /// </remarks>
+    private static IReadOnlyList<SceneGesture>? Airwalk(IReadOnlyList<SceneGesture>? gestures, bool airwalks)
+    {
+        if (airwalks || gestures is not { Count: > 0 })
+        {
+            return gestures;
+        }
+
+        List<SceneGesture>? restored = null;
+
+        for (int index = 0; index < gestures.Count; index++)
+        {
+            if (gestures[index].ActivityWithoutAirwalk is { } without)
+            {
+                // Copied once, at the first gesture to change, and patched in place: order and every other gesture kept.
+                restored ??= [.. gestures];
+                restored[index] = gestures[index] with { ActivityName = without, ActivityWithoutAirwalk = null };
+            }
+        }
+
+        return restored ?? gestures;
     }
 
     /// <summary>Drops the landing gesture for a class that does not play one.</summary>

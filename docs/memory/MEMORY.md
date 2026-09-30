@@ -149,3 +149,5 @@
 - [$TEMP is shared across worktrees](temp-is-shared-across-worktrees.md) — name logs per run; trust the exit code and trx.
 - [CI gates are soft for now](ci-gates-are-soft-for-now.md) — D195; a small coverage drop is undertesting, only a massive one matters.
 - [TF2 barely uses dynamic lights](tf2-barely-uses-dynamic-lights.md) — no dlight for explosions/muzzle/fire; only the recorder's Dragon's Fury (B425).
+- [A synthetic packet without ServerInfo is protocol 0](a-synthetic-packet-without-serverinfo-is-protocol-0.md) — events vanish; use `PacketAfter`.
+- [A handle resolves through its serial](a-handle-resolves-through-its-serial.md) — `EntityStateTable.Resolve`, never slot alone.

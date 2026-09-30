@@ -45,6 +45,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// scene containing a `LOOP` (<c>c_tf_player.cpp:9505</c>), deliberately, so that a running taunt
 /// plays out — so the decision needs the resolved plan and cannot be made here.
 /// </param>
+/// <param name="ActivityWithoutAirwalk">
+/// The activity the event would have started had the player not been air-walking, or null when the air-walk
+/// changed nothing (B112). **Half of the choice belongs to the class script**: <c>bValidAirWalkClass</c> gates
+/// the latch itself (<c>tf_playeranimstate.cpp:1444-1446</c>), so a class whose script sets
+/// <c>DontDoAirwalk</c> never air-walks and its reload is the base class's. The timeline cannot read the
+/// script, so it carries both and the layer with the installed game picks — the same split the body's
+/// air-walk has.
+/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
@@ -53,7 +61,8 @@ public readonly record struct SceneGesture(
     double StartedSeconds,
     string? SceneName = null,
     SceneTaunt? Taunt = null,
-    double? StoppedSeconds = null);
+    double? StoppedSeconds = null,
+    string? ActivityWithoutAirwalk = null);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -155,7 +164,11 @@ public sealed class PlayerGestureFeed
     /// <param name="className">The temp entity's class name, from the schema.</param>
     /// <param name="effect">The decoded effect.</param>
     /// <param name="seconds">Demo time when it arrived, in seconds.</param>
-    /// <param name="context">What the player was doing, which decides which activity is chosen.</param>
+    /// <param name="context">
+    /// What the player was doing, which decides which activity is chosen. Its <c>InAirWalk</c> and <c>NData</c> are
+    /// not read: the first is this feed's own <see cref="InAirWalk"/>, which is anim-state memory rather than
+    /// anything on the player, and the second is the event's own <c>m_nData</c>.
+    /// </param>
     /// <returns>Whether this effect was a gesture event.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="effect"/> is null.</exception>
     public bool Record(
@@ -202,11 +215,35 @@ public sealed class PlayerGestureFeed
 
         AnyRecorded = true;
 
-        // **The jump drives the main sequence, not a layer**: `DoAnimationEvent( PLAYERANIMEVENT_JUMP )` sets
-        // `m_bJumping` and `m_flJumpStartTime` (`multiplayer_animstate.cpp:288`), which HandleJumping then reads.
-        if (which == (int)PlayerAnimEvent.Jump)
+        // **The latch is read before the event writes anything**, as the reload cases read it
+        // (`tf_playeranimstate.cpp:1141`, `:1154`, `:1167`) — and it is the value the last step left, because
+        // `DoAnimationEvent` runs before that frame's `HandleJumping` (B112).
+        GestureContext posture = context with { NData = data, InAirWalk = InAirWalk(who) };
+
+        switch ((PlayerAnimEvent)which)
         {
-            _jumpStarted[who] = seconds;
+            // **The jump drives the main sequence, not a layer**: `DoAnimationEvent( PLAYERANIMEVENT_JUMP )` sets
+            // `m_bJumping` and `m_flJumpStartTime` (`multiplayer_animstate.cpp:288`), which HandleJumping then reads.
+            case PlayerAnimEvent.Jump:
+                _jumpStarted[who] = seconds;
+                break;
+
+            // **The air dash is a jump when none is in force, and it forces the air walk off**
+            // (`tf_playeranimstate.cpp:1184-1193`): `if ( !m_bJumping )` it starts the jump clock, and then
+            // `m_bInAirWalk = false` unconditionally — so a scout who walks off a ledge and dashes plays the jump
+            // phases, and a reload after the dash stands even while he is still in the air.
+            case PlayerAnimEvent.DoubleJump:
+                _jumpStarted.TryAdd(who, seconds);
+                _inAirWalk.Remove(who);
+                break;
+
+            // **A respawn clears the animation state** (`multiplayer_animstate.cpp:310-313`).
+            case PlayerAnimEvent.Spawn:
+                ClearAnimationState(who);
+                break;
+
+            default:
+                break;
         }
 
         // **The mapping is asked here, at the moment the event arrives, because it depends on what
@@ -214,8 +251,7 @@ public sealed class PlayerGestureFeed
         // one started standing, and the engine picks at `DoAnimationEvent` time
         // (`tf_playeranimstate.cpp:969`) rather than at draw time. Deferring it would resolve a
         // crouching reload against whatever posture the player is in when the frame is drawn.
-        if (PlayerGestureEvent.Map((PlayerAnimEvent)which, context with { NData = data })
-            is not { } trigger)
+        if (PlayerGestureEvent.Map((PlayerAnimEvent)which, posture) is not { } trigger)
         {
             return true;
         }
@@ -234,9 +270,124 @@ public sealed class PlayerGestureFeed
         }
 
         slots[slot] = new SceneGesture(
-            trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds);
+            trigger.Slot,
+            trigger.ActivityName,
+            trigger.ActivityNumber,
+            trigger.AutoKill,
+            seconds,
+            ActivityWithoutAirwalk: WithoutAirwalk((PlayerAnimEvent)which, posture, trigger));
 
         return true;
+    }
+
+    /// <summary>The activity an event starts with the latch off, when the latch changed it; else null.</summary>
+    /// <remarks>
+    /// **For the class script's half of the air-walk** — see <see cref="SceneGesture.ActivityWithoutAirwalk"/>. Asked of
+    /// the same mapping with the one input changed, so the two answers cannot drift apart.
+    /// </remarks>
+    private static string? WithoutAirwalk(PlayerAnimEvent anEvent, GestureContext posture, GestureTrigger trigger) =>
+        posture.InAirWalk &&
+        PlayerGestureEvent.Map(anEvent, posture with { InAirWalk = false }) is { ActivityName: { } without } &&
+        !string.Equals(without, trigger.ActivityName, StringComparison.Ordinal)
+            ? without
+            : null;
+
+    /// <summary>Each player's `m_bInAirWalk` (`tf_playeranimstate.h`), the latch `HandleJumping` keeps (B112).</summary>
+    private readonly HashSet<int> _inAirWalk = [];
+
+    /// <summary>`m_bInAirWalk`: whether the player is air-walking, as the last step or event left it.</summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <returns>The latch.</returns>
+    /// <remarks>
+    /// **One latch, read by the body and by the reload**, which is how the engine has it: `HandleJumping` sets it and
+    /// returns the air-walking body activity from the same test, and `DoAnimationEvent` reads it for the three reload
+    /// cases. It says nothing about the CLASS — a class whose script sets `DontDoAirwalk` never reaches the block in
+    /// the engine, and the layer holding the installed game applies that half.
+    /// </remarks>
+    public bool InAirWalk(int entityIndex) => _inAirWalk.Contains(entityIndex);
+
+    /// <summary>
+    /// `CTFPlayerAnimState::HandleJumping`'s air-walk half: steps `m_bInAirWalk` once, as the engine steps it once a
+    /// frame (`tf_playeranimstate.cpp:1427-1473`).
+    /// </summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="risingSpeed">
+    /// `vecVelocity.z` — on the client `GetOuterAbsVelocity` is `EstimateAbsVelocity`, from position history — or null
+    /// when there is no history yet, which is no rise.
+    /// </param>
+    /// <param name="flags">`m_fFlags`: `FL_ONGROUND` and `FL_DUCKING`.</param>
+    /// <param name="waistDeep">`GetWaterLevel() &gt;= WL_Waist`.</param>
+    /// <param name="grappling">`GetGrapplingHookTarget() != NULL`.</param>
+    /// <param name="firingHeavy">A heavy under `TF_COND_AIMING`, for whom the function returns first.</param>
+    /// <returns>The latch after the step.</returns>
+    /// <remarks>
+    /// <code>
+    /// if ( heavy &amp;&amp; InCond( TF_COND_AIMING ) ) return false;                                      // :1439-1440
+    /// if ( bValidAirWalkClass &amp;&amp; ( vecVelocity.z &gt; 300.0f || m_bInAirWalk || grapple ) &amp;&amp; !bInDuck )  // :1446
+    ///     if ( onGround &amp;&amp; m_bInAirWalk )  m_bInAirWalk = false;                                    // :1449-1451
+    ///     else if ( waist deep )           m_bInAirWalk = false;                                    // :1455-1458
+    ///     else if ( !onGround )            m_bInAirWalk = true;                                     // :1461-1472
+    /// </code>
+    ///
+    /// **The duck shuts the whole block out, so it neither sets nor clears.** A player who crouches through a rocket
+    /// jump never latches, and one who latched and then crouches keeps it — in the air and after a crouched landing —
+    /// until he stands on the ground. `bInDuck` is the raw flag here: the engine also treats a player as standing
+    /// when the model has no crouch-walk for the held weapon, which needs the model, and every other duck test in
+    /// this layer makes the same reading (<see cref="GestureContext.InDuck"/>).
+    ///
+    /// **`bValidAirWalkClass` is not applied** — it is the class script's, and the scene applies it
+    /// (<see cref="SceneGesture.ActivityWithoutAirwalk"/>, and the body's own air-walk beside it). A class that never
+    /// air-walks never reaches the block in the engine, so the latch here is the engine's for every class that does.
+    ///
+    /// The landing also restarts the jump slot as `ACT_MP_JUMP_LAND` (`:1453`) and the main sequence; neither is done
+    /// here (B437).
+    /// </remarks>
+    public bool AirWalk(
+        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy)
+    {
+        bool latched = InAirWalk(entityIndex);
+
+        if (firingHeavy)
+        {
+            return latched;
+        }
+
+        bool onGround = (flags & PlayerActivityState.OnGround) != 0;
+
+        if ((risingSpeed > PlayerActivityState.AirwalkRiseSpeed || latched || grappling) &&
+            (flags & PlayerActivityState.Ducking) == 0)
+        {
+            // The landing (:1449-1451) and the water (:1455-1458) both clear, and both are asked before the air.
+            if ((onGround && latched) || waistDeep)
+            {
+                _inAirWalk.Remove(entityIndex);
+            }
+            else if (!onGround)
+            {
+                _inAirWalk.Add(entityIndex);
+            }
+        }
+
+        return InAirWalk(entityIndex);
+    }
+
+    /// <summary>`ClearAnimationState`, for everything this feed holds of one player.</summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <remarks>
+    /// **The TF override clears `m_bInAirWalk` and chains to the base** (`tf_playeranimstate.cpp:112-117`), which
+    /// clears `m_bJumping` and resets every gesture slot (`multiplayer_animstate.cpp:136-146`). It runs on a respawn
+    /// (`:310-313`) and on every frame `Update` does not animate the player: a custom model without the class's
+    /// animations (`tf_playeranimstate.cpp:340-366`), `EF_NODRAW`, a dormant player and a dead one
+    /// (`multiplayer_animstate.cpp:1381-1395`).
+    ///
+    /// Not held here and so not cleared here: the feet yaw's re-initialisation and the specific main sequence, which
+    /// the base also resets (B437).
+    /// </remarks>
+    public void ClearAnimationState(int entityIndex)
+    {
+        _inAirWalk.Remove(entityIndex);
+        _jumpStarted.Remove(entityIndex);
+        _byPlayer.Remove(entityIndex);
     }
 
     /// <summary>Each player's `m_flJumpStartTime` while `m_bJumping` holds, in demo seconds.</summary>
