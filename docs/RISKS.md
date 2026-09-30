@@ -8061,9 +8061,12 @@ of snapshots that did not decode at all (sunshine from tick 338 — `Entity inde
 without counting. Production builds the same demo cleanly (`timeline-cost`: 109,339 frames, no exception —
 `DemoTimeline.Build` has no catch around `Decode`), so the walk was at fault, and the difference was one
 line: the test read no packet until it had built a decoder from `dem_datatables`. The signon packets that
-come BEFORE it create the string tables, so the decode state lacked them, every later
-`svc_UpdateStringTable` was read at the wrong widths, and whatever followed it in its packet — including
-`svc_PacketEntities` — was read from the wrong bit. The two "removal list" failures were misaligned bodies
+come BEFORE it carry `svc_ServerInfo` and create the string tables, so the decode state lacked both. With no
+ServerInfo the reader takes the protocol as 0, so every `svc_TempEntities` length was read at the legacy
+17-bit width instead of protocol 24's varint — the decode census measured this independently, 10,642
+cascade snapshots thrown into the test's silent `continue` (its commit `5a83d9c1`) — and every
+`svc_UpdateStringTable` was read without its table. Whatever followed either in its packet, including
+`svc_PacketEntities`, was read from the wrong bit. The two "removal list" failures were misaligned bodies
 that happened to decode.
 
 | demo | the test's walk | the production walk |
