@@ -290,7 +290,7 @@ it — `RecvPropFloat( RECVINFO( m_angEyeAngles[0] ) )` and `[1]` in `DT_TFLocal
 component holds whichever table wrote it last. Every player's ENTER carries both tables, local first
 (`tf_player.cpp:801`, `:804`; all thirteen players of the f12 SourceTV demo). After it one table speaks:
 the non-local one for everyone but a POV recorder, the local one for him — 2,033 writes against one here,
-14,473 against one in `tf2-2026-pub-pov-clean`. `EntityState.EyeAngles()` read the non-local table first
+13,227 against three (his three ENTERs) in `tf2-2026-pub-pov-clean`. `EntityState.EyeAngles()` read the non-local table first
 whenever it held anything. That is exactly the shape c7d65f1b took out of `Origin()` in August, when
 deltas stopped wiping entity state and "a stale entry in an earlier table won permanently"; the accessor
 beside it kept the fixed order, and only the recorder ever had a stale entry to lose to.

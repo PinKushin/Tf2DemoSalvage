@@ -7949,7 +7949,8 @@ accessor beside it. Now each component is whichever table wrote it last.
   51f6ae65; it became a freeze when 199275ed stopped deltas wiping entity state (2026-08-13), four days
   before the test (read from the commits, not built).
 - **Every POV demo's recorder was affected**, SourceTV demos not at all: `tf2-2026-pub-pov-clean`'s
-  recorder has the same both-tables ENTER and 14,473 local writes after it.
+  recorder (entity 9) takes 13,227 local writes and non-local ones only in his three ENTERs (ticks 0,
+  4553, 4612), so he was frozen at each ENTER's angles until the next.
 - **Tests:** `EyeAnglesConformanceTests` (the SDK's two blocks, with a control that a block cannot read
   past its own `END_RECV_TABLE()`; last write per component; null when neither table wrote; zero for a
   component neither wrote, `c_baseentity.cpp:3833-3840`), and `SyntheticFacingTests`' two tick-5541
