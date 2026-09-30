@@ -96,8 +96,8 @@ public sealed class ActivityWeaponRoleConformanceTests
     /// script's `WeaponType`; anything else replaces it and is then switched like any role — so a GRENADE or
     /// PASSTIME_BALL slot lands on the primary table by `default:`, exactly as a script typed that way would.
     /// </remarks>
-    [TestCase(-1, "PRIMARY")]
-    [TestCase(-2, "PRIMARY")]
+    [TestCase(-1, "SECONDARY")]
+    [TestCase(-2, "SECONDARY")]
     [TestCase(0, "PRIMARY")]
     [TestCase(1, "SECONDARY")]
     [TestCase(2, "MELEE")]
@@ -111,11 +111,11 @@ public sealed class ActivityWeaponRoleConformanceTests
     [TestCase(15, "PRIMARY")]
     public void Suffix_AnItemsAnimSlot_ReplacesTheScriptsWeaponType(int animSlot, string expected)
     {
-        // A grenade launcher, whose script says primary — so every row but the first two, and the three the switch
-        // sends to `default:`, can only pass by reading the slot.
-        WeaponRoles roles = Roles(("CTFGrenadeLauncher", Demoman));
+        // A stickybomb launcher, whose script says SECONDARY — not the primary table every `default:` lands on, so the
+        // -1 and -2 rows can only pass by keeping the script, and the GRENADE and PASSTIME_BALL rows only by switching.
+        WeaponRoles roles = Roles(("CTFPipebombLauncher", Demoman));
 
-        roles.Suffix("CTFGrenadeLauncher", Demoman, animSlot).ShouldBe(expected);
+        roles.Suffix("CTFPipebombLauncher", Demoman, animSlot).ShouldBe(expected);
     }
 
     /// <remarks>
@@ -125,9 +125,9 @@ public sealed class ActivityWeaponRoleConformanceTests
     [Test]
     public void Suffix_WithNoItem_IsTheScriptsWeaponType()
     {
-        WeaponRoles roles = Roles(("CTFGrenadeLauncher", Demoman));
+        WeaponRoles roles = Roles(("CTFPipebombLauncher", Demoman));
 
-        roles.Suffix("CTFGrenadeLauncher", Demoman).ShouldBe("PRIMARY");
+        roles.Suffix("CTFPipebombLauncher", Demoman).ShouldBe("SECONDARY");
     }
 
     /// <remarks>
@@ -148,12 +148,13 @@ public sealed class ActivityWeaponRoleConformanceTests
 
     /// <remarks>
     /// **Neither class ever asks for its role while it has an owner** — both replace `ActivityList` and return their own
-    /// tables (tf_weapon_grapplinghook.cpp:150-168, tf_weapon_passtime_gun.cpp:304-310). So the item's slot — the
-    /// grappling hook's `MELEE_ALLCLASS`, the passtime gun's `PASSTIME_BALL` — changes nothing about either, and the
-    /// answer stays whatever it was without the item.
+    /// tables (tf_weapon_grapplinghook.cpp:150-168, tf_weapon_passtime_gun.cpp:304-310). So the item's slot changes
+    /// nothing about either, and the answer stays whatever it was without the item. The grappling hook's row is its
+    /// shipped slot, `MELEE_ALLCLASS`; the passtime gun's shipped `PASSTIME_BALL` falls to the primary table its script
+    /// already gives, so its row asks with a slot that WOULD change the table, or it could not fail.
     /// </remarks>
     [TestCase("CTFGrapplingHook", 10)]
-    [TestCase("CPasstimeGun", 15)]
+    [TestCase("CPasstimeGun", 10)]
     public void Suffix_AWeaponThatReplacesActivityList_NeverReadsTheItemsSlot(string weapon, int animSlot)
     {
         WeaponRoles roles = Roles((weapon, Soldier));
@@ -194,7 +195,7 @@ public sealed class ActivityWeaponRoleConformanceTests
     /// <summary>Weapon scripts as the game ships them, one key each, keyed by the path WeaponScript asks for.</summary>
     private static readonly Dictionary<string, string> Scripts = new(StringComparer.Ordinal)
     {
-        ["scripts/tf_weapon_grenadelauncher.txt"] = Script("primary"),
+        ["scripts/tf_weapon_pipebomblauncher.txt"] = Script("secondary"),
         ["scripts/tf_weapon_katana.txt"] = Script("melee"),
         ["scripts/tf_weapon_grapplinghook.txt"] = Script("item1"),
 

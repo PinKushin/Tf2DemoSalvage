@@ -390,8 +390,15 @@ public sealed class PlayerPropsTests
         }
 
         // The item decides only when there is one, as `iMaybeOverrideAnimSlot >= 0` has it — the pan's slot here.
-        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) =>
-            weaponClass is null ? null : weaponItem == FryingPan ? "MELEEALLCLASS" : "PRIMARY";
+        public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem)
+        {
+            if (weaponClass is null)
+            {
+                return null;
+            }
+
+            return weaponItem == FryingPan ? "MELEEALLCLASS" : "PRIMARY";
+        }
 
         public bool Airwalks(int playerClass) => playerClass != MedicClass;
 
