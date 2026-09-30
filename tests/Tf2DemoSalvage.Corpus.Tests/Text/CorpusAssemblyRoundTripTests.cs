@@ -81,34 +81,57 @@ public sealed class CorpusAssemblyRoundTripTests
             List<DemoCommand> commands =
                 [.. DemoCommandReader.Read(original.AsMemory(DemoHeader.SizeBytes))];
 
-            StringWriter text = new() { NewLine = "\n" };
-            DemoAssembly.Write(text, header, commands);
-            string assembly = text.ToString();
+            // **Through a file, as the CLI's `--asm -o` and `--compile` do it** (B445). A demo's text
+            // was built as one string, and the larger demos' text passes the longest string .NET can
+            // hold: the full superset threw OutOfMemoryException from StringBuilder.ToString() once
+            // B440 let this loop get past the CEVO demo whose mismatch had been ending it early, so
+            // every demo after it had never been compared. A file has no such ceiling, and writing
+            // with the CLI's own StreamWriter and reading with its StreamReader tests the path the
+            // owner runs rather than an in-memory stand-in for it.
+            string textPath = Path.Combine(
+                Path.GetTempPath(), $"tf2demosalvage-asm-{Guid.NewGuid():N}.txt");
 
-            // One copy of a demo's text at a time: it runs to gigabytes on a large demo, and the
-            // writer's builder would otherwise hold a second through the parse and the compare.
-            text.GetStringBuilder().Clear();
+            try
+            {
+                using (StreamWriter writer = new(textPath))
+                {
+                    DemoAssembly.Write(writer, header, commands);
+                }
 
-            using StringReader reader = new(assembly);
-            (DemoHeader compiledHeader, IReadOnlyList<DemoCommand> compiledCommands) =
-                DemoAssembly.Parse(reader);
+                DemoHeader compiledHeader;
+                IReadOnlyList<DemoCommand> compiledCommands;
 
-            compiledCommands.Count.ShouldBe(commands.Count, name);
+                using (StreamReader reader = new(textPath))
+                {
+                    (compiledHeader, compiledCommands) = DemoAssembly.Parse(reader);
+                }
 
-            byte[] rebuilt = DemoWriter.Write(compiledHeader, compiledCommands);
+                compiledCommands.Count.ShouldBe(commands.Count, name);
 
-            // A prefix of the commands rebuilds a prefix of the file, so the comparison is against
-            // the same number of bytes rather than the whole demo. Byte-exactness is unaffected:
-            // every byte the writer produced has to match the byte at that offset.
-            rebuilt.Length.ShouldBeLessThanOrEqualTo(original.Length, name);
+                byte[] rebuilt = DemoWriter.Write(compiledHeader, compiledCommands);
 
-            int difference = FirstDifference(original[..rebuilt.Length], rebuilt);
-            difference.ShouldBe(-1, $"{name}: first differing byte at {difference}");
+                // A prefix of the commands rebuilds a prefix of the file, so the comparison is
+                // against the same number of bytes rather than the whole demo. Byte-exactness is
+                // unaffected: every byte the writer produced has to match the byte at that offset.
+                rebuilt.Length.ShouldBeLessThanOrEqualTo(original.Length, name);
+
+                int difference = FirstDifference(original[..rebuilt.Length], rebuilt);
+                difference.ShouldBe(-1, $"{name}: first differing byte at {difference}");
+
+                // Line by line from the file, so no demo's whole text is ever held at once.
+                foreach (string line in File.ReadLines(textPath))
+                {
+                    Count(line, ref structured, ref raw);
+                    TallyStillRaw(line, rawBits, rawLines);
+                }
+            }
+            finally
+            {
+                File.Delete(textPath);
+            }
 
             demos++;
             bytes += original.Length;
-            Count(assembly, ref structured, ref raw);
-            TallyStillRaw(assembly, rawBits, rawLines);
         }
 
         // A corpus that stopped being found would otherwise pass this without comparing anything.
@@ -134,8 +157,8 @@ public sealed class CorpusAssemblyRoundTripTests
     }
 
     /// <summary>
-    /// Adds what one demo's text still carries as bits to the running totals, by what the writer
-    /// actually emitted.
+    /// Adds what one line of a demo's text still carries as bits to the running totals, by what the
+    /// writer actually emitted.
     /// </summary>
     /// <remarks>
     /// **Measured from the output, not from <c>CanWrite</c>, because that is the mistake this
@@ -148,32 +171,25 @@ public sealed class CorpusAssemblyRoundTripTests
     /// form that declined, so counting the output cannot disagree with the output.
     /// </remarks>
     private static void TallyStillRaw(
-        string assembly, Dictionary<string, long> bits, Dictionary<string, long> counts)
+        string line, Dictionary<string, long> bits, Dictionary<string, long> counts)
     {
-        // Line by line over the one copy, never an array of every line: that is the whole text a
-        // second time, gigabytes on a large demo (B439).
-        ReadOnlySpan<char> text = assembly;
-
-        foreach (Range range in text.Split('\n'))
+        ReadOnlySpan<char> trimmed = line.AsSpan().Trim();
+        if (!trimmed.StartsWith("raw ", StringComparison.Ordinal))
         {
-            ReadOnlySpan<char> trimmed = text[range].Trim();
-            if (!trimmed.StartsWith("raw ", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            // The token after "raw" — what Split(' ', RemoveEmptyEntries)[1] read.
-            ReadOnlySpan<char> afterRaw = trimmed[4..].TrimStart(' ');
-            int end = afterRaw.IndexOf(' ');
-            ReadOnlySpan<char> width = end < 0 ? afterRaw : afterRaw[..end];
-
-            int marker = trimmed.IndexOf("# ", StringComparison.Ordinal);
-            string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..].ToString();
-
-            bits[label] = bits.GetValueOrDefault(label) +
-                int.Parse(width, CultureInfo.InvariantCulture);
-            counts[label] = counts.GetValueOrDefault(label) + 1;
+            return;
         }
+
+        // The token after "raw" — what Split(' ', RemoveEmptyEntries)[1] read.
+        ReadOnlySpan<char> afterRaw = trimmed[4..].TrimStart(' ');
+        int end = afterRaw.IndexOf(' ');
+        ReadOnlySpan<char> width = end < 0 ? afterRaw : afterRaw[..end];
+
+        int marker = trimmed.IndexOf("# ", StringComparison.Ordinal);
+        string label = marker < 0 ? "unlabelled" : trimmed[(marker + 2)..].ToString();
+
+        bits[label] = bits.GetValueOrDefault(label) +
+            int.Parse(width, CultureInfo.InvariantCulture);
+        counts[label] = counts.GetValueOrDefault(label) + 1;
     }
 
     /// <summary>Names what is still carried as bits across every demo, largest first.</summary>
@@ -188,29 +204,22 @@ public sealed class CorpusAssemblyRoundTripTests
         }
     }
 
-    /// <summary>Counts message lines by whether they carry text or bits.</summary>
-    private static void Count(string assembly, ref long structured, ref long raw)
+    /// <summary>Counts one line as a structured or a raw message line, or neither.</summary>
+    private static void Count(string line, ref long structured, ref long raw)
     {
-        ReadOnlySpan<char> text = assembly;
-
-        foreach (Range range in text.Split('\n'))
+        // Message lines are the indented ones; commands and the header are not.
+        if (line.Length == 0 || line[0] != ' ')
         {
-            ReadOnlySpan<char> line = text[range];
-
-            // Message lines are the indented ones; commands and the header are not.
-            if (line.IsEmpty || line[0] != ' ')
-            {
-                continue;
-            }
-
-            if (line.TrimStart().StartsWith("raw ", StringComparison.Ordinal))
-            {
-                raw++;
-                continue;
-            }
-
-            structured++;
+            return;
         }
+
+        if (line.AsSpan().TrimStart().StartsWith("raw ", StringComparison.Ordinal))
+        {
+            raw++;
+            return;
+        }
+
+        structured++;
     }
 
     private static int FirstDifference(byte[] left, byte[] right)
