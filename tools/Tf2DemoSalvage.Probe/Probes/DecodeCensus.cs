@@ -880,6 +880,8 @@ internal sealed class DemoCensus
                     continue;
                 }
 
+                tally.Framed++;
+
                 if (!decoders.TryGetValue(packet.SteamId, out OpusVoiceDecoder? decoder))
                 {
                     decoder = new OpusVoiceDecoder();
@@ -1051,6 +1053,9 @@ internal sealed class DemoCensus
 
         public long Bad { get; set; }
 
+        /// <summary>Steam packets whose framing read exactly — the stage's work even when none carries audio.</summary>
+        public long Framed { get; set; }
+
         public long Errors { get; private set; }
 
         public int Speakers { get; set; }
@@ -1093,6 +1098,12 @@ internal sealed class DemoCensus
             else if (First is { } first)
             {
                 row.Fail("voice", first.Shape, first.Detail + Invariant($" ({counts}; {Bad} packets unframed, {Errors} frames rejected)"), first.Where);
+            }
+            else if (Frames == 0 && Framed > 0)
+            {
+                // A steam packet can frame exactly and carry no audio chunk — the 18-byte packets that bracket a talk
+                // burst (`SteamVoicePayload`'s silence sub-packet). Every one read to its last byte is the stage's work.
+                row.Pass("voice", Invariant($"{Framed} steam packets framed exactly, none carrying audio"));
             }
             else if (Frames == 0)
             {
