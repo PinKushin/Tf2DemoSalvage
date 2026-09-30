@@ -1161,6 +1161,57 @@ public sealed class MomentSceneTests
         log.Count("no viewmodel source").ShouldBe(1, "the switch is on, so a missing source is a fault");
     }
 
+    /// <remarks>
+    /// **The world-model question has to reach the resolver, and only the scene's own draw list can say it did** (RISKS
+    /// B105). `CTFWeaponBase::GetWorldModel` asks a valid item's `model_world` before its `model_player`
+    /// (tf_weaponbase.cpp:686-687); `WeaponWorldModelConformanceTests` pins that rule on `WeaponPropModels.Resolve`, which
+    /// `Build` runs. Were `Build` to stop handing it the question, every component test would stay green and a held Hot
+    /// Hand would draw the first-person glove, `c_slapping_glove.mdl`. The wire is the pyro's arms, which an
+    /// attach-to-hands weapon's `m_nModelIndex` holds (econ_entity.cpp:398-402).
+    /// </remarks>
+    [Test]
+    public void Build_AHeldWeaponWhoseItemNamesAModelWorld_DrawsTheModelWorld()
+    {
+        MomentScene scene = Scene();
+
+        scene.Weapons = new WeaponModels(_ => System.Text.Encoding.UTF8.GetBytes(GloveSchema), new RecordingLogger());
+
+        SceneProp glove = new(
+            EntityIndex: 41,
+            ModelPath: "models/weapons/c_models/c_pyro_arms.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: default,
+            AttachedTo: 3,
+            OwnedBy: 3,
+            WeaponState: EntityState.WeaponActive,
+            BoneMerged: true,
+            ItemDefinitionIndex: 1181,
+            ClassName: "CTFSlap");
+
+        scene.Build([Soldier(entity: 3) with { PlayerClass = 7 }], [glove], Info());
+
+        scene.Drawn.Single(prop => prop.EntityIndex == 41).ModelPath
+            .ShouldBe("models/weapons/c_models/c_slapping_glove/w_slapping_glove.mdl");
+    }
+
+    /// <summary>The Hot Hand's two models, as `items_game.txt` names them.</summary>
+    private const string GloveSchema = """
+        "items_game"
+        {
+            "items"
+            {
+                "1181"
+                {
+                    "name"              "The Hot Hand"
+                    "item_class"        "tf_weapon_slap"
+                    "attach_to_hands"   "1"
+                    "model_player"      "models/weapons/c_models/c_slapping_glove/c_slapping_glove.mdl"
+                    "model_world"       "models/weapons/c_models/c_slapping_glove/w_slapping_glove.mdl"
+                }
+            }
+        }
+        """;
+
     [Test]
     public void Build_WithNoPlayers_Refuses()
     {

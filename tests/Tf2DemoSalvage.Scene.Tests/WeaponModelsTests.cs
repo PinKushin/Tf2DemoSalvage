@@ -94,6 +94,19 @@ public sealed class WeaponModelsTests
         Weapons().For(NoModelLauncherItem, RocketLauncherServerClass, forClass: 3).ShouldBe(string.Empty);
     }
 
+    /// <remarks>
+    /// **The first-person model is `model_player` whatever `model_world` says** — the control that keeps the world rule out
+    /// of this route. The viewmodel attachment is built from `pItem->GetPlayerDisplayModel( iClass, team )`
+    /// (econ_entity.cpp:1167); `model_world` is read only by the THIRD-person `CTFWeaponBase::GetWorldModel`
+    /// (tf_weaponbase.cpp:686-687) and the loadout panel. `For` answers the viewmodel (`MomentScene`, B222), so a Hot Hand
+    /// here is the glove the pyro sees on his own hand.
+    /// </remarks>
+    [Test]
+    public void For_AnItemThatAlsoNamesAModelWorld_AnswersItsModelPlayer()
+    {
+        Weapons().For(GloveItem, GloveServerClass, forClass: Pyro).ShouldBe(GlovePlayerModel);
+    }
+
     [Test]
     public void For_WithNoInstall_AnswersNullAndSaysWhyOnce()
     {
@@ -262,6 +275,29 @@ public sealed class WeaponModelsTests
             .ShouldContain(StockRocketLauncherModel);
     }
 
+    /// <remarks>
+    /// **A weapon whose item names a `model_world` draws it, so the load list must hold it** (B379's rule, RISKS B105).
+    /// `WeaponPropModels.Resolve` gives a held weapon its item's `model_world` (tf_weaponbase.cpp:686-687), which no track
+    /// need name: an attach-to-hands weapon that sends no world index carries only the carrier's arms on the wire
+    /// (econ_entity.cpp:398-402). `Needed`, `ToPack` and `Worn` all take this walk, so a `model_world` missing from it is
+    /// never loaded and packs nothing — silently, as the hats of B379 did.
+    /// </remarks>
+    [Test]
+    public void AllWornIn_ForAWeaponWhoseItemNamesAModelWorld_NamesTheModelWorld()
+    {
+        ScenePropTrack glove = new(entityIndex: 7, "models/weapons/c_models/c_pyro_arms.mdl")
+        {
+            ItemDefinitionIndex = GloveItem,
+            ClassName = GloveServerClass,
+        };
+
+        glove.Add(0, new ScenePose());
+
+        Weapons()
+            .AllWornIn(DemoTimeline.ForEverything(props: [glove]))
+            .ShouldContain(GloveWorldModel);
+    }
+
     /// <summary>A resolver over a hand-authored schema.</summary>
     private static WeaponModels Weapons() => new(_ => Schema(), new RecordingLogger());
 
@@ -324,6 +360,14 @@ public sealed class WeaponModelsTests
                         "item_class"        "tf_weapon_rocketlauncher"
                         "model_player"      ""
                     }
+                    "{{GloveItem}}"
+                    {
+                        "name"              "A Glove With A World Model"
+                        "item_class"        "tf_weapon_slap"
+                        "attach_to_hands"   "1"
+                        "model_player"      "{{GlovePlayerModel}}"
+                        "model_world"       "{{GloveWorldModel}}"
+                    }
                     "{{HatItem}}"
                     {
                         "name"              "A Hat With Two Faces"
@@ -359,4 +403,16 @@ public sealed class WeaponModelsTests
 
     /// <summary>A known item whose own `model_player` is "", of a class whose stock item names a model.</summary>
     private const int NoModelLauncherItem = 196;
+
+    /// <summary>An item naming a `model_world` apart from its `model_player`, shaped as the shipped Hot Hand (1181).</summary>
+    private const int GloveItem = 1181;
+
+    private const string GloveServerClass = "CTFSlap";
+
+    private const string GlovePlayerModel = "models/weapons/c_models/c_slapping_glove/c_slapping_glove.mdl";
+
+    private const string GloveWorldModel = "models/weapons/c_models/c_slapping_glove/w_slapping_glove.mdl";
+
+    /// <summary>`TF_CLASS_PYRO`, the Hot Hand's only class.</summary>
+    private const int Pyro = 7;
 }

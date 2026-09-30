@@ -18,6 +18,10 @@ public sealed class ItemSchemaModelPanelTests
                     "item_slot" "head"
                     "visuals" { "player_bodygroups" { "hat" "1" } }
                 }
+                "drawn_in_the_world"
+                {
+                    "model_world" "models/prefab_w.mdl"
+                }
             }
             "items"
             {
@@ -83,6 +87,15 @@ public sealed class ItemSchemaModelPanelTests
                     "item_slot" "taunt"
                     "used_by_classes" { "scout" "1" }
                     "taunt" { "custom_taunt_scene_per_class" { "scout" "a.vcd" } }
+                }
+                "10"
+                {
+                    "prefab" "drawn_in_the_world"
+                    "model_world" ""
+                }
+                "11"
+                {
+                    "prefab" "drawn_in_the_world"
                 }
             }
         }
@@ -197,6 +210,24 @@ public sealed class ItemSchemaModelPanelTests
         schema.ExtraWearableModel(1).ShouldBe("models/extra.mdl");
         schema.ExtraWearableViewModel(1).ShouldBe("models/extra_vm.mdl");
         schema.WorldDisplayModel(2).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **An item's own `"model_world" ""` is its answer, and it hides its prefab's** (RISKS B105). The merge sets each of an
+    /// item's own keys over its prefabs' whatever the value (econ_item_schema.cpp:2909, :2967), an empty token is a string
+    /// (KeyValues.cpp:2537-2540) that `GetString( "model_world", NULL )` returns as it is (KeyValues.cpp:1451-1457,
+    /// econ_item_schema.cpp:3160), and both readers test the pointer rather than the text — `CTFWeaponBase::GetWorldModel`
+    /// (tf_weaponbase.cpp:686) and the loadout panel (tf_playermodelpanel.cpp:1024-1025) — so "" wins in both and names no
+    /// model. The shipped file declares none (its four `model_world` keys are all an item's own and all name a model); the
+    /// control is the same prefab inherited by an item that says nothing, which a search skipping "" would also answer.
+    /// </remarks>
+    [Test]
+    public void WorldDisplayModel_AnItemsOwnEmptyModelWorld_IsEmptyNotItsPrefabs()
+    {
+        ItemSchema schema = Read();
+
+        schema.WorldDisplayModel(11).ShouldBe("models/prefab_w.mdl", "no key of its own: the prefab's");
+        schema.WorldDisplayModel(10).ShouldBe(string.Empty, "its own \"\" hides the prefab's");
     }
 
     [Test]

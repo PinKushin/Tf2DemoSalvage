@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -31,7 +32,7 @@ public sealed class WeaponPropModelsTests
         // The reported case.
         List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 3)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(MedigunModel);
     }
@@ -52,7 +53,7 @@ public sealed class WeaponPropModelsTests
         // per class and the narrow rule keeps the stale value.
         List<SceneProp> drawn = [Weapon(model: "models/weapons/w_rocket.mdl", item: 513, owner: 3)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(MedigunModel, "the item is what the engine draws from");
     }
@@ -66,7 +67,7 @@ public sealed class WeaponPropModelsTests
         // is every CI run, so without this the wider rule would blank every weapon there.
         List<SceneProp> drawn = [Weapon(model: "models/weapons/w_rocket.mdl", item: 513, owner: 3)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe("models/weapons/w_rocket.mdl", "nothing named it, so nothing changed");
     }
@@ -78,7 +79,7 @@ public sealed class WeaponPropModelsTests
         // this, "resolves weapons" and "assigns a model to anything blank" are the same observation.
         List<SceneProp> drawn = [Weapon(model: "", item: null, owner: 3)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => MedigunModel, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(string.Empty);
     }
@@ -90,7 +91,7 @@ public sealed class WeaponPropModelsTests
         // viewer runs without an installed game in CI, where every lookup returns null.
         List<SceneProp> drawn = [Weapon(model: "", item: MediGun, owner: 3)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(string.Empty);
     }
@@ -112,7 +113,8 @@ public sealed class WeaponPropModelsTests
             {
                 asked = forClass;
                 return MedigunModel;
-            });
+            },
+            NoModelWorld);
 
         asked.ShouldBe(5, "the medic holding it decides which model_player is right");
     }
@@ -134,7 +136,8 @@ public sealed class WeaponPropModelsTests
             {
                 asked = forClass;
                 return MedigunModel;
-            });
+            },
+            NoModelWorld);
 
         asked.ShouldBeNull();
     }
@@ -165,7 +168,8 @@ public sealed class WeaponPropModelsTests
                 {
                     lookups++;
                     return MedigunModel;
-                });
+                },
+                NoModelWorld);
 
             drawn[0].ModelPath.ShouldBe(MedigunModel, "every frame still gets its answer");
         }
@@ -195,7 +199,8 @@ public sealed class WeaponPropModelsTests
                 {
                     asked.Add(forClass);
                     return MedigunModel;
-                });
+                },
+                NoModelWorld);
         }
 
         asked.ShouldBe([3, 9], "a different class is a different question");
@@ -217,7 +222,7 @@ public sealed class WeaponPropModelsTests
     {
         List<SceneProp> drawn = [Weapon(model: EngineerArms, item: BasicSpellbook, owner: 3, state: EntityState.WeaponActive)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(string.Empty, "the item's empty model, not the hands the wire named");
     }
@@ -232,7 +237,7 @@ public sealed class WeaponPropModelsTests
     {
         List<SceneProp> drawn = [Weapon(model: AWearable, item: DuelMiniGame, owner: 3, state: null, className: "CTFWearable")];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => string.Empty, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(AWearable);
     }
@@ -247,10 +252,91 @@ public sealed class WeaponPropModelsTests
     {
         List<SceneProp> drawn = [Weapon(model: EngineerArms, item: BasicSpellbook, owner: 3, state: EntityState.WeaponActive)];
 
-        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null);
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => null, NoModelWorld);
 
         drawn[0].ModelPath.ShouldBe(EngineerArms);
     }
+
+    /// <remarks>
+    /// **A TF weapon's world model is the item's `model_world` when it names one, before `model_player`** (RISKS B105).
+    /// `CTFWeaponBase::GetWorldModel` returns `pItem->GetWorldDisplayModel()` whenever that is non-NULL and only then asks
+    /// `GetPlayerDisplayModel` (tf_weaponbase.cpp:686-698), and the client caches that over the networked index
+    /// (:3597-3607). The Hot Hand is the shipped case that differs: `c_slapping_glove.mdl` is its `model_player`, the
+    /// first-person glove, and `w_slapping_glove.mdl` its `model_world`. The wire here is the carrier's arms, the model an
+    /// attach-to-hands weapon's `m_nModelIndex` holds (econ_entity.cpp:398-402), so each of the three candidates is a
+    /// different answer.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWeaponWhoseItemNamesAModelWorld_DrawsTheModelWorld()
+    {
+        List<SceneProp> drawn = [Weapon(model: PyroArms, item: HotHand, owner: 3, state: EntityState.WeaponActive, className: Slap)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => GlovePlayer, _ => GloveWorld);
+
+        drawn[0].ModelPath.ShouldBe(GloveWorld, "model_world is asked before model_player");
+    }
+
+    /// <remarks>
+    /// **The control without it: an item that names no `model_world` draws its `model_player`**, as every weapon did before.
+    /// `GetWorldDisplayModel` is NULL for all but four shipped items, and NULL falls through to `GetPlayerDisplayModel`
+    /// (tf_weaponbase.cpp:686, :698).
+    /// </remarks>
+    [Test]
+    public void Resolve_AWeaponWhoseItemNamesNoModelWorld_DrawsTheModelPlayer()
+    {
+        List<SceneProp> drawn = [Weapon(model: PyroArms, item: HotHand, owner: 3, state: EntityState.WeaponActive, className: Slap)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => GlovePlayer, NoModelWorld);
+
+        drawn[0].ModelPath.ShouldBe(GlovePlayer);
+    }
+
+    /// <remarks>
+    /// **The control where it is empty: an item's own `"model_world" ""` still wins, and names no model.** `GetWorldModel`
+    /// tests the pointer, not the text (tf_weaponbase.cpp:686), and `GetString( "model_world", NULL )` returns an empty value
+    /// as "" (KeyValues.cpp:1451-1457, econ_item_schema.cpp:3160) — so the weapon's world model is "" and it draws nothing,
+    /// exactly as an empty `model_player` does. No shipped item declares one; this pins the reading rather than a case.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWeaponWhoseItemsModelWorldIsEmpty_DrawsNothing()
+    {
+        List<SceneProp> drawn = [Weapon(model: PyroArms, item: HotHand, owner: 3, state: EntityState.WeaponActive, className: Slap)];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => GlovePlayer, _ => string.Empty);
+
+        drawn[0].ModelPath.ShouldBe(string.Empty, "\"\" is the item's answer, not a gap model_player fills");
+    }
+
+    /// <remarks>
+    /// **The control on the entity: a WEARABLE never asks `model_world`.** Only `CTFWeaponBase::GetWorldModel` reads it; a
+    /// wearable draws its networked index (`C_TFWearable::GetWorldModelIndex`, tf_item_wearable.cpp:453-509), which the
+    /// server set from `GetPlayerDisplayModel` (`UpdateModelToClass`, econ_entity.cpp:412). No shipped wearable declares one,
+    /// so what this separates is the rule's reach: the item's `model_player` wins here, as it did before.
+    /// </remarks>
+    [Test]
+    public void Resolve_AWearableWhoseItemNamesAModelWorld_DrawsTheModelPlayer()
+    {
+        List<SceneProp> drawn = [Weapon(model: AWearable, item: HotHand, owner: 3, state: null, className: "CTFWearable")];
+
+        new WeaponPropModels().Resolve(drawn, [], (_, _, _) => GlovePlayer, _ => GloveWorld);
+
+        drawn[0].ModelPath.ShouldBe(GlovePlayer);
+    }
+
+    /// <summary>An item that names no `model_world`, which is every shipped item but four.</summary>
+    private static readonly Func<int, string?> NoModelWorld = _ => null;
+
+    /// <summary>The Hot Hand, the one shipped item whose `model_world` differs from its `model_player`.</summary>
+    private const int HotHand = 1181;
+
+    /// <summary>`tf_weapon_slap`'s server class.</summary>
+    private const string Slap = "CTFSlap";
+
+    private const string GlovePlayer = "models/weapons/c_models/c_slapping_glove/c_slapping_glove.mdl";
+
+    private const string GloveWorld = "models/weapons/c_models/c_slapping_glove/w_slapping_glove.mdl";
+
+    private const string PyroArms = "models/weapons/c_models/c_pyro_arms.mdl";
 
     /// <summary>The Basic Spellbook, whose `model_player` is `halloween2013_spellbook`'s "".</summary>
     private const int BasicSpellbook = 1070;
