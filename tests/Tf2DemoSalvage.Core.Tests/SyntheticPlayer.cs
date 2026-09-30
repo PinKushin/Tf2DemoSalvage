@@ -369,6 +369,12 @@ internal static class SyntheticPlayer
         /// <summary>The entity <c>m_hGrapplingHookTarget</c> names, or null for the invalid handle.</summary>
         public int? GrapplingHookTarget { get; init; }
 
+        /// <summary>
+        /// The serial the handle carries above its index: 1, the one every entity in this fixture enters with, unless
+        /// a test names a slot that has since changed hands.
+        /// </summary>
+        public int GrapplingHookSerial { get; init; } = 1;
+
         /// <summary>Leaves the PVS at this snapshot: a LEAVE update and nothing else, then an ENTER after it.</summary>
         public bool Dormant { get; init; }
 
@@ -510,9 +516,11 @@ internal static class SyntheticPlayer
             ["m_bUseClassAnimations"] = PropertyValue.FromInt(snapshot.UsesClassAnimations ? 1 : 0),
             ["m_nPlayerCond"] = PropertyValue.FromInt(snapshot.PlayerCond),
 
-            // Serial 1 above the eleven index bits, the serial every entity in this fixture enters with.
+            // The serial above the eleven index bits: 1 unless the test says otherwise.
             ["m_hGrapplingHookTarget"] = PropertyValue.FromInt(
-                snapshot.GrapplingHookTarget is { } target ? target | (1 << 11) : InvalidNetworkedHandle),
+                snapshot.GrapplingHookTarget is { } target
+                    ? target | (snapshot.GrapplingHookSerial << 11)
+                    : InvalidNetworkedHandle),
         };
 
     /// <summary>One <c>CTEPlayerAnimEvent</c>, carrying every field as a full update.</summary>

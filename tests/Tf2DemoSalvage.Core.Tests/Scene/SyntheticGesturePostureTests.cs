@@ -184,12 +184,15 @@ public sealed class SyntheticGesturePostureTests
     /// <remarks>
     /// **A grappling hook sets the latch without any rise** — `GetGrapplingHookTarget() != NULL` stands beside
     /// the velocity in `:1446`. The target has to be an entity the client holds, which the game rules entity is;
-    /// a handle naming a slot the client holds nothing in is a null `Get()`, and no hook at all.
+    /// a handle naming a slot the client holds nothing in is a null `Get()`, and no hook at all. So is a handle
+    /// whose serial is not the occupant's: `Get()` compares it (`RecvProxy_IntToEHandle` keeps both,
+    /// `recvproxy.cpp:80`), because a slot that changed hands must name nothing rather than its new occupant (B231).
     /// </remarks>
-    [TestCase(SyntheticPlayer.GestureRulesEntityIndex, "ACT_MP_RELOAD_AIRWALK")]
-    [TestCase(SyntheticPlayer.GestureRulesEntityIndex + 1, "ACT_MP_RELOAD_STAND")]
-    [TestCase(null, "ACT_MP_RELOAD_STAND")]
-    public void Build_AGrappledPlayerRisingSlowly_AirWalksOnlyWhileHooked(int? target, string expected)
+    [TestCase(SyntheticPlayer.GestureRulesEntityIndex, 1, "ACT_MP_RELOAD_AIRWALK")]
+    [TestCase(SyntheticPlayer.GestureRulesEntityIndex, 2, "ACT_MP_RELOAD_STAND")]
+    [TestCase(SyntheticPlayer.GestureRulesEntityIndex + 1, 1, "ACT_MP_RELOAD_STAND")]
+    [TestCase(null, 1, "ACT_MP_RELOAD_STAND")]
+    public void Build_AGrappledPlayerRisingSlowly_AirWalksOnlyWhileHooked(int? target, int serial, string expected)
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
             Interval,
@@ -198,8 +201,11 @@ public sealed class SyntheticGesturePostureTests
             (RoundRunning, SceneTeams.Unassigned, NoMatchGroup),
             alwaysLoser: false,
             At(100, 0f, OnGround),
-            At(101, 1f, InAir) with { GrapplingHookTarget = target },
-            At(102, 2f, InAir) with { GrapplingHookTarget = target, Events = [PlayerAnimEvent.Reload] }));
+            At(101, 1f, InAir) with { GrapplingHookTarget = target, GrapplingHookSerial = serial },
+            At(102, 2f, InAir) with
+            {
+                GrapplingHookTarget = target, GrapplingHookSerial = serial, Events = [PlayerAnimEvent.Reload],
+            }));
 
         Reload(timeline, 102).ActivityName.ShouldBe(expected);
     }

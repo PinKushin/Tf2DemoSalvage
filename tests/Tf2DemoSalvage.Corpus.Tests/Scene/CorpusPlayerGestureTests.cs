@@ -459,9 +459,11 @@ public sealed class CorpusPlayerGestureTests
                 bool onGround = (flags & 1) != 0;
                 bool ducking = (flags & 2) != 0;
                 bool waistDeep = player.Integer("DT_TFPlayer.m_nWaterLevel") >= 2;
+                // `Get()` compares the handle's serial with the slot's occupant, so a slot that changed hands is null.
                 bool grappling = player.Integer("DT_TFPlayer.m_hGrapplingHookTarget") is { } hook &&
                     hook != (1 << 21) - 1 &&
-                    entities.TryGet(hook & ((1 << 11) - 1), out _);
+                    entities.TryGet(hook & ((1 << 11) - 1), out EntityState? hooked) &&
+                    hooked.SerialNumber == hook >> 11;
                 bool was = latched.Contains(who);
 
                 if ((rising > 300f || was || grappling) && !ducking)
