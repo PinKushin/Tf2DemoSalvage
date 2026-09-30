@@ -133,6 +133,22 @@ public sealed class Protocol15SchemaTests
     }
 
     [Test]
+    public void Parse_AProtocol15SchemaWithAByteAfterItsClassList_IsRefused()
+    {
+        // **Whole means whole for both readings.** The later builds' numbering reads this schema to
+        // its class list — and a byte of something is left after it, which no schema in the corpus
+        // has. At 15 that is the one piece of evidence for which numbering wrote the payload, so a
+        // reading that leaves a byte is not taken on the strength of having got that far.
+        byte[] whole = SyntheticSchema.Write(Later(), Protocol, vectorXyNumbering: true);
+        byte[] longer = [.. whole, 0xA5];
+
+        InvalidDataException refusal = Should.Throw<InvalidDataException>(
+            () => SendTableParser.Parse(longer, Protocol));
+
+        refusal.Message.ShouldContain("bits before the payload does");
+    }
+
+    [Test]
     public void Parse_ASchemaBuild3862WroteAtProtocol16_IsNotReadTheOldWay()
     {
         // **Only protocol 15 is read both ways.** At 16 every build numbered with VectorXY — the 2011

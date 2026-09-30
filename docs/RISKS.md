@@ -922,6 +922,10 @@ distinguishes the two widths on its first packet, and it chose six.
 The failure being loud is what made the guess tolerable in the meantime; it is not what made it
 correct. Contrast B14, which was latent for the entire life of the project.
 
+**Not settled at 15→16 after all — B440, 2026-09-30.** Two SourceTV demos from later protocol-15 builds
+write six bits; the flip is INSIDE protocol 15, after build 3862, and one specimen each side of 15 could
+never have located it. At 15 the width is now decided by the demo's first packet.
+
 
 ## B18 — the property type enum was renumbered, and neither list mentions it
 
@@ -969,6 +973,12 @@ all. Getting a whole schema and matching properties is not something the wrong n
 
 So `DPT_VectorXY` was inserted between protocols 15 and 16 — the same boundary as the message type
 width, which is consistent with both being part of whatever wire change earned protocol 16.
+
+**Wrong, and the branch diffed above had the date in its own history — B440, 2026-09-30.** hl2sdk's `tf2`
+branch took `DPT_VectorXY` in `c789d33e` on 14 August 2009, two months after build 3862, at protocol 15;
+two later protocol-15 SourceTV demos number with it. "Consistent with both being part of protocol 16" was
+the premise that a protocol only moves when the wire does, and it does not. At 15 the schema is now read
+whichever way reads it whole.
 
 
 ## B19 — a fourth era difference, and this one is silent
@@ -7883,6 +7893,32 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B444 — protocol 15's later builds registered one more user message before `CheapBreakModel`, and ids above 33 are named from build 3862's table — OPEN 2026-09-30
+
+**Found in B440's work**, once the two later-build protocol-15 SourceTV demos decoded. Their only user
+message above id 28 is **41**: 159 of them, 145 at 85 bits and 14 at 71 to 80, and all 159 decode under
+`CheapBreakModel`'s layout — a short and a `BitVec3Coord`, shorter when an axis is left out. Build 3862's client registers
+`CheapBreakModel` at **40** (the 2009 POV carries it there) and `SPHapWeapEvent` at 41; the 2011 client
+registers it at 41, after `TrainingObjective` at 34. So the later protocol-15 builds registered one more
+message somewhere in 29–40 than build 3862 did. *Measured* (widths by id); *interpolated* (which message,
+and where).
+
+**What the reader does today.** `UserMessageNames` gives protocol 15 build 3862's table. At 41 that name's
+layout — `SPHapWeapEvent`, a fixed 32 bits — refuses an 85-bit body, so the name is withheld and the trace
+prints `#41`: honest, and undecoded. **The hazard is 34–40**, where build 3862's names carry layouts that
+also FIT a neighbour's body: a later build's `PlayerJarated` at 36 (two entity bytes) would read as build
+3862's `PlayerExtinguished` at 36, the same width — a plausible wrong name. Neither demo carries an id in
+34–40, so nothing in the corpus is misnamed today. `VoiceMask`'s size is unmeasured for the later builds
+too (17 bytes in build 3862, 33 from 2011); neither demo carries one.
+
+**What would settle it:** a client from a later protocol-15 build, read for its registration order the way
+B29's six tables were, or protocol-15 demos carrying ids in 34–48. The stream already says which build
+family a protocol-15 demo is from (six-bit type fields, B440), so once the table is known the choice can
+key on that — or go through `UserMessageNames.Alternate` as protocol 24 does (B29), which only names an id
+when a layout decides.
+
+---
+
 ### B443 — two entity removal lists do not re-encode to their own bits — OPEN 2026-09-30
 
 **Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
@@ -7943,7 +7979,7 @@ Speex encoder (`vaudio_speex`) says which. Research first, on its own branch. *E
 
 ---
 
-### B440 — both protocol-15 SourceTV demos misread from their first bytes: the schema and every message — OPEN 2026-09-30
+### B440 — both protocol-15 SourceTV demos misread from their first bytes: the schema and every message — FIXED 2026-09-30
 
 **Found by the first full superset run** (B439). Two lcor demos, both SourceTV recordings at network
 protocol 15, and both wrong at every layer:
@@ -7979,6 +8015,89 @@ the two 2007 SourceTV specimens whose tables are truncated on the wire, silently
 *Hypothesis, interpolated:* the protocol-15 POV decodes and both protocol-15 SourceTV demos fail from the
 first command, so that era's SourceTV writer differs in something every layer reads. Not fixed here: a
 decode change needs its own branch, and a synthetic specimen to red it first.
+
+**Settled: it is not SourceTV, and it is not the container. Protocol 15 was written by two builds.**
+Build 3862 (June 2009), the protocol-15 POV the parser was measured on, writes five-bit message types
+and numbers `SendPropType` without `DPT_VectorXY`. The builds that recorded these two write six-bit types
+and number with VectorXY — and announce protocol 15 all the same. Both widths and both numberings were
+keyed on the protocol (B17, B18), which had been measured with one specimen each side of 15 and so could
+not see a change INSIDE it. The story, and each wrong turn, is `docs/findings/06-protocol-eras.md`; the era
+facts are `docs/TIMELINE.md`.
+
+- **The first signon, read at six bits** (measured): `svc_ServerInfo` at bit 0 — protocol 15, SourceTV,
+  dedicated, max classes 249 (esea 254), interval 0.015, platform `l`, `tf`, `cp_badlands`,
+  `sky_badlands_01`, `SourceTV` — and the strings land on bit 192, a byte boundary. Every packet then
+  reads to its end: 32,511 and 106,425 packets, none stopped. At five bits the type's sixth bit becomes
+  the protocol's lowest, which is where protocol **30** came from (15 shifted once).
+- **The schema, with VectorXY numbered in** (measured): 360 tables and 249 classes (esea 367 and 254),
+  ending 7 and 0 bits short of the payload — agreeing with ServerInfo's max classes by a separate route —
+  and carrying `m_vecOrigin` as `DPT_VectorXY` in both player-exclusive tables, as the 2011 client does.
+  **26,207 is not about these demos**: every VectorXY-numbered schema in the corpus — protocol 16, 21, 22,
+  24 — reads to one table and 26,207 classes under the old numbering, and build 3862's reads to 60,833
+  under the new.
+- **The container is identical** (read from published source, and measured): one `demoheader_t` and one
+  `democmdinfo_t` for every recording (`public/demofile/demoformat.h:48-61, 78-157`), and the payload the
+  reader hands over opens exactly on ServerInfo. **The quoted "first signon payload" above starts two bytes
+  early**: `00 00` are the top of the length field (`ab 9a 00 00`), and the payload is `c8 03 c0 02 …` —
+  the reading that made a leading zero field look like a SourceTV prologue.
+- **The engine's side** (read from published source): `svc_CmdKeyValues`, declared after
+  `svc_GetCvarValue` (`public/inetmsghandler.h:148-149`), is id 32, the first five bits cannot carry — the
+  Orange Box list ends at GetCvarValue (hl2sdk `orangebox`, `public/inetmsghandler.h:138`). `DPT_VectorXY`
+  is at 3 in `public/dt_common.h:108-114` and absent from the Orange Box enum; the hl2sdk branch TF2 builds
+  against took it in `c789d33e` on 14 August 2009, two months after build 3862. And `proto_version.h`
+  has no constant between `PROTOCOL_VERSION_14` and `PROTOCOL_VERSION_REPLAY` (`common/proto_version.h:40-47`)
+  — the protocol did not move for either.
+- **Dating, bounded:** five bits at build 3862 (4 June 2009, measured on its client); six by 9 November 2010,
+  the date in the CEVO demo's `tv_autorecord` name, which bounds the build that recorded it from above. The
+  VectorXY change is interpolated to August 2009 from the hl2sdk commit. Whether both arrived in one build
+  is not established — the fix does not assume it.
+
+**Fix** (`fix/b440-protocol15-sourcetv`):
+- `NetDecodeState.MessageTypeBits` is settable, and at protocol 15 undecided until a packet decides it:
+  `NetMessageReader.Read` asks the first packet whether six bits read its `svc_ServerInfo` back as the
+  header's protocol — six if so, five (build 3862's width) otherwise. Everywhere else the protocol decides,
+  as before.
+- `SendTableParser.Parse` reads a protocol-15 schema the June 2009 way and keeps it if it reads WHOLE —
+  every table, then a class list ending within the payload's last byte; otherwise it reads it with
+  VectorXY and keeps that if whole; otherwise it refuses, naming both readings. Every other protocol has
+  one numbering and gets only that.
+- `DemoAssembly` states `messagetypebits` in its header block, because the compiler writes packets and has
+  none to ask; a width other than 5 or 6 is refused. Text written before it compiles at the protocol's
+  width, as it always did.
+- The corpus harness: the round-trip writer and `CorpusNetMessageTests`' isolated packets are told the
+  width the demo's first packet decided — a lone mid-demo packet cannot say (a state at 15 reading one
+  cold reads it at five). `FilesWithSchema` now says, in each sweep's output, which demos it leaves out
+  and the parser's reason.
+
+**Tests** (red at `8f5da100`; a sabotage per rule, each by a precise inverse edit, the affected project run
+each time):
+
+| sabotage | red |
+|---|---|
+| the reader never decides the width | `MessageTypeBits_AfterTheFirstPacket…(True,6)`, `Read_AProtocol15PacketAtEitherWidth…(6)`, `Read_AProtocol15DemoWrittenAtSixBits…`, `RoundTrip_AProtocol15DemoWrittenAtSixBits…`; on real bytes 13 of 16 corpus tests, all five of the entry's |
+| a later packet re-decides instead of keeping the width | `Read_AProtocol15DemoWrittenAtSixBits_ReturnsEveryMessageSent` alone |
+| a width already set is ignored (the trial state too) | the test host aborts: the six-bit trial recurses |
+| protocols below 15 decided by the packet | `MessageTypeBits_AtAProtocolWithOneWidth…(14,5)` alone |
+| protocols above 15 decided by the packet | 242, among them `…(16,6)` |
+| any ServerInfo decides six, whatever it restates | `MessageTypeBits_WhenServerInfoRestatesAnotherProtocol_IsFive` alone |
+| no ServerInfo falls to six | six, among them `…CarriesNoServerInfo_IsFive` and the five-bit demo |
+| the trial reads at five | seven, both widths |
+| protocol 15 never tries VectorXY | three schema tests; on real bytes the two named schema tests and the `FilesWithSchema` control |
+| the June 2009 reading taken without reading whole | `…OldNumberingReadsWithBitsLeftOver…`, `…ByteAfterItsClassList…`, `…TheLaterBuildsWrote…` |
+| the VectorXY reading taken without reading whole | `Parse_AProtocol15SchemaWithAByteAfterItsClassList_IsRefused` alone |
+| VectorXY tried first | `Parse_ASchemaBothNumberingsReadWhole_IsReadTheWayBuild3862WroteIt` alone |
+| both readings at every protocol | `…Build3862WroteAtProtocol16_IsNotReadTheOldWay`, and four ragdoll tests whose protocol-24 schemas the old numbering reads whole |
+| the assembly never states the width / compiles ignoring it / states the protocol's | `RoundTrip_AProtocol15DemoWrittenAtSixBits_ReproducesItsBytes` (the text, the bytes, the bytes) |
+| the verifying state assembles at five | 14, the protocol-15 round trip among them |
+| any stated width accepted | `Parse_AMessageTypeBitsThatIsNotFiveOrSix_NamesTheField("7")` |
+| the round-trip writer not told the width | `EveryWritableMessage_ReproducesItsOwnBitsExactly` |
+| an isolated packet read at the protocol's width | `NetTickRunsOnTheServerClock_AtAConstantOffsetFromTheDemoClock` |
+| `FilesWithSchema` silently drops a readable demo | `FilesWithSchema_EveryDemoItLeavesOut_HasASchemaCutOnTheWire`, naming it |
+| `SourceSdk.Enumerators` blind to `typedef enum` | the three conformance tests reading `SendPropType` |
+
+**After:** both demos decode every packet, parse their schemas, trace with no stop, and compile back byte
+for byte; their timelines build (CEVO 4,292 prop tracks, 102,861 keyframes; esea 8,456 and 377,964). The
+user message table the later builds registered is a separate question, filed as B444.
 
 ---
 

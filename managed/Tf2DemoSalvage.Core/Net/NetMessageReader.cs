@@ -102,6 +102,11 @@ public static class NetMessageReader
     {
         ArgumentNullException.ThrowIfNull(state);
 
+        if (state.MessageTypeBitsUndecided)
+        {
+            state.MessageTypeBits = TypeBitsOf(payload, state.NetworkProtocol);
+        }
+
         BitReader reader = new(payload);
         List<INetMessage> messages = new();
         List<int> messageStarts = new();
@@ -571,6 +576,41 @@ public static class NetMessageReader
             MessageStartBits = messageStarts,
             BitsConsumed = lastGoodBit,
         };
+    }
+
+    /// <summary>The type width a protocol-15 demo's first packet was written at (B440).</summary>
+    /// <param name="payload">The first packet the demo's state reads.</param>
+    /// <param name="protocol">The demo header's network protocol.</param>
+    /// <returns>Six when the packet's <c>svc_ServerInfo</c> restates the protocol read at six; five otherwise.</returns>
+    /// <remarks>
+    /// **Two builds wrote protocol 15 and they disagree on this field.** Build 3862 (June 2009)
+    /// wrote five bits; the builds after it wrote six once <c>svc_CmdKeyValues</c> took id 32
+    /// (<c>public/inetmsghandler.h:148-149</c>), and went on announcing 15 — there is no constant
+    /// between <c>PROTOCOL_VERSION_14</c> and <c>PROTOCOL_VERSION_REPLAY</c>
+    /// (<c>common/proto_version.h:40-47</c>). So the header cannot say which, and this asks the
+    /// packet.
+    ///
+    /// **The question is whether six bits read the packet's own ServerInfo back as this protocol.**
+    /// The header is written independently of the packet, so agreement with it is evidence and a
+    /// clean parse alone is not. At the wrong width the answer comes back wrong in a way no build
+    /// writes: a six-bit ServerInfo read at five has the type's top bit as the protocol's lowest,
+    /// and B440's CEVO demo read as protocol 30. A packet with no ServerInfo says nothing either
+    /// way, and is read at five — build 3862's width, the one first measured here.
+    ///
+    /// **Five is not asked separately, because a five-bit packet does not pass at six.** Where
+    /// ServerInfo opens the packet — every SourceTV signon — the two readings put the protocol one
+    /// bit apart, and only protocol 0 reads the same both ways. Where <c>svc_Print</c> opens it — a
+    /// point-of-view signon — six bits lose the string's alignment at once: the 2009 POV read at six
+    /// stops at bit 638 on id 52, which five bits cannot even hold, and reaches no ServerInfo.
+    /// </remarks>
+    private static int TypeBitsOf(ReadOnlySpan<byte> payload, ushort protocol)
+    {
+        NetDecodeState trial = new() { NetworkProtocol = protocol, MessageTypeBits = NetMessage.TypeBits };
+        _ = Read(payload, trial);
+
+        return trial.ServerInfo?.NetworkProtocol == protocol
+            ? NetMessage.TypeBits
+            : NetMessage.OldTypeBits;
     }
 
     /// <summary>Reads a 16-bit fixed-point angle as degrees.</summary>

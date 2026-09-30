@@ -106,6 +106,26 @@ public sealed class Protocol15TypeWidthTests
         state.MessageTypeBits.ShouldBe(NetMessage.OldTypeBits);
     }
 
+    [TestCase((ushort)14, NetMessage.OldTypeBits)]
+    [TestCase((ushort)16, NetMessage.TypeBits)]
+    public void MessageTypeBits_AtAProtocolWithOneWidth_IsThatWidthWhateverThePacketSays(
+        ushort protocol, int expected)
+    {
+        // **Only 15 is asked.** Every build at 14 and below wrote five bits and every build at 16
+        // and above six, both measured; a packet at the other width there is not another build, so
+        // it must not move the width. Each packet here restates its protocol at the width it was
+        // written at — the thing that decides 15 — and is written at the width its protocol never
+        // had.
+        DemoCommand first = protocol > Protocol
+            ? SyntheticDemo.Packet(Protocol, 0, Info(protocol))
+            : SyntheticDemo.SixBitPacket(null, 0, Info(protocol));
+
+        NetDecodeState state = new() { NetworkProtocol = protocol };
+        _ = NetMessageReader.Read(first.Payload.Span, state);
+
+        state.MessageTypeBits.ShouldBe(expected);
+    }
+
     /// <summary>What a SourceTV signon opens with: ServerInfo, then a tick and the replicated cvars.</summary>
     private static INetMessage[] Signon(ServerInfoMessage info) =>
     [

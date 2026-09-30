@@ -181,6 +181,11 @@ public sealed class CorpusMessageRoundTripTests
 
             byte[] payload = command.Payload.ToArray();
             NetMessageReadResult result = NetMessageReader.Read(payload, readState);
+
+            // The width the read settled is the one the writer must use. At protocol 15 the first
+            // packet decides it (B440), and the write state never reads a packet, so it is told.
+            writeState.MessageTypeBits = readState.MessageTypeBits;
+
             List<WrittenMessage> messages = new(result.Messages.Count);
 
             for (int i = 0; i < result.Messages.Count; i++)
@@ -219,6 +224,7 @@ public sealed class CorpusMessageRoundTripTests
         NetDecodeState copy = new()
         {
             NetworkProtocol = state.NetworkProtocol,
+            MessageTypeBits = state.MessageTypeBits,
             ServerInfo = state.ServerInfo,
         };
 

@@ -203,14 +203,18 @@ game's in every build from 2009 on, which is where the corpus's unnamed ids came
 
 | Change | Boundary | Evidence | Grade |
 |---|---|---|---|
-| **Message type field is 5 bits, not 6** | somewhere in 16–23 | Protocol 15 is five bits, 24 is six, both decoded. Source sizes it by `2^NETMSG_TYPE_BITS > SVC_LASTMSG`; 2009's highest id was `svc_GetCvarValue` at 31. | **Bounded** |
-| **`SendPropType` renumbered** — `DPT_VectorXY` inserted at 3, pushing String/Array/DataTable up one | somewhere in 16–23 | `dt_common.h` differs between the `orangebox` and `tf2` SDK branches; both numberings decoded against real demos. | **Bounded** |
+| **Message type field is 5 bits, not 6** | **inside protocol 15**: after build 3862 (4 June 2009), by 9 November 2010 | Build 3862 writes five bits; two later protocol-15 SourceTV demos write six (B440). Source sizes it by `2^NETMSG_TYPE_BITS > SVC_LASTMSG`; `svc_CmdKeyValues` (32) is the first id five bits cannot carry. | **Bounded**, both ends measured |
+| **`SendPropType` renumbered** — `DPT_VectorXY` inserted at 3, pushing String/Array/DataTable up one | **inside protocol 15**: after build 3862; hl2sdk's `tf2` branch took it on 14 August 2009 (`c789d33e`) | `dt_common.h` differs between the `orangebox` and `tf2` SDK branches; build 3862 decodes with the old numbering, the two later protocol-15 SourceTV demos with the new (B440). | **Bounded**, both ends measured |
 | **String table length becomes a varint** | above 23 | `proto_version.h` (`NET_MAX_PAYLOAD_BITS went away`), and both forms decoded. | **Measured** |
 | **Steam id rendering: Steam2 → Steam3** | between 2009 and 2020 | `userinfo` carries `STEAM_0:0:0` in 2009 and `[U:1:…]` in modern demos. | **Measured** |
 
 **Neither of the first two appears in `proto_version.h`**, which is the single most important
 caveat on this page: Valve's own list of era differences does not contain all of them. Both were
 found only by decoding a demo old enough to break.
+
+**And neither moved the protocol number** (B440). Both sit between two builds that each announce 15,
+so protocol 15 is two dialects; the parser reads each protocol-15 demo for which one — the width from
+its first packet, the numbering from which reading of its schema is whole.
 
 ### Sourced from `proto_version.h`, not yet exercised
 
@@ -242,16 +246,17 @@ and the corpus has nothing that old.
 Facts that are not protocol-conditional but differ visibly by era. Useful for **dating an
 undated demo**, which is how `z1800.dem` was placed.
 
-| Measure | 2007 (11) | 2008 (14) | 2009 (15) | 2011 (16) | 2013 (24) | 2020 (24) | 2026 (24) |
-|---|---|---|---|---|---|---|---|
-| `svc_ServerInfo` max classes | **216** | **216** | **232** | **256** | — | 362 | **363** |
-| String tables declared | **16** | **16** | **16** | 16 | 16 | 20 | 20 |
-| Game event definitions | — | — | **156** | — | — | 401 | **414** |
-| Event field types (`string`/`float`/`long`/`short`/`byte`/`bool`) | — | — | **59/17/24/170/75/18** | — | — | 109/41/70/426/162/46 | 110/41/88/437/162/46 |
-| `userinfo` record size | 132 bytes | 132 | 132 | 132 | 132 | 132 | 132 |
+| Measure | 2007 (11) | 2008 (14) | 2009 (15) | 2010 (15, later builds) | 2011 (16) | 2013 (24) | 2020 (24) | 2026 (24) |
+|---|---|---|---|---|---|---|---|---|
+| `svc_ServerInfo` max classes | **216** | **216** | **232** | **249, 254** | **256** | — | 362 | **363** |
+| String tables declared | **16** | **16** | **16** | 16 | 16 | 16 | 20 | 20 |
+| Game event definitions | — | — | **156** | — | — | — | 401 | **414** |
+| Event field types (`string`/`float`/`long`/`short`/`byte`/`bool`) | — | — | **59/17/24/170/75/18** | — | — | — | 109/41/70/426/162/46 | 110/41/88/437/162/46 |
+| `userinfo` record size | 132 bytes | 132 | 132 | — | 132 | 132 | 132 | 132 |
 
-All measured 2026-08-10. **Four independent measures, and they agree** — which is what makes this
-usable for dating rather than merely interesting.
+All measured 2026-08-10, except the 2010 column: the two later-build protocol-15 SourceTV demos (CEVO
+and ESEA, B440), measured 2026-09-30 — string tables on the CEVO one. **Four independent measures, and
+they agree** — which is what makes this usable for dating rather than merely interesting.
 
 **Max classes is non-decreasing, and that is the useful shape:** 216, 216, 232, 256, … 362, 363.
 It grows as TF2 gains entity types and never shrinks, so it bounds a demo's age from below. Note
@@ -298,8 +303,8 @@ Worth recording, because the project's central bet is that these are rare.
 
 | Question | What would answer it |
 |---|---|
-| Where exactly did the message type field widen? | One demo in protocols 16–23 |
-| Where exactly was `DPT_VectorXY` inserted? | Same demo |
+| Where exactly did the message type field widen? | Inside protocol 15 (B440) — which build, a client from a later protocol-15 build |
+| Where exactly was `DPT_VectorXY` inserted? | Inside protocol 15 (B440); August 2009 by the hl2sdk commit, interpolated |
 | Does a protocol-14 demo really lack the compression flag? | A TF2 2007–2008 demo |
 | What are the four sound-related boundaries? | Implementing `svc_Sounds`, then an old demo |
 | Why do modern demos carry `MVMResetPlayerStats` in ordinary matches? | Unknown; possibly a renumbered id |
@@ -309,7 +314,17 @@ Worth recording, because the project's central bet is that these are rare.
 acquisition for this document. Such a demo is both the answer *and* the regression test, which is
 why it beats any amount of reading.
 
+**They were settled by two demos at protocol 15 instead** (B440, 2026-09-30): a CEVO and an ESEA
+SourceTV recording, both protocol 15, both six-bit and VectorXY-numbered. The two sections below
+reasoned from the protocol number to the wire, and both conclusions are wrong; they are kept, marked,
+because the reasoning is the kind that gets repeated.
+
 ### Engine branches date the protocol ranges — and pin both open boundaries to October 2011
+
+**WRONG — B440.** "The 2009 demo is protocol 15, Source 2009" and "Source 2009 never received
+`DPT_VectorXY`" are both refuted: build 3862 predates the August 2009 update in which hl2sdk's `tf2`
+branch took `DPT_VectorXY` (`c789d33e`, 14 August 2009), and protocol-15 demos recorded after it carry
+it. The October 2011 boundary below never existed; both changes sit inside protocol 15.
 
 TF2 did not stay on one engine. From the Valve Developer Community's own page: it *"originally
 runs on Source 2007 ... later upgraded to Source 2009 in 2009, then **Source Multiplayer in
@@ -353,6 +368,12 @@ protocol 15.
 Both open changes are *network format* changes, and a protocol number only moves when the wire
 format does. So neither happened inside the protocol-15 era: both are at 16 or later. That rules
 out the possibility that they arrived quietly during those three years.
+
+**WRONG — B440, and this is the premise that hid it.** They did arrive quietly during those years:
+two protocol-15 SourceTV demos, one named for 9 November 2010, write six-bit types and the VectorXY
+numbering. A protocol number moves when Valve decides clients and servers can no longer talk, and
+TF2's always ran one build — so the wire changed twice and the number did not.
+`proto_version.h` has no constant between 14 and `PROTOCOL_VERSION_REPLAY` (16) to say otherwise.
 
 ### Searched and came up empty — do not repeat
 
@@ -629,6 +650,10 @@ It also produces a combination of protocol-conditional rules that no demo in the
 The middle four are what make it worth having: **new type numbering and a six-bit message type
 together with a 13-bit prefetch index and fixed lengths.** Nothing in the corpus holds that
 combination, and it is precisely the interpolation the 15-to-24 jump forced this project to assume.
+
+**"At 15" in both tables means build 3862.** Protocol 15's later builds also write six-bit types and
+the new numbering, with a 13-bit prefetch index and fixed lengths — the same combination, found
+2026-09-30 in two SourceTV demos (B440). The two rows keyed on 15 are decided per demo now.
 
 **The `Exe build` fingerprint is now explained rather than merely observed.** Earlier entries noted
 that 2011 and 2013 print two trailing numbers where 2007 and 2008 print one. This build resolves

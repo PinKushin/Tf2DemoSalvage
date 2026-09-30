@@ -61,11 +61,93 @@ public static class SendTableParser
     /// <see cref="MapPropertyType"/>. Defaults to the current protocol.
     /// </param>
     /// <returns>The demo's entity schema.</returns>
+    /// <remarks>
+    /// **At protocol 15 the payload decides the numbering, because two builds wrote it.** Build
+    /// 3862 (June 2009) numbered without <c>DPT_VectorXY</c>; the builds after it numbered with it
+    /// (<c>public/dt_common.h:108-114</c>) and still announced 15 (B440). So a protocol-15 schema is
+    /// read the June 2009 way, and read the other way only when that reading is not WHOLE — when it
+    /// throws, or when it reaches a class list and stops short of the payload's last byte. The
+    /// schema says which numbering wrote it by which one reads it to the end: every schema in the
+    /// corpus that parses ends within seven bits, and a VectorXY-numbered one read the old way comes
+    /// back as one table and 26,207 classes, which is the number B440 was filed with.
+    ///
+    /// Every other protocol has one numbering, measured on both sides of 15, and gets only that.
+    /// </remarks>
     public static DemoSchema Parse(ReadOnlySpan<byte> payload, ushort networkProtocol = CurrentProtocol)
+    {
+        if (networkProtocol != VectorXyProtocol)
+        {
+            return ReadWhole(payload, networkProtocol, networkProtocol > VectorXyProtocol, out _);
+        }
+
+        Reading june2009 = Attempt(payload, vectorXy: false);
+        if (june2009 is { Schema: { } asBuild3862, BitsLeft: < BitsPerByte })
+        {
+            return asBuild3862;
+        }
+
+        Reading later = Attempt(payload, vectorXy: true);
+        if (later is { Schema: { } asTheBuildsAfter, BitsLeft: < BitsPerByte })
+        {
+            return asTheBuildsAfter;
+        }
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
+        throw new InvalidDataException(
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"Neither numbering protocol 15 was written in reads this dem_datatables to its end " +
+                $"(B440). Without DPT_VectorXY, as build 3862 wrote it: {Describe(june2009)} " +
+                $"With DPT_VectorXY, as the builds after it wrote it: {Describe(later)}"),
+            june2009.Failure ?? later.Failure);
+
+        // Stryker restore all
+    }
+
+    /// <summary>One way of reading a protocol-15 schema, and how it went.</summary>
+    /// <param name="Schema">The schema, when the reading got to the end of its class list.</param>
+    /// <param name="BitsLeft">What that left unread after the class list.</param>
+    /// <param name="Failure">Why it did not get there, otherwise.</param>
+    private readonly record struct Reading(
+        DemoSchema? Schema, int BitsLeft, InvalidDataException? Failure);
+
+    /// <summary>Bits in a byte: a payload is padded to one, so a whole reading leaves fewer.</summary>
+    private const int BitsPerByte = 8;
+
+    /// <summary>Reads a protocol-15 schema in one numbering, keeping a failure rather than throwing it.</summary>
+    /// <remarks>
+    /// A failure here is an answer, not an error: it is the evidence that this numbering is not
+    /// the one the payload was written in, and <see cref="Parse"/> reports it if the other numbering
+    /// fails as well.
+    /// </remarks>
+    private static Reading Attempt(ReadOnlySpan<byte> payload, bool vectorXy)
     {
         try
         {
-            return ReadSchema(payload, networkProtocol);
+            DemoSchema schema = ReadWhole(payload, VectorXyProtocol, vectorXy, out int bitsLeft);
+            return new Reading(schema, bitsLeft, null);
+        }
+        catch (InvalidDataException failure)
+        {
+            return new Reading(null, 0, failure);
+        }
+    }
+
+    /// <summary>What one reading of a protocol-15 schema came to, for the refusal.</summary>
+    private static string Describe(Reading reading) =>
+        reading.Failure?.Message ?? string.Create(
+            CultureInfo.InvariantCulture,
+            $"its class list ends {reading.BitsLeft} bits before the payload does.");
+
+    /// <summary>Reads a schema in the numbering given, running off the end as a refusal.</summary>
+    private static DemoSchema ReadWhole(
+        ReadOnlySpan<byte> payload, ushort networkProtocol, bool vectorXy, out int bitsLeft)
+    {
+        try
+        {
+            return ReadSchema(payload, networkProtocol, vectorXy, out bitsLeft);
         }
         catch (EndOfStreamException exhausted)
         {
@@ -88,7 +170,8 @@ public static class SendTableParser
         }
     }
 
-    private static DemoSchema ReadSchema(ReadOnlySpan<byte> payload, ushort networkProtocol)
+    private static DemoSchema ReadSchema(
+        ReadOnlySpan<byte> payload, ushort networkProtocol, bool vectorXy, out int bitsLeft)
     {
         BitReader reader = new(payload);
         List<SendTable> tables = [];
@@ -103,7 +186,7 @@ public static class SendTableParser
             List<SendProperty> properties = new(propertyCount);
             for (int i = 0; i < propertyCount; i++)
             {
-                properties.Add(ReadProperty(ref reader, networkProtocol));
+                properties.Add(ReadProperty(ref reader, networkProtocol, vectorXy));
             }
 
             tables.Add(new SendTable(name, needsDecoder, properties));
@@ -123,19 +206,25 @@ public static class SendTableParser
                 NetBitReading.ReadString(ref reader)));
         }
 
+        bitsLeft = reader.BitsRemaining;
         return new DemoSchema(tables, classes);
     }
 
     /// <summary>The protocol current builds record at.</summary>
     private const ushort CurrentProtocol = 24;
 
-    /// <summary>Last protocol whose property types were numbered without <c>VectorXY</c>.</summary>
+    /// <summary>
+    /// Last protocol any build numbered property types without <c>VectorXY</c> — and the one
+    /// protocol numbered both ways.
+    /// </summary>
     /// <remarks>
-    /// **Exact, and measured.** This was bounded at "somewhere in 16–23" until a June 2011 client
-    /// (protocol 16) was obtained: its schema parses under the current numbering, yielding 256
-    /// server classes whose properties all match the class they were read for. Under the 2009
-    /// numbering every nested table reads as an array and the schema dies a few hundred bits in,
-    /// so a whole schema is not something the wrong numbering produces. See <c>RISKS.md</c> B18.
+    /// **Measured on both sides, and the protocol turned out not to be the boundary.** Build 3862
+    /// (June 2009) numbers protocol 15 the old way; the June 2011 client's protocol-16 schema parses
+    /// under the current numbering to 256 server classes whose properties match the classes they
+    /// were read for (B18). That was read as "inserted between 15 and 16". It was not: the hl2sdk
+    /// branch TF2 builds against took <c>DPT_VectorXY</c> on 14 August 2009 (<c>c789d33e</c>), and
+    /// the two protocol-15 SourceTV demos of B440 — one named for November 2010 — number with it.
+    /// So <see cref="Parse"/> reads protocol 15 both ways and keeps the reading that is whole.
     /// </remarks>
     private const ushort VectorXyProtocol = 15;
 
@@ -155,10 +244,18 @@ public static class SendTableParser
     /// 2009 schema with the current numbering turns every nested table into an array, and the
     /// schema is where entity decoding starts — so the whole file becomes unreadable a few
     /// hundred bits in.
+    ///
+    /// **At protocol 15 this answers for build 3862**, which numbered the old way; the builds after
+    /// it numbered the current way at the same protocol, and <see cref="Parse"/> reads their schemas
+    /// so (B440).
     /// </remarks>
-    public static SendPropType MapPropertyType(uint wireType, ushort networkProtocol)
+    public static SendPropType MapPropertyType(uint wireType, ushort networkProtocol) =>
+        Numbered(wireType, networkProtocol > VectorXyProtocol);
+
+    /// <summary>Translates a wire type code in the numbering given.</summary>
+    private static SendPropType Numbered(uint wireType, bool vectorXy)
     {
-        if (networkProtocol > VectorXyProtocol)
+        if (vectorXy)
         {
             return (SendPropType)wireType;
         }
@@ -170,9 +267,9 @@ public static class SendTableParser
             : (SendPropType)(wireType + 1);
     }
 
-    private static SendProperty ReadProperty(ref BitReader reader, ushort networkProtocol)
+    private static SendProperty ReadProperty(ref BitReader reader, ushort networkProtocol, bool vectorXy)
     {
-        SendPropType type = MapPropertyType(reader.ReadUInt32(TypeBits), networkProtocol);
+        SendPropType type = Numbered(reader.ReadUInt32(TypeBits), vectorXy);
         string name = NetBitReading.ReadString(ref reader);
         int flags = (int)reader.ReadUInt32(FlagBits);
 

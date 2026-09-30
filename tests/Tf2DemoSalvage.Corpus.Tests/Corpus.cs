@@ -95,8 +95,9 @@ internal static class Corpus
         if (found is null)
         {
             Assert.Ignore(
-                $"No demo named '{fragment}' is present. It lives in the local corpus, which is " +
-                "not committed; unset TF2DEMOSALVAGE_GCOR_ONLY and add it to run this.");
+                $"No demo named '{fragment}' with a schema that parses is present. It lives in the " +
+                "local corpus, which is not committed; unset TF2DEMOSALVAGE_GCOR_ONLY and add it to " +
+                "run this. A demo present but left out is named above, with the parser's reason.");
         }
 
         // Assert.Ignore throws, so anything past it has a value — the analyser can see that and
@@ -198,8 +199,9 @@ internal static class Corpus
     /// other layer of it decodes.
     ///
     /// Tests that need entities use <see cref="FilesWithSchema"/> so those demos are excluded by
-    /// their own property rather than by name. The truncation is asserted directly elsewhere, so
-    /// skipping here hides nothing.
+    /// their own property rather than by name. The truncation is asserted directly elsewhere — and
+    /// "so skipping here hides nothing", which this said until B440, was wrong: it hid two demos
+    /// this parser misread, because a misread schema throws here exactly as a cut one does.
     /// </remarks>
     public static DemoSchema? TrySchema(string path)
     {
@@ -215,8 +217,35 @@ internal static class Corpus
 
     /// <summary>Demos whose <c>dem_datatables</c> parses, and which can therefore decode entities.</summary>
     /// <returns>The subset of <see cref="Files"/> carrying a usable schema.</returns>
-    public static IReadOnlyList<string> FilesWithSchema() =>
-        [.. Files().Where(f => TrySchema(f) is not null)];
+    /// <remarks>
+    /// **Every demo this leaves out is said, with the parser's reason, in the output of the test
+    /// that asked** (B440). It used to drop them in silence, which is right for the launch-build
+    /// SourceTV recordings whose writer cut the schema at 65,536 bytes — and for a month it also
+    /// dropped two protocol-15 SourceTV demos this parser misread, so every entity sweep passed
+    /// without ever reaching them. <c>CorpusSchemaTests.FilesWithSchema_EveryDemoItLeavesOut_HasASchemaCutOnTheWire</c>
+    /// fails on any exclusion that is not the writer's cut; this line is what a sweep's own output
+    /// says it never reached.
+    /// </remarks>
+    public static IReadOnlyList<string> FilesWithSchema()
+    {
+        List<string> usable = [];
+
+        foreach (string file in Files())
+        {
+            try
+            {
+                _ = Schema(file);
+                usable.Add(file);
+            }
+            catch (InvalidDataException failure)
+            {
+                TestContext.Out.WriteLine(
+                    $"FilesWithSchema leaves out {Path.GetFileName(file)}: {failure.Message}");
+            }
+        }
+
+        return usable;
+    }
 
     /// <summary>Player rosters, keyed by demo path.</summary>
     private static readonly ConcurrentDictionary<string, IReadOnlyList<PlayerInfo>> Rosters =
