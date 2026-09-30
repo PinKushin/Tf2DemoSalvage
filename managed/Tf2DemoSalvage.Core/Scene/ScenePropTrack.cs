@@ -1465,24 +1465,18 @@ public sealed class ScenePropTrack
     /// </remarks>
     internal (bool Changing, double NextWake) Motion(double tick, bool blend)
     {
-        if (_keyframes.Count == 0)
+        // **The state fields, the track's birth and its death are `Held`'s boundaries**, and a settled
+        // interpolation says nothing about any of them — so they are wakes whatever else is true.
+        double next = HeldChangesAfter(tick);
+
+        if (_keyframes.Count == 0 || tick < _keyframes[0].Tick || tick >= _endTick)
         {
-            return (false, double.PositiveInfinity);
+            return (false, next);
         }
 
         int born = _keyframes[0].Tick;
-
-        if (tick < born)
-        {
-            return (false, born);
-        }
-
-        if (tick >= _endTick)
-        {
-            return (false, double.PositiveInfinity);
-        }
-
         int now = (int)Math.Floor(tick);
+        double target = tick - InterpolationDelayTicks;
 
         // **The engine's rule, and it does not predict anything** (B370). `Interpolate()` runs every frame
         // for everything on `g_InterpolationList`, and an entity leaves only when its own history says a
@@ -1499,30 +1493,51 @@ public sealed class ScenePropTrack
         //
         // **`blend` still gates it**, because a track sampled through `Held` is not interpolating at all
         // and has nothing to settle.
-        bool settled = _simulation.Bracket(tick - InterpolationDelayTicks, now)
-            is not { NoMoreChanges: false };
+        //
+        // **Every history `At` reads, not the simulation's alone** (B438). `Interp_Interpolate` ANDs
+        // `bNoMoreChanges` over the whole var map (`c_baseentity.cpp:861-893`), so an entity leaves the
+        // list only once its cycle and pose parameters have stopped too (`c_baseentity.cpp:2925-2928`). Asking
+        // the origin alone parked a sentry whose origin never moves: z1800's scanned at the packet rate
+        // while playing, and a scrub to the same tick showed it elsewhere — 84% of samples in one window.
+        //
+        // **And not while the target has yet to pass the first keyframe**, because `At` answers the first
+        // stated pose there without asking any history. A history whose changetimes precede the entity's
+        // arrival settles before that answer changes: a sticky bomb on the 2026 pub POV was held 352 units
+        // from where a scrub drew it, for the three ticks between its origin settling and `born + delay`.
+        bool settled = target > born
+            && Settled(_simulation, target, now)
+            && Settled(_animation, target, now)
+            && Settled(_poseParameters, target, now);
 
         // **The one wake that is a real event rather than a prediction: the next packet.** The engine needs
         // none because the packet arriving IS the notification; a reader holding the whole recording has to
-        // ask when that will be. Taken across both histories, since either can re-latch the entity.
+        // ask when that will be. Taken across every history, since any can re-latch the entity.
         // **Computed whether or not the interpolation is settled, and the exception was a defect.** A track
         // sampled through `Held` is never on the lerp list, so an unsettled one with no wake is never
         // looked at again — `PropsAt_SteppedForward...MatchesAFreshTimelineEverywhere` read a barrel that
         // had died at tick 90 still being drawn, because its target sat before its first entry (so: not
         // settled) and it was outside the blending set (so: not lerping).
-        double next = double.PositiveInfinity;
-
+        //
         // **Two moments per history, and missing the second cost four stale ticks.** An entry ARRIVING
         // changes what the search can reach; the delayed target reaching its CHANGETIME is when the pair
         // actually starts moving toward it, and those are `delay` ticks apart. Scheduling only arrivals
         // left entity 328 drawn at -339.50 where its track said -351.97 — 12.47 units, about three ticks
         // of a granary shutter — because the wake fired eight ticks before the answer moved.
+        //
+        // **The pose parameters need no moments of their own**: `Add` appends them in the same statement as
+        // the cycle, with the same two stamps, so the animation history's arrivals and changetimes are
+        // theirs. Only `OnNewModel` stamps them apart, at a tick already played.
+        //
+        // **The last is the first-pose answer's end, one tick past it**: at exactly `born + delay` the target
+        // is still ON the first keyframe, so a wake there would find the track unchanged and schedule nothing
+        // further. One past is the first tick the answer comes from a history.
         foreach (int? moment in (int?[])
             [
                 _simulation.ArrivesAfter(now),
                 _animation.ArrivesAfter(now),
                 _simulation.HeadChangeTime(now) + InterpolationDelayTicks,
                 _animation.HeadChangeTime(now) + InterpolationDelayTicks,
+                born + InterpolationDelayTicks + 1,
             ])
         {
             if (moment is { } at && at > tick && at < next)
@@ -1531,25 +1546,53 @@ public sealed class ScenePropTrack
             }
         }
 
-        // The state fields come from the keyframe list rather than from a history, and a settled
-        // interpolation says nothing about them — so the next keyframe's own arrival is a wake too.
-        int state = IndexAt(now);
+        return (blend && !settled, next);
+    }
 
-        if (state >= 0 && state + 1 < _keyframes.Count && _keyframes[state + 1].Tick < next)
+    /// <summary>Whether a rising clock can no longer change what one history answers.</summary>
+    /// <param name="history">The history.</param>
+    /// <param name="target">The moment drawn, one interpolation delay behind the tick.</param>
+    /// <param name="now">The tick being played, which bounds what has arrived.</param>
+    /// <returns><c>true</c> when settled, or when nothing has arrived for it to answer with.</returns>
+    /// <remarks>
+    /// **Nothing arrived counts as settled**, because `At` does not read a history that cannot bracket: the
+    /// simulation falls back to the stated keyframe, the cycle to the simulation pair, the pose parameters
+    /// to the stated list. Each of those changes only at a keyframe or an arrival, both of them wakes.
+    /// </remarks>
+    private static bool Settled(InterpolatedHistory history, double target, int now) =>
+        history.Bracket(target, now) is not { NoMoreChanges: false };
+
+    /// <summary>The next tick at which <see cref="Held"/> can answer differently, or infinity when never.</summary>
+    /// <param name="tick">The moment being sampled.</param>
+    /// <returns>The track's birth, its next keyframe, or its end — whichever comes first after the tick.</returns>
+    /// <remarks>
+    /// **Everything a track's state fields and its visibility can do between two samples.** `Held` is the
+    /// keyframe at or before the tick, and `Alive` bounds it, so its answer moves only at those three.
+    /// Shared by <see cref="Motion"/>, whose own state wakes these are, and by a move PARENT whose
+    /// interpolation turns on this track's visibility (B438): `ShouldInterpolate`'s fourth clause asks a
+    /// child, so the parent has to be looked at again when the child's answer can change.
+    /// </remarks>
+    internal double HeldChangesAfter(double tick)
+    {
+        if (_keyframes.Count == 0 || tick >= _endTick)
         {
-            next = _keyframes[state + 1].Tick;
+            return double.PositiveInfinity;
         }
+
+        if (tick < _keyframes[0].Tick)
+        {
+            return _keyframes[0].Tick;
+        }
+
+        int state = IndexAt((int)Math.Floor(tick));
+
+        double next = state + 1 < _keyframes.Count ? _keyframes[state + 1].Tick : double.PositiveInfinity;
 
         // **The track's own death, which is an EVENT and not a prediction.** `Alive` stops answering at
         // `_endTick`, so a track still has to be looked at once more to be dropped. Leaving it out kept a
-        // prop alive past its end: the same stepped-against-fresh test read five props at tick 90 where a
-        // cold timeline reads four.
-        if (_endTick > tick && _endTick < next)
-        {
-            next = _endTick;
-        }
-
-        return (blend && !settled, next);
+        // prop alive past its end: the stepped-against-fresh test read five props at tick 90 where a cold
+        // timeline reads four.
+        return _endTick < next ? _endTick : next;
     }
 
     /// <summary>The simulation history the sampler reads, for a diagnostic that must not rebuild it.</summary>

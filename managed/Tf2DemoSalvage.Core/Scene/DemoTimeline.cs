@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Diagnostics;
@@ -5216,6 +5217,23 @@ public sealed class DemoTimeline
     {
         ArgumentNullException.ThrowIfNull(into);
 
+        // **One sample at a time, because the sample below is shared** (B438). The viewer asks from one
+        // thread, but a built timeline is a value worth sharing — the corpus suite hands one per demo to
+        // tests running in parallel — and two callers rebuilding it at once corrupt the wake queue. The
+        // lock makes each call whole; that the answer then depends on nothing but its own arguments is
+        // what the sampling below guarantees, and `DemoTimelineSampleOrderTests` holds it to.
+        lock (_sampling)
+        {
+            Sample(tick, into, viewEntity, interpolating);
+        }
+    }
+
+    /// <summary>Serialises <see cref="PropsAt"/>, whose sample is kept between calls.</summary>
+    private readonly Lock _sampling = new();
+
+    /// <summary><see cref="PropsAt"/>'s body, run under its lock.</summary>
+    private void Sample(double tick, ICollection<SceneProp> into, int? viewEntity, bool interpolating)
+    {
         into.Clear();
 
         // **The signature stays abstract on purpose.** CA1002 refuses `List<T>` in a public API and
@@ -5248,8 +5266,13 @@ public sealed class DemoTimeline
         // **A pause changes the sampling RULE without moving the clock**, so the incremental path
         // would serve the interpolated props it built while playing — the flag joins the seek and
         // the team switch as a reason to rebuild from nothing.
+        //
+        // **And so does the view entity** (B438). It is `ShouldInterpolate`'s first clause, an input
+        // the caller supplies rather than one the recording states, and a sample kept from a call
+        // made from somebody else's eyes answered that call's question: a `kRenderNone` mover asked
+        // for from its own eyes held its last position where a cold sample blends it.
         if (!_sampleSynced || tick < _sampledTo || recorderTeam != _sampledTeam ||
-            interpolating != _sampledInterpolating)
+            interpolating != _sampledInterpolating || viewEntity != _sampledView)
         {
             ResyncSample(tick, viewEntity, recorderTeam, interpolating);
         }
@@ -5262,6 +5285,7 @@ public sealed class DemoTimeline
         _sampledTo = tick;
         _sampledTeam = recorderTeam;
         _sampledInterpolating = interpolating;
+        _sampledView = viewEntity;
 
         // The list is refilled to nearly the same length every frame, so growing it from empty
         // re-allocates the backing array a dozen times a second for nothing.
@@ -5312,10 +5336,14 @@ public sealed class DemoTimeline
     /// <summary>Whether the held samples were built with interpolation on (B399).</summary>
     private bool _sampledInterpolating = true;
 
+    /// <summary>Whose eyes the held samples were built from (B438).</summary>
+    private int? _sampledView;
+
     /// <summary>Rebuilds every track's sample from nothing, at one tick.</summary>
     /// <remarks>
-    /// The cold path: the first call, any seek backwards, and a recorder team switch. It is the
-    /// old per-frame walk, demoted to the cases that genuinely need one.
+    /// The cold path: the first call, any seek backwards, a recorder team switch, a pause and a new
+    /// view entity. It is the old per-frame walk, demoted to the cases that genuinely need one — and
+    /// the answer every other path must reproduce exactly (B438).
     /// </remarks>
     private void ResyncSample(
         double tick, int? viewEntity, int? recorderTeam, bool interpolating = true)
@@ -5374,6 +5402,12 @@ public sealed class DemoTimeline
     /// wake, from the interpolation set as it stands then, and not revisited per frame. A prop
     /// granted visibility between keyframes therefore joins the lerp at the next keyframe, which
     /// is when the engine would re-latch it.
+    ///
+    /// **Every input the decision read is a wake, and that is what makes a stepped sample a cold one**
+    /// (B438). Its own visibility changes only at its own keyframes, which are wakes already; the view
+    /// entity resyncs everything when it changes; and a move child's visibility, which the fourth clause
+    /// reads, can change at the child's keyframes — so the parent is looked at again then, or a door whose
+    /// grate appeared between the door's updates would hold where a scrub to the same tick blends it.
     /// </remarks>
     private void DeriveSample(
         ScenePropTrack track,
@@ -5391,9 +5425,13 @@ public sealed class DemoTimeline
         // **The engine's flag is global and it wins over every per-entity clause** —
         // `IsInterpolationEnabled()` is read before `ShouldInterpolate`'s answer matters at all, so
         // a paused client holds even the entity the view is attached to (B399).
-        bool blend = interpolating && Interpolates(track, stated, tick, viewEntity);
+        double revisit = double.PositiveInfinity;
+
+        bool blend = interpolating && Interpolates(track, stated, tick, viewEntity, out revisit);
 
         (bool changing, double nextWake) = track.Motion(tick, blend);
+
+        nextWake = Math.Min(nextWake, revisit);
 
         ScenePose? sampled = blend ? track.At(tick) : stated;
 
@@ -5427,6 +5465,10 @@ public sealed class DemoTimeline
     /// <param name="stated">Its last stated pose, or null when it has none at this tick.</param>
     /// <param name="tick">The moment, for asking a movement child the same question.</param>
     /// <param name="viewEntity">Who the view is attached to, or null when nobody is.</param>
+    /// <param name="revisit">
+    /// The first tick at which a move child walked here can answer differently — its birth, its next
+    /// keyframe or its end — or infinity when the answer read no child (B438).
+    /// </param>
     /// <returns>Whether its variables are blended rather than held.</returns>
     /// <remarks>
     /// **The engine's, in its order** (`c_baseentity.cpp:3029`):
@@ -5466,8 +5508,10 @@ public sealed class DemoTimeline
     /// and a cycle down a recursive walk is a hang rather than a wrong answer.
     /// </remarks>
     private bool Interpolates(
-        ScenePropTrack asked, ScenePose? stated, double tick, int? viewEntity)
+        ScenePropTrack asked, ScenePose? stated, double tick, int? viewEntity, out double revisit)
     {
+        revisit = double.PositiveInfinity;
+
         if (viewEntity == asked.EntityIndex)
         {
             return true;
@@ -5504,10 +5548,16 @@ public sealed class DemoTimeline
 
             // The child's own last stated pose, asked of the child's track — the clause calls
             // `ShouldInterpolate` on the CHILD, so the child's render mode decides, not the parent's.
-            if (_trackByEntity.TryGetValue(child, out ScenePropTrack? hanging)
-                && Visible(hanging, hanging.Held(tick)))
+            if (_trackByEntity.TryGetValue(child, out ScenePropTrack? hanging))
             {
-                return true;
+                // **The answer holds only until this child's own can change** (B438), which is the
+                // parent's to hear about: a wake at the child's keyframe re-derives the child alone.
+                revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
+
+                if (Visible(hanging, hanging.Held(tick)))
+                {
+                    return true;
+                }
             }
 
             if (_moveChildren.TryGetValue(child, out List<int>? theirs))

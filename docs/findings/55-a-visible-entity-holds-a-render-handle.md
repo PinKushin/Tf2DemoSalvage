@@ -166,3 +166,50 @@ Two instruments were wrong on the way here, and both are the same fault as B370'
 The fade reads the previous frame's cull where `IsRagdollVisible` runs live, so a corpse in its final
 second can expire one frame late. And B259's optimisation is gone — nearly every prop blends now, where
 the old set held a few dozen — with nothing yet measured about what that costs.
+
+## 9. Leaving the list is every variable's decision (B438)
+
+**Evidence class:** read-from-source for the engine; measured on the corpus for the divergence, with the
+`sample-history` probe (a stepped timeline against a second build rebuilt cold at every sample, two
+controls).
+
+Joining the list is `ShouldInterpolate` at a latch: `PostDataUpdate` calls `OnLatchInterpolatedVariables`
+when the anim time or the simulation changed (`c_baseentity.cpp:2583-2591`), and that ends in
+`if ( ShouldInterpolate() ) AddToInterpolationList();` (`:2832`). Leaving is the other half, and it is
+not one variable's:
+
+```cpp
+for ( int i = 0; i < map->m_nInterpolatedEntries; i++ )   // Interp_Interpolate, :861-893
+{
+    ...
+    if ( watcher->Interpolate( currentTime ) )
+        e->m_bNeedsToInterpolate = false;
+    else
+        bNoMoreChanges = 0;
+}
+```
+
+then `if ( bNoMoreChanges ) RemoveFromInterpolationList();` (`:2925-2928`; `C_BaseAnimating::Interpolate`
+the same at `c_baseanimating.cpp:4474-4489`). **Every auto-interpolated variable must be done** — origin,
+angles, the cycle unless client-side animated, the pose parameters.
+
+**What we had asked only the origin.** The incremental sampler (B259 stage C) parked a track once its
+simulation history settled, so a sentry, which never moves, left the list while its cycle and aim were
+still blending, and was re-derived only at the next packet. A scrub rebuilds cold and blends; playback
+stepped. Measured before the fix: `CObjectSentrygun` differed from the cold sample on 84% of z1800's
+samples in 20000..21000, 93.6% on the 2013 foundry STV, 91.4% on pl_upward, 52.5% on koth_ashville (a
+teleporter's pose parameter too, by up to 0.50 of its range). Nothing had caught it because every
+equivalence test moved its props' ORIGINS.
+
+**A second boundary lived in `At` itself.** It answers the first stated pose until the delayed target
+passes the first keyframe, asking no history. A sticky on the 2026 pub POV arrived at 4237 and was
+restated at 4239 stamped 4234 — before its own arrival — so its history settled at 4242 while the first
+pose answered until 4245: stepped, it was drawn up to 352 units from the cold answer.
+
+**The general shape:** an incremental sampler is a restatement of the function it caches, boundary by
+boundary, and the test that keeps it honest is the differential against a cold one — at every step,
+not at chosen ticks. After B438 all ten measured windows show 0 differences.
+
+**Still open:** the fourth clause is evaluated at the sample tick on both paths, where the engine
+evaluates it at the parent's own latch; they differ only when a child's visibility changes between two
+of its parent's updates.
