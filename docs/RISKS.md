@@ -7883,7 +7883,7 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
-### B443 — two entity removal lists do not re-encode to their own bits — OPEN 2026-09-30
+### B443 — the entity round-trip test reads with a state that never saw the first signon, and its two "removal list" mismatches are its own — OPEN 2026-09-30 (was: two entity removal lists do not re-encode to their own bits)
 
 **Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
 demo's first 900 commands and asserts every entity snapshot re-encodes exactly: 33,234 of 33,242 did.
@@ -7898,6 +7898,34 @@ Every other demo re-encodes 100%, including the other twenty-one demostf recordi
 themselves came back bit for bit and what differs is the explicit-delete list written after them. Why
 it differs — order, a repeat, an index — is not established. *Evidence class: measured.* Not fixed here;
 an encoder change wants its own branch and a synthetic removal list that reproduces it first.
+
+**Re-read by the decode census, 2026-09-30: the encoder is not at fault — the test is.** `decode-census`
+(D200) calls what the test calls — `SendTableParser.Parse`, `EntityDecoder.Decode`, `EncodeEntities` — over
+the whole of `demostf-koth_cascade_rc1a-1491232.dem`, but reads every packet with ONE `NetDecodeState` from
+the first command, as the trace writer and `DemoTimeline.Build` do: **21,845 of 21,845 snapshots re-encode
+exactly, and none throws.**
+
+The test differs in one thing. `Measure` skips every command until it has a decoder, which it builds at
+`dem_datatables`, so its `NetDecodeState` never sees the first `dem_signon` — no `svc_ServerInfo`, no string
+tables. **Changing only that in the census, as a manipulation and then reverted, reproduces the filed
+number exactly: first mismatch at tick 1481, bit 3673 of 3673** — a snapshot re-encoded LONGER than it was
+sent, which `Describe` calls "in the removal list" because every entity prefix matched. Underneath it sit
+**10,642 snapshots that throw** (`Entity 642 was updated without ever entering`, first at tick 59), which the
+test's `catch … continue` drops without a count, and 230 more that mismatch. The seven of 654 the test
+reported are the part of that it could see in 900 commands.
+
+*The mechanism, read from source for its first step and interpolated after it:* `svc_TempEntities`' length is
+a varint above protocol 23 and 17 bits below, keyed on `state.ServerInfo?.NetworkProtocol ?? 0`
+(`NetMessageReader`'s TempEntities case). A state without `svc_ServerInfo` reads a protocol-24 length at the
+legacy width, and the rest of that packet is misread — the memory `a-synthetic-packet-without-serverinfo-is-protocol-0`,
+met in a corpus test. A misread packet can hand the decoder a snapshot that is garbage, or drop a real one, and
+its entity table drifts from the stream from then on. *Evidence class: measured (both counts, and the
+reproduced tick and bit); the mechanism past the width is interpolated.*
+
+**So B443 as filed is an instrument defect.** The test reads with a state that has not seen the stream from
+its start, and counts a snapshot that throws as nothing at all. The fix — one state from the first command,
+and a throw counted as a failure — belongs on its own branch, and the census's entity stage is the control
+it must agree with.
 
 ---
 
