@@ -66,7 +66,7 @@ public sealed class CorpusPlayerOriginTests
         "20171113_2240_cp_badlands_red_blu",            // 2017
         "etf2l-12025-pov-2020-07-21",                   // 2020, POV — has a recorder
         "tf2-2026-pub-pov-clean",                       // 2026, POV, public match
-        "demostf-cp_process_f12-2026-08-07",            // 2026, STV — the f12 parity reference
+        "demostf-cp_process_f12-2026-08-08-2207",       // 2026, STV — the f12 parity reference
     ];
 
     [Test]
