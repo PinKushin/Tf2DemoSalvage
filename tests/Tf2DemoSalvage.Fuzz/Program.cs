@@ -82,6 +82,11 @@ internal static class Program
                     static data => VoiceFuzzTarget.Consume(VoiceCodec.Speex, data)));
                 break;
 
+            case "voicesilk":
+                Fuzzer.LibFuzzer.Run(Preserving(
+                    static data => VoiceFuzzTarget.Consume(VoiceCodec.Silk, data)));
+                break;
+
             case "snappy":
                 Fuzzer.LibFuzzer.Run(Preserving(SnappyFuzzTarget.Consume));
                 break;
@@ -103,7 +108,7 @@ internal static class Program
                 // S3928 rightly objects to naming something that is not in the argument list.
                 throw new InvalidOperationException(
                     $"Unknown {TargetVariable} '{target}'. Expected one of: bitreader, " +
-                    $"varint, container, snappy, netmessage, voiceopus, voicecelt, voicespeex, selftest.");
+                    $"varint, container, snappy, netmessage, voiceopus, voicecelt, voicespeex, voicesilk, selftest.");
         }
     }
 

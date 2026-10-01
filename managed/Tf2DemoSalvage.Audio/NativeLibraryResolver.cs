@@ -41,7 +41,7 @@ internal static class NativeLibraryResolver
     /// resolution here is simpler than the Opus case: the file just needs to be next to the
     /// assembly.
     /// </summary>
-    private static readonly string[] BuiltLibraries = ["speex", "celt"];
+    private static readonly string[] BuiltLibraries = ["speex", "celt", "silk"];
 
     /// <summary>
     /// Registers the resolver. Every decoder class calls this from its own static constructor.

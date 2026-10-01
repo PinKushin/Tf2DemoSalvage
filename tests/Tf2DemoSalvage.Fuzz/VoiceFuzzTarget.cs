@@ -16,6 +16,9 @@ public enum VoiceCodec
 
     /// <summary>libspeex 1.2.1, the oldest of the three.</summary>
     Speex,
+
+    /// <summary>Skype's SILK SDK 1.0.9, inside Steam Voice 2011–2016 (B441).</summary>
+    Silk,
 }
 
 /// <summary>
@@ -65,6 +68,9 @@ public static class VoiceFuzzTarget
 
     [ThreadStatic]
     private static SpeexVoiceDecoder? _speex;
+
+    [ThreadStatic]
+    private static SilkVoiceDecoder? _silk;
 
     /// <summary>Decodes <paramref name="data"/> as one frame and checks the outcome is documented.</summary>
     /// <param name="codec">Which decoder to drive.</param>
@@ -132,6 +138,7 @@ public static class VoiceFuzzTarget
         VoiceCodec.Opus => (_opus ??= new OpusVoiceDecoder()).Decode(data),
         VoiceCodec.Celt => (_celt ??= new CeltVoiceDecoder()).Decode(data),
         VoiceCodec.Speex => (_speex ??= new SpeexVoiceDecoder()).Decode(data),
+        VoiceCodec.Silk => (_silk ??= new SilkVoiceDecoder()).Decode(data),
         _ => throw new ArgumentOutOfRangeException(nameof(codec)),
     };
 }
