@@ -8328,7 +8328,7 @@ accessor beside it. Now each component is whichever table wrote it last.
 
 ---
 
-### B441 — the 2012 gullywash demo's Speex voice is not fixed-width frames — OPEN 2026-09-30
+### B441 — the 2012 gullywash demo's Speex voice is not fixed-width frames — FIXED 2026-10-01 (it is Steam Voice, SILK)
 
 **Found by `EverySpeexFrame_DecodesToPcm` in the first full superset run** (B439): "a 20-byte Speex
 payload is not a whole number of 28-byte frames", in `20120909_1804_cp_gullywash_final1_red_fags.dem`
@@ -8390,6 +8390,33 @@ an 8-byte SteamID64; typed records — `0x0B` + u16 sample rate (always 16000), 
 (rate, then a SILK record holding only `FFFF`). The other four failing specimens and the quay STV are unparsed;
 that they are Steam Voice is inferred from the identical failure. *Evidence class: read from disassembly; layout
 measured.*
+
+**Fix** (`fix/b441-steam-voice`, D201). The story and the wrong turn: `docs/findings/02-net-messages.md`.
+
+- `SteamVoicePayload` reads type `0x04` (SILK frames, u16 length each, no sequence, `FFFF` ends) beside `0x06`
+  (Opus), names the packet's codec, and refuses a packet carrying both. `TryDecode` accepts a body only if it
+  frames AND its tail is the CRC32 of the bytes before it — the shape rule standing in for `sv_use_steam_voice`.
+- **The trailer is CRC32, checked:** 454 of 454 (gullywash) and 522 of 522 (process).
+- `silk.dll` / `libsilk.so` are built from Skype's own `SILK_SDK_SRC_v1.0.9.zip` (Wayback capture of
+  developer.skype.com, SHA-256 checked) by `tools/native-audio/build.ps1`/`build.sh`, not committed, exactly like
+  speex and celt. `SilkVoiceDecoder` decodes at 16 kHz, one decoder per steamID; a zero-length frame is
+  concealed as loss, per the SDK's `test/Decoder.c`.
+- The two places Speex PCM goes — `EverySpeexFrame_DecodesToPcm` and the census's Speex stage — route a
+  CRC32-tailed payload to SILK; the 2007 raw-Speex path is unchanged.
+- **Numbers:** gullywash 454 packets (13 without audio), 2,387 SILK frames (133 empty, concealed), 47.7 s;
+  process 522 (22), 2,813 (162), 56.3 s; every frame decodes to whole 20 ms. All six census specimens (leeko,
+  gullywash, viaduct, both 2013 granary, process) now pass the census voice stage: 6,493 packets, 35,772 SILK
+  frames. **Not checked:** the eleven quay SourceTV recordings, whose `.7z` archives are not on this machine.
+
+| sabotage (each restored by an exact inverse edit) | red |
+|---|---|
+| `SilkType` 0x04 → 0x05 | 5 of 18 `SteamVoicePayload` tests (both SILK decodes, TryDecode's CRC pass, mixed-codec, overrun) |
+| SILK frames read with Opus's 4-byte header | `Decode_ASilkRecord_YieldsEachSelfLengthPrefixedFrame`, `Decode_OpusAndSilkInOnePacket_IsRejected`; on real bytes both corpus SILK cases and `EverySpeexFrame_DecodesToPcm` |
+| TryDecode skips the CRC check | `TryDecode_ATailThatIsNotTheCrc32_IsNotSteamVoice` alone |
+| the both-codecs guard disabled | `Decode_OpusAndSilkInOnePacket_IsRejected` alone |
+| one `SKP_Silk_SDK_Decode` per packet (ignore `moreInternalDecoderFrames`) | `Decode_AnEmptyPacket_ConcealsOnePacketOfLoss` (its 2-frame packet) |
+| `framesPerPacket` never remembered | `Decode_AnEmptyPacket_ConcealsOnePacketOfLoss` alone |
+| an empty packet decoded without `lostFlag` | the test host aborts: the native decoder crashes |
 
 ---
 
