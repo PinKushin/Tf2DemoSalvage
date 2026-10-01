@@ -259,6 +259,37 @@ public sealed class DemoPlayerConformanceTests
         player.InterpolateViewpoint(120d).ShouldNotBeNull().Origin.X.ShouldBe(480f, Tolerance);
     }
 
+    [Test]
+    public void InterpolateViewpoint_AfterResetDemoInterpolation_SnapsOnceThenInterpolates()
+    {
+        // m_bResetInterpolation (+0x63d) forces the current view and is cleared by doing so.
+        DemoPlayer player = Player(Line());
+
+        player.InterpolateViewpoint(119.5).ShouldNotBeNull().Origin.X.ShouldBe(478f, Tolerance);
+
+        player.ResetDemoInterpolation();
+
+        player.InterpolateViewpoint(119.5).ShouldNotBeNull().Origin.X.ShouldBe(476f, Tolerance);
+        player.InterpolateViewpoint(119.75).ShouldNotBeNull().Origin.X.ShouldBe(479f, Tolerance);
+    }
+
+    [Test]
+    public void InterpolateViewpoint_AfterARewind_AnswersAsAPlayerThatNeverWentPast()
+    {
+        // A rewind reloads and skips forward; the list it rebuilds is the one a cold read reaches.
+        DemoPlayer played = Player(Cut());
+
+        for (double tick = 100d; tick <= 128d; tick += 0.5d)
+        {
+            played.InterpolateViewpoint(tick);
+        }
+
+        DemoPlayer cold = Player(Cut());
+
+        played.InterpolateViewpoint(110.25).ShouldBe(cold.InterpolateViewpoint(110.25));
+        played.InterpolateViewpoint(110.25).ShouldNotBeNull().Origin.X.ShouldBe(441f, Tolerance);
+    }
+
     /// <summary>Packets every tick from 100 to 130, four units a tick along X, looking along yaw 10.</summary>
     private static byte[] Line(byte maxPlayers = 24) => SyntheticViews.Demo(
         maxPlayers,
