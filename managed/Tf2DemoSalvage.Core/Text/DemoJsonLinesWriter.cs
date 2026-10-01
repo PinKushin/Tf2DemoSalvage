@@ -45,7 +45,7 @@ public static class DemoJsonLinesWriter
         TextWriter writer,
         string fileName,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         IProgress<DumpProgress>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(writer);

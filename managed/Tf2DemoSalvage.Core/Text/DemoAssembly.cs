@@ -93,7 +93,7 @@ public static class DemoAssembly
     public static void Write(
         TextWriter writer,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         ReadOnlyMemory<byte> tail = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
@@ -618,7 +618,7 @@ public static class DemoAssembly
     /// Asked of the reader rather than worked out here, so the text states the width every packet
     /// below it is then read at: a state reads its first packet and keeps what that decided.
     /// </remarks>
-    private static int MessageTypeBitsOf(DemoHeader header, IReadOnlyList<DemoCommand> commands)
+    private static int MessageTypeBitsOf(DemoHeader header, IReadOnlyCollection<DemoCommand> commands)
     {
         NetDecodeState first = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
 

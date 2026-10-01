@@ -82,14 +82,15 @@ public static class Program
             return Compile(line, logger);
         }
 
+        // Streamed, never held (B449): each writer pass re-reads the file a command at a time, so
+        // a 2 GB idle-server recording costs what its state costs, not what its file costs.
         Stopwatch clock = Stopwatch.StartNew();
-        byte[] bytes = File.ReadAllBytes(line.DemoPath);
-        DemoHeader header = DemoHeader.Parse(bytes);
-        (IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
-            DemoCommandReader.ReadWhole(bytes.AsMemory(DemoHeader.SizeBytes));
+        DemoCommandCollection commands = DemoCommandCollection.Open(line.DemoPath);
+        DemoHeader header = commands.Header;
+        ReadOnlyMemory<byte> tail = commands.Tail;
 
         string name = Path.GetFileName(line.DemoPath);
-        Report(logger, name, bytes.Length, header, commands, clock);
+        Report(logger, name, new FileInfo(line.DemoPath).Length, header, commands, clock);
 
         if (line.OutputPath is null)
         {
@@ -126,9 +127,19 @@ public static class Program
     /// that was killed rather than a file that is broken, and it still decodes.
     /// </remarks>
     internal static void Report(
-        ILogger logger, string name, int bytes, DemoHeader header,
-        IReadOnlyList<DemoCommand> commands, Stopwatch clock)
+        ILogger logger, string name, long bytes, DemoHeader header,
+        IReadOnlyCollection<DemoCommand> commands, Stopwatch clock)
     {
+        // One walk for every count below: a streamed demo re-reads its file per enumeration.
+        Dictionary<DemoCommandType, int> kinds = [];
+
+        foreach (DemoCommand command in commands)
+        {
+            kinds[command.Type] = kinds.GetValueOrDefault(command.Type) + 1;
+        }
+
+        int packets = kinds.GetValueOrDefault(DemoCommandType.Packet);
+
         // **Zero here means "the header says nothing", not "nothing happened".** The playback
         // fields are written by seeking back to offset zero when recording stops, so a recording
         // that ended any other way leaves them as they started. Reporting the zero as a duration
@@ -168,8 +179,7 @@ public static class Program
                 logger.LogInformation(
                     "{Name}: {Bytes:N0} bytes, protocol {Protocol}, map {Map}, "
                     + "{Frames:N0} frames (the header declares no length)",
-                    name, bytes, header.NetworkProtocol, header.MapName,
-                    commands.Count(command => command.Type == DemoCommandType.Packet));
+                    name, bytes, header.NetworkProtocol, header.MapName, packets);
             }
         }
 
@@ -181,17 +191,16 @@ public static class Program
                 "read {Commands:N0} commands in {Elapsed:N2}s",
                 commands.Count, clock.Elapsed.TotalSeconds);
 
-            foreach (IGrouping<DemoCommandType, DemoCommand> group in
-                commands.GroupBy(command => command.Type).OrderByDescending(g => g.Count()))
+            foreach ((DemoCommandType type, int count) in kinds.OrderByDescending(kind => kind.Value))
             {
-                logger.LogDebug("  {Type}: {Count:N0}", group.Key, group.Count());
+                logger.LogDebug("  {Type}: {Count:N0}", type, count);
             }
         }
 
         // A recording that was ended by quitting the server rather than by `stop` still gets a
         // dem_stop from the engine, so its absence means the file was cut short - z1800.dem is
         // one byte short of complete and reads fine regardless.
-        if (!commands.Any(command => command.Type == DemoCommandType.Stop))
+        if (!kinds.ContainsKey(DemoCommandType.Stop))
         {
             logger.LogWarning(
                 "{Name} has no dem_stop: the recording was truncated, not ended", name);
@@ -204,7 +213,6 @@ public static class Program
         // and zero is not a claim to disagree with — warning on it puts "declares 0 frames but
         // holds 41,006" on every demo from a source that drops those fields, which is a false
         // alarm on the entire long tail this project exists to read.
-        int packets = commands.Count(command => command.Type == DemoCommandType.Packet);
         int statedFrames = header.PlaybackFrames;
 
         if (statedFrames > 0 && packets != statedFrames)
@@ -246,7 +254,7 @@ public static class Program
         CommandLine line,
         string name,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         ReadOnlyMemory<byte> tail,
         IProgress<DumpProgress>? progress)
     {
