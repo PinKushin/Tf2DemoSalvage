@@ -1,6 +1,6 @@
 # Native voice codec binaries
 
-`celt.dll` and `speex.dll` are not committed. They are built from upstream Xiph source by
+`celt.dll`, `speex.dll` and `silk.dll` are not committed. They are built from upstream source by
 `build.ps1` in this directory, run once per working tree (and in CI), and placed where
 `Tf2DemoSalvage.Audio`'s native resolver looks for them. **Per working tree, not per machine:**
 they live in this directory, so a new `git worktree` starts without them and the audio suite fails
@@ -8,11 +8,12 @@ its CELT tests with `DllNotFoundException` until `build.ps1` runs there (measure
 
 ## Why these versions specifically
 
-TF2's voice system used three codecs across its history (`docs/findings/02-net-messages.md`):
+TF2's voice system used these codecs across its history (`docs/findings/02-net-messages.md`):
 
 | era | codec | source pinned here |
 |---|---|---|
-| 2007–2016 | `vaudio_speex` | Speex 1.2.1 — the bitstream has been stable across the whole 1.2.x line, so the latest release decodes older frames correctly. |
+| 2007–2011 | `vaudio_speex` | Speex 1.2.1 — the bitstream has been stable across the whole 1.2.x line, so the latest release decodes older frames correctly. |
+| 2011–2016 | Steam Voice, SILK inside (still announced as `vaudio_speex`; B441, D201) | **SILK SDK 1.0.9**, Skype's last release, fixed-point package. SILK's decoder is one fixed-point implementation in every package of the SDK. |
 | 2016–~2018 | `vaudio_celt` | **CELT 0.11.3 exactly** — CELT's bitstream was never guaranteed stable across versions, which is *why* it was folded into Opus rather than kept standalone. A newer CELT does not exist as a separate thing to fetch; only 0.11.3 decodes what `vaudio_celt.dll` produced. |
 | 2018–present | `steam` (Opus) | Not here — ships as the `libopus` NuGet package, prebuilt per-RID. See `managed/Tf2DemoSalvage.Audio`. |
 
@@ -23,8 +24,9 @@ pwsh tools/native-audio/build.ps1
 ```
 
 Requires the MSVC C++ toolset (same one the rest of this repo builds with) and network access to
-clone two small upstream repositories into a temp directory. Produces `celt.dll` and `speex.dll`
-in this directory; both are `.gitignore`d.
+clone two small upstream repositories and fetch the SILK archive into a temp directory. Produces
+`celt.dll`, `speex.dll` and `silk.dll` in this directory; all are `.gitignore`d. `build.sh` is the
+Linux counterpart (`libcelt.so`, `libspeex.so`, `libsilk.so`).
 
 ## The CELT 0.11.3 upstream gap
 
@@ -38,11 +40,27 @@ over the official source tree fails with `C2065: 'eband5ms': undeclared identifi
 small separate translation unit (`missing_tables.c`, generated at build time) — not by editing the
 vendored source. See the script for the exact values and where they come from.
 
+## SILK: no DLL build upstream
+
+The SDK ships a static-library Visual Studio project and no export list, so `build.ps1` compiles
+every file of `src/` (what the SDK's own `Makefile` builds) and links with a generated `silk.def`
+naming the decoder API and, for the tests' synthetic packets, the encoder API. No source is edited.
+
 ## Provenance
 
 - CELT: `https://github.com/Distrotech/celt`, tag `v0.11.3` — a mirror of `git://git.xiph.org/celt.git`
   (the original host is gone), confirmed via the GitHub API (`"description": "Mirror of
   git://git.xiph.org/celt.git"`, not a fork).
 - Speex: `https://github.com/xiph/speex`, tag `Speex-1.2.1` — the canonical upstream repository.
+- SILK: Skype's own release archive `SILK_SDK_SRC_v1.0.9.zip` (readme dated 03/08/2012), as published
+  at `https://developer.skype.com/silk/` and archived by the Wayback Machine on 2013-02-05
+  (`web.archive.org/web/20130205194757id_/…`). 65,997,390 bytes, SHA-256
+  `a060e71470680ff44a53b33d62c15787419c57fa0b4ccee68da76df2b4718582`, checked by both scripts before
+  compiling. GitHub mirrors exist (`ploverlake/silk`) but are not byte-identical: that one changes a
+  line of `SKP_Silk_dec_API.c` (`nFramesInPacket` to `nFramesDecoded`), so the original is used.
 
-Both BSD-style licensed (see each project's `COPYING`); the compiled binaries are redistributable.
+CELT and Speex are BSD-style licensed (see each project's `COPYING`). SILK is under Skype's own
+BSD-style licence (in every source file's header): redistribution in source and binary form is
+permitted with the copyright notice, but it states **"NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S
+PATENT RIGHTS ARE GRANTED"** — the copyright licence is permissive, the patent position is not
+granted by it. The compiled binaries are redistributable under each licence's notice terms.

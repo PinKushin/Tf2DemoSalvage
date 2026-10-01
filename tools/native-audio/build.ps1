@@ -1,6 +1,7 @@
 <#
 .SYNOPSIS
-    Builds celt.dll (CELT 0.11.3) and speex.dll (Speex 1.2.1) from upstream Xiph source.
+    Builds celt.dll (CELT 0.11.3) and speex.dll (Speex 1.2.1) from upstream Xiph source, and
+    silk.dll from Skype's SILK SDK 1.0.9.
 
 .DESCRIPTION
     See README.md in this directory for why these exact versions are pinned. This script
@@ -193,4 +194,58 @@ finally {
     Pop-Location
 }
 
-Write-Host "==> Done. celt.dll and speex.dll are in $root"
+# =================================================================================================
+# SILK SDK 1.0.9 (Skype) - the codec inside Steam Voice, 2011-2016 (B441, D201)
+# =================================================================================================
+# Skype's own release zip, as archived from developer.skype.com (the host is gone). The archive's
+# SHA-256 is checked before a byte of it is compiled - see README.md "Provenance". Only the
+# fixed-point package is built: it is the reference implementation, and SILK's decoder is the
+# same fixed-point code in every package of the zip.
+Write-Host "==> Fetching SILK SDK 1.0.9"
+$silkZip = Join-Path $work 'SILK_SDK_SRC_v1.0.9.zip'
+Invoke-WebRequest -UseBasicParsing -OutFile $silkZip `
+    -Uri 'https://web.archive.org/web/20130205194757id_/https://developer.skype.com/silk/SILK_SDK_SRC_v1.0.9.zip'
+$silkHash = (Get-FileHash $silkZip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($silkHash -ne 'a060e71470680ff44a53b33d62c15787419c57fa0b4ccee68da76df2b4718582') {
+    throw "SILK_SDK_SRC_v1.0.9.zip has SHA-256 $silkHash, not the recorded one - refusing to build it."
+}
+
+$silkSrc = Join-Path $work 'silk-src'
+Expand-Archive $silkZip -DestinationPath $silkSrc
+$silkFix = Join-Path $silkSrc 'SILK_SDK_SRC_FIX_v1.0.9'
+$silkBuild = Join-Path $work 'silk-build'
+New-Item -ItemType Directory -Path $silkBuild | Out-Null
+
+# The SDK ships no DLL build and no export list (its Visual Studio project is a static library),
+# so the exports are named here: the decoder, plus the encoder that lets the tests author a real
+# SILK packet instead of trusting hand-built bytes.
+@'
+EXPORTS
+SKP_Silk_SDK_Get_Decoder_Size
+SKP_Silk_SDK_InitDecoder
+SKP_Silk_SDK_Decode
+SKP_Silk_SDK_Get_Encoder_Size
+SKP_Silk_SDK_InitEncoder
+SKP_Silk_SDK_Encode
+'@ | Set-Content (Join-Path $silkBuild 'silk.def')
+
+Push-Location $silkBuild
+try {
+    Write-Host "==> Compiling SILK"
+    # Every file in src/, which is what the SDK's own Makefile builds (SRCS_C = src/*.c), with
+    # Silk_FIX.vcxproj's Release definitions.
+    $silkSources = Get-ChildItem (Join-Path $silkFix 'src') -Filter '*.c' | ForEach-Object FullName
+    cl /nologo /c /O2 /DWIN32 /DNDEBUG /I (Join-Path $silkFix 'interface') /I (Join-Path $silkFix 'src') $silkSources
+    Assert-Success "SILK sources"
+
+    Write-Host "==> Linking silk.dll"
+    link /nologo /DLL /DEF:silk.def /OUT:silk.dll *.obj
+    Assert-Success "SILK link"
+
+    Copy-Item silk.dll $root -Force
+}
+finally {
+    Pop-Location
+}
+
+Write-Host "==> Done. celt.dll, speex.dll and silk.dll are in $root"

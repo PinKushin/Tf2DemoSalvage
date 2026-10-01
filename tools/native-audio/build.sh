@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# Builds libcelt.so (CELT 0.11.3) and libspeex.so (Speex 1.2.1) from upstream Xiph source.
+# Builds libcelt.so (CELT 0.11.3) and libspeex.so (Speex 1.2.1) from upstream Xiph source, and
+# libsilk.so from Skype's SILK SDK 1.0.9.
 #
 #   bash tools/native-audio/build.sh [output-directory]
 #
@@ -199,5 +200,32 @@ done
 echo "==> Linking libspeex.so"
 "$CC" -shared -o "$OUT/libspeex.so" ./*.o -lm
 
+# =================================================================================================
+# SILK SDK 1.0.9 (Skype) - the codec inside Steam Voice, 2011-2016 (B441, D201)
+# =================================================================================================
+# Same archive, same hash check, same source set as build.ps1. No export list: ELF exports every
+# non-static symbol, the SDK's API among them.
+command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
+command -v unzip >/dev/null || { echo "unzip is required" >&2; exit 1; }
+
+echo "==> Fetching SILK SDK 1.0.9"
+curl -fsSL -o "$WORK/silk.zip" \
+  'https://web.archive.org/web/20130205194757id_/https://developer.skype.com/silk/SILK_SDK_SRC_v1.0.9.zip'
+echo "a060e71470680ff44a53b33d62c15787419c57fa0b4ccee68da76df2b4718582  $WORK/silk.zip" | sha256sum -c -
+
+unzip -q "$WORK/silk.zip" 'SILK_SDK_SRC_FIX_v1.0.9/*' -d "$WORK/silk-src"
+SILK_FIX="$WORK/silk-src/SILK_SDK_SRC_FIX_v1.0.9"
+SILK_BUILD="$WORK/silk-build"
+mkdir -p "$SILK_BUILD"
+cd "$SILK_BUILD"
+
+echo "==> Compiling SILK"
+for source in "$SILK_FIX"/src/*.c; do
+  "$CC" -c -O2 -fPIC -DNDEBUG -I "$SILK_FIX/interface" -I "$SILK_FIX/src" "$source"
+done
+
+echo "==> Linking libsilk.so"
+"$CC" -shared -o "$OUT/libsilk.so" ./*.o -lm
+
 echo "==> Done:"
-ls -l "$OUT/libcelt.so" "$OUT/libspeex.so"
+ls -l "$OUT/libcelt.so" "$OUT/libspeex.so" "$OUT/libsilk.so"

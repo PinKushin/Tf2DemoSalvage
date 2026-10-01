@@ -196,7 +196,7 @@ case "$MODE" in
   # library FAILS them rather than skipping - which would read as a broken suite rather than a
   # missing prerequisite. Checked here so the message says which it is.
   audio)   PROJECT="tests/Tf2DemoSalvage.Audio.Tests";   NEEDS_CORPUS=0
-           for library in libcelt.so libspeex.so; do
+           for library in libcelt.so libspeex.so libsilk.so; do
              if [ ! -f "$REPO/tools/native-audio/$library" ]; then
                echo "ERROR: tools/native-audio/$library is missing." >&2
                echo "       Build both once with: bash tools/native-audio/build.sh" >&2
