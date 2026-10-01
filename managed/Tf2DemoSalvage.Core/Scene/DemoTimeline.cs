@@ -1358,14 +1358,23 @@ public sealed class DemoTimeline
 
     private readonly List<ScenePropTrack> _playerTracks;
 
-    /// <summary>Each packet's recorded camera and the tick it was stated at, in order.</summary>
+    /// <summary>Every command <c>CDemoPlayer</c>'s view half reads, in stream order (B56).</summary>
+    /// <remarks>
+    /// Each signon and packet with its <c>democmdinfo_t</c>, and every <c>dem_synctick</c> and <c>dem_stop</c>: the
+    /// two commands that end <c>ParseAheadForInterval</c>. The other four it skips without a tick test
+    /// (<c>0x180072e60</c>'s jump table), so they are not kept. Zeroed views included: the engine's current view is
+    /// the last packet READ, whatever it holds.
+    /// </remarks>
+    private readonly List<DemoViewCommand> _viewCommands;
+
+    /// <summary>Which of <see cref="_viewCommands"/> carry a camera — a non-zero origin — in order.</summary>
     /// <remarks>
     /// A sorted list rather than a dictionary because the question asked is "what was the camera at
     /// or before this tick" — the viewer draws between packets, so an exact-match lookup answers
     /// nothing on most frames. Binary search over the ticks is what makes that cheap enough to do
     /// per frame.
     /// </remarks>
-    private readonly List<(int Tick, RecordedView View)> _recordedViews = [];
+    private readonly List<int> _recordedViews = [];
 
     /// <summary>Every <c>hltv_chase</c> the director sent, in tick order.</summary>
     private readonly List<(int Tick, DirectorShot Shot)> _director = [];
@@ -1446,7 +1455,7 @@ public sealed class DemoTimeline
         List<TimelineFrame> frames,
         List<ScenePropTrack>? props = null,
         List<ScenePropTrack>? playerTracks = null,
-        List<(int Tick, RecordedView View)>? recordedViews = null,
+        List<DemoViewCommand>? viewCommands = null,
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
         List<(int Tick, SceneFog Fog)>? fog = null,
         List<SceneSound>? sounds = null,
@@ -1455,7 +1464,18 @@ public sealed class DemoTimeline
     {
         _director = director ?? [];
         _soundscapes = soundscapes ?? [];
-        _recordedViews = recordedViews ?? [];
+        _viewCommands = viewCommands ?? [];
+
+        // A zeroed origin is not a camera at the world origin but the absence of one: SourceTV leaves every
+        // democmdinfo_t blank, and the signon packets carry nothing yet.
+        for (int index = 0; index < _viewCommands.Count; index++)
+        {
+            if (_viewCommands[index].IsPacket && _viewCommands[index].View.Origin != (0f, 0f, 0f))
+            {
+                _recordedViews.Add(index);
+            }
+        }
+
         _viewmodels = viewmodels ?? [];
         _fog = fog ?? [];
         _sounds = sounds ?? [];
@@ -1991,7 +2011,7 @@ public sealed class DemoTimeline
     /// </remarks>
     public RecordedView? RecordedViewAt(int tick)
     {
-        if (_recordedViews.Count == 0 || tick < _recordedViews[0].Tick)
+        if (_recordedViews.Count == 0 || tick < _viewCommands[_recordedViews[0]].Tick)
         {
             return null;
         }
@@ -2004,7 +2024,7 @@ public sealed class DemoTimeline
             // Rounded up, so the search moves towards the later entry and cannot stall on low.
             int middle = low + ((high - low + 1) / 2);
 
-            if (_recordedViews[middle].Tick <= tick)
+            if (_viewCommands[_recordedViews[middle]].Tick <= tick)
             {
                 low = middle;
             }
@@ -2014,8 +2034,19 @@ public sealed class DemoTimeline
             }
         }
 
-        return _recordedViews[low].View;
+        return _viewCommands[_recordedViews[low]].View;
     }
+
+    /// <summary>Every command <c>CDemoPlayer</c>'s view half reads, in stream order — what a <see cref="DemoPlayer"/> plays.</summary>
+    internal IReadOnlyList<DemoViewCommand> ViewCommands => _viewCommands;
+
+    /// <summary><c>cl.m_nMaxClients</c>: <c>svc_ServerInfo</c>'s player capacity, or zero before one arrived.</summary>
+    /// <remarks>One is a single-player listen server, the only case <c>InterpolateViewpoint</c> rolls the view back for.</remarks>
+    public int MaxClients { get; private init; }
+
+    /// <summary><c>GetClientInterpAmount()</c>: the watcher's interp under the recording server's bounds, in seconds.</summary>
+    /// <remarks>The same amount every track's delay is built from (<see cref="ClientInterp.Amount"/>).</remarks>
+    public double ClientInterpAmount { get; private init; }
 
     /// <summary>The first tick with positions, or zero when the demo has none.</summary>
     public int FirstTick => _frames.Count > 0 ? _frames[0].Tick : 0;
@@ -2134,7 +2165,7 @@ public sealed class DemoTimeline
 
     /// <summary>A timeline carrying nothing but these sounds, for testing the precache list.</summary>
     internal static DemoTimeline ForSounds(List<SceneSound> sounds) =>
-        new([], props: null, playerTracks: null, recordedViews: null, viewmodels: null,
+        new([], props: null, playerTracks: null, viewCommands: null, viewmodels: null,
             fog: null, sounds: sounds);
 
     /// <summary>A timeline carrying all three sources of a MODEL path (B335).</summary>
@@ -2157,7 +2188,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack>? props = null,
         List<ScenePropTrack>? players = null,
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null) =>
-        new([], props: props, playerTracks: players, recordedViews: null, viewmodels: viewmodels);
+        new([], props: props, playerTracks: players, viewCommands: null, viewmodels: viewmodels);
 
     /// <summary>How many times a decode reports its progress — often enough for a bar to move, rarely enough to cost nothing.</summary>
     private const int ProgressReports = 200;
@@ -2414,8 +2445,9 @@ public sealed class DemoTimeline
         Dictionary<int, ScenePropTrack> tracks = [];
         List<ScenePropTrack> props = [];
         List<ScenePropTrack> playerTracks = [];
-        List<(int Tick, RecordedView View)> recordedViews = [];
+        List<DemoViewCommand> viewCommands = [];
         int? recorderSlot = null;
+        int maxClients = 0;
         uint? mapCrc = null;
         IReadOnlyList<byte>? mapHash = null;
 
@@ -2452,6 +2484,12 @@ public sealed class DemoTimeline
                 progress((double)walked / commands.Count);
             }
 
+            // **The two commands that end `ParseAheadForInterval`** (B56): kept where they sit among the packets.
+            if (command.Type is DemoCommandType.SyncTick or DemoCommandType.Stop)
+            {
+                viewCommands.Add(new DemoViewCommand(command.Type, command.Tick, default));
+            }
+
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;
@@ -2459,21 +2497,12 @@ public sealed class DemoTimeline
 
             // **The recorder's own camera, kept while the file is already open.** A viewer asking
             // for it per frame cannot re-walk a 39 MB demo, and this loop is the only pass over
-            // the commands there is.
-            //
-            // A zeroed structure is not a camera at the world origin, it is the absence of one:
-            // SourceTV recordings have no local player and leave every one of these blank, so they
-            // are skipped rather than recorded as a view at (0, 0, 0) that would put the camera in
-            // the middle of the map.
-            if (command.Prologue.Length >= RecordedView.SizeBytes)
-            {
-                RecordedView view = RecordedView.Parse(command.Prologue.Span);
-
-                if (view.Origin != (0f, 0f, 0f))
-                {
-                    recordedViews.Add((command.Tick, view));
-                }
-            }
+            // the commands there is. Every packet, zeroed ones included: the demo player's current
+            // view is the last packet read, and a zeroed one is the engine's "set nothing".
+            viewCommands.Add(new DemoViewCommand(
+                command.Type,
+                command.Tick,
+                command.Prologue.Length >= RecordedView.SizeBytes ? RecordedView.Parse(command.Prologue.Span) : default));
 
             bool moved = false;
 
@@ -2520,6 +2549,9 @@ public sealed class DemoTimeline
                         // eye height, and picking whichever player moves like the camera would be
                         // an instrument that agrees with its own hypothesis.
                         recorderSlot = server.PlayerSlot;
+
+                        // `cl.m_nMaxClients`, which decides InterpolateViewpoint's rollback (B56).
+                        maxClients = server.MaxPlayers;
                         continue;
 
                     // **What the server changed, which for a mod is the whole of how it plays.**
@@ -3546,7 +3578,8 @@ public sealed class DemoTimeline
         }
 
         // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
-        int delayTicks = ScenePropTrack.DelayTicksFor(interval, client.Amount(serverConVars));
+        double interpAmount = client.Amount(serverConVars);
+        int delayTicks = ScenePropTrack.DelayTicksFor(interval, interpAmount);
 
         foreach (ScenePropTrack track in props.Concat(playerTracks))
         {
@@ -3554,9 +3587,11 @@ public sealed class DemoTimeline
         }
 
         return new DemoTimeline(
-            frames, props, playerTracks, recordedViews, viewmodels, fogSamples, sounds, soundscapes,
+            frames, props, playerTracks, viewCommands, viewmodels, fogSamples, sounds, soundscapes,
             director)
         {
+            MaxClients = maxClients,
+            ClientInterpAmount = interpAmount,
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
