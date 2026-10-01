@@ -1309,8 +1309,17 @@ own SourceTV, and played back by it.
   loaded — zero of them — and builds decoders over the tables that were read.
 
 So the engine's own result is: every table before the cut, one table zero-completed, and an empty class
-list. Whether entities then appear depends on what entity creation does with a class index past an empty
-list, which is not read yet. *Evidence class: read from disassembly.*
+list. **Then the first entity ends playback:** `CL_CopyNewEntity` (`0x100c5150`) compares the class index
+against the client state's class count (`0x103b2124`, the `+0x41f4` field the cut parse set to 0) and calls
+`Host_Error("CL_CopyNewEntity: invalid class index (%d).")` — `0x10044fa0` is `Host_Error`, which disconnects.
+The STV signon's `svc_ClassInfo` sets `m_bCreateOnClient` and lists no classes, so nothing refills the count
+first. *Evidence class: read from disassembly.* A live run of the 2007 client to watch it happen did not
+get as far as the demo (`+playdemo` from the command line never reached the console log), so it is unobserved.
+
+**So Valve's own client cannot show these demos' entities**, and the owner's recollection that they played
+is most likely the POV recordings of the same sessions, which carry the whole schema. The fix the owner
+chose stands: ship build 3258's full schema and use it when a protocol-11 `dem_datatables` is cut at
+exactly 65,536 bytes and matches it for those bytes — better than the engine, which errors.
 
 ## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
 
