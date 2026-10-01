@@ -235,6 +235,16 @@ internal static class UserMessageNames
     private static readonly string[] Era2009 =
         Compose("CheapBreakModel", ["MapStatsUpdate", "TrainingObjective"], haptics: true);
 
+    /// <summary>
+    /// The later protocol-15 builds (the 2010 client, 1.1.0.0): 43 messages, then haptics at 43–48.
+    /// </summary>
+    /// <remarks>
+    /// `TrainingObjective` is inserted at 34, as in 2011, so `CheapBreakModel` sits at 41 — what the
+    /// six-bit protocol-15 SourceTV demos carry (`RISKS.md` B444, read from the client's disassembly).
+    /// </remarks>
+    private static readonly string[] Era2010 =
+        Compose("BreakModel_Pumpkin", ["MapStatsUpdate"], haptics: true);
+
     /// <summary>2011, build 4604: 49 messages, then haptics at 49–54.</summary>
     private static readonly string[] Era2011 =
         Compose("PlayerBonusPoints", ["MapStatsUpdate", "BreakModelRocketDud"], haptics: true);
@@ -288,10 +298,15 @@ internal static class UserMessageNames
     /// <summary>The registered name for an id in the era that recorded it, or <c>null</c>.</summary>
     /// <param name="userMessageType">The id read from the wire.</param>
     /// <param name="networkProtocol">The demo header's network protocol.</param>
+    /// <param name="messageTypeBits">
+    /// The demo's message type width, as the decoder decided it (<see cref="NetDecodeState.MessageTypeBits"/>).
+    /// Read only at protocol 15, where six bits is the stream's evidence of a later build (B440).
+    /// </param>
     /// <returns>The name, or <c>null</c> to report the id by number.</returns>
-    internal static string? Lookup(int userMessageType, int networkProtocol)
+    internal static string? Lookup(
+        int userMessageType, int networkProtocol, int messageTypeBits = NetMessage.OldTypeBits)
     {
-        string[] table = TableFor(networkProtocol);
+        string[] table = TableFor(networkProtocol, messageTypeBits);
         return userMessageType < 0 || userMessageType >= table.Length
             ? null
             : table[userMessageType];
@@ -317,10 +332,17 @@ internal static class UserMessageNames
     /// header — the ids it actually carries — which is a decode-wide question, not one this
     /// function can answer from an id and a protocol.
     /// </remarks>
-    private static string[] TableFor(int networkProtocol) => networkProtocol switch
+    /// <remarks>
+    /// **Protocol 15 is two build families, and the type width tells them apart** (B440, B444).
+    /// Build 3862 wrote five-bit types and registered <see cref="Era2009"/>; the later builds wrote
+    /// six and registered <see cref="Era2010"/>. The width is the one the decoder already decided
+    /// from the first packet, carried here rather than worked out again.
+    /// </remarks>
+    private static string[] TableFor(int networkProtocol, int messageTypeBits) => networkProtocol switch
     {
         >= 24 => Current,
         16 => Era2011,
+        15 when messageTypeBits == NetMessage.TypeBits => Era2010,
         15 => Era2009,
 
         // 14 and below, and the unmeasured 17-23, share this arm because they need the same
