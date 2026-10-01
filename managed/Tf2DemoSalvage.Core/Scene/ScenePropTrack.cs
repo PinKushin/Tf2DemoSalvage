@@ -2846,11 +2846,22 @@ public sealed class ScenePropTrack
             return (from.Pitch, from.Yaw, from.Roll);
         }
 
-        Quaternion start = ToQuaternion(from.Pitch, from.Yaw, from.Roll);
-        Quaternion end = ToQuaternion(to.Pitch, to.Yaw, to.Roll);
-
-        return ToAngles(Quaternion.Slerp(start, end, fraction));
+        return SlerpAngles((from.Pitch, from.Yaw, from.Roll), (to.Pitch, to.Yaw, to.Roll), fraction);
     }
+
+    /// <summary>
+    /// <c>AngleQuaternion</c> both, <c>QuaternionSlerp</c>, <c>QuaternionAngles</c> — with no equality shortcut, which
+    /// is how <c>CDemoPlayer::InterpolateViewpoint</c> writes it out (<c>0x18007266f..0x180072703</c>).
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Quaternion.Slerp"/> is <c>QuaternionSlerp</c> (<c>mathlib_base.cpp:1605-1658</c>, <c>0x180278c60</c>):
+    /// it flips the second quaternion when the dot product is negative, which is <c>QuaternionAlign</c>'s
+    /// <c>|p - q|² &gt; |p + q|²</c>, and falls back to a linear blend inside the same 1e-6 of parallel.
+    /// </remarks>
+    internal static (float Pitch, float Yaw, float Roll) SlerpAngles(
+        (float Pitch, float Yaw, float Roll) from, (float Pitch, float Yaw, float Roll) to, float fraction) =>
+        ToAngles(Quaternion.Slerp(
+            ToQuaternion(from.Pitch, from.Yaw, from.Roll), ToQuaternion(to.Pitch, to.Yaw, to.Roll), fraction));
 
     /// <summary>Whether two angles are the same stored value, bit for bit.</summary>
     /// <remarks>
