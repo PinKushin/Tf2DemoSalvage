@@ -8370,7 +8370,9 @@ first pass could not reach, eleven protocol-21 SourceTV recordings of `cp_quay` 
 the same way — seventeen Speex failures in all, across both points of view. So the 2007 STV is not the pass
 because it is SourceTV. The smallest specimen is now `20120324-2006-cp_quay_a9.dem`, 9,562,228 bytes, SHA-256
 `e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d`, from `20120324-2006-cp_quay_a9.7z` in
-`D:\tf2-demo-archive` (`tools/corpus/manifest.json`, `censusSpecimens`).
+`tf2-comp-archive\raw\downloads\DEMO` beside this repo (not `D:\tf2-demo-archive`, as first written)
+(`tools/corpus/manifest.json`, `censusSpecimens`). **After the fix (2026-10-01): it decodes** — 106 voice
+packets, 600 frames, 3 speakers, 0 bad (census voice stage).
 
 **They are not Speex: they are Steam Voice, SILK inside (engine read 2026-10-01, June 2011 x86 `engine.dll`,
 project `tf2engine2011`).** The 28-byte framing was right — for the old codec only.
