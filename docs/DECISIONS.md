@@ -9402,3 +9402,10 @@ guess not."*
 `tf2-comp-archive`, about 460 demos — decodes completely and its Quake-style trace compiles back to the same bytes. The
 measure is a census over every demo through the production path, with each failure a regression specimen and a
 test. "100%" is a claim about a named set of demos, stated with its count; it is re-measured when the pool grows.
+
+## D201 — Steam Voice is decoded with a vendored native SILK library, like speex and celt (2026-10-01)
+
+B441's engine read showed every post-2011 voice packet is Steam Voice carrying SILK, decoded by Steam's library
+rather than framed by the engine. No pure C# SILK decoder exists. Asked whether to vendor the Skype SILK SDK as
+native code under `tools/native-audio` or file Steam Voice as recognised but unplayable, the owner: *"yes, vendor
+SILK like speex"*. So D4's no-C++-by-default holds, with a third audio codec joining the existing native exception.
