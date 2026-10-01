@@ -202,8 +202,9 @@ internal static class Corpus
     /// **Not every demo has a schema, and that is a property of the demo rather than a defect.**
     /// A SourceTV recording on TF2's launch build truncates <c>dem_datatables</c> at exactly
     /// 65,536 bytes; the POV of the same session carries 85,063, which is how the truncation was
-    /// identified as the writer's rather than the parser's. The file is otherwise intact and every
-    /// other layer of it decodes.
+    /// identified as the writer's rather than the parser's. Since 2026-09-30 the parser completes
+    /// that one build's cut from its known whole schema (B24, <c>KnownSchema</c>), so those demos
+    /// parse; a cut of any other build still does not.
     ///
     /// Tests that need entities use <see cref="FilesWithSchema"/> so those demos are excluded by
     /// their own property rather than by name. The truncation is asserted directly elsewhere — and

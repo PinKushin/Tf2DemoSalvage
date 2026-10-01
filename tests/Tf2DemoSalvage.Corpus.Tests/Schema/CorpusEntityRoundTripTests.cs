@@ -121,8 +121,23 @@ public sealed class CorpusEntityRoundTripTests
             $"in total - carried by the assembly writer on a slack line"));
     }
 
+    [Test]
+    public void EntityRoundTrip_LaunchBuildSourceTvWithItsCutSchemaCompleted_ReEncodesEverySnapshot()
+    {
+        // B24: this demo's dem_datatables is cut at 65,536 bytes and decodes only because the parser
+        // completes it with build 3258's whole schema. Every snapshot, the whole demo, re-encoding to
+        // its own bits is what says the completed schema is the one the server wrote with.
+        string path = Corpus.Demo("tf2-2007-build3258-stv-cp_granary.dem");
+
+        (long total, long exact, _, _, string? failure) = Measure(path, int.MaxValue);
+
+        // One snapshot per packet: the demo's frame check is 3,897 packets of 3,897 declared.
+        total.ShouldBe(3_897, "measured 2026-09-30");
+        exact.ShouldBe(total, failure);
+    }
+
     private static (long Total, long Exact, long SlackBearing, long SlackBits, string? FirstFailure)
-        Measure(string path)
+        Measure(string path, int commandLimit = CommandLimit)
     {
         // **The production walk, and the production schema** (B443). This walk read no packet until it
         // had built a decoder from dem_datatables — but the signon packets before that create the string
@@ -139,7 +154,7 @@ public sealed class CorpusEntityRoundTripTests
         string? firstFailure = null;
 
         foreach ((DemoCommand command, PacketEntitiesMessage snapshot, _) in
-            Corpus.EntitySnapshots(path, CommandLimit))
+            Corpus.EntitySnapshots(path, commandLimit))
         {
             total++;
 

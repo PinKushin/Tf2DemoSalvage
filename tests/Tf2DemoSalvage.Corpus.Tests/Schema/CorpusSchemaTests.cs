@@ -22,10 +22,6 @@ public sealed class CorpusSchemaTests
     [Test]
     public void LaunchBuildSourceTv_TruncatesItsSchemaAtSixtyFourKilobytes()
     {
-        // Pinned rather than skipped. FilesWithSchema() excludes this demo from every test that
-        // needs entities, and an exclusion nobody asserts is indistinguishable from a test that
-        // quietly stopped covering something.
-        //
         // The finding: TF2's launch build truncates dem_datatables at exactly 65,536 bytes when
         // SourceTV writes it. The POV recording of the SAME session carries 85,063, which is what
         // establishes the schema really is larger and the cut is the writer's rather than this
@@ -40,17 +36,24 @@ public sealed class CorpusSchemaTests
             return;                                  // corpus not checked out
         }
 
-        Corpus.TrySchema(truncated).ShouldBeNull(
-            "the launch-build SourceTV schema is truncated and must not parse");
-
-        InvalidDataException failure =
-            Should.Throw<InvalidDataException>(() => Corpus.Schema(truncated));
-        failure.Message.ShouldContain("65536");
+        // The file still carries the cut — that is a fact about the recording and stays asserted.
+        DataTablesLength(truncated).ShouldBe(CutAt);
 
         // The paired POV proves the schema is genuinely larger than the cut.
         string pov = Corpus.Files().First(
             f => Path.GetFileName(f) == "tf2-2007-build3258-pov-cp_granary.dem");
-        Corpus.TrySchema(pov).ShouldNotBeNull().ServerClasses.Count.ShouldBeGreaterThan(200);
+        DataTablesLength(pov).ShouldBe(85_063);
+        DemoSchema whole = Corpus.TrySchema(pov).ShouldNotBeNull();
+        whole.ServerClasses.Count.ShouldBeGreaterThan(200);
+
+        // And it now decodes, with build 3258's whole schema (KnownSchema): the cut's first 65,535
+        // bytes are that schema's, so this is exact rather than a guess. The 2007 engine itself
+        // Host_Errors on this demo's first entity (B24).
+        DemoSchema completed = Corpus.TrySchema(truncated).ShouldNotBeNull(
+            "build 3258's cut schema is completed from the build's known whole one");
+        completed.ServerClasses.Count.ShouldBe(whole.ServerClasses.Count);
+        completed.Tables.Count.ShouldBe(whole.Tables.Count);
+        Corpus.FilesWithSchema().ShouldContain(truncated);
     }
 
     [Test]
@@ -65,8 +68,11 @@ public sealed class CorpusSchemaTests
         HashSet<string> kept = [.. Corpus.FilesWithSchema()];
         List<string> leftOut = [.. Corpus.Files().Where(file => !kept.Contains(file))];
 
-        // The control: a check that sees no exclusion at all is not looking, and gcor carries one.
-        leftOut.Select(Path.GetFileName).ShouldContain("tf2-2007-build3258-stv-cp_granary.dem");
+        // The control used to be gcor's build-3258 SourceTV demo, left out here until its cut schema
+        // was completed from the known whole one (B24, 2026-09-30). gcor now leaves nothing out, so
+        // this check has nothing to explain on gcor alone; a 65,536-byte exclusion that remains is a
+        // cut of a build whose whole schema is not shipped. The positive half: the demo is kept.
+        kept.Select(Path.GetFileName).ShouldContain("tf2-2007-build3258-stv-cp_granary.dem");
 
         List<string> unexplained = [];
         foreach (string path in leftOut)

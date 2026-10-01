@@ -1224,7 +1224,18 @@ down, and no way to find it except by decoding a demo old enough to carry it.
   yields the same value whenever the sixth bit is zero, which for a first message it usually is.
   The test passed by coincidence until a demo arrived where the coincidence did not hold.
 
-## B24 — SourceTV truncates the schema at 64 KiB on TF2's launch build — HANDLED, NOT FIXABLE
+## B24 — SourceTV truncates the schema at 64 KiB on TF2's launch build — FIXED 2026-09-30 (build 3258's whole schema ships)
+
+**Status (2026-09-30): fixed for build 3258, the only build known to cut.** `KnownSchema` (Core) embeds
+build 3258's whole 85,063-byte `dem_datatables` (from gcor's `tf2-2007-build3258-pov-cp_granary.dem`,
+SHA-256 `ea020a813d6ab230800b6a6410b833cef3daf5538b33c9dca8da6b63cf87e637`), and
+`SendTableParser.Parse` — the one entry every consumer uses — decodes a payload of exactly 65,536 bytes
+whose first 65,535 equal it with the whole schema. Any other length, or a mismatch anywhere in the
+prefix, keeps the refusal below. Only the decode sees the whole schema: the assembly writes the demo's
+own cut bytes back, so its round trip is unchanged. gcor's SourceTV demo now decodes **3,897 of 3,897
+snapshots and every one re-encodes to its own bits** (`EntityRoundTrip_LaunchBuildSourceTvWithItsCutSchemaCompleted_ReEncodesEverySnapshot`).
+This is deliberately better than the 2007 engine, which Host_Errors on these demos (last addendum).
+Everything below is the history, kept as written.
 
 The protocol-11 SourceTV demo throws parsing `dem_datatables`, three bits from the end of a
 **65,536-byte** payload. The POV recording of the *same session* carries **85,063 bytes** and parses

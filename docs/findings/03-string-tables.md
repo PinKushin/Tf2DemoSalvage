@@ -32,6 +32,17 @@ control, and one file could not have distinguished the cases.
 This is a general shape worth naming: **when a limit appears, ask whether it belongs to the reader
 or the writer**, and find a comparison that separates them.
 
+**And what the writer cut, the same build may have written whole elsewhere (2026-09-30).** "Not
+recoverable" was filed for a year because the cut bytes were never written into the SourceTV file. But
+the schema is a property of the BUILD, not the recording: build 3258's two POV schemas are
+byte-identical across maps, and the SourceTV payload is that schema's first 65,535 bytes plus the byte
+the cut fell inside. So the parser ships build 3258's whole payload (SHA-256 `ea020a81…cf87e637`) and
+decodes a 65,536-byte payload that matches it as the whole one — gcor's SourceTV specimen now decodes
+3,897 of 3,897 snapshots and re-encodes every one. The 2007 engine itself does worse: it reads the cut
+without checking for overflow, gets zero classes, and `Host_Error`s on the first entity
+([RISKS B24](../RISKS.md)). *Evidence class: measured (byte comparison, re-encode).* The lesson: a loss
+is only unrecoverable if nothing else holds the same bytes — ask what the lost data is a property of.
+
 ## Era differences
 
 | Protocol | Behaviour |
