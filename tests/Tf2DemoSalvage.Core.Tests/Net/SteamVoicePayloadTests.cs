@@ -167,6 +167,118 @@ public sealed class SteamVoicePayloadTests
             .Message.ShouldContain("a silence value");
     }
 
+    [Test]
+    public void Decode_ASilkRecord_YieldsEachSelfLengthPrefixedFrame()
+    {
+        // B441: Steam Voice before Opus. A type 0x04 record is u16 length, then frames that are
+        // each u16 length plus bytes — no sequence number — and FFFF ending speech. Measured on
+        // gullywash and process, every packet: `0B 803E 04 3701 2800 <40 bytes> …`.
+        byte[] payload = BuildRaw(
+            Silk([.. SilkFrame([0xA5, 0x57, 0x2E]), .. SilkFrame([0x9D, 0x59]), 0xFF, 0xFF]));
+
+        VoicePacket packet = SteamVoicePayload.Decode(payload);
+
+        packet.Codec.ShouldBe(SteamVoiceCodec.Silk);
+        packet.Chunks.Count.ShouldBe(2);
+        packet.Chunks[0].Data.ToArray().ShouldBe(new byte[] { 0xA5, 0x57, 0x2E });
+        packet.Chunks[1].Data.ToArray().ShouldBe(new byte[] { 0x9D, 0x59 });
+        packet.Chunks[1].Sequence.ShouldBe(1);
+        packet.IsTerminated.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Decode_ASilkRecordHoldingOnlyTheTerminator_IsAnEmptyEndOfSpeech()
+    {
+        // The census's 33 twenty-byte packets: 8 + 3 (rate) + 1 + 2 + 2 (FFFF) + 4.
+        byte[] payload = BuildRaw(Silk([0xFF, 0xFF]));
+
+        payload.Length.ShouldBe(20);
+
+        VoicePacket packet = SteamVoicePayload.Decode(payload);
+
+        packet.Codec.ShouldBe(SteamVoiceCodec.Silk);
+        packet.Chunks.ShouldBeEmpty();
+        packet.IsTerminated.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Decode_AnOpusRecord_IsOpusAndASilencePacketIsNeither()
+    {
+        SteamVoicePayload.Decode(Build(Opus(0, [0x68]))).Codec.ShouldBe(SteamVoiceCodec.Opus);
+        SteamVoicePayload.Decode(BuildRaw([0x00, 0x40, 0x01])).Codec.ShouldBe(SteamVoiceCodec.None);
+    }
+
+    [Test]
+    public void Decode_ASilkFrameRunningPastItsRecord_IsRejected()
+    {
+        Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(BuildRaw(Silk([0x05, 0x00, 0xAA]))))
+            .Message.ShouldContain("runs past");
+    }
+
+    [Test]
+    public void Decode_OpusAndSilkInOnePacket_IsRejected()
+    {
+        // One stream, one codec: a packet carrying both would need two decoders for one speaker.
+        Should.Throw<InvalidDataException>(
+            () => SteamVoicePayload.Decode(BuildRaw([
+                .. Silk([.. SilkFrame([0x01])]),
+                0x06, 0x05, 0x00, .. Opus(0, [0x68]),
+            ])))
+            .Message.ShouldContain("both");
+    }
+
+    [Test]
+    public void TryDecode_ATailThatIsTheCrc32OfTheBody_IsSteamVoice()
+    {
+        byte[] payload = WithCrc(BuildRaw(Silk([.. SilkFrame([0xA5, 0x57]), 0xFF, 0xFF])));
+
+        SteamVoicePayload.TryDecode(payload, out VoicePacket? packet).ShouldBeTrue();
+        packet!.Codec.ShouldBe(SteamVoiceCodec.Silk);
+    }
+
+    [Test]
+    public void TryDecode_ATailThatIsNotTheCrc32_IsNotSteamVoice()
+    {
+        // The engine picks the path by sv_use_steam_voice, which no demo records; svc_voiceinit
+        // says vaudio_speex either way. The payload's own CRC is what the demo does show.
+        byte[] payload = WithCrc(BuildRaw(Silk([.. SilkFrame([0xA5, 0x57]), 0xFF, 0xFF])));
+        payload[^1] ^= 0x01;
+
+        SteamVoicePayload.TryDecode(payload, out VoicePacket? packet).ShouldBeFalse();
+        packet.ShouldBeNull();
+    }
+
+    [Test]
+    public void TryDecode_WholeSpeexFrames_AreNotSteamVoice()
+    {
+        // Two 28-byte frames, the 2007 shape, which do not frame as Steam Voice at all.
+        byte[] speex = new byte[56];
+        for (int i = 0; i < speex.Length; i++)
+        {
+            speex[i] = (byte)(i * 37 + 11);
+        }
+
+        SteamVoicePayload.TryDecode(speex, out _).ShouldBeFalse();
+        SteamVoicePayload.TryDecode(new byte[3], out _).ShouldBeFalse();
+    }
+
+    /// <summary>A SILK frame: u16 length, then the bytes.</summary>
+    private static byte[] SilkFrame(byte[] data) =>
+        [(byte)(data.Length & 0xFF), (byte)(data.Length >> 8), .. data];
+
+    /// <summary>A type 0x04 record around SILK frame bytes.</summary>
+    private static byte[] Silk(byte[] frames) =>
+        [0x04, (byte)(frames.Length & 0xFF), (byte)(frames.Length >> 8), .. frames];
+
+    /// <summary>Replaces the placeholder tail with the CRC32 of everything before it.</summary>
+    private static byte[] WithCrc(byte[] payload)
+    {
+        BitConverter.GetBytes(System.IO.Hashing.Crc32.HashToUInt32(payload.AsSpan(0, payload.Length - 4)))
+            .CopyTo(payload, payload.Length - 4);
+        return payload;
+    }
+
     /// <summary>A chunk: length, sequence, then the Opus bytes.</summary>
     private static byte[] Opus(int seq, byte[] data) =>
     [
