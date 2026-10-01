@@ -35,6 +35,8 @@ public sealed class CorpusSteamSilkVoiceTests
         int frames = 0;
         int samples = 0;
         int silentFrames = 0;
+        int emptyFrames = 0;
+        int noAudio = 0;
         Dictionary<ulong, SilkVoiceDecoder> decoders = [];
 
         try
@@ -44,8 +46,16 @@ public sealed class CorpusSteamSilkVoiceTests
                 SteamVoicePayload.TryDecode(summary.Body, out VoicePacket? packet)
                     .ShouldBeTrue($"a {summary.Body.Length}-byte packet is not Steam Voice with a CRC32 tail");
 
-                packet.SampleRate.ShouldBe(SilkVoiceDecoder.SampleRate);
                 packet.Codec.ShouldNotBe(SteamVoiceCodec.Opus);
+
+                if (packet.Codec == SteamVoiceCodec.None)
+                {
+                    // The 15-byte packets: steamID, one silence record, tail — no rate record.
+                    noAudio++;
+                    continue;
+                }
+
+                packet.SampleRate.ShouldBe(SilkVoiceDecoder.SampleRate);
 
                 if (!decoders.TryGetValue(packet.SteamId, out SilkVoiceDecoder? decoder))
                 {
@@ -62,6 +72,7 @@ public sealed class CorpusSteamSilkVoiceTests
                     pcm.Length.ShouldBeGreaterThan(0);
 
                     frames++;
+                    emptyFrames += chunk.Data.IsEmpty ? 1 : 0;
                     samples += pcm.Length;
                     if (Array.TrueForAll(pcm, sample => sample == 0))
                     {
@@ -82,7 +93,8 @@ public sealed class CorpusSteamSilkVoiceTests
         ((double)silentFrames / frames).ShouldBeLessThan(0.5, $"{silentFrames} of {frames} SILK frames were silent");
 
         TestContext.Out.WriteLine(
-            $"{demo}: {expectedPackets} packets, {frames} SILK frames decoded, {samples} samples " +
+            $"{demo}: {expectedPackets} packets ({noAudio} without audio), {frames} SILK frames decoded " +
+            $"({emptyFrames} empty, concealed), {samples} samples " +
             $"({samples / (double)SilkVoiceDecoder.SampleRate:F1} s), {decoders.Count} speakers, {silentFrames} silent");
     }
 }

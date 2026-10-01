@@ -34,6 +34,9 @@ public sealed class SilkVoiceDecoder : IDisposable
     private readonly nint _state;
     private bool _disposed;
 
+    /// <summary>Frames in the last packet decoded — what a loss conceals, as <c>test/Decoder.c</c> keeps it.</summary>
+    private int _framesPerPacket = 1;
+
     static SilkVoiceDecoder() => NativeLibraryResolver.EnsureRegistered();
 
     /// <summary>Whether the native SILK library is present and usable on this machine.</summary>
@@ -100,21 +103,18 @@ public sealed class SilkVoiceDecoder : IDisposable
     /// <param name="packet">One length-prefixed frame of a Steam Voice SILK record, without its prefix.</param>
     /// <returns>16-bit PCM, one channel, at <see cref="SampleRate"/>.</returns>
     /// <exception cref="ObjectDisposedException">The decoder has been disposed.</exception>
-    /// <exception cref="ArgumentException"><paramref name="packet"/> is empty.</exception>
     /// <exception cref="InvalidOperationException">The SDK rejected the packet.</exception>
     /// <remarks>
-    /// Empty is refused rather than taken as loss: the SDK reads a loss from <c>lostFlag</c>, not
-    /// from a length, and Steam marks the end of speech with <c>FFFF</c>, never an empty frame.
+    /// **An empty packet is a lost one, and is concealed.** Real Steam Voice carries zero-length
+    /// SILK frames, and the SDK's own <c>test/Decoder.c</c> reads a zero-byte packet as lost and
+    /// decodes the last packet's <c>framesPerPacket</c> frames with <c>lostFlag</c> 1 — one frame
+    /// before any packet has been seen.
     /// </remarks>
     public unsafe short[] Decode(ReadOnlySpan<byte> packet)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        if (packet.IsEmpty)
-        {
-            throw new ArgumentException("A SILK packet cannot be empty.", nameof(packet));
-        }
-
+        bool lost = packet.IsEmpty;
         SilkDecControl control = new() { ApiSampleRate = SampleRate };
         List<short> pcm = new(MaxFrameSamples);
         short* frame = stackalloc short[MaxFrameSamples];
@@ -125,7 +125,7 @@ public sealed class SilkVoiceDecoder : IDisposable
             do
             {
                 short count = MaxFrameSamples;
-                int result = NativeSilk.Decode(_state, ref control, 0, data, packet.Length, frame, ref count);
+                int result = NativeSilk.Decode(_state, ref control, lost ? 1 : 0, data, packet.Length, frame, ref count);
 
                 if (result != 0)
                 {
@@ -141,7 +141,14 @@ public sealed class SilkVoiceDecoder : IDisposable
                 pcm.AddRange(new ReadOnlySpan<short>(frame, count));
                 frames++;
             }
-            while (control.MoreInternalDecoderFrames != 0 && frames < MaxFramesPerPacket);
+            while (lost
+                ? frames < _framesPerPacket
+                : control.MoreInternalDecoderFrames != 0 && frames < MaxFramesPerPacket);
+        }
+
+        if (!lost)
+        {
+            _framesPerPacket = control.FramesPerPacket;
         }
 
         return [.. pcm];
