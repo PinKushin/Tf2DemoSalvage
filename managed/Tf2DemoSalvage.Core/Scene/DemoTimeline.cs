@@ -2147,7 +2147,7 @@ public sealed class DemoTimeline
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
-    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool)"/> answers.</returns>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?)"/> answers.</returns>
     /// <remarks>
     /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
     /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
@@ -5861,7 +5861,12 @@ public sealed class DemoTimeline
     /// bool)"/> — one global flag in the engine (`c_baseentity.cpp:3226`), and a player's position
     /// is registered on <c>C_BaseEntity</c> like any other entity's (B399).
     /// </param>
-    public void PlayersAt(double tick, ICollection<ScenePlayer> into, bool interpolating = true)
+    /// <param name="viewpoint">
+    /// What <c>CDemoPlayer::InterpolateViewpoint</c> handed the local player this frame (<see cref="DemoPlayer"/>), or
+    /// null when it set nothing — a SourceTV demo, or a frame before the first view (B56).
+    /// </param>
+    public void PlayersAt(
+        double tick, ICollection<ScenePlayer> into, bool interpolating = true, RecordedView? viewpoint = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -5878,6 +5883,13 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
+            if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
+            {
+                into.Add(LocalPlayer(player, local));
+                continue;
+            }
+
             // Stryker disable all : the guard condition spans two lines, so a mutant that empties
             // the guard body leaves 'pose' unassigned at its use below (CS0165), and Safe Mode
             // then drops every mutation in this method — B410.
@@ -5890,7 +5902,7 @@ public sealed class DemoTimeline
 
             // Stryker restore all
 
-            (float moveX, float moveY) = MoveParameters(track, tick, pose.EyeYaw ?? pose.Yaw);
+            (float moveX, float moveY) = MoveParameters(HeadingAt(track, tick), pose.EyeYaw ?? pose.Yaw);
 
             // **Yaw travels with the position, from the same pose.** Taking one and discarding the
             // other is what left every player facing north the moment they stopped being a dot:
@@ -5993,7 +6005,7 @@ public sealed class DemoTimeline
     /// <param name="entityIndex">The entity's slot.</param>
     /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
     /// <remarks>
-    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool)"/>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?)"/>
     /// should report.** Asserting a player's yaw against a literal would test the demo rather than
     /// the code; asserting it against the track this reads from tests the plumbing between them,
     /// which is where the number was being dropped.
@@ -6161,9 +6173,47 @@ public sealed class DemoTimeline
             : MathF.Atan2(along, across) * (180f / MathF.PI);
     }
 
+    /// <summary>The local player as <c>InterpolateViewpoint</c> left him, animated as the client animates him (B56).</summary>
+    /// <remarks>
+    /// <c>C_TFPlayer::UpdateClientSideAnimation</c> drives the local player's anim state from <c>EyeAngles()</c>
+    /// (<c>c_tf_player.cpp:4279-4284</c>), which is <c>pl.v_angle</c> (<c>:7280-7290</c>,
+    /// <c>baseplayer_shared.cpp:303-311</c>) — <c>SetLocalViewAngles</c>' value. <c>EstimateAbsVelocity</c> returns
+    /// <c>GetAbsVelocity()</c> for him (<c>c_baseentity.cpp:5852-5858</c>): the last <c>m_vecVelocity</c> received,
+    /// stepped, since its <c>AddVar</c> is commented out (<c>:907-912</c>). Zero when never sent, as the entity is
+    /// allocated zeroed. The feet keep the timeline's per-tick advance (B448).
+    /// </remarks>
+    private static ScenePlayer LocalPlayer(ScenePlayer player, RecordedView viewpoint)
+    {
+        float eyeYaw = Normalize(viewpoint.LocalAngles.Yaw);
+        (float X, float Y, float Z) velocity = player.Velocity ?? default;
+
+        // GetOuterXYSpeed, and CalcMovementSpeed's `flSpeed > MOVING_MINIMUM_SPEED` (0.5).
+        float speed = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y));
+        float? heading = speed > MovingMinimumSpeed
+            ? MathF.Atan2(velocity.Y, velocity.X) * (180f / MathF.PI)
+            : null;
+
+        (float moveX, float moveY) = MoveParameters(heading, eyeYaw);
+
+        return player with
+        {
+            X = viewpoint.Origin.X,
+            Y = viewpoint.Origin.Y,
+            Z = viewpoint.Origin.Z,
+            EyeYaw = eyeYaw,
+            EyePitch = Normalize(viewpoint.LocalAngles.Pitch),
+            AimYaw = FeetYaw.AimYaw(eyeYaw, player.Yaw),
+            Speed = speed,
+            MoveX = moveX,
+            MoveY = moveY,
+        };
+    }
+
+    /// <summary><c>MOVING_MINIMUM_SPEED</c> (<c>base_playeranimstate.h</c>): 0.5 units a second.</summary>
+    private const float MovingMinimumSpeed = 0.5f;
+
     /// <summary>The <c>move_x</c> and <c>move_y</c> pose parameters for a moving player.</summary>
-    /// <param name="track">The player's own track, which is differenced for a heading.</param>
-    /// <param name="tick">The moment being drawn.</param>
+    /// <param name="heading">Which way the player is travelling, in degrees, or null when still.</param>
     /// <param name="bodyYaw">Which way the player is facing, in degrees.</param>
     /// <returns>The unit vector of travel in the body's frame, or zero when standing still.</returns>
     /// <remarks>
@@ -6189,10 +6239,9 @@ public sealed class DemoTimeline
     /// player spinning in place will differ slightly here. Recorded rather than hidden; it needs
     /// the rest of the turn-in-place state (B61) to do properly.
     /// </remarks>
-    private static (float X, float Y) MoveParameters(
-        ScenePropTrack track, double tick, float bodyYaw)
+    private static (float X, float Y) MoveParameters(float? heading, float bodyYaw)
     {
-        if (HeadingAt(track, tick) is not { } heading)
+        if (heading is not { } travel)
         {
             return (0f, 0f);
         }
@@ -6203,7 +6252,7 @@ public sealed class DemoTimeline
         // the direction of travel minus the way the body faces. This project had it the other way
         // round, which is zero for a player running dead forward — so a measurement of a forward
         // run could not see it — and which swaps strafing left with strafing right.
-        float yaw = Normalize(heading - bodyYaw);
+        float yaw = Normalize(travel - bodyYaw);
         (float sine, float cosine) = MathF.SinCos(yaw * (MathF.PI / 180f));
 
         float x = cosine;

@@ -63,8 +63,9 @@ public sealed class SyntheticRecorderViewTests
     public void PlayersAt_WithAViewpoint_TwistsTheTorsoFromTheFeetToTheLocalYaw()
     {
         // body_yaw = -(eyeYaw - currentFeetYaw): the feet the timeline advanced (zero, along his server eye yaw)
-        // against his local yaw of 90.
-        Recorder(Viewpoint).AimYaw.ShouldNotBeNull().ShouldBe(-90f, 1e-3f);
+        // against his local yaw of 90. Within one step of the fixture's 12-bit eye yaw (360 / 4096 = 0.088), which
+        // cannot say zero exactly and leaves the feet at 0.044.
+        Recorder(Viewpoint).AimYaw.ShouldNotBeNull().ShouldBe(-90f, 0.088f);
     }
 
     [Test]

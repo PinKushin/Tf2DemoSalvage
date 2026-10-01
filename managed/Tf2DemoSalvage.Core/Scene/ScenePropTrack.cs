@@ -429,7 +429,7 @@ public readonly record struct ScenePose
     /// <summary>The <c>body_yaw</c> pose parameter: how far the torso is twisted.</summary>
     /// <remarks>
     /// Already negated, as <c>SetPoseParameter( m_iAimYaw, -flAimYaw )</c> negates it. See
-    /// <see cref="FeetYaw.AimYaw"/>.
+    /// <see cref="FeetYaw.AimYaw(float)"/>.
     /// </remarks>
     public float? AimYaw { get; init; }
 
