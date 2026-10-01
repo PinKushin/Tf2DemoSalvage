@@ -8109,6 +8109,15 @@ family a protocol-15 demo is from (six-bit type fields, B440), so once the table
 key on that — or go through `UserMessageNames.Alternate` as protocol 24 does (B29), which only names an id
 when a layout decides.
 
+**Settled by the 2010 client (read 2026-10-01).** TF2 1.1.0.0 (19 July 2010) `client.dll`, from
+https://archive.org/details/tf-2-1.1.0.0-19-jul-2010 (only `tf\bin\client.dll`, `bin\engine.dll` and
+`tf\steam.inf` fetched from inside the zip, to `D:\tf2-builds\tf2-2010-1.1.0.0`). Its registration function
+(`0x10220f20`, then the haptics block at `0x100b5730`) registers 43 game messages: the current table with no
+`MapStatsUpdate`, ending at `BreakModel_Pumpkin`. `TrainingObjective` is the insertion — at 34, as in 2011 — so
+`CheapBreakModel` sits at **41**, exactly what the later protocol-15 demos carry, and the haptics follow at 43–48.
+`VoiceMask` is still 17 bytes (`0x11`). In `UserMessageNames` terms:
+`Compose("BreakModel_Pumpkin", ["MapStatsUpdate"], haptics: true)`. *Evidence class: read from disassembly.*
+
 ---
 
 ### B450 — the POV recorder after B56's port: prediction's velocity, a per-tick feet yaw, and two unread reset paths — OPEN 2026-09-30
