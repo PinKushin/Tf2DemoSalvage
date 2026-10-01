@@ -85,6 +85,21 @@ public sealed class DemoSystems
         _demoLog = loggers.CreateLogger("demo");
     }
 
+    /// <summary>The watcher's own ConVar values — their TF2 configs, then this viewer's settings — or null where unset (D190).</summary>
+    public Func<string, string?>? ClientConVars { get; set; }
+
+    /// <summary>The <c>demo_*</c> ConVars <c>InterpolateViewpoint</c> reads, from the watcher's config, read when a demo opens.</summary>
+    private DemoViewConVars ViewConVars()
+    {
+        Scene.Hud.HudConVars vars = new(null, ClientConVars);
+
+        return new DemoViewConVars(
+            vars.GetBool(DemoViewConVars.InterpolateViewName),
+            vars.GetFloat(DemoViewConVars.InterpLimitName),
+            vars.GetFloat(DemoViewConVars.AvelLimitName),
+            vars.GetBool(DemoViewConVars.LegacyRollbackName));
+    }
+
     /// <summary>Adds what the client emits itself — every explosion's sound — to the demo's schedule (B415).</summary>
     /// <param name="game">The install, or null when none is open.</param>
     /// <returns>The sounds added, which a precache wants; empty when the demo or the install is missing.</returns>
@@ -192,7 +207,9 @@ public sealed class DemoSystems
         audio?.StopAll();
         _loops.Clear();
 
-        _spectator.Eyes = timeline is { } eyes ? new TimelineEyes(eyes) : null;
+        // **One demo player, shared by the camera and the recorder's body** (B56), as the engine has one `demoplayer`.
+        DemoPlayer? player = timeline is { } played ? new DemoPlayer(played) { ConVars = ViewConVars() } : null;
+        _spectator.Eyes = timeline is { } eyes && player is not null ? new TimelineEyes(eyes, player) : null;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
 
         // **Which era's sequence lists the demo's numbers index** (B380, D160), from its protocol.
@@ -203,6 +220,7 @@ public sealed class DemoSystems
         _moments.Source = timeline is { } moments
             ? new TimelineMoments(moments)
             {
+                Player = player,
                 ClassModels = CorpseModels,
                 Items = CorpseItems,
                 Gibs = Gibs,

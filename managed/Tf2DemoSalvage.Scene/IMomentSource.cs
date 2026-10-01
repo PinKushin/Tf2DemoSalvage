@@ -208,6 +208,13 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <remarks>A supplier read per call, for the reason every other one here is: the map is read on its own schedule.</remarks>
     public Func<IReadOnlyList<StuckArrow>?>? Arrows { get; set; }
 
+    /// <summary>The viewer's demo player, whose viewpoint places a point-of-view demo's recorder (B56, B442).</summary>
+    /// <remarks>
+    /// The same instance <c>TimelineEyes</c> holds, so the camera and the recorder's body read one
+    /// <c>InterpolateViewpoint</c> per frame, as the engine's single <c>demoplayer</c> does. Null draws the
+    /// recorder on his networked track like anyone else.
+    /// </remarks>
+    public DemoPlayer? Player { get; init; }
 
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
@@ -215,7 +222,7 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public void PlayersAt(
         double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
-        timeline.PlayersAt(tick, into, interpolating);
+        timeline.PlayersAt(tick, into, interpolating, Player?.InterpolateViewpoint(tick));
 
     /// <inheritdoc />
     public void PropsAt(

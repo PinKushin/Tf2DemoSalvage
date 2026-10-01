@@ -1112,7 +1112,11 @@ internal class MainForm : Form, IFrameSteps
         // Registered after the presenter it drives, for the same reason `_levels` waits for the
         // scene: a system list is only as good as every member existing when it is built.
         _demoSystems = new DemoSystems(
-            _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers);
+            _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers)
+        {
+            // The watcher's demo_* ConVars, read by InterpolateViewpoint (B56, D190).
+            ClientConVars = ClientConVar,
+        };
 
         // **The gib list comes from the INSTALL, not from the model set** (B371). It was wired to
         // `_models.BreakPiecesOf` on the reasoning that a break list is a fact about a loaded model
@@ -2183,7 +2187,7 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_transport.CurrentTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().World);
+        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().World);
 
     /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
     /// <remarks>
@@ -2464,7 +2468,7 @@ internal class MainForm : Form, IFrameSteps
     /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
     /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_transport.CurrentTick, Aspect)?.WithFieldOfView(ViewFovNow().World);
+        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().World);
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
