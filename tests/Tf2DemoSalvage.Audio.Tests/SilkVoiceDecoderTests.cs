@@ -34,11 +34,32 @@ public sealed class SilkVoiceDecoderTests
     }
 
     [Test]
-    public void Decode_EmptyFrame_Throws()
+    public void Decode_AnEmptyPacket_ConcealsOnePacketOfLoss()
+    {
+        // Real Steam Voice carries zero-length SILK frames (gullywash and process both). The SDK's
+        // own test/Decoder.c reads a zero-byte packet as LOST and decodes framesPerPacket frames
+        // with lostFlag 1 — concealment, not an error.
+        short[] tone = new short[FrameSamples * 4];
+        for (int i = 0; i < tone.Length; i++)
+        {
+            tone[i] = (short)(8000 * Math.Sin(2 * Math.PI * 400 * i / SilkVoiceDecoder.SampleRate));
+        }
+
+        byte[][] packets = SilkTestEncoder.Encode(tone, FrameSamples * 2);
+
+        using SilkVoiceDecoder decoder = new();
+        decoder.Decode(packets[0]).Length.ShouldBe(FrameSamples * 2);
+
+        // The last packet held two frames, so the loss covers two.
+        decoder.Decode([]).Length.ShouldBe(FrameSamples * 2);
+    }
+
+    [Test]
+    public void Decode_AnEmptyPacketBeforeAnyOther_ConcealsOneFrame()
     {
         using SilkVoiceDecoder decoder = new();
 
-        Should.Throw<ArgumentException>(() => decoder.Decode([]));
+        decoder.Decode([]).Length.ShouldBe(FrameSamples);
     }
 
     [Test]
