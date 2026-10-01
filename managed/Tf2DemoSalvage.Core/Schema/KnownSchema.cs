@@ -46,7 +46,6 @@ internal static class KnownSchema
     /// </remarks>
     internal static ReadOnlySpan<byte> Complete(ReadOnlySpan<byte> payload, ReadOnlySpan<byte> known) =>
         payload.Length == CutLength
-        && known.Length > CutLength
         && payload[..(CutLength - 1)].SequenceEqual(known[..(CutLength - 1)])
             ? known
             : payload;

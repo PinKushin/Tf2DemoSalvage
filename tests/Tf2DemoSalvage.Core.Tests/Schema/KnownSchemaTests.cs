@@ -38,7 +38,7 @@ public sealed class KnownSchemaTests
     {
         byte[] known = Known();
 
-        KnownSchema.Complete(CutFrom(known), known).ToArray().ShouldBe(known);
+        KnownSchema.Complete(CutFrom(known), known).SequenceEqual(known).ShouldBeTrue();
     }
 
     [Test]
@@ -48,7 +48,7 @@ public sealed class KnownSchemaTests
         byte[] other = CutFrom(known);
         other[100] ^= 0x01;
 
-        KnownSchema.Complete(other, known).ToArray().ShouldBe(other);
+        KnownSchema.Complete(other, known).SequenceEqual(other).ShouldBeTrue();
     }
 
     [TestCase(KnownSchema.CutLength - 1)]
@@ -58,7 +58,7 @@ public sealed class KnownSchemaTests
         byte[] known = Known();
         byte[] payload = known.AsSpan(0, length).ToArray();
 
-        KnownSchema.Complete(payload, known).ToArray().ShouldBe(payload);
+        KnownSchema.Complete(payload, known).SequenceEqual(payload).ShouldBeTrue();
     }
 
     [Test]
