@@ -264,6 +264,36 @@ public sealed class UserMessageLayoutTests
         Value(message, "z").ShouldBe(-455.875f);
     }
 
+    [TestCase(NetMessage.TypeBits, "CheapBreakModel", true)]
+    [TestCase(NetMessage.OldTypeBits, null, false)]   // build 3862: SPHapWeapEvent refuses 85 bits
+    public void Read_Protocol15Id41EightyFiveBits_IsNamedByTheBuildFamilyTheTypeWidthShows(
+        int typeBits, string? expectedName, bool decoded)
+    {
+        // B444: the later protocol-15 builds (six-bit types, B440) register CheapBreakModel at 41.
+        // Through the reader, so the width the decoder learned is the width the name is keyed on.
+        Tf2DemoSalvage.Core.Primitives.BitWriter position = Vector(1113.25f, 3686.875f, -455.875f);
+        Tf2DemoSalvage.Core.Primitives.BitWriter body = new();
+        body.Write(1234, 16).AppendBits(position.Build(), position.BitCount);
+
+        Tf2DemoSalvage.Core.Primitives.BitWriter packet = new();
+        packet.Write((uint)NetMessageType.UserMessage, typeBits).Write(41, 8).Write(85, 11)
+            .AppendBits(body.Build(), body.BitCount);
+
+        NetDecodeState state = new() { NetworkProtocol = 15, MessageTypeBits = typeBits };
+        UserMessage message = NetMessageReader.Read(packet.Build(), state)
+            .Messages.OfType<UserMessage>().ShouldHaveSingleItem();
+
+        message.UserMessageType.ShouldBe(41);
+        message.BodyBits.ShouldBe(85);
+        message.Name.ShouldBe(expectedName);
+        (message.Fields is not null).ShouldBe(decoded);
+        if (decoded)
+        {
+            Value(message, "model").ShouldBe(1234);
+            Value(message, "z").ShouldBe(-455.875f);
+        }
+    }
+
     [Test]
     public void BreakModel_CarriesAnOrientationEncodedAsAPosition()
     {
