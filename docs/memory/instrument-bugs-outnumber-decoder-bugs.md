@@ -448,3 +448,11 @@ them threw, and a `catch { continue; }` dropped them uncounted. Production walk:
 (`DemoCorpus.EntitySnapshots`), and an undecodable item is a counted failure, never a skip. Before
 filing a decode defect from a harness, run production on the same demo (`timeline-cost`): if production
 decodes it cleanly, the harness is the suspect.
+
+## A byte search over an assembly reads its resources too (B24, 2026-09-30)
+
+`SchemaGap.AnyProductionAssemblyMentions` searched the whole DLL image for a wire name. Embedding build
+3258's `dem_datatables` in Core put every wire name of that schema into the image, and a gap marker
+(`m_nType`) flipped to "implemented" with no code reading it. **How to apply:** search the metadata block
+(`PEReader.GetMetadata()`), where literals and member names live — never the file — and expect any new
+embedded data file to be able to fool a raw byte search.
