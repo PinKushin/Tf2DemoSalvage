@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// index, and an empty census beside an empty control measures nothing. Samples are half a second apart unless a stride
 /// is given — a holstered weapon is no prop at all at some ticks, so a track is walked over its whole life.
 /// <code>
-///   item-props 5,195,241 z1800 C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem
+///   item-props 5,195,241 z1800 C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/demostf-cp_process_f12-2026-08-08-2207.dem
 ///   item-props 1070 1 C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/20150119_2240_cp_process_final_(ovo)_blu.dem
 /// </code>
 /// </remarks>

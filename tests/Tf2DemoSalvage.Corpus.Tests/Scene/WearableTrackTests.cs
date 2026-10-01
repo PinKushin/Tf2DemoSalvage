@@ -23,7 +23,8 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 public sealed class WearableTrackTests
 {
     /// <summary>A modern match with a full roster in worn items: the f12 parity reference.</summary>
-    private const string F12Recording = "demostf-cp_process_f12-2026-08-07";
+    /// <remarks>The 2026-08-08-2207 SourceTV recording since 2026-09-30, when the 2026-08-07 one was lost.</remarks>
+    private const string F12Recording = "demostf-cp_process_f12-2026-08-08-2207";
 
     [Test]
     public void WearableTracks_Cosmetics_NameTheirWearer()
@@ -76,12 +77,13 @@ public sealed class WearableTrackTests
                     .Take(10)
                     .Select(group => $"{group.Count()}x {group.Key}")));
 
-        // Twelve players wearing two or three items each. The probe counted 37 live CTFWearable
-        // entities at this file's midpoint, so twenty is a floor well under the measurement rather
-        // than a restatement of it.
+        // Twelve players wearing two or three items each. 43 attached props are present at this
+        // file's midpoint, tick 48315 (measured 2026-10-01 by this test's own WEAR line; the lost
+        // 2026-08-07 recording had 37), so twenty is a floor well under the measurement rather than
+        // a restatement of it.
         attached.Length.ShouldBeGreaterThan(
             20,
-            "cp_process has 37 live wearables at its midpoint tick");
+            "cp_process f12 has 43 attached props at its midpoint tick");
 
         // **The control: an attached prop must not also claim a place in the world.** A cosmetic
         // recorded with a pose of its own would draw at the map origin, in a heap, which is the
@@ -100,9 +102,16 @@ public sealed class WearableTrackTests
         }
 
         // Every wearer is a player present at the same tick, not a stale handle.
+        //
+        // **Except a `CTFWearableVM`, whose wearer is a VIEWMODEL** (`IsViewModelWearable`,
+        // `tf_item_wearable.cpp:58`). The 2026-08-08-2207 recording showed it: at tick 48315 the
+        // demoman on entity 4 wears `fob_h_stickybomb_diamond.mdl` twice — a `CTFWearable` (364) on
+        // entity 4 and a `CTFWearableVM` (362) on entity 53, his viewmodel. This said "every" while it
+        // ran on the lost 2026-08-07 recording, whose midpoint it passed on.
         int[] players = [.. timeline.PlayersAt(tick).Select(player => player.EntityIndex)];
 
-        attached.Select(prop => prop.AttachedTo!.Value)
+        attached.Where(prop => prop.ClassName != "CTFWearableVM")
+            .Select(prop => prop.AttachedTo!.Value)
             .Distinct()
             .ShouldAllBe(owner => players.Contains(owner));
     }

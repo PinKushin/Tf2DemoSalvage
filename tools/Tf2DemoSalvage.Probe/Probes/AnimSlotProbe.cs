@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// <code>
 ///   anim-slot tf2-2026-pub-pov-clean
-///   anim-slot C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem
+///   anim-slot C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/demostf-cp_process_f12-2026-08-08-2207.dem
 /// </code>
 /// </remarks>
 public sealed class AnimSlotProbe : IProbe

@@ -18,20 +18,24 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// </remarks>
 public sealed class CorpusExplosionTests
 {
+    /// <summary>The f12 parity reference since 2026-09-30, when the 2026-08-07 recording was lost.</summary>
+    private const string F12Recording = "demostf-cp_process_f12-2026-08-08-2207";
+
     /// <remarks>
     /// **A real match, because the era specimens cannot answer this**: they are the owner's own solo recordings on
     /// period clients, with nobody to shoot at and nothing to explode.
     ///
-    /// **A floor, not the census figure.** B415 counted 2,786 `CTETFExplosion` in this recording; asserting that
+    /// **A floor, not the census figure.** B415 counted 2,786 `CTETFExplosion` in the lost 2026-08-07 recording, and this
+    /// test reads 2,629 from the 2026-08-08-2207 one (152 in mid air, 194 against an entity; 2026-10-01); asserting that
     /// exactly would make the test a change detector on one file. What is being claimed is that explosions survive
     /// the trip from the temp entity stream to the timeline in the hundreds, which no partial wiring does.
     /// </remarks>
     [Test]
     public void Explosions_OnARealMatch_AreReadFromTheTempEntityStream()
     {
-        if (Corpus.Demo("demostf-cp_process_f12-2026-08-07") is not { } path)
+        if (Corpus.Demo(F12Recording) is not { } path)
         {
-            Assert.Ignore("demostf-cp_process_f12-2026-08-07.dem is not available");
+            Assert.Ignore($"{F12Recording}.dem is not available");
             return;
         }
 
@@ -46,7 +50,7 @@ public sealed class CorpusExplosionTests
 
         blasts.Count.ShouldBeGreaterThan(
             500,
-            "a 26-minute six-versus-six match is full of rockets and stickies, and B415 censused 2,786");
+            "a 24-minute six-versus-six match is full of rockets and stickies; this one reads 2,629");
     }
 
     /// <remarks>
@@ -63,9 +67,9 @@ public sealed class CorpusExplosionTests
     [Test]
     public void Explosions_OnARealMatch_CarryPositionsWeaponsAndSurfaces()
     {
-        if (Corpus.Demo("demostf-cp_process_f12-2026-08-07") is not { } path)
+        if (Corpus.Demo(F12Recording) is not { } path)
         {
-            Assert.Ignore("demostf-cp_process_f12-2026-08-07.dem is not available");
+            Assert.Ignore($"{F12Recording}.dem is not available");
             return;
         }
 
@@ -94,9 +98,9 @@ public sealed class CorpusExplosionTests
     [Test]
     public void Explosions_OnARealMatch_AreInTickOrder()
     {
-        if (Corpus.Demo("demostf-cp_process_f12-2026-08-07") is not { } path)
+        if (Corpus.Demo(F12Recording) is not { } path)
         {
-            Assert.Ignore("demostf-cp_process_f12-2026-08-07.dem is not available");
+            Assert.Ignore($"{F12Recording}.dem is not available");
             return;
         }
 

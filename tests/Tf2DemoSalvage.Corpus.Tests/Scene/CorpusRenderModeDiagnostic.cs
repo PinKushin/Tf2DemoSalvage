@@ -51,7 +51,7 @@ public sealed class CorpusRenderModeDiagnostic
     /// </remarks>
     private static readonly string[] Sampled =
     [
-        "demostf-cp_process_f12-2026-08-07",
+        "demostf-cp_process_f12-2026-08-08-2207",
         "etf2l-12025-pov-2020-07-21",
         "tf2-2026-pub-pov-clean",
     ];

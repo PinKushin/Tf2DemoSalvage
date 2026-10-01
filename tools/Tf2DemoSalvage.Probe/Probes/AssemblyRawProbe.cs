@@ -23,7 +23,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// message and every packet has it.
 ///
 /// <code>
-///   asm-raw demostf-cp_process_f12-2026-08-07
+///   asm-raw demostf-cp_process_f12-2026-08-08-2207
 ///   asm-raw all
 /// </code>
 /// </remarks>

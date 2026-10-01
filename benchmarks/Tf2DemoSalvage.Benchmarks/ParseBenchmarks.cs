@@ -38,7 +38,7 @@ public class ParseBenchmarks
     /// constant factor — the entity delta path scales with player count and tick count together —
     /// so a single file cannot show a change that only appears at length.
     /// </remarks>
-    [Params("tf2-2013-build1729296-stv-cp_foundry.dem", "demostf-cp_process_f12-2026-08-07.dem")]
+    [Params("tf2-2013-build1729296-stv-cp_foundry.dem", "demostf-cp_process_f12-2026-08-08-2207.dem")]
     public string Demo { get; set; } = string.Empty;
 
     [GlobalSetup]
