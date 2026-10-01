@@ -41,7 +41,13 @@ public sealed class DemoCommandStreamTests
         byte[] two = TwoPackets();
         int firstEnd = two.Length - LastPacketBytes(two);
 
-        foreach (int tail in new[] { 2, CommandHeaderBytes - 1, CommandHeaderBytes + 40, CommandHeaderBytes + PacketPrologueBytes + 2, CommandHeaderBytes + PacketPrologueBytes + 4 + 3 })
+        // Each region at a cut of one byte short too, where an off-by-one in a length check lives.
+        foreach (int tail in new[]
+        {
+            2, CommandHeaderBytes - 1, CommandHeaderBytes + 40, CommandHeaderBytes + PacketPrologueBytes - 1,
+            CommandHeaderBytes + PacketPrologueBytes + 2, CommandHeaderBytes + PacketPrologueBytes + 3,
+            CommandHeaderBytes + PacketPrologueBytes + 4 + 3, LastPacketBytes(two) - StopBytes - 1,
+        })
         {
             yield return new TestCaseData((object)two[DemoHeader.SizeBytes..(firstEnd + tail)])
                 .SetName($"Read_CutWith{tail}TailBytes_MatchesReadWhole");
@@ -117,6 +123,20 @@ public sealed class DemoCommandStreamTests
 
         tail.ToArray().ShouldBe(body);
         reason.ShouldNotBeNull().ShouldContain(int.MaxValue.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Test]
+    public void Read_APayloadLargerThanOneChunkOffAnUnseekableStream_IsWhole()
+    {
+        // An unseekable stream cannot say how much remains, so the payload grows in chunks; one
+        // past the first chunk proves the growth reaches the declared length.
+        byte[] payload = [.. Enumerable.Range(0, 70_000).Select(i => (byte)i)];
+        byte[] body = [(byte)DemoCommandType.ConsoleCmd, .. BitConverter.GetBytes(9), .. BitConverter.GetBytes(payload.Length), .. payload];
+        using CountingStream stream = new(body, seekable: false);
+
+        List<DemoCommand> commands = [.. DemoCommandReader.Read(stream)];
+
+        commands.ShouldHaveSingleItem().Payload.ToArray().ShouldBe(payload);
     }
 
     [Test]
