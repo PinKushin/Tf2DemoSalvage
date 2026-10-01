@@ -1294,6 +1294,24 @@ from the user's other demos, which a user would not have. And the specimens are 
 made those 07 demos, so they are exactly what you get from that client"* — recorded on the 2007 client's
 own SourceTV, and played back by it.
 
+**What the 2007 engine does with the cut (read 2026-09-30, build 3258 x86 `engine.dll`, project
+`tf2engine2007`).** Nothing fails, and nothing is recovered:
+
+- Playback reads `dem_datatables` into a 256 KiB buffer (`push 0x40000` at `0x100b5f60`), so the POV's
+  85,063 bytes fit whole. `CDemoFile::ReadRawData` (`0x100ed750`) refuses a payload larger than its buffer
+  ("buffe overflow") rather than cutting it, so the cut is in the file, not the reader.
+- `DataTable_ParseClientTablesFromBuffer` (`0x1002e000`) and the per-table reader (`0x10034a40`) never check
+  `bf_read`'s overflow flag. Past the end of the buffer every read returns zero bits. So the table the cut
+  lands in is completed with zeros, the next "more tables" bit reads 0 and ends the list, and the class
+  count (`0x1002dd00`) reads 0: **no server classes at all**. The function returns success, so the
+  `Host_Error` ("Error parsing network data tables during demo playback", `0x10044fa0`) never fires.
+- `ProcessClassInfo` (`0x1008b5a0`) in playback with `m_bCreateOnClient` set only links the classes already
+  loaded — zero of them — and builds decoders over the tables that were read.
+
+So the engine's own result is: every table before the cut, one table zero-completed, and an empty class
+list. Whether entities then appear depends on what entity creation does with a class index past an empty
+list, which is not read yet. *Evidence class: read from disassembly.*
+
 ## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
 
 **Found by re-encoding, and by nothing else, because both forms decode to the same number.**
