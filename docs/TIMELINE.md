@@ -133,6 +133,27 @@ not.
 Anything landing here from that route belongs marked **inferred**, never in the same column as a
 `version` reading from a build.
 
+**Thirty more era specimens were sitting inside archives, and the decode census reached them
+(2026-09-30).** Sixteen packed files in `tf2-comp-archive/raw/downloads/DEMO` and `D:/tf2-demo-archive`
+(`.7z`, `.zip`, `.rar`, and one zip of `.dem.7z`) had never been opened by any sweep; extracted into scratch,
+never into a repository, they hold thirty distinct demos, and not one is a new protocol:
+
+| protocol | demos | what they are, and the date each NAME carries |
+|---|---|---|
+| 15 | 1 SourceTV | `auto-20100615-2238-koth_disneyworld_b1` — a server's `tv_autorecord` name |
+| 16 | 6 SourceTV | `auto-20110514-*`, one evening of nom-nom-nom.us "match100": badlands, granary, nucleus twice, hightower, frontier |
+| 21 | 13 SourceTV | `cp_quay_a3` → `a12` and one `cp_granary`, 28 Dec 2011 → 2 Jun 2012 — one map's whole playtest arc |
+| 21 | 8 POV, 2 SourceTV | P-REC-named POVs of 11 Mar → 25 Jun 2012 (a ninth file is a byte-identical copy), and **a POV and a SourceTV of one session**, `20120624 2055 cp_gullywash_final1` |
+
+**So protocol 21 now has what 15 lacked for years: both points of view of one session** (`record-both-points-of-view`),
+plus an unbroken six months of dated recordings. *Inferred, by this document's own rule:* if the names are
+the recording clocks' and the recordings period ones, 21 was current from late December 2011 to late June
+2012, and with `20120707-0042-koth_idioteque_a3` at 22 the change to 22 falls in the fortnight after
+25 June 2012; and 16 was current by 14 May 2011, a month before build 4604's measured anchor, with 15 still
+current on 9 November 2010 (`auto-20101109-2141-cp_badlands`). The `auto-` names are written by the
+server's own `tv_autorecord`, which is as close to "independently contemporaneous" as a recovered file gets —
+still a name, not a `version`. Which census rows these are, and how they decode: `docs/verification/`.
+
 Protocol 11 at launch was a surprise. The March 2008 build reports 14, and the launch build was
 expected to report 14 as well — three protocol versions came and went in TF2's first five months,
 which is a faster cadence than anything later in its history.

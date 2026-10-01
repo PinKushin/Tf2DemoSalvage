@@ -59,6 +59,29 @@ public sealed class NetMessageReaderTests
         ((NetTickMessage)result.Messages[1]).Tick.ShouldBe(9);
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Read_SetPauseBeforeASetView_IsOnePausedBit(bool paused)
+    {
+        // **One bit, as the engine reads it** — SVC_SetPause::ReadFromBuffer (engine.dll 0x1801df5c0) is a single
+        // ReadOneBit into m_bPaused, and WriteToBuffer (0x1801e4de0) writes the type and that bit. Laid by hand, not
+        // by our writer, so a writer and reader sharing a wrong width cannot agree here; the svc_SetView after it
+        // is what a second bit would misalign. Both states, because a reader that kept the bit and dropped its
+        // value would pass on one of them.
+        byte[] packet = new BitWriter()
+            .Write((uint)NetMessageType.SetPause, NetMessage.TypeBits)
+            .Write(paused ? 1u : 0u, 1)
+            .Write((uint)NetMessageType.SetView, NetMessage.TypeBits)
+            .Write(19u, NetMessageReader.SetViewBits)
+            .Build();
+
+        NetMessageReadResult result = NetMessageReader.Read(packet);
+
+        result.Messages.Count.ShouldBe(2);
+        result.Messages[0].ShouldBeOfType<SetPauseMessage>().Paused.ShouldBe(paused);
+        result.Messages[1].ShouldBeOfType<SetViewMessage>().EntityIndex.ShouldBe(19);
+    }
+
     [Test]
     public void Read_EmptyMessage_HasNoBodyAndDoesNotStopTheStream()
     {

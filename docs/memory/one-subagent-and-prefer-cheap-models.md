@@ -53,3 +53,9 @@ project; gate once per branch. Owner: *"I don't want to lose the rigor though. D
 faster overall, and uses less tokens overall, then getting it wrong and having to fix it."*
 **How to apply:** speed comes from parallelism and targeted runs, never from fewer sabotage rounds, skipped censuses
 or skipped engine reads. Desktop phases (2/3) stay serial under the lock.
+
+## 2026-09-30: Sonnet 5.5 does not change the split
+Owner: sonnet's problem was *"not continuing its work, not really its generation"*, so a newer sonnet is not expected
+to fix it. Keep opus for implementation. Usage: two opus agents plus main-loop decompiles hit 50% of the 5-hour limit
+in an hour. **Standing rule (owner, 2026-09-30): one subagent at a time; two only if both are sonnet on small tasks** —
+*"running more than one agent at a time, eats my limit hard"*. Supersedes the parallel note above.

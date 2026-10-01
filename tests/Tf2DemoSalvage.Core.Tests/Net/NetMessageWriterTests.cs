@@ -43,6 +43,14 @@ public sealed class NetMessageWriterTests
     }
 
     [Test]
+    public void Write_SetPause_RoundTripsBothStates()
+    {
+        // SVC_SetPause::WriteToBuffer (engine.dll 0x1801e4de0): the type, then m_bPaused as one bit.
+        RoundTrip(new SetPauseMessage(true)).Paused.ShouldBeTrue();
+        RoundTrip(new SetPauseMessage(false)).Paused.ShouldBeFalse();
+    }
+
+    [Test]
     public void Write_SetView_RoundTripsTheEntityIndex()
     {
         RoundTrip(new SetViewMessage(1)).EntityIndex.ShouldBe(1);

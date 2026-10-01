@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
@@ -299,9 +300,10 @@ public static class EntityAssembly
                 break;
             }
 
-            (int index, int indexWidth, int shape) = ParseIndex(Token(tokens, 1, "property index"));
+            (int index, int indexWidth, int shape, IReadOnlyList<int>? elementShapes) =
+                ParseIndex(Token(tokens, 1, "property index"));
             properties.Add(new DecodedProperty(
-                index, flat[index], PropertyText.Read(flat[index], tokens, 3), indexWidth, shape));
+                index, flat[index], PropertyText.Read(flat[index], tokens, 3), indexWidth, shape, elementShapes));
         }
 
         return new DecodedTempEntity(classId, delay, properties);
@@ -310,24 +312,43 @@ public static class EntityAssembly
     private static string Round(float value) => value.ToString("R", CultureInfo.InvariantCulture);
 
     /// <summary>
-    /// The property's encoding choices, appended to its index as <c>index/width/coord</c>.
+    /// The property's encoding choices, appended to its index as <c>index/width/coord</c>, and
+    /// <c>index/width/coord/s0.s1.…</c> for an array whose elements took shapes of their own.
     /// </summary>
     /// <remarks>
     /// Written only when there is something to say, so an ordinary property keeps a bare index.
-    /// Both parts are choices the sender made that the value cannot recover: which UBitVar bucket
-    /// the index delta used, and which components of a coordinate took the narrow integer field.
+    /// Every part is a choice the sender made that the value cannot recover: which UBitVar bucket
+    /// the index delta used, which components of a coordinate took the narrow integer field, and
+    /// — for an array — which form each ELEMENT was sent in (B446). The last was kept by the codec
+    /// since RISKS B27 and dropped by this text until PASS Time's 16-element <c>m_trackPoints</c>
+    /// sent its snapshots out as raw bits. All-zero element shapes are left unsaid, because the
+    /// encoder writes shape 0 for an element with none.
     /// </remarks>
-    // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
-    // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
-    // drops every mutation in this method — B410.
-    private static string Shape(DecodedProperty property) =>
-        property.IndexPayloadBits == 0 && property.CoordShape == 0
-            ? string.Empty
-            : string.Create(
-                CultureInfo.InvariantCulture,
-                $"/{property.IndexPayloadBits}/{property.CoordShape}");
+    private static string Shape(DecodedProperty property)
+    {
+        bool elementsShaped = property.ElementShapes?.Any(shape => shape != 0) == true;
 
-    // Stryker restore all
+        if (property.IndexPayloadBits == 0 && property.CoordShape == 0 && !elementsShaped)
+        {
+            return string.Empty;
+        }
+
+        // Stryker disable all : the String mutator wraps the interpolated literal in a ternary that
+        // cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then
+        // drops every mutation in this method — B410.
+        string choices = string.Create(
+            CultureInfo.InvariantCulture, $"/{property.IndexPayloadBits}/{property.CoordShape}");
+
+        // Stryker restore all
+        return elementsShaped
+            ? choices + "/" + string.Join(
+                ElementShapeSeparator,
+                property.ElementShapes!.Select(shape => shape.ToString(CultureInfo.InvariantCulture)))
+            : choices;
+    }
+
+    /// <summary>Separates one array element's shape from the next in <see cref="Shape"/>.</summary>
+    private const string ElementShapeSeparator = ".";
 
     /// <summary>Reads a snapshot's lines back into a message.</summary>
     /// <param name="tokens">The <c>svc_packetentities</c> line's tokens.</param>
@@ -437,14 +458,16 @@ public static class EntityAssembly
             // The name is written for a reader and ignored here: the index is what addresses the
             // flattened list, and a name that disagreed with it would be the schema's problem
             // rather than something to reconcile at parse time.
-            (int propertyIndex, int indexWidth, int shape) = ParseIndex(Token(tokens, 1, "property index"));
+            (int propertyIndex, int indexWidth, int shape, IReadOnlyList<int>? elementShapes) =
+                ParseIndex(Token(tokens, 1, "property index"));
 
             properties.Add(new DecodedProperty(
                 propertyIndex,
                 flat[propertyIndex],
                 PropertyText.Read(flat[propertyIndex], tokens, 3),
                 indexWidth,
-                shape));
+                shape,
+                elementShapes));
         }
 
         return new DecodedEntity(
@@ -454,14 +477,17 @@ public static class EntityAssembly
                 : 0);
     }
 
-    /// <summary>Splits <c>index</c> or <c>index/width/coord</c> into its three parts.</summary>
-    private static (int Index, int Width, int CoordShape) ParseIndex(string token)
+    /// <summary>Splits <c>index</c>, <c>index/width/coord</c> or <c>index/width/coord/s0.s1.…</c> into its parts.</summary>
+    private static (int Index, int Width, int CoordShape, IReadOnlyList<int>? ElementShapes) ParseIndex(string token)
     {
         string[] parts = token.Split('/');
         return (
             Number(parts[0], "property index"),
             parts.Length > 1 ? Number(parts[1], "property index width") : 0,
-            parts.Length > 2 ? Number(parts[2], "property coordinate shape") : 0);
+            parts.Length > 2 ? Number(parts[2], "property coordinate shape") : 0,
+            parts.Length > 3
+                ? [.. parts[3].Split(ElementShapeSeparator).Select(shape => Number(shape, "array element shape"))]
+                : null);
     }
 
     private static Dictionary<string, string> Fields(IReadOnlyList<string> tokens)

@@ -1269,6 +1269,31 @@ large map, and the second closes it. The gravelpit demo lives in `tools/corpus/l
 the committed corpus: it is a second specimen of an era already represented, and the finding it
 supports is recorded here.
 
+**"Not fixable" was wrong about what was lost (2026-09-30).** The schema was never written into the
+SourceTV file, but it exists whole in the same build's other recordings. Measured byte by byte:
+
+| comparison | result |
+|---|---|
+| the two build-3258 POV schemas (cp_granary, the damage recording) | **byte-identical**, 85,063 bytes each — the schema does not depend on the map |
+| the two build-3258 SourceTV payloads (cp_granary, cp_gravelpit) | **byte-identical**, 65,536 bytes each |
+| SourceTV payload against the POV schema's first 65,536 bytes | the first **65,535** match; byte 65,535 is `0E` against `2E` |
+
+The one differing byte is the cut itself: the SourceTV writer's buffer ended part-way through it, so
+its bits after the cut were never written. So the truncated schema is exactly build 3258's schema up
+to 2^16 bytes, and the build's full schema is the rest of it. Decoding the two SourceTV demos' 8,185
+snapshots against it would be exact rather than a guess. *Evidence class: measured (the payloads compared
+byte for byte).*
+
+**The owner, asked 2026-09-30, corrected the premise:** *"I thought those were playing fine even with
+the cut off? they did in the real client, so why cant we play them? for users number 2 or just playing
+it, is the only real option"*. This note had said the real client cannot parse the truncated table
+either — asserted, never tested, and wrong by the owner's account: the 2007 client plays them. So the
+parity question is what the 2007 engine does with a `dem_datatables` cut at 2^16 bytes, and the
+acceptable fallback is shipping the known schema for a truncated build (option 2), not borrowing one
+from the user's other demos, which a user would not have. And the specimens are first-hand: *"I literally
+made those 07 demos, so they are exactly what you get from that client"* — recorded on the 2007 client's
+own SourceTV, and played back by it.
+
 ## B25 — a UBitVar one step wider than it needs to be, on 0.16% of modern snapshots — OPEN
 
 **Found by re-encoding, and by nothing else, because both forms decode to the same number.**
@@ -7935,6 +7960,58 @@ is shared state. Every consumer of one is trusted not to write to it, and one of
 
 ---
 
+### B447 — `svc_SetPause` had no text form, the last kind the local pool kept as bits — FIXED 2026-09-30
+
+**`asm-raw` over the whole local pool: 14 `SetPause` lines in nine demos** (z1800, both koth_cascade and
+product-era demostf recordings, esea, leeko and others), the last message kind still written as raw bits
+outside the two schema-less 2007 SourceTV demos (B24). The reader consumed the pause bit and kept no message,
+so the text writer had nothing to render.
+
+- **Engine**: `SVC_SetPause::ReadFromBuffer` (engine.dll `0x1801df5c0`) is one `ReadOneBit` into `m_bPaused`;
+  `WriteToBuffer` (`0x1801e4de0`) writes the type and that bit. Now `SetPauseMessage(bool Paused)`, with a
+  writer case, an assembly line (`svc_setpause 1`) and a trace line (`svc_setpause paused` / `resumed`).
+- **Tests**: a packet laid by hand pins the width (the `svc_SetView` after it is what a second bit would
+  misalign); writer and text round trips in both states; the every-kind demo carries one; the trace names the
+  direction (red first — the line did not exist). **Sabotaged**: a 2-bit read reddens 8 tests, among them the
+  pre-existing `SetPause_IsASingleBit`; an inverted text parse reddens the text round trip and the every-kind
+  assembly, where the writer's own check fell back to raw.
+- **Knock-on, and why it is right**: the every-kind demo's packet stopped ending on a byte boundary once seven
+  more bits joined it, so a `padding` line appeared and `Assemble_EveryWritableKind_LeavesOnlyKnownKindsAsBits`
+  failed. Padding is not a kind — the bits after a packet's last message — and the test now leaves it out, as
+  the corpus report and `asm-raw` already did; its set was relying on an alignment accident.
+- **On the corpus**: z1800 and koth_cascade carry nothing but padding, and z1800 decompiles and compiles back
+  byte-identical, 8,964,241 bytes. **With B446, the whole local pool's assembly text is structured except
+  padding and the two 2007 SourceTV demos whose schema was truncated on the wire.**
+  *Evidence class: disassembly; measured (probes, CLI round trip).*
+
+---
+
+### B446 — an array's element shapes did not survive the assembly text, so PASS Time snapshots stayed bits — FIXED 2026-09-30
+
+**Found by the `asm-raw` probe**, which names per demo what the assembly writer still carries as bits. Over
+the whole local pool, seven `PacketEntities declined` came from outside the two schema-less 2007 SourceTV
+demos: `demostf-pass_coastal_rc8-1491292` at packet ticks 1, 347, 23594 and 45972, and three in
+`demostf-pass_sanctum_a2a-1491285`. In binary they decode and re-encode exactly (`entity-overrun` over the
+whole of pass_coastal: 71,814 of 71,814); the writer declined them because their TEXT did not assemble back.
+
+**The cause is B27's, one layer up.** Each element of an array carries the coordinate form its sender chose,
+and the value does not say which; B27 taught the codec to keep `DecodedProperty.ElementShapes`. The text
+form wrote a property's index width and coordinate shape and never the element shapes, and `ReadEntity`
+rebuilt every array at shape 0 — so PASS Time's 16-element `m_trackPoints` re-encoded at another width.
+
+- **The index token grows a fourth field**: `prop 12/4/0/1.0.1.0 …` — one shape per element, in element
+  order, written only when one is nonzero (all-zero shapes encode exactly as absent ones). Old text, which
+  never has the field, reads as before.
+- **Tests** (`EntityAssemblyTests`, synthetic): shapes `[1, 0, 1, 0]` round-trip to the same bits; the line
+  states them; all-zero shapes state nothing (control). **Sabotaged**: a parser that ignores the field
+  reddens only the round trip; a writer that always states shapes reddens only the control.
+- **On the corpus**: both PASS Time demos now carry nothing but padding (pass_coastal: 4 raw snapshots became
+  3,608 structured lines), and pass_sanctum decompiles and compiles back byte-identical, 11,671,620 bytes.
+  What is still bits in the whole pool after this: the two 2007 SourceTV demos (B24, no schema) and
+  `SetPause`. *Evidence class: measured (probes, CLI round trip); arithmetic (the width).*
+
+---
+
 ### B445 — the assembly round trip held each demo's whole text as one string, and the largest outgrew it — FIXED 2026-09-30
 
 **Found when B440 let `EveryDemo_CompilesBackToItsOwnBytes` run past the CEVO demo.** In B439's superset
@@ -7986,6 +8063,58 @@ when a layout decides.
 
 ---
 
+### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — OPEN 2026-09-30
+
+**Found by the decode census** (2026-09-30). Two ETF2L Season 29 recordings are servers left recording while
+nobody played: `auto-20180301-2156-koth_product_rc8.dem`, 1,300,749,497 bytes, and
+`auto-20180308-2144-cp_prolands_b3b.dem`, 2,015,374,411 bytes (both `D:\tf2-demo-archive\ETF2L Season 29`).
+Each is tens of hours of the same few entities.
+
+- **prolands:** `DemoCommandReader.Read` ran out of memory under a 6 GiB heap limit and completed under 10 GiB.
+  Its assembly would need about 10 GB at the census's 5x budget and was skipped. *Measured.*
+- **koth_product:** every stage but the timeline passed under an 8 GB budget, with a 9,046 MB peak working set.
+  *Measured.*
+- **The timeline** at B439's 40–84x would need 52–170 GB. It is not attempted. *Arithmetic.*
+
+Every other stage of both demos that ran, passed; nothing is misread. The defect is that the reader holds the
+whole command list, so memory scales with the file, not with the state. That is harmless for a match and fatal for
+a server nobody stopped. A streaming read (command at a time) is the fix, and it is its own branch. Smallest
+specimen: koth_product, SHA-256 `3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9d6d9e1752a319f614`
+(`tools/corpus/manifest.json`, `censusSpecimens`). *Evidence class: measured.*
+
+---
+
+### B448 — a demo cut off mid-command compiles back without its tail: the assembly carries no bytes that are not a whole command — OPEN 2026-09-30
+
+**Found by the decode census over D200's pool** (`decode-census`, 2026-09-30; the decoder as of cd6995e1).
+**157 of the pool's 429 demos end inside a command** — every one of the 152 in ESEA Seasons 29–31, four in
+ETF2L Season 29 and one in Season 32 — and each compiles back to every byte up to its last whole command and
+none after. The tails run from 2 to 545 bytes. Everything before them decodes: the smallest,
+`esea_match_14634302.dem`, re-encodes 43,588 of 43,588 messages and 14,458 of 14,458 snapshots, traces 14,458
+`dem_packet` blocks without a stop, and rebuilds 5,558,091 of its 5,558,272 bytes.
+
+**The 181 missing bytes are one packet, by arithmetic.** The reader says "A Packet command declares 165 payload
+bytes at offset 5557112, but only 88 remain": 5 (type and tick) + 84 (`democmdinfo_t` and the two sequence
+numbers) + 4 (length) + 88 = 181. *Arithmetic.*
+
+**The ESEA files end on 4 KiB boundaries** — `esea_match_14231863.dem` is 13,811,712 bytes, 3,372 × 4,096, with
+a 2-byte tail — which is a buffered writer that flushed whole blocks and never the last. `DemoCommandReader`'s
+remark records the same shape across another ESEA archive (159 of 370). *Measured for the files named; the
+flush is interpolated.*
+
+**Why no gate saw it.** `EveryDemo_CompilesBackToItsOwnBytes` asserts `rebuilt.Length <= original.Length` and
+compares `original[..rebuilt.Length]` — the reasoning beside it is from the command cap that was removed — so a
+tail that is never rebuilt passes. And lcor holds no cut demo (0 of its 49, census), so nothing the suite reads
+could have shown one.
+
+**What byte-identical needs:** the assembly to carry the bytes after the last whole command — the reader already
+knows where they begin — and `DemoWriter` to write them back. Not fixed here; a format change wants its own
+branch, red first on a synthetic demo cut mid-packet. Specimen: `D:\tf2-demo-archive\ESEA Season 30\esea_match_14634302.dem`,
+5,558,272 bytes, SHA-256 `51cc146c6271d92cc83dedbdcfe63b7feacc97c049aabb4c9796215745c0efff`
+(`tools/corpus/manifest.json`, `censusSpecimens`).
+
+---
+
 ### B443 — two entity removal lists do not re-encode to their own bits — FIXED 2026-09-30 (the instrument, not the encoder)
 
 **Found by `EntityRoundTrip_TheCorpus_IsReported` in the first full superset run** (B439). It reads each
@@ -8009,9 +8138,12 @@ of snapshots that did not decode at all (sunshine from tick 338 — `Entity inde
 without counting. Production builds the same demo cleanly (`timeline-cost`: 109,339 frames, no exception —
 `DemoTimeline.Build` has no catch around `Decode`), so the walk was at fault, and the difference was one
 line: the test read no packet until it had built a decoder from `dem_datatables`. The signon packets that
-come BEFORE it create the string tables, so the decode state lacked them, every later
-`svc_UpdateStringTable` was read at the wrong widths, and whatever followed it in its packet — including
-`svc_PacketEntities` — was read from the wrong bit. The two "removal list" failures were misaligned bodies
+come BEFORE it carry `svc_ServerInfo` and create the string tables, so the decode state lacked both. With no
+ServerInfo the reader takes the protocol as 0, so every `svc_TempEntities` length was read at the legacy
+17-bit width instead of protocol 24's varint — the decode census measured this independently, 10,642
+cascade snapshots thrown into the test's silent `continue` (its commit `5a83d9c1`) — and every
+`svc_UpdateStringTable` was read without its table. Whatever followed either in its packet, including
+`svc_PacketEntities`, was read from the wrong bit. The two "removal list" failures were misaligned bodies
 that happened to decode.
 
 | demo | the test's walk | the production walk |
@@ -8036,7 +8168,9 @@ that happened to decode.
   `DemoCorpus.EntitySnapshots` reddens 4 of the 6 entity tests — `EntityRoundTrip`, `EntitySection`,
   `ContinuousDecoding` and `OpeningSnapshot` — each naming the snapshots that no longer decode.
   *Evidence class: measured (probe, both walks, whole pool); the engine side read from `engine.dll`
-  (`0x1801dec90`, `0x18006a120`).*
+  (`0x1801dec90`, `0x18006a120`).* The census's independent reproduction (whole cascade, 21,845 of 21,845
+  exact with one state from the first command; the filed tick 1481, bit 3673 reproduced by withholding the
+  first signon) is in its commit `5a83d9c1`.
 
 ---
 
@@ -8124,6 +8258,32 @@ payload is not a whole number of 28-byte frames", in `20120909_1804_cp_gullywash
 
 The width may follow the quality through a table, or the frames may carry their own lengths; Source's
 Speex encoder (`vaudio_speex`) says which. Research first, on its own branch. *Evidence class: measured.*
+
+**The decode census, 2026-09-30: not one demo — every Speex recording in the pool after the launch build.**
+Twenty-five of D200's 429 demos declare `vaudio_speex`; seven carry voice. The one that decodes is the 2007
+SourceTV `tf2-2007-build3258-stv-cp_granary.dem` (125 packets, 272 frames). The other six, POV recordings
+from 2012 to 2015 at protocols 21, 22 and 24, all carry payloads that are not whole 28-byte frames:
+
+| demo | protocol | packets | not a multiple of 28 | of the rest, frames libspeex rejects |
+|---|---|---|---|---|
+| `leeko_badlands_4_63800.dem` | 21 | 1 | 1 (262 bytes) | — |
+| `20120909_1804_cp_gullywash_final1_red_fags.dem` | 22 | 454 | 440 | 53 of 97 |
+| `20140607_2350_koth_pro_viaduct_rc4_red_red.dem` | 24 | 10 | 10 (the first 349 bytes) | — |
+| `20130518_0313_cp_granary_blu_blu.dem` | 24 | 557 | 538 | 166 of 240 |
+| `20130519_0130_cp_granary_red_-----.dem` | 24 | 4,949 | 4,762 | 1,349 of 2,256 |
+| `20150120_2113_cp_process_final_red_blu.dem` | 24 | 522 | 501 | 135 of 234 |
+
+The gullywash row reproduces this entry's own count (454 non-empty, 440 not a multiple of 28) — the census's
+control. Even the packets that ARE whole multiples decode badly, a third to two thirds of their frames refused,
+so a 28-byte slice is wrong for them too. The rule the framing needs is not a quirk of one recording: it is what
+Speex voice looked like from at least 2012. *Measured.*
+
+**The pool's archives add eleven more, and they are SourceTV.** Extracted from the 16 `.7z`/`.zip` archives the
+first pass could not reach, eleven protocol-21 SourceTV recordings of `cp_quay` (December 2011 to March 2012) fail
+the same way — seventeen Speex failures in all, across both points of view. So the 2007 STV is not the pass
+because it is SourceTV. The smallest specimen is now `20120324-2006-cp_quay_a9.dem`, 9,562,228 bytes, SHA-256
+`e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d`, from `20120324-2006-cp_quay_a9.7z` in
+`D:\tf2-demo-archive` (`tools/corpus/manifest.json`, `censusSpecimens`).
 
 ---
 

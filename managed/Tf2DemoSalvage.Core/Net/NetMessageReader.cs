@@ -432,7 +432,8 @@ public static class NetMessageReader
                     }
 
                     case NetMessageType.SetPause:
-                        _ = reader.ReadBit();
+                        // One bit, m_bPaused (SVC_SetPause::ReadFromBuffer, engine.dll 0x1801df5c0).
+                        messages.Add(new SetPauseMessage(reader.ReadBit()));
                         break;
 
                     case NetMessageType.UserMessage:
