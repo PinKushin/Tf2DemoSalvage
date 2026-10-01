@@ -8085,7 +8085,7 @@ was 350 MB and still being written when measured), and the largest pass the ~1.0
 
 ---
 
-### B444 — protocol 15's later builds registered one more user message before `CheapBreakModel`, and ids above 33 are named from build 3862's table — OPEN 2026-09-30
+### B444 — protocol 15's later builds registered one more user message before `CheapBreakModel`, and ids above 33 are named from build 3862's table — FIXED 2026-10-01
 
 **Found in B440's work**, once the two later-build protocol-15 SourceTV demos decoded. Their only user
 message above id 28 is **41**: 159 of them, 145 at 85 bits and 14 at 71 to 80, and all 159 decode under
@@ -8117,6 +8117,15 @@ https://archive.org/details/tf-2-1.1.0.0-19-jul-2010 (only `tf\bin\client.dll`, 
 `CheapBreakModel` sits at **41**, exactly what the later protocol-15 demos carry, and the haptics follow at 43–48.
 `VoiceMask` is still 17 bytes (`0x11`). In `UserMessageNames` terms:
 `Compose("BreakModel_Pumpkin", ["MapStatsUpdate"], haptics: true)`. *Evidence class: read from disassembly.*
+
+**Fixed (2026-10-01, `fix/b444-protocol15-table`), keyed on the build family.** `UserMessageNames.Era2010` is
+that table, and `TableFor` picks it at protocol 15 when the message type width is six bits, build 3862's
+`Era2009` at five. The width is `NetDecodeState.MessageTypeBits`, which `NetMessageReader.Read` already decides
+from the first packet (B440); the reader passes it to `Lookup`, so nothing works the family out a second time.
+**Not `Alternate`:** it offers a second name only after the primary layout refuses the body, so it would fix 41
+and leave the 34–40 hazard above standing — same-width neighbours never refuse. Measured after the fix: all 159
+id-41 messages (39 CEVO, 120 ESEA) decode as `CheapBreakModel` with fields, and neither trace prints `#41`
+(`CorpusProtocol15Tests`). `VoiceMask` at 17 bytes needs no change: both families share it.
 
 ---
 

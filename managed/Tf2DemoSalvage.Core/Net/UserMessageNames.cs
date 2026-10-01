@@ -30,7 +30,8 @@ namespace Tf2DemoSalvage.Core.Net;
 /// **Era caveat, now measured against every era's binary.** This is the registration order of one
 /// build, and ids are assigned by position, so a message inserted rather than appended shifts
 /// everything after it — the same trap as the property-type renumbering in RISKS B18. The lengths
-/// are: 29 entries in 2007 and 2008 (ending at `PlayerStatsUpdate`), 41 in 2009, 49 in 2011, 66 in
+/// are: 29 entries in 2007 and 2008 (ending at `PlayerStatsUpdate`), 41 in 2009, 43 in 2010 (the
+/// later protocol-15 builds, B444), 49 in 2011, 66 in
 /// March 2013, 79 today.
 ///
 /// **The head of the table is stable and the tail is not, and both halves are measured.**
