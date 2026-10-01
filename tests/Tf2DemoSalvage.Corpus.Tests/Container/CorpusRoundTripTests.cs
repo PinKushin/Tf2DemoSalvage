@@ -37,10 +37,13 @@ public sealed class CorpusRoundTripTests
             byte[] original = File.ReadAllBytes(path);
 
             DemoHeader header = DemoHeader.Parse(original);
-            List<DemoCommand> commands =
-                [.. DemoCommandReader.Read(original.AsMemory(DemoHeader.SizeBytes))];
+            (IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
+                DemoCommandReader.ReadWhole(original.AsMemory(DemoHeader.SizeBytes));
 
-            byte[] rewritten = DemoWriter.Write(header, commands);
+            // A demo cut mid-command (B448) keeps its tail, and the whole FILE must come back,
+            // not a prefix of it: the length check below is what the old prefix compare lacked.
+            byte[] rewritten = DemoWriter.Write(header, commands, tail);
+            rewritten.Length.ShouldBe(original.Length, $"{name}: rebuilt length (tail {tail.Length} bytes)");
 
             // The command stream only. A header's text fields keep whatever TF2 left in the
             // buffer after the terminator, so those bytes are not reproducible from decoded

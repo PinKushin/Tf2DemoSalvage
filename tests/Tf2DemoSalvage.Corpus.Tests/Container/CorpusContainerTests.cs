@@ -102,17 +102,31 @@ public sealed class CorpusContainerTests
         header.GameDirectory.ShouldBe("tf");
         header.MapName.ShouldNotBeNullOrWhiteSpace();
 
-        List<DemoCommand> commands =
-            [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
+        (IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
+            DemoCommandReader.ReadWhole(bytes.AsMemory(DemoHeader.SizeBytes));
+        int walkedPackets = commands.Count(c => c.Type == DemoCommandType.Packet);
+        if (tail.Length == 0)
+        {
+            // The strongest available check that the whole container was walked correctly: an
+            // off-by-one in any payload size would drift and never land exactly on the header's
+            // declared frame count.
+            walkedPackets.ShouldBe(header.PlaybackFrames);
 
-        // The strongest available check that the whole container was walked correctly: an
-        // off-by-one in any payload size would drift and never land exactly on the header's
-        // declared frame count.
-        commands.Count(c => c.Type == DemoCommandType.Packet).ShouldBe(header.PlaybackFrames);
-
-        // Every TF2 demo ends with dem_stop, and its tick should match the declared total.
-        commands[^1].Type.ShouldBe(DemoCommandType.Stop);
-        commands[^1].Tick.ShouldBe(header.PlaybackTicks);
+            // Every whole TF2 demo ends with dem_stop, and its tick should match the declared total.
+            commands[^1].Type.ShouldBe(DemoCommandType.Stop);
+            commands[^1].Tick.ShouldBe(header.PlaybackTicks);
+        }
+        else
+        {
+            // A demo cut mid-command (B448) never reached its dem_stop, and the writer that cut it
+            // never finalised the header either: esea_match_14634302.dem measures frames 0, ticks 0
+            // against 14,458 walked packets (last tick 28,972), so the exact equality has no
+            // number to compare with. What is true: the walk ended without a Stop, and the header
+            // either was never finalised (0) or declares at least what was walked.
+            commands[^1].Type.ShouldNotBe(DemoCommandType.Stop);
+            (header.PlaybackFrames == 0 || header.PlaybackFrames >= walkedPackets)
+                .ShouldBeTrue($"header frames {header.PlaybackFrames} vs {walkedPackets} walked");
+        }
 
         commands.Count(c => c.Type == DemoCommandType.DataTables).ShouldBe(1);
 
