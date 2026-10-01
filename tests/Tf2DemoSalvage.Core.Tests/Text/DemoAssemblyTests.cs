@@ -34,7 +34,7 @@ public sealed class DemoAssemblyTests
         SignonLengthBytes = 850953,
     };
 
-    private static (DemoHeader Header, IReadOnlyList<DemoCommand> Commands) RoundTrip(
+    private static AssembledDemo RoundTrip(
         DemoHeader header, params DemoCommand[] commands)
     {
         StringWriter text = new() { NewLine = "\n" };

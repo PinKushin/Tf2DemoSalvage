@@ -43,9 +43,13 @@ public static class DemoWriter
     /// <summary>Writes the demo.</summary>
     /// <param name="header">The header to write.</param>
     /// <param name="commands">Commands in stream order.</param>
+    /// <param name="tail">
+    /// The bytes a cut file holds after its last whole command, written back verbatim (B448).
+    /// </param>
     /// <returns>The complete file.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="header"/> or <paramref name="commands"/> is null.</exception>
-    public static byte[] Write(DemoHeader header, IReadOnlyList<DemoCommand> commands)
+    public static byte[] Write(
+        DemoHeader header, IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail = default)
     {
         ArgumentNullException.ThrowIfNull(header);
         ArgumentNullException.ThrowIfNull(commands);
@@ -110,6 +114,7 @@ public static class DemoWriter
             output.Write(command.Payload.Span);
         }
 
+        output.Write(tail.Span);
         return output.ToArray();
     }
 

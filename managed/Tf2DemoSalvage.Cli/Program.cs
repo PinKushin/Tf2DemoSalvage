@@ -85,15 +85,15 @@ public static class Program
         Stopwatch clock = Stopwatch.StartNew();
         byte[] bytes = File.ReadAllBytes(line.DemoPath);
         DemoHeader header = DemoHeader.Parse(bytes);
-        List<DemoCommand> commands =
-            [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
+        (IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
+            DemoCommandReader.ReadWhole(bytes.AsMemory(DemoHeader.SizeBytes));
 
         string name = Path.GetFileName(line.DemoPath);
         Report(logger, name, bytes.Length, header, commands, clock);
 
         if (line.OutputPath is null)
         {
-            Write(Console.Out, line, name, header, commands, null);
+            Write(Console.Out, line, name, header, commands, tail, null);
             return ExitSuccess;
         }
 
@@ -105,7 +105,7 @@ public static class Program
         using (ProgressBar bar = new(Console.Error))
         using (StreamWriter writer = new(line.OutputPath))
         {
-            Write(writer, line, name, header, commands, bar);
+            Write(writer, line, name, header, commands, tail, bar);
         }
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -127,7 +127,7 @@ public static class Program
     /// </remarks>
     internal static void Report(
         ILogger logger, string name, int bytes, DemoHeader header,
-        List<DemoCommand> commands, Stopwatch clock)
+        IReadOnlyList<DemoCommand> commands, Stopwatch clock)
     {
         // **Zero here means "the header says nothing", not "nothing happened".** The playback
         // fields are written by seeking back to offset zero when recording stops, so a recording
@@ -224,9 +224,10 @@ public static class Program
     private static int Compile(CommandLine line, ILogger logger)
     {
         using StreamReader reader = new(line.DemoPath);
-        (DemoHeader header, IReadOnlyList<DemoCommand> commands) = DemoAssembly.Parse(reader);
+        (DemoHeader header, IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
+            DemoAssembly.Parse(reader);
 
-        byte[] demo = DemoWriter.Write(header, commands);
+        byte[] demo = DemoWriter.Write(header, commands, tail);
         File.WriteAllBytes(line.OutputPath!, demo);
 
         if (logger.IsEnabled(LogLevel.Information))
@@ -246,6 +247,7 @@ public static class Program
         string name,
         DemoHeader header,
         IReadOnlyList<DemoCommand> commands,
+        ReadOnlyMemory<byte> tail,
         IProgress<DumpProgress>? progress)
     {
         switch (line.Format)
@@ -263,7 +265,7 @@ public static class Program
                 break;
 
             case OutputFormat.Assembly:
-                DemoAssembly.Write(writer, header, commands);
+                DemoAssembly.Write(writer, header, commands, tail);
                 break;
 
             default:

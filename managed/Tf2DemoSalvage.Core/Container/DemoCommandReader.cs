@@ -72,7 +72,38 @@ public static class DemoCommandReader
     /// writer produces, and continuing past it would rewind the cursor.
     /// </remarks>
     public static IEnumerable<DemoCommand> Read(
-        ReadOnlyMemory<byte> data, Action<string>? onTruncated)
+        ReadOnlyMemory<byte> data, Action<string>? onTruncated) =>
+        ReadCore(data, onTruncated is null ? null : (_, reason) => onTruncated(reason));
+
+    /// <summary>Reads every whole command, and keeps the bytes after the last one (B448).</summary>
+    /// <param name="data">The demo after its header.</param>
+    /// <param name="onTruncated">Called with the explanation if the file stops inside a command.</param>
+    /// <returns>
+    /// The commands, and the bytes from the start of the command the file stops inside to its end
+    /// — empty for a demo that ends on a whole command.
+    /// </returns>
+    /// <remarks>
+    /// **Preserved, never interpreted.** The engine stops at a short read too
+    /// (<c>CDemoFile::ReadRawData</c> fails), so nothing here decodes the tail; it exists so the
+    /// assembly can write a cut file back to every one of its bytes (D200). The offset is the one the
+    /// walk was at when it stopped, carried out rather than recomputed from the commands.
+    /// </remarks>
+    public static (IReadOnlyList<DemoCommand> Commands, ReadOnlyMemory<byte> Tail) ReadWhole(
+        ReadOnlyMemory<byte> data, Action<string>? onTruncated = null)
+    {
+        int tailStart = data.Length;
+        List<DemoCommand> commands = [.. ReadCore(data, (offset, reason) =>
+        {
+            tailStart = offset;
+            onTruncated?.Invoke(reason);
+        })];
+
+        return (commands, data[tailStart..]);
+    }
+
+    /// <summary>The walk, reporting where the unfinished command began along with why it stopped.</summary>
+    private static IEnumerable<DemoCommand> ReadCore(
+        ReadOnlyMemory<byte> data, Action<int, string>? onTruncated)
     {
         int position = 0;
         DecodeProgress progress = new("the demo command stream", -1);
@@ -80,6 +111,7 @@ public static class DemoCommandReader
         while (position < data.Length)
         {
             progress.Advanced(position);
+            int commandStart = position;
 
             DemoCommandType type = (DemoCommandType)data.Span[position];
             if (!Enum.IsDefined(type))
@@ -113,7 +145,7 @@ public static class DemoCommandReader
                 // Stryker disable all : the String mutator wraps the interpolated literal in a
                 // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
                 // and Safe Mode then drops every mutation in this method — B410.
-                onTruncated?.Invoke(string.Create(
+                onTruncated?.Invoke(commandStart, string.Create(
                     CultureInfo.InvariantCulture,
                     $"The demo ends inside a {type} command header at offset {position}: " +
                     $"{CommandHeaderBytes} bytes are needed and {data.Length - position} remain."));
@@ -148,7 +180,7 @@ public static class DemoCommandReader
             {
                 // The file stops inside this command's payload. Everything before it decoded, and
                 // that is what the caller gets.
-                onTruncated?.Invoke(truncated.Message);
+                onTruncated?.Invoke(commandStart, truncated.Message);
                 yield break;
             }
 

@@ -29,7 +29,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// | stage | test it answers for | production calls |
 /// |---|---|---|
-/// | container | every corpus test's first step | <see cref="DemoCommandReader.Read(ReadOnlyMemory{byte}, Action{string}?)"/> |
+/// | container | every corpus test's first step | <see cref="DemoCommandReader.ReadWhole"/> |
 /// | schema | `Corpus.Schema` | <see cref="SendTableParser.Parse"/> on every `dem_datatables` |
 /// | messages | `EveryWritableMessage_ReproducesItsOwnBitsExactly`, `PayloadRoundTrip_TheCorpus_IsReported` | <see cref="NetMessageReader"/>, <see cref="NetMessageWriter"/> |
 /// | entities | `EntityRoundTrip_TheCorpus_IsReported` | <see cref="EntityDecoder.Decode"/>, <see cref="EntityDecoder.EncodeEntities(IReadOnlyList{DecodedEntity}, IReadOnlyList{int}, bool, int, out int)"/> |
@@ -81,7 +81,8 @@ internal sealed class DemoCensus
     private readonly CensusOptions _options;
     private readonly TextWriter _log;
     private readonly string _name;
-    private List<DemoCommand> _commands = [];
+    private IReadOnlyList<DemoCommand> _commands = [];
+    private ReadOnlyMemory<byte> _tail;
     private string? _truncated;
     private bool _read;
     private bool _schema;
@@ -179,7 +180,7 @@ internal sealed class DemoCensus
 
     private void Container()
     {
-        _commands = [.. DemoCommandReader.Read(_bytes.AsMemory(DemoHeader.SizeBytes), message => _truncated = message)];
+        (_commands, _tail) = DemoCommandReader.ReadWhole(_bytes.AsMemory(DemoHeader.SizeBytes), message => _truncated = message);
 
         _row.Set("commands", _commands.Count);
         _row.Set("packets", _commands.Count(command => command.Type == DemoCommandType.Packet));
@@ -530,17 +531,18 @@ internal sealed class DemoCensus
         {
             using (StreamWriter writer = new(text, append: false, CliEncoding))
             {
-                DemoAssembly.Write(writer, _header, _commands);
+                DemoAssembly.Write(writer, _header, _commands, _tail);
             }
 
             _row.Set("assembly_bytes", new FileInfo(text).Length);
 
             DemoHeader compiledHeader;
             IReadOnlyList<DemoCommand> compiled;
+            ReadOnlyMemory<byte> compiledTail;
 
             using (StreamReader reader = new(text))
             {
-                (compiledHeader, compiled) = DemoAssembly.Parse(reader);
+                (compiledHeader, compiled, compiledTail) = DemoAssembly.Parse(reader);
             }
 
             if (compiled.Count != _commands.Count)
@@ -550,7 +552,7 @@ internal sealed class DemoCensus
                 return;
             }
 
-            Compare(DemoWriter.Write(compiledHeader, compiled));
+            Compare(DemoWriter.Write(compiledHeader, compiled, compiledTail));
         }
         finally
         {

@@ -49,6 +49,11 @@ public static class DemoAssembly
     /// <summary>Introduces a command's payload.</summary>
     private const string DataKeyword = "data";
 
+    /// <summary>
+    /// Introduces the bytes a cut file holds after its last whole command — the last line, verbatim (B448).
+    /// </summary>
+    private const string TailKeyword = "tail";
+
     /// <summary>The header field stating how wide every message's type field is (B440).</summary>
     private const string TypeBitsKeyword = "messagetypebits";
 
@@ -80,9 +85,16 @@ public static class DemoAssembly
     /// <param name="writer">Destination.</param>
     /// <param name="header">The demo's header.</param>
     /// <param name="commands">The demo's commands, in stream order.</param>
+    /// <param name="tail">
+    /// The bytes after the last whole command of a cut file, from
+    /// <see cref="DemoCommandReader.ReadWhole"/> — carried as one <c>tail</c> line, never decoded (B448).
+    /// </param>
     /// <exception cref="ArgumentNullException">Any argument is <c>null</c>.</exception>
     public static void Write(
-        TextWriter writer, DemoHeader header, IReadOnlyList<DemoCommand> commands)
+        TextWriter writer,
+        DemoHeader header,
+        IReadOnlyList<DemoCommand> commands,
+        ReadOnlyMemory<byte> tail = default)
     {
         ArgumentNullException.ThrowIfNull(writer);
         ArgumentNullException.ThrowIfNull(header);
@@ -176,19 +188,25 @@ public static class DemoAssembly
                 entities = BuildDecoder(command, (ushort)header.NetworkProtocol);
             }
         }
+
+        if (!tail.IsEmpty)
+        {
+            writer.WriteLine($"{TailKeyword} {Convert.ToHexString(tail.Span)}");
+        }
     }
 
     /// <summary>Compiles assembly text back into a header and commands.</summary>
     /// <param name="reader">The assembly text.</param>
-    /// <returns>The header and commands, ready for <see cref="DemoWriter"/>.</returns>
+    /// <returns>The header, commands and tail, ready for <see cref="DemoWriter"/>.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="reader"/> is <c>null</c>.</exception>
     /// <exception cref="InvalidDataException">The text is not valid assembly.</exception>
-    public static (DemoHeader Header, IReadOnlyList<DemoCommand> Commands) Parse(TextReader reader)
+    public static AssembledDemo Parse(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
 
         Dictionary<string, string> fields = new(StringComparer.Ordinal);
         List<DemoCommand> commands = [];
+        byte[]? tail = null;
         NetDecodeState state = new();
         EntityDecoder? entities = null;
         bool inHeader = false;
@@ -243,6 +261,18 @@ public static class DemoAssembly
                 continue;
             }
 
+            // The file ended inside the command these bytes began, so nothing can follow them.
+            if (tail is not null)
+            {
+                throw new InvalidDataException($"'{line}' follows the '{TailKeyword}' line, which ends the demo.");
+            }
+
+            if (line.StartsWith(TailKeyword + " ", StringComparison.Ordinal))
+            {
+                tail = AssemblyText.Hex(line[(TailKeyword.Length + 1)..], $"'{TailKeyword}' line", "The tail");
+                continue;
+            }
+
             DemoCommand command = ParseCommand(line);
 
             if (command.Type is DemoCommandType.Signon or DemoCommandType.Packet)
@@ -264,7 +294,7 @@ public static class DemoAssembly
             throw new InvalidDataException("The assembly has no 'demo' header block.");
         }
 
-        return (BuildHeader(fields), commands);
+        return new AssembledDemo(BuildHeader(fields), commands, tail);
     }
 
     /// <summary>Expands a packet payload into one line per message.</summary>
