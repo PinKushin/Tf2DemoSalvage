@@ -78,8 +78,8 @@ public sealed class CorpusAssemblyRoundTripTests
             byte[] original = File.ReadAllBytes(path);
 
             DemoHeader header = DemoHeader.Parse(original.AsSpan(0, DemoHeader.SizeBytes));
-            List<DemoCommand> commands =
-                [.. DemoCommandReader.Read(original.AsMemory(DemoHeader.SizeBytes))];
+            (IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
+                DemoCommandReader.ReadWhole(original.AsMemory(DemoHeader.SizeBytes));
 
             // **Through a file, as the CLI's `--asm -o` and `--compile` do it** (B445). A demo's text
             // was built as one string, and the larger demos' text passes the longest string .NET can
@@ -95,27 +95,23 @@ public sealed class CorpusAssemblyRoundTripTests
             {
                 using (StreamWriter writer = new(textPath))
                 {
-                    DemoAssembly.Write(writer, header, commands);
+                    DemoAssembly.Write(writer, header, commands, tail);
                 }
 
-                DemoHeader compiledHeader;
-                IReadOnlyList<DemoCommand> compiledCommands;
+                AssembledDemo compiled;
 
                 using (StreamReader reader = new(textPath))
                 {
-                    (compiledHeader, compiledCommands) = DemoAssembly.Parse(reader);
+                    compiled = DemoAssembly.Parse(reader);
                 }
 
-                compiledCommands.Count.ShouldBe(commands.Count, name);
+                compiled.Commands.Count.ShouldBe(commands.Count, name);
 
-                byte[] rebuilt = DemoWriter.Write(compiledHeader, compiledCommands);
+                // **The whole file, header to tail** (B448): a prefix comparison passed a cut demo
+                // that compiled back without its last bytes.
+                byte[] rebuilt = DemoWriter.Write(compiled.Header, compiled.Commands, compiled.Tail);
 
-                // A prefix of the commands rebuilds a prefix of the file, so the comparison is
-                // against the same number of bytes rather than the whole demo. Byte-exactness is
-                // unaffected: every byte the writer produced has to match the byte at that offset.
-                rebuilt.Length.ShouldBeLessThanOrEqualTo(original.Length, name);
-
-                int difference = FirstDifference(original[..rebuilt.Length], rebuilt);
+                int difference = FirstDifference(original, rebuilt);
                 difference.ShouldBe(-1, $"{name}: first differing byte at {difference}");
 
                 // Line by line from the file, so no demo's whole text is ever held at once.

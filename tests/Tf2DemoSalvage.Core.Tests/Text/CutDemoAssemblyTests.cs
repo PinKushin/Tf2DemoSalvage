@@ -38,7 +38,8 @@ public sealed class CutDemoAssemblyTests
 
         byte[] rebuilt = Compile(Decompile(cut));
 
-        rebuilt.ShouldBe(cut);
+        rebuilt.Length.ShouldBe(cut.Length);
+        rebuilt.AsSpan().SequenceEqual(cut).ShouldBeTrue("same length, different bytes");
     }
 
     [Test]
@@ -48,6 +49,18 @@ public sealed class CutDemoAssemblyTests
         byte[] cut = Cut(2);
 
         Decompile(cut).ShouldContain("\ntail " + Convert.ToHexString(cut.AsSpan(cut.Length - 2)) + "\n");
+    }
+
+    [Test]
+    public void Parse_ACommandAfterTheTail_IsRefused()
+    {
+        // The tail is where the file ended, so a command after it would compile to bytes no
+        // recording could hold — written mid-stream, behind the tail.
+        string text = Decompile(Cut(2)) + "consolecmd 3 data 00\n";
+
+        using StringReader reader = new(text);
+        Should.Throw<InvalidDataException>(() => DemoAssembly.Parse(reader))
+            .Message.ShouldContain("tail");
     }
 
     [Test]
