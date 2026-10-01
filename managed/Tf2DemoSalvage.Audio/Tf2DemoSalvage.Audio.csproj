@@ -89,6 +89,10 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>speex.dll</Link>
     </Content>
+    <Content Include="..\..\tools\native-audio\silk.dll" Condition="Exists('..\..\tools\native-audio\silk.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>silk.dll</Link>
+    </Content>
   </ItemGroup>
 
   <!-- The same two libraries under their ELF names, built by tools/native-audio/build.sh. They are
@@ -103,6 +107,10 @@
     <Content Include="..\..\tools\native-audio\libspeex.so" Condition="Exists('..\..\tools\native-audio\libspeex.so')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>libspeex.so</Link>
+    </Content>
+    <Content Include="..\..\tools\native-audio\libsilk.so" Condition="Exists('..\..\tools\native-audio\libsilk.so')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>libsilk.so</Link>
     </Content>
   </ItemGroup>
 

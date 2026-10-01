@@ -57,6 +57,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>%(Filename)%(Extension)</Link>
     </Content>
+    <!-- silk.dll (B441) only where it has been built, so a folder from before it still serves. -->
+    <Content Include="$(NativeAudioDirectory)/silk.dll" Condition="Exists('$(NativeAudioDirectory)/silk.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>silk.dll</Link>
+    </Content>
   </ItemGroup>
 
 </Project>

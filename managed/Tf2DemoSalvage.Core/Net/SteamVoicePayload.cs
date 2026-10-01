@@ -1,8 +1,10 @@
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
+using System.IO.Hashing;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -22,12 +24,27 @@ public readonly record struct VoiceChunk(int Sequence, ReadOnlyMemory<byte> Data
 /// <param name="Tail">
 /// CRC32 of the steamID and every sub-packet — everything preceding these four bytes.
 /// </param>
+/// <param name="Codec">Which codec the audio record carried, or none for a silence packet.</param>
 public sealed record VoicePacket(
     ulong SteamId,
     int SampleRate,
     IReadOnlyList<VoiceChunk> Chunks,
     bool IsTerminated,
-    uint Tail);
+    uint Tail,
+    SteamVoiceCodec Codec);
+
+/// <summary>The codec inside a Steam Voice packet, named by its audio record's type.</summary>
+public enum SteamVoiceCodec
+{
+    /// <summary>No audio record: a sample rate and silence only.</summary>
+    None,
+
+    /// <summary>Type <c>0x04</c>: SILK, 2011–2016, under a <c>vaudio_speex</c> voiceinit (B441).</summary>
+    Silk,
+
+    /// <summary>Type <c>0x06</c>: Opus, the <c>steam</c> codec.</summary>
+    Opus,
+}
 
 /// <summary>
 /// Reads the framing inside a <c>svc_VoiceData</c> body when the session codec is <c>steam</c>.
@@ -45,8 +62,9 @@ public sealed record VoicePacket(
 ///   u8 type
 ///     0x0B  u16 sample rate
 ///     0x00  u16
-///     0x06  u16 length, then a block of chunks
-/// u32  tail
+///     0x06  u16 length, then a block of chunks (Opus)
+///     0x04  u16 length, then a block of SILK frames: u16 length, bytes; FFFF ends (B441)
+/// u32  tail — CRC32 of everything before it
 /// </code>
 ///
 /// and inside a type <c>0x06</c> block:
@@ -67,6 +85,13 @@ public static class SteamVoicePayload
 
     /// <summary>Sub-packet carrying encoded audio.</summary>
     private const byte AudioType = 0x06;
+
+    /// <summary>
+    /// Sub-packet carrying SILK: u16 length, then frames of u16 length plus bytes, <c>FFFF</c>
+    /// ending speech. No sequence numbers, unlike <see cref="AudioType"/>. Measured on every
+    /// packet of two lcor matches, 976 of 976 (B441).
+    /// </summary>
+    private const byte SilkType = 0x04;
 
     /// <summary>
     /// Sub-packet carrying a single 16-bit value and no audio, seen only in the 18-byte packets
@@ -97,6 +122,38 @@ public static class SteamVoicePayload
     private const int ChunkHeaderBytes = 4;
     private const int FieldBytes = 2;
 
+    /// <summary>Reads a body as Steam Voice only if it frames AND its tail is the CRC32 of the rest.</summary>
+    /// <param name="body">The message body, as <c>svc_VoiceData</c> carried it.</param>
+    /// <param name="packet">The packet, when it is one.</param>
+    /// <returns>Whether the body is Steam Voice.</returns>
+    /// <remarks>
+    /// **This is how a reader tells Steam Voice from the 2007 raw Speex frames.** The engine chooses
+    /// by <c>sv_use_steam_voice</c> (B441), which no demo records, and <c>svc_voiceinit</c> says
+    /// <c>vaudio_speex</c> on both. The payload's shape is what the demo shows: a Speex body that
+    /// happened to frame exactly would still have to match a 32-bit checksum.
+    /// </remarks>
+    public static bool TryDecode(ReadOnlySpan<byte> body, [NotNullWhen(true)] out VoicePacket? packet)
+    {
+        packet = null;
+
+        if (body.Length < SteamIdBytes + TailBytes
+            || Crc32.HashToUInt32(body[..^TailBytes]) != BinaryPrimitives.ReadUInt32LittleEndian(body[^TailBytes..]))
+        {
+            return false;
+        }
+
+        try
+        {
+            packet = Decode(body);
+            return true;
+        }
+        catch (InvalidDataException)
+        {
+            // Checksummed but unframed: not a layout this reader knows, so not Steam Voice to it.
+            return false;
+        }
+    }
+
     /// <summary>Reads a voice packet body.</summary>
     /// <param name="body">The message body, as <c>svc_VoiceData</c> carried it.</param>
     /// <returns>The decoded packet.</returns>
@@ -125,6 +182,7 @@ public static class SteamVoicePayload
         int sampleRate = 0;
         bool terminated = false;
         List<VoiceChunk> chunks = [];
+        SteamVoiceCodec codec = SteamVoiceCodec.None;
 
         DecodeProgress progress = new("a Steam voice payload", at - 1);
 
@@ -145,7 +203,17 @@ public static class SteamVoicePayload
                     break;
 
                 case AudioType:
+                case SilkType:
                 {
+                    SteamVoiceCodec record = type == SilkType ? SteamVoiceCodec.Silk : SteamVoiceCodec.Opus;
+
+                    if (codec != SteamVoiceCodec.None && codec != record)
+                    {
+                        throw new InvalidDataException(
+                            "A voice payload carries both a SILK and an Opus record; one speaker's stream has one codec.");
+                    }
+
+                    codec = record;
                     int length = ReadUInt16(body, ref at, end, "an audio block length");
 
                     if (at + length > end)
@@ -162,7 +230,7 @@ public static class SteamVoicePayload
                         // Stryker restore all
                     }
 
-                    terminated |= ReadChunks(body.Slice(at, length), chunks);
+                    terminated |= ReadChunks(body.Slice(at, length), chunks, record == SteamVoiceCodec.Opus);
                     at += length;
                     break;
                 }
@@ -199,13 +267,20 @@ public static class SteamVoicePayload
             sampleRate,
             chunks,
             terminated,
-            BinaryPrimitives.ReadUInt32LittleEndian(body[end..]));
+            BinaryPrimitives.ReadUInt32LittleEndian(body[end..]),
+            codec);
     }
 
     /// <summary>Splits an audio block into chunks. Returns whether it ended with the sentinel.</summary>
-    private static bool ReadChunks(ReadOnlySpan<byte> block, List<VoiceChunk> chunks)
+    /// <remarks>
+    /// An Opus chunk is u16 length, u16 sequence, bytes; a SILK frame has no sequence, so its
+    /// <see cref="VoiceChunk.Sequence"/> is its position in the block.
+    /// </remarks>
+    private static bool ReadChunks(ReadOnlySpan<byte> block, List<VoiceChunk> chunks, bool sequenced)
     {
         int at = 0;
+        int headerBytes = sequenced ? ChunkHeaderBytes : FieldBytes;
+        int ordinal = 0;
 
         while (at + FieldBytes <= block.Length)
         {
@@ -233,7 +308,7 @@ public static class SteamVoicePayload
                 return true;
             }
 
-            if (at + ChunkHeaderBytes + length > block.Length)
+            if (at + headerBytes + length > block.Length)
             {
                 // Stryker disable all : the String mutator wraps the interpolated literal in a
                 // ternary that cannot bind to string.Create's interpolated-string handler
@@ -246,11 +321,12 @@ public static class SteamVoicePayload
                 // Stryker restore all
             }
 
-            int sequence = BinaryPrimitives.ReadUInt16LittleEndian(block[(at + FieldBytes)..]);
+            int sequence = sequenced ? BinaryPrimitives.ReadUInt16LittleEndian(block[(at + FieldBytes)..]) : ordinal;
             chunks.Add(new VoiceChunk(
-                sequence, block.Slice(at + ChunkHeaderBytes, length).ToArray()));
+                sequence, block.Slice(at + headerBytes, length).ToArray()));
 
-            at += ChunkHeaderBytes + length;
+            ordinal++;
+            at += headerBytes + length;
         }
 
         if (at != block.Length)

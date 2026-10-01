@@ -794,7 +794,10 @@ internal sealed class DemoCensus
         return (codec, packets);
     }
 
-    /// <summary>Speex: one decoder per demo, fixed 28-byte frames, as `EverySpeexFrame_DecodesToPcm` does.</summary>
+    /// <summary>
+    /// Speex: one decoder per demo, fixed 28-byte frames, as `EverySpeexFrame_DecodesToPcm` does — and, as it does,
+    /// a packet whose tail is its CRC32 is Steam Voice (B441) and goes to SILK, one decoder per steamID.
+    /// </summary>
     private static void Speex(List<byte[]> packets, VoiceTally tally)
     {
         if (!SpeexVoiceDecoder.IsAvailable)
@@ -804,23 +807,65 @@ internal sealed class DemoCensus
         }
 
         using SpeexVoiceDecoder decoder = new();
+        Dictionary<ulong, SilkVoiceDecoder> silk = [];
 
-        foreach (byte[] body in packets)
+        try
         {
-            if (body.Length % SpeexFrameBytes != 0)
+            foreach (byte[] body in packets)
             {
-                tally.Bad++;
-                tally.Note(
-                    Invariant($"a Speex payload is not a whole number of {SpeexFrameBytes}-byte frames"),
-                    Invariant($"a {body.Length}-byte Speex payload is not a whole number of {SpeexFrameBytes}-byte frames"),
-                    string.Empty);
-                continue;
+                if (!SteamVoicePayload.TryDecode(body, out VoicePacket? steam))
+                {
+                    SpeexPacket(decoder, body, tally);
+                    continue;
+                }
+
+                if (!SilkVoiceDecoder.IsAvailable)
+                {
+                    tally.Unavailable = "silk: " + WhyUnavailable(() => new SilkVoiceDecoder());
+                    return;
+                }
+
+                tally.Framed++;
+
+                if (!silk.TryGetValue(steam.SteamId, out SilkVoiceDecoder? speaker))
+                {
+                    speaker = new SilkVoiceDecoder();
+                    silk[steam.SteamId] = speaker;
+                }
+
+                foreach (VoiceChunk chunk in steam.Chunks)
+                {
+                    tally.Decode(() => speaker.Decode(chunk.Data.Span), "SILK");
+                }
             }
 
-            for (int at = 0; at < body.Length; at += SpeexFrameBytes)
+            tally.Speakers = silk.Count;
+        }
+        finally
+        {
+            foreach (SilkVoiceDecoder speaker in silk.Values)
             {
-                tally.Decode(() => decoder.Decode(body.AsSpan(at, SpeexFrameBytes)), "Speex");
+                speaker.Dispose();
             }
+        }
+    }
+
+    /// <summary>One raw Speex packet: whole 28-byte frames through the demo's decoder.</summary>
+    private static void SpeexPacket(SpeexVoiceDecoder decoder, byte[] body, VoiceTally tally)
+    {
+        if (body.Length % SpeexFrameBytes != 0)
+        {
+            tally.Bad++;
+            tally.Note(
+                Invariant($"a Speex payload is not a whole number of {SpeexFrameBytes}-byte frames"),
+                Invariant($"a {body.Length}-byte Speex payload is not a whole number of {SpeexFrameBytes}-byte frames"),
+                string.Empty);
+            return;
+        }
+
+        for (int at = 0; at < body.Length; at += SpeexFrameBytes)
+        {
+            tally.Decode(() => decoder.Decode(body.AsSpan(at, SpeexFrameBytes)), "Speex");
         }
     }
 

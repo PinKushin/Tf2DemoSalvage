@@ -525,11 +525,12 @@ jobs:
           path: |
             tools/native-audio/celt.dll
             tools/native-audio/speex.dll
-          # The build script pins both upstream versions and the compile flags, so its own
+            tools/native-audio/silk.dll
+          # The build script pins every upstream version and the compile flags, so its own
           # content is the whole input to the build.
           key: native-audio-${{ runner.os }}-${{ hashFiles('tools/native-audio/build.ps1') }}
 
-      - name: Build celt.dll and speex.dll
+      - name: Build celt.dll, speex.dll and silk.dll
         if: steps.native-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: ./tools/native-audio/build.ps1
@@ -540,7 +541,7 @@ jobs:
         # missing, so absence would surface as a test failure rather than a skip. Checking here
         # anyway makes the cause obvious instead of arriving as sixty identical decoder errors.
         run: |
-          foreach ($lib in 'celt.dll', 'speex.dll') {
+          foreach ($lib in 'celt.dll', 'speex.dll', 'silk.dll') {
               $path = "tools/native-audio/$lib"
               if (-not (Test-Path $path)) { throw "$lib was neither cached nor built." }
               Write-Host "$lib $((Get-Item $path).Length) bytes"

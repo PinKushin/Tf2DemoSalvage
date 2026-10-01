@@ -32,7 +32,7 @@ public sealed class VoiceFuzzPropertyTests
     private const int MaxRandomLength = 256;
 
     private static IEnumerable<VoiceCodec> Codecs =>
-        [VoiceCodec.Opus, VoiceCodec.Celt, VoiceCodec.Speex];
+        [VoiceCodec.Opus, VoiceCodec.Celt, VoiceCodec.Speex, VoiceCodec.Silk];
 
     [TestCaseSource(nameof(Codecs))]
     public void Consume_SeededRandomFrames_OnlyProducesDocumentedOutcomes(VoiceCodec codec)

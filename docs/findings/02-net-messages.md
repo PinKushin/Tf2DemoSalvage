@@ -245,6 +245,43 @@ declares quality 5 exactly as they do — and of its 454 non-empty voice payload
 28, 64 of 20, the rest scattered from 300 to 600 bytes. So "quality 5, therefore bare 28-byte frames"
 was a fact about the era specimens, not a rule; this demo's framing is not yet known. *Measured.*
 
+### It was never Speex: Steam Voice with SILK inside, under a `vaudio_speex` voiceinit (2026-10-01, B441 fixed)
+
+**The wrong belief, held for a day:** these were Speex packets framed some other way — the frame width
+following the quality through a table, or frames carrying their own lengths — and `vaudio_speex`'s encoder
+would say which. Every candidate was a Speex framing, because the session SAID Speex. The census then found
+the same failure in six POV demos from 2012 to 2015 and eleven SourceTV quay recordings, and even the packets
+that were whole multiples of 28 had a third to two thirds of their "frames" refused by libspeex.
+
+**What killed it was the engine, not the bytes** (read from disassembly, June 2011 x86 `engine.dll`):
+`Voice_AddIncomingData` checks a flag set each frame from `sv_use_steam_voice` — a ConVar absent in build
+3258 — and when it is set hands the WHOLE payload, unsplit, to the Steam user interface instead of the frame
+codec. The engine never frames these bytes; Steam does. `svc_voiceinit` keeps announcing the server's legacy
+codec setting, so it cannot tell the two paths apart, and no demo records `sv_use_steam_voice` (a CLI trace
+of gullywash has no `net_SetConVar` for it).
+
+**The packet, measured** on every non-empty packet of gullywash (454) and process (522), and then on every
+packet of all six census specimens (6,493): the layout this project had already derived for Opus-era `steam`
+voice — steamID64, typed records, a four-byte tail — with one more record type. `0x0B` u16 rate (16000), `0x00`
+u16 silence, and **`0x04` SILK**: u16 length, then frames of u16 length plus bytes with no sequence number,
+`FFFF` ending speech. The census sizes fall out of it: 15 bytes is steamID, one silence record and the tail;
+20 is steamID, rate, a SILK record holding only `FFFF`, tail. The u16-length-per-frame shape is also the SILK
+SDK's own bitstream file format (`test/Decoder.c` reads `nBytes` then the payload).
+
+**The trailer is a CRC32 of everything before it** — standard CRC-32 (`System.IO.Hashing.Crc32`) over the
+steamID and every record: 454 of 454 and 522 of 522 match, as they did for 1,452 Opus packets. That is also
+how a reader chooses the path the engine chose by ConVar: a payload whose tail is its own CRC32 is Steam Voice
+(`SteamVoicePayload.TryDecode`); anything else is the 2007 raw Speex path, unchanged. A Speex body would have
+to frame exactly AND match a 32-bit checksum to be misread. *Measured; the choice rule is ours, not read.*
+
+**Decoded with Skype's SILK SDK 1.0.9** (D201; `tools/native-audio/README.md`): 2,387 frames on gullywash and
+2,813 on process, every one a whole 20 ms at 16 kHz, 47.7 s and 56.3 s of speech from two speakers each, none
+all-zero. 133 and 162 of those frames are **zero-length**, which the SDK's reference decoder treats as a lost
+packet and conceals (`lostFlag` 1, the last packet's frame count). Whether Steam's own library concealed them
+or emitted silence is not read — the SDK's convention is used. Across the six specimens: 35,772 SILK frames.
+Feeding a zero-length packet WITHOUT the loss flag crashes the native decoder (measured by sabotage), so the
+flag is a memory-safety guard as much as a semantic one. *Measured; concealment interpolated from the SDK.*
+
 ## Wiring the three voice codecs: what worked, and what CELT still refuses (2026-08-11)
 
 The framing above says where each codec's bytes are. This section is what happened when actual
