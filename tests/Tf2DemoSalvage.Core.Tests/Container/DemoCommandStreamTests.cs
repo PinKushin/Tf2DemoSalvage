@@ -43,7 +43,7 @@ public sealed class DemoCommandStreamTests
 
         foreach (int tail in new[] { 2, CommandHeaderBytes - 1, CommandHeaderBytes + 40, CommandHeaderBytes + PacketPrologueBytes + 2, CommandHeaderBytes + PacketPrologueBytes + 4 + 3 })
         {
-            yield return new TestCaseData((object)two[..(firstEnd + tail)])
+            yield return new TestCaseData((object)two[DemoHeader.SizeBytes..(firstEnd + tail)])
                 .SetName($"Read_CutWith{tail}TailBytes_MatchesReadWhole");
         }
 
@@ -153,7 +153,7 @@ public sealed class DemoCommandStreamTests
             (IReadOnlyList<DemoCommand> expected, ReadOnlyMemory<byte> tail) =
                 DemoCommandReader.ReadWhole(cut.AsMemory(DemoHeader.SizeBytes));
 
-            DemoCommandFile file = DemoCommandFile.Open(path);
+            DemoCommandCollection file = DemoCommandCollection.Open(path);
 
             file.Header.NetworkProtocol.ShouldBe(SyntheticDemo.DefaultProtocol);
             file.Count.ShouldBe(expected.Count);
@@ -178,7 +178,7 @@ public sealed class DemoCommandStreamTests
         {
             File.WriteAllBytes(path, whole);
 
-            DemoCommandFile file = DemoCommandFile.Open(path);
+            DemoCommandCollection file = DemoCommandCollection.Open(path);
 
             file.Tail.IsEmpty.ShouldBeTrue();
             file.Truncated.ShouldBeNull();

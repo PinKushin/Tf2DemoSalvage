@@ -75,6 +75,27 @@ public static class DemoCommandReader
         ReadOnlyMemory<byte> data, Action<string>? onTruncated) =>
         ReadCore(data, onTruncated is null ? null : (_, reason) => onTruncated(reason));
 
+    /// <summary>Reads the command stream off a stream, one command at a time (B449).</summary>
+    /// <param name="stream">Positioned at the end of the demo's header.</param>
+    /// <param name="onTruncated">
+    /// Called if the file stops inside a command, with the bytes from that command's start to the
+    /// end of the stream — the same tail <see cref="ReadWhole"/> returns — and the same explanation.
+    /// </param>
+    /// <returns>A lazy sequence of commands, each in arrays of its own.</returns>
+    /// <remarks>
+    /// **The engine's shape.** <c>CDemoFile::ReadCmdHeader</c> and <c>ReadRawData</c> read one command
+    /// off a file handle, so the engine holds a command, never the file. The array overloads hold the
+    /// whole demo, which a 2 GB idle-server recording outgrew under a 6 GiB heap. Here the stream is
+    /// read to the last byte of the command being yielded and no further, and nothing from an
+    /// earlier command is kept. Same commands, tail, reports and exceptions as the array walk.
+    /// </remarks>
+    public static IEnumerable<DemoCommand> Read(
+        Stream stream, Action<ReadOnlyMemory<byte>, string>? onTruncated = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return ReadStream(stream, onTruncated);
+    }
+
     /// <summary>Reads every whole command, and keeps the bytes after the last one (B448).</summary>
     /// <param name="data">The demo after its header.</param>
     /// <param name="onTruncated">Called with the explanation if the file stops inside a command.</param>
@@ -101,6 +122,169 @@ public static class DemoCommandReader
         return (commands, data[tailStart..]);
     }
 
+    private static IEnumerable<DemoCommand> ReadStream(
+        Stream stream, Action<ReadOnlyMemory<byte>, string>? onTruncated)
+    {
+        // The command header, the largest prologue and the length: everything before a payload.
+        byte[] head = new byte[CommandHeaderBytes + CommandInfoBytes + SequenceNumberBytes + Int32Bytes];
+        long position = 0;
+
+        while (true)
+        {
+            int first = stream.ReadByte();
+            if (first < 0)
+            {
+                yield break;
+            }
+
+            DemoCommandType type = (DemoCommandType)first;
+            if (!Enum.IsDefined(type))
+            {
+                throw new InvalidDataException(Unrecognised(first, position));
+            }
+
+            head[0] = (byte)first;
+            int tickBytes = stream.ReadAtLeast(head.AsSpan(1, Int32Bytes), Int32Bytes, throwOnEndOfStream: false);
+
+            if (type == DemoCommandType.Stop)
+            {
+                // The short-header accommodation the array walk makes, for the same reason.
+                yield return new DemoCommand(
+                    DemoCommandType.Stop, ReadPartialTick(head.AsSpan(1, tickBytes), 0), ReadOnlyMemory<byte>.Empty);
+                yield break;
+            }
+
+            int held = 1 + tickBytes;
+            if (tickBytes < Int32Bytes)
+            {
+                onTruncated?.Invoke(head.AsSpan(0, held).ToArray(), HeaderShort(type, position, held));
+                yield break;
+            }
+
+            int tick = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(1));
+            position += CommandHeaderBytes;
+
+            if (type == DemoCommandType.SyncTick)
+            {
+                yield return new DemoCommand(type, tick, ReadOnlyMemory<byte>.Empty, ReadOnlyMemory<byte>.Empty);
+                continue;
+            }
+
+            int prologueLength = PrologueBytes(type);
+            string? shortBy = Fill(stream, head, ref held, prologueLength, type, ref position)
+                ?? Fill(stream, head, ref held, Int32Bytes, type, ref position);
+
+            if (shortBy is not null)
+            {
+                onTruncated?.Invoke(head.AsSpan(0, held).ToArray(), shortBy);
+                yield break;
+            }
+
+            int length = BinaryPrimitives.ReadInt32LittleEndian(head.AsSpan(held - Int32Bytes));
+            if (length < 0)
+            {
+                throw new InvalidDataException(NegativeLength(type, position - Int32Bytes, length));
+            }
+
+            byte[] payload = ReadUpTo(stream, length);
+            if (payload.Length < length)
+            {
+                byte[] tail = [.. head.AsSpan(0, held), .. payload];
+                onTruncated?.Invoke(tail, PayloadShort(type, length, position, payload.Length));
+                yield break;
+            }
+
+            position += length;
+            byte[] prologue = head.AsSpan(CommandHeaderBytes, prologueLength).ToArray();
+            ViewInfo? view = type is DemoCommandType.Signon or DemoCommandType.Packet ? ViewInfo.Read(prologue) : null;
+
+            yield return new DemoCommand(type, tick, payload, prologue, view);
+        }
+    }
+
+    /// <summary>Reads <paramref name="count"/> more bytes into <paramref name="head"/>, or explains the short read.</summary>
+    private static string? Fill(
+        Stream stream, byte[] head, ref int held, int count, DemoCommandType type, ref long position)
+    {
+        int read = stream.ReadAtLeast(head.AsSpan(held, count), count, throwOnEndOfStream: false);
+        string? shortBy = read < count ? NeedsMore(type, count, position, read) : null;
+        held += read;
+        position += read;
+        return shortBy;
+    }
+
+    /// <summary>
+    /// Up to <paramref name="length"/> bytes, never allocating more than the stream can supply — a
+    /// corrupt length near <see cref="int.MaxValue"/> is a short read, not a 2 GB array.
+    /// </summary>
+    private static byte[] ReadUpTo(Stream stream, int length)
+    {
+        if (stream.CanSeek)
+        {
+            byte[] exact = new byte[(int)Math.Min(length, Math.Max(0, stream.Length - stream.Position))];
+            stream.ReadExactly(exact);
+            return exact;
+        }
+
+        // ponytail: doubling buffer for an unseekable stream; no caller passes one today.
+        byte[] buffer = new byte[Math.Min(length, 1 << 16)];
+        int filled = 0;
+
+        while (filled < length)
+        {
+            if (filled == buffer.Length)
+            {
+                Array.Resize(ref buffer, (int)Math.Min(length, 2L * buffer.Length));
+            }
+
+            int read = stream.Read(buffer, filled, buffer.Length - filled);
+            if (read == 0)
+            {
+                break;
+            }
+
+            filled += read;
+        }
+
+        Array.Resize(ref buffer, filled);
+        return buffer;
+    }
+
+    /// <summary>The bytes between a command's header and its length or payload.</summary>
+    private static int PrologueBytes(DemoCommandType type) => type switch
+    {
+        DemoCommandType.Signon or DemoCommandType.Packet => CommandInfoBytes + SequenceNumberBytes,
+
+        // A point-of-view demo only field: the outgoing command sequence number.
+        DemoCommandType.UserCmd => Int32Bytes,
+        _ => 0,
+    };
+
+    // Stryker disable all : the String mutator wraps an interpolated literal in a ternary that cannot
+    // bind to string.Create's interpolated-string handler (CS1620), and Safe Mode then drops every
+    // mutation in the method — B410. These are the reports both walks share, word for word.
+    private static string Unrecognised(int value, long position) => string.Create(
+        CultureInfo.InvariantCulture, $"Unrecognised demo command {value} at offset {position}.");
+
+    private static string HeaderShort(DemoCommandType type, long position, long remain) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"The demo ends inside a {type} command header at offset {position}: " +
+        $"{CommandHeaderBytes} bytes are needed and {remain} remain.");
+
+    private static string NeedsMore(DemoCommandType type, int count, long position, long remain) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"A {type} command needs {count} more bytes at offset {position}, but only {remain} remain.");
+
+    private static string NegativeLength(DemoCommandType type, long offset, int length) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"A {type} command at offset {offset} declares a negative payload length of {length}.");
+
+    private static string PayloadShort(DemoCommandType type, int length, long position, long remain) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"A {type} command declares {length} payload bytes at offset {position}, but only {remain} remain.");
+
+    // Stryker restore all
+
     /// <summary>The walk, reporting where the unfinished command began along with why it stopped.</summary>
     private static IEnumerable<DemoCommand> ReadCore(
         ReadOnlyMemory<byte> data, Action<int, string>? onTruncated)
@@ -116,14 +300,7 @@ public static class DemoCommandReader
             DemoCommandType type = (DemoCommandType)data.Span[position];
             if (!Enum.IsDefined(type))
             {
-                // Stryker disable all : the String mutator wraps the interpolated literal in a
-                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
-                // and Safe Mode then drops every mutation in this method — B410.
-                throw new InvalidDataException(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"Unrecognised demo command {data.Span[position]} at offset {position}."));
-
-                // Stryker restore all
+                throw new InvalidDataException(Unrecognised(data.Span[position], position));
             }
 
             // dem_stop is where every TF2 demo runs out of bytes. The writer emits the command
@@ -142,15 +319,7 @@ public static class DemoCommandReader
 
             if (data.Length - position < CommandHeaderBytes)
             {
-                // Stryker disable all : the String mutator wraps the interpolated literal in a
-                // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),
-                // and Safe Mode then drops every mutation in this method — B410.
-                onTruncated?.Invoke(commandStart, string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"The demo ends inside a {type} command header at offset {position}: " +
-                    $"{CommandHeaderBytes} bytes are needed and {data.Length - position} remain."));
-
-                // Stryker restore all
+                onTruncated?.Invoke(commandStart, HeaderShort(type, position, data.Length - position));
                 yield break;
             }
 
@@ -227,28 +396,15 @@ public static class DemoCommandReader
         ref int position,
         out int prologueLength)
     {
-        switch (type)
+        prologueLength = PrologueBytes(type);
+
+        if (type == DemoCommandType.SyncTick)
         {
-            case DemoCommandType.SyncTick:
-                prologueLength = 0;
-                return ReadOnlyMemory<byte>.Empty;
-
-            case DemoCommandType.Signon:
-            case DemoCommandType.Packet:
-                prologueLength = CommandInfoBytes + SequenceNumberBytes;
-                Skip(data, ref position, prologueLength, type);
-                return ReadLengthPrefixed(data, ref position, type);
-
-            case DemoCommandType.UserCmd:
-                // A point-of-view demo only field: the outgoing command sequence number.
-                prologueLength = Int32Bytes;
-                Skip(data, ref position, prologueLength, type);
-                return ReadLengthPrefixed(data, ref position, type);
-
-            default:
-                prologueLength = 0;
-                return ReadLengthPrefixed(data, ref position, type);
+            return ReadOnlyMemory<byte>.Empty;
         }
+
+        Skip(data, ref position, prologueLength, type);
+        return ReadLengthPrefixed(data, ref position, type);
     }
 
     private static void Skip(
@@ -259,15 +415,7 @@ public static class DemoCommandReader
     {
         if (data.Length - position < count)
         {
-            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
-            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
-            // Mode then drops every mutation in this method — B410.
-            throw new EndOfStreamException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"A {type} command needs {count} more bytes at offset {position}, but only " +
-                $"{data.Length - position} remain."));
-
-            // Stryker restore all
+            throw new EndOfStreamException(NeedsMore(type, count, position, data.Length - position));
         }
 
         position += count;
@@ -284,28 +432,12 @@ public static class DemoCommandReader
         if (length < 0)
         {
             // Left unchecked this would rewind the cursor and loop forever on a corrupt file.
-            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
-            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
-            // Mode then drops every mutation in this method — B410.
-            throw new InvalidDataException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"A {type} command at offset {position - Int32Bytes} declares a negative " +
-                $"payload length of {length}."));
-
-            // Stryker restore all
+            throw new InvalidDataException(NegativeLength(type, position - Int32Bytes, length));
         }
 
         if (data.Length - position < length)
         {
-            // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
-            // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
-            // Mode then drops every mutation in this method — B410.
-            throw new EndOfStreamException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"A {type} command declares {length} payload bytes at offset {position}, but " +
-                $"only {data.Length - position} remain."));
-
-            // Stryker restore all
+            throw new EndOfStreamException(PayloadShort(type, length, position, data.Length - position));
         }
 
         ReadOnlyMemory<byte> payload = data.Slice(position, length);
