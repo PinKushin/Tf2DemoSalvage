@@ -8154,7 +8154,7 @@ specimen: koth_product, SHA-256 `3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9
 
 ---
 
-### B448 — a demo cut off mid-command compiles back without its tail: the assembly carries no bytes that are not a whole command — OPEN 2026-09-30
+### B448 — a demo cut off mid-command compiles back without its tail: the assembly carries no bytes that are not a whole command — FIXED 2026-09-30
 
 **Found by the decode census over D200's pool** (`decode-census`, 2026-09-30; the decoder as of cd6995e1).
 **157 of the pool's 429 demos end inside a command** — every one of the 152 in ESEA Seasons 29–31, four in
@@ -8182,6 +8182,19 @@ knows where they begin — and `DemoWriter` to write them back. Not fixed here; 
 branch, red first on a synthetic demo cut mid-packet. Specimen: `D:\tf2-demo-archive\ESEA Season 30\esea_match_14634302.dem`,
 5,558,272 bytes, SHA-256 `51cc146c6271d92cc83dedbdcfe63b7feacc97c049aabb4c9796215745c0efff`
 (`tools/corpus/manifest.json`, `censusSpecimens`).
+
+**Fixed (branch `fix/b448-cut-tail`).** `DemoCommandReader.ReadWhole` returns the commands and the bytes from
+the start of the command the file stops inside — the offset the walk was at, carried out of it, not recomputed.
+The assembly writes them as one final `tail <HEX>` line, `DemoAssembly.Parse` returns them (and refuses any line
+after one), and `DemoWriter` appends them. Nothing decodes them: the engine stops at a short read
+(`CDemoFile::ReadRawData`), so decode, trace and timeline are unchanged. The CLI and `decode-census` carry the tail
+end to end. `EveryDemo_CompilesBackToItsOwnBytes` now compares the whole file, header to tail.
+
+The specimen, after: `-a` then `-c` through the CLI rebuilds all 5,558,272 bytes, `cmp` identical, with a
+181-byte `tail` line. Header fields round-trip as written (zero playback ticks stay zero) — the byte compare
+covers them. Synthetic: `CutDemoAssemblyTests`, cut at 2 bytes, inside the command header, inside the prologue,
+and mid-payload. *Measured.* Still open: lcor holds no cut demo, so the corpus gate cannot see a regression here;
+only the synthetic tests and a census run can.
 
 ---
 
