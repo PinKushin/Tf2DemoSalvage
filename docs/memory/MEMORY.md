@@ -157,5 +157,6 @@
 - [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) — `TimelineCache` (B439).
 - [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — B440.
 - [A protocol can hide two builds](a-protocol-can-hide-two-builds.md) — the bits decide (B440).
+- [A worktree's lcor is a junction](a-worktree-lcor-is-a-junction.md) — `rm` there deletes the original; f12 reference lost, now 08-08-2207.
 - [No interim status replies](no-interim-status-replies.md) — silent until a subagent reports.
 - [One demo player serves camera and recorder](one-demo-player-serves-camera-and-recorder.md) — fractional tick (B56).

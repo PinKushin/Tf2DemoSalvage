@@ -15,7 +15,7 @@ Takes the desktop, so run it under the machine-wide lock:
   pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 pwsh -NoProfile -File build/playback-check.ps1
 #>
 param(
-    [string]$Demo = 'tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem',
+    [string]$Demo = 'tools/corpus/local/demostf-cp_process_f12-2026-08-08-2207.dem',
     [int]$Tick = 26578,
     [int]$Seconds = 20,
     # **At 8x, because fast-forward is what finds lifecycle bugs** (D189): B418's corpse crash was found only once playback

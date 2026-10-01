@@ -43,10 +43,9 @@ the session stays usable. Never pass `--shot`: that is the headless single-frame
 
 **Default to the f12 demo** unless the owner names a different one —
 `docs/memory/the-f12-demo-is-the-parity-reference.md`. Announce the demo by name in the reply.
-`tools/corpus/local/demostf-cp_process_f12-2026-08-07.dem` is a point-of-view recording, so
-`--first-person` opens on the recorder's own camera; add `--autoplay` so it starts moving without a
-keypress. A SourceTV demo has no recorded view and opens on the free camera instead — mention that if
-one is used.
+`tools/corpus/local/demostf-cp_process_f12-2026-08-08-2207.dem` (since 2026-09-30; the 08-07 one was
+lost) is a SourceTV recording: no recorded view, so it opens on the free camera; add `--autoplay` so it
+starts moving without a keypress. A point-of-view demo opens `--first-person` on the recorder's camera.
 
 ## When the owner mentions a screenshot without linking one
 
