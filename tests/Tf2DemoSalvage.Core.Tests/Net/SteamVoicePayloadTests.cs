@@ -234,7 +234,7 @@ public sealed class SteamVoicePayloadTests
         byte[] payload = WithCrc(BuildRaw(Silk([.. SilkFrame([0xA5, 0x57]), 0xFF, 0xFF])));
 
         SteamVoicePayload.TryDecode(payload, out VoicePacket? packet).ShouldBeTrue();
-        packet!.Codec.ShouldBe(SteamVoiceCodec.Silk);
+        packet.Codec.ShouldBe(SteamVoiceCodec.Silk);
     }
 
     [Test]

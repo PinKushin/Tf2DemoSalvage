@@ -38,6 +38,8 @@
 
   <ItemGroup>
     <PackageReference Include="LZMA-SDK" />
+    <!-- Crc32, for the Steam Voice trailer that tells a Steam payload from raw Speex (B441). -->
+    <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
 
   <ItemGroup>
