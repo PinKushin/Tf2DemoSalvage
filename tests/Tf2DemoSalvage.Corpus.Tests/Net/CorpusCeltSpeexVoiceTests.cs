@@ -101,7 +101,10 @@ public sealed class CorpusCeltSpeexVoiceTests
 
         int frames = 0;
         int silentFrames = 0;
+        int steamPackets = 0;
+        int silkFrames = 0;
         Dictionary<string, SpeexVoiceDecoder> decoders = [];
+        Dictionary<(string, ulong), SilkVoiceDecoder> silk = [];
 
         try
         {
@@ -116,6 +119,28 @@ public sealed class CorpusCeltSpeexVoiceTests
                 foreach (Corpus.VoicePacketSummary voice in demo.Packets)
                 {
                     ReadOnlySpan<byte> body = voice.Body;
+
+                    // B441: a vaudio_speex session from 2011 on carries Steam Voice (SILK). The
+                    // engine chose by sv_use_steam_voice, which the demo does not record; the
+                    // payload's own CRC32 tail is what it does show.
+                    if (SteamVoicePayload.TryDecode(body, out VoicePacket? steam))
+                    {
+                        steamPackets++;
+
+                        if (!silk.TryGetValue((path, steam.SteamId), out SilkVoiceDecoder? speaker))
+                        {
+                            speaker = new SilkVoiceDecoder();
+                            silk[(path, steam.SteamId)] = speaker;
+                        }
+
+                        foreach (VoiceChunk chunk in steam.Chunks)
+                        {
+                            speaker.Decode(chunk.Data.Span).Length.ShouldBeGreaterThan(0);
+                            silkFrames++;
+                        }
+
+                        continue;
+                    }
 
                     (body.Length % SpeexNarrowbandFrameBytes).ShouldBe(
                         0, $"{Path.GetFileName(path)}: a {body.Length}-byte Speex payload is " +
@@ -151,6 +176,11 @@ public sealed class CorpusCeltSpeexVoiceTests
             {
                 decoder.Dispose();
             }
+
+            foreach (SilkVoiceDecoder decoder in silk.Values)
+            {
+                decoder.Dispose();
+            }
         }
 
         frames.ShouldBeGreaterThan(0, "no Speex frame reached the decoder");
@@ -160,7 +190,8 @@ public sealed class CorpusCeltSpeexVoiceTests
 
         TestContext.Out.WriteLine(
             $"{frames} Speex frames decoded across {decoders.Count} demos, " +
-            $"{silentFrames} silent ({silentRate:P1})");
+            $"{silentFrames} silent ({silentRate:P1}); {steamPackets} Steam Voice packets, " +
+            $"{silkFrames} SILK frames");
     }
 
 }
