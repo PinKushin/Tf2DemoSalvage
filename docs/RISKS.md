@@ -8133,7 +8133,7 @@ guessed at in code.
 - **ConVars are read when a demo opens.** A `demo_*` change in the watcher's config while a demo is open
   takes effect on the next open.
 
-### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — OPEN 2026-09-30
+### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — FIXED 2026-10-01 for the CLI's single-pass writers; the census and the timeline still hold the file
 
 **Found by the decode census** (2026-09-30). Two ETF2L Season 29 recordings are servers left recording while
 nobody played: `auto-20180301-2156-koth_product_rc8.dem`, 1,300,749,497 bytes, and
@@ -8151,6 +8151,34 @@ whole command list, so memory scales with the file, not with the state. That is 
 a server nobody stopped. A streaming read (command at a time) is the fix, and it is its own branch. Smallest
 specimen: koth_product, SHA-256 `3b624edcbabfef8c1c5506bbc79fb626b8cf093af47c6e9d6d9e1752a319f614`
 (`tools/corpus/manifest.json`, `censusSpecimens`). *Evidence class: measured.*
+
+**Fixed (2026-10-01), the engine's shape.** `CDemoFile::ReadCmdHeader` and `ReadRawData` read one command off a
+file handle; `DemoCommandReader.Read(Stream, (tail, reason))` now does the same — header, prologue and length into
+a 93-byte scratch, one array for the payload, never more than the stream can supply — with B448's tail and every
+truncation and refusal message word for word the array walk's (the message builders are shared).
+`DemoCommandCollection` opens a demo, walks it once for the count and the tail, and re-reads the file on every
+enumeration, so a writer's second pass (the trace's schema scan, the assembly's type width) costs a read, not a
+copy. The trace, assembly, dump, summary and JSON Lines writers take `IReadOnlyCollection<DemoCommand>` — none
+needed more than a count and a forward walk — and the CLI opens a collection instead of `File.ReadAllBytes`.
+
+**Peak working set of the CLI**, Release, polled every 100 ms, the before binary built from f15e91c3. *Measured.*
+
+| demo | bytes | `-t` before | `-t` after | `-a` before | `-a` after | output identical |
+|---|---:|---:|---:|---:|---:|---|
+| `z1800.dem` (control) | 8,964,241 | — | 44 MB | — | — | — |
+| koth_product | 1,300,749,497 | 3,594 MB, 23.9 s | 49 MB, 29.3 s | 3,616 MB, 106.5 s | 69 MB, 111.5 s | SHA-256 equal, both |
+| prolands | 2,015,374,411 | 6,580 MB, 36.7 s | 51 MB, 45.2 s | 6,590 MB, 157.4 s | 70 MB, 164.7 s | SHA-256 equal, both |
+
+Peak no longer grows with the file: 44, 49 and 51 MB across 9 MB, 1.3 GB and 2 GB. Wall time rises about 20%
+for the trace and 5% for the assembly, the cost of a counting pass and a per-command allocation. The traces are
+2.3 and 3.6 GB, the assemblies 5.1 and 7.5 GB. `CorpusStreamedOutputTests` holds the identity for every gcor demo.
+
+**Still open, on purpose:** the decode census holds `byte[]` and a `ReadWhole` list, because its assembly stage
+compares the rebuilt file to the original byte for byte, `Locate` finds a command's file offset through its
+slice of that array, and `DemoAssembly.Parse` plus `DemoWriter.Write` return whole lists and arrays — the compile
+direction is not a single forward pass. Its `Fits` budget still skips prolands. `DemoTimeline` keeps per-tick
+state at B439's 40–84x and is a separate problem. Probes keep `File.ReadAllBytes`; each answers a question about
+one tick of one demo, and none was named in B449.
 
 ---
 

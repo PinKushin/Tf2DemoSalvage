@@ -161,3 +161,4 @@
 - [No interim status replies](no-interim-status-replies.md) — silent until a subagent reports.
 - [One demo player serves camera and recorder](one-demo-player-serves-camera-and-recorder.md) — fractional tick (B56).
 - [A declared codec is not the payload's](a-declared-codec-is-not-the-payloads.md) — vaudio_speex carried SILK; CRC32 tail decides (B441).
+- [A streamed demo is read per enumeration](a-streamed-demo-is-read-per-enumeration.md) — materialise before asserting; one walk for counts (B449).

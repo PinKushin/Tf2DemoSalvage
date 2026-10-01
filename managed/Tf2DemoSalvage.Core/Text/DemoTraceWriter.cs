@@ -44,7 +44,7 @@ public static class DemoTraceWriter
         TextWriter writer,
         string fileName,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         IProgress<DumpProgress>? progress = null,
         DemoTraceOptions? options = null)
     {
@@ -133,7 +133,7 @@ public static class DemoTraceWriter
     /// decoder is built from the demo rather than from a compiled-in definition.
     /// </remarks>
     private static EntityDecoder? BuildDecoder(
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         ushort networkProtocol)
     {
         foreach (DemoCommand command in commands)

@@ -100,7 +100,7 @@ internal static class DemoScan
     /// section existed.
     /// </remarks>
     internal static Result Run(
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         int sampleSize,
         IProgress<DumpProgress>? progress,
         ushort networkProtocol,

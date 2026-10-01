@@ -47,7 +47,7 @@ public static class DemoTextDumper
         TextWriter writer,
         string fileName,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands,
+        IReadOnlyCollection<DemoCommand> commands,
         DemoDumpOptions? options,
         IProgress<DumpProgress>? progress = null)
     {
@@ -125,7 +125,7 @@ public static class DemoTextDumper
     private static void WriteSummarySection(
         TextWriter writer,
         DemoHeader header,
-        IReadOnlyList<DemoCommand> commands)
+        IReadOnlyCollection<DemoCommand> commands)
     {
         SortedDictionary<DemoCommandType, int> counts = new();
         SortedDictionary<DemoCommandType, long> payloadBytes = new();
@@ -498,7 +498,7 @@ public static class DemoTextDumper
         };
     }
 
-    private static void WriteCommandListing(TextWriter writer, IReadOnlyList<DemoCommand> commands)
+    private static void WriteCommandListing(TextWriter writer, IReadOnlyCollection<DemoCommand> commands)
     {
         writer.WriteLine("Commands");
 
@@ -511,9 +511,11 @@ public static class DemoTextDumper
 
         // Stryker restore all
 
-        for (int i = 0; i < commands.Count; i++)
+        int i = -1;
+
+        foreach (DemoCommand command in commands)
         {
-            DemoCommand command = commands[i];
+            i++;
 
             // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
             // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe
