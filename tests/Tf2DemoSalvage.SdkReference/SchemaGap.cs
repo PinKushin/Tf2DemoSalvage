@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Text;
 
 namespace Tf2DemoSalvage.SdkReference;
@@ -64,9 +65,15 @@ public static class SchemaGap
 
         foreach (string path in ProductionAssemblies())
         {
-            byte[] image = File.ReadAllBytes(path);
+            // **The metadata block only, not the whole file** (B24): Core embeds build 3258's whole
+            // dem_datatables as a manifest resource, so the image carries every wire name of that
+            // schema as bytes — and a gap marker read "implemented" because a resource held its name.
+            // A literal or a member name is metadata; a resource is not.
+            using FileStream file = File.OpenRead(path);
+            using PEReader reader = new(file);
+            ReadOnlySpan<byte> metadata = reader.GetMetadata().GetContent().AsSpan();
 
-            if (Contains(image, utf16) || Contains(image, utf8))
+            if (Contains(metadata, utf16) || Contains(metadata, utf8))
             {
                 return true;
             }

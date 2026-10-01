@@ -73,7 +73,17 @@ public static class SendTableParser
     ///
     /// Every other protocol has one numbering, measured on both sides of 15, and gets only that.
     /// </remarks>
-    public static DemoSchema Parse(ReadOnlySpan<byte> payload, ushort networkProtocol = CurrentProtocol)
+    public static DemoSchema Parse(ReadOnlySpan<byte> payload, ushort networkProtocol = CurrentProtocol) =>
+        ParseWhole(KnownSchema.Complete(payload), networkProtocol);
+
+    /// <summary>
+    /// <see cref="Parse"/> on a payload already completed. **Every consumer of a schema comes through
+    /// <see cref="Parse"/>, so this is the one place build 3258's SourceTV cut is decoded with the
+    /// whole schema** (B24, <see cref="KnownSchema"/>) — deliberately better than the 2007 engine,
+    /// which Host_Errors on those demos' first entity. Only the decode sees the whole schema; the
+    /// demo's own bytes are what a writer writes back.
+    /// </summary>
+    private static DemoSchema ParseWhole(ReadOnlySpan<byte> payload, ushort networkProtocol)
     {
         if (networkProtocol != VectorXyProtocol)
         {
