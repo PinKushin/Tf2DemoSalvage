@@ -1924,6 +1924,94 @@ internal static class SyntheticPlayer
         return DemoOfSnapshots(Schema(OriginTable.Both), intervalPerTick, snapshots);
     }
 
+    /// <summary>
+    /// A recorder (entity 1) and a bystander (entity 2), both running four units a tick along X from tick 100 to 110,
+    /// eye yaw zero — the recorder's networked <c>m_vecVelocity</c> saying (0, 300, 0) all the while (B56).
+    /// </summary>
+    /// <remarks>
+    /// **The velocity disagrees with the motion on purpose**: a body animated from differenced positions runs along X
+    /// at 267 units a second, one animated from <c>GetAbsVelocity()</c> runs along Y at 300, so the two routes cannot
+    /// pass the same assertion.
+    /// </remarks>
+    public static byte[] DemoOfARecorderAndABystander()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(table.Name == "DT_BasePlayer"
+                ? table with { Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive")] }
+                : table);
+        }
+
+        tables.Add(new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_vecVelocity[0]"), NoScaleFloat("m_vecVelocity[1]"), NoScaleFloat("m_vecVelocity[2]"),
+        ]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo(0.015f)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int tick = 100; tick <= 110; tick++)
+        {
+            bool enter = tick == 100;
+            List<DecodedEntity> players = [];
+
+            foreach (int entity in new[] { 1, 2 })
+            {
+                Dictionary<string, PropertyValue> values = new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(tick * 4f, entity * 100f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    ["m_angEyeAngles[0]"] = PropertyValue.FromFloat(0f),
+                    ["m_angEyeAngles[1]"] = PropertyValue.FromFloat(0f),
+                };
+
+                if (enter)
+                {
+                    values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                    values["m_lifeState"] = PropertyValue.FromInt(0);
+
+                    if (entity == 1)
+                    {
+                        values["m_vecVelocity[0]"] = PropertyValue.FromFloat(0f);
+                        values["m_vecVelocity[1]"] = PropertyValue.FromFloat(300f);
+                        values["m_vecVelocity[2]"] = PropertyValue.FromFloat(0f);
+                    }
+                }
+
+                players.Add(Entity(decoder, PlayerClassId, entity, values) with
+                {
+                    UpdateType = enter ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                });
+            }
+
+            byte[] body = decoder.EncodeEntities(players, [], isDelta: !enter, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: !enter,
+                    DeltaFromTick: enter ? null : tick - 1,
+                    BaselineIndex: false,
+                    UpdatedEntries: players.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>One exclusive table's position and eye angles, keyed by table so two tables can travel together.</summary>
     private static Dictionary<string, PropertyValue> ExclusiveValues(string table, float x, float y, float eyeYaw) => new()
     {

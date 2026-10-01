@@ -121,7 +121,13 @@ public record struct FeetYaw
     /// -flAimYaw )</c>. The negation is part of setting the parameter, so it belongs here with the
     /// value rather than at the far end of the pipeline.
     /// </remarks>
-    public readonly float AimYaw(float eyeYaw) => -Normalize(eyeYaw - Current);
+    public readonly float AimYaw(float eyeYaw) => AimYaw(eyeYaw, Current);
+
+    /// <summary>The same twist, for feet already advanced elsewhere.</summary>
+    /// <param name="eyeYaw">Where the player is looking.</param>
+    /// <param name="feetYaw">Where the feet point — <c>m_flCurrentFeetYaw</c>.</param>
+    /// <returns>The value <c>body_yaw</c> takes.</returns>
+    public static float AimYaw(float eyeYaw, float feetYaw) => -Normalize(eyeYaw - feetYaw);
 
     /// <summary>Moves the current yaw toward the goal, as <c>ConvergeYawAngles</c> does.</summary>
     /// <remarks>

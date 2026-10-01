@@ -216,6 +216,10 @@ in any public writeup found:
   dropped the colours for full lighting whenever a nearby style animated — a branch of the model draw that only
   non-DX9 hardware takes. On DX9 the colours stay and the handle's styled and dynamic lights are summed onto them in
   the shader ([67](67-a-baked-prop-adds-its-lights.md)).
+- **A POV demo's view is interpolated by the demo player, between packets it parses ahead for.** The engine keeps a
+  window of packets from 32 ticks back to the first more than 8 ahead, slerps between the pair around the rolled-back
+  tick, and snaps on a cut, a fast move, or a stop in the window. The recorder's body is placed and animated from the
+  same viewpoint ([68](68-demo-view-interpolation.md)).
 
 ## Conventions used throughout
 

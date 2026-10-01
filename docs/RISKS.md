@@ -3291,7 +3291,17 @@ Run with `TF2DEMOSALVAGE_CHECK_SPEC=1` to execute those assertions against the S
 skipping them — every one is a claim about the engine, so all eight are checkable today, and they
 are. A conformance test that only ever skips is unverified prose.
 
-## B56 — the POV camera has no view interpolation, and no weapon models are drawn — OPEN, decided
+## B56 — the POV camera has no view interpolation, and no weapon models are drawn — view interpolation FIXED 2026-09-30
+
+> **Fixed 2026-09-30: `CDemoPlayer::InterpolateViewpoint` is ported** (`Core/Scene/DemoPlayer.cs`, one owner
+> per viewer, shared by the camera and the recorder's body). `SpectatorView.Eye`/`Chase` now take the drawn
+> frame's fractional tick (`MainForm._shownTick`), so the POV camera no longer steps once per tick. On
+> `movement-test-pov-cp_process` at tick 5541.5 the camera sits at the midpoint of the 5541 and 5542 packet
+> origins to 0.01 units (`CorpusPovViewInterpolationTests`); before, it sat on 5541's. Conformance:
+> `DemoPlayerConformanceTests` (23), `RecordedViewConformanceTests` (+11), `DemoViewConVarConformanceTests`.
+> The four `demo_*` ConVars come from the watcher's config with engine defaults. Engine facts and the three
+> places the port departs from the original brief: `docs/findings/68-demo-view-interpolation.md`.
+> What remains: B450. Weapon models are a separate half of this entry and are not touched here.
 
 **Two owner decisions, recorded so neither is relitigated:** the recorded view is to be
 **interpolated the way the running game does it**, and **weapon models are to be rendered**.
@@ -8063,6 +8073,28 @@ when a layout decides.
 
 ---
 
+### B450 — the POV recorder after B56's port: prediction's velocity, a per-tick feet yaw, and two unread reset paths — OPEN 2026-09-30
+
+What `InterpolateViewpoint`'s port (B56, B442) leaves different from the engine. Each item is small; none is
+guessed at in code.
+
+- **Velocity is the last networked `m_vecVelocity`, not prediction's.** During playback the local player's
+  `GetAbsVelocity()` is whatever prediction last wrote. `C_BaseEntity` keeps no interpolation history for it
+  (`c_baseentity.cpp:907-912` comments the `AddVar` out). Whether demo playback runs prediction at all for the
+  recorder is unread. *Evidence class: published source; the playback half is unread.*
+- **The feet yaw still advances per tick from the server's `m_angEyeAngles`.** The torso twist is measured
+  against the interpolated local yaw, but the feet the timeline advanced come from the networked eye yaw, so
+  the twist is up to one tick stale. The engine advances the feet from `EyeAngles()` per frame.
+- **`ResetDemoInterpolation`'s client callers are unread.** It is `IVEngineClient::ResetDemoInterpolation`
+  (`cdll_int.h:522`, engine `0x180073990`). No `engine.dll` code calls it. The port exposes the method and
+  nothing calls it, so a seek does not set the reset flag. That matches `SkipToTick` (`0x180073b10`), which
+  does not set it either.
+- **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
+  than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
+  start). It is correct but not cheap when scrubbing backward.
+- **ConVars are read when a demo opens.** A `demo_*` change in the watcher's config while a demo is open
+  takes effect on the next open.
+
 ### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — OPEN 2026-09-30
 
 **Found by the decode census** (2026-09-30). Two ETF2L Season 29 recordings are servers left recording while
@@ -8238,6 +8270,10 @@ accessor beside it. Now each component is whichever table wrote it last.
   the nine samples both give `move_x` 1.000; `move_y` differs by up to 0.13 (tick 5681: 0.232 here, 0.100
   by the local route). *Evidence class: read from published source; that `pl.v_angle` is the recorded
   view during playback is the engine's (`engine->GetViewAngles`, `prediction.cpp:1753`) and inferred.*
+  **Changed 2026-09-30 (B56's port):** a POV demo's recorder is now placed at `InterpolateViewpoint`'s
+  origin and animated from its interpolated local view angles, with speed and move parameters from his
+  networked `m_vecVelocity` (`DemoTimeline.PlayersAt(..., viewpoint)`; `SyntheticRecorderViewTests`). What
+  is still different is filed as B450.
 
 ---
 

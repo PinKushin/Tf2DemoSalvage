@@ -127,6 +127,118 @@ public sealed class RecordedViewConformanceTests
     }
 
     [Test]
+    public void Parse_APrologueWithNoFlags_ReadsTheOriginalLocalAngles()
+    {
+        // `localViewAngles` sits between `viewAngles` and the resampled copies, 28..39 (B56): the local player's own
+        // `pl.v_angle`, which `C_TFPlayer::UpdateClientSideAnimation` animates him from. A read at the wrong offset takes
+        // `viewAngles` or `viewOrigin2`, both of which the fixture fills with different numbers.
+        RecordedView view = RecordedView.Parse(Prologue(
+            flags: 0,
+            angles: (10f, 20f, 0f),
+            localAngles: (30f, 40f, 50f),
+            origin2: (1f, 2f, 3f),
+            localAngles2: (60f, 70f, 80f)));
+
+        view.LocalAngles.ShouldBe((30f, 40f, 50f));
+    }
+
+    [Test]
+    public void Parse_TheUseAngles2Flag_TakesTheResampledLocalAnglesToo()
+    {
+        // `GetLocalViewAngles` tests FDEMO_USE_ANGLES2 — the angles' flag, not a third one (demoformat.h:129-136).
+        RecordedView view = RecordedView.Parse(Prologue(
+            flags: UseAngles2,
+            localAngles: (30f, 40f, 50f),
+            localAngles2: (60f, 70f, 80f)));
+
+        view.LocalAngles.ShouldBe((60f, 70f, 80f));
+    }
+
+    [Test]
+    public void Parse_TheUseOrigin2Flag_LeavesTheLocalAnglesOriginal()
+    {
+        // The complement: the origin's flag must not move the local angles.
+        RecordedView view = RecordedView.Parse(Prologue(
+            flags: UseOrigin2,
+            localAngles: (30f, 40f, 50f),
+            localAngles2: (60f, 70f, 80f)));
+
+        view.LocalAngles.ShouldBe((30f, 40f, 50f));
+    }
+
+    [Test]
+    public void Parse_TheFlags_AreKeptAsWritten()
+    {
+        RecordedView.Parse(Prologue(flags: UseOrigin2 | NoInterpolation)).Flags.ShouldBe(UseOrigin2 | NoInterpolation);
+    }
+
+    [Test]
+    public void Reset_AResampledView_ReadsItsOriginalsWithNoFlags()
+    {
+        // `democmdinfo_t::Reset` (demoformat.h:138-144): flags cleared, every resampled copy overwritten by its
+        // original. `CDemoPlayer::InterpolateViewpoint` applies it to the copies it searches with (0x180071fd0), so a
+        // search that finds no pair reads the ORIGINALS of the current view whatever its flags chose.
+        RecordedView view = RecordedView.Parse(Prologue(
+            flags: UseOrigin2 | UseAngles2 | NoInterpolation,
+            origin: (64f, -128f, 256f),
+            angles: (10f, 20f, 0f),
+            localAngles: (30f, 40f, 50f),
+            origin2: (1f, 2f, 3f),
+            angles2: (4f, 5f, 6f),
+            localAngles2: (60f, 70f, 80f)));
+
+        RecordedView reset = view.Reset();
+
+        reset.Flags.ShouldBe(0);
+        reset.Origin.ShouldBe((64f, -128f, 256f));
+        reset.Angles.ShouldBe((10f, 20f, 0f));
+        reset.LocalAngles.ShouldBe((30f, 40f, 50f));
+        reset.ViewOrigin2.ShouldBe((64f, -128f, 256f));
+    }
+
+    [Test]
+    public void IsDefault_AZeroedStructure_IsTrue()
+    {
+        // `InterpolateViewpoint` sets no view at all while the current `democmdinfo_t` is still its constructor's:
+        // FDEMO_NORMAL and the three originals at vec3_origin and vec3_angle (0x1800721e7..0x1800722a3). That is a
+        // SourceTV demo's every packet.
+        RecordedView.Parse(Prologue(flags: 0)).IsDefault.ShouldBeTrue();
+    }
+
+    [Test]
+    public void IsDefault_AFlagAlone_IsFalse()
+    {
+        RecordedView.Parse(Prologue(flags: NoInterpolation)).IsDefault.ShouldBeFalse();
+    }
+
+    [Test]
+    public void IsDefault_AnOriginalLocalAngle_IsFalse()
+    {
+        // The third original counts: a view whose only non-zero value is the local roll is not the default.
+        RecordedView.Parse(Prologue(flags: 0, localAngles: (0f, 0f, 1f))).IsDefault.ShouldBeFalse();
+    }
+
+    [Test]
+    public void IsDefault_OnlyTheResampledCopiesSet_IsStillTrue()
+    {
+        // The engine compares the originals and the flags and nothing else, so a resampled copy nothing selects
+        // leaves the structure default.
+        RecordedView.Parse(Prologue(
+            flags: 0,
+            origin2: (1f, 2f, 3f),
+            angles2: (4f, 5f, 6f),
+            localAngles2: (7f, 8f, 9f))).IsDefault.ShouldBeTrue();
+    }
+
+    [Test]
+    public void IsDefault_ANaNOriginal_ComparesEqualToZero()
+    {
+        // `UCOMISS` then `JNZ`: an unordered comparison sets ZF, so NaN passes for vec3_origin and the test reads
+        // the structure as default (0x1800721ef, no JP beside the JNZ).
+        RecordedView.Parse(Prologue(flags: 0, origin: (float.NaN, 0f, 0f))).IsDefault.ShouldBeTrue();
+    }
+
+    [Test]
     public void Parse_APrologueShorterThanTheStructure_IsRefused()
     {
         // A prologue this short means the caller handed over the wrong bytes — a usercmd's
@@ -157,20 +269,20 @@ public sealed class RecordedViewConformanceTests
         int flags,
         (float X, float Y, float Z) origin = default,
         (float Pitch, float Yaw, float Roll) angles = default,
+        (float Pitch, float Yaw, float Roll) localAngles = default,
         (float X, float Y, float Z) origin2 = default,
-        (float Pitch, float Yaw, float Roll) angles2 = default)
+        (float Pitch, float Yaw, float Roll) angles2 = default,
+        (float Pitch, float Yaw, float Roll) localAngles2 = default)
     {
         byte[] bytes = new byte[76];
         BitConverter.GetBytes(flags).CopyTo(bytes, 0);
 
         Write(bytes, 4, origin.X, origin.Y, origin.Z);
         Write(bytes, 16, angles.Pitch, angles.Yaw, angles.Roll);
-
-        // localViewAngles occupies 28..39 and is deliberately left zero: nothing reads it here,
-        // and a fixture that filled it could not tell it apart from viewAngles being read at the
-        // wrong offset.
+        Write(bytes, 28, localAngles.Pitch, localAngles.Yaw, localAngles.Roll);
         Write(bytes, 40, origin2.X, origin2.Y, origin2.Z);
         Write(bytes, 52, angles2.Pitch, angles2.Yaw, angles2.Roll);
+        Write(bytes, 64, localAngles2.Pitch, localAngles2.Yaw, localAngles2.Roll);
 
         return bytes;
     }

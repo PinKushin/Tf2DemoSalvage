@@ -104,7 +104,7 @@ public sealed class PovCameraLockTests
         public int? RecorderEntityIndex => pov ? 1 : null;
 
         public RecordedView? RecordedViewAt(int tick) =>
-            pov ? new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false) : null;
+            pov ? new RecordedView() : null;
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
         [

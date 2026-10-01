@@ -33,6 +33,13 @@ public interface IEyeSource
     /// <returns>The recorded view, or null for a SourceTV demo.</returns>
     public RecordedView? RecordedViewAt(int tick);
 
+    /// <summary>
+    /// <c>CDemoPlayer::InterpolateViewpoint</c>'s view at the moment being drawn, or null when it sets none (B56).
+    /// </summary>
+    /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
+    /// <returns>The viewpoint; a stand-in without a demo player answers the stepped view.</returns>
+    public RecordedView? ViewpointAt(double tick) => RecordedViewAt((int)Math.Floor(tick));
+
     /// <summary>Which entity did the recording, when the demo says.</summary>
     public int? RecorderEntityIndex { get; }
 
@@ -44,14 +51,18 @@ public interface IEyeSource
 
 /// <summary>A demo timeline, as a source of eyes.</summary>
 /// <param name="timeline">The timeline.</param>
+/// <param name="player">The viewer's demo player, shared with the moment source so both read one viewpoint.</param>
 /// <remarks>The whole adapter, mirroring <see cref="TimelineViewmodels"/>.</remarks>
-public sealed class TimelineEyes(DemoTimeline timeline) : IEyeSource
+public sealed class TimelineEyes(DemoTimeline timeline, DemoPlayer player) : IEyeSource
 {
     /// <inheritdoc />
     public bool HasRecordedView => timeline.HasRecordedView;
 
     /// <inheritdoc/>
     public RecordedView? RecordedViewAt(int tick) => timeline.RecordedViewAt(tick);
+
+    /// <inheritdoc/>
+    public RecordedView? ViewpointAt(double tick) => player.InterpolateViewpoint(tick);
 
     /// <inheritdoc/>
     public int? RecorderEntityIndex => timeline.RecorderEntityIndex;
@@ -444,8 +455,31 @@ public sealed class SpectatorView
     /// </remarks>
     public Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float>? World { get; set; }
 
+    /// <summary>The chase camera on whoever is being watched, or null when nobody is.</summary>
+    /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <returns>The camera, or null when there is no target.</returns>
+    /// <remarks>
+    /// **Valve's <c>OBS_MODE_CHASE</c>** — see <see cref="CameraMode.ThirdPerson"/> and
+    /// <see cref="ChaseCamera"/> for the citations.
+    ///
+    /// **It follows the same target as <see cref="Eye"/>**, deliberately: switching between first
+    /// and third person watches the same player, which is what <c>C_HLTVCamera</c> does with one
+    /// <c>m_iTraget1</c> and a mode beside it. Two independent target choices would let the modes
+    /// drift apart, and the bug would look like the camera jumping to a different player.
+    ///
+    /// **A dead target is fine here** — unlike <see cref="Eye"/>, which refuses one. That asymmetry
+    /// IS the engine's: `CalcInEyeCamView` bails to this, so this is where a dead target ends up
+    /// rather than somewhere it must be kept out of.
+    ///
+    /// **No elapsed time, so the wall recovery cannot advance.** For a caller that has no frame
+    /// clock the camera is clipped but never eases back out, which is a worse picture than the
+    /// overload that takes one — this exists for tests and for callers that do not draw.
+    /// </remarks>
+    public FreeCamera? Chase(double tick, float aspect) => Chase(tick, aspect, 0d);
+
     /// <summary>The chase camera, clipped against the world and eased back out.</summary>
-    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
     /// <param name="aspect">The viewport's width over its height.</param>
     /// <param name="seconds">Time since the previous frame, for the recovery.</param>
     /// <returns>The camera, or null when there is no target.</returns>
@@ -468,16 +502,23 @@ public sealed class SpectatorView
     /// by moving the returned camera: the angles must not change when a wall interrupts, and
     /// deriving the position twice is how a camera and its frustum come to disagree.
     /// </remarks>
-    public FreeCamera? Chase(int tick, float aspect, double seconds)
+    public FreeCamera? Chase(double tick, float aspect, double seconds)
     {
         // **A POV demo's camera is always the recorded one** (D128, D153, B417). Leaving first person there — a deathcam, a
         // freezecam, a chase the recorder chose — changes what is drawn in the view, never where the view is. The owner,
         // 2026-09-22: *"POV demos dont allow you the viewer to change the camera at all it only follows whatever the player
         // who recorded did."*
-        if (Eyes?.RecordedViewAt(tick) is not null)
+        if (Eyes?.RecordedViewAt((int)Math.Floor(tick)) is not null)
         {
             return Eye(tick, aspect);
         }
+
+        return ChaseSpectated((int)Math.Floor(tick), aspect, seconds);
+    }
+
+    /// <summary>The chase camera on a spectated player, for a demo with no recorded view.</summary>
+    private FreeCamera? ChaseSpectated(int tick, float aspect, double seconds)
+    {
 
         // **`Viewed` for the same reason `Effective` uses it, and fixing only one would have been
         // worse than fixing neither** (B225). `Effective` falls to third person when the person
@@ -523,50 +564,40 @@ public sealed class SpectatorView
             (target.X, target.Y, target.Z), yaw, alive, ducking, aspect, _chaseDistance);
     }
 
-    /// <summary>The chase camera on whoever is being watched, or null when nobody is.</summary>
-    /// <param name="tick">The tick being drawn.</param>
-    /// <param name="aspect">The viewport's width over its height.</param>
-    /// <returns>The camera, or null when there is no target.</returns>
-    /// <remarks>
-    /// **Valve's <c>OBS_MODE_CHASE</c>** — see <see cref="CameraMode.ThirdPerson"/> and
-    /// <see cref="ChaseCamera"/> for the citations.
-    ///
-    /// **It follows the same target as <see cref="Eye"/>**, deliberately: switching between first
-    /// and third person watches the same player, which is what <c>C_HLTVCamera</c> does with one
-    /// <c>m_iTraget1</c> and a mode beside it. Two independent target choices would let the modes
-    /// drift apart, and the bug would look like the camera jumping to a different player.
-    ///
-    /// **A dead target is fine here** — unlike <see cref="Eye"/>, which refuses one. That asymmetry
-    /// IS the engine's: `CalcInEyeCamView` bails to this, so this is where a dead target ends up
-    /// rather than somewhere it must be kept out of.
-    ///
-    /// **No elapsed time, so the wall recovery cannot advance.** For a caller that has no frame
-    /// clock the camera is clipped but never eases back out, which is a worse picture than the
-    /// overload that takes one — this exists for tests and for callers that do not draw.
-    /// </remarks>
-    public FreeCamera? Chase(int tick, float aspect) => Chase(tick, aspect, 0d);
-
     /// <summary>Valve's <c>m_flLastDistance</c>: how far out the camera was allowed last frame.</summary>
     private float _chaseDistance = ChaseCamera.Distance;
 
     /// <summary>The camera for the first-person view, or null when there is none.</summary>
-    /// <param name="tick">The tick being drawn.</param>
+    /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
     /// <param name="aspect">The viewport's width over its height.</param>
     /// <returns>The camera, or null when nobody's eyes are available.</returns>
-    public FreeCamera? Eye(int tick, float aspect)
+    /// <remarks>
+    /// **A POV demo's camera is the demo player's viewpoint at the fraction being drawn** (B56): the view
+    /// <c>InterpolateViewpoint</c> set this frame, not the last packet's, which stepped once a tick.
+    /// </remarks>
+    public FreeCamera? Eye(double tick, float aspect)
     {
         if (Eyes is not { } eyes)
         {
             return null;
         }
 
-        if (eyes.RecordedViewAt(tick) is { } recorded)
+        int whole = (int)Math.Floor(tick);
+
+        if (eyes.ViewpointAt(tick) is { } recorded)
         {
             // Only the eye height is added, because the recorded origin is the feet.
-            ScenePlayer? recorder = PlayerAt(eyes, tick, eyes.RecorderEntityIndex);
+            ScenePlayer? recorder = PlayerAt(eyes, whole, eyes.RecorderEntityIndex);
 
             return FreeCamera.AtEye(recorded, recorder?.PlayerClass ?? 0, Ducking(recorder), aspect);
         }
+
+        return SpectatingEye(whole, aspect);
+    }
+
+    /// <summary>The eye of a spectated player, for a demo with no recorded view.</summary>
+    private FreeCamera? SpectatingEye(int tick, float aspect)
+    {
 
         // No recorded camera: spectate somebody who is actually playing. Taking the first player in
         // the list took the SourceTV camera instead — see SpectatorTarget, and docs/findings/29 for

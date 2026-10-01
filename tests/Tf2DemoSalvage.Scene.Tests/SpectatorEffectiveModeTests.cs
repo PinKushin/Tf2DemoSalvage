@@ -129,7 +129,7 @@ public sealed class SpectatorEffectiveModeTests
         public int? RecorderEntityIndex => Recorder;
 
         public RecordedView? RecordedViewAt(int tick) =>
-            new((100f, 200f, 64f), (0f, 90f, 0f), IsCut: false);
+            new() { ViewOrigin = (100f, 200f, 64f), ViewAngles = (0f, 90f, 0f) };
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
         [

@@ -374,7 +374,7 @@ public sealed class SpectatorViewTests
 
         public RecordedView? RecordedViewAt(int tick) =>
             recorded
-                ? new RecordedView((viewX, 0f, 0f), (0f, 0f, 0f), IsCut: false)
+                ? new RecordedView { ViewOrigin = (viewX, 0f, 0f) }
                 : null;
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => players;
