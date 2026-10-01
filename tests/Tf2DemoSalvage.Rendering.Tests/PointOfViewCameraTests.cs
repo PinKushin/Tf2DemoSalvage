@@ -31,7 +31,7 @@ public sealed class PointOfViewCameraTests
         // that looks like a camera standing beside the player rather than inside them, and on a
         // top-down map it is nearly invisible.
         FreeCamera camera = FreeCamera.AtEye(
-            new RecordedView((100f, -200f, 300f), (10f, 20f, 0f), IsCut: false),
+            new RecordedView { ViewOrigin = (100f, -200f, 300f), ViewAngles = (10f, 20f, 0f) },
             Soldier,
             ducking: false,
             aspect: 16f / 9f);
@@ -48,7 +48,7 @@ public sealed class PointOfViewCameraTests
         // constant would satisfy the test above; only a comparison between classes catches it,
         // and scout-to-soldier is three units — small on screen and exactly the kind of thing
         // nobody would find by looking.
-        RecordedView view = new((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false);
+        RecordedView view = new() { ViewOrigin = (0f, 0f, 0f), ViewAngles = (0f, 0f, 0f) };
 
         FreeCamera scout = FreeCamera.AtEye(view, Scout, false, 1f);
         FreeCamera soldier = FreeCamera.AtEye(view, Soldier, false, 1f);
@@ -62,7 +62,7 @@ public sealed class PointOfViewCameraTests
     {
         // VEC_DUCK_VIEW is flat across the roster, so a crouched scout and a crouched sniper share
         // a height. Both are asserted, because "flat" is the claim.
-        RecordedView view = new((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false);
+        RecordedView view = new() { ViewOrigin = (0f, 0f, 0f), ViewAngles = (0f, 0f, 0f) };
 
         FreeCamera.AtEye(view, Scout, ducking: true, aspect: 1f)
             .Origin.Z.ShouldBe(45f, 0.001f);
@@ -78,7 +78,7 @@ public sealed class PointOfViewCameraTests
         // was actually looking at, already clamped by the engine that wrote them, so anything this
         // code does to them is a change to the recording.
         FreeCamera camera = FreeCamera.AtEye(
-            new RecordedView((0f, 0f, 0f), (-12.5f, 175.25f, 0f), IsCut: false),
+            new RecordedView { ViewAngles = (-12.5f, 175.25f, 0f) },
             Soldier,
             false,
             1f);
@@ -103,7 +103,7 @@ public sealed class PointOfViewCameraTests
 
         // The per-class factory disagrees, and that disagreement is the finding rather than a bug.
         FreeCamera.AtEye(
-            new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false), Scout, false, 1f)
+            new RecordedView(), Scout, false, 1f)
             .Origin.Z.ShouldBe(65f, 0.001f);
     }
 
@@ -143,7 +143,7 @@ public sealed class PointOfViewCameraTests
         // factory that dropped the argument would stretch the picture in a way that looks like a
         // projection bug rather than a plumbing one.
         FreeCamera.AtEye(
-            new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false),
+            new RecordedView(),
             Soldier,
             false,
             aspect: 4f / 3f)

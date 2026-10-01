@@ -97,7 +97,7 @@ public sealed class FirstPersonEntryTests
 
         public RecordedView? RecordedViewAt(int tick) =>
             recorded && tick == atTick
-                ? new RecordedView((0f, 0f, 0f), (0f, 0f, 0f), IsCut: false)
+                ? new RecordedView()
                 : null;
 
         public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
