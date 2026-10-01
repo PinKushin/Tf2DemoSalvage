@@ -8372,6 +8372,25 @@ because it is SourceTV. The smallest specimen is now `20120324-2006-cp_quay_a9.d
 `e4ae46d1434a8d99667f5b0625cbf5955bf5863d19b46316f3908c115d168a5d`, from `20120324-2006-cp_quay_a9.7z` in
 `D:\tf2-demo-archive` (`tools/corpus/manifest.json`, `censusSpecimens`).
 
+**They are not Speex: they are Steam Voice, SILK inside (engine read 2026-10-01, June 2011 x86 `engine.dll`,
+project `tf2engine2011`).** The 28-byte framing was right — for the old codec only.
+
+- ConVar `sv_use_steam_voice` (`0x102c2b1c`, "Enable/disable using Steam Voice instead of the old voice codec"),
+  absent in build 3258. The voice idle (`0x101ac390`) sets a flag (`0x10387e42`) from it each frame.
+- `Voice_AddIncomingData` (`0x101ac100`): flag clear, the payload goes to the frame codec (vtable `+0x10`) — the
+  2007 path, whole 28-byte Speex frames. Flag set, the WHOLE payload goes unsplit to the Steam user interface at
+  `+0x2c` (`DecompressVoice` by the period SDK's method order — inferred, not read from `steamclient`). The send
+  side matches (`0x101aa010`, `+0x24`/`+0x28`). So the engine never frames these bytes; Steam's library does.
+- `svc_voiceinit` still says `vaudio_speex` quality 5: that is the server's legacy setting, not the payload.
+
+**The packet, measured** (every non-empty packet of gullywash, 454 of 454, and process, 522 of 522, parses exactly):
+an 8-byte SteamID64; typed records — `0x0B` + u16 sample rate (always 16000), `0x04` SILK + u16 length + bytes
+(frames carry their own u16 length, `FFFF` ends speech), `0x00` + u16 silence samples; then a 4-byte trailer
+(CRC32 assumed, unchecked). It explains the census sizes: 15 bytes = 8+3+4 (one silence record), 20 = 8+3+1+2+2+4
+(rate, then a SILK record holding only `FFFF`). The other four failing specimens and the quay STV are unparsed;
+that they are Steam Voice is inferred from the identical failure. *Evidence class: read from disassembly; layout
+measured.*
+
 ---
 
 ### B440 — both protocol-15 SourceTV demos misread from their first bytes: the schema and every message — FIXED 2026-09-30
