@@ -457,7 +457,8 @@ public static class NetMessageReader
                         // fields - see UserMessageBody for why that refusal is the point.
                         messages.Add(UserMessageBody.Decode(
                                 userType,
-                                UserMessageNames.Lookup(userType, state.NetworkProtocol),
+                                UserMessageNames.Lookup(
+                                    userType, state.NetworkProtocol, state.MessageTypeBits),
                                 userBody, userBits,
                                 state.NetworkProtocol,
                                 UserMessageNames.Alternate(userType, state.NetworkProtocol))

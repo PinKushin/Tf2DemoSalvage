@@ -6,6 +6,7 @@ using System.Linq;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
+using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -136,6 +137,38 @@ public sealed class CorpusProtocol15Tests
         // The numbering's own evidence: a type only the later builds' numbering has.
         schema.Tables.SelectMany(table => table.Properties)
             .ShouldContain(property => property.Type == SendPropType.VectorXY);
+    }
+
+    [TestCase(Cevo, 39)]     // 39 + 120 = B444's 159
+    [TestCase(Esea, 120)]
+    public void UserMessage41_OfALaterProtocol15SourceTv_DecodesAsCheapBreakModelAndTracesByName(
+        string name, int expected)
+    {
+        // B444: the later builds register CheapBreakModel at 41 (the 2010 client). Before the fix
+        // build 3862's SPHapWeapEvent refused every one of these and the trace printed `#41`.
+        byte[] bytes = File.ReadAllBytes(Demo(name));
+        DemoHeader header = DemoHeader.Parse(bytes);
+        List<DemoCommand> commands = [.. DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes))];
+        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+
+        List<UserMessage> id41 = [];
+        foreach (DemoCommand command in commands)
+        {
+            if (command.Type is DemoCommandType.Signon or DemoCommandType.Packet)
+            {
+                id41.AddRange(NetMessageReader.Read(command.Payload.Span, state)
+                    .Messages.OfType<UserMessage>().Where(user => user.UserMessageType == 41));
+            }
+        }
+
+        TestContext.Out.WriteLine($"{name}: {id41.Count} id-41 messages");
+        id41.Count.ShouldBe(expected);
+        id41.Count(user => user.Name != "CheapBreakModel" || user.Fields == null)
+            .ShouldBe(0, $"of {id41.Count} id-41 messages in {name}");
+
+        StringWriter trace = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(trace, name, header, commands);
+        trace.ToString().ShouldNotContain("svc_usermessage #41 ");
     }
 
     /// <summary>The demo with exactly this file name, or skips saying it is absent.</summary>

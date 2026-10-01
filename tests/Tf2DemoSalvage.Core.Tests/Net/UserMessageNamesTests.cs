@@ -118,6 +118,28 @@ public sealed class UserMessageNamesTests
     }
 
     [Test]
+    public void Lookup_LaterProtocol15Build_EndsAtBreakModelPumpkinThenSixHaptics()
+    {
+        // The 2010 client (B444): 43 game messages, the current table less MapStatsUpdate, ending
+        // at BreakModel_Pumpkin, then the haptics block at 43-48. The six-bit type field is the
+        // stream's own evidence of that build family (B440).
+        UserMessageNames.Lookup(42, Y2009, NetMessage.TypeBits).ShouldBe("BreakModel_Pumpkin");
+        UserMessageNames.Lookup(43, Y2009, NetMessage.TypeBits).ShouldBe("SPHapWeapEvent");
+        UserMessageNames.Lookup(48, Y2009, NetMessage.TypeBits).ShouldBe("HapMeleeContact");
+        UserMessageNames.Lookup(49, Y2009, NetMessage.TypeBits).ShouldBeNull();
+    }
+
+    [TestCase(34, "DamageDodged", "TrainingObjective")]
+    [TestCase(36, "PlayerExtinguished", "PlayerJarated")]
+    [TestCase(41, "SPHapWeapEvent", "CheapBreakModel")]
+    public void Lookup_Protocol15ByBuildFamily_NamesEachIdFromItsOwnTable(
+        int id, string build3862, string laterBuild)
+    {
+        UserMessageNames.Lookup(id, Y2009, NetMessage.OldTypeBits).ShouldBe(build3862);
+        UserMessageNames.Lookup(id, Y2009, NetMessage.TypeBits).ShouldBe(laterBuild);
+    }
+
+    [Test]
     public void ProtocolTwentyFourOffersTheMarch2013NameAsAnAlternate()
     {
         // Protocol 24 spans thirteen years and two incompatible tables, so an id above 50 has two

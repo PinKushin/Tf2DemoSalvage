@@ -263,13 +263,14 @@ first took id 32 in TF2, and when, which is *interpolated*.
 | `max_classes` | 232 | 249, 254 |
 | player `m_vecOrigin` | `Vector` | `VectorXY` and a Z |
 | `CheapBreakModel`'s user message id | 40 | 41 (B444) |
+| user message table | 41 game + 6 haptics | 43 + 6, `TrainingObjective` at 34 (2010 client, B444) |
 
 The dates are a bracket: five bits on 4 June 2009 (the client's own `version`), six by 9 November 2010
 (the CEVO demo's `tv_autorecord` name bounds the build that recorded it from above); VectorXY
 interpolated to August 2009 from the hl2sdk commit. Whether both changes shipped in one build is not
 established, and the parser does not assume it: the first packet decides the width — six only when six
 bits read its ServerInfo back as the header's protocol — and the schema is read whichever way reads it
-whole.
+whole. The user message table follows the width the first packet decided (B444).
 
 **What generalises.** A protocol number is a promise that a client and a server can talk, and TF2's
 clients and servers were always one build; it was never a promise about which build wrote a file. A
