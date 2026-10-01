@@ -39,6 +39,24 @@
          (MapProvider.SteamLibraryFile) and a probe that typed its own copy would find a different
          install from the viewer. Plain net10.0, no toolkit. -->
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Presentation/Tf2DemoSalvage.Presentation.csproj" />
+
+    <!-- Audio, for the voice decoders `decode-census` runs: the same Speex, CELT and Opus
+         wrappers the corpus voice tests call. Plain net10.0. -->
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Audio/Tf2DemoSalvage.Audio.csproj" />
+  </ItemGroup>
+
+  <!--
+    speex.dll and celt.dll beside this assembly, from wherever they were built. They are not committed
+    (tools/native-audio/README.md), so a worktree has none and Audio's own copy finds nothing; pass the
+    folder that has them as a build property, NativeAudioDirectory. Loading them by absolute path at run
+    time does NOT serve: the wrappers import them from the assembly directory only, and that import
+    failed with the library already loaded (measured 2026-09-30).
+  -->
+  <ItemGroup Condition="'$(NativeAudioDirectory)' != ''">
+    <Content Include="$(NativeAudioDirectory)/speex.dll;$(NativeAudioDirectory)/celt.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(Filename)%(Extension)</Link>
+    </Content>
   </ItemGroup>
 
 </Project>

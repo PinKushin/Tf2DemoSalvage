@@ -107,6 +107,30 @@ was sized by (B439).
 
 ---
 
+## Decode census (D200)
+
+**2026-09-30**, `dotnet run --project tools/Tf2DemoSalvage.Probe -c Release -p:NativeAudioDirectory=<tools/native-audio> -- decode-census <pool…>`,
+decoder as of cd6995e1. The pool is `D:/tf2-demo-archive`, the main checkout's lcor and gcor,
+`tf2-comp-archive/raw/downloads/DEMO`, `F:/SteamLibrary/.../Team Fortress 2`, `F:/tf2-builds`, `D:/team fortress 2`,
+and the demos extracted from the pool's archives.
+
+- **Membership:** 505 `.dem` files; 44 are byte duplicates by SHA-256; 2 are HTML pages named `.dem`
+  (`ETF2L Season 30/ree+CoppyZ_airshoted_scout_27200.dem`, `ETF2L Season 32/55000-58500-81500LeonardBroler+PATCHOULI.dem`),
+  excluded and listed. **M = 459 distinct demos**, 429 of them outside archives (21,002 MB).
+- **Every stage but the timeline: 214 of 459 pass** (198 of the 429). Of the 245 that fail: 65 only on
+  `svc_SetPause` (B447), 115 only on a cut tail (B448), 42 on both, 17 on Speex voice (B441), 3 at the
+  protocol-15 schema (B440), 2 at the truncated 2007 SourceTV schema (B24), 1 budget skip (B449).
+  **The entity stage failed on none.**
+- **Wall time:** pass 1, 5 h 40 min over the 429. **Peak working set:** under 250 MB for any demo under 50 MB;
+  4,232 MB for the 2 GB prolands container; 9,046 MB for the 1.3 GB koth_product assembly (B449).
+- **Controls:** all 8 gcor era specimens pass every stage with non-zero counts; both protocol-15 SourceTV demos
+  fail at the schema with B440's message; gullywash fails voice with B441's own count (454 / 440).
+- **Timeline stage:** a separate pass, smallest demo first, budget 6 GB. **Partial:** 56 of 505 files reached at
+  the time of writing: 36 timelines pass; the 2 B24 SourceTV demos fail at their schema; the rest are
+  duplicates or excluded. It runs at 11–30 s per 8–9 MB demo. The whole pool would take over 13 hours.
+
+---
+
 ## The viewer's frame cost
 
 ### Release runs 340–490 fps; Debug is not a measurement of anything
