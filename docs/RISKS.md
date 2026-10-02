@@ -8129,6 +8129,33 @@ id-41 messages (39 CEVO, 120 ESEA) decode as `CheapBreakModel` with fields, and 
 
 ---
 
+### B451 — the census's messages stage re-encoded the later protocol-15 demos at five-bit type fields: the instrument, not the writer — FIXED 2026-10-01
+
+**Found by the decode census (2026-10-01).** The two later-build protocol-15 SourceTV demos (B440) failed only
+the `messages` stage: CEVO `auto-20101109-2141-cp_badlands.dem` "ServerInfo: 512 bits on the wire re-encode
+to 511 (114315 messages, 0 re-encoded bit for bit)", ESEA `esea_match_2184869.dem` 560 to 559 (311418, 0).
+Every other demo in the 441-demo pool passed. One bit short on the first message, then every message off.
+
+**Hypothesis filed with it, and refuted:** that `NetMessageWriter` wrote the five-bit type width (or dropped a
+later-build ServerInfo field) where the reader used six. Read: the writer already writes
+`state.MessageTypeBits`, and `WriteServerInfo` mirrors `ReadServerInfo` field for field, including the replay
+bit only above 15. A synthetic later-build ServerInfo written at the width the reader settled reproduces its
+bits at both widths (`Protocol15TypeWidthTests.Write_ServerInfoAtTheWidthTheReaderSettled_ReproducesItsBits`,
+green on its first run). *Read from our source; measured synthetically.*
+
+**Cause: the census's write state was never told the width.** `DemoCensus.Messages` keeps a separate write
+state that reads no packet, so at protocol 15 its `MessageTypeBits` stayed at the undecided default, five.
+`CorpusMessageRoundTripTests.Packets` already carried `readState.MessageTypeBits` across (B440); the census,
+written later, did not. Instrument bug, not decoder bug
+(`docs/memory/instrument-bugs-outnumber-decoder-bugs.md`).
+
+**Fixed:** `CheckPacket` copies `read.MessageTypeBits` to the write state after each read — the value the
+reader used, carried, not recomputed. Measured after: both demos pass, every message bit for bit — CEVO
+114,315 of 114,315, ESEA 311,418 of 311,418 (`CorpusProtocol15Tests.DecodeCensusMessages_*`, which runs the
+probe itself and reads its CSV row).
+
+---
+
 ### B450 — the POV recorder after B56's port: prediction's velocity, a per-tick feet yaw, and two unread reset paths — OPEN 2026-09-30
 
 What `InterpolateViewpoint`'s port (B56, B442) leaves different from the engine. Each item is small; none is
