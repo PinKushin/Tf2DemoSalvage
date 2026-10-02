@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -41,6 +42,42 @@ public sealed class RecorderPrediction
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _convars = MovementConVars.From(timeline.ServerConVars);
+    }
+
+    /// <summary>The item schema's attribute hooks, asked per prediction because the schema loads on its own schedule; null for none.</summary>
+    public Func<AttributeHooks?>? Hooks { get; init; }
+
+    /// <summary>The surface data a ground trace stands on (<see cref="TfGameMovement.GroundSurface"/>); null for none.</summary>
+    public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
+
+    /// <summary>What the movement asks a player's items, as of his networked state.</summary>
+    /// <param name="recorder">The player.</param>
+    /// <param name="hooks">The attribute hooks; null hooks nothing.</param>
+    /// <returns>The hooks on him and his active weapon, and that weapon's <c>OwnerCanJump</c>.</returns>
+    /// <remarks>
+    /// <c>OwnerCanJump</c> is true but for <c>CTFCompoundBow</c>, false while <c>GetInternalChargeBeginTime()</c> is nonzero
+    /// (<c>tf_weapon_compound_bow.cpp:657-660</c>, <c>tf_weaponbase.h:339</c>) — the bow's networked <c>m_flChargeBeginTime</c>.
+    /// </remarks>
+    public static MovementItems ItemsOf(ScenePlayer recorder, AttributeHooks? hooks)
+    {
+        SceneItem? active = null;
+
+        foreach (SceneItem item in recorder.Items ?? [])
+        {
+            if (item.EntityIndex == recorder.ActiveWeapon)
+            {
+                active = item;
+            }
+        }
+
+        Func<string, float, float> onPlayer = hooks is null
+            ? MovementItems.None.OnPlayer
+            : (name, value) => hooks.OnPlayer(recorder, name, value);
+        Func<string, float, float>? onWeapon = hooks is null || active is null
+            ? null
+            : (name, value) => hooks.OnWeapon(recorder, active, name, value);
+
+        return new MovementItems(onPlayer, onWeapon, active is not { ClassName: "CTFCompoundBow", ChargeBeginTime: not 0f });
     }
 
     /// <summary>The recorder's predicted <c>m_vecVelocity</c> at a moment of playback.</summary>
@@ -109,7 +146,11 @@ public sealed class RecorderPrediction
         }
 
         MovementWorld world = MovementWorld.At(_timeline, _brushTracks, level, packet.Tick, recorder);
-        TfGameMovement movement = new(world.Trace, _convars, _timeline.MaxClients);
+        TfGameMovement movement = new(world.Trace, _convars, _timeline.MaxClients)
+        {
+            Items = ItemsOf(recorder, Hooks?.Invoke()),
+            GroundSurface = GroundSurface,
+        };
         PredictedPlayer player = Restore(recorder, _timeline.IntervalPerTick, packet.Tick);
 
         // m_isPassingThroughEnemies is the movement object's own and is not networked; the client carries it from the
@@ -171,6 +212,10 @@ public sealed class RecorderPrediction
             CurTime = packetTick * intervalPerTick,
             Team = recorder.Team,
             EntityIndex = recorder.EntityIndex,
+            Gravity = recorder.Gravity,
+
+            // m_pSurfaceData is client state from the last prediction, not networked. *Interpolated:* none, so the first
+            // command's CheckParameters reads a speed factor of 1 until CategorizePosition finds the ground.
         };
 
         if (recorder.Movement is not { } local)

@@ -165,6 +165,29 @@ public sealed class VphysicsSurfaceDataConformanceTests
         Sounds("plain").ImpactHard.ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `surfacegameprops_t` (`vphysics_interface.h:942`): `maxSpeedFactor` and `jumpFactor`, which `CGameMovement::CheckParameters`
+    /// (`gamemovement.cpp:1006`) and `CTFGameMovement::CheckJumpButton` (`tf_gamemovement.cpp:1281`) read off the ground. The game's
+    /// own `scripts/surfaceproperties.txt` gives `default` 1.0 for both and `slipperyslime` a jump factor of 0.7.
+    /// </remarks>
+    [Test]
+    public void ParseSurfaceData_JumpAndMaxSpeedFactors_AreReadAndInherited()
+    {
+        VphysicsSurfaceProps props = new([]);
+
+        props.ParseSurfaceData(Encoding.Latin1.GetBytes(
+            "\"default\" { \"jumpfactor\" \"1.0\" \"maxspeedfactor\" \"1.0\" } " +
+            "\"slipperyslime\" { \"friction\" \"0.1\" \"jumpfactor\" \"0.7\" } " +
+            "\"mud\" { \"maxSpeedFactor\" \"0.5\" } " +
+            "\"slime2\" { \"base\" \"slipperyslime\" }"));
+
+        VphysicsSurface Surface(string name) => props.Surfaces.Single(surface => surface.Name == name);
+
+        (Surface("slipperyslime").JumpFactor, Surface("slipperyslime").MaxSpeedFactor).ShouldBe((0.7f, 1f));
+        (Surface("mud").JumpFactor, Surface("mud").MaxSpeedFactor).ShouldBe((1f, 0.5f));
+        (Surface("slime2").JumpFactor, Surface("slime2").MaxSpeedFactor).ShouldBe((0.7f, 1f));
+    }
+
     private static int[] Bits(VphysicsSurface surface) =>
     [
         System.BitConverter.SingleToInt32Bits(surface.Physics.Friction),

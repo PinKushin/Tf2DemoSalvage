@@ -22,6 +22,14 @@ public sealed class SceneItemEffectMeterFieldsTests
     }
 
     [Test]
+    public void PlayersAt_AGravitySent_ReachesTheScenePlayer()
+    {
+        // `CBasePlayer::GetGravity` is `m_flGravity`, which StartGravity and FinishGravity scale gravity by when nonzero
+        // (gamemovement.cpp:1250, :1689) — D205's prediction reads it off the recorder.
+        DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem().Gravity.ShouldBe(0.5f);
+    }
+
+    [Test]
     public void PlayersAt_TheWeaponMeterFields_ReachTheSceneItem()
     {
         SceneItem item = DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).PlayersAt(100).ShouldHaveSingleItem()

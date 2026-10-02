@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -28,11 +29,14 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// feet, a taunt, a kart, ghost mode, a grappling hook, a deployed parachute, a stun, and the swimming conditions —
 /// <c>WaterMove</c>, <c>TauntMove</c>, <c>VehicleMove</c>, <c>GrapplingHookMove</c> and <c>StunMove</c> are not ported.
 ///
-/// **Taken as their defaults, each filed under B450:** item attributes (<c>mod_jump_height</c>, <c>mod_air_control</c>,
-/// <c>CanAirDash</c>'s extra dashes, <c>GetMovementForwardPull</c>), the ground's surfaceprop (friction, jump factor,
-/// max-speed factor all 1), <c>m_flGravity</c> and the game rules' gravity multiplier (1), <c>CanJump</c> and
-/// <c>CanDuck</c> (true), and <c>IsLoser</c>'s duck crop (not a loser). A moving ground's velocity is zero because the
-/// client's is (<see cref="SetGroundEntity"/>).
+/// **Read off the player** (B450): item attributes through <see cref="Items"/> (<c>mod_jump_height</c> and its weapon form,
+/// <c>mod_air_control</c> and its blast-jump form, <c>CanAirDash</c>, <c>CanJump</c>, <c>CanDuck</c>), the ground's surfaceprop
+/// through <see cref="GroundSurface"/>, and <c>m_flGravity</c>.
+///
+/// **Taken as their defaults, each filed under B450:** <c>GetMovementForwardPull</c> (0: it needs the weapon's
+/// <c>IsFiring()</c>), the Atomizer's deploy-time dash test, the game rules' gravity multiplier (1, never on the wire),
+/// and <c>IsLoser</c>'s duck crop (not a loser). A moving ground's velocity is zero because the client's is
+/// (<see cref="SetGroundEntity"/>).
 /// </remarks>
 public sealed class TfGameMovement
 {
@@ -63,6 +67,10 @@ public sealed class TfGameMovement
     private const int CondTaunting = 7;
     private const int CondStunned = 15;
     private const int CondShieldCharge = 17;
+    private const int CondSodaPopperHype = 36;
+    private const int CondHalloweenSpeedBoost = 72;
+    private const int CondBlastJumping = 81;
+    private const int CondRuneAgility = 97;
     private const int CondGhost = 77;
     private const int CondParachute = 80;
     private const int CondKart = 82;
@@ -115,6 +123,15 @@ public sealed class TfGameMovement
         _convars = convars ?? throw new ArgumentNullException(nameof(convars));
         _maxClients = maxClients;
     }
+
+    /// <summary>The player's items, as the movement hooks their attributes; none by default.</summary>
+    public MovementItems Items { get; init; } = MovementItems.None;
+
+    /// <summary>
+    /// <c>GetSurfaceData( pm.surface.surfaceProps )</c> for a ground trace (<c>CategorizeGroundSurface</c>); null, or a null
+    /// answer, for no surface data — friction, jump and speed factors of 1.
+    /// </summary>
+    public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
 
     /// <summary><c>CPrediction::RunCommand</c>'s movement half: <c>SetupMove</c>, <c>ProcessMovement</c>, <c>FinishMove</c>.</summary>
     /// <param name="player">The player, advanced in place.</param>
@@ -286,6 +303,9 @@ public sealed class TfGameMovement
         {
             _maxSpeed = MathF.Min(_clientMaxSpeed, _maxSpeed);
         }
+
+        // gamemovement.cpp:1002-1014: the ground's speed factor; a TF player has no constraint, whose factor is 1.
+        _maxSpeed *= _player.Surface?.MaxSpeedFactor ?? 1f;
 
         if (spd != 0f && spd > _maxSpeed * _maxSpeed)
         {
@@ -663,13 +683,19 @@ public sealed class TfGameMovement
             return;
         }
 
-        // CategorizeGroundSurface: the default surfaceprop's friction, 0.8 · 1.25 clamped to 1.
-        _player.SurfaceFriction = 1f;
+        CategorizeGroundSurface(trace.Value);
         _player.Velocity = _player.Velocity with { Z = 0f };
 
         // CTFGameMovement::SetGroundEntity.
         _player.AirDash = 0;
         _player.AirDucked = 0;
+    }
+
+    /// <summary><c>CategorizeGroundSurface</c> (<c>gamemovement.cpp:919-930</c>): the surface's data, and its friction · 1.25 up to 1.</summary>
+    private void CategorizeGroundSurface(BspTrace trace)
+    {
+        _player.Surface = GroundSurface?.Invoke(trace);
+        _player.SurfaceFriction = MathF.Min((_player.Surface?.Physics.Friction ?? 0.8f) * 1.25f, 1f);
     }
 
     private void Duck()
@@ -691,7 +717,7 @@ public sealed class TfGameMovement
 
         if ((_buttons & InDuck) != 0 || _player.Ducking || _player.FlDucking)
         {
-            if ((_buttons & InDuck) != 0)
+            if ((_buttons & InDuck) != 0 && CanDuck())
             {
                 OnDuck(pressed);
             }
@@ -701,6 +727,12 @@ public sealed class TfGameMovement
             }
         }
     }
+
+    /// <summary><c>CTFPlayer::CanDuck</c> (<c>tf_player_shared.cpp:12298</c>): <c>CALL_ATTRIB_HOOK_INT( iNoDuck, no_duck )</c> is 0.</summary>
+    private bool CanDuck() => HookInt(Items.OnPlayer("no_duck", 0f)) == 0;
+
+    /// <summary><c>CALL_ATTRIB_HOOK_INT</c>'s rounding of the float result.</summary>
+    private static int HookInt(float value) => AttributeHooks.RoundFloatToInt(value);
 
     private void DuckOverrides()
     {
@@ -946,7 +978,8 @@ public sealed class TfGameMovement
         bool scout = _player.PlayerClass == ClassScout;
         bool onGround = _player.OnGround;
 
-        if (_player.IsDead ||
+        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test. A taunt never reaches here (declined above).
+        if (_player.IsDead || !CanJump() ||
             (_player.FlDucking && !(scout && !onGround)) ||
             (_player.Ducking && _player.FlDucking) || _player.DuckJumpTime > 0f ||
             (_player.OldButtons & InJump) != 0)
@@ -956,8 +989,7 @@ public sealed class TfGameMovement
 
         if (!onGround)
         {
-            // CTFPlayer::CanAirDash: a scout's one dash; attributes that add more are not read.
-            if (scout && _player.AirDash < 1)
+            if (CanAirDash())
             {
                 AirDash();
                 _player.AirDucked = 0;
@@ -971,13 +1003,16 @@ public sealed class TfGameMovement
         PreventBunnyJumping();
         SetGroundEntity(null);
 
+        // :1277-1315: m_pSurfaceData survives SetGroundEntity( NULL ), so this is the ground just left.
+        float mul = JumpImpulse * JumpMod() * (_player.Surface?.JumpFactor ?? 1f);
+
         if (_player.Ducking || _player.FlDucking)
         {
-            _player.Velocity = _player.Velocity with { Z = JumpImpulse };
+            _player.Velocity = _player.Velocity with { Z = mul };
         }
         else
         {
-            _player.Velocity = _player.Velocity with { Z = _player.Velocity.Z + JumpImpulse };
+            _player.Velocity = _player.Velocity with { Z = _player.Velocity.Z + mul };
         }
 
         FinishGravity();
@@ -994,8 +1029,58 @@ public sealed class TfGameMovement
             (forward.Y * _forwardMove) + (right.Y * _sideMove),
             0f);
 
-        _player.Velocity = wish with { Z = AirDashZ };
+        _player.Velocity = wish with { Z = AirDashZ * JumpMod() };
         _player.AirDash++;
+    }
+
+    /// <summary>
+    /// <c>flJumpMod</c> (<c>tf_gamemovement.cpp:997-1020</c>, <c>:1287-1313</c>): <c>mod_jump_height</c> on the player, then
+    /// <c>mod_jump_height_from_weapon</c> on the active weapon, then 1.8 for the agility rune.
+    /// </summary>
+    private float JumpMod()
+    {
+        float mod = Items.OnWeapon("mod_jump_height_from_weapon", Items.OnPlayer("mod_jump_height", 1f));
+
+        // GetCarryingRuneType() == RUNE_AGILITY: the rune's condition (tf_shareddefs.h:2671).
+        return _player.Conditions.Has(CondRuneAgility) ? mod * 1.8f : mod;
+    }
+
+    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>) past its taunt test.</summary>
+    private bool CanJump() => Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
+
+    /// <summary><c>CTFPlayer::CanAirDash</c> (<c>tf_player_shared.cpp:12840</c>).</summary>
+    /// <remarks>
+    /// *Not ported:* the Atomizer's third-jump test (<c>:12867-12873</c>), which needs the weapon's last deploy time; a third dash
+    /// within 0.7 s of deploying is allowed here.
+    /// </remarks>
+    private bool CanAirDash()
+    {
+        PlayerConditions conditions = _player.Conditions;
+
+        if (conditions.Has(CondKart))
+        {
+            return false;
+        }
+
+        if (conditions.Has(CondHalloweenSpeedBoost))
+        {
+            return true;
+        }
+
+        if (_player.PlayerClass != ClassScout)
+        {
+            return false;
+        }
+
+        if (conditions.Has(CondSodaPopperHype))
+        {
+            return _player.AirDash < 5;
+        }
+
+        // tf_scout_air_dash_count, FCVAR_DEVELOPMENTONLY with a default of 1 (tf_player_shared.cpp:113).
+        int dashCount = HookInt(Items.OnWeapon("air_dash_count", 1f));
+
+        return _player.AirDash < dashCount && HookInt(Items.OnPlayer("set_scout_doublejump_disabled", 0f)) != 1;
     }
 
     private void PreventBunnyJumping()
@@ -1196,12 +1281,20 @@ public sealed class TfGameMovement
 
         float cap = 30f;
 
+        // tf_gamemovement.cpp:2081-2094.
+        float airControl = Items.OnPlayer("mod_air_control", 1f);
+
+        if (_player.Conditions.Has(CondBlastJumping))
+        {
+            airControl = Items.OnPlayer("mod_air_control_blast_jump", airControl);
+        }
+
         if (_player.Conditions.Has(CondRocketPack))
         {
             cap *= 0.5f;
         }
 
-        return cap;
+        return cap * airControl;
     }
 
     private void AirMove()
@@ -1451,7 +1544,12 @@ public sealed class TfGameMovement
         TryPlayerMove(destination, saveTrace, 0f);
     }
 
-    private float Gravity => _convars.Gravity;
+    /// <summary>
+    /// <c>ent_gravity · GetCurrentGravity()</c> (<c>gamemovement.cpp:1250-1257</c>): <c>GetGravity()</c> when nonzero, times
+    /// <c>sv_gravity · GetGravityMultiplier()</c> (<c>movevars_shared.cpp:25-35</c>). The multiplier is 1 here: <c>C_TFGameRules</c>
+    /// sets it to 1.0 (<c>tf_gamerules.cpp:3450</c>) and no demo measured carries it (probe <c>schema</c>, 2009 to 2026).
+    /// </summary>
+    private float Gravity => (_player.Gravity != 0f ? _player.Gravity : 1f) * _convars.Gravity;
 
     private void StartGravity()
     {

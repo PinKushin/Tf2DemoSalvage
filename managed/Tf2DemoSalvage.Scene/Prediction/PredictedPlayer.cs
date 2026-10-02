@@ -1,5 +1,7 @@
+using System;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
@@ -98,6 +100,31 @@ public record struct PredictedPlayer
 
     /// <summary><c>m_StuckLast</c>: the next <c>rgv3tStuckTable</c> entry to try (<c>gamemovement.cpp:3362</c>).</summary>
     public int StuckLast { get; set; }
+
+    /// <summary>
+    /// <c>m_pSurfaceData</c>: the ground's surfaceprop as <c>CategorizeGroundSurface</c> last set it; null for none, which reads as
+    /// factors of 1 (<c>gamemovement.cpp:1004</c>, <c>tf_gamemovement.cpp:1279</c>).
+    /// </summary>
+    public VphysicsSurface? Surface { get; set; }
+
+    /// <summary><c>GetGravity()</c>, <c>m_flGravity</c>; 0 reads as 1.</summary>
+    public float Gravity { get; set; }
+}
+
+/// <summary>What <c>CTFGameMovement</c> asks the player's items: <c>CALL_ATTRIB_HOOK_*_ON_OTHER</c> and <c>OwnerCanJump</c> (B450).</summary>
+/// <param name="OnPlayer">The hook on <c>m_pTFPlayer</c>: attribute class and value in, hooked value out.</param>
+/// <param name="OnActiveWeapon">The hook on <c>GetActiveTFWeapon()</c>; null for no active weapon, which hooks nothing.</param>
+/// <param name="OwnerCanJump">The active weapon's <c>OwnerCanJump()</c>; true without one.</param>
+public sealed record MovementItems(Func<string, float, float> OnPlayer, Func<string, float, float>? OnActiveWeapon, bool OwnerCanJump)
+{
+    /// <summary>No attributes and no weapon.</summary>
+    public static MovementItems None { get; } = new((_, value) => value, null, true);
+
+    /// <summary><c>CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pWpn, … )</c>, skipped without a weapon.</summary>
+    /// <param name="attributeClass">The hook.</param>
+    /// <param name="value">The value hooked.</param>
+    /// <returns>The hooked value.</returns>
+    public float OnWeapon(string attributeClass, float value) => OnActiveWeapon?.Invoke(attributeClass, value) ?? value;
 }
 
 /// <summary>The replicated ConVars <c>CGameMovement</c> reads, as the server set them (D106, D205).</summary>

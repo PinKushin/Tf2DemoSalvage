@@ -1144,6 +1144,10 @@ internal class MainForm : Form, IFrameSteps
         _demoSystems.Arrows = () => _loaded?.Arrows;
         _demoSystems.World = () => _loaded?.Level;
 
+        // The ground's surface data, through the same texinfo-to-surfaceprop route a footstep and an impact take.
+        _demoSystems.GroundSurface = trace =>
+            _loaded?.ImpactDecals is { } decals ? _game?.Surfaces?.GetSurfaceData(decals.SurfacePropOfTrace(trace)) : null;
+
         _demoSystems.Gibs = model =>
         {
             if (_game is not { } install)

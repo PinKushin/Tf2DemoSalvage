@@ -150,6 +150,12 @@ internal static class VphysicsSurfaceData
                 {
                     Game = value.Length == 1 && (uint)(value[0] - '0') > 9 ? char.ToUpperInvariant(value[0]) : (short)Atoi(value),
                 };
+            // `surfacegameprops_t`'s movement half (`vphysics_interface.h:942-946`); key names as the shipped
+            // `scripts/surfaceproperties.txt` spells them. *Published header and shipped data; the parser's branch unread.*
+            case "jumpfactor":
+                return staged with { JumpFactor = (float)Atof(value) };
+            case "maxspeedfactor":
+                return staged with { MaxSpeedFactor = (float)Atof(value) };
             case "friction":
                 physics = physics with { Friction = (float)Atof(value) };
                 break;
@@ -175,8 +181,27 @@ internal static class VphysicsSurfaceData
     /// <summary>A block's surface as it is being parsed: what `base` copies and a key replaces.</summary>
     private readonly record struct Staged(SurfacePhysicsParams Physics, int Game, SurfaceSoundNames Sounds, SurfaceAudio Audio)
     {
+        public float JumpFactor { get; init; }
+
+        public float MaxSpeedFactor { get; init; }
+
         public static Staged Of(VphysicsSurface? surface) =>
-            surface is null ? default : new(surface.Physics, surface.GameMaterial, surface.Sounds, surface.Audio);
+            surface is null
+                ? default
+                : new(surface.Physics, surface.GameMaterial, surface.Sounds, surface.Audio)
+                {
+                    JumpFactor = surface.JumpFactor,
+                    MaxSpeedFactor = surface.MaxSpeedFactor,
+                };
+
+        public VphysicsSurface Build(string name, bool hasSecondFriction) => new(name, Physics, hasSecondFriction)
+        {
+            GameMaterial = Game,
+            Sounds = Sounds,
+            Audio = Audio,
+            JumpFactor = JumpFactor,
+            MaxSpeedFactor = MaxSpeedFactor,
+        };
     }
 
     private static void Close(VphysicsSurfaceProps props, string name, Staged staged)
@@ -185,21 +210,14 @@ internal static class VphysicsSurfaceData
 
         if (index < 0)
         {
-            props.Add(new VphysicsSurface(name, staged.Physics, false) { GameMaterial = staged.Game, Sounds = staged.Sounds, Audio = staged.Audio });
+            props.Add(staged.Build(name, false));
             return;
         }
 
         VphysicsSurface target = props.GetIVPMaterial(index) ??
             throw new InvalidOperationException($"The surface '{name}' closes onto index {index}, which names no surface.");
 
-        props.Replace(
-            target,
-            new VphysicsSurface(target.Name, staged.Physics, target.HasSecondFriction)
-            {
-                GameMaterial = staged.Game,
-                Sounds = staged.Sounds,
-                Audio = staged.Audio,
-            });
+        props.Replace(target, staged.Build(target.Name, target.HasSecondFriction));
     }
 
     /// <summary>The C runtime's `atoi`: leading whitespace, a sign, digits, stopping at the first other character.</summary>
