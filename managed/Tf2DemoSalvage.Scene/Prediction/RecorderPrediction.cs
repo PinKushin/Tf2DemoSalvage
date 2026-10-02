@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -18,9 +19,8 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// commands from <c>incoming_acknowledged + 1</c> to the last one made. So it holds after a seek or a rewind exactly as
 /// after a packet: nothing is carried between frames.
 ///
-/// **Player boxes are in the world it moves through**: <c>CTFGameMovement::PlayerSolidMask</c>
-/// (<c>tf_gamemovement.cpp:259</c>) adds the other team's contents, so enemies block him and team-mates do not. They
-/// stand where they were at the packet's tick. Buildings (<c>CTraceFilterObject</c>) are not boxes here, filed in B450.
+/// **The world it moves through is <see cref="MovementWorld"/>** at the packet's tick: the map, brush entities by TF's
+/// filter, buildings, and enemy players, who stand where they were then.
 /// </remarks>
 public sealed class RecorderPrediction
 {
@@ -28,6 +28,8 @@ public sealed class RecorderPrediction
     private readonly Func<MapLevel?> _world;
     private readonly MovementConVars _convars;
 
+    private MapLevel? _brushLevel;
+    private IReadOnlyList<(ScenePropTrack Track, int HeadNode)> _brushTracks = [];
     private double _askedTick = double.NaN;
     private (float X, float Y, float Z)? _answer;
 
@@ -40,6 +42,42 @@ public sealed class RecorderPrediction
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         _world = world ?? throw new ArgumentNullException(nameof(world));
         _convars = MovementConVars.From(timeline.ServerConVars);
+    }
+
+    /// <summary>The item schema's attribute hooks, asked per prediction because the schema loads on its own schedule; null for none.</summary>
+    public Func<AttributeHooks?>? Hooks { get; init; }
+
+    /// <summary>The surface data a ground trace stands on (<see cref="TfGameMovement.GroundSurface"/>); null for none.</summary>
+    public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
+
+    /// <summary>What the movement asks a player's items, as of his networked state.</summary>
+    /// <param name="recorder">The player.</param>
+    /// <param name="hooks">The attribute hooks; null hooks nothing.</param>
+    /// <returns>The hooks on him and his active weapon, and that weapon's <c>OwnerCanJump</c>.</returns>
+    /// <remarks>
+    /// <c>OwnerCanJump</c> is true but for <c>CTFCompoundBow</c>, false while <c>GetInternalChargeBeginTime()</c> is nonzero
+    /// (<c>tf_weapon_compound_bow.cpp:657-660</c>, <c>tf_weaponbase.h:339</c>) — the bow's networked <c>m_flChargeBeginTime</c>.
+    /// </remarks>
+    public static MovementItems ItemsOf(ScenePlayer recorder, AttributeHooks? hooks)
+    {
+        SceneItem? active = null;
+
+        foreach (SceneItem item in recorder.Items ?? [])
+        {
+            if (item.EntityIndex == recorder.ActiveWeapon)
+            {
+                active = item;
+            }
+        }
+
+        Func<string, float, float> onPlayer = hooks is null
+            ? MovementItems.None.OnPlayer
+            : (name, value) => hooks.OnPlayer(recorder, name, value);
+        Func<string, float, float>? onWeapon = hooks is null || active is null
+            ? null
+            : (name, value) => hooks.OnWeapon(recorder, active, name, value);
+
+        return new MovementItems(onPlayer, onWeapon, active is not { ClassName: "CTFCompoundBow", ChargeBeginTime: not 0f });
     }
 
     /// <summary>The recorder's predicted <c>m_vecVelocity</c> at a moment of playback.</summary>
@@ -96,15 +134,43 @@ public sealed class RecorderPrediction
             }
         }
 
-        if (found is not { IsAlive: true, MaxSpeed: { } maxSpeed } recorder)
+        if (found is not { IsAlive: true, MaxSpeed: not null } recorder)
         {
             return null;
         }
 
+        if (!ReferenceEquals(_brushLevel, level))
+        {
+            _brushTracks = level.BrushModels is { } models ? MovementWorld.BrushTracks(_timeline.Props, models) : [];
+            _brushLevel = level;
+        }
+
+        AttributeHooks? hooks = Hooks?.Invoke();
+        MovementWorld world = MovementWorld.At(_timeline, _brushTracks, level, packet.Tick, recorder);
+        TfGameMovement movement = new(world.Trace, _convars, _timeline.MaxClients)
+        {
+            Items = ItemsOf(recorder, hooks),
+            GroundSurface = GroundSurface,
+
+            // Without the eye height CheckWater cannot place its eye point; the networked water level then stands.
+            PointContents = recorder.ViewOffsetZ is null || level.Leaves is not { } leaves
+                ? null
+                : point => leaves.ContentsAt(point.X, point.Y, point.Z),
+        };
+        PredictedPlayer player = Restore(recorder, _timeline.IntervalPerTick, packet.Tick);
+
+        // m_isPassingThroughEnemies is the movement object's own and is not networked; the client carries it from the
+        // last CheckStuck. *Interpolated:* the restore takes what that check would conclude here — inside an enemy or not.
+        Vector3 maxs = new(24f, 24f, player.Ducked ? 62f : 82f);
+
+        player.PassingThroughEnemies =
+            world.Trace(player.Origin, player.Origin, new Vector3(-24f, -24f, 0f), maxs, MovementWorld.MaskPlayerSolid | EnemyContents(player.Team))
+            is { StartSolid: true, BrushEntity: > 0 and var entity } && entity <= _timeline.MaxClients;
+
+        // The movement modes' inputs (B450).
         int flags = recorder.Flags ?? 0;
-        (float X, float Y, float Z) velocity = recorder.Velocity ?? default;
-        float packetTime = packet.Tick * _timeline.IntervalPerTick;
-        float lastCommandTime = (packet.Tick + pending.Count) * _timeline.IntervalPerTick;
+        float packetTime = player.CurTime;
+        float lastCommandTime = packetTime + (pending.Count * _timeline.IntervalPerTick);
 
         if (!TryGrapple(players, recorder, out GrapplingTarget? grapple) ||
             StunExpireTime(packet.Tick, recorder) is not { } stunExpireTime ||
@@ -113,19 +179,8 @@ public sealed class RecorderPrediction
             return null;
         }
 
-        PredictedPlayer player = new()
+        player = player with
         {
-            Origin = new Vector3(recorder.X, recorder.Y, recorder.Z),
-            Velocity = new Vector3(velocity.X, velocity.Y, velocity.Z),
-            OnGround = (flags & OnGroundFlag) != 0,
-            Ducked = (flags & DuckingFlag) != 0,
-            FlDucking = (flags & DuckingFlag) != 0,
-            MaxSpeed = maxSpeed,
-            PlayerClass = recorder.PlayerClass ?? 0,
-            Conditions = recorder.Conditions,
-            PlayerState = recorder.PlayerState,
-            WaterLevel = recorder.WaterLevel ?? 0,
-            CurTime = packetTime,
             ViewOffsetZ = recorder.ViewOffsetZ ?? 0f,
             WaterJumpUnknown = (flags & WaterJumpFlag) != 0,
             StunActive = recorder.StunIndex is >= 0,
@@ -145,22 +200,11 @@ public sealed class RecorderPrediction
             ? Math.Clamp(player.StunAmount, 0, 255) / 255f
             : 0f;
 
-        List<(Vector3 Min, Vector3 Max)> enemies = Enemies(players, recorder);
-        TfGameMovement movement = new(
-            (start, end, mins, maxs, mask) => Trace(level, enemies, start, end, mins, maxs, mask),
-            _convars)
-        {
-            // Without the eye height CheckWater cannot place its eye point; the networked water level then stands.
-            PointContents = recorder.ViewOffsetZ is null || level.Leaves is not { } leaves
-                ? null
-                : point => leaves.ContentsAt(point.X, point.Y, point.Z),
-        };
-
         bool first = true;
 
         foreach (RecordedUserCommand command in pending)
         {
-            if (!movement.ProcessMovement(ref player, command.Command, _timeline.IntervalPerTick, first))
+            if (!movement.ProcessMovement(ref player, command.Command, _timeline.IntervalPerTick, first, command.Sequence))
             {
                 return null;
             }
@@ -169,6 +213,71 @@ public sealed class RecorderPrediction
         }
 
         return (player.Velocity.X, player.Velocity.Y, player.Velocity.Z);
+    }
+
+    private static int EnemyContents(int? team) => team switch
+    {
+        2 => MovementWorld.ContentsBlueTeam,
+        3 => MovementWorld.ContentsRedTeam,
+        _ => 0,
+    };
+
+    /// <summary>
+    /// The recorder's last networked state as <c>CPrediction::_Update</c> restores it: position, velocity, flags, and
+    /// <c>DT_Local</c>'s duck and jump state where the demo carries it.
+    /// </summary>
+    /// <param name="recorder">The recorder at the packet.</param>
+    /// <param name="intervalPerTick">The tick interval.</param>
+    /// <param name="packetTick">The packet's tick, <c>curtime</c>'s fallback when <c>m_nTickBase</c> is unsent.</param>
+    /// <returns>The player prediction starts from.</returns>
+    internal static PredictedPlayer Restore(ScenePlayer recorder, float intervalPerTick, int packetTick)
+    {
+        int flags = recorder.Flags ?? 0;
+        (float X, float Y, float Z) velocity = recorder.Velocity ?? default;
+        bool flDucking = (flags & DuckingFlag) != 0;
+
+        PredictedPlayer player = new()
+        {
+            Origin = new Vector3(recorder.X, recorder.Y, recorder.Z),
+            Velocity = new Vector3(velocity.X, velocity.Y, velocity.Z),
+            OnGround = (flags & OnGroundFlag) != 0,
+            Ducked = flDucking,
+            FlDucking = flDucking,
+            MaxSpeed = recorder.MaxSpeed ?? 0f,
+            PlayerClass = recorder.PlayerClass ?? 0,
+            Conditions = recorder.Conditions,
+            PlayerState = recorder.PlayerState,
+            WaterLevel = recorder.WaterLevel ?? 0,
+            CurTime = packetTick * intervalPerTick,
+            Team = recorder.Team,
+            EntityIndex = recorder.EntityIndex,
+            Gravity = recorder.Gravity,
+
+            // m_pSurfaceData is client state from the last prediction, not networked. *Interpolated:* none, so the first
+            // command's CheckParameters reads a speed factor of 1 until CategorizePosition finds the ground.
+        };
+
+        if (recorder.Movement is not { } local)
+        {
+            return player;
+        }
+
+        return player with
+        {
+            Ducked = local.Ducked,
+            Ducking = local.Ducking,
+            InDuckJump = local.InDuckJump,
+            DuckTime = local.DuckTime,
+            DuckJumpTime = local.DuckJumpTime,
+            JumpTime = local.JumpTime,
+            FallVelocity = local.FallVelocity,
+            AllowAutoMovement = local.AllowAutoMovement,
+            BaseVelocity = new Vector3(local.BaseVelocity.X, local.BaseVelocity.Y, local.BaseVelocity.Z),
+            AirDash = local.AirDash,
+            AirDucked = local.AirDucked,
+            DuckTimer = local.DuckTimer,
+            CurTime = local.TickBase is { } tickBase ? tickBase * intervalPerTick : player.CurTime,
+        };
     }
 
     /// <summary><c>FL_ONGROUND</c> and <c>FL_DUCKING</c> (<c>const.h:148-149</c>), the two bits every era agrees on.</summary>
@@ -187,9 +296,6 @@ public sealed class RecorderPrediction
 
     /// <summary><c>StunMove</c>'s fade out: <c>RemapValClamped( dt, 0.2, 0.0, … )</c> (<c>tf_gamemovement.cpp:594</c>).</summary>
     private const float StunFadeSeconds = 0.2f;
-
-    /// <summary><c>CONTENTS_MONSTER</c>: a mask without it — a ghost's — passes through players.</summary>
-    private const int ContentsMonster = 0x2000000;
 
     /// <summary>
     /// <c>GetGrapplingHookTarget()</c> resolved; false when the hook's target is one this class cannot place — a hook
@@ -375,115 +481,4 @@ public sealed class RecorderPrediction
         return low == 0 ? null : packets[low - 1];
     }
 
-    private static List<(Vector3 Min, Vector3 Max)> Enemies(IReadOnlyList<ScenePlayer> players, ScenePlayer recorder)
-    {
-        List<(Vector3, Vector3)> boxes = [];
-
-        foreach (ScenePlayer other in players)
-        {
-            if (other.EntityIndex == recorder.EntityIndex || !other.IsAlive || other.Team is null || other.Team == recorder.Team)
-            {
-                continue;
-            }
-
-            float top = ((other.Flags ?? 0) & DuckingFlag) != 0 ? 62f : 82f;
-            Vector3 origin = new(other.X, other.Y, other.Z);
-
-            boxes.Add((origin + new Vector3(-24f, -24f, 0f), origin + new Vector3(24f, 24f, top)));
-        }
-
-        return boxes;
-    }
-
-    private static BspTrace? Trace(
-        MapLevel level,
-        List<(Vector3 Min, Vector3 Max)> enemies,
-        Vector3 start,
-        Vector3 end,
-        Vector3 mins,
-        Vector3 maxs,
-        int mask)
-    {
-        if (level.TraceHull(
-                (start.X, start.Y, start.Z), (end.X, end.Y, end.Z), (mins.X, mins.Y, mins.Z), (maxs.X, maxs.Y, maxs.Z), mask, [])
-            is not { } nearest)
-        {
-            return null;
-        }
-
-        foreach ((Vector3 min, Vector3 max) in (mask & ContentsMonster) != 0 ? enemies : [])
-        {
-            if (SweepBox(start, end, min - maxs, max - mins) is { } hit && hit.Fraction < nearest.Fraction)
-            {
-                nearest = hit;
-            }
-        }
-
-        return nearest;
-    }
-
-    /// <summary>A point swept against a box already grown by the player's: the slab test, stopping <c>DIST_EPSILON</c> short.</summary>
-    internal static BspTrace? SweepBox(Vector3 start, Vector3 end, Vector3 min, Vector3 max)
-    {
-        Vector3 delta = end - start;
-        float enter = -1f;
-        float leave = 1f;
-        Vector3 normal = Vector3.Zero;
-        bool startsOutside = false;
-
-        for (int axis = 0; axis < 3; axis++)
-        {
-            float s = start[axis];
-            float d = delta[axis];
-
-            // The two planes of this slab, as CM_ClipBoxToBrush sees a brush's sides: distance outside each.
-            foreach ((float outside, float along, float sign) in new[] { (s - max[axis], d, 1f), (min[axis] - s, -d, -1f) })
-            {
-                float startDistance = outside;
-                float endDistance = outside + along;
-
-                if (startDistance > 0f)
-                {
-                    startsOutside = true;
-                }
-
-                if (startDistance > 0f && endDistance >= 0f)
-                {
-                    return null;
-                }
-
-                if (startDistance <= 0f && endDistance <= 0f)
-                {
-                    continue;
-                }
-
-                if (startDistance > endDistance)
-                {
-                    float fraction = (startDistance - 0.03125f) / (startDistance - endDistance);
-
-                    if (fraction > enter)
-                    {
-                        enter = fraction;
-                        normal = Vector3.Zero;
-                        normal[axis] = sign;
-                    }
-                }
-                else
-                {
-                    leave = MathF.Min(leave, (startDistance + 0.03125f) / (startDistance - endDistance));
-                }
-            }
-        }
-
-        // Already inside an enemy: CTFGameMovement::CheckStuck sets m_isPassingThroughEnemies (tf_gamemovement.cpp:1404)
-        // and he stops colliding with them until clear — so a box he starts in does not stop him.
-        if (!startsOutside)
-        {
-            return null;
-        }
-
-        return enter < leave && enter >= 0f
-            ? new BspTrace(enter, -1, (normal.X, normal.Y, normal.Z), false)
-            : null;
-    }
 }

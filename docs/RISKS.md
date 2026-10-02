@@ -8220,13 +8220,66 @@ guessed at in code.
   `m_flOldForwardMove` starting at 0 for a kart's reverse stall, water in brush entities (leaf contents only), and the
   control stun's animation as not yet started when `m_flStunEnd` is rebuilt. *Interpolated:* the client's clock on
   receiving a packet is the packet's tick, and `abs` in the parachute's drag is the float overload.
-  **Still open, each a default in the port:** item attributes (`mod_jump_height`, `mod_air_control`,
-  extra air dashes, forward pull), the ground's surfaceprop (friction, jump and speed factors), a moving ground's
-  velocity, `m_flGravity` and the game-rules gravity multiplier, `CanJump`/`CanDuck`, `CheckStuck`, buildings as
-  boxes, brush entities (doors) in the trace, per-tick ConVars (the last value sent is used), and `m_flDucktime` and
-  the other `DT_Local` duck fields, which start from `FL_DUCKING` alone. D175's sticking friction is vphysics and is
-  not on this path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and
-  props, and no world answering null rather than clear — landed first on `fix/hull-trace-extents`.
+  **Closed 2026-10-02 (`fix/d205-attributes-surfaces`):** item attributes, the ground's surfaceprop, `m_flGravity`,
+  `CanJump`/`CanDuck`/`CanAirDash`. `TfGameMovement` hooks `mod_jump_height` and `mod_jump_height_from_weapon`
+  (`tf_gamemovement.cpp:1294-1300`, `:999-1005`), the agility rune's 1.8 (`:1310`), `mod_air_control` and
+  `mod_air_control_blast_jump` (`:2081-2094`), `CanAirDash` (`tf_player_shared.cpp:12840`: `air_dash_count` on the
+  active weapon, `set_scout_doublejump_disabled`, soda-popper hype, the Halloween speed boost, karts), `CanJump`
+  (`:12276`: `no_jump`, the bow's `OwnerCanJump` off its `m_flChargeBeginTime`) and `CanDuck` (`:12298`, `no_duck`)
+  through `AttributeHooks` over the recorder's carried items — the combine rules are `ItemSchema.Apply`'s.
+  `CategorizeGroundSurface` (`gamemovement.cpp:919`) sets `m_pSurfaceData` by the texinfo-to-surfaceprop route a
+  footstep takes and friction · 1.25 up to 1; `CheckParameters` scales max speed by `maxSpeedFactor` (`:1006`), and the
+  jump by `jumpFactor` (`tf_gamemovement.cpp:1281`); the parser reads both keys (`vphysics_interface.h:942`). Gravity is
+  `m_flGravity` when nonzero (`gamemovement.cpp:1250`), read off `DT_BaseEntity` — on the wire in a 2026 demo, absent
+  from the 2009, 2013 and an ESEA one (*measured*, probe `schema`, control `m_vecVelocity` found). The game rules'
+  multiplier is on no demo's wire and `C_TFGameRules` sets it to 1.0 (`tf_gamerules.cpp:3450`), so 1 stands.
+  `CorpusRecorderPredictionTests`, now wired to `items_game.txt` and the surfaces: predicted mean 10.123, median 0, max
+  906 — **unchanged to 0.001** (held 25.725); badlands' surfaces all scale to friction 1 and the 2009 recorder carries
+  no movement attribute. Scaling friction by 1.0 instead of 1.25 moves it to 13.1, so the route is live.
+  *Interpolated:* `m_pSurfaceData` is not networked, so the first re-run command starts with none (factor 1) until
+  `CategorizePosition` finds the ground.
+- **Brush entities, buildings, CheckStuck, the DT_Local duck state and the ground's velocity** — **FIXED 2026-10-02
+  (`fix/d205-trace-gaps`).** *Evidence class: published source plus synthetic tests; the corpus number is measured.*
+  - **The trace filter** is `CTFGameMovement::TracePlayerBBox`'s `CTraceFilterObject` over `CTraceFilterSimple` with
+    `COLLISION_GROUP_PLAYER_MOVEMENT` (`tf_gamemovement.cpp:2223-2328`, `util_shared.cpp:241-314`). `MASK_PLAYERSOLID`
+    carries `CONTENTS_MONSTER|WINDOW|MOVEABLE` (`bspflags.h:108`), so `StandardFilterRules` passes everything and the
+    entity's `ShouldCollide` plus `CTFGameRules::ShouldCollide` (`tf_gamerules.cpp:18000`, falling to
+    `gamerules.cpp:676`) decide. `MovementWorld` carries it: every `*N` brush entity that is `SOLID_BSP` and not
+    `FSOLID_NOT_SOLID` at the packet's tick, by its networked `m_Collision` and `m_CollisionGroup` (now kept per change
+    on `ScenePropTrack`), with the respawn wall's and force field's rule — off on a team win, never unassigned, and only
+    against a mask carrying the wall's team, which is the enemy's (`c_func_respawnroom.cpp:69-97`,
+    `c_func_forcefield.cpp:45-73`). Worth knowing: `COLLISION_GROUP_PASSABLE_DOOR` is refused to `COLLISION_GROUP_PLAYER`
+    alone (`gamerules.cpp:710`), so a passable door still stops movement.
+  - **Buildings** are `SOLID_BBOX` boxes, world-aligned, of either team: `CTraceFilterObject` hits his own
+    (`:2234-2255`) and no rule refuses `TFCOLLISION_GROUP_OBJECT` or `_SOLIDTOPLAYERMOVEMENT` (`tf_obj.cpp:3368`); a
+    blueprint is `FSOLID_NOT_SOLID` (`:881`).
+  - **CheckStuck** is TF's over the base's (`tf_gamemovement.cpp:1352-1447`, `gamemovement.cpp:3384-3473`), on
+    `CheckInterval`'s `(command + entindex) % 66` (`:648-701`), with `rgv3tStuckTable` and the client's 54 world nudges.
+    It replaces the old sweep's "a box he starts in never stops him", which stood in for `m_isPassingThroughEnemies`.
+    That flag and `m_flStuckCheckTime` are the movement object's own and are never networked: the restore takes the flag
+    as what a check would conclude at the restored origin, and one frame passes the time gate once. *Interpolated, both.*
+    The `func_tracktrain` branch cannot run on a client: `DT_FuncTrackTrain` sends no velocity.
+  - **The ground's velocity is zero on the client**, so this is a port, not a default: no `DT_BaseEntity`, `DT_BaseDoor`
+    or `DT_FuncTrackTrain` field carries `m_vecVelocity` (`c_baseentity.cpp:438-485`, `c_basedoor.cpp:17-19`), so
+    `SetGroundEntity`'s add and subtract are zero and only its `z` takeover remains (`gamemovement.cpp:3618-3629`).
+    `m_vecBaseVelocity` itself is networked (`c_baseplayer.cpp:246`) and is restored. *Interpolated:* a player
+    standing on another's head takes that player's velocity as zero too.
+  - **The duck state** starts from `DT_Local` (`playerlocaldata.cpp:30-35`, `:49`, `:59`) — `m_bDucked`, `m_bDucking`,
+    `m_bInDuckJump`, `m_flDucktime`, `m_flDuckJumpTime`, `m_flJumpTime`, `m_flFallVelocity`, `m_bAllowAutoMovement` —
+    plus `m_nTickBase` for `curtime` and `m_Shared`'s duck timer, air ducks and air dash. The read found two branches the
+    port lacked: `DuckOverrides` refuses a duck at the feet in the air or at the eyes (`:3184`), and `OnUnDuck` skips the
+    unduck without `m_bAllowAutoMovement` on the ground (`:3306`).
+  - **Measured**, `CorpusRecorderPredictionTests` on the same 9,783 gaps: predicted mean 10.123 → 10.114 u/s, median 0
+    → 0, max 905.942 → 905.942; holding the last packet 25.725. The 2009 badlands demo is a solo recording, so it has
+    no enemies or buildings to meet, and the gain is small and honest: what this closes is mostly not in that sample.
+    The before figure, 10.123, is the same with or without the attributes/surfaces/gravity merge, which left it unchanged.
+- **Still open across D205's port, each a default:** `GetMovementForwardPull` (`firing_forward_pull` needs the weapon's
+  `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, `IsLoser`'s duck crop,
+  `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), **a brush entity with angles**,
+  left out of the trace (`CM_TransformedBoxTrace` rotates the ray into the model and the subtree walk here does not),
+  and the movement modes' declines and defaults listed above. D175's sticking friction is vphysics and is not on this
+  path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and props, and no
+  world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
   than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
   start). It is correct but not cheap when scrubbing backward.

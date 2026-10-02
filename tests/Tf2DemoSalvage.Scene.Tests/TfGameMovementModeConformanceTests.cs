@@ -36,7 +36,7 @@ public sealed class TfGameMovementModeConformanceTests
     private const int StunForwardOnly = 1 << 2;
 
     private const int ContentsWater = 0x20;
-    private const int ContentsMonster = 0x2000000;
+    private const int ContentsBlueTeam = 0x1000;
 
     // ---- Water: CheckWater, FullWalkMoveUnderwater, WaterMove, CheckWaterJumpButton ----
 
@@ -125,9 +125,9 @@ public sealed class TfGameMovementModeConformanceTests
     [Test]
     public void ProcessMovement_AGhost_TracesTheWorldOnly()
     {
-        // PlayerSolidMask (:264): MASK_PLAYERSOLID_BRUSHONLY for a ghost; anyone else adds CONTENTS_MONSTER (players).
-        PredictedPlayer ghost = InTheOpen() with { Conditions = Cond(CondGhost) };
-        PredictedPlayer walker = InTheOpen();
+        // PlayerSolidMask (:264): MASK_PLAYERSOLID_BRUSHONLY for a ghost; a RED player adds CONTENTS_BLUETEAM (:273).
+        PredictedPlayer ghost = InTheOpen() with { Conditions = Cond(CondGhost), Team = 2 };
+        PredictedPlayer walker = InTheOpen() with { Team = 2 };
         List<int> ghostMasks = [];
         List<int> walkerMasks = [];
 
@@ -135,7 +135,7 @@ public sealed class TfGameMovementModeConformanceTests
         Run(ref walker, Command(), trace: Recording(walkerMasks));
 
         ghostMasks.ShouldAllBe(mask => mask == BspLeafTree.MaskPlayerSolid);
-        walkerMasks.ShouldAllBe(mask => mask == (BspLeafTree.MaskPlayerSolid | ContentsMonster));
+        walkerMasks.ShouldAllBe(mask => mask == (BspLeafTree.MaskPlayerSolid | ContentsBlueTeam));
     }
 
     // ---- Stuns: StunMove (:537) ----
@@ -366,10 +366,10 @@ public sealed class TfGameMovementModeConformanceTests
 
     private static bool Run(
         ref PredictedPlayer player, UserCommand command, Func<Vector3, int>? contents = null, PlayerTraceRay? trace = null) =>
-        new TfGameMovement(trace ?? TfGameMovementConformanceTests.Floor(), MovementConVars.Defaults)
+        new TfGameMovement(trace ?? TfGameMovementConformanceTests.Floor(), MovementConVars.Defaults, maxClients: 24)
         {
             PointContents = contents ?? Water(-1000f),
-        }.ProcessMovement(ref player, command, Tick, first: true);
+        }.ProcessMovement(ref player, command, Tick, first: true, commandNumber: 1);
 
     private static UserCommand Command(float forward = 0f, uint buttons = 0) =>
         TfGameMovementConformanceTests.Command(forward, buttons);

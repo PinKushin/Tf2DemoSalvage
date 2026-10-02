@@ -225,8 +225,14 @@ public sealed class PlayerCompletenessTests
         DisguiseSkinOverride = 1,
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
+
+        // The recorder's restored movement state (B450), present where anyone else's is null.
+        Movement = new SceneLocalMovement { Ducked = true, DuckTime = 812.5f, TickBase = 4000 },
         WeaponAccountId = 1234u,
         DeathTime = 77.25f,
+
+        // Half gravity, since 0 is both the default and "unset" (D205's prediction reads it as 1).
+        Gravity = 0.5f,
         WeaponQuality = 6,
         HasTheFlag = true,
         Medigun = (0.5f, 6, 29),

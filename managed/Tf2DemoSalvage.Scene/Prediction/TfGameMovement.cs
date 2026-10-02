@@ -1,6 +1,7 @@
 using System;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Scene;
@@ -21,7 +22,8 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// <c>HandleDuckingSpeedCrop</c>), <c>FullWalkMove</c>, <c>CheckJumpButton</c> with <c>AirDash</c> and
 /// <c>PreventBunnyJumping</c>, <c>Friction</c>, <c>WalkMove</c>, <c>AirMove</c>, <c>Accelerate</c>,
 /// <c>AirAccelerate</c>, <c>GetAirSpeedCap</c>, <c>TryPlayerMove</c>, <c>ClipVelocity</c>, <c>StepMove</c>,
-/// <c>StartGravity</c>, <c>FinishGravity</c>, <c>CheckVelocity</c>, <c>SetGroundEntity</c>.
+/// <c>StartGravity</c>, <c>FinishGravity</c>, <c>CheckVelocity</c>, <c>SetGroundEntity</c> with its base velocity,
+/// <c>PlayerSolidMask</c>, and <c>CheckStuck</c> (TF's over the base's, with <c>CheckInterval</c> and the stuck table).
 ///
 /// **The modes besides walking** (B450): <c>StunMove</c>, <c>TauntMove</c> with <c>VehicleMove</c>,
 /// <c>GrapplingHookMove</c>, <c>CheckWater</c>, <c>FullWalkMoveUnderwater</c>, <c>WaterMove</c>, <c>CheckWaterJump</c>,
@@ -30,10 +32,14 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// a water jump already running, whose clock the demo does not carry, and a moving taunt whose item attributes are not
 /// known. What else is taken as a default is filed under B450.
 ///
-/// **Taken as their defaults, each filed under B450:** item attributes (<c>mod_jump_height</c>, <c>mod_air_control</c>,
-/// <c>CanAirDash</c>'s extra dashes, <c>GetMovementForwardPull</c>), the ground's surfaceprop (friction, jump factor,
-/// max-speed factor all 1), a moving ground's velocity, <c>m_flGravity</c> and the game rules' gravity multiplier (1),
-/// <c>CanJump</c> and <c>CanDuck</c> (true), and <c>CheckStuck</c>, which the client runs once a second.
+/// **Read off the player** (B450): item attributes through <see cref="Items"/> (<c>mod_jump_height</c> and its weapon form,
+/// <c>mod_air_control</c> and its blast-jump form, <c>CanAirDash</c>, <c>CanJump</c>, <c>CanDuck</c>), the ground's surfaceprop
+/// through <see cref="GroundSurface"/>, and <c>m_flGravity</c>.
+///
+/// **Taken as their defaults, each filed under B450:** <c>GetMovementForwardPull</c> (0: it needs the weapon's
+/// <c>IsFiring()</c>), the Atomizer's deploy-time dash test, the game rules' gravity multiplier (1, never on the wire),
+/// and <c>IsLoser</c>'s duck crop (not a loser). A moving ground's velocity is zero because the client's is
+/// (<see cref="SetGroundEntity"/>).
 /// </remarks>
 public sealed class TfGameMovement
 {
@@ -64,6 +70,10 @@ public sealed class TfGameMovement
     private const int CondTaunting = 7;
     private const int CondStunned = 15;
     private const int CondShieldCharge = 17;
+    private const int CondSodaPopperHype = 36;
+    private const int CondHalloweenSpeedBoost = 72;
+    private const int CondBlastJumping = 81;
+    private const int CondRuneAgility = 97;
     private const int CondGhost = 77;
     private const int CondParachute = 80;
     private const int CondKart = 82;
@@ -76,7 +86,6 @@ public sealed class TfGameMovement
     private const int CondBombHead = 53;
     private const int CondThriller = 54;
     private const int CondKartDash = 83;
-    private const int CondRuneAgility = 97;
     private const int CondGrappledToPlayer = 120;
 
     /// <summary><c>GetConditionFromRuneType</c>'s conditions in <c>RuneTypes_t</c> order (<c>tf_shareddefs.h:2659</c>).</summary>
@@ -100,8 +109,6 @@ public sealed class TfGameMovement
     /// <summary><c>MASK_WATER</c> (<c>bspflags.h:112</c>).</summary>
     private const int MaskWater = ContentsWater | 0x4000 | ContentsSlime;
 
-    /// <summary><c>CONTENTS_MONSTER</c>, the bit <c>MASK_PLAYERSOLID</c> has over its brush-only form: players.</summary>
-    private const int ContentsMonster = 0x2000000;
 
     private const float WaterJumpHeight = 8f;
     private const float TfWaterJumpForward = 30f;
@@ -154,13 +161,24 @@ public sealed class TfGameMovement
     private float _clientMaxSpeed;
     private bool _speedCropped;
 
+    private readonly int _maxClients;
+
+    /// <summary><c>m_flStuckCheckTime</c>'s gate (<c>gamemovement.cpp:3455</c>): one frame runs one random-offset try.</summary>
+    private bool _stuckCheckedThisFrame;
+
+    private int _commandNumber;
+
     /// <summary>A movement simulation over a world.</summary>
     /// <param name="trace">The world, with whatever boxes block the player.</param>
     /// <param name="convars">The server's movement ConVars.</param>
-    public TfGameMovement(PlayerTraceRay trace, MovementConVars convars)
+    /// <param name="maxClients">
+    /// <c>gpGlobals->maxClients</c>: players are entities 1 to it, and it picks <c>CheckStuck</c>'s interval.
+    /// </param>
+    public TfGameMovement(PlayerTraceRay trace, MovementConVars convars, int maxClients)
     {
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _convars = convars ?? throw new ArgumentNullException(nameof(convars));
+        _maxClients = maxClients;
     }
 
     /// <summary>
@@ -168,6 +186,15 @@ public sealed class TfGameMovement
     /// networked water level and type.
     /// </summary>
     public Func<Vector3, int>? PointContents { get; init; }
+
+    /// <summary>The player's items, as the movement hooks their attributes; none by default.</summary>
+    public MovementItems Items { get; init; } = MovementItems.None;
+
+    /// <summary>
+    /// <c>GetSurfaceData( pm.surface.surfaceProps )</c> for a ground trace (<c>CategorizeGroundSurface</c>); null, or a null
+    /// answer, for no surface data — friction, jump and speed factors of 1.
+    /// </summary>
+    public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
 
     /// <summary><c>CPrediction::RunCommand</c>'s movement half: <c>SetupMove</c>, <c>ProcessMovement</c>, <c>FinishMove</c>.</summary>
     /// <param name="player">The player, advanced in place.</param>
@@ -177,10 +204,13 @@ public sealed class TfGameMovement
     /// Whether this is the first command after the networked state was restored — <c>m_bGameCodeMovedPlayer</c>, which
     /// is true when the network origin differs from the last predicted one, and asks for a full <c>CategorizePosition</c>.
     /// </param>
+    /// <param name="commandNumber"><c>CurrentCommandNumber()</c>, which <c>CheckInterval</c> staggers <c>CheckStuck</c> by.</param>
     /// <returns>False when the move is one this port declines, or there is no world; the player is then untouched.</returns>
-    public bool ProcessMovement(ref PredictedPlayer player, UserCommand command, float frametime, bool first)
+    public bool ProcessMovement(ref PredictedPlayer player, UserCommand command, float frametime, bool first, int commandNumber)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        _commandNumber = commandNumber;
 
         if (player.WaterJumpUnknown)
         {
@@ -310,6 +340,12 @@ public sealed class TfGameMovement
         CheckParameters();
         ReduceTimers();
 
+        // gamemovement.cpp:4587-4601: MOVETYPE_WALK and alive, so always tried on its interval; stuck skips the move.
+        if (!_player.IsDead && CheckInterval() && CheckStuck())
+        {
+            return;
+        }
+
         if (first)
         {
             CategorizePosition();
@@ -336,6 +372,9 @@ public sealed class TfGameMovement
         {
             _maxSpeed = MathF.Min(_clientMaxSpeed, _maxSpeed);
         }
+
+        // gamemovement.cpp:1002-1014: the ground's speed factor; a TF player has no constraint, whose factor is 1.
+        _maxSpeed *= _player.Surface?.MaxSpeedFactor ?? 1f;
 
         if (spd != 0f && spd > _maxSpeed * _maxSpeed)
         {
@@ -380,6 +419,201 @@ public sealed class TfGameMovement
 
         _noWorld = true;
         return new BspTrace(1f, -1, default, false);
+    }
+
+    /// <summary>
+    /// <c>CTFGameMovement::PlayerSolidMask</c> (<c>tf_gamemovement.cpp:259-284</c>): <c>MASK_PLAYERSOLID</c> and the enemy
+    /// team's contents, unless passing through enemies; a ghost collides with the world alone (:264,
+    /// <c>MASK_PLAYERSOLID_BRUSHONLY</c>).
+    /// </summary>
+    private int PlayerSolidMask()
+    {
+        if (_player.Conditions.Has(CondGhost) || _player.PassingThroughEnemies)
+        {
+            return BspLeafTree.MaskPlayerSolid;
+        }
+
+        return _player.Team switch
+        {
+            TeamRed => MovementWorld.ContentsBlueTeam | BspLeafTree.MaskPlayerSolid,
+            TeamBlue => MovementWorld.ContentsRedTeam | BspLeafTree.MaskPlayerSolid,
+            _ => BspLeafTree.MaskPlayerSolid,
+        };
+    }
+
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
+    /// <summary>
+    /// <c>CheckInterval( STUCK )</c> (<c>gamemovement.cpp:648-701</c>): every command while being unstuck, otherwise when
+    /// the command number plus the entity index is a multiple of <c>CHECK_STUCK_INTERVAL</c> 1 s in ticks — 0.2 s alone.
+    /// </summary>
+    private bool CheckInterval()
+    {
+        float seconds = _maxClients == 1 ? 0.2f : 1f;
+        int interval = _player.StuckLast != 0 ? 1 : (int)(seconds / _frametime);
+
+        return interval <= 0 || (_commandNumber + _player.EntityIndex) % interval == 0;
+    }
+
+    /// <summary>
+    /// <c>CTFGameMovement::CheckStuck</c> (<c>tf_gamemovement.cpp:1352-1447</c>), <c>tf_resolve_stuck_players</c> 1 (<c>:50</c>).
+    /// </summary>
+    /// <returns>True when he is stuck and the move is skipped.</returns>
+    /// <remarks>
+    /// The <c>func_tracktrain</c> branch (<c>:1417</c>) never runs on the client: it needs the train's
+    /// <c>GetAbsVelocity().z</c>, and <c>DT_FuncTrackTrain</c> sends no velocity (<c>c_func_tracktrain.cpp:41-42</c>).
+    /// </remarks>
+    private bool CheckStuck()
+    {
+        _player.PassingThroughEnemies = false;
+
+        BspTrace trace = TracePlayerBBox(_player.Origin, _player.Origin);
+
+        if (trace.StartSolid && trace.BrushEntity >= 0 && IsPlayer(trace.BrushEntity))
+        {
+            _player.PassingThroughEnemies = true;
+
+            if (!DidHit(TracePlayerBBox(_player.Origin, _player.Origin)))
+            {
+                return false;
+            }
+        }
+
+        return BaseCheckStuck();
+    }
+
+    /// <summary><c>CBaseEntity::IsPlayer</c> by index: players are entities 1 to <c>maxClients</c>.</summary>
+    private bool IsPlayer(int entity) => entity >= 1 && entity <= _maxClients;
+
+    /// <summary><c>trace_t::DidHit</c>: <c>fraction &lt; 1 || allsolid || startsolid</c>.</summary>
+    private static bool DidHit(BspTrace trace) => trace.Fraction < 1f || trace.AllSolid || trace.StartSolid;
+
+    /// <summary>
+    /// <c>CGameMovement::CheckStuck</c> (<c>gamemovement.cpp:3384-3473</c>) on the client.
+    /// </summary>
+    /// <remarks>
+    /// <c>TestPlayerPosition</c> answers an entity when the box at the point starts solid. The world — a static prop too,
+    /// whose trace names the world entity (*interpolated*: engine trace code the SDK omits) — gets the 54 small nudges;
+    /// anything else, or a world that none frees, one table entry per frame behind <c>CHECKSTUCK_MINTIME</c>. The client's
+    /// <c>m_flStuckCheckTime</c> is a member nothing networks; prediction is one frame here, so the first check passes the
+    /// gate and any later one this frame does not.
+    /// </remarks>
+    private bool BaseCheckStuck()
+    {
+        BspTrace hit = TracePlayerBBox(_player.Origin, _player.Origin);
+
+        if (!hit.StartSolid)
+        {
+            _player.StuckLast = 0;
+            return false;
+        }
+
+        Vector3 origin = _player.Origin;
+
+        if (hit.BrushEntity < 0)
+        {
+            _player.StuckLast = 0;
+
+            for (int reps = 0; reps < StuckTable.Length; reps++)
+            {
+                if (TryStuckOffset(origin))
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (_stuckCheckedThisFrame)
+        {
+            return true;
+        }
+
+        _stuckCheckedThisFrame = true;
+
+        return !TryStuckOffset(origin);
+    }
+
+    /// <summary><c>GetRandomStuckOffsets</c> then <c>TestPlayerPosition</c>: moves him there and resets when it is clear.</summary>
+    private bool TryStuckOffset(Vector3 origin)
+    {
+        Vector3 test = origin + StuckTable[_player.StuckLast++ % StuckTable.Length];
+
+        if (TracePlayerBBox(test, test).StartSolid)
+        {
+            return false;
+        }
+
+        _player.StuckLast = 0;
+        _player.Origin = test;
+        return true;
+    }
+
+    /// <summary><c>rgv3tStuckTable</c> as <c>CreateStuckTable</c> fills it (<c>gamemovement.cpp:3233-3346</c>); the last entry stays zero.</summary>
+    private static readonly Vector3[] StuckTable = CreateStuckTable();
+
+    private static Vector3[] CreateStuckTable()
+    {
+        Vector3[] table = new Vector3[54];
+        int index = 0;
+
+        // Little moves along z, y, x, then the eight corners an eighth out.
+        for (float z = -0.125f; z <= 0.125f; z += 0.125f)
+        {
+            table[index++] = new Vector3(0f, 0f, z);
+        }
+
+        for (float y = -0.125f; y <= 0.125f; y += 0.125f)
+        {
+            table[index++] = new Vector3(0f, y, 0f);
+        }
+
+        for (float x = -0.125f; x <= 0.125f; x += 0.125f)
+        {
+            table[index++] = new Vector3(x, 0f, 0f);
+        }
+
+        for (float x = -0.125f; x <= 0.125f; x += 0.250f)
+        {
+            for (float y = -0.125f; y <= 0.125f; y += 0.250f)
+            {
+                for (float z = -0.125f; z <= 0.125f; z += 0.250f)
+                {
+                    table[index++] = new Vector3(x, y, z);
+                }
+            }
+        }
+
+        // Big moves: z by 0, 1 and 6, then y and x by two, then every combination.
+        float[] zi = [0f, 1f, 6f];
+
+        foreach (float z in zi)
+        {
+            table[index++] = new Vector3(0f, 0f, z);
+        }
+
+        for (float y = -2f; y <= 2f; y += 2f)
+        {
+            table[index++] = new Vector3(0f, y, 0f);
+        }
+
+        for (float x = -2f; x <= 2f; x += 2f)
+        {
+            table[index++] = new Vector3(x, 0f, 0f);
+        }
+
+        foreach (float z in zi)
+        {
+            for (float x = -2f; x <= 2f; x += 2f)
+            {
+                for (float y = -2f; y <= 2f; y += 2f)
+                {
+                    table[index++] = new Vector3(x, y, z);
+                }
+            }
+        }
+
+        return table;
     }
 
     private static Vector3 EndPos(Vector3 start, Vector3 end, BspTrace trace) => start + ((end - start) * trace.Fraction);
@@ -503,21 +737,37 @@ public sealed class TfGameMovement
 
     private void SetGroundEntity(BspTrace? trace)
     {
-        // The ground's own velocity is taken as zero: a moving brush entity's is not known here.
-        _player.OnGround = trace is not null;
+        // CGameMovement::SetGroundEntity (gamemovement.cpp:3611-3632): landing subtracts the new ground's GetAbsVelocity and
+        // takes its z, leaving adds the old one's. On the client that velocity is zero for anything but a player: no
+        // DT_BaseEntity, DT_BaseDoor or DT_FuncTrackTrain field carries m_vecVelocity (c_baseentity.cpp:438-485,
+        // c_basedoor.cpp:17-19), and nothing predicts them. *Interpolated:* a player as ground is taken as zero too.
+        bool newGround = trace is not null;
+
+        if (newGround != _player.OnGround)
+        {
+            _player.BaseVelocity = _player.BaseVelocity with { Z = 0f };
+        }
+
+        _player.OnGround = newGround;
 
         if (trace is null)
         {
             return;
         }
 
-        // CategorizeGroundSurface: the default surfaceprop's friction, 0.8 · 1.25 clamped to 1.
-        _player.SurfaceFriction = 1f;
+        CategorizeGroundSurface(trace.Value);
         _player.Velocity = _player.Velocity with { Z = 0f };
 
         // CTFGameMovement::SetGroundEntity.
         _player.AirDash = 0;
         _player.AirDucked = 0;
+    }
+
+    /// <summary><c>CategorizeGroundSurface</c> (<c>gamemovement.cpp:919-930</c>): the surface's data, and its friction · 1.25 up to 1.</summary>
+    private void CategorizeGroundSurface(BspTrace trace)
+    {
+        _player.Surface = GroundSurface?.Invoke(trace);
+        _player.SurfaceFriction = MathF.Min((_player.Surface?.Physics.Friction ?? 0.8f) * 1.25f, 1f);
     }
 
     private void Duck()
@@ -539,7 +789,7 @@ public sealed class TfGameMovement
 
         if ((_buttons & InDuck) != 0 || _player.Ducking || _player.FlDucking)
         {
-            if ((_buttons & InDuck) != 0)
+            if ((_buttons & InDuck) != 0 && CanDuck())
             {
                 OnDuck(pressed);
             }
@@ -550,10 +800,23 @@ public sealed class TfGameMovement
         }
     }
 
+    /// <summary><c>CTFPlayer::CanDuck</c> (<c>tf_player_shared.cpp:12298</c>): <c>CALL_ATTRIB_HOOK_INT( iNoDuck, no_duck )</c> is 0.</summary>
+    private bool CanDuck() => HookInt(Items.OnPlayer("no_duck", 0f)) == 0;
+
+    /// <summary><c>CALL_ATTRIB_HOOK_INT</c>'s rounding of the float result.</summary>
+    private static int HookInt(float value) => AttributeHooks.RoundFloatToInt(value);
+
     private void DuckOverrides()
     {
         bool onGround = _player.OnGround;
 
+        // No ducking in water (tf_gamemovement.cpp:3184): WL_Feet (1) off the ground, or WL_Eyes (3).
+        if ((_player.WaterLevel >= 1 && !onGround) || _player.WaterLevel >= 3)
+        {
+            _buttons &= ~InDuck;
+        }
+
+        // tf_clamp_airducks is taken as its default 1 (:49).
         if (_player.CurTime < _player.DuckTimer && onGround)
         {
             _buttons &= ~InDuck;
@@ -619,7 +882,12 @@ public sealed class TfGameMovement
             }
         }
 
-        // m_bAllowAutoMovement is true for a TF player, so this always runs.
+        // Try to unduck unless automovement is not allowed; off the ground or mid-transition he always may (:3306).
+        if (!_player.AllowAutoMovement && !inAir && !_player.Ducking)
+        {
+            return;
+        }
+
         if ((released & InDuck) != 0)
         {
             if (inDuck)
@@ -835,7 +1103,8 @@ public sealed class TfGameMovement
         bool scout = _player.PlayerClass == ClassScout;
         bool onGround = _player.OnGround;
 
-        if (_player.IsDead ||
+        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test. A taunt never reaches here (declined above).
+        if (_player.IsDead || !CanJump() ||
             (_player.FlDucking && !(scout && !onGround)) ||
             (_player.Ducking && _player.FlDucking) || _player.DuckJumpTime > 0f ||
             (_player.OldButtons & InJump) != 0)
@@ -845,8 +1114,7 @@ public sealed class TfGameMovement
 
         if (!onGround)
         {
-            // CTFPlayer::CanAirDash: a scout's one dash; attributes that add more are not read.
-            if (scout && _player.AirDash < 1)
+            if (CanAirDash())
             {
                 AirDash();
                 _player.AirDucked = 0;
@@ -860,13 +1128,16 @@ public sealed class TfGameMovement
         PreventBunnyJumping();
         SetGroundEntity(null);
 
+        // :1277-1315: m_pSurfaceData survives SetGroundEntity( NULL ), so this is the ground just left.
+        float mul = JumpImpulse * JumpMod() * (_player.Surface?.JumpFactor ?? 1f);
+
         if (_player.Ducking || _player.FlDucking)
         {
-            _player.Velocity = _player.Velocity with { Z = JumpImpulse };
+            _player.Velocity = _player.Velocity with { Z = mul };
         }
         else
         {
-            _player.Velocity = _player.Velocity with { Z = _player.Velocity.Z + JumpImpulse };
+            _player.Velocity = _player.Velocity with { Z = _player.Velocity.Z + mul };
         }
 
         FinishGravity();
@@ -883,8 +1154,58 @@ public sealed class TfGameMovement
             (forward.Y * _forwardMove) + (right.Y * _sideMove),
             0f);
 
-        _player.Velocity = wish with { Z = AirDashZ };
+        _player.Velocity = wish with { Z = AirDashZ * JumpMod() };
         _player.AirDash++;
+    }
+
+    /// <summary>
+    /// <c>flJumpMod</c> (<c>tf_gamemovement.cpp:997-1020</c>, <c>:1287-1313</c>): <c>mod_jump_height</c> on the player, then
+    /// <c>mod_jump_height_from_weapon</c> on the active weapon, then 1.8 for the agility rune.
+    /// </summary>
+    private float JumpMod()
+    {
+        float mod = Items.OnWeapon("mod_jump_height_from_weapon", Items.OnPlayer("mod_jump_height", 1f));
+
+        // GetCarryingRuneType() == RUNE_AGILITY: the rune's condition (tf_shareddefs.h:2671).
+        return _player.Conditions.Has(CondRuneAgility) ? mod * 1.8f : mod;
+    }
+
+    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>) past its taunt test.</summary>
+    private bool CanJump() => Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
+
+    /// <summary><c>CTFPlayer::CanAirDash</c> (<c>tf_player_shared.cpp:12840</c>).</summary>
+    /// <remarks>
+    /// *Not ported:* the Atomizer's third-jump test (<c>:12867-12873</c>), which needs the weapon's last deploy time; a third dash
+    /// within 0.7 s of deploying is allowed here.
+    /// </remarks>
+    private bool CanAirDash()
+    {
+        PlayerConditions conditions = _player.Conditions;
+
+        if (conditions.Has(CondKart))
+        {
+            return false;
+        }
+
+        if (conditions.Has(CondHalloweenSpeedBoost))
+        {
+            return true;
+        }
+
+        if (_player.PlayerClass != ClassScout)
+        {
+            return false;
+        }
+
+        if (conditions.Has(CondSodaPopperHype))
+        {
+            return _player.AirDash < 5;
+        }
+
+        // tf_scout_air_dash_count, FCVAR_DEVELOPMENTONLY with a default of 1 (tf_player_shared.cpp:113).
+        int dashCount = HookInt(Items.OnWeapon("air_dash_count", 1f));
+
+        return _player.AirDash < dashCount && HookInt(Items.OnPlayer("set_scout_doublejump_disabled", 0f)) != 1;
     }
 
     private void PreventBunnyJumping()
@@ -1111,12 +1432,20 @@ public sealed class TfGameMovement
             cap *= KartAirControl;
         }
 
+        // tf_gamemovement.cpp:2081-2094.
+        float airControl = Items.OnPlayer("mod_air_control", 1f);
+
+        if (_player.Conditions.Has(CondBlastJumping))
+        {
+            airControl = Items.OnPlayer("mod_air_control_blast_jump", airControl);
+        }
+
         if (_player.Conditions.Has(CondRocketPack))
         {
             cap *= 0.5f;
         }
 
-        return cap;
+        return cap * airControl;
     }
 
     private void AirMove()
@@ -1397,14 +1726,6 @@ public sealed class TfGameMovement
         _player.Velocity = velocity;
         TryPlayerMove(destination, saveTrace, 0f);
     }
-
-    /// <summary>
-    /// <c>CTFGameMovement::PlayerSolidMask</c> (<c>tf_gamemovement.cpp:259</c>): a ghost collides with the world alone,
-    /// anyone else with players too. The team bit it adds is the caller's, which knows the teams.
-    /// </summary>
-    private int PlayerSolidMask() => _player.Conditions.Has(CondGhost)
-        ? BspLeafTree.MaskPlayerSolid
-        : BspLeafTree.MaskPlayerSolid | ContentsMonster;
 
     /// <summary><c>InWater</c> (<c>gamemovement.cpp:3479</c>): above <c>WL_Feet</c>.</summary>
     private bool InWater() => _player.WaterLevel > WaterLevelFeet;
@@ -2097,7 +2418,12 @@ public sealed class TfGameMovement
         return c + ((d - c) * t);
     }
 
-    private float Gravity => _convars.Gravity;
+    /// <summary>
+    /// <c>ent_gravity · GetCurrentGravity()</c> (<c>gamemovement.cpp:1250-1257</c>): <c>GetGravity()</c> when nonzero, times
+    /// <c>sv_gravity · GetGravityMultiplier()</c> (<c>movevars_shared.cpp:25-35</c>). The multiplier is 1 here: <c>C_TFGameRules</c>
+    /// sets it to 1.0 (<c>tf_gamerules.cpp:3450</c>) and no demo measured carries it (probe <c>schema</c>, 2009 to 2026).
+    /// </summary>
+    private float Gravity => (_player.Gravity != 0f ? _player.Gravity : 1f) * _convars.Gravity;
 
     private void StartGravity()
     {

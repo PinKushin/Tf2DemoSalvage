@@ -41,6 +41,12 @@ public sealed class VphysicsSurface(string name, SurfacePhysicsParams physics, b
     /// </summary>
     public int GameMaterial { get; init; }
 
+    /// <summary>`surfacegameprops_t.jumpFactor` (`vphysics_interface.h:946`), the <c>jumpfactor</c> key: scales a jump off this surface.</summary>
+    public float JumpFactor { get; init; }
+
+    /// <summary>`surfacegameprops_t.maxSpeedFactor` (`vphysics_interface.h:945`), the <c>maxspeedfactor</c> key: scales the max speed on it.</summary>
+    public float MaxSpeedFactor { get; init; }
+
     /// <summary>`surfacesoundnames_t`: the script sounds this surface names, each null when no block or <c>base</c> set it.</summary>
     public SurfaceSoundNames Sounds { get; init; }
 

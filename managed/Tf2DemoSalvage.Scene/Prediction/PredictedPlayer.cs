@@ -1,5 +1,7 @@
+using System;
 using System.Numerics;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
@@ -84,6 +86,30 @@ public record struct PredictedPlayer
     /// <summary><c>gpGlobals->curtime</c>: <c>m_nTickBase · TICK_INTERVAL</c> during prediction.</summary>
     public float CurTime { get; set; }
 
+    /// <summary><c>m_Local.m_bAllowAutoMovement</c>: true as <c>CBasePlayer::Spawn</c> leaves it.</summary>
+    public bool AllowAutoMovement { get; set; } = true;
+
+    /// <summary><c>GetTeamNumber()</c>: which enemy contents <c>PlayerSolidMask</c> adds (<c>tf_gamemovement.cpp:269-283</c>).</summary>
+    public int? Team { get; set; }
+
+    /// <summary><c>entindex()</c>, which staggers <c>CheckInterval</c> between players (<c>gamemovement.cpp:695</c>).</summary>
+    public int EntityIndex { get; set; }
+
+    /// <summary><c>CTFGameMovement::m_isPassingThroughEnemies</c>, set by <c>CheckStuck</c> (<c>tf_gamemovement.cpp:1404</c>).</summary>
+    public bool PassingThroughEnemies { get; set; }
+
+    /// <summary><c>m_StuckLast</c>: the next <c>rgv3tStuckTable</c> entry to try (<c>gamemovement.cpp:3362</c>).</summary>
+    public int StuckLast { get; set; }
+
+    /// <summary>
+    /// <c>m_pSurfaceData</c>: the ground's surfaceprop as <c>CategorizeGroundSurface</c> last set it; null for none, which reads as
+    /// factors of 1 (<c>gamemovement.cpp:1004</c>, <c>tf_gamemovement.cpp:1279</c>).
+    /// </summary>
+    public VphysicsSurface? Surface { get; set; }
+
+    /// <summary><c>GetGravity()</c>, <c>m_flGravity</c>; 0 reads as 1.</summary>
+    public float Gravity { get; set; }
+
     // ---- The movement modes (B450). ----
 
     /// <summary><c>GetViewOffset().z</c>: <c>m_vecViewOffset[2]</c>, <c>DT_LocalPlayerExclusive</c> — <c>CheckWater</c>'s eye point.</summary>
@@ -145,6 +171,22 @@ public record struct PredictedPlayer
 
     /// <summary><c>GetGrapplingHookTarget()</c>: <c>m_hGrapplingHookTarget</c> resolved, or null.</summary>
     public GrapplingTarget? GrapplingHook { get; set; }
+}
+
+/// <summary>What <c>CTFGameMovement</c> asks the player's items: <c>CALL_ATTRIB_HOOK_*_ON_OTHER</c> and <c>OwnerCanJump</c> (B450).</summary>
+/// <param name="OnPlayer">The hook on <c>m_pTFPlayer</c>: attribute class and value in, hooked value out.</param>
+/// <param name="OnActiveWeapon">The hook on <c>GetActiveTFWeapon()</c>; null for no active weapon, which hooks nothing.</param>
+/// <param name="OwnerCanJump">The active weapon's <c>OwnerCanJump()</c>; true without one.</param>
+public sealed record MovementItems(Func<string, float, float> OnPlayer, Func<string, float, float>? OnActiveWeapon, bool OwnerCanJump)
+{
+    /// <summary>No attributes and no weapon.</summary>
+    public static MovementItems None { get; } = new((_, value) => value, null, true);
+
+    /// <summary><c>CALL_ATTRIB_HOOK_FLOAT_ON_OTHER( pWpn, … )</c>, skipped without a weapon.</summary>
+    /// <param name="attributeClass">The hook.</param>
+    /// <param name="value">The value hooked.</param>
+    /// <returns>The hooked value.</returns>
+    public float OnWeapon(string attributeClass, float value) => OnActiveWeapon?.Invoke(attributeClass, value) ?? value;
 }
 
 /// <summary>

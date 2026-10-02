@@ -14,18 +14,18 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**270 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**279 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
 ### DT_BaseEntity
 
-**13 of 24** mentioned.
+**16 of 24** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_Collision, m_CollisionGroup, m_bAlternateSorting, m_bAnimatedEveryTick, m_bSimulatedEveryTick, m_flElasticity, m_flGravity, m_flShadowCastDistance, m_hEffectEntity, m_iTextureFrameIndex, m_nModelIndexOverrides
+m_bAlternateSorting, m_bAnimatedEveryTick, m_bSimulatedEveryTick, m_flElasticity, m_flShadowCastDistance, m_hEffectEntity, m_iTextureFrameIndex, m_nModelIndexOverrides
 ```
 
 ### DT_AnimTimeMustBeFirst
@@ -95,7 +95,7 @@ m_AttributeManager, m_PlayerClass, m_Shared, m_bArenaSpectator, m_bFlipViewModel
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bHasPasstimeBall, m_bIsTargetedForPasstimePass, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flDuckTimer, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iAirDash, m_iCritMult, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nAirDucked, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
+m_ConditionList, m_askForBallTime, m_bArenaFirstBloodBoost, m_bFeignDeathReady, m_bHasPasstimeBall, m_bIsTargetedForPasstimePass, m_bJumping, m_bKingRuneBuffActive, m_bLoadoutUnavailable, m_bParachuteEquipped, m_bShieldEquipped, m_flChargeMeter, m_flEnergyDrinkMeter, m_flFirstPrimaryAttack, m_flHolsterAnimTime, m_flMovementStunTime, m_flNextNoiseMakerTime, m_flSpyTranqBuffDuration, m_hCarriedObject, m_hPasstimePassTarget, m_hStunner, m_hSwitchTo, m_iCritMult, m_iDesiredPlayerClass, m_iDisguiseBody, m_iItemFindBonus, m_iKillCountSinceLastDeploy, m_iMovementStunAmount, m_iMovementStunParity, m_iNextMeleeCrit, m_iSpawnRoomTouchCount, m_iTauntConcept, m_iTauntIndex, m_iWeaponKnockbackID, m_nArenaNumChanges, m_nHalloweenBombHeadStage, m_nNumHealers, m_nTeamTeleporterUsed, m_unTauntSourceItemID_High, m_unTauntSourceItemID_Low
 ```
 
 ### DT_TFLocalPlayerExclusive
@@ -146,7 +146,7 @@ Not declared in this SDK.
 
 | table | unread | declared |
 |---|---|---|
-| `DT_Local` | 31 | 37 |
+| `DT_Local` | 23 | 37 |
 | `DT_TFObjectiveResource` | 20 | 20 |
 | `DT_HL2Local` | 19 | 19 |
 | `DT_SmokeStack` | 18 | 18 |
@@ -160,15 +160,16 @@ Not declared in this SDK.
 | `DT_SmokeTrail` | 14 | 15 |
 | `DT_DustTrail` | 13 | 13 |
 | `DT_EnvWindShared` | 13 | 13 |
+| `DT_LocalPlayerExclusive` | 13 | 19 |
 | `DT_MaterialModifyControl` | 13 | 13 |
 | `DT_PropVehicleChoreoGeneric` | 13 | 14 |
 | `DT_PropVehicleDriveable` | 13 | 14 |
-| `DT_FuncSmokeVolume` | 11 | 11 |
 | `DT_PoseController` | 11 | 11 |
 | `DT_SteamJet` | 11 | 11 |
 | `DT_TFPlayerSharedLocal` | 11 | 14 |
 | `DT_AI_BaseNPC` | 10 | 11 |
 | `DT_BaseBeam` | 10 | 15 |
+| `DT_FuncSmokeVolume` | 10 | 11 |
 | `DT_PointCamera` | 10 | 10 |
 | `DT_World` | 10 | 10 |
 | `DT_EntityDissolve` | 9 | 10 |
