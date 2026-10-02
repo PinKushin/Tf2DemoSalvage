@@ -115,6 +115,22 @@ public sealed class DemoCensusStreamTests
         return bytes;
     }
 
+    [Test]
+    public void Run_BytesAfterTheStop_FailsTheAssemblyAsATailAfterDemStop()
+    {
+        // The reader ends at dem_stop, so these bytes are in neither a command nor the tail; the shape is named
+        // from the last command the container walk saw, carried, where the array census read the list's last.
+        string path = WriteDemo();
+        // Zeros: the first is read as dem_stop's absent fourth tick byte, which a non-zero one would push past 2^24.
+        File.AppendAllBytes(path, new byte[5]);
+        DemoCensus census = Census(path, out CensusRow row);
+
+        census.Run();
+
+        (row["assembly_shape"], row["rebuilt_bytes"], row["assembly_where"])
+            .ShouldBe((CensusRow.Shape("tail not carried: bytes after dem_stop"), "1188", "byte 1188"));
+    }
+
     private DemoCensus Census(string path, out CensusRow row)
     {
         row = new CensusRow();

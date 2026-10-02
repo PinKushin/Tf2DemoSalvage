@@ -4,7 +4,6 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text;
 
 using Tf2DemoSalvage.Audio;
@@ -29,7 +28,7 @@ namespace Tf2DemoSalvage.Probe.Probes;
 ///
 /// | stage | test it answers for | production calls |
 /// |---|---|---|
-/// | container | every corpus test's first step | <see cref="DemoCommandReader.ReadWhole"/> |
+/// | container | every corpus test's first step | <see cref="DemoCommandReader.Read(Stream, Action{ReadOnlyMemory{byte}, string})"/> |
 /// | schema | `Corpus.Schema` | <see cref="SendTableParser.Parse"/> on every `dem_datatables` |
 /// | messages | `EveryWritableMessage_ReproducesItsOwnBitsExactly`, `PayloadRoundTrip_TheCorpus_IsReported` | <see cref="NetMessageReader"/>, <see cref="NetMessageWriter"/> |
 /// | entities | `EntityRoundTrip_TheCorpus_IsReported` | <see cref="EntityDecoder.Decode"/>, <see cref="EntityDecoder.EncodeEntities(IReadOnlyList{DecodedEntity}, IReadOnlyList{int}, bool, int, out int)"/> |
@@ -46,6 +45,11 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// **Every pass carries a count that shows the stage did work** — commands read, classes parsed, messages
 /// re-encoded, snapshots matched, `dem_packet` blocks traced, bytes rebuilt, frames built, voice frames decoded.
 /// A pass with a zero there is a fail, because it is a stage that measured nothing.
+///
+/// **Memory is the state, not the file** (B449): every stage but the timeline reads the demo off its file a command
+/// at a time, the assembly goes to a text file and is compiled back into a second file, and the two files are
+/// compared by streaming both. Each walk is a read of the file; none holds it. The timeline still holds the demo and
+/// its 40–84x (B439) and keeps its budget.
 /// </remarks>
 internal sealed class DemoCensus
 {
@@ -54,14 +58,8 @@ internal sealed class DemoCensus
 
     private const long Megabyte = 1 << 20;
 
-    /// <summary>What a demo costs just to hold: its bytes, its command list and one packet's messages.</summary>
-    private const int BaseMultiple = 2;
-
-    /// <summary>
-    /// The round trip holds the demo, its compiled commands, <see cref="DemoWriter"/>'s growing
-    /// <see cref="MemoryStream"/> (twice, as it doubles) and the rebuilt array.
-    /// </summary>
-    private const int AssemblyMultiple = 5;
+    /// <summary>Read-ahead for a walk or a comparison; the reader asks for a few bytes at a time.</summary>
+    private const int BufferBytes = 1 << 16;
 
     /// <summary>A built timeline holds up to 84 times its demo (B439, `docs/verification`), plus the demo.</summary>
     private const int TimelineMultiple = 85;
@@ -76,12 +74,14 @@ internal sealed class DemoCensus
     private static readonly UTF8Encoding CliEncoding = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly CensusRow _row;
-    private readonly byte[] _bytes;
+    private readonly string _path;
+    private readonly long _length;
     private readonly DemoHeader _header;
     private readonly CensusOptions _options;
     private readonly TextWriter _log;
     private readonly string _name;
-    private IReadOnlyList<DemoCommand> _commands = [];
+    private int _count;
+    private DemoCommandType _last;
     private ReadOnlyMemory<byte> _tail;
     private string? _truncated;
     private bool _read;
@@ -90,10 +90,14 @@ internal sealed class DemoCensus
     /// <summary>Which command a loop is on, so an exception out of production code can say where it came from.</summary>
     private int _at = -1;
 
-    public DemoCensus(CensusRow row, byte[] bytes, DemoHeader header, CensusOptions options, TextWriter log)
+    /// <summary>The tick of command <see cref="_at"/>, carried from the command itself.</summary>
+    private int _atTick;
+
+    public DemoCensus(CensusRow row, string path, long length, DemoHeader header, CensusOptions options, TextWriter log)
     {
         _row = row;
-        _bytes = bytes;
+        _path = path;
+        _length = length;
         _header = header;
         _options = options;
         _log = log;
@@ -102,8 +106,73 @@ internal sealed class DemoCensus
 
     private ushort Protocol => (ushort)_header.NetworkProtocol;
 
-    /// <summary>Whether a demo of this size can be held at all under the budget.</summary>
-    public static bool Fits(long bytes, long budget) => BaseMultiple * bytes <= budget;
+    /// <summary>A command and where it sits in the file.</summary>
+    /// <param name="Command">The command, as the streaming reader returned it.</param>
+    /// <param name="Start">The file offset of its type byte: the stream's position before the reader took it.</param>
+    /// <param name="PayloadAt">
+    /// The file offset of its payload: the stream's position after the reader took it, less the payload it returned.
+    /// </param>
+    internal readonly record struct Located(DemoCommand Command, long Start, long PayloadAt);
+
+    /// <summary>Walks a demo's commands off its file, each with its offsets — one read of the file, none of it held.</summary>
+    /// <remarks>
+    /// The offsets are the stream's own positions around the read, carried out (B243): the array census found them
+    /// by a command's slice of the whole file, which a streamed command does not have.
+    /// </remarks>
+    internal static IEnumerable<Located> Walk(string path, Action<ReadOnlyMemory<byte>, string>? onTruncated = null)
+    {
+        using FileStream stream = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferBytes, FileOptions.SequentialScan);
+        stream.Seek(DemoHeader.SizeBytes, SeekOrigin.Begin);
+        long start = stream.Position;
+
+        foreach (DemoCommand command in DemoCommandReader.Read(stream, onTruncated))
+        {
+            long end = stream.Position;
+            yield return new Located(command, start, end - command.Payload.Length);
+            start = end;
+        }
+    }
+
+    /// <summary>How many leading bytes two streams share, read a buffer at a time from where each stands.</summary>
+    internal static long CommonPrefixLength(Stream first, Stream second)
+    {
+        byte[] left = new byte[BufferBytes];
+        byte[] right = new byte[BufferBytes];
+        long common = 0;
+
+        while (true)
+        {
+            int leftRead = first.ReadAtLeast(left, left.Length, throwOnEndOfStream: false);
+            int rightRead = second.ReadAtLeast(right, right.Length, throwOnEndOfStream: false);
+            int both = Math.Min(leftRead, rightRead);
+            int same = left.AsSpan(0, both).CommonPrefixLength(right.AsSpan(0, both));
+            common += same;
+
+            // A short read is the end of that stream, and two unequal reads include a short one.
+            if (same < both || both < left.Length)
+            {
+                return common;
+            }
+        }
+    }
+
+    /// <summary>A command that carries net messages.</summary>
+    private static bool IsPacket(Located entry) => entry.Command.Type is DemoCommandType.Signon or DemoCommandType.Packet;
+
+    /// <summary>The demo's commands off its file, keeping <see cref="_at"/> and <see cref="_atTick"/> on the current one.</summary>
+    private IEnumerable<Located> Commands()
+    {
+        _at = 0;
+
+        foreach (Located entry in Walk(_path))
+        {
+            _atTick = entry.Command.Tick;
+            yield return entry;
+            _at++;
+        }
+
+        _at = -1;
+    }
 
     /// <summary>Runs every stage in order.</summary>
     public void Run()
@@ -153,8 +222,8 @@ internal sealed class DemoCensus
         }
         catch (Exception error)
         {
-            string where = _at >= 0 && _at < _commands.Count
-                ? Invariant($"command {_at}, tick {_commands[_at].Tick}")
+            string where = _at >= 0
+                ? Invariant($"command {_at}, tick {_atTick}")
                 : string.Empty;
 
             _row.Fail(stage, "throws " + error.GetType().Name + ": " + error.Message, error.GetType().Name + ": " + error.Message, where);
@@ -180,24 +249,32 @@ internal sealed class DemoCensus
 
     private void Container()
     {
-        (_commands, _tail) = DemoCommandReader.ReadWhole(_bytes.AsMemory(DemoHeader.SizeBytes), message => _truncated = message);
+        // One walk, every kind counted in it (`a-streamed-demo-is-read-per-enumeration.md`).
+        Dictionary<DemoCommandType, long> kinds = [];
 
-        _row.Set("commands", _commands.Count);
-        _row.Set("packets", _commands.Count(command => command.Type == DemoCommandType.Packet));
-        _row.Set("signons", _commands.Count(command => command.Type == DemoCommandType.Signon));
-        _row.Set("usercmds", _commands.Count(command => command.Type == DemoCommandType.UserCmd));
-        _row.Set("datatables", _commands.Count(command => command.Type == DemoCommandType.DataTables));
-        _row.Set("stop", _commands.Count(command => command.Type == DemoCommandType.Stop));
+        foreach (Located entry in Walk(_path, (tail, reason) => (_tail, _truncated) = (tail, reason)))
+        {
+            _count++;
+            _last = entry.Command.Type;
+            kinds[_last] = kinds.GetValueOrDefault(_last) + 1;
+        }
+
+        _row.Set("commands", _count);
+        _row.Set("packets", kinds.GetValueOrDefault(DemoCommandType.Packet));
+        _row.Set("signons", kinds.GetValueOrDefault(DemoCommandType.Signon));
+        _row.Set("usercmds", kinds.GetValueOrDefault(DemoCommandType.UserCmd));
+        _row.Set("datatables", kinds.GetValueOrDefault(DemoCommandType.DataTables));
+        _row.Set("stop", kinds.GetValueOrDefault(DemoCommandType.Stop));
         _row["truncated"] = _truncated ?? string.Empty;
 
-        if (_commands.Count == 0)
+        if (_count == 0)
         {
             _row.Fail("container", "no command after the header", "the command stream is empty", "byte 1072");
             return;
         }
 
         _read = true;
-        _row.Pass("container", Invariant($"{_commands.Count} commands") + (_truncated is null ? string.Empty : "; ends in a cut-off command"));
+        _row.Pass("container", Invariant($"{_count} commands") + (_truncated is null ? string.Empty : "; ends in a cut-off command"));
     }
 
     private void Schema()
@@ -207,28 +284,23 @@ internal sealed class DemoCensus
             return;
         }
 
-        List<DemoCommand> tables = [.. _commands.Where(command => command.Type == DemoCommandType.DataTables)];
+        // Every dem_datatables is parsed, though the readers build from the first: a second that throws is a
+        // demo this project cannot fully read, whichever table the viewer happens to use.
+        DemoSchema? first = null;
 
-        if (tables.Count == 0)
+        foreach (DemoCommand command in Commands().Select(entry => entry.Command).Where(command => command.Type == DemoCommandType.DataTables))
+        {
+            DemoSchema parsed = SendTableParser.Parse(command.Payload.Span, Protocol);
+            first ??= parsed;
+        }
+
+        if (first is null)
         {
             _row.Fail("schema", "no dem_datatables command", "the demo carries no dem_datatables command", string.Empty);
             return;
         }
 
-        // Every dem_datatables is parsed, though the readers build from the first: a second that throws is a
-        // demo this project cannot fully read, whichever table the viewer happens to use.
-        DemoSchema? first = null;
-
-        for (_at = 0; _at < _commands.Count; _at++)
-        {
-            if (_commands[_at].Type == DemoCommandType.DataTables)
-            {
-                DemoSchema parsed = SendTableParser.Parse(_commands[_at].Payload.Span, Protocol);
-                first ??= parsed;
-            }
-        }
-
-        _row.Set("tables", first!.Tables.Count);
+        _row.Set("tables", first.Tables.Count);
         _row.Set("classes", first.ServerClasses.Count);
 
         if (first.Tables.Count == 0 || first.ServerClasses.Count == 0)
@@ -252,12 +324,9 @@ internal sealed class DemoCensus
         NetDecodeState write = new() { NetworkProtocol = Protocol };
         MessageTally tally = new();
 
-        for (_at = 0; _at < _commands.Count; _at++)
+        foreach (Located entry in Commands().Where(IsPacket))
         {
-            if (_commands[_at].Type is DemoCommandType.Signon or DemoCommandType.Packet)
-            {
-                CheckPacket(_commands[_at], read, write, tally);
-            }
+            CheckPacket(entry, read, write, tally);
         }
 
         tally.Report(_row);
@@ -270,9 +339,9 @@ internal sealed class DemoCensus
     /// without the copy. `svc_ServerInfo` sizes later fields and a game event list orders every later event, so
     /// both reach the write state after their own message is written, at the point they arrived.
     /// </remarks>
-    private void CheckPacket(DemoCommand command, NetDecodeState read, NetDecodeState write, MessageTally tally)
+    private void CheckPacket(Located command, NetDecodeState read, NetDecodeState write, MessageTally tally)
     {
-        ReadOnlySpan<byte> payload = command.Payload.Span;
+        ReadOnlySpan<byte> payload = command.Command.Payload.Span;
         NetMessageReadResult result = NetMessageReader.Read(payload, read);
 
         // The width the read settled, carried: at protocol 15 the first packet decides it (B440) and the write
@@ -308,7 +377,7 @@ internal sealed class DemoCensus
     }
 
     private void Rewrite(
-        INetMessage message, NetDecodeState write, ReadOnlySpan<byte> payload, int start, int length, MessageTally tally, DemoCommand command)
+        INetMessage message, NetDecodeState write, ReadOnlySpan<byte> payload, int start, int length, MessageTally tally, Located command)
     {
         string where = Where(command, start);
 
@@ -365,21 +434,14 @@ internal sealed class DemoCensus
 
         // The decoder from the demo's first dem_datatables, before any packet is read, as the trace writer and
         // the timeline build theirs; every packet read with one state from the first, so signon arrives in it.
-        DemoCommand tables = _commands.First(command => command.Type == DemoCommandType.DataTables);
+        DemoCommand tables = Walk(_path).First(entry => entry.Command.Type == DemoCommandType.DataTables).Command;
         DemoSchema schema = SendTableParser.Parse(tables.Payload.Span, Protocol);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
         NetDecodeState state = new() { NetworkProtocol = Protocol };
         EntityTally tally = new();
 
-        for (_at = 0; _at < _commands.Count; _at++)
+        foreach (DemoCommand command in Commands().Where(IsPacket).Select(entry => entry.Command))
         {
-            DemoCommand command = _commands[_at];
-
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-            {
-                continue;
-            }
-
             foreach (PacketEntitiesMessage snapshot in
                 NetMessageReader.Read(command.Payload.Span, state).Messages.OfType<PacketEntitiesMessage>())
             {
@@ -484,7 +546,7 @@ internal sealed class DemoCensus
         }
 
         using TraceScanner scanner = new();
-        DemoTraceWriter.Write(scanner, _name, _header, _commands, null, new DemoTraceOptions { IncludeEntities = true });
+        DemoTraceWriter.Write(scanner, _name, _header, DemoCommandCollection.Open(_path), null, new DemoTraceOptions { IncludeEntities = true });
         scanner.Flush();
 
         _row.Set("trace_lines", scanner.Lines);
@@ -522,97 +584,102 @@ internal sealed class DemoCensus
             return;
         }
 
-        if (AssemblyMultiple * _bytes.LongLength > _options.BudgetBytes)
-        {
-            _row.Skip("assembly", "budget", Invariant(
-                $"the round trip holds about {AssemblyMultiple}x the demo, {AssemblyMultiple * _bytes.LongLength / Megabyte:N0} MB, over the {_options.BudgetBytes / Megabyte:N0} MB budget"));
-            return;
-        }
-
-        string text = Path.Combine(_options.TempDirectory, Invariant($"decode-census-{Environment.ProcessId}-{_row["sha256"][..12]}.dasm"));
+        string stem = Path.Combine(_options.TempDirectory, Invariant($"decode-census-{Environment.ProcessId}-{_row["sha256"][..12]}"));
+        string text = stem + ".dasm";
+        string rebuilt = stem + ".dem";
 
         try
         {
             using (StreamWriter writer = new(text, append: false, CliEncoding))
             {
-                DemoAssembly.Write(writer, _header, _commands, _tail);
+                DemoAssembly.Write(writer, _header, DemoCommandCollection.Open(_path), _tail);
             }
 
             _row.Set("assembly_bytes", new FileInfo(text).Length);
 
-            DemoHeader compiledHeader;
-            IReadOnlyList<DemoCommand> compiled;
-            ReadOnlyMemory<byte> compiledTail;
+            int compiled;
+            long written;
 
             using (StreamReader reader = new(text))
+            using (FileStream output = new(rebuilt, FileMode.Create, FileAccess.ReadWrite))
             {
-                (compiledHeader, compiled, compiledTail) = DemoAssembly.Parse(reader);
+                (compiled, written) = DemoAssembly.Compile(reader, output);
             }
 
-            if (compiled.Count != _commands.Count)
+            if (compiled != _count)
             {
                 _row.Fail("assembly", "the text compiles to a different number of commands",
-                    Invariant($"{compiled.Count} commands compiled from {_commands.Count}"), string.Empty);
+                    Invariant($"{compiled} commands compiled from {_count}"), string.Empty);
                 return;
             }
 
-            Compare(DemoWriter.Write(compiledHeader, compiled, compiledTail));
+            Compare(rebuilt, written);
         }
         finally
         {
             File.Delete(text);
+            File.Delete(rebuilt);
         }
     }
 
-    /// <summary>Compares the rebuilt demo with the file, byte for byte, and names what a difference is.</summary>
-    private void Compare(byte[] rebuilt)
+    /// <summary>Compares the rebuilt demo with the file, byte for byte, streaming both, and names what a difference is.</summary>
+    /// <param name="path">The rebuilt demo.</param>
+    /// <param name="rebuilt">Its length, as the compile that wrote it reported.</param>
+    private void Compare(string path, long rebuilt)
     {
-        _row.Set("rebuilt_bytes", rebuilt.LongLength);
+        _row.Set("rebuilt_bytes", rebuilt);
 
-        int common = _bytes.AsSpan().CommonPrefixLength(rebuilt);
-        _row.Set("first_difference", common == _bytes.Length && common == rebuilt.Length ? -1 : common);
+        long common;
 
-        if (common == _bytes.Length && common == rebuilt.Length)
+        using (FileStream original = new(_path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferBytes, FileOptions.SequentialScan))
+        using (FileStream copy = new(path, FileMode.Open, FileAccess.Read, FileShare.Read, BufferBytes, FileOptions.SequentialScan))
         {
-            _row.Pass("assembly", Invariant($"{rebuilt.LongLength} bytes rebuilt byte for byte"));
+            common = CommonPrefixLength(original, copy);
         }
-        else if (common < Math.Min(_bytes.Length, rebuilt.Length))
+
+        _row.Set("first_difference", common == _length && common == rebuilt ? -1 : common);
+
+        if (common == _length && common == rebuilt)
+        {
+            _row.Pass("assembly", Invariant($"{rebuilt} bytes rebuilt byte for byte"));
+        }
+        else if (common < Math.Min(_length, rebuilt))
         {
             _row.Fail("assembly", "the first differing byte is in " + Locate(common, withOffset: false),
-                Invariant($"rebuilt {rebuilt.LongLength} bytes from {_bytes.LongLength}; first difference at byte {common}"),
+                Invariant($"rebuilt {rebuilt} bytes from {_length}; first difference at byte {common}"),
                 Locate(common, withOffset: true));
         }
-        else if (rebuilt.Length > _bytes.Length)
+        else if (rebuilt > _length)
         {
             _row.Fail("assembly", "rebuilt longer than the demo",
-                Invariant($"rebuilt {rebuilt.LongLength} bytes from {_bytes.LongLength}, every one of the demo's matching"),
-                Invariant($"byte {_bytes.Length}"));
+                Invariant($"rebuilt {rebuilt} bytes from {_length}, every one of the demo's matching"),
+                Invariant($"byte {_length}"));
         }
         else
         {
             // Every rebuilt byte matches and the file is longer: the tail is whatever the reader did not return as a
             // command — a final command cut off mid-write when the reader said so, else what follows dem_stop.
-            long tail = _bytes.LongLength - rebuilt.LongLength;
+            long tail = _length - rebuilt;
             string shape = "tail not carried: bytes after the last command the reader returned";
 
             if (_truncated is not null)
             {
                 shape = CutTailShape;
             }
-            else if (_commands[^1].Type == DemoCommandType.Stop)
+            else if (_last == DemoCommandType.Stop)
             {
                 shape = "tail not carried: bytes after dem_stop";
             }
 
             _row.Fail("assembly", shape,
-                Invariant($"every byte rebuilt matches, and the last {tail} of {_bytes.LongLength} are not rebuilt") +
+                Invariant($"every byte rebuilt matches, and the last {tail} of {_length} are not rebuilt") +
                 (_truncated is null ? string.Empty : "; the reader: " + _truncated),
-                Invariant($"byte {rebuilt.LongLength}"));
+                Invariant($"byte {rebuilt}"));
         }
     }
 
     /// <summary>Which header field or which command a file offset falls in.</summary>
-    private string Locate(long offset, bool withOffset)
+    internal string Locate(long offset, bool withOffset)
     {
         if (offset < DemoHeader.SizeBytes)
         {
@@ -630,14 +697,26 @@ internal sealed class DemoCensus
             return withOffset ? Invariant($"{field}, byte {offset}") : field;
         }
 
+        // Walked again, because nothing was kept: a difference is rare and the walk is one read. dem_stop names no
+        // offset of its own — the array census found offsets through a command's prologue slice, which dem_stop
+        // never had — so a byte in it falls to the command before, as it did.
         int found = -1;
+        DemoCommand command = default;
+        int index = 0;
 
-        for (int index = 0; index < _commands.Count; index++)
+        foreach (Located entry in Walk(_path))
         {
-            if (TryStart(_commands[index], out long start) && start <= offset)
+            if (entry.Start > offset)
             {
-                found = index;
+                break;
             }
+
+            if (entry.Command.Type != DemoCommandType.Stop)
+            {
+                (found, command) = (index, entry.Command);
+            }
+
+            index++;
         }
 
         if (found < 0)
@@ -645,27 +724,9 @@ internal sealed class DemoCensus
             return withOffset ? Invariant($"byte {offset}") : "a command the reader returned no bytes for";
         }
 
-        DemoCommand command = _commands[found];
         string kind = "a " + command.Type + " command";
 
         return withOffset ? Invariant($"{kind} at tick {command.Tick}, command {found}, byte {offset}") : kind;
-    }
-
-    /// <summary>Where a command starts in the file: five bytes (type and tick) before its prologue.</summary>
-    /// <remarks>
-    /// The reader slices every command's prologue out of the file — empty where the command has none — so its offset
-    /// is exact; only dem_stop, which the reader builds without one, names no offset of its own.
-    /// </remarks>
-    private bool TryStart(DemoCommand command, out long start)
-    {
-        if (MemoryMarshal.TryGetArray(command.Prologue, out ArraySegment<byte> segment) && ReferenceEquals(segment.Array, _bytes))
-        {
-            start = segment.Offset - 5;
-            return true;
-        }
-
-        start = 0;
-        return false;
     }
 
     /// <summary>Builds the timeline the viewer builds, and measures what it holds.</summary>
@@ -681,7 +742,7 @@ internal sealed class DemoCensus
             return;
         }
 
-        long predicted = TimelineMultiple * _bytes.LongLength;
+        long predicted = TimelineMultiple * _length;
 
         if (predicted > _options.BudgetBytes)
         {
@@ -690,8 +751,10 @@ internal sealed class DemoCensus
             return;
         }
 
+        // The one stage that still holds the file (B439, out of B449's scope), read only once its budget allows it.
+        byte[] bytes = File.ReadAllBytes(_path);
         long before = LiveHeap();
-        DemoTimeline timeline = DemoTimeline.Build(_bytes);
+        DemoTimeline timeline = DemoTimeline.Build(bytes);
         long held = LiveHeap() - before;
 
         _row.Set("timeline_frames", timeline.Frames.Count);
@@ -699,7 +762,7 @@ internal sealed class DemoCensus
         _row.Set("timeline_players", timeline.PlayerTracks.Count);
         _row.Set("timeline_events", timeline.GameEvents.Count);
         _row.Set("timeline_mb", (double)held / Megabyte);
-        _row.Set("timeline_ratio", (double)held / _bytes.LongLength);
+        _row.Set("timeline_ratio", (double)held / _length);
 
         if (timeline.Frames.Count == 0)
         {
@@ -775,14 +838,9 @@ internal sealed class DemoCensus
         string? codec = null;
         List<byte[]> packets = [];
 
-        for (_at = 0; _at < _commands.Count; _at++)
+        foreach (DemoCommand command in Commands().Where(IsPacket).Select(entry => entry.Command))
         {
-            if (_commands[_at].Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
-            {
-                continue;
-            }
-
-            foreach (INetMessage message in NetMessageReader.Read(_commands[_at].Payload.Span, state).Messages)
+            foreach (INetMessage message in NetMessageReader.Read(command.Payload.Span, state).Messages)
             {
                 if (message is VoiceInitMessage init)
                 {
@@ -978,14 +1036,8 @@ internal sealed class DemoCensus
     }
 
     /// <summary>A bit's position in the file, for a failure report.</summary>
-    private string Where(DemoCommand command, int bit)
-    {
-        string offset = MemoryMarshal.TryGetArray(command.Payload, out ArraySegment<byte> segment) && ReferenceEquals(segment.Array, _bytes)
-            ? Invariant($", payload at byte {segment.Offset}")
-            : string.Empty;
-
-        return Invariant($"tick {command.Tick}, command {_at}{offset}, bit {bit}");
-    }
+    private string Where(Located command, int bit) =>
+        Invariant($"tick {command.Command.Tick}, command {_at}, payload at byte {command.PayloadAt}, bit {bit}");
 
     /// <summary>The first of <paramref name="bits"/> bits that differ, or -1 when every one matches.</summary>
     private static int FirstDifferentBit(ReadOnlySpan<byte> wire, int wireStart, byte[] written, int bits)
