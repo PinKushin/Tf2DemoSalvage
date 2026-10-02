@@ -149,6 +149,12 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
 
     /// <summary>A powerup bottle's `m_usNumCharges` (tf_item_powerup_bottle.cpp:33): `GetNumCharges()`.</summary>
     public int NumCharges { get; init; }
+
+    /// <summary>
+    /// A flamethrower's `m_iWeaponState` (tf_weapon_flamethrower.cpp:206), `FlameThrowerState_t`: 0 idle, 1 starting, 2
+    /// firing, 3 secondary (tf_weapon_flamethrower.h:31-38); 0 when unsent.
+    /// </summary>
+    public int FlameThrowerState { get; init; }
 }
 
 /// <summary>Resolving which attribute list answers, as the engine resolves it.</summary>

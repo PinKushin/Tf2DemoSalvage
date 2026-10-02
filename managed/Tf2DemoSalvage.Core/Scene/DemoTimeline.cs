@@ -1375,6 +1375,7 @@ public sealed class DemoTimeline
             MinicritCharge = item.Number("DT_WeaponChargedSMG.m_flMinicritCharge") ?? 0f,
             RocketPackEnabled = item.Integer("DT_TFWeaponRocketPack.m_bEnabled") is > 0,
             NumCharges = item.Integer("DT_TFPowerupBottle.m_usNumCharges") ?? 0,
+            FlameThrowerState = item.Integer("DT_WeaponFlameThrower.m_iWeaponState") ?? 0,
         };
 
     /// <summary>`m_Shared.GetDisguiseWeapon()`'s item (tf_hud_playerstatus.cpp:457), or null.</summary>
@@ -2153,6 +2154,42 @@ public sealed class DemoTimeline
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
+    /// <summary>The settings after each <c>net_SetConVar</c>, by the tick it was read at, in stream order.</summary>
+    private IReadOnlyList<(int Tick, ServerConVars ConVars)> ConVarChanges { get; init; } = [];
+
+    /// <summary>Valve's defaults, what a tick before the first <c>net_SetConVar</c> runs under.</summary>
+    private readonly ServerConVars _defaultConVars = new();
+
+    /// <summary>The replicated ConVars as the client had them at a tick: every <c>net_SetConVar</c> read by then (B450).</summary>
+    /// <param name="tick">The demo tick.</param>
+    /// <returns>The settings, Valve's defaults before anything was sent.</returns>
+    /// <remarks>
+    /// <see cref="ServerConVars"/> is the last value of the whole recording; a reader of one moment asks this, because the
+    /// client applies each message as it reads it.
+    /// </remarks>
+    public ServerConVars ServerConVarsAt(int tick)
+    {
+        IReadOnlyList<(int Tick, ServerConVars ConVars)> changes = ConVarChanges;
+        int low = 0;
+        int high = changes.Count;
+
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+
+            if (changes[middle].Tick <= tick)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low == 0 ? _defaultConVars : changes[low - 1].ConVars;
+    }
+
     /// <summary>Every <c>dem_usercmd</c>, in stream order — the recorder's input, which prediction re-runs (D205).</summary>
     public IReadOnlyList<RecordedUserCommand> UserCommands { get; private init; } = [];
 
@@ -2538,6 +2575,7 @@ public sealed class DemoTimeline
         // a caller because the values arrive as messages in this stream and nowhere else, and the
         // engine applies them the same way: at signon, and again whenever one changes mid-match.
         ServerConVars serverConVars = new();
+        List<(int Tick, ServerConVars ConVars)> conVarHistory = [];
         List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
         List<(int Tick, SceneFog Fog)> fogSamples = [];
         int fogControllersSeen = 0;
@@ -2654,6 +2692,7 @@ public sealed class DemoTimeline
                     // project read it correctly, and every reader used a baked constant instead.
                     case SetConVarMessage convars:
                         serverConVars.Apply(convars);
+                        conVarHistory.Add((command.Tick, serverConVars.Snapshot()));
                         continue;
 
                     // **The director telling the camera how to frame this shot** — `hltv_chase`,
@@ -3718,6 +3757,7 @@ public sealed class DemoTimeline
             Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
+            ConVarChanges = conVarHistory,
             UserCommands = userCommands,
             PacketAcknowledgements = packetAcknowledgements,
             MapCrc = mapCrc,

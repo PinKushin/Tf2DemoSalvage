@@ -8290,9 +8290,37 @@ guessed at in code.
   path bit-identical: `trace-identity` (now also hashing the player hull through a brush entity) gives `40D39947…7530`
   on cp_process_f12 and `5DBF4773…58C5` on pl_vigil_rc9 before and after. *Interpolated:* the sine `FUN_180276390`
   uses is not read; the SDK's `AngleMatrix` stands in. *Not on this path:* bullets (`SolidBrushEntities`), doors only.
-- **Still open across D205's port, each a default:** `GetMovementForwardPull` (`firing_forward_pull` needs the weapon's
-  `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, `IsLoser`'s duck crop,
-  `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), and the movement modes' declines and defaults listed above. D175's sticking friction is vphysics and is not on this
+- **Closed 2026-10-02, read off the demo rather than defaulted** (`fix/b450-movement-remainder`). *Evidence class: read
+  from published source plus synthetic exact-value tests* (`TfGameMovementRemainderConformanceTests`,
+  `RecorderPredictionWeaponStateTests`, `ServerConVarsAtTests`), each branch sabotaged and restored.
+  - **`GetMovementForwardPull`** (`tf_player_shared.cpp:10767-10779`, used by `WalkMove` `:1817-1828` and `AirMove`
+    `:2169-2183`) asks `IsFiring()`, which only `CTFFlameThrower` overrides — `m_iWeaponState == FT_STATE_FIRING`
+    (`tf_weapon_flamethrower.h:36`, `:92`), sent in `DT_WeaponFlameThrower` (`.cpp:206`) and predicted (`:216`). Not the
+    usercmd's `IN_ATTACK` and not `m_flNextPrimaryAttack`. *Interpolated:* the networked state stands for every re-run
+    command; the client's `ItemPostFrame` (`:536-657`) moves it after each command on ammo, spin-up and a muzzle trace.
+  - **The Atomizer's deploy test** (`tf_player_shared.cpp:12867-12873`): `m_flLastDeployTime` is set by `Deploy`
+    (`tf_weaponbase.cpp:1319`) and is in no send table or prediction map (`:169-248`), so the client's value is the
+    curtime of the last command prediction ran that switched to the weapon — `RunCommand`'s `weaponselect`, before the
+    movement (`prediction.cpp:903-910`). Found by walking the recorded usercmds back within the 0.7 s window; a
+    `weaponselect` inside the re-run commands switches the hooked weapon too. *Interpolated:* a switch is taken to succeed
+    (`CanHolster`/`CanDeploy` are not asked), and one tick of curtime per command.
+  - **`hype_resets_on_jump`** (`tf_gamemovement.cpp:1007-1016`): `SetScoutHypeMeter` (`tf_player_shared.cpp:14124`, not
+    while `TF_COND_SODAPOPPER_HYPE`) then `TeamFortress_SetSpeed`. The max speed's only hype term is the Baby Face's
+    `RemapValClamped( hype, 0, 100, 1, 1.45 )` (`:11080-11086`), with only factors after it, so the networked
+    `m_flMaxspeed` is divided by the old term and multiplied by the new. **Declined under `TF_COND_SPEED_BOOST`**, whose
+    term is `GAME_DLL` only (`:10918-10928`): the client's recompute drops it and no division undoes that.
+  - **`IsLoser`'s duck crop** (`tf_gamemovement.cpp:3371-3384`) through `LoserState.IsLoser`, off the packet's
+    `m_iRoundState`, `m_iWinningTeam`, match type and `tf_always_loser`.
+  - **`tf_clamp_airducks`** (`:49`, `FCVAR_REPLICATED`, default 1) is declared in `EngineConVars` and gates `DuckOverrides`
+    (`:3190`).
+  - **Per-tick ConVars:** `DemoTimeline.ServerConVarsAt(tick)` is the settings after every `net_SetConVar` read by then;
+    prediction builds its `MovementConVars` from it at the predicted tick, rebuilt only when a message moved them.
+  - **Measured**, `CorpusRecorderPredictionTests`: 9,783 gaps, 0 declined; predicted mean 10.114 → 10.114, median 0 → 0,
+    max 905.942 → 905.942; held 25.725. Unchanged. The 2009 badlands specimen is a solo recording, and its 2009 build
+    predates the Atomizer and the Baby Face; that it holds no round win or mid-match ConVar change
+    is *not measured*.
+- **Still open across D205's port:** the movement modes' declines and defaults listed above. D175's sticking friction
+  is vphysics and is not on this
   path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and props, and no
   world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more

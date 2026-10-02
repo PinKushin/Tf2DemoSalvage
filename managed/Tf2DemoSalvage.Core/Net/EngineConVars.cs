@@ -107,6 +107,9 @@ public static class EngineConVars
         new("sv_maxvelocity", "3500", Replicated: true, Cheat: false),
         new("sv_stepsize", "18", Replicated: true, Cheat: false),
 
+        // CTFGameMovement::DuckOverrides' gate on the duck timer and the one-duck-per-air rule (tf_gamemovement.cpp:49, :3190).
+        new("tf_clamp_airducks", "1", Replicated: true, Cheat: false),
+
         // **The interpolation set, and the effective amount is none of them on its own.**
         // `GetClientInterpAmount()` in src/game/client/cdll_bounded_cvars.cpp:126 is
         // `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`, and each half is separately clamped

@@ -47,5 +47,6 @@ public sealed class SceneItemEffectMeterFieldsTests
         item.ChargeBeginTime.ShouldBe(301.5f, "DT_ParticleCannon.m_flChargeBeginTime (tf_weapon_particle_cannon.cpp:37)");
         item.NumCharges.ShouldBe(3);
         item.PrimaryAmmoType.ShouldBe(4);
+        item.FlameThrowerState.ShouldBe(2, "DT_WeaponFlameThrower.m_iWeaponState, FT_STATE_FIRING (tf_weapon_flamethrower.cpp:206)");
     }
 }
