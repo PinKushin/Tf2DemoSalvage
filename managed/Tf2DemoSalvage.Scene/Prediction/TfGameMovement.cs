@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// <c>WaterJump</c>, <c>CheckWaterJumpButton</c>, the ghost and parachute branches, <c>CheckKartWallBumping</c>'s clamp and
 /// <c>PlayerSolidMask</c>. **Declined, so the networked velocity stands** (<see cref="ProcessMovement"/> returns false):
 /// a water jump already running, whose clock the demo does not carry, and a moving taunt whose item attributes are not
-/// known.
+/// known. What else is taken as a default is filed under B450.
 ///
 /// **Taken as their defaults, each filed under B450:** item attributes (<c>mod_jump_height</c>, <c>mod_air_control</c>,
 /// <c>CanAirDash</c>'s extra dashes, <c>GetMovementForwardPull</c>), the ground's surfaceprop (friction, jump factor,

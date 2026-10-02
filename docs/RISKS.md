@@ -8196,8 +8196,31 @@ guessed at in code.
   `CorpusRecorderPredictionTests` compares 9,783 packet gaps with the next packet's networked velocity: predicted mean
   10.1 u/s, median 0, max 906; holding the last packet mean 25.7, median 0.7 (the max is server-side knockback). A
   2013 listen-server demo acknowledges every command in the next packet, so prediction adds nothing there.
-  **Still open, each a default in the port:** water above the feet, taunt movement, karts, ghosts, grappling hooks,
-  parachutes and stuns decline (networked velocity stands); item attributes (`mod_jump_height`, `mod_air_control`,
+  **The movement modes — ported 2026-10-02 (`fix/d205-movement-modes`).** `ProcessMovement` runs `StunMove`,
+  `TauntMove` (with `VehicleMove`) and `GrapplingHookMove` where `tf_gamemovement.cpp:289` does; `FullWalkMove` takes the
+  water, ghost and parachute branches (`:2622`): `CheckWater` inside `CategorizePosition` from the map's leaf contents,
+  `FullWalkMoveUnderwater`, `WaterMove`, `CheckWaterJump`, `WaterJump`, `CheckWaterJumpButton`, the ghost and grapple jumps,
+  `GetAirSpeedCap`'s grapple, parachute and kart caps, the grapple step in `AirMove`, `CheckKartWallBumping`'s client clamp
+  and a ghost's brush-only `PlayerSolidMask`. The inputs are the demo's: conditions, `m_vecViewOffset[2]`, the legacy
+  movement stun (`m_flStunEnd` rebuilt from the packet where `m_iMovementStunParity` changed, `tf_player_shared.cpp:1440`),
+  `m_bAllowMoveDuringTaunt`, `m_flCurrentTauntMoveSpeed`, `m_flVehicleReverseTime`, `m_hGrapplingHookTarget`.
+  `TfGameMovementModeConformanceTests` holds 21 hand-computed values; every new branch was sabotaged and reddened its
+  test. `CorpusRecorderPredictionTests` is unchanged (mean 10.123, median 0, 0 declined) — the 2009 badlands POV has
+  none of these modes, so **no corpus demo yet asserts them at the output**. *Evidence class: published source plus
+  synthetic tests.* **Still declined, each because the demo does not carry the state:** `FL_WATERJUMP` arriving set
+  (`m_flWaterJumpTime` is a `DEFINE_FIELD`, neither sent nor restored, `c_baseplayer.cpp:383`); a hook on a projectile
+  (the timeline hands prediction no projectile position); the 0.2 s of `StunMove`'s fade (`m_flLastMovementStunChange`
+  is client state set by whichever prediction first saw the stun end); a moving taunt (its `"taunt move speed"`,
+  `"taunt force move forward"` and `"taunt move acceleration time"` are the taunt item's attributes,
+  `tf_player_shared.cpp:13156`, from `m_iTauntItemDefIndex` or the GC loadout slot — `items_game.txt` is not wired to
+  prediction). **Taken as defaults:** `CanPlayerMove` and `CanMoveDuringTaunt`'s competitive refusals (game rules), the
+  match-start and ConTracker freeze at the end of `StunMove`, the player-destruction team leader in the grapple,
+  `cannot_swim`, `swimming_mastery` and `parachute_attribute` (so `ToggleParachute` does not toggle), the `tf_*`
+  movement ConVars at their declared defaults (`tf_grapplinghook_use_acceleration` 0 picks the grapple's simple branch),
+  `m_flOldForwardMove` starting at 0 for a kart's reverse stall, water in brush entities (leaf contents only), and the
+  control stun's animation as not yet started when `m_flStunEnd` is rebuilt. *Interpolated:* the client's clock on
+  receiving a packet is the packet's tick, and `abs` in the parachute's drag is the float overload.
+  **Still open, each a default in the port:** item attributes (`mod_jump_height`, `mod_air_control`,
   extra air dashes, forward pull), the ground's surfaceprop (friction, jump and speed factors), a moving ground's
   velocity, `m_flGravity` and the game-rules gravity multiplier, `CanJump`/`CanDuck`, `CheckStuck`, buildings as
   boxes, brush entities (doors) in the trace, per-tick ConVars (the last value sent is used), and `m_flDucktime` and
