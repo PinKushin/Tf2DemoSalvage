@@ -63,7 +63,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   hours (the 1.3 GB and 2 GB specimens found so far) works in the command-line tool, but the
   viewer's timeline needs 40 to 84 times the file's size in memory (B449, B439).
 - **The viewer needs a lot of memory.** A typical modern match uses about 4 GB once loaded (B433,
-  B407). 16 GB of RAM is a sensible minimum.
+  B407); see *Requirements*.
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
@@ -79,9 +79,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 ## Requirements
 
 - **Windows 10 or 11, x64**, with a Direct3D 11 GPU.
-- **The .NET 10 Desktop Runtime, x64** — <https://dotnet.microsoft.com/download/dotnet/10.0>. The
-  programs are framework-dependent, so they do not carry their own copy of .NET; the Desktop Runtime
-  covers both the viewer and the command-line tool.
+- **8 GB of RAM minimum, 16 GB recommended.** The viewer holds about 4 GB with a full match loaded (B433).
+- **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
+  needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
   models, materials or sounds — and no demos. The viewer reads them from your install and stops with
   an error if it cannot find one. The command-line tool needs only the demo.
@@ -92,10 +92,12 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Speex 1.2.1** (`viewer/speex.dll`) — Xiph.Org BSD-style, `licenses/SPEEX-COPYING.txt`.
 - **CELT 0.11.3** (`viewer/celt.dll`) — Xiph.Org BSD-style, `licenses/CELT-COPYING.txt`.
 - **SILK SDK 1.0.9** (`viewer/silk.dll`) — Skype Limited BSD-style, `licenses/SILK-LICENSE.txt`.
-  **Note:** this licence says, in capitals, *"no express or implied licenses to any party's patent
-  rights are granted by this license."* The copyright licence permits redistribution in binary
-  form; it does not grant any patent rights.
-- **OpenAL Soft** (`viewer/soft_oal.dll`, from the `Silk.NET.OpenAL.Soft.Native` package) — GNU
-  LGPL 2.1, dynamically loaded and replaceable.
-- Other third-party packages in `viewer/` and `cli/` (Silk.NET, libopus, NLayer,
+  Tf2DemoSalvage did not write it and does not claim to; it is included under that licence, which
+  grants no patent rights.
+- **libopus 1.6.1** (`viewer/runtimes/win-x64/native/opus.dll`) — Xiph.Org BSD-style,
+  `licenses/OPUS-COPYING.txt`.
+- **OpenAL Soft 1.23.1** (`viewer/soft_oal.dll`, from the `Silk.NET.OpenAL.Soft.Native` package) —
+  LGPL 2.0 or later, `licenses/OPENAL-SOFT-COPYING.txt`; dynamically loaded and replaceable.
+- **.NET runtime** (bundled in `viewer/` and `cli/`) — MIT, Microsoft.
+- Other third-party packages in `viewer/` and `cli/` (Silk.NET, NLayer,
   Microsoft.Extensions.Logging) are under their own licences, published with each package on NuGet.

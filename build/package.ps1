@@ -4,11 +4,12 @@ Publishes the viewer (tf2demoview) and the CLI (tf2demosalvage) for win-x64 and 
 artifacts/Tf2DemoSalvage-<version>-win-x64.zip. Releases nothing.
 
 .DESCRIPTION
-**Framework-dependent, not self-contained.** Neither project sets SelfContained or a
-RuntimeIdentifier, and the CI and every local run exercise the shared-runtime build; shipping a
-self-contained one would ship a configuration nothing tests. It also keeps the zip a fraction of
-the size. The cost is that the user installs the .NET 10 Desktop Runtime (RELEASE-NOTES.md says so).
-A RID IS pinned for publish, which is what flattens libopus and openal into the app folder.
+**Self-contained win-x64 (D202)**, so the user installs nothing: the owner's reason is that most
+bugs in programs that need a .NET runtime are the user not installing the right one. Each app is a
+folder, not a single file, so the native codecs stay beside the exe. The zip is larger than a
+framework-dependent one; that is the accepted cost. Non-Windows libopus copies under runtimes/ are
+deleted from the folders; runtimes/win-x64/native/opus.dll stays, because NativeLibraryResolver
+reads AppContext.BaseDirectory/runtimes/<rid>/native/.
 
 **The version has one home: <Version> in Directory.Build.props.** It is read back here, never
 restated.
@@ -56,8 +57,10 @@ $apps = @{
     cli    = 'managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj'
 }
 foreach ($name in $apps.Keys) {
-    dotnet publish "$repo/$($apps[$name])" -c Release -r $rid --self-contained false -o "$stage/$name"
+    dotnet publish "$repo/$($apps[$name])" -c Release -r $rid --self-contained true -o "$stage/$name"
     Assert-Success "dotnet publish $name"
+    Get-ChildItem "$stage/$name/runtimes" -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne $rid } | Remove-Item -Recurse -Force
 }
 
 Copy-Item "$repo/LICENSE" "$stage/LICENSE.txt"
@@ -76,7 +79,9 @@ finally { $archive.Dispose() }
 $required = @(
     'LICENSE.txt', 'RELEASE-NOTES.md',
     'licenses/CELT-COPYING.txt', 'licenses/SPEEX-COPYING.txt', 'licenses/SILK-LICENSE.txt',
+    'licenses/OPUS-COPYING.txt', 'licenses/OPENAL-SOFT-COPYING.txt',
     'viewer/tf2demoview.exe', 'viewer/tf2demoview.dll', 'viewer/tf2demoview.runtimeconfig.json',
+    'viewer/coreclr.dll', 'viewer/hostfxr.dll', 'cli/coreclr.dll', 'cli/hostfxr.dll',
     # libopus keeps its runtimes/ fan-out even under a pinned RID; NativeLibraryResolver reads it
     # there. OpenAL Soft ships for Windows as soft_oal.dll, which Silk.NET's loader looks for.
     'viewer/runtimes/win-x64/native/opus.dll', 'viewer/soft_oal.dll',

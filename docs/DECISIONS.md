@@ -9409,3 +9409,24 @@ B441's engine read showed every post-2011 voice packet is Steam Voice carrying S
 rather than framed by the engine. No pure C# SILK decoder exists. Asked whether to vendor the Skype SILK SDK as
 native code under `tools/native-audio` or file Steam Voice as recognised but unplayable, the owner: *"yes, vendor
 SILK like speex"*. So D4's no-C++-by-default holds, with a third audio codec joining the existing native exception.
+
+## D202 — the beta zip is self-contained, ships full licence texts, and the SILK licence ships as is (2026-10-01)
+
+Five directions on the first release package (`build/package.ps1`, `RELEASE-NOTES.md`):
+
+1. **SILK ships as is.** The SILK licence grants no patent rights; asked whether that blocked shipping, the owner:
+   *"ship it as is, idk what patent rights mean, but we are not claiming to own it or have written it"*. The notes
+   say so plainly, with no "pending" wording.
+2. **Full licence texts.** `OPUS-COPYING.txt` (xiph/opus v1.6.1, matching libopus 1.6.1.3) and
+   `OPENAL-SOFT-COPYING.txt` (kcat/openal-soft 1.23.1, matching `Silk.NET.OpenAL.Soft.Native` 1.23.1) were fetched
+   from upstream at those tags into `tools/native-audio/licenses/`. The owner: *"yes add them"*. The OpenAL file is
+   the GNU Library GPL v2; the notes call it "LGPL 2.0 or later", per the package metadata.
+3. **Trimmed folders.** `.pdb`/`.xml` stay; non-Windows libopus copies under `runtimes/` are dropped, keeping
+   `runtimes/win-x64/native/opus.dll`, which `NativeLibraryResolver` reads.
+4. **Memory line.** The notes say "8 GB RAM minimum, 16 GB recommended", because the viewer holds about 4 GB with a
+   full match loaded (B433).
+5. **Self-contained win-x64**, folder not single-file, for the viewer and the CLI; the .NET runtime requirement is
+   gone from the notes. This reverses the framework-dependent choice the first package script made (smaller zip,
+   one tested configuration); the owner's reason: *"I want the program to run without the user having to download
+   anything extra, like an external runtime, 90% of bugs for programs that require users to download the right .net
+   runtime, are the user not DLing the right fucking runtime lol"*. The zip grows; that is accepted.
