@@ -188,6 +188,23 @@ public sealed class DemoPlayerConformanceTests
         player.InterpolateViewpoint(105.5).ShouldNotBeNull().Origin.X.ShouldBe(420f, Tolerance);
     }
 
+    /// <remarks>
+    /// <c>InterpolateViewpoint</c> (<c>0x180072180</c>) reads <c>demo_interpolateview</c>'s <c>m_nValue</c> on every
+    /// call, so a change made while the demo plays applies on the next frame, not the next open (B450).
+    /// </remarks>
+    [Test]
+    public void InterpolateViewpoint_DemoInterpolateViewChangedWhilePlaying_AppliesOnTheNextCall()
+    {
+        DemoViewConVars vars = DemoViewConVars.Defaults with { InterpolateView = false };
+        DemoPlayer player = new(DemoTimeline.Build(Line())) { ConVars = () => vars };
+
+        player.InterpolateViewpoint(105.5).ShouldNotBeNull().Origin.X.ShouldBe(420f, Tolerance);
+
+        vars = DemoViewConVars.Defaults;
+
+        player.InterpolateViewpoint(106.5).ShouldNotBeNull().Origin.X.ShouldBe(426f, Tolerance);
+    }
+
     [Test]
     public void InterpolateViewpoint_TheUseOrigin2Flag_InterpolatesFromTheResampledOriginAndTheOriginalAngles()
     {
@@ -322,5 +339,5 @@ public sealed class DemoPlayerConformanceTests
     ]);
 
     internal static DemoPlayer Player(byte[] demo, DemoViewConVars? conVars = null) =>
-        new(DemoTimeline.Build(demo)) { ConVars = conVars ?? DemoViewConVars.Defaults };
+        new(DemoTimeline.Build(demo)) { ConVars = () => conVars ?? DemoViewConVars.Defaults };
 }
