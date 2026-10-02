@@ -254,6 +254,8 @@ public sealed class PlayerCompletenessTests
         CurrentTauntMoveSpeed = 212.5f,
         VehicleReverseTime = 104.25f,
         GrapplingHookTarget = 2,
+        TauntItemDefIndex = 1157,
+        ActiveTauntSlot = -1,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

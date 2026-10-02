@@ -210,6 +210,18 @@ public sealed class TfGameMovementModeConformanceTests
     }
 
     [Test]
+    public void ProcessMovement_TauntingOnTheGroundHoldingJump_DoesNotJump()
+    {
+        // CTFPlayer::CanJump (tf_player_shared.cpp:12279): "Cannot jump while taunting".
+        PredictedPlayer player = TfGameMovementConformanceTests.Standing() with { Conditions = Cond(CondTaunting) };
+
+        Run(ref player, Command(buttons: InJump));
+
+        player.Velocity.Z.ShouldBe(0f);
+        player.OnGround.ShouldBeTrue();
+    }
+
+    [Test]
     public void ProcessMovement_InAMovingTauntWithNoAcceleration_DrivesAtTheTauntSpeed()
     {
         // flMoveDir 450 / 450 = 1, speed 200 at once, SimpleSpline(1) = 1: forwardmove 200, maxspeed 200; 10 · 0.015 · 200.

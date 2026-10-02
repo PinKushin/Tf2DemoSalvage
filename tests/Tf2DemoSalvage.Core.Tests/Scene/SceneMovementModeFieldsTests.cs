@@ -22,5 +22,7 @@ public sealed class SceneMovementModeFieldsTests
         player.CurrentTauntMoveSpeed.ShouldBe(212.5f);
         player.VehicleReverseTime.ShouldBe(104.25f);
         player.GrapplingHookTarget.ShouldBe(2);
+        player.TauntItemDefIndex.ShouldBe(1157);
+        player.ActiveTauntSlot.ShouldBe(-1);
     }
 }

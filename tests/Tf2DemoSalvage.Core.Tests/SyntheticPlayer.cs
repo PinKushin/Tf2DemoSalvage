@@ -3159,6 +3159,7 @@ internal static class SyntheticPlayer
                         .. table.Properties, Table("playershared", "DT_TFPlayerShared"),
                         UnsignedInt("m_bAllowMoveDuringTaunt", bits: 1), NoScaleFloat("m_flCurrentTauntMoveSpeed"),
                         NoScaleFloat("m_flVehicleReverseTime"), UnsignedInt("m_hGrapplingHookTarget", bits: 21),
+                        Int("m_iTauntItemDefIndex", bits: 17), Int("m_nActiveTauntSlot", bits: 5),
                     ],
                 },
                 "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive")] },
@@ -3191,6 +3192,8 @@ internal static class SyntheticPlayer
                 ["m_flCurrentTauntMoveSpeed"] = PropertyValue.FromFloat(212.5f),
                 ["m_flVehicleReverseTime"] = PropertyValue.FromFloat(104.25f),
                 ["m_hGrapplingHookTarget"] = LoadoutHandle(2),
+                ["m_iTauntItemDefIndex"] = PropertyValue.FromInt(1157),
+                ["m_nActiveTauntSlot"] = PropertyValue.FromInt(-1),
             }),
         ];
 
