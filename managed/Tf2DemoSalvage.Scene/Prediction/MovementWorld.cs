@@ -26,8 +26,8 @@ public readonly record struct MovementBox(Vector3 Min, Vector3 Max, int Entity, 
 /// <c>StandardFilterRules</c> (<c>util_shared.cpp:241</c>) passes every entity; the entity's own <c>ShouldCollide</c> and
 /// <see cref="PlayerMovementCollidesWith"/> decide.
 ///
-/// **Not carried, filed in B450:** a brush entity with angles. <c>CM_TransformedBoxTrace</c> rotates the ray into the
-/// model's frame and this walks the subtree with an unrotated one, so a turned brush is left out rather than misplaced.
+/// A brush entity with angles is carried with them; <see cref="MapLevel.TraceHull"/> turns the ray into its frame as
+/// <c>CM_TransformedBoxTrace</c> does (B450).
 /// </remarks>
 public sealed class MovementWorld
 {
@@ -89,11 +89,14 @@ public sealed class MovementWorld
 
         foreach ((ScenePropTrack track, int headNode) in brushTracks)
         {
-            if (track.Alive(tick) && track.AtKeyframe(tick) is { } pose && track.CollisionAt(tick) is { } collision &&
-                pose is { Pitch: 0f, Yaw: 0f, Roll: 0f })
+            if (track.Alive(tick) && track.AtKeyframe(tick) is { } pose && track.CollisionAt(tick) is { } collision)
             {
                 brushes.Add((
-                    new SolidBrush(headNode, new Vector3(pose.X, pose.Y, pose.Z), track.EntityIndex),
+                    new SolidBrush(
+                        headNode,
+                        new Vector3(pose.X, pose.Y, pose.Z),
+                        track.EntityIndex,
+                        new Vector3(pose.Pitch, pose.Yaw, pose.Roll)),
                     track.ClassName,
                     collision,
                     track.TeamNumber));

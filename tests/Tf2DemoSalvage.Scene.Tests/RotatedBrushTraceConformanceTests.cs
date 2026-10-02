@@ -45,7 +45,7 @@ public sealed class RotatedBrushTraceConformanceTests
         // −100 are local x −100 to 100, the box centre's local x is the feet's — the offset is re-added unrotated, along
         // local z — and the box reaches 24 along local x. It meets x ≥ −4 at x = −28: (72 − ε) / 200.
         BspTrace trace = Level().TraceHull(
-            (100f, 0f, 100f), (100f, 0f, -100f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 90f, 0f)]).ShouldNotBeNull();
+            (100f, 0f, 100f), (100f, 0f, -100f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(90f, 0f, 0f)]).ShouldNotBeNull();
 
         trace.Fraction.ShouldBe((72f - Epsilon) / 200f, 1e-6f);
         trace.BrushEntity.ShouldBe(Door);
@@ -64,7 +64,7 @@ public sealed class RotatedBrushTraceConformanceTests
     {
         // Local (−1, 0, 0) through VectorRotate is −forward, (0, 0, 1): the floor's normal, not the model's.
         BspTrace trace = Level().TraceHull(
-            (100f, 0f, 100f), (100f, 0f, -100f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 90f, 0f)]).ShouldNotBeNull();
+            (100f, 0f, 100f), (100f, 0f, -100f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(90f, 0f, 0f)]).ShouldNotBeNull();
 
         trace.Normal.X.ShouldBe(0f, 1e-6f);
         trace.Normal.Y.ShouldBe(0f, 1e-6f);
@@ -102,7 +102,7 @@ public sealed class RotatedBrushTraceConformanceTests
     {
         // Feet at z 0 put the box across the flat slab; rising 200 takes it out. CM_BoxTrace's flags pass through untouched.
         BspTrace trace = Level().TraceHull(
-            (0f, 0f, 0f), (0f, 0f, 200f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 90f, 0f)]).ShouldNotBeNull();
+            (0f, 0f, 0f), (0f, 0f, 200f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(90f, 0f, 0f)]).ShouldNotBeNull();
 
         trace.StartSolid.ShouldBeTrue();
         trace.AllSolid.ShouldBeFalse();
@@ -113,7 +113,7 @@ public sealed class RotatedBrushTraceConformanceTests
     public void TraceHull_StayingInsideATurnedSlab_IsAllSolid()
     {
         BspTrace trace = Level().TraceHull(
-            (0f, 0f, 0f), (0f, 0f, 1f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(0f, 90f, 0f)]).ShouldNotBeNull();
+            (0f, 0f, 0f), (0f, 0f, 1f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [Slab(90f, 0f, 0f)]).ShouldNotBeNull();
 
         trace.StartSolid.ShouldBeTrue();
         trace.AllSolid.ShouldBeTrue();
@@ -124,7 +124,7 @@ public sealed class RotatedBrushTraceConformanceTests
     {
         // AngleMatrix( angles, origin ): placed at z = 50 and pitched flat, the slab is |z − 50| ≤ 4, so the feet stop at
         // z = 78 — 22 of 200 from 100.
-        SolidBrush placed = Slab(0f, 90f, 0f) with { Origin = new Vector3(0f, 0f, 50f) };
+        SolidBrush placed = Slab(90f, 0f, 0f) with { Origin = new Vector3(0f, 0f, 50f) };
 
         Level().TraceHull((100f, 0f, 100f), (100f, 0f, -100f), Mins, Maxs, BspLeafTree.MaskPlayerSolid, [placed])
             .ShouldNotBeNull().Fraction.ShouldBe((22f - Epsilon) / 200f, 1e-6f);

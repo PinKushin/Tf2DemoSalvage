@@ -202,7 +202,17 @@ public sealed record MapLevel(
         (float X, float Y, float Z) to,
         (float X, float Y, float Z) extents,
         int mask,
-        IReadOnlyList<SolidBrush> brushes)
+        IReadOnlyList<SolidBrush> brushes) =>
+        Trace(from, to, extents, mask, brushes, default);
+
+    /// <summary>The whole-world trace with the box's centre offset from its origin — `Ray_t::m_StartOffset`, negated.</summary>
+    private BspTrace Trace(
+        (float X, float Y, float Z) from,
+        (float X, float Y, float Z) to,
+        (float X, float Y, float Z) extents,
+        int mask,
+        IReadOnlyList<SolidBrush> brushes,
+        Vector3 centre)
     {
         ArgumentNullException.ThrowIfNull(brushes);
 
@@ -222,12 +232,14 @@ public sealed record MapLevel(
 
         foreach (SolidBrush brush in brushes)
         {
-            BspTrace entity = tree.Trace(
-                from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
-                to.X - brush.Origin.X, to.Y - brush.Origin.Y, to.Z - brush.Origin.Z,
-                extents,
-                brush.HeadNode,
-                mask);
+            BspTrace entity = brush.Angles == Vector3.Zero
+                ? tree.Trace(
+                    from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
+                    to.X - brush.Origin.X, to.Y - brush.Origin.Y, to.Z - brush.Origin.Z,
+                    extents,
+                    brush.HeadNode,
+                    mask)
+                : TransformedTrace(tree, from, to, extents, mask, brush, centre);
 
             if (entity.Fraction < nearest.Fraction)
             {
@@ -273,7 +285,53 @@ public sealed record MapLevel(
             (to.X + centre.X, to.Y + centre.Y, to.Z + centre.Z),
             ((maxs.X - mins.X) * 0.5f, (maxs.Y - mins.Y) * 0.5f, (maxs.Z - mins.Z) * 0.5f),
             mask,
-            brushes);
+            brushes,
+            new Vector3(centre.X, centre.Y, centre.Z));
+    }
+
+    /// <summary>
+    /// `CM_TransformedBoxTrace` for a turned brush entity, read in `engine.dll` (x64) `FUN_18016ab60` (B450).
+    /// </summary>
+    /// <remarks>
+    /// The ray's own start — the box's origin, `m_Start + m_StartOffset` — goes into the model's frame through
+    /// `VectorITransform` and the centre offset is added back UNROTATED; the delta goes through `VectorIRotate`; the extents
+    /// are kept, so the box turns with the model. A hit's normal comes back through `VectorRotate`; `plane.dist`,
+    /// `startsolid` and `allsolid` stay the local trace's. *Each sum is in the binary's order (`FUN_180279620`,
+    /// `FUN_1802795a0`, `FUN_1802796c0`); the matrix is `StaticPropCollision.AngleMatrix`, the SDK's `AngleMatrix` — whether
+    /// `FUN_180276390`'s sine rounds the same is not read.*
+    /// </remarks>
+    private static BspTrace TransformedTrace(
+        BspLeafTree tree,
+        (float X, float Y, float Z) from,
+        (float X, float Y, float Z) to,
+        (float X, float Y, float Z) extents,
+        int mask,
+        SolidBrush brush,
+        Vector3 centre)
+    {
+        (Vector3 f, Vector3 l, Vector3 u) = StaticPropCollision.AngleMatrix(brush.Angles.X, brush.Angles.Y, brush.Angles.Z);
+        Vector3 d = new Vector3(from.X, from.Y, from.Z) - centre - brush.Origin;
+        Vector3 v = new(to.X - from.X, to.Y - from.Y, to.Z - from.Z);
+        Vector3 start = new Vector3(
+            (d.Y * f.Y) + (d.X * f.X) + (d.Z * f.Z),
+            (d.X * l.X) + (d.Y * l.Y) + (d.Z * l.Z),
+            (d.X * u.X) + (d.Y * u.Y) + (d.Z * u.Z)) + centre;
+        Vector3 delta = new(
+            (f.Y * v.Y) + (v.X * f.X) + (f.Z * v.Z),
+            (l.X * v.X) + (l.Y * v.Y) + (l.Z * v.Z),
+            (u.X * v.X) + (u.Y * v.Y) + (u.Z * v.Z));
+
+        BspTrace local = tree.Trace(
+            start.X, start.Y, start.Z, start.X + delta.X, start.Y + delta.Y, start.Z + delta.Z, extents, brush.HeadNode, mask);
+        (float x, float y, float z) = local.Normal;
+
+        return local with
+        {
+            Normal = (
+                (l.X * y) + (x * f.X) + (u.X * z),
+                (l.Y * y) + (f.Y * x) + (u.Y * z),
+                (l.Z * y) + (f.Z * x) + (u.Z * z)),
+        };
     }
 
     /// <summary>The solid static props a line meets, set once their models are read; empty until then.</summary>
