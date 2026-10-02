@@ -57,68 +57,80 @@ public static class DemoWriter
         using MemoryStream output = new();
         output.Write(WriteHeader(header));
 
-        // One buffer, reused. A stackalloc inside the loop is a stack overflow waiting for a
-        // 120,000-command demo (CA2014).
-        Span<byte> scratch = stackalloc byte[Int32Bytes];
-
         foreach (DemoCommand command in commands)
         {
-            output.WriteByte((byte)command.Type);
-
-            // dem_stop's tick is truncated to three bytes by TF2's own writer, and the file ends
-            // there. Emitting four would append a byte no real demo has.
-            if (command.Type == DemoCommandType.Stop)
+            if (!WriteCommand(output, command))
             {
-                // **Refuse rather than truncate.** Three bytes hold 0 to 2^24-1, and a tick
-                // outside that silently became a different tick on the way out - found by
-                // fuzzing on 2026-08-11, where a round trip returned tick 9209979 for a command
-                // written at -544438149. Real demos never reach 2^24, so this cannot fire on a
-                // recording; it fires on a caller constructing one, which is exactly when a
-                // silent corruption is hardest to notice.
-                if (command.Tick < 0 || command.Tick > MaxStopTick)
-                {
-                    // Stryker disable all : the String mutator wraps the interpolated literal in a
-                    // ternary that cannot bind to string.Create's interpolated-string handler
-                    // (CS1620), and Safe Mode then drops every mutation in this method — B410.
-                    throw new ArgumentOutOfRangeException(
-                        nameof(commands),
-                        command.Tick,
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"dem_stop stores its tick in {StopTickBytes} bytes, so it cannot " +
-                            $"represent {command.Tick}. Writing it would produce a demo that " +
-                            $"reads back as a different tick."));
-
-                    // Stryker restore all
-                }
-
-                BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
-                output.Write(scratch[..StopTickBytes]);
                 break;
             }
-
-            BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
-            output.Write(scratch);
-
-            output.Write(command.Prologue.Span);
-
-            if (command.Type == DemoCommandType.SyncTick)
-            {
-                // No length prefix at all, which is the one command shape that is not
-                // length-prefixed. Writing a zero length here would insert four bytes.
-                continue;
-            }
-
-            BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Payload.Length);
-            output.Write(scratch);
-            output.Write(command.Payload.Span);
         }
 
         output.Write(tail.Span);
         return output.ToArray();
     }
 
-    private static byte[] WriteHeader(DemoHeader header)
+    /// <summary>Writes one command, the shape <see cref="Write"/> writes it in.</summary>
+    /// <param name="output">Destination.</param>
+    /// <param name="command">The command.</param>
+    /// <returns><c>false</c> after <c>dem_stop</c>, which ends the file: nothing after it is written.</returns>
+    /// <remarks>Shared with the streaming compile, so the two cannot write a command differently (B449).</remarks>
+    internal static bool WriteCommand(Stream output, DemoCommand command)
+    {
+        Span<byte> scratch = stackalloc byte[Int32Bytes];
+        output.WriteByte((byte)command.Type);
+
+        // dem_stop's tick is truncated to three bytes by TF2's own writer, and the file ends
+        // there. Emitting four would append a byte no real demo has.
+        if (command.Type == DemoCommandType.Stop)
+        {
+            // **Refuse rather than truncate.** Three bytes hold 0 to 2^24-1, and a tick
+            // outside that silently became a different tick on the way out - found by
+            // fuzzing on 2026-08-11, where a round trip returned tick 9209979 for a command
+            // written at -544438149. Real demos never reach 2^24, so this cannot fire on a
+            // recording; it fires on a caller constructing one, which is exactly when a
+            // silent corruption is hardest to notice.
+            if (command.Tick < 0 || command.Tick > MaxStopTick)
+            {
+                // Stryker disable all : the String mutator wraps the interpolated literal in a
+                // ternary that cannot bind to string.Create's interpolated-string handler
+                // (CS1620), and Safe Mode then drops every mutation in this method — B410.
+                throw new ArgumentOutOfRangeException(
+                    nameof(command),
+                    command.Tick,
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"dem_stop stores its tick in {StopTickBytes} bytes, so it cannot " +
+                        $"represent {command.Tick}. Writing it would produce a demo that " +
+                        $"reads back as a different tick."));
+
+                // Stryker restore all
+            }
+
+            BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
+            output.Write(scratch[..StopTickBytes]);
+            return false;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Tick);
+        output.Write(scratch);
+
+        output.Write(command.Prologue.Span);
+
+        if (command.Type == DemoCommandType.SyncTick)
+        {
+            // No length prefix at all, which is the one command shape that is not
+            // length-prefixed. Writing a zero length here would insert four bytes.
+            return true;
+        }
+
+        BinaryPrimitives.WriteInt32LittleEndian(scratch, command.Payload.Length);
+        output.Write(scratch);
+        output.Write(command.Payload.Span);
+        return true;
+    }
+
+    /// <summary>The 1,072-byte header.</summary>
+    internal static byte[] WriteHeader(DemoHeader header)
     {
         byte[] buffer = new byte[DemoHeader.SizeBytes];
 

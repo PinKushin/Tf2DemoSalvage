@@ -87,12 +87,25 @@ public sealed class DemoAssemblyFileTests
         CompileToStream(cut).Written.ShouldBe([9, 9, 9, .. cut]);
     }
 
-    private (int Commands, long Bytes, byte[] Written) CompileToStream(byte[] demo)
+    [Test]
+    public void Compile_IntoAStreamWithACommandAfterTheStop_CountsItAndWritesNothingAfterTheStop()
+    {
+        // Parse then DemoWriter.Write counted it and wrote nothing past dem_stop; the stream does the same.
+        byte[] demo = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+
+        (int commands, long bytes, byte[] written) = CompileToStream(demo, "consolecmd 5 data 6869\n");
+
+        (commands, bytes).ShouldBe((4, (long)demo.Length));
+        written.ShouldBe([9, 9, 9, .. demo]);
+    }
+
+    private (int Commands, long Bytes, byte[] Written) CompileToStream(byte[] demo, string appended = "")
     {
         string demoPath = Path.Combine(_folder, "in.dem");
         string text = Path.Combine(_folder, "in.txt");
         File.WriteAllBytes(demoPath, demo);
         DemoAssembly.Export(demoPath, text);
+        File.AppendAllText(text, appended);
 
         using StreamReader reader = new(text);
         using MemoryStream output = new();
