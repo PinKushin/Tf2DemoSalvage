@@ -73,7 +73,7 @@ public record struct PredictedPlayer
 
     public bool IsDead { get; set; }
 
-    /// <summary><c>GetWaterLevel()</c> as last networked; above <c>WL_Feet</c> (1) the swim code runs, which is not ported.</summary>
+    /// <summary><c>GetWaterLevel()</c>: networked, then <c>CheckWater</c>'s; above <c>WL_Feet</c> (1) the swim code runs.</summary>
     public int WaterLevel { get; set; }
 
     public int AirDash { get; set; }
@@ -109,6 +109,68 @@ public record struct PredictedPlayer
 
     /// <summary><c>GetGravity()</c>, <c>m_flGravity</c>; 0 reads as 1.</summary>
     public float Gravity { get; set; }
+
+    // ---- The movement modes (B450). ----
+
+    /// <summary><c>GetViewOffset().z</c>: <c>m_vecViewOffset[2]</c>, <c>DT_LocalPlayerExclusive</c> — <c>CheckWater</c>'s eye point.</summary>
+    public float ViewOffsetZ { get; set; }
+
+    /// <summary><c>GetWaterType()</c>: the contents <c>CheckWater</c> found at the feet.</summary>
+    public int WaterType { get; set; }
+
+    /// <summary><c>m_flWaterJumpTime</c>, milliseconds left of a jump out of water.</summary>
+    public float WaterJumpTime { get; set; }
+
+    /// <summary><c>m_vecWaterJumpVel</c>.</summary>
+    public Vector3 WaterJumpVelocity { get; set; }
+
+    /// <summary>
+    /// <c>FL_WATERJUMP</c> arrived set: the client's <c>m_flWaterJumpTime</c> is a <c>DEFINE_FIELD</c>, neither sent nor
+    /// restored (<c>c_baseplayer.cpp:383</c>), so how long is left is not in the demo and the move is declined.
+    /// </summary>
+    public bool WaterJumpUnknown { get; set; }
+
+    /// <summary><c>GetActiveStunInfo() != NULL</c>: <c>m_iStunIndex &gt;= 0</c> on the client (<c>tf_player_shared.cpp:7475</c>).</summary>
+    public bool StunActive { get; set; }
+
+    /// <summary><c>m_iMovementStunAmount</c>, 0..255: the active stun's <c>flStunAmount</c> (<c>:7462</c>).</summary>
+    public int StunAmount { get; set; }
+
+    /// <summary><c>m_iStunFlags</c>: <c>TF_STUN_*</c>.</summary>
+    public int StunFlags { get; set; }
+
+    /// <summary><c>m_flStunEnd</c>: the client's curtime when the stun parity changed plus its duration (<c>:1440-1449</c>).</summary>
+    public float StunExpireTime { get; set; }
+
+    /// <summary><c>m_Shared.m_flStunLerpTarget</c>, client state <c>StunMove</c> keeps between commands.</summary>
+    public float StunLerpTarget { get; set; }
+
+    /// <summary><c>m_Shared.m_flLastMovementStunChange</c>; zero when no fade is running.</summary>
+    public float LastMovementStunChange { get; set; }
+
+    /// <summary><c>m_Shared.m_bStunNeedsFadeOut</c>.</summary>
+    public bool StunNeedsFadeOut { get; set; }
+
+    /// <summary>The active weapon is <c>TF_WEAPON_MINIGUN</c>, which a control-stunned heavy may still spin.</summary>
+    public bool ActiveWeaponIsMinigun { get; set; }
+
+    /// <summary><c>HasTheFlag()</c>.</summary>
+    public bool HasTheFlag { get; set; }
+
+    /// <summary><c>m_bAllowMoveDuringTaunt</c> (<c>c_tf_player.cpp:3793</c>).</summary>
+    public bool AllowMoveDuringTaunt { get; set; }
+
+    /// <summary>The taunt item's movement attributes, or null when they are not known.</summary>
+    public TauntMovement? TauntMovement { get; set; }
+
+    /// <summary><c>m_flCurrentTauntMoveSpeed</c>, networked and predicted (<c>c_tf_player.cpp:3800, 3853</c>).</summary>
+    public float CurrentTauntMoveSpeed { get; set; }
+
+    /// <summary><c>m_flVehicleReverseTime</c>, networked and predicted (<c>:3801, 3854</c>); <c>FLT_MAX</c> when unset.</summary>
+    public float VehicleReverseTime { get; set; } = float.MaxValue;
+
+    /// <summary><c>GetGrapplingHookTarget()</c>: <c>m_hGrapplingHookTarget</c> resolved, or null.</summary>
+    public GrapplingTarget? GrapplingHook { get; set; }
 }
 
 /// <summary>What <c>CTFGameMovement</c> asks the player's items: <c>CALL_ATTRIB_HOOK_*_ON_OTHER</c> and <c>OwnerCanJump</c> (B450).</summary>
@@ -126,6 +188,24 @@ public sealed record MovementItems(Func<string, float, float> OnPlayer, Func<str
     /// <returns>The hooked value.</returns>
     public float OnWeapon(string attributeClass, float value) => OnActiveWeapon?.Invoke(attributeClass, value) ?? value;
 }
+
+/// <summary>
+/// The taunt attributes <c>ParseSharedTauntDataFromEconItemView</c> reads (<c>tf_player_shared.cpp:13156</c>):
+/// <c>"taunt force move forward"</c>, <c>"taunt move speed"</c>, <c>"taunt move acceleration time"</c>.
+/// </summary>
+/// <param name="ForceForward"><c>IsTauntForceMovingForward()</c>.</param>
+/// <param name="Speed"><c>GetTauntMoveSpeed()</c>.</param>
+/// <param name="Acceleration"><c>GetTauntMoveAcceleration()</c>, seconds to full speed.</param>
+public sealed record TauntMovement(bool ForceForward, float Speed, float Acceleration);
+
+/// <summary>What <c>GrapplingHookMove</c> reads of the hook's target.</summary>
+/// <param name="Center">Its <c>WorldSpaceCenter()</c>.</param>
+/// <param name="Origin">Its <c>GetAbsOrigin()</c>.</param>
+/// <param name="IsPlayer">Whether it is a player.</param>
+/// <param name="HookDirection">
+/// For a player who is grappling too, the normalised direction from his centre to his own hook's target; null otherwise.
+/// </param>
+public sealed record GrapplingTarget(Vector3 Center, Vector3 Origin, bool IsPlayer, Vector3? HookDirection = null);
 
 /// <summary>The replicated ConVars <c>CGameMovement</c> reads, as the server set them (D106, D205).</summary>
 public sealed record MovementConVars(

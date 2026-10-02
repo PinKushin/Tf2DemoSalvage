@@ -158,15 +158,6 @@ public sealed class TfGameMovementConformanceTests
     }
 
     [Test]
-    public void ProcessMovement_Taunting_DeclinesToPredict()
-    {
-        // TauntMove and its kin are not ported; the networked velocity stands.
-        PredictedPlayer player = Standing() with { Conditions = new Core.Scene.PlayerConditions(1 << 7, 0, 0, 0, 0) };
-
-        Run(Floor(), ref player, Command()).ShouldBeFalse();
-    }
-
-    [Test]
     public void ProcessMovement_HoldingDuckWithTheNetworkedDucktimeAt190MsIn_FinishesTheDuck()
     {
         // OnDuck (tf_gamemovement.cpp:3261-3270): ReduceTimers takes 15 ms off m_flDucktime, so 1000 − 810 + 15 = 205 ms

@@ -8196,6 +8196,34 @@ guessed at in code.
   `CorpusRecorderPredictionTests` compares 9,783 packet gaps with the next packet's networked velocity: predicted mean
   10.1 u/s, median 0, max 906; holding the last packet mean 25.7, median 0.7 (the max is server-side knockback). A
   2013 listen-server demo acknowledges every command in the next packet, so prediction adds nothing there.
+  **The movement modes — ported 2026-10-02 (`fix/d205-movement-modes`).** `ProcessMovement` runs `StunMove`,
+  `TauntMove` (with `VehicleMove`) and `GrapplingHookMove` where `tf_gamemovement.cpp:289` does; `FullWalkMove` takes the
+  water, ghost and parachute branches (`:2622`): `CheckWater` inside `CategorizePosition` from the map's leaf contents,
+  `FullWalkMoveUnderwater`, `WaterMove`, `CheckWaterJump`, `WaterJump`, `CheckWaterJumpButton`, the ghost and grapple jumps,
+  `GetAirSpeedCap`'s grapple, parachute and kart caps, the grapple step in `AirMove`, `CheckKartWallBumping`'s client clamp
+  and a ghost's brush-only `PlayerSolidMask`. The inputs are the demo's: conditions, `m_vecViewOffset[2]`, the legacy
+  movement stun (`m_flStunEnd` rebuilt from the packet where `m_iMovementStunParity` changed, `tf_player_shared.cpp:1440`),
+  `m_bAllowMoveDuringTaunt`, `m_flCurrentTauntMoveSpeed`, `m_flVehicleReverseTime`, `m_hGrapplingHookTarget`.
+  `TfGameMovementModeConformanceTests` holds 21 hand-computed values; every new branch was sabotaged and reddened its
+  test. `CorpusRecorderPredictionTests` is unchanged (mean 10.123, median 0, 0 declined) — the 2009 badlands POV has
+  none of these modes, so **no corpus demo yet asserts them at the output**. *Evidence class: published source plus
+  synthetic tests.* **Still declined, each because the demo does not carry the state:** `FL_WATERJUMP` arriving set
+  (`m_flWaterJumpTime` is a `DEFINE_FIELD`, neither sent nor restored, `c_baseplayer.cpp:383`); a hook on a projectile
+  (the timeline hands prediction no projectile position); the 0.2 s of `StunMove`'s fade (`m_flLastMovementStunChange`
+  is client state set by whichever prediction first saw the stun end); a moving taunt from a **loadout slot**
+  (`m_nActiveTauntSlot` names the GC inventory's item, `c_tf_player.cpp:4914-4920`, which no demo carries) or with no
+  taunt item. **A moving taunt by definition is closed:** with the slot `LOADOUT_POSITION_INVALID`, `UpdateTauntItem`
+  views `m_iTauntItemDefIndex`'s definition (`:4901-4905`) and `ParseSharedTauntDataFromEconItemView` finds
+  `"taunt force move forward"`, `"taunt move speed"` and `"taunt move acceleration time"` on it
+  (`tf_player_shared.cpp:13156-13171`), an absent one reading 0 — `RecorderPrediction.TauntMovementOf` over main's
+  `AttributeHooks`, held by `RecorderPredictionTauntTests` (sabotaged: reading `"taunt turn speed"` reddened it). The
+  merge also made `CanJump`'s taunt refusal reachable (`:12279`); it is ported. **Taken as defaults:** `CanPlayerMove` and `CanMoveDuringTaunt`'s competitive refusals (game rules), the
+  match-start and ConTracker freeze at the end of `StunMove`, the player-destruction team leader in the grapple,
+  `cannot_swim`, `swimming_mastery` and `parachute_attribute` (so `ToggleParachute` does not toggle), the `tf_*`
+  movement ConVars at their declared defaults (`tf_grapplinghook_use_acceleration` 0 picks the grapple's simple branch),
+  `m_flOldForwardMove` starting at 0 for a kart's reverse stall, water in brush entities (leaf contents only), and the
+  control stun's animation as not yet started when `m_flStunEnd` is rebuilt. *Interpolated:* the client's clock on
+  receiving a packet is the packet's tick, and `abs` in the parachute's drag is the float overload.
   **Closed 2026-10-02 (`fix/d205-attributes-surfaces`):** item attributes, the ground's surfaceprop, `m_flGravity`,
   `CanJump`/`CanDuck`/`CanAirDash`. `TfGameMovement` hooks `mod_jump_height` and `mod_jump_height_from_weapon`
   (`tf_gamemovement.cpp:1294-1300`, `:999-1005`), the agility rune's 1.8 (`:1310`), `mod_air_control` and
@@ -8214,14 +8242,6 @@ guessed at in code.
   no movement attribute. Scaling friction by 1.0 instead of 1.25 moves it to 13.1, so the route is live.
   *Interpolated:* `m_pSurfaceData` is not networked, so the first re-run command starts with none (factor 1) until
   `CategorizePosition` finds the ground.
-  **Still open, each a default in the port:** water above the feet, taunt movement, karts, ghosts, grappling hooks,
-  parachutes and stuns decline (networked velocity stands); `GetMovementForwardPull` (`firing_forward_pull` needs the
-  weapon's `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, `IsLoser`'s duck
-  crop, `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), and **a brush entity with
-  angles**, which is left out of the trace:
-  `CM_TransformedBoxTrace` rotates the ray into the model and the subtree walk here does not. D175's sticking friction
-  is vphysics and is not on this path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID`
-  through terrain and props, and no world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Brush entities, buildings, CheckStuck, the DT_Local duck state and the ground's velocity** — **FIXED 2026-10-02
   (`fix/d205-trace-gaps`).** *Evidence class: published source plus synthetic tests; the corpus number is measured.*
   - **The trace filter** is `CTFGameMovement::TracePlayerBBox`'s `CTraceFilterObject` over `CTraceFilterSimple` with
@@ -8257,6 +8277,13 @@ guessed at in code.
     → 0, max 905.942 → 905.942; holding the last packet 25.725. The 2009 badlands demo is a solo recording, so it has
     no enemies or buildings to meet, and the gain is small and honest: what this closes is mostly not in that sample.
     The before figure, 10.123, is the same with or without the attributes/surfaces/gravity merge, which left it unchanged.
+- **Still open across D205's port, each a default:** `GetMovementForwardPull` (`firing_forward_pull` needs the weapon's
+  `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, `IsLoser`'s duck crop,
+  `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), **a brush entity with angles**,
+  left out of the trace (`CM_TransformedBoxTrace` rotates the ray into the model and the subtree walk here does not),
+  and the movement modes' declines and defaults listed above. D175's sticking friction is vphysics and is not on this
+  path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and props, and no
+  world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
   than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
   start). It is correct but not cheap when scrubbing backward.

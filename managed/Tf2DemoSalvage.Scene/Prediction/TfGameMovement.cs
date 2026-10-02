@@ -25,9 +25,12 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// <c>StartGravity</c>, <c>FinishGravity</c>, <c>CheckVelocity</c>, <c>SetGroundEntity</c> with its base velocity,
 /// <c>PlayerSolidMask</c>, and <c>CheckStuck</c> (TF's over the base's, with <c>CheckInterval</c> and the stuck table).
 ///
-/// **Declined, so the networked velocity stands** (<see cref="ProcessMovement"/> returns false): water above the
-/// feet, a taunt, a kart, ghost mode, a grappling hook, a deployed parachute, a stun, and the swimming conditions —
-/// <c>WaterMove</c>, <c>TauntMove</c>, <c>VehicleMove</c>, <c>GrapplingHookMove</c> and <c>StunMove</c> are not ported.
+/// **The modes besides walking** (B450): <c>StunMove</c>, <c>TauntMove</c> with <c>VehicleMove</c>,
+/// <c>GrapplingHookMove</c>, <c>CheckWater</c>, <c>FullWalkMoveUnderwater</c>, <c>WaterMove</c>, <c>CheckWaterJump</c>,
+/// <c>WaterJump</c>, <c>CheckWaterJumpButton</c>, the ghost and parachute branches, <c>CheckKartWallBumping</c>'s clamp and
+/// <c>PlayerSolidMask</c>. **Declined, so the networked velocity stands** (<see cref="ProcessMovement"/> returns false):
+/// a water jump already running, whose clock the demo does not carry, and a moving taunt whose item attributes are not
+/// known. What else is taken as a default is filed under B450.
 ///
 /// **Read off the player** (B450): item attributes through <see cref="Items"/> (<c>mod_jump_height</c> and its weapon form,
 /// <c>mod_air_control</c> and its blast-jump form, <c>CanAirDash</c>, <c>CanJump</c>, <c>CanDuck</c>), the ground's surfaceprop
@@ -75,11 +78,64 @@ public sealed class TfGameMovement
     private const int CondParachute = 80;
     private const int CondKart = 82;
     private const int CondSwimmingCurse = 86;
-    private const int CondGrapplingHook = 98;
     private const int CondSwimmingNoEffects = 107;
     private const int CondRocketPack = 125;
     private const int CondLostFooting = 126;
     private const int CondAirCurrent = 127;
+    private const int CondBurning = 22;
+    private const int CondBombHead = 53;
+    private const int CondThriller = 54;
+    private const int CondKartDash = 83;
+    private const int CondGrappledToPlayer = 120;
+
+    /// <summary><c>GetConditionFromRuneType</c>'s conditions in <c>RuneTypes_t</c> order (<c>tf_shareddefs.h:2659</c>).</summary>
+    private static readonly int[] RuneConditions = [90, 91, 92, 93, 94, 95, 96, 97, 103, 109, 110, 111];
+
+    private const int ClassSoldier = 3;
+    private const int ClassHeavy = 6;
+    private const int ClassPyro = 7;
+
+    private const int StunMovement = 1 << 0;
+    private const int StunControls = 1 << 1;
+    private const int StunForwardOnly = 1 << 2;
+    private const int StunLoserState = 1 << 6;
+
+    private const int WaterLevelFeet = 1;
+    private const int WaterLevelWaist = 2;
+    private const int WaterLevelEyes = 3;
+    private const int ContentsSlime = 0x10;
+    private const int ContentsWater = 0x20;
+
+    /// <summary><c>MASK_WATER</c> (<c>bspflags.h:112</c>).</summary>
+    private const int MaskWater = ContentsWater | 0x4000 | ContentsSlime;
+
+
+    private const float WaterJumpHeight = 8f;
+    private const float TfWaterJumpForward = 30f;
+    private const float TfWaterJumpUp = 300f;
+
+    // The replicated tf_* ConVars at their declared defaults (tf_gamemovement.cpp:53-70, :718-733).
+    private const float ParachuteMaxSpeedXy = 300f;
+    private const float ParachuteMaxSpeedZ = -100f;
+    private const float ParachuteMaxSpeedOnFireZ = -100f;
+    private const float ParachuteAirControl = 2.5f;
+    private const float KartAirControl = 1.2f;
+    private const float GhostUpSpeed = 300f;
+    private const float GhostXySpeed = 300f;
+    private const float GrapplingHookMoveSpeed = 750f;
+    private const float GrapplingHookFollowDistance = 64f;
+    private const float GrapplingHookJumpUpSpeed = 375f;
+    private const float KartDashSpeed = 1000f;
+    private const float KartNormalSpeed = 650f;
+    private const float KartNormalAccel = 300f;
+    private const float KartSlowMovingAccel = 500f;
+    private const float KartSlowMovingThreshold = 300f;
+    private const float KartReverseSpeed = -50f;
+    private const float KartBrakeSpeed = 0f;
+    private const float KartBrakeAccel = 500f;
+    private const float KartIdleSpeed = 0f;
+    private const float KartCoastAccel = 300f;
+    private const float KartBombHeadScale = 1.5f;
 
     /// <summary><c>g_TFViewVectors</c> (<c>tf_gamerules.cpp:1313-1317</c>).</summary>
     private static readonly Vector3 HullMin = new(-24f, -24f, 0f);
@@ -93,6 +149,7 @@ public sealed class TfGameMovement
     private PredictedPlayer _player;
     private float _frametime;
     private bool _noWorld;
+    private bool _declined;
 
     // CMoveData.
     private float _forwardMove;
@@ -124,6 +181,12 @@ public sealed class TfGameMovement
         _maxClients = maxClients;
     }
 
+    /// <summary>
+    /// <c>enginetrace-&gt;GetPointContents</c>, which <c>CheckWater</c> asks at the feet, waist and eyes; null keeps the
+    /// networked water level and type.
+    /// </summary>
+    public Func<Vector3, int>? PointContents { get; init; }
+
     /// <summary>The player's items, as the movement hooks their attributes; none by default.</summary>
     public MovementItems Items { get; init; } = MovementItems.None;
 
@@ -149,16 +212,13 @@ public sealed class TfGameMovement
 
         _commandNumber = commandNumber;
 
-        PlayerConditions conditions = player.Conditions;
-
-        if (conditions.Has(CondTaunting) || conditions.Has(CondKart) || conditions.Has(CondGhost) ||
-            conditions.Has(CondGrapplingHook) || conditions.Has(CondParachute) || conditions.Has(CondStunned) ||
-            conditions.Has(CondSwimmingCurse) || conditions.Has(CondSwimmingNoEffects) || player.WaterLevel > 1)
+        if (player.WaterJumpUnknown)
         {
             return false;
         }
 
         _player = player;
+        _declined = false;
         _frametime = frametime;
 
         // SetupMove (prediction.cpp:610).
@@ -174,6 +234,15 @@ public sealed class TfGameMovement
         _maxSpeed = TfMaxSpeed;
 
         ChargeMove();
+        StunMove();
+        TauntMove();
+        GrapplingHookMove();
+
+        if (_declined)
+        {
+            return false;
+        }
+
         HighMaxSpeedMove();
         PlayerMove(first);
 
@@ -354,11 +423,12 @@ public sealed class TfGameMovement
 
     /// <summary>
     /// <c>CTFGameMovement::PlayerSolidMask</c> (<c>tf_gamemovement.cpp:259-284</c>): <c>MASK_PLAYERSOLID</c> and the enemy
-    /// team's contents, unless passing through enemies. Ghost mode's brush-only mask is never reached: ghosts are declined.
+    /// team's contents, unless passing through enemies; a ghost collides with the world alone (:264,
+    /// <c>MASK_PLAYERSOLID_BRUSHONLY</c>).
     /// </summary>
     private int PlayerSolidMask()
     {
-        if (_player.PassingThroughEnemies)
+        if (_player.Conditions.Has(CondGhost) || _player.PassingThroughEnemies)
         {
             return BspLeafTree.MaskPlayerSolid;
         }
@@ -556,6 +626,8 @@ public sealed class TfGameMovement
     {
         _player.SurfaceFriction = 1f;
 
+        CheckWater();
+
         if (_player.Velocity.Z > 250f)
         {
             SetGroundEntity(null);
@@ -566,7 +638,7 @@ public sealed class TfGameMovement
         Vector3 end = start with { Z = start.Z - 2f };
         bool moveToEndPos = false;
 
-        if (_player.OnGround)
+        if (_player.OnGround && _player.WaterLevel < WaterLevelEyes)
         {
             end.Z -= _convars.StepSize;
             moveToEndPos = true;
@@ -932,7 +1004,25 @@ public sealed class TfGameMovement
 
     private void FullWalkMove()
     {
-        StartGravity();
+        if (!InWater())
+        {
+            ParachuteClamp();
+            StartGravity();
+        }
+
+        if (_player.WaterJumpTime != 0f)
+        {
+            WaterJump();
+            TryPlayerMove(null, null, 0f);
+            CheckWater();
+            return;
+        }
+
+        if (InWater() || _player.Conditions.Has(CondGhost) || _player.Conditions.Has(CondSwimmingNoEffects))
+        {
+            FullWalkMoveUnderwater();
+            return;
+        }
 
         if ((_buttons & InJump) != 0)
         {
@@ -957,7 +1047,11 @@ public sealed class TfGameMovement
         }
 
         CategorizePosition();
-        FinishGravity();
+
+        if (!InWater())
+        {
+            FinishGravity();
+        }
 
         if (_player.OnGround)
         {
@@ -975,10 +1069,41 @@ public sealed class TfGameMovement
 
     private void CheckJumpButton()
     {
+        if (_player.IsDead || !CheckWaterJumpButton())
+        {
+            return;
+        }
+
+        // tf_gamemovement.cpp:1170: a grappling player's jump climbs the rope.
+        if (_player.GrapplingHook is not null && _player.PlayerClass != ClassHeavy)
+        {
+            int rune = CarryingRune();
+            float z = _player.Velocity.Z + GrapplingHookJumpUpSpeed;
+
+            if (rune != CondRuneAgility && rune >= 0 && _player.HasTheFlag)
+            {
+                z *= 0.8f;
+            }
+
+            _player.Velocity = _player.Velocity with { Z = MathF.Min(z, GetAirSpeedCap()) };
+            FinishGravity();
+            _player.OldButtons |= InJump;
+            return;
+        }
+
+        // :1195: holding jump makes a ghost fly.
+        if (_player.Conditions.Has(CondGhost))
+        {
+            _player.Velocity = _player.Velocity with { Z = GhostUpSpeed };
+            FinishGravity();
+            _player.OldButtons |= InJump;
+            return;
+        }
+
         bool scout = _player.PlayerClass == ClassScout;
         bool onGround = _player.OnGround;
 
-        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test. A taunt never reaches here (declined above).
+        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test.
         if (_player.IsDead || !CanJump() ||
             (_player.FlDucking && !(scout && !onGround)) ||
             (_player.Ducking && _player.FlDucking) || _player.DuckJumpTime > 0f ||
@@ -1045,8 +1170,9 @@ public sealed class TfGameMovement
         return _player.Conditions.Has(CondRuneAgility) ? mod * 1.8f : mod;
     }
 
-    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>) past its taunt test.</summary>
-    private bool CanJump() => Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
+    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>): not while taunting, then the weapon and <c>no_jump</c>.</summary>
+    private bool CanJump() =>
+        !_player.Conditions.Has(CondTaunting) && Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
 
     /// <summary><c>CTFPlayer::CanAirDash</c> (<c>tf_player_shared.cpp:12840</c>).</summary>
     /// <remarks>
@@ -1087,7 +1213,7 @@ public sealed class TfGameMovement
     {
         float maxScaledSpeed = BunnyJumpMaxSpeedFactor * _player.MaxSpeed;
 
-        if (maxScaledSpeed <= 0f)
+        if (_player.Conditions.Has(CondKart) || maxScaledSpeed <= 0f)
         {
             return;
         }
@@ -1247,6 +1373,7 @@ public sealed class TfGameMovement
 
         StepMove(destination, trace);
         _player.Velocity -= _player.BaseVelocity;
+        CheckKartWallBumping();
     }
 
     private void Accelerate(Vector3 wishDirection, float wishSpeed, float accel)
@@ -1270,16 +1397,41 @@ public sealed class TfGameMovement
     }
 
     /// <summary><c>CTFGameMovement::CanAccelerate</c>: only <c>TF_STATE_ACTIVE</c>, and not while water jumping.</summary>
-    private bool CanAccelerate() => _player.PlayerState is null or 0;
+    private bool CanAccelerate() => _player.PlayerState is null or 0 && _player.WaterJumpTime == 0f;
 
     private float GetAirSpeedCap()
     {
+        if (_player.GrapplingHook is not null)
+        {
+            if (CarryingRune() == CondRuneAgility)
+            {
+                return _player.PlayerClass is ClassSoldier or ClassHeavy ? 850f : 950f;
+            }
+
+            return GrapplingHookMoveSpeed;
+        }
+
         if (_player.Conditions.Has(CondShieldCharge))
         {
             return MaxChargeSpeed;
         }
 
         float cap = 30f;
+
+        if (_player.Conditions.Has(CondParachute))
+        {
+            cap *= ParachuteAirControl;
+        }
+
+        if (_player.Conditions.Has(CondKart))
+        {
+            if (_player.Conditions.Has(CondKartDash))
+            {
+                return KartDashSpeed;
+            }
+
+            cap *= KartAirControl;
+        }
 
         // tf_gamemovement.cpp:2081-2094.
         float airControl = Items.OnPlayer("mod_air_control", 1f);
@@ -1299,6 +1451,19 @@ public sealed class TfGameMovement
 
     private void AirMove()
     {
+        // tf_gamemovement.cpp:2104: a grappling player steps along his pull when it meets something.
+        if (_player.GrapplingHook is not null)
+        {
+            Vector3 destination = _player.Origin + (_player.Velocity * _frametime);
+            BspTrace pull = TracePlayerBBox(_player.Origin, destination);
+
+            if (pull.Fraction < 1f)
+            {
+                StepMove(destination, pull);
+                return;
+            }
+        }
+
         (Vector3 forward, Vector3 right) = FlatAxes();
 
         Vector3 wishVelocity = new(
@@ -1326,7 +1491,12 @@ public sealed class TfGameMovement
         AirAccelerate(wishDirection, wishSpeed, airAccel);
 
         _player.Velocity += _player.BaseVelocity;
-        TryPlayerMove(null, null, wallSlideCoeff);
+
+        if ((TryPlayerMove(null, null, wallSlideCoeff) & 2) != 0)
+        {
+            CheckKartWallBumping();
+        }
+
         _player.Velocity -= _player.BaseVelocity;
     }
 
@@ -1351,10 +1521,12 @@ public sealed class TfGameMovement
         _player.Velocity += accelSpeed * wishDirection;
     }
 
-    private void TryPlayerMove(Vector3? firstDest, BspTrace? firstTrace, float slideMultiplier)
+    /// <returns>The blocked bits: 1 a floor, 2 a wall or step, 4 all solid (<c>gamemovement.cpp:2558</c>).</returns>
+    private int TryPlayerMove(Vector3? firstDest, BspTrace? firstTrace, float slideMultiplier)
     {
         const int NumBumps = 4;
 
+        int blocked = 0;
         int numPlanes = 0;
         Span<Vector3> planes = stackalloc Vector3[MaxClipPlanes];
         Vector3 originalVelocity = _player.Velocity;
@@ -1380,7 +1552,7 @@ public sealed class TfGameMovement
             if (pm.AllSolid)
             {
                 _player.Velocity = Vector3.Zero;
-                return;
+                return 4;
             }
 
             if (pm.Fraction > 0f)
@@ -1408,8 +1580,18 @@ public sealed class TfGameMovement
                 break;
             }
 
-            // The floor and wall bits it returns feed only CheckKartWallBumping, and karts are declined.
+            // The floor and wall bits feed CheckKartWallBumping.
             Vector3 normal = Normal(pm);
+
+            if (normal.Z > 0.7f)
+            {
+                blocked |= 1;
+            }
+
+            if (normal.Z == 0f)
+            {
+                blocked |= 2;
+            }
 
             timeLeft -= timeLeft * pm.Fraction;
 
@@ -1481,6 +1663,8 @@ public sealed class TfGameMovement
         {
             _player.Velocity = Vector3.Zero;
         }
+
+        return blocked;
     }
 
     private static Vector3 ClipVelocity(Vector3 velocity, Vector3 normal, float overbounce, float redirectCoeff)
@@ -1542,6 +1726,697 @@ public sealed class TfGameMovement
         _player.Origin = position;
         _player.Velocity = velocity;
         TryPlayerMove(destination, saveTrace, 0f);
+    }
+
+    /// <summary><c>InWater</c> (<c>gamemovement.cpp:3479</c>): above <c>WL_Feet</c>.</summary>
+    private bool InWater() => _player.WaterLevel > WaterLevelFeet;
+
+    /// <summary><c>GetCarryingRuneType</c> (<c>tf_player_shared.cpp:11498</c>) as its condition, or −1 for <c>RUNE_NONE</c>.</summary>
+    private int CarryingRune()
+    {
+        foreach (int condition in RuneConditions)
+        {
+            if (_player.Conditions.Has(condition))
+            {
+                return condition;
+            }
+        }
+
+        return -1;
+    }
+
+    private Vector3 WorldSpaceCenter() => _player.Origin + ((PlayerMins + PlayerMaxs) * 0.5f);
+
+    private bool IsControlStunned() =>
+        _player.StunActive && _player.Conditions.Has(CondStunned) && (_player.StunFlags & StunControls) != 0;
+
+    private bool IsLoserStateStunned() =>
+        _player.StunActive && _player.Conditions.Has(CondStunned) && (_player.StunFlags & StunLoserState) != 0;
+
+    /// <summary><c>GetAmountStunned( TF_STUN_MOVEMENT )</c> (<c>tf_player_shared.cpp:9938</c>).</summary>
+    private float AmountStunned() =>
+        _player.StunActive && _player.Conditions.Has(CondStunned) && (_player.StunFlags & StunMovement) != 0 &&
+        _player.StunExpireTime > _player.CurTime
+            ? Math.Clamp(_player.StunAmount, 0, 255) * (1f / 255f)
+            : 0f;
+
+    /// <summary>
+    /// <c>StunMove</c> (<c>tf_gamemovement.cpp:537</c>). The final-countdown and ConTracker freeze at its end is not ported:
+    /// both read state the demo does not hand this class (B450).
+    /// </summary>
+    private void StunMove()
+    {
+        bool controlStunned = IsControlStunned();
+
+        if (controlStunned || IsLoserStateStunned())
+        {
+            bool attackDown = (_buttons & (InAttack2 | InAttack)) != 0;
+
+            _buttons = attackDown && _player.PlayerClass == ClassHeavy && _player.ActiveWeaponIsMinigun ? InAttack2 : 0;
+
+            if (controlStunned)
+            {
+                _forwardMove = 0f;
+                _sideMove = 0f;
+                _upMove = 0f;
+            }
+        }
+
+        float amount = AmountStunned();
+
+        if (amount != 0f)
+        {
+            if (_player.StunLerpTarget - amount != 0f)
+            {
+                _player.LastMovementStunChange = _player.CurTime;
+                _player.StunLerpTarget = amount;
+                _player.StunNeedsFadeOut = true;
+            }
+
+            ScaleStunnedMove(amount);
+            return;
+        }
+
+        if (_player.LastMovementStunChange != 0f)
+        {
+            if (_player.StunNeedsFadeOut)
+            {
+                _player.LastMovementStunChange = _player.CurTime;
+                _player.StunNeedsFadeOut = false;
+            }
+
+            float current = RemapValClamped(_player.CurTime - _player.LastMovementStunChange, 0.2f, 0f, 0f, 1f);
+
+            if (current != 0f)
+            {
+                ScaleStunnedMove(_player.StunLerpTarget * current);
+            }
+            else
+            {
+                _player.StunLerpTarget = 0f;
+                _player.LastMovementStunChange = 0f;
+            }
+        }
+    }
+
+    private void ScaleStunnedMove(float amount)
+    {
+        _forwardMove *= 1f - amount;
+        _sideMove *= 1f - amount;
+
+        if ((_player.StunFlags & StunForwardOnly) != 0)
+        {
+            _forwardMove = 0f;
+        }
+    }
+
+    /// <summary>
+    /// <c>CanMoveDuringTaunt</c> (<c>tf_player_shared.cpp:13097</c>). Its competitive-mode refusals read the game rules, which
+    /// this class is not handed (B450); <c>tf_allow_sliding_taunt</c> is server-only.
+    /// </summary>
+    private bool CanMoveDuringTaunt() =>
+        _player.Conditions.Has(CondKart) ||
+        ((_player.Conditions.Has(CondTaunting) || _player.Conditions.Has(CondThriller)) && _player.AllowMoveDuringTaunt);
+
+    /// <summary>
+    /// <c>TauntMove</c> (<c>tf_gamemovement.cpp:633</c>). <c>CanPlayerMove</c> is taken as true: its refusals are the game
+    /// rules' (B450). <c>SetTauntYaw</c> turns the model and moves nothing.
+    /// </summary>
+    private void TauntMove()
+    {
+        if (_player.Conditions.Has(CondKart))
+        {
+            VehicleMove();
+            return;
+        }
+
+        if (!_player.Conditions.Has(CondTaunting) || !CanMoveDuringTaunt())
+        {
+            _player.CurrentTauntMoveSpeed = 0f;
+            return;
+        }
+
+        if (_player.TauntMovement is not { } taunt)
+        {
+            // The taunt item's attributes are not known: the move is declined rather than guessed.
+            _declined = true;
+            return;
+        }
+
+        float maxMoveSpeed = taunt.Speed;
+        float moveDirection = 1f;
+
+        if (!taunt.ForceForward)
+        {
+            moveDirection = 0f;
+
+            if (_forwardMove > 0f && _convars.ForwardSpeed > 0f)
+            {
+                moveDirection += _forwardMove / _convars.ForwardSpeed;
+            }
+            else if (_forwardMove < 0f && _convars.BackSpeed > 0f)
+            {
+                moveDirection += _forwardMove / _convars.BackSpeed;
+            }
+
+            moveDirection = Math.Clamp(moveDirection, -1f, 1f);
+        }
+
+        float sign = moveDirection != 0f ? 1f : -1f;
+
+        _player.CurrentTauntMoveSpeed = taunt.Acceleration > 0f
+            ? Math.Clamp(
+                _player.CurrentTauntMoveSpeed + (sign * (_frametime / taunt.Acceleration) * maxMoveSpeed), 0f, maxMoveSpeed)
+            : maxMoveSpeed;
+
+        float smoothMoveSpeed = maxMoveSpeed > 0f
+            ? SimpleSpline(_player.CurrentTauntMoveSpeed / maxMoveSpeed) * maxMoveSpeed
+            : 0f;
+
+        _maxSpeed = maxMoveSpeed;
+        _forwardMove = moveDirection * smoothMoveSpeed;
+        _clientMaxSpeed = maxMoveSpeed;
+    }
+
+    /// <summary>
+    /// <c>VehicleMove</c> (<c>tf_gamemovement.cpp:738</c>). <c>m_iKartState</c> and the lean feed the animation alone. The
+    /// kart's steering is <c>CreateVehicleMove</c>'s, on the client's usercmd before it was recorded, so the yaw is the cmd's.
+    /// </summary>
+    private void VehicleMove()
+    {
+        float maxMoveSpeed = KartNormalSpeed;
+        float targetSpeed = KartIdleSpeed;
+        float acceleration = KartCoastAccel;
+        float current = _player.CurrentTauntMoveSpeed;
+        bool input = false;
+
+        if (_forwardMove > 0f)
+        {
+            float normalized = _convars.ForwardSpeed > 0f ? _forwardMove / _convars.ForwardSpeed : 0f;
+            normalized = MathF.Min(normalized, 1f);
+            targetSpeed = KartNormalSpeed;
+
+            if (targetSpeed > current)
+            {
+                acceleration = (current < KartSlowMovingThreshold ? KartSlowMovingAccel : KartNormalAccel) * normalized;
+            }
+
+            input = true;
+        }
+        else if (_forwardMove < 0f)
+        {
+            float normalized = _convars.BackSpeed > 0f ? _forwardMove / _convars.BackSpeed : 0f;
+            normalized = normalized < -1f ? 1f : -normalized;
+
+            if (current > 0f)
+            {
+                targetSpeed = KartBrakeSpeed;
+
+                if (targetSpeed < current)
+                {
+                    acceleration = KartBrakeAccel * normalized;
+                }
+            }
+            else if (_player.OldForwardMove >= 0f || current < 0f || _player.VehicleReverseTime < _player.CurTime)
+            {
+                targetSpeed = KartReverseSpeed;
+
+                if (targetSpeed < current)
+                {
+                    acceleration = KartBrakeAccel * normalized;
+                }
+            }
+            else if (_player.VehicleReverseTime >= float.MaxValue)
+            {
+                // Stall, then reverse.
+                _player.VehicleReverseTime = _player.CurTime + 0.6f;
+            }
+
+            input = true;
+        }
+
+        if (current > 0f)
+        {
+            _player.VehicleReverseTime = float.MaxValue;
+        }
+
+        if (input && (current < 0f) != (targetSpeed < 0f))
+        {
+            acceleration = KartBrakeAccel;
+        }
+
+        if (_player.Conditions.Has(CondBombHead))
+        {
+            maxMoveSpeed *= KartBombHeadScale;
+            acceleration *= KartBombHeadScale;
+        }
+
+        float targetMoveSpeed = Approach(targetSpeed, current, acceleration * _frametime);
+        float smoothMoveSpeed = Bias(MathF.Abs(current) / maxMoveSpeed, 0.7f) * maxMoveSpeed * Sign(targetMoveSpeed);
+
+        if (_player.Conditions.Has(CondKartDash))
+        {
+            maxMoveSpeed = KartDashSpeed;
+            targetMoveSpeed = KartDashSpeed;
+            smoothMoveSpeed = KartDashSpeed;
+        }
+
+        _player.CurrentTauntMoveSpeed = targetMoveSpeed;
+
+        _maxSpeed = maxMoveSpeed;
+        _forwardMove = smoothMoveSpeed;
+        _clientMaxSpeed = maxMoveSpeed;
+        _sideMove = 0f;
+    }
+
+    /// <summary>
+    /// <c>CheckKartWallBumping</c> (<c>tf_gamemovement.cpp:1968</c>), the client's half: the kart's speed clamped to what the
+    /// move kept. The flinch and spark are effects; the bounce and the stop are <c>GAME_DLL</c>.
+    /// </summary>
+    private void CheckKartWallBumping()
+    {
+        if (!_player.Conditions.Has(CondKart))
+        {
+            return;
+        }
+
+        float maxSpeed = _player.Velocity.Length();
+
+        _player.CurrentTauntMoveSpeed = Math.Clamp(_player.CurrentTauntMoveSpeed, -maxSpeed, maxSpeed);
+    }
+
+    /// <summary>
+    /// <c>GrapplingHookMove</c> (<c>tf_gamemovement.cpp:342</c>) with <c>tf_grapplinghook_use_acceleration</c> at its
+    /// default 0. Player-destruction team leaders are not told apart: the game type is not handed this class (B450).
+    /// </summary>
+    private void GrapplingHookMove()
+    {
+        if (_player.GrapplingHook is not { } hook)
+        {
+            return;
+        }
+
+        if (IsControlStunned())
+        {
+            _forwardMove = 0f;
+            _sideMove = 0f;
+            _upMove = 0f;
+            _buttons = 0;
+            return;
+        }
+
+        SetGroundEntity(null);
+
+        Vector3 desired = hook.Center - WorldSpaceCenter();
+
+        if (hook.IsPlayer)
+        {
+            desired += (hook.HookDirection ?? Normalize(desired)) * -GrapplingHookFollowDistance;
+        }
+
+        float maxSpeed = GrapplingHookMoveSpeed;
+        bool hasTheFlag = _player.HasTheFlag;
+        int rune = CarryingRune();
+        bool lightRune = rune < 0 || rune == CondRuneAgility;
+
+        if (rune == CondRuneAgility && !hasTheFlag)
+        {
+            maxSpeed = 950f;
+        }
+
+        if (_player.PlayerClass == ClassHeavy && !hasTheFlag)
+        {
+            maxSpeed *= 0.7f;
+        }
+        else if (hasTheFlag)
+        {
+            float scoutPenalty = lightRune ? 0.8f : 0.65f;
+            float otherPenalty = lightRune ? 0.65f : 0.5f;
+
+            maxSpeed *= _player.PlayerClass == ClassScout ? scoutPenalty : otherPenalty;
+        }
+        else if (_player.PlayerClass == ClassPyro && _player.Conditions.Has(CondGrappledToPlayer))
+        {
+            maxSpeed *= 0.7f;
+        }
+
+        _maxSpeed = maxSpeed;
+
+        float distance = desired.Length();
+
+        _player.Velocity = distance > maxSpeed * _frametime ? desired * (maxSpeed / distance) : desired / _frametime;
+
+        float distanceSquared = Vector3.DistanceSquared(_player.Origin, hook.Origin);
+
+        if (distanceSquared < 10000f)
+        {
+            _player.Velocity = Normalize(_player.Velocity) * RemapValClamped(distanceSquared, 6400f, 10000f, 0f, maxSpeed);
+        }
+
+        _forwardMove = 0f;
+        _sideMove = 0f;
+        _upMove = 0f;
+    }
+
+    /// <summary>
+    /// <c>FullWalkMove</c>'s parachute (<c>tf_gamemovement.cpp:2626</c>). *Interpolated:* Valve's <c>abs</c> is read as the
+    /// float overload; an integer one would floor the speed before it is compared.
+    /// </summary>
+    private void ParachuteClamp()
+    {
+        Vector3 v = _player.Velocity;
+
+        if (!_player.Conditions.Has(CondParachute) || v.Z >= 0f)
+        {
+            return;
+        }
+
+        float z = MathF.Max(v.Z, _player.Conditions.Has(CondBurning) ? ParachuteMaxSpeedOnFireZ : ParachuteMaxSpeedZ);
+        float reductionX = MathF.Abs(v.X) > ParachuteMaxSpeedXy ? ((MathF.Abs(v.X) - ParachuteMaxSpeedXy) / 3f) - 10f : 0f;
+        float reductionY = MathF.Abs(v.Y) > ParachuteMaxSpeedXy ? ((MathF.Abs(v.Y) - ParachuteMaxSpeedXy) / 3f) - 10f : 0f;
+
+        _player.Velocity = new Vector3(
+            Math.Clamp(v.X, -ParachuteMaxSpeedXy - reductionX, ParachuteMaxSpeedXy + reductionX),
+            Math.Clamp(v.Y, -ParachuteMaxSpeedXy - reductionY, ParachuteMaxSpeedXy + reductionY),
+            z);
+    }
+
+    /// <summary><c>CTFGameMovement::CheckWater</c> (<c>tf_gamemovement.cpp:1452</c>): feet, then eyes, then waist.</summary>
+    private void CheckWater()
+    {
+        if (PointContents is not { } contents)
+        {
+            return;
+        }
+
+        Vector3 mins = PlayerMins;
+        Vector3 maxs = PlayerMaxs;
+        Vector3 origin = _player.Origin;
+        Vector3 point = new(origin.X + ((mins.X + maxs.X) * 0.5f), origin.Y + ((mins.Y + maxs.Y) * 0.5f), origin.Z + mins.Z + 1f);
+
+        int level = 0;
+        int type = 0;
+        int found = contents(point);
+
+        if ((found & MaskWater) != 0)
+        {
+            type = found;
+            level = WaterLevelFeet;
+
+            float waistZ = origin.Z + ((mins.Z + maxs.Z) * 0.5f) + 12f;
+
+            if ((contents(point with { Z = origin.Z + _player.ViewOffsetZ }) & MaskWater) != 0)
+            {
+                level = WaterLevelEyes;
+            }
+            else if ((contents(point with { Z = waistZ }) & MaskWater) != 0)
+            {
+                level = WaterLevelWaist;
+            }
+        }
+
+        if (_player.Conditions.Has(CondSwimmingCurse))
+        {
+            level = WaterLevelEyes;
+        }
+
+        _player.WaterLevel = level;
+        _player.WaterType = type;
+    }
+
+    /// <summary><c>FullWalkMoveUnderwater</c> (<c>tf_gamemovement.cpp:2583</c>).</summary>
+    private void FullWalkMoveUnderwater()
+    {
+        if (_player.WaterLevel == WaterLevelWaist)
+        {
+            CheckWaterJump();
+        }
+
+        if (_player.Velocity.Z < 0f && _player.WaterJumpTime != 0f)
+        {
+            _player.WaterJumpTime = 0f;
+        }
+
+        if ((_buttons & InJump) != 0)
+        {
+            CheckJumpButton();
+        }
+        else
+        {
+            _player.OldButtons &= ~InJump;
+        }
+
+        WaterMove();
+        CategorizePosition();
+
+        if (_player.OnGround)
+        {
+            _player.Velocity = _player.Velocity with { Z = 0f };
+        }
+    }
+
+    /// <summary>
+    /// <c>CheckWaterJumpButton</c> (<c>tf_gamemovement.cpp:938</c>). The <c>cannot_swim</c> attribute is taken as 0 with the
+    /// other item attributes (B450). It counts <c>m_flWaterJumpTime</c> down by seconds, as Valve's does.
+    /// </summary>
+    private bool CheckWaterJumpButton()
+    {
+        if (_player.WaterJumpTime != 0f)
+        {
+            _player.WaterJumpTime = MathF.Max(0f, _player.WaterJumpTime - _frametime);
+            return false;
+        }
+
+        bool noEffects = _player.Conditions.Has(CondSwimmingNoEffects);
+
+        if (_player.WaterLevel < WaterLevelWaist && !noEffects)
+        {
+            return true;
+        }
+
+        SetGroundEntity(null);
+
+        if (_player.WaterType == ContentsWater || noEffects)
+        {
+            _player.Velocity = _player.Velocity with { Z = 100f };
+        }
+        else if (_player.WaterType == ContentsSlime)
+        {
+            _player.Velocity = _player.Velocity with { Z = 80f };
+        }
+
+        return false;
+    }
+
+    /// <summary><c>CTFGameMovement::CheckWaterJump</c> (<c>tf_gamemovement.cpp:2464</c>): a hop out onto a ledge.</summary>
+    private void CheckWaterJump()
+    {
+        bool jump = (_buttons & InJump) != 0;
+        (Vector3 forward, Vector3 right) = AngleVectors(_viewAngles);
+
+        if (_player.WaterJumpTime != 0f || _player.Velocity.Z < -180f)
+        {
+            return;
+        }
+
+        Vector3 flatVelocity = _player.Velocity with { Z = 0f };
+        float currentSpeed = flatVelocity.Length();
+        flatVelocity = Normalize(flatVelocity);
+
+        Vector3 flatForward = Normalize(new Vector3(
+            (forward.X * _forwardMove) + (right.X * _sideMove),
+            (forward.Y * _forwardMove) + (right.Y * _sideMove),
+            0f));
+
+        if (currentSpeed != 0f && Vector3.Dot(flatVelocity, flatForward) < 0f && !jump)
+        {
+            return;
+        }
+
+        Vector3 start = _player.Origin + ((PlayerMins + PlayerMaxs) * 0.5f);
+        Vector3 end = start + (TfWaterJumpForward * flatForward);
+        BspTrace trace = TracePlayerBBox(start, end);
+
+        if (trace.Fraction >= 1f)
+        {
+            return;
+        }
+
+        start = start with { Z = _player.Origin.Z + _player.ViewOffsetZ + WaterJumpHeight };
+        end = start + (TfWaterJumpForward * flatForward);
+        _player.WaterJumpVelocity = Normal(trace) * -50f;
+
+        if (TracePlayerBBox(start, end).Fraction < 1f)
+        {
+            return;
+        }
+
+        start = end;
+        end = end with { Z = end.Z - 1024f };
+        trace = TracePlayerBBox(start, end);
+
+        if (trace.Fraction < 1f && trace.Normal.Z >= 0.7f)
+        {
+            _player.Velocity = _player.Velocity with { Z = TfWaterJumpUp };
+            _player.OldButtons |= InJump;
+            _player.WaterJumpTime = 2000f;
+        }
+    }
+
+    /// <summary><c>WaterJump</c> (<c>gamemovement.cpp:1348</c>).</summary>
+    private void WaterJump()
+    {
+        _player.WaterJumpTime = MathF.Min(_player.WaterJumpTime, 10000f);
+
+        if (_player.WaterJumpTime == 0f)
+        {
+            return;
+        }
+
+        _player.WaterJumpTime -= 1000f * _frametime;
+
+        if (_player.WaterJumpTime <= 0f || _player.WaterLevel == 0)
+        {
+            _player.WaterJumpTime = 0f;
+        }
+
+        _player.Velocity = new Vector3(_player.WaterJumpVelocity.X, _player.WaterJumpVelocity.Y, _player.Velocity.Z);
+    }
+
+    /// <summary>
+    /// <c>CTFGameMovement::WaterMove</c> (<c>tf_gamemovement.cpp:1537</c>). <c>cannot_swim</c> and <c>swimming_mastery</c>
+    /// are taken as 0 with the other item attributes (B450).
+    /// </summary>
+    private void WaterMove()
+    {
+        (Vector3 forward, Vector3 right) = AngleVectors(_viewAngles);
+        Vector3 wishVelocity = (forward * _forwardMove) + (right * _sideMove);
+
+        if ((_buttons & InJump) != 0)
+        {
+            if (_player.WaterLevel == WaterLevelEyes)
+            {
+                wishVelocity.Z += _clientMaxSpeed;
+            }
+        }
+        else if (_forwardMove == 0f && _sideMove == 0f && _upMove == 0f)
+        {
+            wishVelocity.Z -= 60f;
+        }
+        else
+        {
+            wishVelocity.Z += _upMove;
+        }
+
+        float wishSpeed = wishVelocity.Length();
+
+        if (wishSpeed > _maxSpeed)
+        {
+            wishVelocity *= _maxSpeed / wishSpeed;
+            wishSpeed = _maxSpeed;
+        }
+
+        wishSpeed *= 0.8f;
+
+        float speed = _player.Velocity.Length();
+        float newSpeed = 0f;
+
+        if (speed != 0f)
+        {
+            newSpeed = speed - (_frametime * speed * _convars.Friction * _player.SurfaceFriction);
+
+            if (newSpeed < 0.1f)
+            {
+                newSpeed = 0f;
+            }
+
+            _player.Velocity *= newSpeed / speed;
+        }
+
+        if (_player.Conditions.Has(CondGhost))
+        {
+            float accelSpeed = _convars.Accelerate * wishSpeed * _frametime * _player.SurfaceFriction;
+            _player.Velocity += accelSpeed * Normalize(wishVelocity);
+
+            float xySpeed = new Vector2(_player.Velocity.X, _player.Velocity.Y).Length();
+
+            if (xySpeed > GhostXySpeed)
+            {
+                float scale = GhostXySpeed / xySpeed;
+                _player.Velocity = new Vector3(_player.Velocity.X * scale, _player.Velocity.Y * scale, _player.Velocity.Z);
+            }
+        }
+        else if (wishSpeed >= 0.1f)
+        {
+            float addSpeed = wishSpeed - newSpeed;
+
+            if (addSpeed > 0f)
+            {
+                float accelSpeed = MathF.Min(_convars.Accelerate * wishSpeed * _frametime * _player.SurfaceFriction, addSpeed);
+                _player.Velocity += accelSpeed * Normalize(wishVelocity);
+            }
+        }
+
+        _player.Velocity += _player.BaseVelocity;
+
+        Vector3 destination = _player.Origin + (_frametime * _player.Velocity);
+        BspTrace trace = TracePlayerBBox(_player.Origin, destination);
+
+        if (trace.Fraction >= 1f)
+        {
+            // m_bAllowAutoMovement is true for a TF player: press down from a step above.
+            Vector3 start = destination with { Z = destination.Z + _convars.StepSize + 1f };
+            trace = TracePlayerBBox(start, destination);
+
+            if (!trace.StartSolid && !trace.AllSolid)
+            {
+                _player.Origin = EndPos(start, destination, trace);
+                _player.Velocity -= _player.BaseVelocity;
+                return;
+            }
+
+            TryPlayerMove(null, null, 0f);
+        }
+        else if (!_player.OnGround)
+        {
+            TryPlayerMove(null, null, 0f);
+        }
+        else
+        {
+            StepMove(destination, trace);
+        }
+
+        _player.Velocity -= _player.BaseVelocity;
+    }
+
+    /// <summary><c>Sign</c> (<c>mathlib.h:736</c>): zero is positive.</summary>
+    private static float Sign(float x) => x < 0f ? -1f : 1f;
+
+    /// <summary><c>SimpleSpline</c> (<c>mathlib.h:1146</c>).</summary>
+    private static float SimpleSpline(float value) => (3f * value * value) - (2f * value * value * value);
+
+    /// <summary><c>Bias</c> (<c>mathlib_base.cpp:1455</c>), with Valve's −1.4427 for 1 / log 0.5.</summary>
+    private static float Bias(float x, float amount) => MathF.Pow(x, MathF.Log(amount) * -1.4427f);
+
+    /// <summary><c>Approach</c> (<c>mathlib_base.cpp:3433</c>).</summary>
+    private static float Approach(float target, float value, float speed)
+    {
+        float delta = target - value;
+
+        if (delta > speed)
+        {
+            return value + speed;
+        }
+
+        return delta < -speed ? value - speed : target;
+    }
+
+    /// <summary><c>RemapValClamped</c> (<c>mathlib.h:619</c>); every caller here passes A ≠ B, so its A == B branch is not ported.</summary>
+    private static float RemapValClamped(float value, float a, float b, float c, float d)
+    {
+        float t = Math.Clamp((value - a) / (b - a), 0f, 1f);
+
+        return c + ((d - c) * t);
     }
 
     /// <summary>

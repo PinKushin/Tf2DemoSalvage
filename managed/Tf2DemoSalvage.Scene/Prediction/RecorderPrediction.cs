@@ -50,6 +50,34 @@ public sealed class RecorderPrediction
     /// <summary>The surface data a ground trace stands on (<see cref="TfGameMovement.GroundSurface"/>); null for none.</summary>
     public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
 
+    /// <summary>
+    /// The taunt's movement as <c>C_TFPlayer::UpdateTauntItem</c> (<c>c_tf_player.cpp:4899-4926</c>) and
+    /// <c>ParseSharedTauntDataFromEconItemView</c> (<c>tf_player_shared.cpp:13156-13171</c>) set it: off
+    /// <c>m_iTauntItemDefIndex</c>'s definition while <c>m_nActiveTauntSlot</c> is <c>LOADOUT_POSITION_INVALID</c>, an absent
+    /// attribute reading 0. Null when not known: a loadout slot names the GC inventory's item, which no demo carries; and no
+    /// item, or no schema, leaves the client's previous values, which no demo carries either.
+    /// </summary>
+    /// <param name="recorder">The player.</param>
+    /// <param name="hooks">The item schema's lookups; null for none.</param>
+    /// <returns>The taunt's movement, or null.</returns>
+    public static TauntMovement? TauntMovementOf(ScenePlayer recorder, AttributeHooks? hooks)
+    {
+        const int InvalidItemDefIndex = 65535;
+
+        if (hooks is null || recorder.ActiveTauntSlot is not -1 ||
+            recorder.TauntItemDefIndex is not { } definition || definition == InvalidItemDefIndex)
+        {
+            return null;
+        }
+
+        int Raw(string name) => hooks.DefinitionAttribute(definition, name) ?? 0;
+
+        return new TauntMovement(
+            ForceForward: Raw("taunt force move forward") != 0,
+            Speed: BitConverter.Int32BitsToSingle(Raw("taunt move speed")),
+            Acceleration: BitConverter.Int32BitsToSingle(Raw("taunt move acceleration time")));
+    }
+
     /// <summary>What the movement asks a player's items, as of his networked state.</summary>
     /// <param name="recorder">The player.</param>
     /// <param name="hooks">The attribute hooks; null hooks nothing.</param>
@@ -145,11 +173,17 @@ public sealed class RecorderPrediction
             _brushLevel = level;
         }
 
+        AttributeHooks? hooks = Hooks?.Invoke();
         MovementWorld world = MovementWorld.At(_timeline, _brushTracks, level, packet.Tick, recorder);
         TfGameMovement movement = new(world.Trace, _convars, _timeline.MaxClients)
         {
-            Items = ItemsOf(recorder, Hooks?.Invoke()),
+            Items = ItemsOf(recorder, hooks),
             GroundSurface = GroundSurface,
+
+            // Without the eye height CheckWater cannot place its eye point; the networked water level then stands.
+            PointContents = recorder.ViewOffsetZ is null || level.Leaves is not { } leaves
+                ? null
+                : point => leaves.ContentsAt(point.X, point.Y, point.Z),
         };
         PredictedPlayer player = Restore(recorder, _timeline.IntervalPerTick, packet.Tick);
 
@@ -160,6 +194,40 @@ public sealed class RecorderPrediction
         player.PassingThroughEnemies =
             world.Trace(player.Origin, player.Origin, new Vector3(-24f, -24f, 0f), maxs, MovementWorld.MaskPlayerSolid | EnemyContents(player.Team))
             is { StartSolid: true, BrushEntity: > 0 and var entity } && entity <= _timeline.MaxClients;
+
+        // The movement modes' inputs (B450).
+        int flags = recorder.Flags ?? 0;
+        float packetTime = player.CurTime;
+        float lastCommandTime = packetTime + (pending.Count * _timeline.IntervalPerTick);
+
+        if (!TryGrapple(players, recorder, out GrapplingTarget? grapple) ||
+            StunExpireTime(packet.Tick, recorder) is not { } stunExpireTime ||
+            StunFadeUnknown(packet.Tick, recorder, stunExpireTime, lastCommandTime))
+        {
+            return null;
+        }
+
+        player = player with
+        {
+            ViewOffsetZ = recorder.ViewOffsetZ ?? 0f,
+            WaterJumpUnknown = (flags & WaterJumpFlag) != 0,
+            StunActive = recorder.StunIndex is >= 0,
+            StunAmount = recorder.MovementStunAmount ?? 0,
+            StunFlags = recorder.StunFlags ?? 0,
+            StunExpireTime = stunExpireTime,
+            ActiveWeaponIsMinigun = recorder.WeaponClass == "CTFMinigun",
+            HasTheFlag = recorder.HasTheFlag,
+            AllowMoveDuringTaunt = recorder.AllowMoveDuringTaunt,
+            TauntMovement = TauntMovementOf(recorder, hooks),
+            CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
+            VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
+            GrapplingHook = grapple,
+        };
+
+        // A stun already running when the packet arrived was seen by every earlier prediction: its lerp target is set.
+        player.StunLerpTarget = player.StunActive && player.StunExpireTime > packetTime
+            ? Math.Clamp(player.StunAmount, 0, 255) / 255f
+            : 0f;
 
         bool first = true;
 
@@ -244,6 +312,143 @@ public sealed class RecorderPrediction
     /// <summary><c>FL_ONGROUND</c> and <c>FL_DUCKING</c> (<c>const.h:148-149</c>), the two bits every era agrees on.</summary>
     private const int OnGroundFlag = 1 << 0;
     private const int DuckingFlag = 1 << 1;
+
+    /// <summary><c>FL_WATERJUMP</c> outside the HL2 block of <c>const.h:155</c>.</summary>
+    private const int WaterJumpFlag = 1 << 3;
+
+    private const int CondStunned = 15;
+    private const int StunMovement = 1 << 0;
+    private const int StunControls = 1 << 1;
+
+    /// <summary><c>CONTROL_STUN_ANIM_TIME</c> (<c>tf_player_shared.h:202</c>).</summary>
+    private const float ControlStunAnimTime = 1.5f;
+
+    /// <summary><c>StunMove</c>'s fade out: <c>RemapValClamped( dt, 0.2, 0.0, … )</c> (<c>tf_gamemovement.cpp:594</c>).</summary>
+    private const float StunFadeSeconds = 0.2f;
+
+    /// <summary>
+    /// <c>GetGrapplingHookTarget()</c> resolved; false when the hook's target is one this class cannot place — a hook
+    /// projectile, whose position the timeline does not hand it (B450) — so prediction declines.
+    /// </summary>
+    private static bool TryGrapple(IReadOnlyList<ScenePlayer> players, ScenePlayer recorder, out GrapplingTarget? target)
+    {
+        target = null;
+
+        if (recorder.GrapplingHookTarget is not { } slot)
+        {
+            return true;
+        }
+
+        if (Find(players, slot) is not { } hooked)
+        {
+            return false;
+        }
+
+        Vector3 center = Center(hooked);
+        Vector3? direction = null;
+
+        if (hooked.GrapplingHookTarget is { } theirs)
+        {
+            if (Find(players, theirs) is not { } theirTarget)
+            {
+                return false;
+            }
+
+            Vector3 toward = Center(theirTarget) - center;
+            direction = toward.LengthSquared() > 0f ? Vector3.Normalize(toward) : Vector3.Zero;
+        }
+
+        target = new GrapplingTarget(center, new Vector3(hooked.X, hooked.Y, hooked.Z), IsPlayer: true, direction);
+        return true;
+    }
+
+    private static ScenePlayer? Find(IReadOnlyList<ScenePlayer> players, int entityIndex)
+    {
+        foreach (ScenePlayer each in players)
+        {
+            if (each.EntityIndex == entityIndex)
+            {
+                return each;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary><c>WorldSpaceCenter()</c> of a player: the middle of his standing or ducked hull.</summary>
+    private static Vector3 Center(ScenePlayer player) =>
+        new(player.X, player.Y, player.Z + ((((player.Flags ?? 0) & DuckingFlag) != 0 ? 62f : 82f) * 0.5f));
+
+    private static bool MovementStunned(ScenePlayer player) =>
+        player.StunIndex is >= 0 && player.Conditions.Has(CondStunned) && ((player.StunFlags ?? 0) & StunMovement) != 0;
+
+    /// <summary>
+    /// <c>m_flStunEnd</c>: the client's curtime when <c>m_iMovementStunParity</c> last changed plus
+    /// <c>m_flMovementStunTime</c>, and <c>CONTROL_STUN_ANIM_TIME</c> for a control stun (<c>tf_player_shared.cpp:1440-1449</c>).
+    /// The change is found by walking back through the packets; zero when no movement stun is running.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the client's clock on receiving a packet is taken as the packet's tick, and the control stun's
+    /// animation as not yet started (<c>m_iStunAnimState</c> is the client's own).
+    /// </remarks>
+    private float? StunExpireTime(int packetTick, ScenePlayer recorder)
+    {
+        if (!MovementStunned(recorder))
+        {
+            return 0f;
+        }
+
+        if (recorder.MovementStunTime is not { } duration || recorder.MovementStunParity is not { } parity)
+        {
+            return null;
+        }
+
+        float extra = ((recorder.StunFlags ?? 0) & StunControls) != 0 ? ControlStunAnimTime : 0f;
+        int limit = packetTick - (int)MathF.Ceiling((duration + extra) / _timeline.IntervalPerTick) - 1;
+        IReadOnlyList<(int Tick, int Acknowledged)> packets = _timeline.PacketAcknowledgements;
+        int changed = packetTick;
+
+        for (int index = packets.Count - 1; index >= 0; index--)
+        {
+            int tick = packets[index].Tick;
+
+            if (tick > packetTick)
+            {
+                continue;
+            }
+
+            if (tick < limit)
+            {
+                // Older than the stun could be: it expired before this packet.
+                break;
+            }
+
+            if (Find(_timeline.PlayersAt(tick), recorder.EntityIndex) is not { } then || then.MovementStunParity != parity)
+            {
+                break;
+            }
+
+            changed = tick;
+        }
+
+        return (changed * _timeline.IntervalPerTick) + duration + extra;
+    }
+
+    /// <summary>
+    /// Whether <c>StunMove</c>'s fade out may be running: its start is client state no packet carries, set by whichever
+    /// prediction first saw the stun end — so prediction declines inside the fade's 0.2 seconds.
+    /// </summary>
+    private bool StunFadeUnknown(int packetTick, ScenePlayer recorder, float expireTime, float lastCommandTime)
+    {
+        if (MovementStunned(recorder))
+        {
+            return expireTime < lastCommandTime + StunFadeSeconds;
+        }
+
+        int before = packetTick - (int)MathF.Ceiling(StunFadeSeconds / _timeline.IntervalPerTick) - 1;
+
+        return Find(_timeline.PlayersAt(before), recorder.EntityIndex) is { } earlier && MovementStunned(earlier);
+    }
 
     /// <summary>The commands <c>PerformPrediction</c> runs: past the acknowledgement, read by now, in order.</summary>
     /// <param name="commands">Every usercmd, in stream order.</param>
