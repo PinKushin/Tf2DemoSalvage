@@ -22,6 +22,13 @@ proping for fps gains... we normally have made small mistakes which cost fps, bu
 we get them right after the imp is steady and working."* Build to parity, hand to f12 review, then
 probe for gains — note a suspected cost during the build step rather than chasing it mid-feature.
 
+**Repeated 2026-10-01, and it cost a subagent.** Gate 3 (`playback-check`) on a cut ESEA demo read
+"1.5 fps, `project` 574 ms/frame"; the assistant filed it as a viewer defect and launched an opus agent
+on it. Owner: *"OMG, you put a subagent on a FPS problem, the fucking viewer was backgrounded, the
+frames for gate 3 dont matter its always backgrounded"*. Gate 3 proves a demo plays and exits — its
+frame numbers are never evidence of anything. Owner: *"that was 200k tokens wasted, dont do that again"*.
+Before launching ANY agent on a performance symptom, check this file; a gate-3 number never qualifies.
+
 **How to apply:** ignore fps overlays/`--shot` frame lines during feature work. Use `--measure` only
 when asked, and confirm focus was held first (50ms signature + near-zero columns = focus lost). Run a
 control with the change disabled before chasing a cause. [[instrument-bugs-outnumber-decoder-bugs]],
