@@ -47,7 +47,7 @@ public sealed class SteamInstallTests
     public void Root_WithUserSteamPathOnAnotherDrive_IsThatPathWithBackslashes()
     {
         SteamInstall steam = new(
-            Registry(new() { [(UserKey, "SteamPath")] = "d:/steam" }), @"C:\Program Files (x86)", null);
+            Registry(new() { [(UserKey, "SteamPath")] = "d:/steam" }), @"C:\Program Files (x86)", null, _ => true);
 
         steam.Root.ShouldBe(@"d:\steam");
         steam.LibraryFile.ShouldBe(@"d:\steam\steamapps\libraryfolders.vdf");
@@ -57,7 +57,7 @@ public sealed class SteamInstallTests
     public void Root_WithOnlyMachineInstallPath_IsThatPath()
     {
         SteamInstall steam = new(
-            Registry(new() { [(MachineKey, "InstallPath")] = @"E:\Steam" }), @"C:\Program Files (x86)", null);
+            Registry(new() { [(MachineKey, "InstallPath")] = @"E:\Steam" }), @"C:\Program Files (x86)", null, _ => true);
 
         steam.Root.ShouldBe(@"E:\Steam");
     }
