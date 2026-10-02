@@ -19,8 +19,11 @@ For players. Developers: skip to *Status* below.
 **Your TF2 install.** The viewer reads maps and game content from your own Team Fortress 2 install.
 It finds Steam where Steam records itself — the registry value `SteamPath` under
 `HKEY_CURRENT_USER\Software\Valve\Steam` (or the machine-wide `InstallPath`), falling back to
-Program Files (x86)\Steam — then reads that Steam folder's `steamapps\libraryfolders.vdf` and picks
-the library that lists TF2 (app 440). So Steam and TF2 may each live on any drive. There is no folder picker for the install. If it is not found, the viewer
+Program Files (x86)\Steam; a recorded folder with no `steamapps\libraryfolders.vdf` is skipped for
+the next — then reads that library list and picks the library that lists TF2 (app 440). So Steam and
+TF2 may each live on any drive. There is no folder picker; instead, **set the environment variable
+`TF2_FOLDER` to a `tf` folder** (for example `E:\Games\Team Fortress 2\tf`) and maps, models,
+materials, sounds and configs all come from it, whatever Steam says. If it is not found, the viewer
 says so in the status bar and still plays the demo, without the game's maps and models; a map that
 is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
 

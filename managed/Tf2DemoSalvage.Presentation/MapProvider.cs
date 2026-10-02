@@ -64,6 +64,7 @@ public sealed class MapProvider : IDisposable
     private readonly string _steamLibraryFile;
     private readonly string _ownMapsFolder;
     private readonly Func<MapDownloader> _downloader;
+    private readonly Func<string?> _gameFolder;
 
     private MapDownloader? _open;
 
@@ -71,15 +72,24 @@ public sealed class MapProvider : IDisposable
     /// <param name="steamLibraryFile">Steam's `libraryfolders.vdf`.</param>
     /// <param name="ownMapsFolder">Where our own downloads land.</param>
     /// <param name="downloader">Builds the downloader, once, on first use.</param>
+    /// <param name="gameFolder">
+    /// Where the <c>tf</c> folder is — <see cref="SteamInstall.GameFolder"/> in the viewer, so
+    /// <c>TF2_FOLDER</c> reaches maps as well as archives and configs (D203). Null searches the
+    /// library file alone.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="downloader"/> is null.</exception>
     public MapProvider(
-        string steamLibraryFile, string ownMapsFolder, Func<MapDownloader> downloader)
+        string steamLibraryFile,
+        string ownMapsFolder,
+        Func<MapDownloader> downloader,
+        Func<string?>? gameFolder = null)
     {
         ArgumentNullException.ThrowIfNull(downloader);
 
         _steamLibraryFile = steamLibraryFile;
         _ownMapsFolder = ownMapsFolder;
         _downloader = downloader;
+        _gameFolder = gameFolder ?? (() => new MapLocator(_steamLibraryFile, _ownMapsFolder).FindGameFolder());
     }
 
     /// <summary>Steam's library index, where an installed TF2's maps are listed.</summary>
@@ -104,7 +114,7 @@ public sealed class MapProvider : IDisposable
     /// <summary>A provider over this machine's usual places.</summary>
     /// <returns>The provider.</returns>
     public static MapProvider Installed() =>
-        new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder));
+        new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder), SteamInstall.Machine.GameFolder);
 
     /// <summary>What to say while a map is being fetched.</summary>
     /// <param name="mapName">The map.</param>
@@ -142,7 +152,11 @@ public sealed class MapProvider : IDisposable
     {
         try
         {
-            return new MapLocator(_steamLibraryFile, _ownMapsFolder).Find(mapName);
+            // The game folder's own maps come first, as a configured folder: under TF2_FOLDER the
+            // library list may not name it at all (D203).
+            string[] game = GameFolder() is { } tf ? [Path.Combine(tf, "maps")] : [];
+
+            return new MapLocator(_steamLibraryFile, _ownMapsFolder, game).Find(mapName);
         }
         catch (ArgumentException)
         {
@@ -208,9 +222,10 @@ public sealed class MapProvider : IDisposable
     /// <summary>Where TF2 itself is installed, if it is.</summary>
     /// <returns>The <c>tf</c> folder, or null when the game is not installed.</returns>
     /// <remarks>
-    /// **The same Steam search as <see cref="Locate"/>, stopping one level higher**: the locator
-    /// wants <c>tf/maps</c> and this wants <c>tf</c> itself, where the archives and the custom
-    /// folder live. Null costs the stock textures and nothing else.
+    /// **The one game-folder answer**: <see cref="Locate"/> searches its <c>maps</c>, and the archives,
+    /// the custom folder and the configs are read from it, so <c>TF2_FOLDER</c> reaches all of them
+    /// through <see cref="SteamInstall.GameFolder"/> (D203). Null costs the stock textures and
+    /// nothing else.
     ///
     /// **It is here because it was the THIRD copy of the Steam path in `MainForm`** — `FindMap`,
     /// `FindGameFolder` and the downloader's default folder each spelled out
@@ -225,7 +240,7 @@ public sealed class MapProvider : IDisposable
     {
         try
         {
-            return new MapLocator(_steamLibraryFile, _ownMapsFolder).FindGameFolder();
+            return _gameFolder();
         }
         catch (Exception failure) when (failure is IOException or ArgumentException)
         {
