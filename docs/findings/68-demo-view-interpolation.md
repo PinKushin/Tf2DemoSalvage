@@ -55,8 +55,29 @@ all flags 0, and agree with `cvarlist.log`.
 
 ## A seek is not a reset
 
-`ResetDemoInterpolation` (`0x180073990`) sets the flag. Nothing in `engine.dll` calls it; the client does, through
-`IVEngineClient` (`cdll_int.h:522`), and those callers are unread. `SkipToTick` (`0x180073b10`) does not set it:
+`ResetDemoInterpolation` (`0x180073990`) sets the flag. Nothing in `engine.dll` calls it, and the published client
+does not either: a text search over source-sdk-2013 finds only its `IVEngineClient` declaration (`cdll_int.h:522`),
+the control being that the search found that. The live TF2 client binary is unread. `SkipToTick` (`0x180073b10`) does not set it:
 a backward skip reloads the demo through `StartPlayback`, which does not clear the list or the flag.
 **Departure from the brief**, which asked seeks to reset: the port treats a backward move as a restart and leaves
 the flag alone. What remains is B450.
+
+## The recorder's feet turn per frame
+
+`UpdateClientSideAnimation` feeds the local anim state `EyeAngles()` (`c_tf_player.cpp:4279-4284`) every frame,
+and `ComputePoseParam_AimYaw` converges the feet by `gpGlobals->frametime` (`multiplayer_animstate.cpp:1759`)
+before drawing the body at them (`:1765`) and twisting against them (`:1768-1772`). The port had the twist on the
+interpolated local yaw but the feet on the timeline's per-tick advance from the server's `m_angEyeAngles`, so the
+twist lagged up to a tick. `RecorderFeet` now converges them per frame from the viewpoint's local yaw. *Published
+source.*
+
+## Prediction runs during playback — a wrong belief
+
+B450 first filed "whether demo playback runs prediction at all for the recorder" as unread, and the easy reading
+was that it does not: a demo has no server to predict against. The bytes say otherwise. `CL_RunPrediction`
+(`0x180092710`) calls `IPrediction::Update` at full signon whenever the delta tick is valid, skipping only while the
+demo player is skipping or seeking (its vtable +0x48, B56). Playback hands the client each `dem_usercmd`, and
+`CPrediction::_Update` stops only for `cl_predict 0` (`prediction.cpp:1742-1799`) before `PerformPrediction`
+re-runs those commands (`:1570-1698`). So the recorder's velocity in the game is prediction's, re-simulated by
+`CGameMovement` — which the port does not have, so it keeps the networked `m_vecVelocity` and files the gap (B450).
+*Disassembly plus published source.*

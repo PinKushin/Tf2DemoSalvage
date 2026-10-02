@@ -8161,17 +8161,34 @@ probe itself and reads its CSV row).
 What `InterpolateViewpoint`'s port (B56, B442) leaves different from the engine. Each item is small; none is
 guessed at in code.
 
-- **Velocity is the last networked `m_vecVelocity`, not prediction's.** During playback the local player's
-  `GetAbsVelocity()` is whatever prediction last wrote. `C_BaseEntity` keeps no interpolation history for it
-  (`c_baseentity.cpp:907-912` comments the `AddVar` out). Whether demo playback runs prediction at all for the
-  recorder is unread. *Evidence class: published source; the playback half is unread.*
-- **The feet yaw still advances per tick from the server's `m_angEyeAngles`.** The torso twist is measured
-  against the interpolated local yaw, but the feet the timeline advanced come from the networked eye yaw, so
-  the twist is up to one tick stale. The engine advances the feet from `EyeAngles()` per frame.
-- **`ResetDemoInterpolation`'s client callers are unread.** It is `IVEngineClient::ResetDemoInterpolation`
-  (`cdll_int.h:522`, engine `0x180073990`). No `engine.dll` code calls it. The port exposes the method and
-  nothing calls it, so a seek does not set the reset flag. That matches `SkipToTick` (`0x180073b10`), which
-  does not set it either.
+- **Velocity is the last networked `m_vecVelocity`, not prediction's — OPEN, structural.** Prediction DOES run
+  during playback (read 2026-10-02). Engine x64 `CL_RunPrediction` (`FUN_180092710`, `cl_pred.cpp`) calls
+  `g_pClientSidePrediction->Update(...)` (vtable +0x18) whenever the signon state is 6 (full) and the delta tick is
+  >= 0, unless the demo player's vtable +0x48 answers true — B56's skipping/seeking. Playback feeds the recorded
+  usercmds to the client (`dem_usercmd` -> `DecodeUserCmdFromBuffer`); `CPrediction::_Update` returns early only
+  when `cl_predict` is 0 (`prediction.cpp:1742-1799`), and `PerformPrediction` re-runs those cmds
+  (`:1570-1698`). So the recorder's `m_vecVelocity` in the real client is PREDICTION's, from a re-simulated
+  `CGameMovement`. Porting `CGameMovement` is out of scope (B56); the code keeps the networked value and guesses
+  nothing. `C_BaseEntity` keeps no interpolation history for it either (`c_baseentity.cpp:907-912`).
+  *Evidence class: disassembly plus published source.*
+- **The feet yaw advanced per tick from the server's `m_angEyeAngles`.** — **FIXED 2026-10-02.**
+  `C_TFPlayer::UpdateClientSideAnimation` hands the local player's anim state `EyeAngles()`
+  (`c_tf_player.cpp:4279-4284`); `CTFPlayerAnimState::Update` (`tf_playeranimstate.cpp:325-499`) reaches
+  `ComputePoseParam_AimYaw` (`:768-815`, the base's unless item-testing), which sets the goal to the eye yaw while
+  moving (`multiplayer_animstate.cpp:1709-1720`), converges by `gpGlobals->frametime` (`:1759`), draws the body at
+  the feet (`:1765`) and twists against them (`:1768-1772`). `RecorderFeet`, one per `TimelineMoments`, now does
+  that per frame from `InterpolateViewpoint`'s local yaw — the value the twist already used, carried — and sets the
+  recorder's drawn `Yaw` to the result. It starts, and restarts after a backward move, from the timeline's per-tick
+  feet: the engine's state runs from spawn, and this is the nearest carried state. Everyone else is unchanged.
+  `PlayersAt_ASecondFrameHalfATickLater_TurnsTheFeetByTheFrameTime` (5.4 degrees in half a tick) and
+  `CorpusRecorderFeetTests` (two frames inside one tick of the 2013 POV draw two yaws) hold it.
+  *Evidence class: published source plus synthetic and corpus tests.*
+- **`ResetDemoInterpolation` is never called — matches the SDK client; the live client is unverified.** It is
+  `IVEngineClient::ResetDemoInterpolation` (`cdll_int.h:522`, engine `0x180073990`). No `engine.dll` code calls
+  it, and a text search over all of source-sdk-2013 finds only that declaration (control: the same search found
+  it). The live TF2 client binary was not resolved — its `IVEngineClient` vtable slot was not identified. The port
+  exposes the method and nothing calls it, so a seek does not set the reset flag, as `SkipToTick`
+  (`0x180073b10`) does not either. *Evidence class: published source and disassembly; the live client unread.*
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
   than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
   start). It is correct but not cheap when scrubbing backward.
