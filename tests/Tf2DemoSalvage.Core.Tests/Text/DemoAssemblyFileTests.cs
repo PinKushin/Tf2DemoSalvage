@@ -66,6 +66,19 @@ public sealed class DemoAssemblyFileTests
     }
 
     [Test]
+    public void Compile_MalformedText_LeavesNoOutputAndNoTemp()
+    {
+        // Text with a valid command but no 'demo' header block: the parse throws only at the end, after
+        // the streaming compile has written commands, so a partial file would exist without the guard.
+        string text = Path.Combine(_folder, "bad.txt");
+        File.WriteAllText(text, "consolecmd 5 data 6869\n");
+
+        Should.Throw<InvalidDataException>(() => DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")));
+
+        Directory.GetFiles(_folder).ShouldBe([text]);
+    }
+
+    [Test]
     public void Compile_IntoAStreamAfterThreeBytes_WritesTheDemoAfterThemAndReportsItsLength()
     {
         // The header is written last, over a placeholder, so it must land where the stream started (B449).
