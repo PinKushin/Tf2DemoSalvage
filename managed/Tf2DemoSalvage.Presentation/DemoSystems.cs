@@ -4,8 +4,10 @@ using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
+using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.Prediction;
@@ -224,7 +226,11 @@ public sealed class DemoSystems
                 Player = player,
 
                 // **The recorder's velocity from prediction** (D205), against the map the viewer has loaded, asked per frame.
-                Prediction = new RecorderPrediction(moments, () => World?.Invoke()),
+                Prediction = new RecorderPrediction(moments, () => World?.Invoke())
+                {
+                    Hooks = RecorderHooks,
+                    GroundSurface = trace => GroundSurface?.Invoke(trace),
+                },
                 ClassModels = CorpseModels,
                 Items = CorpseItems,
                 Gibs = Gibs,
@@ -364,6 +370,29 @@ public sealed class DemoSystems
 
     /// <summary>The loaded map's world, which prediction moves the recorder through (D205); null before a map is read.</summary>
     public Func<MapLevel?>? World { get; set; }
+
+    /// <summary>
+    /// The surface data a ground trace through <see cref="World"/> stands on — <c>GetSurfaceData( pm.surface.surfaceProps )</c>,
+    /// which prediction's <c>CategorizeGroundSurface</c> reads (B450); null, or a null answer, before the map and the install.
+    /// </summary>
+    public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; set; }
+
+    /// <summary>The attribute hooks over <see cref="CorpseItems"/>, rebuilt when the schema changes.</summary>
+    private AttributeHooks? RecorderHooks()
+    {
+        ItemSchema? items = CorpseItems();
+
+        if (!ReferenceEquals(items, _hooksSchema))
+        {
+            _hooksSchema = items;
+            _hooks = items is null ? null : new AttributeHooks(items);
+        }
+
+        return _hooks;
+    }
+
+    private ItemSchema? _hooksSchema;
+    private AttributeHooks? _hooks;
 
     /// <summary>The model set, for a corpse's bodygroup arithmetic (B395).</summary>
     /// <remarks>

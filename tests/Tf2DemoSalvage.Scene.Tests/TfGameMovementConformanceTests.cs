@@ -169,7 +169,7 @@ public sealed class TfGameMovementConformanceTests
     private static bool Run(PlayerTraceRay trace, ref PredictedPlayer player, UserCommand command) =>
         new TfGameMovement(trace, MovementConVars.Defaults).ProcessMovement(ref player, command, Tick, first: true);
 
-    private static PredictedPlayer Standing() => new()
+    internal static PredictedPlayer Standing() => new()
     {
         Origin = new Vector3(0f, 0f, 0.03125f),
         OnGround = true,
@@ -177,11 +177,11 @@ public sealed class TfGameMovementConformanceTests
         PlayerClass = 3,
     };
 
-    private static UserCommand Command(float forward = 0f, uint buttons = 0) =>
+    internal static UserCommand Command(float forward = 0f, uint buttons = 0) =>
         new(1, 1, 0f, 0f, 0f, forward, 0f, 0f, buttons, 0, 0, 0, 0, 0, 0);
 
     /// <summary>A floor: everything below z = 0 is solid.</summary>
-    private static PlayerTraceRay Floor() => Through(HalfSpace(0f, 0f, 1f, 0f));
+    internal static PlayerTraceRay Floor() => Through(HalfSpace(0f, 0f, 1f, 0f));
 
     /// <summary>A wall with no floor: everything at x ≥ 100 is solid.</summary>
     private static PlayerTraceRay Wall() => Through(HalfSpace(-1f, 0f, 0f, -100f));

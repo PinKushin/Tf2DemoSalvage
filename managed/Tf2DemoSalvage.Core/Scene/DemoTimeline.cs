@@ -279,6 +279,13 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public int? ActiveWeaponClip { get; init; }
 
+    /// <summary>
+    /// `DT_BaseEntity.m_flGravity`, `GetGravity()` — what StartGravity and FinishGravity scale gravity by when nonzero
+    /// (gamemovement.cpp:1250, :1689). 0 when unsent: on the wire in a 2026 demo, absent from the 2009, 2013 and ESEA ones
+    /// (*measured*, probe `schema`).
+    /// </summary>
+    public float Gravity { get; init; }
+
     /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
     public int? KillStreak { get; init; }
 
@@ -3440,6 +3447,7 @@ public sealed class DemoTimeline
                     StunIndex = player.StunIndex(),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
                     ActiveWeaponClip = player.Integer("DT_TFSendHealersDataTable.m_nActiveWpnClip"),
+                    Gravity = player.Number("DT_BaseEntity.m_flGravity") ?? 0f,
                     KillStreak = player.Integer("m_nStreaks.000"),
                     InvisChangeCompleteTime = player.Number("DT_TFPlayerShared.m_flInvisChangeCompleteTime"),
                     CloakMeter = player.Number("DT_TFPlayerShared.m_flCloakMeter"),

@@ -227,6 +227,9 @@ public sealed class PlayerCompletenessTests
         Velocity = (1f, 2f, 3f),
         WeaponAccountId = 1234u,
         DeathTime = 77.25f,
+
+        // Half gravity, since 0 is both the default and "unset" (D205's prediction reads it as 1).
+        Gravity = 0.5f,
         WeaponQuality = 6,
         HasTheFlag = true,
         Medigun = (0.5f, 6, 29),

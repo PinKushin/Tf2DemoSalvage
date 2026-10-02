@@ -777,6 +777,9 @@ internal static class SyntheticPlayer
                     ],
                 },
                 "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("m_hMyWeapons", "m_hMyWeapons")] },
+
+                // `m_flGravity` (baseentity.cpp's DT_BaseEntity; on the wire in a 2026 demo, absent from 2009–2019 ones).
+                "DT_BaseEntity" => table with { Properties = [.. table.Properties, NoScaleFloat("m_flGravity")] },
                 _ => table,
             });
         }
@@ -824,6 +827,7 @@ internal static class SyntheticPlayer
             ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
             ["m_lifeState"] = PropertyValue.FromInt(0),
             ["m_flHypeMeter"] = PropertyValue.FromFloat(41.5f),
+            ["m_flGravity"] = PropertyValue.FromFloat(0.5f),
             ["m_iRevengeCrits"] = PropertyValue.FromInt(6),
             ["m_flRuneCharge"] = PropertyValue.FromFloat(62.5f),
             ["m_flRageMeter"] = PropertyValue.FromFloat(88.25f),

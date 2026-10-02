@@ -8196,10 +8196,28 @@ guessed at in code.
   `CorpusRecorderPredictionTests` compares 9,783 packet gaps with the next packet's networked velocity: predicted mean
   10.1 u/s, median 0, max 906; holding the last packet mean 25.7, median 0.7 (the max is server-side knockback). A
   2013 listen-server demo acknowledges every command in the next packet, so prediction adds nothing there.
+  **Closed 2026-10-02 (`fix/d205-attributes-surfaces`):** item attributes, the ground's surfaceprop, `m_flGravity`,
+  `CanJump`/`CanDuck`/`CanAirDash`. `TfGameMovement` hooks `mod_jump_height` and `mod_jump_height_from_weapon`
+  (`tf_gamemovement.cpp:1294-1300`, `:999-1005`), the agility rune's 1.8 (`:1310`), `mod_air_control` and
+  `mod_air_control_blast_jump` (`:2081-2094`), `CanAirDash` (`tf_player_shared.cpp:12840`: `air_dash_count` on the
+  active weapon, `set_scout_doublejump_disabled`, soda-popper hype, the Halloween speed boost, karts), `CanJump`
+  (`:12276`: `no_jump`, the bow's `OwnerCanJump` off its `m_flChargeBeginTime`) and `CanDuck` (`:12298`, `no_duck`)
+  through `AttributeHooks` over the recorder's carried items — the combine rules are `ItemSchema.Apply`'s.
+  `CategorizeGroundSurface` (`gamemovement.cpp:919`) sets `m_pSurfaceData` by the texinfo-to-surfaceprop route a
+  footstep takes and friction · 1.25 up to 1; `CheckParameters` scales max speed by `maxSpeedFactor` (`:1006`), and the
+  jump by `jumpFactor` (`tf_gamemovement.cpp:1281`); the parser reads both keys (`vphysics_interface.h:942`). Gravity is
+  `m_flGravity` when nonzero (`gamemovement.cpp:1250`), read off `DT_BaseEntity` — on the wire in a 2026 demo, absent
+  from the 2009, 2013 and an ESEA one (*measured*, probe `schema`, control `m_vecVelocity` found). The game rules'
+  multiplier is on no demo's wire and `C_TFGameRules` sets it to 1.0 (`tf_gamerules.cpp:3450`), so 1 stands.
+  `CorpusRecorderPredictionTests`, now wired to `items_game.txt` and the surfaces: predicted mean 10.123, median 0, max
+  906 — **unchanged to 0.001** (held 25.725); badlands' surfaces all scale to friction 1 and the 2009 recorder carries
+  no movement attribute. Scaling friction by 1.0 instead of 1.25 moves it to 13.1, so the route is live.
+  *Interpolated:* `m_pSurfaceData` is not networked, so the first re-run command starts with none (factor 1) until
+  `CategorizePosition` finds the ground.
   **Still open, each a default in the port:** water above the feet, taunt movement, karts, ghosts, grappling hooks,
-  parachutes and stuns decline (networked velocity stands); item attributes (`mod_jump_height`, `mod_air_control`,
-  extra air dashes, forward pull), the ground's surfaceprop (friction, jump and speed factors), a moving ground's
-  velocity, `m_flGravity` and the game-rules gravity multiplier, `CanJump`/`CanDuck`, `CheckStuck`, buildings as
+  parachutes and stuns decline (networked velocity stands); `GetMovementForwardPull` (`firing_forward_pull` needs the
+  weapon's `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, a moving ground's
+  velocity, `CheckStuck`, buildings as
   boxes, brush entities (doors) in the trace, per-tick ConVars (the last value sent is used), and `m_flDucktime` and
   the other `DT_Local` duck fields, which start from `FL_DUCKING` alone. D175's sticking friction is vphysics and is
   not on this path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and
