@@ -1,0 +1,112 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+
+
+namespace Tf2DemoSalvage.Rendering.Tests;
+
+/// <summary>Tests finding Steam, and through it TF2, the way Steam records its own location.</summary>
+/// <remarks>
+/// **The gap these close (2026-10-02):** the viewer only ever looked under Program Files (x86), so a
+/// tester with Steam on <c>D:\Steam</c> was told TF2 was not installed. Steam writes its own path to
+/// the registry; these feed that value through the seam rather than reading the real registry,
+/// whose contents are a property of the machine and not of the code.
+/// </remarks>
+public sealed class SteamInstallTests
+{
+    private const string UserKey = @"HKEY_CURRENT_USER\Software\Valve\Steam";
+    private const string MachineKey = @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam";
+
+    private string _root = string.Empty;
+
+    [SetUp]
+    public void CreateRoot()
+    {
+        _root = Path.Combine(Path.GetTempPath(), "tf2salvage-tests", Path.GetRandomFileName());
+        Directory.CreateDirectory(_root);
+    }
+
+    [TearDown]
+    public void RemoveRoot()
+    {
+        try
+        {
+            Directory.Delete(_root, recursive: true);
+        }
+        catch (IOException failure)
+        {
+            // Disposable temp tree; a lock must not fail a passing test, but it is reported.
+            TestContext.Out.WriteLine("temp tree not removed: " + failure.Message);
+        }
+    }
+
+    private static Func<string, string, string?> Registry(Dictionary<(string, string), string> values) =>
+        (key, name) => values.TryGetValue((key, name), out string? value) ? value : null;
+
+    [Test]
+    public void Root_WithUserSteamPathOnAnotherDrive_IsThatPathWithBackslashes()
+    {
+        SteamInstall steam = new(
+            Registry(new() { [(UserKey, "SteamPath")] = "d:/steam" }), @"C:\Program Files (x86)", null);
+
+        steam.Root.ShouldBe(@"d:\steam");
+        steam.LibraryFile.ShouldBe(@"d:\steam\steamapps\libraryfolders.vdf");
+    }
+
+    [Test]
+    public void Root_WithOnlyMachineInstallPath_IsThatPath()
+    {
+        SteamInstall steam = new(
+            Registry(new() { [(MachineKey, "InstallPath")] = @"E:\Steam" }), @"C:\Program Files (x86)", null);
+
+        steam.Root.ShouldBe(@"E:\Steam");
+    }
+
+    [Test]
+    public void Root_WithNoRegistryValues_IsProgramFilesSteam()
+    {
+        SteamInstall steam = new(Registry([]), @"C:\Program Files (x86)", null);
+
+        steam.Root.ShouldBe(@"C:\Program Files (x86)\Steam");
+    }
+
+    [Test]
+    public void GameFolder_WithOverrideSet_IsTheOverrideEvenWhenSteamHasTf2()
+    {
+        string steamRoot = SteamWithTf2InSecondLibrary(out _);
+        string chosen = Directory.CreateDirectory(Path.Combine(_root, "chosen", "tf")).FullName;
+        SteamInstall steam = new(
+            Registry(new() { [(UserKey, "SteamPath")] = steamRoot }), null, chosen);
+
+        steam.GameFolder().ShouldBe(chosen);
+    }
+
+    [Test]
+    public void GameFolder_WithTf2InSecondLibrary_IsThatLibrarysTfFolder()
+    {
+        string steamRoot = SteamWithTf2InSecondLibrary(out string expected);
+        SteamInstall steam = new(
+            Registry(new() { [(UserKey, "SteamPath")] = steamRoot.Replace('\\', '/') }), null, null);
+
+        steam.GameFolder().ShouldBe(expected);
+    }
+
+    /// <summary>A Steam root whose first library is empty and whose second holds TF2.</summary>
+    private string SteamWithTf2InSecondLibrary(out string tfFolder)
+    {
+        string steamRoot = Path.Combine(_root, "Steam");
+        string empty = Path.Combine(_root, "LibA");
+        string second = Path.Combine(_root, "LibB");
+        tfFolder = Directory.CreateDirectory(
+            Path.Combine(second, "steamapps", "common", "Team Fortress 2", "tf")).FullName;
+        Directory.CreateDirectory(Path.Combine(steamRoot, "steamapps"));
+        File.WriteAllText(
+            Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf"),
+            "\"libraryfolders\"\n{\n" +
+            "\t\"0\"\n\t{\n\t\t\"path\"\t\t\"" + empty.Replace(@"\", @"\\", StringComparison.Ordinal) + "\"\n" +
+            "\t\t\"apps\"\n\t\t{\n\t\t\t\"228980\"\t\t\"1\"\n\t\t}\n\t}\n" +
+            "\t\"1\"\n\t{\n\t\t\"path\"\t\t\"" + second.Replace(@"\", @"\\", StringComparison.Ordinal) + "\"\n" +
+            "\t\t\"apps\"\n\t\t{\n\t\t\t\"440\"\t\t\"1\"\n\t\t}\n\t}\n}\n");
+        return steamRoot;
+    }
+}
