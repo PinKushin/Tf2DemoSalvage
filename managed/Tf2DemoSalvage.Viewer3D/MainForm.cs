@@ -7383,9 +7383,17 @@ internal class MainForm : Form, IFrameSteps
         Close();
     }
 
-    /// <summary>The heading <c>build/playback-check.ps1</c> parses: seconds played, rate reports, rebuild reports.</summary>
+    /// <summary>
+    /// The heading <c>build/playback-check.ps1</c> parses: seconds played, rate reports, rebuild reports, and the tick
+    /// the demo was showing when measuring ended.
+    /// </summary>
+    /// <remarks>
+    /// **The tick is the proof the demo played**, carried from <see cref="_shownTick"/>, the value the frame drew. The
+    /// rebuild count cannot be: its line prints once per hundred rebuilds, and a backgrounded viewer (always, in the gate)
+    /// can finish twenty seconds without reaching a hundred (2026-10-01, the cut ESEA demo).
+    /// </remarks>
     private string MeasuredPlaybackHeading() =>
-        string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)");
+        string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports), ending at tick {_shownTick:0}");
 
     /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
     private int _framesMeasured;

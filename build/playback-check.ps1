@@ -65,7 +65,7 @@ if (-not $viewer.WaitForExit($LimitSeconds * 1000)) {
 $text = Get-Content $out -Raw
 Remove-Item $out
 
-if ($text -notmatch 'measured (?<played>[\d.]+) seconds of playback, (?<samples>\d+) samples \((?<rebuilds>\d+) rebuild reports\)') {
+if ($text -notmatch 'measured (?<played>[\d.]+) seconds of playback, (?<samples>\d+) samples \((?<rebuilds>\d+) rebuild reports\), ending at tick (?<endTick>\d+)') {
     Write-Error "playback-check: FAILED - the viewer exited (code $($viewer.ExitCode)) without its measurement:`n$text"
     exit 1
 }
@@ -73,6 +73,7 @@ if ($text -notmatch 'measured (?<played>[\d.]+) seconds of playback, (?<samples>
 $played = [double]::Parse($Matches.played, [Globalization.CultureInfo]::InvariantCulture)
 $samples = [int]$Matches.samples
 $rebuilds = [int]$Matches.rebuilds
+$endTick = [int]$Matches.endTick
 
 # **`samples` is frame-rate reports only, carried from `MeasureLog`; rebuild reports are the separate count below.** It once
 # summed both, and a run with few rebuilds failed.
@@ -88,11 +89,12 @@ if ($played -lt $Seconds -or $samples -lt $floor) {
 }
 
 # **The samples must be of a demo, not of the loading screen** (D182). The window draws from the moment it opens now, and this
-# check once passed on twenty seconds of frames drawn while the demo was still decoding. A moment is rebuilt only while a demo
-# plays, so a run with no rebuild breakdown among its samples played nothing.
-if ($rebuilds -lt 1) {
-    Write-Error "playback-check: FAILED - $samples rate reports and not one moment rebuilt; the demo never played:`n$text"
+# check once passed on twenty seconds of frames drawn while the demo was still decoding. **The proof is the tick the viewer was
+# showing when it stopped**, past the one it started from. It was once "at least one rebuild report", but that line prints once
+# per hundred rebuilds and a backgrounded run (the gate's always is) can play twenty seconds without one (2026-10-01).
+if ($endTick -le $Tick) {
+    Write-Error "playback-check: FAILED - it ended at tick $endTick, not past $Tick; the demo never played:`n$text"
     exit 1
 }
 
-Write-Output "playback-check: $Demo from tick $Tick at ${Speed}x played $played s in $samples rate reports ($rebuilds rebuild reports) and exited on its own."
+Write-Output "playback-check: $Demo from tick $Tick at ${Speed}x played $played s, tick $Tick to $endTick, in $samples rate reports ($rebuilds rebuild reports) and exited on its own."
