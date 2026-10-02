@@ -45,7 +45,6 @@ public sealed class MovementWorld
     private const int SolidBsp = 1;
     private const int SolidBbox = 2;
     private const int FsolidNotSolid = 4;
-    private const int ContentsDebris = 0x4000000;
     private const int GroupDebris = 1;
     private const int GroupPushaway = 17;
     private const int StateTeamWin = 5;
@@ -166,7 +165,7 @@ public sealed class MovementWorld
     /// The engine's merge of one entity's trace into the running one: a nearer hit, or one that starts solid, becomes the
     /// trace and names its entity. *Interpolated:* <c>CEngineTrace::TraceRay</c>'s loop is engine code the SDK omits.
     /// </summary>
-    private static BspTrace Nearer(BspTrace nearest, BspTrace hit)
+    internal static BspTrace Nearer(BspTrace nearest, BspTrace hit)
     {
         if (hit.Fraction < nearest.Fraction || (hit.StartSolid && !nearest.StartSolid))
         {
@@ -233,12 +232,8 @@ public sealed class MovementWorld
                 return false;
             }
         }
-        else if (collision.CollisionGroup == GroupDebris && (mask & ContentsDebris) == 0)
-        {
-            // CBaseEntity::ShouldCollide (baseentity_shared.cpp:619-627).
-            return false;
-        }
-
+        // CBaseEntity::ShouldCollide (baseentity_shared.cpp:619-627) refuses DEBRIS to a mask without CONTENTS_DEBRIS,
+        // which MASK_PLAYERSOLID is; the game rules below refuse the same group, so one check stands for both.
         return PlayerMovementCollidesWith(collision.CollisionGroup);
     }
 

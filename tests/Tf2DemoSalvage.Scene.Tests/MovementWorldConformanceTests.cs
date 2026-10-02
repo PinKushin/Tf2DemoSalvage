@@ -181,6 +181,30 @@ public sealed class MovementWorldConformanceTests
         trace.BrushEntity.ShouldBe(40);
     }
 
+    [Test]
+    public void Nearer_ABoxHeStartsInBehindAClearWorld_NamesTheBoxAndStartsSolid()
+    {
+        // What CheckStuck reads (tf_gamemovement.cpp:1399): startsolid, and the entity it is in.
+        BspTrace world = new(1f, -1, default, AllSolid: false);
+        BspTrace box = new(1f, -1, default, AllSolid: false, BrushEntity: 5, StartSolid: true);
+
+        BspTrace merged = MovementWorld.Nearer(world, box);
+
+        merged.StartSolid.ShouldBeTrue();
+        merged.BrushEntity.ShouldBe(5);
+        merged.Fraction.ShouldBe(1f);
+    }
+
+    [Test]
+    public void Nearer_TwoHits_KeepsTheNearerOne()
+    {
+        BspTrace far = new(0.5f, -1, (0f, 0f, 1f), AllSolid: false);
+        BspTrace near = new(0.25f, -1, (-1f, 0f, 0f), AllSolid: false, BrushEntity: 40);
+
+        MovementWorld.Nearer(far, near).ShouldBe(near);
+        MovementWorld.Nearer(near, far).ShouldBe(near);
+    }
+
     private static SceneCollision Bsp() => new(SolidType: 1, SolidFlags: 0, CollisionGroup: 0);
 
     private static ScenePlayer Player(int index, int team) =>
