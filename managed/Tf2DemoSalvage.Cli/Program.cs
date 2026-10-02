@@ -231,18 +231,14 @@ public static class Program
     /// </remarks>
     private static int Compile(CommandLine line, ILogger logger)
     {
-        using StreamReader reader = new(line.DemoPath);
-        (DemoHeader header, IReadOnlyList<DemoCommand> commands, ReadOnlyMemory<byte> tail) =
-            DemoAssembly.Parse(reader);
-
-        byte[] demo = DemoWriter.Write(header, commands, tail);
-        File.WriteAllBytes(line.OutputPath!, demo);
+        // The viewer's Compile button calls the same method, so the two cannot drift.
+        (int commands, int bytes) = DemoAssembly.Compile(line.DemoPath, line.OutputPath!);
 
         if (logger.IsEnabled(LogLevel.Information))
         {
             logger.LogInformation(
                 "compiled {Commands} commands to {Path} ({Bytes:N0} bytes)",
-                commands.Count, line.OutputPath, demo.Length);
+                commands, line.OutputPath, bytes);
         }
 
         return ExitSuccess;

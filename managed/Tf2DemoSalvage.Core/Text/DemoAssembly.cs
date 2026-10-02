@@ -81,6 +81,45 @@ public static class DemoAssembly
     private static readonly Dictionary<string, DemoCommandType> Commands =
         Keywords.ToDictionary(entry => entry.Value, entry => entry.Key, StringComparer.Ordinal);
 
+    /// <summary>Writes a demo file's assembly text to another file.</summary>
+    /// <param name="demoPath">The demo to read, streamed a command at a time (B449).</param>
+    /// <param name="outputPath">The text file to write.</param>
+    /// <returns>The number of commands written.</returns>
+    /// <remarks>
+    /// The one path behind the CLI's <c>--asm -o</c> file case and the viewer's Export button, so a
+    /// 2 GB demo exports in what its state costs rather than what its file costs.
+    /// </remarks>
+    public static int Export(string demoPath, string outputPath)
+    {
+        DemoCommandCollection commands = DemoCommandCollection.Open(demoPath);
+
+        using (StreamWriter writer = new(outputPath))
+        {
+            Write(writer, commands.Header, commands, commands.Tail);
+        }
+
+        return commands.Count;
+    }
+
+    /// <summary>Compiles an assembly text file back into a demo file.</summary>
+    /// <param name="assemblyPath">The assembly text.</param>
+    /// <param name="outputPath">The demo to write.</param>
+    /// <returns>The number of commands compiled and of bytes written.</returns>
+    /// <exception cref="InvalidDataException">The text is not valid assembly.</exception>
+    public static (int Commands, int Bytes) Compile(string assemblyPath, string outputPath)
+    {
+        AssembledDemo demo;
+
+        using (StreamReader reader = new(assemblyPath))
+        {
+            demo = Parse(reader);
+        }
+
+        byte[] bytes = DemoWriter.Write(demo.Header, demo.Commands, demo.Tail);
+        File.WriteAllBytes(outputPath, bytes);
+        return (demo.Commands.Count, bytes.Length);
+    }
+
     /// <summary>Writes the demo as assembly text.</summary>
     /// <param name="writer">Destination.</param>
     /// <param name="header">The demo's header.</param>

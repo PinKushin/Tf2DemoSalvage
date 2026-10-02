@@ -47,7 +47,8 @@ public sealed class MainFormTests
         file.Name.ShouldBe(MainForm.FileMenuId);
         file.DropDownItems.OfType<ToolStripMenuItem>()
             .Select(item => item.Name)
-            .ShouldBe([MainForm.OpenDemoItemId, MainForm.ExitItemId]);
+            .ShouldBe([
+                MainForm.OpenDemoItemId, MainForm.ExportItemId, MainForm.CompileItemId, MainForm.ExitItemId]);
     }
 
     [Test]
