@@ -166,8 +166,180 @@ public sealed class TfGameMovementConformanceTests
         Run(Floor(), ref player, Command()).ShouldBeFalse();
     }
 
-    private static bool Run(PlayerTraceRay trace, ref PredictedPlayer player, UserCommand command) =>
-        new TfGameMovement(trace, MovementConVars.Defaults).ProcessMovement(ref player, command, Tick, first: true);
+    [Test]
+    public void ProcessMovement_HoldingDuckWithTheNetworkedDucktimeAt190MsIn_FinishesTheDuck()
+    {
+        // OnDuck (tf_gamemovement.cpp:3261-3270): ReduceTimers takes 15 ms off m_flDucktime, so 1000 − 810 + 15 = 205 ms
+        // have elapsed, past TIME_TO_DUCK's 200 — FinishDuck sets FL_DUCKING.
+        PredictedPlayer player = Standing() with { Ducking = true, DuckTime = 810f };
+
+        Run(Floor(), ref player, Command(buttons: InDuck), button: InDuck);
+
+        player.FlDucking.ShouldBeTrue();
+        player.Ducked.ShouldBeTrue();
+    }
+
+    [Test]
+    public void ProcessMovement_HoldingDuckWithTheNetworkedDucktimeAt150MsIn_IsStillInTransition()
+    {
+        // The control: 1000 − 850 + 15 = 165 ms is under 200, so the duck is still a transition.
+        PredictedPlayer player = Standing() with { Ducking = true, DuckTime = 850f };
+
+        Run(Floor(), ref player, Command(buttons: InDuck), button: InDuck);
+
+        player.FlDucking.ShouldBeFalse();
+        player.Ducking.ShouldBeTrue();
+        player.DuckTime.ShouldBe(835f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_PressingDuckInTheAirAtFeetDeep_IsRefused()
+    {
+        // DuckOverrides (tf_gamemovement.cpp:3184-3188): water at the feet (WL_Feet 1) while not on the ground clears IN_DUCK.
+        PredictedPlayer player = Standing() with { Origin = new Vector3(0f, 0f, 500f), OnGround = false, WaterLevel = 1 };
+
+        Run(Floor(), ref player, Command(buttons: InDuck));
+
+        player.FlDucking.ShouldBeFalse();
+        player.Ducking.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ProcessMovement_PressingDuckInTheAirDry_DucksAtOnce()
+    {
+        // The control: out of the water, a duck pressed in the air finishes at once (OnDuck, :3267, bInAir).
+        PredictedPlayer player = Standing() with { Origin = new Vector3(0f, 0f, 500f), OnGround = false };
+
+        Run(Floor(), ref player, Command(buttons: InDuck));
+
+        player.FlDucking.ShouldBeTrue();
+    }
+
+    [Test]
+    public void ProcessMovement_ReleasingDuckOnTheGroundWithoutAutoMovement_StaysDucked()
+    {
+        // OnUnDuck (tf_gamemovement.cpp:3306): m_bAllowAutoMovement false, on the ground and not mid-transition, so the
+        // unduck branch is skipped entirely.
+        PredictedPlayer player = Standing() with { Ducked = true, FlDucking = true, AllowAutoMovement = false };
+
+        Run(Floor(), ref player, Command(), button: InDuck);
+
+        player.FlDucking.ShouldBeTrue();
+        player.Ducking.ShouldBeFalse();
+    }
+
+    [Test]
+    public void ProcessMovement_ReleasingDuckOnTheGroundWithAutoMovement_StartsTheUnduck()
+    {
+        // The control: allowed, the release resets m_flDucktime to 1000 (:3313) and a 0 ms unduck is a transition (:3348).
+        PredictedPlayer player = Standing() with { Ducked = true, FlDucking = true };
+
+        Run(Floor(), ref player, Command(), button: InDuck);
+
+        player.Ducking.ShouldBeTrue();
+        player.DuckTime.ShouldBe(1000f);
+    }
+
+    [Test]
+    public void ProcessMovement_LeavingTheGroundWithABaseVelocity_TakesTheGroundsZeroVerticalVelocity()
+    {
+        // CGameMovement::SetGroundEntity (gamemovement.cpp:3624-3629): leaving the ground sets the base velocity's z to the
+        // ground's, and the client knows no brush entity's m_vecVelocity (DT_BaseEntity carries none,
+        // c_baseentity.cpp:438-485), so z becomes 0. StartGravity then adds no 100 · 0.015: −6 and −6 is −12.
+        PredictedPlayer player = Standing() with { Origin = new Vector3(0f, 0f, 100f), BaseVelocity = new Vector3(0f, 0f, 100f) };
+
+        Run(Floor(), ref player, Command());
+
+        player.OnGround.ShouldBeFalse();
+        player.Velocity.Z.ShouldBe(-12f, 1e-3f);
+        player.BaseVelocity.Z.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ProcessMovement_StuckAnEighthIntoTheFloorOnACheckTick_IsNudgedToTheFirstFreeTableOffset()
+    {
+        // CGameMovement::CheckStuck (gamemovement.cpp:3420-3439): stuck in the world, the client walks rgv3tStuckTable —
+        // (0,0,−0.125), (0,0,0), (0,0,0.125) (:3252) — and keeps the first clear one: z −0.1 + 0.125 = 0.025.
+        PredictedPlayer player = Standing() with { Origin = new Vector3(0f, 0f, -0.1f) };
+
+        Run(Floor(), ref player, Command(), commandNumber: 66);
+
+        player.Origin.Z.ShouldBe(0.025f, 1e-4f);
+    }
+
+    [Test]
+    public void ProcessMovement_StuckOffACheckTick_IsLeftWhereHeIs()
+    {
+        // The control: CheckInterval (gamemovement.cpp:689-701) runs CheckStuck when (command + entindex) % 66 is 0 —
+        // (int)(CHECK_STUCK_INTERVAL 1.0 / 0.015) — so command 67 does not, and nothing moves him out.
+        PredictedPlayer player = Standing() with { Origin = new Vector3(0f, 0f, -0.1f) };
+
+        Run(Floor(), ref player, Command(), commandNumber: 67);
+
+        player.Origin.Z.ShouldBe(-0.1f, 1e-4f);
+    }
+
+    [Test]
+    public void ProcessMovement_StartingInsideAnEnemyOnACheckTick_PassesThroughEnemiesAndKeepsHisSpeed()
+    {
+        // CTFGameMovement::CheckStuck (tf_gamemovement.cpp:1399-1415): stuck in a player, m_isPassingThroughEnemies drops
+        // the enemy team's contents from PlayerSolidMask (:269-283), the re-trace is clear, and he moves on: 300 less a tick
+        // of friction is 282.
+        PredictedPlayer player = Standing() with { Velocity = new Vector3(300f, 0f, 0f), Team = 2, EntityIndex = 1 };
+
+        Run(EnemyAround(Floor(), entity: 5), ref player, Command(), commandNumber: 65);
+
+        player.PassingThroughEnemies.ShouldBeTrue();
+        player.Velocity.X.ShouldBe(282f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_StartingInsideAnEnemyOffACheckTick_IsHeldByHim()
+    {
+        // The control: no CheckStuck this command, so the enemy's box, which he starts in and stays in, holds him.
+        PredictedPlayer player = Standing() with { Velocity = new Vector3(300f, 0f, 0f), Team = 2, EntityIndex = 1 };
+
+        Run(EnemyAround(Floor(), entity: 5), ref player, Command(), commandNumber: 66);
+
+        player.PassingThroughEnemies.ShouldBeFalse();
+        player.Velocity.X.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ProcessMovement_StartingInsideABuildingOnACheckTick_IsNotLetThrough()
+    {
+        // Only a PLAYER sets m_isPassingThroughEnemies (:1401); a non-world entity that is not one goes to the base
+        // CheckStuck, which tries one table offset (:3462) and, still stuck, skips the move: the velocity is untouched.
+        PredictedPlayer player = Standing() with { Velocity = new Vector3(300f, 0f, 0f), Team = 2, EntityIndex = 1 };
+
+        Run(EnemyAround(Floor(), entity: 40), ref player, Command(), commandNumber: 65);
+
+        player.PassingThroughEnemies.ShouldBeFalse();
+        player.Velocity.X.ShouldBe(300f);
+    }
+
+    private static bool Run(
+        PlayerTraceRay trace, ref PredictedPlayer player, UserCommand command, uint button = 0, int commandNumber = 1)
+    {
+        player.OldButtons = button;
+
+        return new TfGameMovement(trace, MovementConVars.Defaults, maxClients: 24)
+            .ProcessMovement(ref player, command, Tick, first: true, commandNumber);
+    }
+
+    /// <summary>
+    /// The world, and a box around the origin that only a mask with <c>CONTENTS_BLUETEAM</c> (0x1000) sees — a BLU player
+    /// as a RED one's movement meets him, or (above 24) any entity that is not a player — which he starts in and cannot
+    /// leave in a tick.
+    /// </summary>
+    private static PlayerTraceRay EnemyAround(PlayerTraceRay world, int entity) => (start, end, mins, maxs, mask) =>
+    {
+        bool sees = entity > 24 || (mask & 0x1000) != 0;
+
+        return sees && start.Length() < 100f
+            ? new BspTrace(0f, -1, default, AllSolid: true, BrushEntity: entity, StartSolid: true)
+            : world(start, end, mins, maxs, mask);
+    };
 
     private static PredictedPlayer Standing() => new()
     {

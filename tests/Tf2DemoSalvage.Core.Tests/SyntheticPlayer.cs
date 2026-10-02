@@ -876,6 +876,173 @@ internal static class SyntheticPlayer
                     Body: body)));
     }
 
+    /// <summary>
+    /// The recorder (entity 1) with the movement state prediction restores: <c>DT_Local</c>'s duck and jump fields
+    /// (playerlocaldata.cpp:30-35, :49, :59), <c>DT_LocalPlayerExclusive</c>'s base velocity and tick base
+    /// (c_baseplayer.cpp:236, :246), and <c>DT_TFPlayerShared</c>'s duck timer, air ducks and air dash.
+    /// </summary>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithLocalMovementFields()
+    {
+        DemoSchema baseline = Schema(OriginTable.Local);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(table.Name switch
+            {
+                "DT_TFPlayer" => table with { Properties = [.. table.Properties, Table("m_Shared", "DT_TFPlayerShared")] },
+                "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive")] },
+                _ => table,
+            });
+        }
+
+        tables.Add(new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true,
+        [
+            Table("m_Local", "DT_Local"), NoScaleVector("m_vecBaseVelocity"), Int("m_nTickBase", bits: 32),
+        ]));
+        tables.Add(new SendTable("DT_Local", NeedsDecoder: true,
+        [
+            UnsignedInt("m_bDucked", bits: 1), UnsignedInt("m_bDucking", bits: 1), UnsignedInt("m_bInDuckJump", bits: 1),
+            NoScaleFloat("m_flDucktime"), NoScaleFloat("m_flDuckJumpTime"), NoScaleFloat("m_flJumpTime"),
+            NoScaleFloat("m_flFallVelocity"), UnsignedInt("m_bAllowAutoMovement", bits: 1),
+        ]));
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_flDuckTimer"), UnsignedInt("m_nAirDucked", bits: 2), UnsignedInt("m_iAirDash", bits: 8),
+        ]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        Dictionary<string, PropertyValue> player = new()
+        {
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+            ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            ["m_lifeState"] = PropertyValue.FromInt(0),
+            ["m_bDucked"] = PropertyValue.FromInt(1),
+            ["m_bDucking"] = PropertyValue.FromInt(0),
+            ["m_bInDuckJump"] = PropertyValue.FromInt(1),
+            ["m_flDucktime"] = PropertyValue.FromFloat(812.5f),
+            ["m_flDuckJumpTime"] = PropertyValue.FromFloat(3.5f),
+            ["m_flJumpTime"] = PropertyValue.FromFloat(7.5f),
+            ["m_flFallVelocity"] = PropertyValue.FromFloat(120.25f),
+            ["m_bAllowAutoMovement"] = PropertyValue.FromInt(0),
+            ["m_vecBaseVelocity"] = PropertyValue.FromVector(1f, 2f, 3f),
+            ["m_nTickBase"] = PropertyValue.FromInt(4000),
+            ["m_flDuckTimer"] = PropertyValue.FromFloat(55.5f),
+            ["m_nAirDucked"] = PropertyValue.FromInt(2),
+            ["m_iAirDash"] = PropertyValue.FromInt(1),
+        };
+
+        List<DecodedEntity> entities = [Entity(decoder, PlayerClassId, 1, player)];
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
+
+    /// <summary>
+    /// Brush entity 3 (<c>*3</c>, a <c>CBaseDoor</c>) stating its solidity at each tick: <c>m_Collision</c>'s solid type and
+    /// flags (collisionproperty.cpp:388-389) and <c>DT_BaseEntity.m_CollisionGroup</c> (c_baseentity.cpp:459).
+    /// </summary>
+    /// <param name="states">Each update's tick, solid type, solid flags and collision group.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoOfBrushCollision(params (int Tick, int SolidType, int SolidFlags, int Group)[] states)
+    {
+        ArgumentNullException.ThrowIfNull(states);
+
+        const int DoorClassId = 1;
+        DemoSchema baseline = Schema();
+        DemoSchema schema = new(
+            [
+                new SendTable("DT_BaseEntity", NeedsDecoder: true,
+                [
+                    Int("m_nModelIndex", bits: 13),
+                    Int("m_fEffects", bits: 11),
+                    Int("m_iTeamNum", bits: 3),
+                    VectorXy("m_vecOrigin", bits: 32),
+                    Float("m_vecOrigin[2]", low: -16384f, high: 16384f, bits: 32),
+                    UnsignedInt("m_CollisionGroup", bits: 5),
+                    Table("m_Collision", "DT_CollisionProperty"),
+                ]),
+                new SendTable("DT_CollisionProperty", NeedsDecoder: true,
+                [
+                    UnsignedInt("m_nSolidType", bits: 3), UnsignedInt("m_usSolidFlags", bits: 10),
+                ]),
+                .. baseline.Tables.Where(table => !string.Equals(table.Name, "DT_BaseEntity", StringComparison.Ordinal)),
+                new SendTable("DT_BaseDoor", NeedsDecoder: true, [Table("baseclass", "DT_BaseEntity")]),
+            ],
+            [.. baseline.ServerClasses, new ServerClass(DoorClassId, "CBaseDoor", "DT_BaseDoor")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+        List<string> models = [string.Empty, "maps/test.bsp", "*1", "*2", "*3"];
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                ServerInfo(),
+                SyntheticDemo.StringTable("modelprecache", models, maxEntries: 1024)),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < states.Length; index++)
+        {
+            (int tick, int solidType, int solidFlags, int group) = states[index];
+
+            Dictionary<string, PropertyValue> values = new()
+            {
+                ["m_nSolidType"] = PropertyValue.FromInt(solidType),
+                ["m_usSolidFlags"] = PropertyValue.FromInt(solidFlags),
+                ["m_CollisionGroup"] = PropertyValue.FromInt(group),
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 64f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            };
+
+            if (index == 0)
+            {
+                values["m_nModelIndex"] = PropertyValue.FromInt(4);
+            }
+
+            DecodedEntity door = Entity(decoder, DoorClassId, 3, values) with
+            {
+                UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+            };
+
+            byte[] body = decoder.EncodeEntities([door], [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? states[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: 1,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>Player 1 holding medigun 30 that heals player 2, and player 2 with no weapon.</summary>
     /// <param name="charge">The medigun's `DT_TFWeaponMedigunDataNonLocal.m_flChargeLevel`.</param>
     /// <returns>A demo's bytes.</returns>
