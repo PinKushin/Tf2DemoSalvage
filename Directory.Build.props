@@ -10,6 +10,12 @@
     property below is safe to centralize.
   -->
   <PropertyGroup>
+    <!-- **The release version, and its only copy.** build/package.ps1 reads it back with
+         `dotnet msbuild -getProperty:Version` to name the zip, and .github/workflows/release.yml
+         refuses a tag that is not `v` followed by exactly this. SemVer pre-release: bump the
+         suffix (beta.2, rc.1) per release; drop it for 0.1.0. -->
+    <Version>0.1.0-beta.1</Version>
+
     <LangVersion>latest</LangVersion>
 
     <!-- **Debug is optimized too (D176).** The owner runs the Debug viewer more often than not, and

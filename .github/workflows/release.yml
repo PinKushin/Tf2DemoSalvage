@@ -1,0 +1,76 @@
+# Builds the win-x64 zip for a `v*` tag and attaches it to a DRAFT GitHub release. Nothing is
+# published: the owner reviews the draft and presses Publish by hand.
+#
+# Tag-only on purpose. A release is built from exactly the commit the tag names, and the tag must
+# equal `v` + <Version> in Directory.Build.props, the version's only home, so a mistyped tag fails
+# here rather than shipping a zip whose name disagrees with its binaries.
+#
+# The release is made with the `gh` CLI the runner already carries, not a third-party action, so the
+# only credential in play is the job's own GITHUB_TOKEN.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package win-x64 (draft release)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # creating the draft release and uploading its asset; nothing else
+    steps:
+      # Versions looked up 2026-10-01 (`gh api repos/actions/<name>/releases/latest`): checkout
+      # v7.0.1, setup-dotnet v6.0.0, cache v6.1.0 - the same majors test.yml pins.
+      - uses: actions/checkout@v7
+        with:
+          lfs: false   # no demo is packaged or read
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Check the tag matches the version
+        shell: pwsh
+        run: |
+          $version = (dotnet msbuild managed/Tf2DemoSalvage.Cli/Tf2DemoSalvage.Cli.csproj -getProperty:Version).Trim()
+          if ("v$version" -ne '${{ github.ref_name }}') {
+              throw "Tag ${{ github.ref_name }} does not match Version $version in Directory.Build.props."
+          }
+
+      # Same key as test.yml's, so a tag on a commit main has already tested reuses its codecs.
+      - name: Cache the native codecs
+        id: native-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            tools/native-audio/celt.dll
+            tools/native-audio/speex.dll
+            tools/native-audio/silk.dll
+          key: native-audio-${{ runner.os }}-${{ hashFiles('tools/native-audio/build.ps1') }}
+
+      - name: Build celt.dll, speex.dll and silk.dll
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: ./tools/native-audio/build.ps1
+
+      # Fails if a codec is missing, and checks the zip's contents itself.
+      - name: Package
+        shell: pwsh
+        run: ./build/package.ps1
+
+      - name: Create the draft release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $flags = @('--draft', '--verify-tag', '--notes-file', 'RELEASE-NOTES.md',
+                     '--title', "Tf2DemoSalvage $($tag.TrimStart('v'))")
+          if ($tag -like '*-*') { $flags += '--prerelease' }
+          gh release create $tag (Get-Item artifacts/Tf2DemoSalvage-*-win-x64.zip).FullName @flags
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE." }
