@@ -8161,15 +8161,14 @@ probe itself and reads its CSV row).
 What `InterpolateViewpoint`'s port (B56, B442) leaves different from the engine. Each item is small; none is
 guessed at in code.
 
-- **Velocity is the last networked `m_vecVelocity`, not prediction's — OPEN, structural.** Prediction DOES run
+- **Velocity is the last networked `m_vecVelocity`, not prediction's.** Prediction DOES run
   during playback (read 2026-10-02). Engine x64 `CL_RunPrediction` (`FUN_180092710`, `cl_pred.cpp`) calls
   `g_pClientSidePrediction->Update(...)` (vtable +0x18) whenever the signon state is 6 (full) and the delta tick is
   >= 0, unless the demo player's vtable +0x48 answers true — B56's skipping/seeking. Playback feeds the recorded
   usercmds to the client (`dem_usercmd` -> `DecodeUserCmdFromBuffer`); `CPrediction::_Update` returns early only
   when `cl_predict` is 0 (`prediction.cpp:1742-1799`), and `PerformPrediction` re-runs those cmds
   (`:1570-1698`). So the recorder's `m_vecVelocity` in the real client is PREDICTION's, from a re-simulated
-  `CGameMovement`. Porting `CGameMovement` is out of scope (B56); the code keeps the networked value and guesses
-  nothing. `C_BaseEntity` keeps no interpolation history for it either (`c_baseentity.cpp:907-912`).
+  `CGameMovement`. `C_BaseEntity` keeps no interpolation history for it either (`c_baseentity.cpp:907-912`).
   *Evidence class: disassembly plus published source.*
 - **The feet yaw advanced per tick from the server's `m_angEyeAngles`.** — **FIXED 2026-10-02.**
   `C_TFPlayer::UpdateClientSideAnimation` hands the local player's anim state `EyeAngles()`
@@ -8189,6 +8188,22 @@ guessed at in code.
   it). The live TF2 client binary was not resolved — its `IVEngineClient` vtable slot was not identified. The port
   exposes the method and nothing calls it, so a seek does not set the reset flag, as `SkipToTick`
   (`0x180073b10`) does not either. *Evidence class: published source and disassembly; the live client unread.*
+- **The velocity item above** — **FIXED 2026-10-02 (D205).** `RecorderPrediction` restores the last packet's networked state and re-runs every
+  `dem_usercmd` past the packet's acknowledgement through `TfGameMovement`, a port of `CTFGameMovement` over
+  `CGameMovement`; `LocalPlayer` animates from that velocity. The acknowledgement is the packet prologue's second
+  sequence number (*measured*, probe `usercmd-ack`: on the 2013 POV badlands demo the packet carrying 6109 already
+  shows command 6109's key release). On `tf2-2009-build3862-pov-cp_badlands`, whose packets come every 3–4 ticks,
+  `CorpusRecorderPredictionTests` compares 9,783 packet gaps with the next packet's networked velocity: predicted mean
+  10.1 u/s, median 0, max 906; holding the last packet mean 25.7, median 0.7 (the max is server-side knockback). A
+  2013 listen-server demo acknowledges every command in the next packet, so prediction adds nothing there.
+  **Still open, each a default in the port:** water above the feet, taunt movement, karts, ghosts, grappling hooks,
+  parachutes and stuns decline (networked velocity stands); item attributes (`mod_jump_height`, `mod_air_control`,
+  extra air dashes, forward pull), the ground's surfaceprop (friction, jump and speed factors), a moving ground's
+  velocity, `m_flGravity` and the game-rules gravity multiplier, `CanJump`/`CanDuck`, `CheckStuck`, buildings as
+  boxes, brush entities (doors) in the trace, per-tick ConVars (the last value sent is used), and `m_flDucktime` and
+  the other `DT_Local` duck fields, which start from `FL_DUCKING` alone. D175's sticking friction is vphysics and is
+  not on this path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and
+  props, and no world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
   than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
   start). It is correct but not cheap when scrubbing backward.

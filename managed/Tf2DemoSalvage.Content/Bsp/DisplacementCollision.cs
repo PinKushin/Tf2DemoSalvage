@@ -201,25 +201,41 @@ public sealed class DisplacementCollision
     public (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
-        float halfExtent)
+        float halfExtent) =>
+        SweepSurface(fromX, fromY, fromZ, toX, toY, toZ, (halfExtent, halfExtent, halfExtent), BspLeafTree.MaskSolid);
+
+    /// <summary><see cref="SweepSurface(float, float, float, float, float, float, float)"/> for a box with three extents and a mask.</summary>
+    /// <param name="fromX">Where the box's centre starts.</param>
+    /// <param name="fromY">Where the box's centre starts.</param>
+    /// <param name="fromZ">Where the box's centre starts.</param>
+    /// <param name="toX">Where it would end unobstructed.</param>
+    /// <param name="toY">Where it would end unobstructed.</param>
+    /// <param name="toZ">Where it would end unobstructed.</param>
+    /// <param name="extents">Half the box's size on each axis — `Ray_t::m_Extents` (`cmodel.h:66`).</param>
+    /// <param name="mask">The contents that stop it. Terrain is `CONTENTS_SOLID`, so a mask without that bit passes through.</param>
+    /// <returns>As the cube's.</returns>
+    public (float Fraction, int Texdata, bool SurfaceProp2, (float X, float Y, float Z) Normal, float Distance) SweepSurface(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        (float X, float Y, float Z) extents,
+        int mask)
     {
-        if (_displacements.Length == 0)
+        if (_displacements.Length == 0 || (mask & BspLeafTree.ContentsSolid) == 0)
         {
             return (1f, -1, false, default, 0f);
         }
 
         // The travel's own box, grown by the sweeping box, so a displacement can be rejected without
         // touching a triangle.
-        float lowX = MathF.Min(fromX, toX) - halfExtent;
-        float lowY = MathF.Min(fromY, toY) - halfExtent;
-        float lowZ = MathF.Min(fromZ, toZ) - halfExtent;
-        float highX = MathF.Max(fromX, toX) + halfExtent;
-        float highY = MathF.Max(fromY, toY) + halfExtent;
-        float highZ = MathF.Max(fromZ, toZ) + halfExtent;
+        float lowX = MathF.Min(fromX, toX) - extents.X;
+        float lowY = MathF.Min(fromY, toY) - extents.Y;
+        float lowZ = MathF.Min(fromZ, toZ) - extents.Z;
+        float highX = MathF.Max(fromX, toX) + extents.X;
+        float highY = MathF.Max(fromY, toY) + extents.Y;
+        float highZ = MathF.Max(fromZ, toZ) + extents.Z;
 
         (float X, float Y, float Z) start = (fromX, fromY, fromZ);
         (float X, float Y, float Z) delta = (toX - fromX, toY - fromY, toZ - fromZ);
-        (float X, float Y, float Z) extents = (halfExtent, halfExtent, halfExtent);
 
         float hit = 1f;
         int texdata = -1;

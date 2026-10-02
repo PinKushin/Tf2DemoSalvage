@@ -74,7 +74,10 @@ public sealed class BspLeafTree
 {
     /// <summary><c>CONTENTS_SOLID</c> from <c>bspflags.h</c>: "an eye is never valid in a solid".</summary>
     /// <remarks>Internal so <c>SurfaceFlagTests</c> checks this value rather than a copy of it.</remarks>
-    internal const int ContentsSolid = 0x1;
+    public const int ContentsSolid = 0x1;
+
+    /// <summary><c>CONTENTS_PLAYERCLIP</c> (<c>bspflags.h:58</c>): clip brushes that stop players and nothing else.</summary>
+    public const int ContentsPlayerClip = 0x10000;
 
     /// <summary><c>CONTENTS_WINDOW</c>: "translucent, but not watery (glass)".</summary>
     internal const int ContentsWindow = 0x2;
@@ -102,6 +105,10 @@ public sealed class BspLeafTree
     /// </remarks>
     public const int MaskSolid =
         ContentsSolid | ContentsMoveable | ContentsWindow | ContentsGrate;
+
+    /// <summary>What a player's movement collides with — <c>MASK_PLAYERSOLID</c> (<c>bspflags.h:108</c>), less <c>CONTENTS_MONSTER</c>.</summary>
+    /// <remarks><c>MASK_SOLID</c> plus <c>CONTENTS_PLAYERCLIP</c>; the monster bit is left out for <see cref="MaskSolid"/>'s reason.</remarks>
+    public const int MaskPlayerSolid = MaskSolid | ContentsPlayerClip;
 
     private readonly ReadOnlyMemory<byte> _nodes;
     private readonly ReadOnlyMemory<byte> _planes;
@@ -625,6 +632,29 @@ public sealed class BspLeafTree
         int headNode,
         int mask = MaskSolid)
     {
+        float cube = MathF.Abs(halfExtent);
+
+        return Trace(fromX, fromY, fromZ, toX, toY, toZ, (cube, cube, cube), headNode, mask);
+    }
+
+    /// <summary>A box with its own half-extent on each axis — `Ray_t::m_Extents` (`cmodel.h:66`).</summary>
+    /// <param name="fromX">Where the box's centre starts.</param>
+    /// <param name="fromY">Where the box's centre starts.</param>
+    /// <param name="fromZ">Where the box's centre starts.</param>
+    /// <param name="toX">Where it would end.</param>
+    /// <param name="toY">Where it would end.</param>
+    /// <param name="toZ">Where it would end.</param>
+    /// <param name="extents">Half the box's size on x, y and z; zero for a ray. A player's is (24, 24, 41).</param>
+    /// <param name="headNode">The model's root — 0 for the world.</param>
+    /// <param name="mask">The contents a brush must have to stop it.</param>
+    /// <returns>The trace; a clear one for a map with no tree.</returns>
+    public BspTrace Trace(
+        float fromX, float fromY, float fromZ,
+        float toX, float toY, float toZ,
+        (float X, float Y, float Z) extents,
+        int headNode = 0,
+        int mask = MaskSolid)
+    {
         if (IsEmpty || _leaves.IsEmpty)
         {
             return new BspTrace(1f, -1, default, false);
@@ -638,13 +668,31 @@ public sealed class BspLeafTree
             toX, toY, toZ,
             fromX, fromY, fromZ,
             toX, toY, toZ,
-            MathF.Abs(halfExtent),
+            (MathF.Abs(extents.X), MathF.Abs(extents.Y), MathF.Abs(extents.Z)),
             ref hit,
             0);
 
         return new BspTrace(
-            hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance);
+            hit.Fraction, hit.Texinfo, (hit.NormalX, hit.NormalY, hit.NormalZ), hit.AllSolid, hit.Distance,
+            StartSolid: hit.StartSolid);
     }
+
+    /// <summary>How far a box reaches along a plane's normal: `|ex·nx| + |ey·ny| + |ez·nz|`.</summary>
+    /// <remarks>
+    /// Quake 2's `CM_RecursiveHullCheck` and `CM_ClipBoxToBrush` (`qcommon/cmodel.c`), the ancestor of `engine/cmodel.cpp`,
+    /// which the SDK does not publish. *Interpolated to Source.* **A cube keeps the old expression**, `h·(|nx|+|ny|+|nz|)`,
+    /// so every caller that sweeps one gets the bit-identical fraction it got before; the per-axis sum rounds differently.
+    /// </remarks>
+    /// <param name="extents">Half the box's size on each axis.</param>
+    /// <param name="normalX">The plane's normal.</param>
+    /// <param name="normalY">The plane's normal.</param>
+    /// <param name="normalZ">The plane's normal.</param>
+    /// <returns>The distance the plane is pushed out by.</returns>
+    public static float Support((float X, float Y, float Z) extents, float normalX, float normalY, float normalZ) =>
+        BitConverter.SingleToInt32Bits(extents.X) == BitConverter.SingleToInt32Bits(extents.Y) &&
+        BitConverter.SingleToInt32Bits(extents.Y) == BitConverter.SingleToInt32Bits(extents.Z)
+            ? extents.X * (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ))
+            : (extents.X * MathF.Abs(normalX)) + (extents.Y * MathF.Abs(normalY)) + (extents.Z * MathF.Abs(normalZ));
 
     /// <summary>Where a sweep has got to, and the side it struck.</summary>
     /// <remarks>`AllSolid` is set by any brush the sweep starts and ends inside, as `CM_ClipBoxToBrush` sets it.</remarks>
@@ -657,6 +705,7 @@ public sealed class BspLeafTree
         public float NormalZ;
         public float Distance;
         public bool AllSolid;
+        public bool StartSolid;
 
         /// <summary>The contents a brush must have to be clipped against.</summary>
         public int Mask;
@@ -677,7 +726,7 @@ public sealed class BspLeafTree
         float toX, float toY, float toZ,
         float wholeFromX, float wholeFromY, float wholeFromZ,
         float wholeToX, float wholeToY, float wholeToZ,
-        float halfExtent,
+        (float X, float Y, float Z) extents,
         ref TraceHit hit,
         int depth)
     {
@@ -714,7 +763,7 @@ public sealed class BspLeafTree
                     leaf,
                     wholeFromX, wholeFromY, wholeFromZ,
                     wholeToX, wholeToY, wholeToZ,
-                    halfExtent,
+                    extents,
                     ref hit);
 
                 return;
@@ -763,19 +812,18 @@ public sealed class BspLeafTree
         float endSide = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
 
         // The box's reach along this plane's normal, so a solid box against a plane becomes a point
-        // against a plane pushed out by that much.
-        float offset = halfExtent *
-            (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
+        // against a plane pushed out by that much — per axis, as `Ray_t::m_Extents` is.
+        float offset = Support(extents, normalX, normalY, normalZ);
 
         if (startSide >= offset && endSide >= offset)
         {
-            Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
+            Descend(front, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
             return;
         }
 
         if (startSide < -offset && endSide < -offset)
         {
-            Descend(back, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
+            Descend(back, startFraction, endFraction, fromX, fromY, fromZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
             return;
         }
 
@@ -797,8 +845,8 @@ public sealed class BspLeafTree
         float midY = fromY + ((toY - fromY) * crossing);
         float midZ = fromZ + ((toZ - fromZ) * crossing);
 
-        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
-        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, halfExtent, ref hit, depth + 1);
+        Descend(near, startFraction, middle, fromX, fromY, fromZ, midX, midY, midZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
+        Descend(far, middle, endFraction, midX, midY, midZ, toX, toY, toZ, wholeFromX, wholeFromY, wholeFromZ, wholeToX, wholeToY, wholeToZ, extents, ref hit, depth + 1);
     }
 
     /// <summary>How deep the tree walk may go before the tree is treated as malformed.</summary>
@@ -855,7 +903,7 @@ public sealed class BspLeafTree
         int leaf,
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
-        float halfExtent,
+        (float X, float Y, float Z) extents,
         ref TraceHit hit)
     {
         ReadOnlySpan<byte> leaves = _leaves.Span;
@@ -900,7 +948,7 @@ public sealed class BspLeafTree
             }
 
             ClipToBrush(
-                firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, halfExtent, ref hit);
+                firstSide, sides, fromX, fromY, fromZ, toX, toY, toZ, extents, ref hit);
         }
     }
 
@@ -909,7 +957,7 @@ public sealed class BspLeafTree
         int firstSide, int sides,
         float fromX, float fromY, float fromZ,
         float toX, float toY, float toZ,
-        float halfExtent,
+        (float X, float Y, float Z) extents,
         ref TraceHit hit)
     {
         if (sides <= 0)
@@ -955,8 +1003,7 @@ public sealed class BspLeafTree
             float planeDistance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
 
             // The box pushed into the plane, so a swept box becomes a swept point.
-            float distance = planeDistance + halfExtent *
-                (MathF.Abs(normalX) + MathF.Abs(normalY) + MathF.Abs(normalZ));
+            float distance = planeDistance + Support(extents, normalX, normalY, normalZ);
 
             float start = (normalX * fromX) + (normalY * fromY) + (normalZ * fromZ) - distance;
             float end = (normalX * toX) + (normalY * toY) + (normalZ * toZ) - distance;
@@ -1018,6 +1065,7 @@ public sealed class BspLeafTree
             // is the whole ray rather than a piece of it.
             hit.Fraction = 0f;
             hit.Texinfo = -1;
+            hit.StartSolid = true;
             hit.AllSolid |= !getsOut;
             return;
         }
@@ -1288,6 +1336,10 @@ public sealed class BspLeafTree
 /// </param>
 /// <param name="BrushEntity">The brush entity whose own model stopped it, such as a door; −1 for the world.</param>
 /// <param name="StaticProp">The static prop's index in the map's lump — `trace.hitbox − 1`; −1 for anything else.</param>
+/// <param name="StartSolid">
+/// `startsolid`: it began inside a brush. Separate from <paramref name="AllSolid"/>, which also needs it to end inside —
+/// `CGameMovement` treats the two differently. The fraction is still 0 for either, as this trace has always answered.
+/// </param>
 public readonly record struct BspTrace(
     float Fraction,
     int Texinfo,
@@ -1298,4 +1350,5 @@ public readonly record struct BspTrace(
     bool SurfaceProp2 = false,
     int StudioSurfaceProp = -1,
     int BrushEntity = -1,
-    int StaticProp = -1);
+    int StaticProp = -1,
+    bool StartSolid = false);

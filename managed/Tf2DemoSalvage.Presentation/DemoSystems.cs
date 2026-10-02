@@ -8,6 +8,7 @@ using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
+using Tf2DemoSalvage.Scene.Prediction;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -221,6 +222,9 @@ public sealed class DemoSystems
             ? new TimelineMoments(moments)
             {
                 Player = player,
+
+                // **The recorder's velocity from prediction** (D205), against the map the viewer has loaded, asked per frame.
+                Prediction = new RecorderPrediction(moments, () => World?.Invoke()),
                 ClassModels = CorpseModels,
                 Items = CorpseItems,
                 Gibs = Gibs,
@@ -357,6 +361,9 @@ public sealed class DemoSystems
 
     /// <summary>The arrows the loaded map found bolts leaving (B415), set by whoever owns the map; null before one loads.</summary>
     public Func<IReadOnlyList<StuckArrow>?>? Arrows { get; set; }
+
+    /// <summary>The loaded map's world, which prediction moves the recorder through (D205); null before a map is read.</summary>
+    public Func<MapLevel?>? World { get; set; }
 
     /// <summary>The model set, for a corpse's bodygroup arithmetic (B395).</summary>
     /// <remarks>

@@ -129,14 +129,24 @@ public sealed record MapLevel(
     /// </remarks>
     /// <param name="mask">The brush contents that stop it; terrain is `CONTENTS_SOLID` and stops any mask that includes that.</param>
     public BspTrace TraceBrushOnly(
-        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, int mask = BspLeafTree.MaskSolid)
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, int mask = BspLeafTree.MaskSolid) =>
+        TraceBrushOnly(from, to, (halfExtent, halfExtent, halfExtent), mask);
+
+    /// <summary><see cref="TraceBrushOnly(ValueTuple{float, float, float}, ValueTuple{float, float, float}, float, int)"/> for a box with three extents.</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="extents">Half the box's size on each axis — `Ray_t::m_Extents`.</param>
+    /// <param name="mask">The contents that stop it, carried to the terrain as well as the brushes.</param>
+    /// <returns>The trace.</returns>
+    public BspTrace TraceBrushOnly(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, (float X, float Y, float Z) extents, int mask)
     {
         BspTrace brushes = Leaves is { } tree
-            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent, 0, mask)
+            ? tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, 0, mask)
             : new BspTrace(1f, -1, default, false);
 
         (float terrain, int texdata, bool second, (float X, float Y, float Z) normal, float distance) =
-            Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, halfExtent);
+            Displacements.SweepSurface(from.X, from.Y, from.Z, to.X, to.Y, to.Z, extents, mask);
 
         // The struck triangle's plane, which `CBaseSimpleCollision::TestForPlane` builds a particle's collision plane from.
         return terrain < brushes.Fraction
@@ -165,15 +175,8 @@ public sealed record MapLevel(
     /// <param name="to">Where it would end unobstructed.</param>
     /// <param name="halfExtent">Half the box's width, on every axis.</param>
     /// <returns>The trace; terrain that stops it first answers its fraction and no surface.</returns>
-    public BspTrace Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
-    {
-        BspTrace world = TraceBrushOnly(from, to, halfExtent);
-
-        // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
-        return StaticProps.Trace(from, to, halfExtent) is { } prop && prop.Fraction < world.Fraction
-            ? new BspTrace(prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp, StaticProp: prop.Prop)
-            : world;
-    }
+    public BspTrace Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent) =>
+        Trace(from, to, (halfExtent, halfExtent, halfExtent), BspLeafTree.MaskSolid, []);
 
     /// <summary><see cref="Trace(ValueTuple{float, float, float}, ValueTuple{float, float, float}, float)"/>, with brush entities too.</summary>
     /// <param name="from">Where the box's centre starts.</param>
@@ -183,11 +186,34 @@ public sealed record MapLevel(
     /// <returns>The nearest trace.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="brushes"/> is null.</exception>
     public BspTrace Trace(
-        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, IReadOnlyList<SolidBrush> brushes)
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent, IReadOnlyList<SolidBrush> brushes) =>
+        Trace(from, to, (halfExtent, halfExtent, halfExtent), BspLeafTree.MaskSolid, brushes);
+
+    /// <summary>The whole world for a box with three extents and a mask: brushes, terrain, static props and brush entities.</summary>
+    /// <param name="from">Where the box's centre starts.</param>
+    /// <param name="to">Where it would end unobstructed.</param>
+    /// <param name="extents">Half the box's size on each axis.</param>
+    /// <param name="mask">The contents that stop it, carried to every kind of geometry.</param>
+    /// <param name="brushes">The brush entities standing at the trace's moment.</param>
+    /// <returns>The nearest trace.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="brushes"/> is null.</exception>
+    public BspTrace Trace(
+        (float X, float Y, float Z) from,
+        (float X, float Y, float Z) to,
+        (float X, float Y, float Z) extents,
+        int mask,
+        IReadOnlyList<SolidBrush> brushes)
     {
         ArgumentNullException.ThrowIfNull(brushes);
 
-        BspTrace nearest = Trace(from, to, halfExtent);
+        BspTrace nearest = TraceBrushOnly(from, to, extents, mask);
+
+        // The static props too — `CONTENTS_SOLID`, through `CTraceFilterSimple` (StaticPropCollision), a line or a box.
+        if (StaticProps.Trace(from, to, extents, mask) is { } prop && prop.Fraction < nearest.Fraction)
+        {
+            nearest = new BspTrace(
+                prop.Fraction, -1, (prop.Normal.X, prop.Normal.Y, prop.Normal.Z), false, StudioSurfaceProp: prop.SurfaceProp, StaticProp: prop.Prop);
+        }
 
         if (Leaves is not { } tree)
         {
@@ -199,8 +225,9 @@ public sealed record MapLevel(
             BspTrace entity = tree.Trace(
                 from.X - brush.Origin.X, from.Y - brush.Origin.Y, from.Z - brush.Origin.Z,
                 to.X - brush.Origin.X, to.Y - brush.Origin.Y, to.Z - brush.Origin.Z,
-                halfExtent,
-                brush.HeadNode);
+                extents,
+                brush.HeadNode,
+                mask);
 
             if (entity.Fraction < nearest.Fraction)
             {
@@ -209,6 +236,44 @@ public sealed record MapLevel(
         }
 
         return nearest;
+    }
+
+    /// <summary>
+    /// `UTIL_TraceHull` against the world: brushes, terrain, static props and brush entities, for a box placed by its origin and
+    /// bounds — `Ray_t::Init( start, end, mins, maxs )` (`cmodel.h:84`), which centres the box and halves its size.
+    /// </summary>
+    /// <param name="from">The box's origin at the start — a player's feet.</param>
+    /// <param name="to">Its origin at the end.</param>
+    /// <param name="mins">The box's low corner relative to its origin; a standing player's is (−24, −24, 0).</param>
+    /// <param name="maxs">Its high corner; a standing player's is (24, 24, 82) (`tf_gamerules.cpp:1313`).</param>
+    /// <param name="mask">The contents that stop it — `MASK_PLAYERSOLID` for movement.</param>
+    /// <param name="brushes">The brush entities standing at the trace's moment.</param>
+    /// <returns>The trace, or null when the map has no tree — no world, which is not the same answer as a clear path.</returns>
+    /// <remarks>
+    /// **Null and not "clear" for a map with no tree**, unlike the camera's sweep. A camera told everything was clear passes a
+    /// corner; a movement simulation told so falls forever, and its caller has to know to take the networked state instead.
+    /// </remarks>
+    public BspTrace? TraceHull(
+        (float X, float Y, float Z) from,
+        (float X, float Y, float Z) to,
+        (float X, float Y, float Z) mins,
+        (float X, float Y, float Z) maxs,
+        int mask,
+        IReadOnlyList<SolidBrush> brushes)
+    {
+        if (Leaves is null)
+        {
+            return null;
+        }
+
+        (float X, float Y, float Z) centre = ((mins.X + maxs.X) * 0.5f, (mins.Y + maxs.Y) * 0.5f, (mins.Z + maxs.Z) * 0.5f);
+
+        return Trace(
+            (from.X + centre.X, from.Y + centre.Y, from.Z + centre.Z),
+            (to.X + centre.X, to.Y + centre.Y, to.Z + centre.Z),
+            ((maxs.X - mins.X) * 0.5f, (maxs.Y - mins.Y) * 0.5f, (maxs.Z - mins.Z) * 0.5f),
+            mask,
+            brushes);
     }
 
     /// <summary>The solid static props a line meets, set once their models are read; empty until then.</summary>

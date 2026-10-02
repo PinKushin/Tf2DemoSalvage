@@ -113,9 +113,28 @@ public sealed class StaticPropCollision
     /// </remarks>
     public StaticPropHit? Trace((float X, float Y, float Z) from, (float X, float Y, float Z) to, float halfExtent)
     {
+        float cube = MathF.Abs(halfExtent);
+
+        return Trace(from, to, (cube, cube, cube), BspLeafTree.MaskSolid);
+    }
+
+    /// <summary>A box with its own half-extent on each axis — `Ray_t::m_Extents` (`cmodel.h:66`) — and a content mask.</summary>
+    /// <param name="from">The box centre's start.</param>
+    /// <param name="to">Its end.</param>
+    /// <param name="extents">Half the box's size on x, y and z.</param>
+    /// <param name="mask">The contents that stop it; a static prop is `CONTENTS_SOLID`, so a mask without that bit passes it.</param>
+    /// <returns>The hit.</returns>
+    public StaticPropHit? Trace(
+        (float X, float Y, float Z) from, (float X, float Y, float Z) to, (float X, float Y, float Z) extents, int mask)
+    {
+        if ((mask & BspLeafTree.ContentsSolid) == 0)
+        {
+            return null;
+        }
+
         Vector3 start = new(from.X, from.Y, from.Z);
         Vector3 delta = new Vector3(to.X, to.Y, to.Z) - start;
-        Vector3 grow = new(MathF.Abs(halfExtent));
+        Vector3 grow = Vector3.Abs(new Vector3(extents.X, extents.Y, extents.Z));
         StaticPropHit? nearest = null;
 
         foreach (Prop prop in _props)
@@ -127,7 +146,7 @@ public sealed class StaticPropCollision
 
             foreach (Hull hull in prop.Hulls)
             {
-                if (Clip(start, delta, hull, grow.X) is { } hit && hit.Fraction < (nearest?.Fraction ?? 1f))
+                if (Clip(start, delta, hull, grow) is { } hit && hit.Fraction < (nearest?.Fraction ?? 1f))
                 {
                     nearest = new StaticPropHit(hit.Fraction, hit.Normal, prop.SurfaceProp, prop.Index);
                 }
@@ -241,13 +260,13 @@ public sealed class StaticPropCollision
     ];
 
     /// <summary>A line against one convex hull grown by a box: the latest entry before the earliest exit.</summary>
-    private static (float Fraction, Vector3 Normal)? Clip(Vector3 start, Vector3 delta, Hull hull, float halfExtent)
+    private static (float Fraction, Vector3 Normal)? Clip(Vector3 start, Vector3 delta, Hull hull, Vector3 extents)
     {
         float enter = 0f;
         float leave = 1f;
         Vector3 normal = Vector3.Zero;
         int faces = hull.Planes.Length;
-        int bevels = halfExtent > 0f ? Axes.Length : 0;
+        int bevels = extents != Vector3.Zero ? Axes.Length : 0;
 
         for (int index = 0; index < faces + bevels; index++)
         {
@@ -257,13 +276,13 @@ public sealed class StaticPropCollision
             {
                 Plane face = hull.Planes[index];
                 Vector3 n = face.Normal;
-                plane = new Plane(n, face.D + (halfExtent * (MathF.Abs(n.X) + MathF.Abs(n.Y) + MathF.Abs(n.Z))));
+                plane = new Plane(n, face.D + BspLeafTree.Support((extents.X, extents.Y, extents.Z), n.X, n.Y, n.Z));
             }
             else
             {
                 Vector3 axis = Axes[index - faces];
                 float reach = Vector3.Dot(axis, Vector3.Dot(axis, Vector3.One) > 0f ? hull.Max : hull.Min);
-                plane = new Plane(axis, reach + halfExtent);
+                plane = new Plane(axis, reach + Vector3.Dot(Vector3.Abs(axis), extents));
             }
 
             float distance = Vector3.Dot(plane.Normal, start) - plane.D;

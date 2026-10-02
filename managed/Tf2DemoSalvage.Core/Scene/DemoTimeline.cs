@@ -2078,6 +2078,12 @@ public sealed class DemoTimeline
     /// </remarks>
     public ServerConVars ServerConVars { get; private init; } = new();
 
+    /// <summary>Every <c>dem_usercmd</c>, in stream order — the recorder's input, which prediction re-runs (D205).</summary>
+    public IReadOnlyList<RecordedUserCommand> UserCommands { get; private init; } = [];
+
+    /// <summary>Each packet's tick and the last usercmd its state includes, in stream order (D205).</summary>
+    public IReadOnlyList<(int Tick, int Acknowledged)> PacketAcknowledgements { get; private init; } = [];
+
     /// <summary>The checksum of the map this was recorded on, when the demo said.</summary>
     /// <remarks>
     /// **`svc_ServerInfo`'s `mapCRC`, which identifies the map's VERSION where its name does not.**
@@ -2147,7 +2153,7 @@ public sealed class DemoTimeline
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
-    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?)"/> answers.</returns>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?, ValueTuple{float, float, float}?)"/> answers.</returns>
     /// <remarks>
     /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
     /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
@@ -2446,6 +2452,8 @@ public sealed class DemoTimeline
         List<ScenePropTrack> props = [];
         List<ScenePropTrack> playerTracks = [];
         List<DemoViewCommand> viewCommands = [];
+        List<RecordedUserCommand> userCommands = [];
+        List<(int Tick, int Acknowledged)> packetAcknowledgements = [];
         int? recorderSlot = null;
         int maxClients = 0;
         uint? mapCrc = null;
@@ -2488,6 +2496,17 @@ public sealed class DemoTimeline
             if (command.Type is DemoCommandType.SyncTick or DemoCommandType.Stop)
             {
                 viewCommands.Add(new DemoViewCommand(command.Type, command.Tick, default));
+            }
+
+            // **The recorder's input, which prediction re-runs** (D205); a SourceTV demo records none.
+            if (command.Type == DemoCommandType.UserCmd && command.Prologue.Length >= sizeof(int))
+            {
+                userCommands.Add(RecordedUserCommand.From(command));
+            }
+
+            if (command.Type == DemoCommandType.Packet && RecordedUserCommand.Acknowledged(command.Prologue.Span) is { } acknowledged)
+            {
+                packetAcknowledgements.Add((command.Tick, acknowledged));
             }
 
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
@@ -3612,6 +3631,8 @@ public sealed class DemoTimeline
             Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
+            UserCommands = userCommands,
+            PacketAcknowledgements = packetAcknowledgements,
             MapCrc = mapCrc,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
@@ -5869,12 +5890,17 @@ public sealed class DemoTimeline
     /// The viewer's anim-state feet for the recorder, carried from frame to frame (B450); null starts fresh feet from
     /// the timeline's, which a single frame cannot tell apart.
     /// </param>
+    /// <param name="predictedVelocity">
+    /// Prediction's <c>m_vecVelocity</c> for the local player this frame (D205), or null when it did not run — the
+    /// networked one stands then.
+    /// </param>
     public void PlayersAt(
         double tick,
         ICollection<ScenePlayer> into,
         bool interpolating = true,
         RecordedView? viewpoint = null,
-        RecorderFeet? recorderFeet = null)
+        RecorderFeet? recorderFeet = null,
+        (float X, float Y, float Z)? predictedVelocity = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -5894,7 +5920,7 @@ public sealed class DemoTimeline
             // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
             if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
             {
-                into.Add(LocalPlayer(player, local, tick, recorderFeet ?? new RecorderFeet()));
+                into.Add(LocalPlayer(player, local, tick, recorderFeet ?? new RecorderFeet(), predictedVelocity));
                 continue;
             }
 
@@ -6013,7 +6039,7 @@ public sealed class DemoTimeline
     /// <param name="entityIndex">The entity's slot.</param>
     /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
     /// <remarks>
-    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?)"/>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?, ValueTuple{float, float, float}?)"/>
     /// should report.** Asserting a player's yaw against a literal would test the demo rather than
     /// the code; asserting it against the track this reads from tests the plumbing between them,
     /// which is where the number was being dropped.
@@ -6191,11 +6217,16 @@ public sealed class DemoTimeline
     /// allocated zeroed. The feet advance per frame from that same local yaw (<see cref="RecorderFeet"/>, B450), are the
     /// drawn yaw (<c>m_angRender[YAW] = m_flCurrentFeetYaw</c>, <c>multiplayer_animstate.cpp:1765</c>), and the twist
     /// is measured against them (<c>:1768-1772</c>).
+    ///
+    /// **Prediction's velocity when it ran** (D205): <c>CPrediction::FinishMove</c> writes <c>SetAbsVelocity</c>
+    /// (<c>prediction.cpp:708</c>), and demo playback runs prediction, so that is what the client animates him from.
     /// </remarks>
-    private ScenePlayer LocalPlayer(ScenePlayer player, RecordedView viewpoint, double tick, RecorderFeet feet)
+    private ScenePlayer LocalPlayer(
+        ScenePlayer player, RecordedView viewpoint, double tick, RecorderFeet feet,
+        (float X, float Y, float Z)? predictedVelocity)
     {
         float eyeYaw = Normalize(viewpoint.LocalAngles.Yaw);
-        (float X, float Y, float Z) velocity = player.Velocity ?? default;
+        (float X, float Y, float Z) velocity = predictedVelocity ?? player.Velocity ?? default;
 
         // `vecVelocity.Length() > 1.0f` (:1709): the three-dimensional length, unlike the XY speed below.
         float length = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));

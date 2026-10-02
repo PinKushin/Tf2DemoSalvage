@@ -97,6 +97,16 @@ public static class EngineConVars
         new("sv_specaccelerate", "5", Replicated: true, Cheat: false),
         new("sv_specnoclip", "1", Replicated: true, Cheat: false),
 
+        // **What CGameMovement reads** (D205), movevars_shared.cpp:37-100, the non-CSTRIKE branches.
+        new("sv_gravity", "800", Replicated: true, Cheat: false),
+        new("sv_stopspeed", "100", Replicated: true, Cheat: false),
+        new("sv_accelerate", "10", Replicated: true, Cheat: false),
+        new("sv_airaccelerate", "10", Replicated: true, Cheat: false),
+        new("sv_friction", "4", Replicated: true, Cheat: false),
+        new("sv_bounce", "0", Replicated: true, Cheat: false),
+        new("sv_maxvelocity", "3500", Replicated: true, Cheat: false),
+        new("sv_stepsize", "18", Replicated: true, Cheat: false),
+
         // **The interpolation set, and the effective amount is none of them on its own.**
         // `GetClientInterpAmount()` in src/game/client/cdll_bounded_cvars.cpp:126 is
         // `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`, and each half is separately clamped

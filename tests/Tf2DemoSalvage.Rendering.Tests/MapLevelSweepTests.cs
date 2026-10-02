@@ -195,4 +195,40 @@ public sealed class MapLevelSweepTests
         level.Sweep(from, to, 6f).ShouldBeLessThan(
             1f, "a sweep from the sky to below the ground has to be stopped by something");
     }
+
+    /// <remarks>
+    /// `Ray_t::Init( start, end, mins, maxs )` (`cmodel.h:84`) moves the start to the box's centre and halves its size, so
+    /// a hull given by its origin and bounds is the centred box with three extents.
+    /// </remarks>
+    [Test]
+    public void TraceHull_APlayersBounds_IsTheCentredBoxWithThreeExtents()
+    {
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
+        BspSurface surface = level.Surfaces.First(each => each.IsDisplacement);
+        SurfaceVertex target = level.Terrain.ShouldNotBeNull().ReadTriangles(surface)[0];
+
+        (float X, float Y, float Z) from = (target.X, target.Y, target.Z + 512f);
+        (float X, float Y, float Z) to = (target.X, target.Y, target.Z - 64f);
+
+        BspTrace hull = level.TraceHull(from, to, (-24f, -24f, 0f), (24f, 24f, 82f), BspLeafTree.MaskPlayerSolid, [])
+            .ShouldNotBeNull();
+
+        hull.Fraction.ShouldBeLessThan(1f);
+        hull.ShouldBe(level.Trace(
+            (from.X, from.Y, from.Z + 41f), (to.X, to.Y, to.Z + 41f), (24f, 24f, 41f), BspLeafTree.MaskPlayerSolid, []));
+    }
+
+    /// <remarks>
+    /// **A map with no tree answers "clear" to a camera and nothing to movement.** A camera that thought everything blocked
+    /// would pin itself to its subject; a movement simulation told "clear" falls forever, so it is told there is no world.
+    /// </remarks>
+    [Test]
+    public void TraceHull_OnAMapWithNoTree_IsNull()
+    {
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance) with { Leaves = null };
+
+        level.TraceHull((0f, 0f, 0f), (0f, 0f, -100f), (-24f, -24f, 0f), (24f, 24f, 82f), BspLeafTree.MaskPlayerSolid, [])
+            .ShouldBeNull();
+        level.Sweep((0f, 0f, 1e6f), (0f, 0f, 1e6f - 1f), 0f).ShouldBe(1f);
+    }
 }
