@@ -1142,6 +1142,7 @@ internal class MainForm : Form, IFrameSteps
         // every frame for every gibbed corpse, which reopened the archive and reparsed the `.phy`
         // each time — measured at 3.5% of a Debug frame, and most of the 3 ms `sample` column.
         _demoSystems.Arrows = () => _loaded?.Arrows;
+        _demoSystems.World = () => _loaded?.Level;
 
         _demoSystems.Gibs = model =>
         {

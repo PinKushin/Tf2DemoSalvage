@@ -219,10 +219,13 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
 
+    /// <summary>Prediction of the recorder's velocity (D205); null leaves him on the networked one.</summary>
+    public Prediction.RecorderPrediction? Prediction { get; init; }
+
     /// <inheritdoc />
     public void PlayersAt(
         double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
-        timeline.PlayersAt(tick, into, interpolating, Player?.InterpolateViewpoint(tick));
+        timeline.PlayersAt(tick, into, interpolating, Player?.InterpolateViewpoint(tick), Prediction?.VelocityAt(tick));
 
     /// <inheritdoc />
     public void PropsAt(
