@@ -127,9 +127,9 @@ public sealed class Protocol15TypeWidthTests
         state.MessageTypeBits.ShouldBe(expected);
     }
 
-    [TestCase(true)]
-    [TestCase(false)]
-    public void Write_ServerInfoAtTheWidthTheReaderSettled_ReproducesItsBits(bool sixBits)
+    [TestCase(true, NetMessage.TypeBits)]
+    [TestCase(false, NetMessage.OldTypeBits)]
+    public void Write_ServerInfoAtTheWidthTheReaderSettled_ReproducesItsBits(bool sixBits, int typeBits)
     {
         // A writer told the width the first packet settled writes ServerInfo back bit for bit at
         // either build's width — the writer side of B451, whose census forgot to tell it.
@@ -144,8 +144,12 @@ public sealed class Protocol15TypeWidthTests
         BitWriter writer = new();
         NetMessageWriter.TryWrite(writer, result.Messages[0], write).ShouldBeTrue();
 
+        // The fixture is written by the same writer, so the width is pinned independently of it.
         int length = result.MessageStartBits[1] - result.MessageStartBits[0];
         writer.BitCount.ShouldBe(length);
+        BitReader typeField = new(writer.Build());
+        typeField.ReadUInt32(typeBits).ShouldBe((uint)NetMessageType.ServerInfo);
+        typeField.ReadUInt32(16).ShouldBe((uint)Protocol);
         BitReader expected = new(first.Payload.Span);
         BitReader actual = new(writer.Build());
         for (int bit = 0; bit < length; bit++)
