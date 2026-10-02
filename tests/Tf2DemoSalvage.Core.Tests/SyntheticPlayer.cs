@@ -2966,4 +2966,80 @@ internal static class SyntheticPlayer
                     UpdateBaseline: false,
                     Body: body)));
     }
+
+    /// <summary>
+    /// The recorder (entity 1) with every networked field the movement modes read (B450): the view offset, the legacy
+    /// movement stun, the taunt and kart speeds, and a grappling hook on entity 2.
+    /// </summary>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithMovementModeFields()
+    {
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(table.Name switch
+            {
+                "DT_TFPlayer" => table with
+                {
+                    Properties =
+                    [
+                        .. table.Properties, Table("playershared", "DT_TFPlayerShared"),
+                        UnsignedInt("m_bAllowMoveDuringTaunt", bits: 1), NoScaleFloat("m_flCurrentTauntMoveSpeed"),
+                        NoScaleFloat("m_flVehicleReverseTime"), UnsignedInt("m_hGrapplingHookTarget", bits: 21),
+                    ],
+                },
+                "DT_BasePlayer" => table with { Properties = [.. table.Properties, Table("localdata", "DT_LocalPlayerExclusive")] },
+                _ => table,
+            });
+        }
+
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            NoScaleFloat("m_flMovementStunTime"), UnsignedInt("m_iMovementStunAmount", bits: 8),
+            UnsignedInt("m_iMovementStunParity", bits: 2),
+        ]));
+        tables.Add(new SendTable("DT_LocalPlayerExclusive", NeedsDecoder: true, [NoScaleFloat("m_vecViewOffset[2]")]));
+
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DecodedEntity> entities =
+        [
+            Entity(decoder, PlayerClassId, 1, new Dictionary<string, PropertyValue>
+            {
+                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                ["m_lifeState"] = PropertyValue.FromInt(0),
+                ["m_vecViewOffset[2]"] = PropertyValue.FromFloat(68f),
+                ["m_flMovementStunTime"] = PropertyValue.FromFloat(2.5f),
+                ["m_iMovementStunAmount"] = PropertyValue.FromInt(153),
+                ["m_iMovementStunParity"] = PropertyValue.FromInt(3),
+                ["m_bAllowMoveDuringTaunt"] = PropertyValue.FromInt(1),
+                ["m_flCurrentTauntMoveSpeed"] = PropertyValue.FromFloat(212.5f),
+                ["m_flVehicleReverseTime"] = PropertyValue.FromFloat(104.25f),
+                ["m_hGrapplingHookTarget"] = LoadoutHandle(2),
+            }),
+        ];
+
+        byte[] body = decoder.EncodeEntities(entities, [], isDelta: false, 0, out int bits);
+
+        return SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                100,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: false,
+                    DeltaFromTick: null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+    }
 }
