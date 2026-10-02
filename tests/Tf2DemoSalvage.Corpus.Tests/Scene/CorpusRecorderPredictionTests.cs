@@ -30,10 +30,24 @@ public sealed class CorpusRecorderPredictionTests
     [Test]
     public void VelocityAt_BetweenPackets_LandsCloserToTheNextPacketThanHoldingTheLastOne()
     {
-        string map = Path.Combine(SdkReference.GameInstall.Require(), "maps", "cp_badlands.bsp");
+        string game = SdkReference.GameInstall.Require();
+        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp"));
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
-        MapLevel level = MapLevel.Read(File.ReadAllBytes(map), NullLogger.Instance);
-        RecorderPrediction prediction = new(timeline, () => level);
+        MapLevel level = MapLevel.Read(map, NullLogger.Instance);
+
+        // The viewer's wiring (B450): items_game.txt's attribute hooks, and the ground's surface data by the texinfo route.
+        GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
+        ImpactDecals decals = ImpactDecals.Load(map, content.Archives, content.Surfaces);
+        AttributeHooks? hooks = content.Weapons.Items is { } items ? new AttributeHooks(items) : null;
+        RecorderPrediction prediction = new(timeline, () => level)
+        {
+            Hooks = () => hooks,
+            GroundSurface = trace => content.Surfaces.GetSurfaceData(decals.SurfacePropOfTrace(trace)),
+        };
+
+        // Controls: an empty wiring would leave the numbers unchanged and look like a measurement.
+        hooks.ShouldNotBeNull();
+        content.Surfaces.Surfaces.Count.ShouldBeGreaterThan(80);
         int recorder = timeline.RecorderEntityIndex.ShouldNotBeNull();
 
         IReadOnlyList<(int Tick, int Acknowledged)> packets = timeline.PacketAcknowledgements;
@@ -82,7 +96,8 @@ public sealed class CorpusRecorderPredictionTests
         TestContext.Out.WriteLine(report);
 
         predictedError.Count.ShouldBeGreaterThan(100, report);
-        // Measured 2026-10-02: predicted 10.1 against held 25.7, median 0 against 0.7. Under half is the bound: inverting
+        // Measured 2026-10-02: predicted 10.1 against held 25.7, median 0 against 0.7 — unchanged to 0.001 once items and the
+        // ground's surfaceprop were wired (B450); scaling friction by 1.0 instead of 1.25 takes the mean to 13.1, so they are read. Under half is the bound: inverting
         // StepMove's road choice took the mean to 16.4, which "better than holding" alone let through.
         predictedError.Average().ShouldBeLessThan(heldError.Average() / 2f, report);
         Median(predictedError).ShouldBe(0f, report);
