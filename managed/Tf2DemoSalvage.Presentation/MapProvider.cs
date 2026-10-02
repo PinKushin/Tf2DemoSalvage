@@ -83,11 +83,11 @@ public sealed class MapProvider : IDisposable
     }
 
     /// <summary>Steam's library index, where an installed TF2's maps are listed.</summary>
-    public static string SteamLibraryFile => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-        "Steam",
-        "steamapps",
-        "libraryfolders.vdf");
+    /// <remarks>
+    /// From <see cref="SteamInstall"/>, which reads where Steam recorded itself. Empty when no Steam
+    /// folder is named at all, which <see cref="Locate"/> and <see cref="GameFolder"/> answer as null.
+    /// </remarks>
+    public static string SteamLibraryFile => SteamInstall.Machine.LibraryFile ?? string.Empty;
 
     /// <summary>Where maps this viewer downloaded are kept.</summary>
     /// <remarks>
