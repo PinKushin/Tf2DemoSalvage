@@ -34,6 +34,15 @@ Open a demo from the window, or pass it on the command line. `tf2demoview --help
 environment variable. Your own TF2 config (`.cfg`, or a mastercomfig-style `.vpk`) works as-is for
 key bindings; commands the viewer does not implement are ignored rather than rejected.
 
+The File menu also has **Export assembly** (the open demo as text) and **Compile assembly** (text back
+to a byte-identical demo), the same as the command-line tool's `-a` and `-c`.
+
+## Reporting problems
+
+The viewer writes one log per run to `%LOCALAPPDATA%\Tf2DemoSalvage` (`viewer-<date>-<time>-<id>.log`,
+newest 50 kept). Send the newest one with the demo's name and what you did. The command-line tool
+writes no log file; send its console output.
+
 ## What has been verified
 
 Each claim below is a measurement, not an expectation.
@@ -83,8 +92,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
   needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
-  models, materials or sounds — and no demos. The viewer reads them from your install and stops with
-  an error if it cannot find one. The command-line tool needs only the demo.
+  models, materials or sounds — and no demos. The viewer reads them from your install (found through Steam's library list) and, if it
+  cannot find one, says so and plays the demo without the game's maps and models. The command-line tool needs only the demo.
 
 ## Licences
 

@@ -1,10 +1,52 @@
 # Tf2DemoSalvage
 
-A standalone parser (and, eventually, viewer) for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
+A standalone parser, text decompiler/compiler and 3D viewer for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
 
 Independent, clean-room project. Not affiliated with Valve. Ships no Valve-authored game
 assets — maps are resolved from your own TF2 install or a source you configure, not bundled
 (see `docs/DECISIONS.md` D9).
+
+## Using it
+
+For players. Developers: skip to *Status* below.
+
+1. Download the release zip and unzip it anywhere. Nothing else to install (`RELEASE-NOTES.md` has
+   the requirements and known gaps).
+2. Run `viewer/tf2demoview.exe`.
+3. **Open a demo:** File > Open demo (Ctrl+O). The dialog allows selecting several `.dem` files at
+   once. A demo can also be passed on the command line; `tf2demoview --help` lists every option.
+
+**Your TF2 install.** The viewer reads maps and game content from your own Team Fortress 2 install.
+It finds it by reading Steam's `libraryfolders.vdf` in the Steam folder under Program
+Files (x86), and picking the library that lists TF2 (app 440), so TF2
+may live on any drive. There is no folder picker for the install. If it is not found, the viewer
+says so in the status bar and still plays the demo, without the game's maps and models; a map that
+is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
+
+**Keys.** Bindings from your TF2 config (`config.cfg`, `autoexec.cfg`, or a mastercomfig-style
+`.vpk`) are used as they are, and commands the viewer does not implement are ignored (D69).
+Without a config, defaults are: Space switch camera mode, Mouse1/Mouse2 next/previous player,
+O play/pause, Home normal speed, Tab scoreboard (held), W/A/S/D with `'` and `/` fly the free camera
+(up and down), Shift slows it, Ctrl+E first person, Ctrl+B third person, Ctrl+R reset camera, F5
+screenshot, F8 frame rate, F11 full screen. The full table is `KeyBindings.Defaults` in
+`managed/Tf2DemoSalvage.Presentation/ViewerAction.cs`.
+
+**Assembly text.** File > Export assembly writes the open demo as text; File > Compile assembly
+turns such a text file back into a `.dem`. The rebuilt demo is byte-identical to the original.
+
+**Command line.** `cli/tf2demosalvage.exe`:
+
+```
+tf2demosalvage <demo> -t [-e] -o out.txt     readable trace (-e expands entities)
+tf2demosalvage <demo> -a -o out.txt          assembly text
+tf2demosalvage out.txt -c -o rebuilt.dem     compile assembly back to a demo
+tf2demosalvage --help                        every option
+```
+
+**Reporting a bug.** The viewer writes one log per run to `%LOCALAPPDATA%\Tf2DemoSalvage` (named
+`viewer-<date>-<time>-<process id>.log`; the newest 50 are kept). Send the newest log, the demo's
+file name (and the demo itself if you can), and what you did and saw. The command-line tool writes
+no log file; send its console output.
 
 ## Status
 
@@ -20,7 +62,8 @@ and every message body those demos contain is decoded rather than stepped over.
 | Entity schema (layer 3) | Done. `dem_datatables` parses and flattens; entity deltas, instance baselines and cross-tick state all decode. |
 | Sounds, temp entities, user messages | Done. These were the last bodies consumed without being read. |
 | Text dump, Quake-style trace, JSON Lines, CLI | Done. |
-| 2D viewer (Phase 2), 3D viewer (Phase 3) | Not started. |
+| Text compile (assembly back to a `.dem`) | Done. Byte-identical round trip, in the CLI and the viewer's File menu. |
+| 3D viewer | Beta. Known gaps: `RELEASE-NOTES.md`. |
 
 ### How much of the codec is actually deciphered
 
@@ -58,9 +101,8 @@ Building that found four things nothing else could: a temp entity count of zero 
 reliable effect, three messages discarding their bodies, `svc_VoiceInit` overwriting a quality with
 a sample rate, and `svc_BspDecal` decoding a position and then dropping it.
 
-**What is still not proven:** the *text* output cannot be compiled back into a `.dem`. The pieces
-now exist — a bit writer, a message writer, an entity encoder — but the text parser that would
-drive them does not. That is the Quake demo tools standard and the remaining Phase 1 goal.
+The assembly text (`-a`) compiles back into a byte-identical `.dem` (`-c`), the Quake demo tools
+standard; `RELEASE-NOTES.md` says what holds that.
 
 ### Corpus
 
