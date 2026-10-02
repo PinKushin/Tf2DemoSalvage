@@ -70,6 +70,15 @@ public sealed class StaticPropCollisionConformanceTests
             .Fraction.ShouldBe((100f - 39.370079f - 8f) / 200f, 1e-5f);
 
     [Test]
+    public void Trace_ABoxNarrowInYPastAYawedPropsCorner_IsBoundedByTheYBevel()
+    {
+        // Yawed 45°, the diamond reaches y = 34.80. A box 8 deep in y centred at 43.5 clears it by 0.7 on the y bevel; the
+        // face planes alone meet at y = 62.8 for this box, and a cube of its 20 x extent would reach down to 23.5. For a
+        // one-hull prop the prop's own grown bounds reject it first, so this holds those bounds, not the hull's y bevel.
+        Props(yaw: 45f).Trace((0f, 43.5f, 0f), (200f, 43.5f, 0f), (20f, 8f, 8f), BspLeafTree.MaskSolid).ShouldBeNull();
+    }
+
+    [Test]
     public void Trace_AMaskWithoutSolid_PassesThroughAProp() =>
         Props(yaw: 0f).Trace(From, To, (0f, 0f, 0f), BspLeafTree.ContentsWater).ShouldBeNull();
 
