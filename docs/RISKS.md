@@ -8175,8 +8175,11 @@ guessed at in code.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
   than 40 ticks before the target, which is the engine's reload in shape (`StartPlayback` re-reads from the
   start). It is correct but not cheap when scrubbing backward.
-- **ConVars are read when a demo opens.** A `demo_*` change in the watcher's config while a demo is open
-  takes effect on the next open.
+- **ConVars are read when a demo opens.** — **FIXED 2026-10-02.** `DemoPlayer.ConVars` is now a source asked
+  once per `InterpolateViewpoint`, as the engine reads each ConVar per call (`0x180072180`), and `DemoSystems`
+  hands it the config reader. `InterpolateViewpoint_DemoInterpolateViewChangedWhilePlaying_AppliesOnTheNextCall`
+  holds it: 420 with the ConVar off, 426 on the next call after turning it on. *Evidence class: disassembly
+  (B56's read) plus a synthetic test.*
 
 ### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — FIXED 2026-10-01 for the CLI's single-pass writers, 2026-10-02 for the census and the compile; the timeline still holds the file
 
