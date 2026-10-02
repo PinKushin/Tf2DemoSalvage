@@ -56,6 +56,24 @@ public sealed class StaticPropCollisionConformanceTests
     }
 
     [Test]
+    public void Trace_ABoxAboveWithAShortZExtent_MissesWhereAWideOneIsStopped()
+    {
+        // `Ray_t::m_Extents` is per axis (`cmodel.h:66`). The prop's top is 3.937: a box 10 up reaching 5 down clears it,
+        // one reaching 7 down does not — and a cube of the wide box's x extent, 8, would have stopped both.
+        Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f), (8f, 8f, 5f), BspLeafTree.MaskSolid).ShouldBeNull();
+        Props(yaw: 0f).Trace((0f, 0f, 10f), (200f, 0f, 10f), (8f, 8f, 7f), BspLeafTree.MaskSolid).ShouldNotBeNull();
+    }
+
+    [Test]
+    public void Trace_ABoxAlongXWithThreeExtents_StopsByItsXExtent() =>
+        Props(yaw: 0f).Trace(From, To, (8f, 2f, 1f), BspLeafTree.MaskSolid).ShouldNotBeNull()
+            .Fraction.ShouldBe((100f - 39.370079f - 8f) / 200f, 1e-5f);
+
+    [Test]
+    public void Trace_AMaskWithoutSolid_PassesThroughAProp() =>
+        Props(yaw: 0f).Trace(From, To, (0f, 0f, 0f), BspLeafTree.ContentsWater).ShouldBeNull();
+
+    [Test]
     public void Trace_ABoxClearOfThePropByMoreThanItsHalfWidth_MissesIt()
     {
         // The prop reaches y = 9.84; a box centred at y = 19 with half-width 8 reaches down to 11.
