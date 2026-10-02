@@ -30,6 +30,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Text;
 using Tf2DemoSalvage.Logging;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -68,6 +69,12 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Automation id of the File &gt; Open item.</summary>
     public const string OpenDemoItemId = "OpenDemoMenuItem";
+
+    /// <summary>Automation id of the File &gt; Export assembly item.</summary>
+    public const string ExportItemId = "ExportMenuItem";
+
+    /// <summary>Automation id of the File &gt; Compile assembly item.</summary>
+    public const string CompileItemId = "CompileMenuItem";
 
     /// <summary>Automation id of the File &gt; Exit item.</summary>
     public const string ExitItemId = "ExitMenuItem";
@@ -1031,9 +1038,11 @@ internal class MainForm : Form, IFrameSteps
             OpenFolderButtonId, "Open folder", "Open a folder of demos as a playlist.",
             (_, _) => OpenFolder()));
         _actions.Controls.Add(ActionButton(
-            ExportButtonId, "Export", "Export the demo as JSON or assembly script.", (_, _) => ExportDemo()));
+            ExportButtonId, "Export", "Export the demo as assembly text that compiles back to it.",
+            (_, _) => FileWork = ExportDemo()));
         _actions.Controls.Add(ActionButton(
-            CompileButtonId, "Compile", "Rebuild a demo from an assembly script.", (_, _) => CompileDemo()));
+            CompileButtonId, "Compile", "Rebuild a byte-identical demo from its assembly text.",
+            (_, _) => FileWork = CompileDemo()));
 
         // The playlist replaces the entity list that used to sit here. It lists demos and the
         // folder each came from - navigation, not parser internals - and allows multi-select so
@@ -1205,6 +1214,10 @@ internal class MainForm : Form, IFrameSteps
         _menu = new ViewerMenu(
             new ViewerMenuActions(
                 OpenDemo: OpenDemo,
+                // Posted, so the menu's click returns and the menu closes before the modal dialog
+                // opens; a dialog shown inside the click left UIA's Invoke waiting on it.
+                ExportDemo: () => BeginInvoke(() => FileWork = ExportDemo()),
+                CompileDemo: () => BeginInvoke(() => FileWork = CompileDemo()),
                 Exit: Close,
                 SetFullScreen: SetFullScreen,
                 SetFullScreenMode: SetFullScreenMode,
@@ -8603,11 +8616,91 @@ internal class MainForm : Form, IFrameSteps
         e.Item = row;
     }
 
-    private void ExportDemo() => _status.Text = _demo is null
-        ? "Open a demo first."
-        : "Export is not wired up yet.";
+    /// <summary>The export or compile in flight, held rather than <c>async void</c> (see <see cref="Loading"/>).</summary>
+    public Task<string> FileWork { get; private set; } = Task.FromResult(string.Empty);
 
-    private void CompileDemo() => _status.Text = "Compile is not wired up yet.";
+    /// <summary>Writes the open demo's assembly text — the CLI's <c>--asm</c> — to a file the user picks.</summary>
+    private Task<string> ExportDemo()
+    {
+        if (_demo is null)
+        {
+            _status.Text = "Open a demo first.";
+            return Task.FromResult(_status.Text);
+        }
+
+        string demoPath = _demo.Path;
+        using SaveFileDialog dialog = new()
+        {
+            Filter = "Demo assembly (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Export demo assembly",
+            FileName = Path.GetFileNameWithoutExtension(demoPath) + ".txt",
+        };
+
+        return dialog.ShowDialog(this) == DialogResult.OK
+            ? RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", dialog.FileName, output =>
+                $"Exported {DemoAssembly.Export(demoPath, output):N0} commands to {output}")
+            : FileWork;
+    }
+
+    /// <summary>Compiles an assembly text file back into a byte-identical demo — the CLI's <c>--compile</c>.</summary>
+    private Task<string> CompileDemo()
+    {
+        string source;
+
+        using (OpenFileDialog open = new()
+        {
+            Filter = "Demo assembly (*.txt)|*.txt|All files (*.*)|*.*",
+            Title = "Compile demo assembly",
+        })
+        {
+            if (open.ShowDialog(this) != DialogResult.OK)
+            {
+                return FileWork;
+            }
+
+            source = open.FileName;
+        }
+
+        using SaveFileDialog save = new()
+        {
+            Filter = "Source demos (*.dem)|*.dem|All files (*.*)|*.*",
+            Title = "Save compiled demo",
+            FileName = Path.GetFileNameWithoutExtension(source) + ".dem",
+        };
+
+        return save.ShowDialog(this) == DialogResult.OK
+            ? RunFileWork($"Compiling {Path.GetFileName(source)}...", save.FileName, output =>
+            {
+                (int commands, int bytes) = DemoAssembly.Compile(source, output);
+                return $"Compiled {commands:N0} commands to {output} ({bytes:N0} bytes)";
+            })
+            : FileWork;
+    }
+
+    /// <summary>Runs an export or compile off the UI thread and puts its outcome in the status bar.</summary>
+    private async Task<string> RunFileWork(string starting, string output, Func<string, string> work)
+    {
+        _status.Text = starting;
+        string result;
+
+        try
+        {
+            // Not cancelled on shutdown: a half-written file is worse than finishing this one.
+            result = await Task.Run(() => work(output), CancellationToken.None).ConfigureAwait(true);
+            _log.LogInformation("{Message}", result);
+        }
+        catch (Exception failure) when (
+            failure is IOException or InvalidDataException or UnauthorizedAccessException)
+        {
+            // Expected: a file that is missing, locked, or not assembly. Anything else is a defect
+            // and propagates through FileWork with its stack trace.
+            result = $"Failed: {failure.Message}";
+            _log.LogError(failure, "{Message}", result);
+        }
+
+        _status.Text = result;
+        return result;
+    }
 
     private void OpenDemo()
     {

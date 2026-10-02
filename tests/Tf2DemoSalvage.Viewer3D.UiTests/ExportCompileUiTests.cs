@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Threading.Tasks;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
@@ -45,11 +44,11 @@ public sealed class ExportCompileUiTests
         string text = Path.Combine(_folder, "z1800.txt");
         string rebuilt = Path.Combine(_folder, "z1800-rebuilt.dem");
 
-        Press("ExportButton");
+        Press("Export assembly");
         FillDialog(text);
         WaitForStatus("Exported");
 
-        Press("CompileButton");
+        Press("Compile assembly");
         FillDialog(text);
         FillDialog(rebuilt);
         WaitForStatus("Compiled");
@@ -58,15 +57,27 @@ public sealed class ExportCompileUiTests
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
     }
 
-    /// <summary>Invokes a button off the test thread: invoking one that opens a modal blocks until it closes.</summary>
-    private static void Press(string automationId) =>
-        _ = Task.Run(() => _viewer.ClickButton(automationId));
+    /// <summary>Invokes a File menu item; the viewer posts the dialog, so this returns before it opens.</summary>
+    /// <remarks>
+    /// Through the File menu, not the action-row buttons: a button's UIA Invoke is a BM_CLICK, which
+    /// a window that is not active ignores — measured here as an invoke that completed and opened
+    /// nothing — and this suite never takes the foreground.
+    /// </remarks>
+    private static void Press(string itemName) => _viewer.InvokeMenuItem("File menu", itemName);
 
     /// <summary>Types a path into the viewer's open file dialog and confirms it.</summary>
     private static void FillDialog(string path)
     {
         AutomationElement? dialog = Retry.WhileNull(Dialog, DialogTimeout).Result;
-        dialog.ShouldNotBeNull("no file dialog opened");
+        dialog.ShouldNotBeNull(
+            $"no file dialog opened; the status bar says '{_viewer.StatusText()}' and the desktop holds "
+            + string.Join(", ", Array.ConvertAll(
+                _viewer.Window.Automation.GetDesktop().FindAllChildren(search => search
+                    .ByProcessId(_viewer.Window.Properties.ProcessId.Value)),
+                window => $"{window.ClassName}/{window.Name}"))
+            + "; the shell's children are " + string.Join(", ", Array.ConvertAll(
+                _viewer.Window.FindAllChildren(),
+                child => $"{child.Properties.ClassName.ValueOrDefault}/{child.Properties.Name.ValueOrDefault}")));
 
         AutomationElement name = Retry.WhileNull(
             () => dialog.FindFirstDescendant(search => search
@@ -87,7 +98,8 @@ public sealed class ExportCompileUiTests
     /// it timed out (COMException 0x80131505) before reaching the dialog.
     /// </remarks>
     private static AutomationElement? Dialog() =>
-        _viewer.Window.Automation.GetDesktop().FindFirstChild(search => search
+        _viewer.Window.FindFirstChild(search => search.ByClassName("#32770"))
+        ?? _viewer.Window.Automation.GetDesktop().FindFirstChild(search => search
             .ByProcessId(_viewer.Window.Properties.ProcessId.Value)
             .And(search.ByClassName("#32770")));
 

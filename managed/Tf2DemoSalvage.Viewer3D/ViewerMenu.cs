@@ -7,6 +7,8 @@ namespace Tf2DemoSalvage.Viewer3D;
 
 /// <summary>What the menu can ask the viewer to do.</summary>
 /// <param name="OpenDemo">Open the file picker.</param>
+/// <param name="ExportDemo">Write the open demo's assembly text to a file.</param>
+/// <param name="CompileDemo">Compile an assembly text file back into a demo.</param>
 /// <param name="Exit">Close the window.</param>
 /// <param name="SetFullScreen">Enter or leave full screen.</param>
 /// <param name="SetFullScreenMode">Choose borderless or exclusive.</param>
@@ -36,6 +38,8 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// </remarks>
 internal readonly record struct ViewerMenuActions(
     Action OpenDemo,
+    Action ExportDemo,
+    Action CompileDemo,
     Action Exit,
     Action<bool> SetFullScreen,
     Action<FullScreenMode> SetFullScreenMode,
@@ -163,6 +167,22 @@ internal sealed class ViewerMenu : IDisposable
             ShortcutKeys = Shortcut(ViewerAction.OpenDemo),
         };
         open.Click += (_, _) => actions.OpenDemo();
+
+        ToolStripMenuItem export = new("&Export assembly...")
+        {
+            Name = MainForm.ExportItemId,
+            AccessibleName = "Export assembly",
+            AccessibleDescription = "Write the open demo as assembly text that compiles back to it.",
+        };
+        export.Click += (_, _) => actions.ExportDemo();
+
+        ToolStripMenuItem compile = new("&Compile assembly...")
+        {
+            Name = MainForm.CompileItemId,
+            AccessibleName = "Compile assembly",
+            AccessibleDescription = "Rebuild a byte-identical demo from its assembly text.",
+        };
+        compile.Click += (_, _) => actions.CompileDemo();
 
         ToolStripMenuItem exit = new("E&xit")
         {
@@ -574,6 +594,8 @@ internal sealed class ViewerMenu : IDisposable
         view.DropDownItems.Add(textureQuality);
 
         file.DropDownItems.Add(open);
+        file.DropDownItems.Add(export);
+        file.DropDownItems.Add(compile);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(exit);
 

@@ -54,7 +54,7 @@ public sealed class DemoAssemblyFileTests
     }
 
     [Test]
-    public void Compile_TwoPacketsAndAStop_ReportsTheBytesWritten()
+    public void Compile_TwoPacketsAndAStop_ReportsThreeCommandsAndTheBytesWritten()
     {
         byte[] demo = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
         string demoPath = Path.Combine(_folder, "in.dem");
@@ -62,7 +62,7 @@ public sealed class DemoAssemblyFileTests
         File.WriteAllBytes(demoPath, demo);
         DemoAssembly.Export(demoPath, text);
 
-        DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")).ShouldBe(demo.Length);
+        DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")).ShouldBe((3, demo.Length));
     }
 
     private byte[] RoundTrip(byte[] demo)
