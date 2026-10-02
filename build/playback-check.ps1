@@ -42,7 +42,9 @@ if ($LASTEXITCODE -ne 0) {
 
 $exe = (Resolve-Path 'managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe').Path
 $out = New-TemporaryFile
-$arguments = @((Resolve-Path $Demo).Path, '--tick', "$Tick", '--autoplay', '--measure', "$Seconds", '+demo_timescale', "$Speed")
+# Quoted: Start-Process joins -ArgumentList with spaces and quotes nothing, so a path with a space opened the viewer
+# with no demo at all (2026-10-01, `ESEA Season 30`).
+$arguments = @("`"$((Resolve-Path $Demo).Path)`"", '--tick', "$Tick", '--autoplay', '--measure', "$Seconds", '+demo_timescale', "$Speed")
 $viewer = Start-Process -FilePath $exe -ArgumentList $arguments -RedirectStandardOutput $out.FullName -PassThru
 
 if (-not $viewer.WaitForExit($LimitSeconds * 1000)) {
