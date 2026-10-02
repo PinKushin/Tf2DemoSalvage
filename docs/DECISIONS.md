@@ -9468,3 +9468,12 @@ I'll post on team fortress.tv when I get home, so we can maybe get some download
 assistant tagged `v0.1.0-beta.1` at `8501be74`, checked the CI-built zip itself (no workflow annotations; the
 packaged CLI summarised `z1800.dem`, `tf2demoview --help` exited 0, the bundled runtime and voice DLLs present),
 and published it as a pre-release. Later betas follow the same path unless the owner asks to review.
+
+## D205 — the POV recorder's velocity comes from prediction, as the client's does; CGameMovement is ported (2026-10-02)
+
+B56 put porting CGameMovement out of scope. The engine read for B450 showed `CL_RunPrediction` (engine x64
+`0x180092710`) runs prediction during demo playback, skipping only while seeking, and re-simulates the recorded
+usercmds — so the real client animates the recorder from prediction's velocity, not the networked one. Owner: *"Fix
+that divergence next, if it's not a divergence that is from us allowing actual rewinding and reverse playback."* It is
+not: prediction re-simulates forward from the last received network state every frame, so it holds after a seek or
+a rewind the same way it does after a packet. B56's out-of-scope line is reversed by this entry.
