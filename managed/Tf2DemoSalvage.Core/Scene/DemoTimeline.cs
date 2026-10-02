@@ -339,6 +339,9 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public (float X, float Y, float Z)? Velocity { get; init; }
 
+    /// <summary>The movement state prediction restores (D205, B450); null for anyone but the recorder.</summary>
+    public SceneLocalMovement? Movement { get; init; }
+
     /// <summary>The active weapon's `m_iAccountID` (econ_item_view.cpp:187): whose item it is; null with none held or unsent.</summary>
     public uint? WeaponAccountId { get; init; }
 
@@ -1106,6 +1109,41 @@ public sealed class DemoTimeline
 
         return found;
     }
+
+    /// <summary>The recorder's <c>DT_Local</c> movement state (<see cref="SceneLocalMovement"/>); null when it is not sent.</summary>
+    private static SceneLocalMovement? LocalMovement(EntityState player)
+    {
+        if (player.Number("DT_Local.m_flDucktime") is not { } duckTime)
+        {
+            return null;
+        }
+
+        return new SceneLocalMovement
+        {
+            Ducked = player.Integer("DT_Local.m_bDucked") is > 0,
+            Ducking = player.Integer("DT_Local.m_bDucking") is > 0,
+            InDuckJump = player.Integer("DT_Local.m_bInDuckJump") is > 0,
+            DuckTime = duckTime,
+            DuckJumpTime = player.Number("DT_Local.m_flDuckJumpTime") ?? 0f,
+            JumpTime = player.Number("DT_Local.m_flJumpTime") ?? 0f,
+            FallVelocity = player.Number("DT_Local.m_flFallVelocity") ?? 0f,
+            AllowAutoMovement = player.Integer("DT_Local.m_bAllowAutoMovement") is not 0,
+            BaseVelocity = player.Vector("DT_LocalPlayerExclusive.m_vecBaseVelocity") ?? default,
+            TickBase = player.Integer("DT_LocalPlayerExclusive.m_nTickBase"),
+            DuckTimer = player.Number("DT_TFPlayerShared.m_flDuckTimer") ?? 0f,
+            AirDucked = player.Integer("DT_TFPlayerShared.m_nAirDucked") ?? 0,
+            AirDash = player.Integer("DT_TFPlayerShared.m_iAirDash") ?? player.Integer("DT_TFPlayerShared.m_bAirDash") ?? 0,
+        };
+    }
+
+    /// <summary>An entity's networked solidity, or null when its <c>m_Collision</c> states no solid type.</summary>
+    private static SceneCollision? Collision(EntityState entity) =>
+        entity.Integer("DT_CollisionProperty.m_nSolidType") is { } solidType
+            ? new SceneCollision(
+                solidType,
+                entity.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0,
+                entity.Integer("DT_BaseEntity.m_CollisionGroup") ?? 0)
+            : null;
 
     /// <summary>What every <see cref="SceneIdEntity"/> shares: team, placement and collision.</summary>
     private static SceneIdEntity IdEntity(EntityState entity, SceneIdEntityKind kind) => new(entity.EntityIndex, kind)
@@ -3463,6 +3501,7 @@ public sealed class DemoTimeline
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
                             player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
                         : null,
+                    Movement = LocalMovement(player),
                     WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
                         ? unchecked((uint)account)
                         : null,
@@ -4712,6 +4751,12 @@ public sealed class DemoTimeline
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
         track.TeamNumber = First(state, TeamProperties) ?? track.TeamNumber;
+
+        // Kept per tick, because a door can turn non-solid and back: what the recorder's movement trace meets (B450).
+        if (Collision(state) is { } collision)
+        {
+            track.Collide(tick, collision);
+        }
 
         // **A parity change means this animation began again, so its clock restarts**
         // (`C_BaseAnimating::OnDataChanged`, `c_baseanimating.cpp:4737`). Everything downstream

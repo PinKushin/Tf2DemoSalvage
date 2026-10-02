@@ -21,7 +21,8 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// <c>HandleDuckingSpeedCrop</c>), <c>FullWalkMove</c>, <c>CheckJumpButton</c> with <c>AirDash</c> and
 /// <c>PreventBunnyJumping</c>, <c>Friction</c>, <c>WalkMove</c>, <c>AirMove</c>, <c>Accelerate</c>,
 /// <c>AirAccelerate</c>, <c>GetAirSpeedCap</c>, <c>TryPlayerMove</c>, <c>ClipVelocity</c>, <c>StepMove</c>,
-/// <c>StartGravity</c>, <c>FinishGravity</c>, <c>CheckVelocity</c>, <c>SetGroundEntity</c>.
+/// <c>StartGravity</c>, <c>FinishGravity</c>, <c>CheckVelocity</c>, <c>SetGroundEntity</c> with its base velocity,
+/// <c>PlayerSolidMask</c>, and <c>CheckStuck</c> (TF's over the base's, with <c>CheckInterval</c> and the stuck table).
 ///
 /// **Declined, so the networked velocity stands** (<see cref="ProcessMovement"/> returns false): water above the
 /// feet, a taunt, a kart, ghost mode, a grappling hook, a deployed parachute, a stun, and the swimming conditions —
@@ -29,8 +30,9 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 ///
 /// **Taken as their defaults, each filed under B450:** item attributes (<c>mod_jump_height</c>, <c>mod_air_control</c>,
 /// <c>CanAirDash</c>'s extra dashes, <c>GetMovementForwardPull</c>), the ground's surfaceprop (friction, jump factor,
-/// max-speed factor all 1), a moving ground's velocity, <c>m_flGravity</c> and the game rules' gravity multiplier (1),
-/// <c>CanJump</c> and <c>CanDuck</c> (true), and <c>CheckStuck</c>, which the client runs once a second.
+/// max-speed factor all 1), <c>m_flGravity</c> and the game rules' gravity multiplier (1), <c>CanJump</c> and
+/// <c>CanDuck</c> (true), and <c>IsLoser</c>'s duck crop (not a loser). A moving ground's velocity is zero because the
+/// client's is (<see cref="SetGroundEntity"/>).
 /// </remarks>
 public sealed class TfGameMovement
 {
@@ -94,13 +96,24 @@ public sealed class TfGameMovement
     private float _clientMaxSpeed;
     private bool _speedCropped;
 
+    private readonly int _maxClients;
+
+    /// <summary><c>m_flStuckCheckTime</c>'s gate (<c>gamemovement.cpp:3455</c>): one frame runs one random-offset try.</summary>
+    private bool _stuckCheckedThisFrame;
+
+    private int _commandNumber;
+
     /// <summary>A movement simulation over a world.</summary>
     /// <param name="trace">The world, with whatever boxes block the player.</param>
     /// <param name="convars">The server's movement ConVars.</param>
-    public TfGameMovement(PlayerTraceRay trace, MovementConVars convars)
+    /// <param name="maxClients">
+    /// <c>gpGlobals->maxClients</c>: players are entities 1 to it, and it picks <c>CheckStuck</c>'s interval.
+    /// </param>
+    public TfGameMovement(PlayerTraceRay trace, MovementConVars convars, int maxClients)
     {
         _trace = trace ?? throw new ArgumentNullException(nameof(trace));
         _convars = convars ?? throw new ArgumentNullException(nameof(convars));
+        _maxClients = maxClients;
     }
 
     /// <summary><c>CPrediction::RunCommand</c>'s movement half: <c>SetupMove</c>, <c>ProcessMovement</c>, <c>FinishMove</c>.</summary>
@@ -111,10 +124,13 @@ public sealed class TfGameMovement
     /// Whether this is the first command after the networked state was restored — <c>m_bGameCodeMovedPlayer</c>, which
     /// is true when the network origin differs from the last predicted one, and asks for a full <c>CategorizePosition</c>.
     /// </param>
+    /// <param name="commandNumber"><c>CurrentCommandNumber()</c>, which <c>CheckInterval</c> staggers <c>CheckStuck</c> by.</param>
     /// <returns>False when the move is one this port declines, or there is no world; the player is then untouched.</returns>
-    public bool ProcessMovement(ref PredictedPlayer player, UserCommand command, float frametime, bool first)
+    public bool ProcessMovement(ref PredictedPlayer player, UserCommand command, float frametime, bool first, int commandNumber)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        _commandNumber = commandNumber;
 
         PlayerConditions conditions = player.Conditions;
 
@@ -238,6 +254,12 @@ public sealed class TfGameMovement
         CheckParameters();
         ReduceTimers();
 
+        // gamemovement.cpp:4587-4601: MOVETYPE_WALK and alive, so always tried on its interval; stuck skips the move.
+        if (!_player.IsDead && CheckInterval() && CheckStuck())
+        {
+            return;
+        }
+
         if (first)
         {
             CategorizePosition();
@@ -301,13 +323,207 @@ public sealed class TfGameMovement
 
     private BspTrace TraceBox(Vector3 start, Vector3 end, Vector3 mins, Vector3 maxs)
     {
-        if (_trace(start, end, mins, maxs, BspLeafTree.MaskPlayerSolid) is { } trace)
+        if (_trace(start, end, mins, maxs, PlayerSolidMask()) is { } trace)
         {
             return trace;
         }
 
         _noWorld = true;
         return new BspTrace(1f, -1, default, false);
+    }
+
+    /// <summary>
+    /// <c>CTFGameMovement::PlayerSolidMask</c> (<c>tf_gamemovement.cpp:259-284</c>): <c>MASK_PLAYERSOLID</c> and the enemy
+    /// team's contents, unless passing through enemies. Ghost mode's brush-only mask is never reached: ghosts are declined.
+    /// </summary>
+    private int PlayerSolidMask()
+    {
+        if (_player.PassingThroughEnemies)
+        {
+            return BspLeafTree.MaskPlayerSolid;
+        }
+
+        return _player.Team switch
+        {
+            TeamRed => MovementWorld.ContentsBlueTeam | BspLeafTree.MaskPlayerSolid,
+            TeamBlue => MovementWorld.ContentsRedTeam | BspLeafTree.MaskPlayerSolid,
+            _ => BspLeafTree.MaskPlayerSolid,
+        };
+    }
+
+    private const int TeamRed = 2;
+    private const int TeamBlue = 3;
+
+    /// <summary>
+    /// <c>CheckInterval( STUCK )</c> (<c>gamemovement.cpp:648-701</c>): every command while being unstuck, otherwise when
+    /// the command number plus the entity index is a multiple of <c>CHECK_STUCK_INTERVAL</c> 1 s in ticks — 0.2 s alone.
+    /// </summary>
+    private bool CheckInterval()
+    {
+        float seconds = _maxClients == 1 ? 0.2f : 1f;
+        int interval = _player.StuckLast != 0 ? 1 : (int)(seconds / _frametime);
+
+        return interval <= 0 || (_commandNumber + _player.EntityIndex) % interval == 0;
+    }
+
+    /// <summary>
+    /// <c>CTFGameMovement::CheckStuck</c> (<c>tf_gamemovement.cpp:1352-1447</c>), <c>tf_resolve_stuck_players</c> 1 (<c>:50</c>).
+    /// </summary>
+    /// <returns>True when he is stuck and the move is skipped.</returns>
+    /// <remarks>
+    /// The <c>func_tracktrain</c> branch (<c>:1417</c>) never runs on the client: it needs the train's
+    /// <c>GetAbsVelocity().z</c>, and <c>DT_FuncTrackTrain</c> sends no velocity (<c>c_func_tracktrain.cpp:67-68</c>).
+    /// </remarks>
+    private bool CheckStuck()
+    {
+        _player.PassingThroughEnemies = false;
+
+        BspTrace trace = TracePlayerBBox(_player.Origin, _player.Origin);
+
+        if (trace.StartSolid && trace.BrushEntity >= 0 && IsPlayer(trace.BrushEntity))
+        {
+            _player.PassingThroughEnemies = true;
+
+            if (!DidHit(TracePlayerBBox(_player.Origin, _player.Origin)))
+            {
+                return false;
+            }
+        }
+
+        return BaseCheckStuck();
+    }
+
+    /// <summary><c>CBaseEntity::IsPlayer</c> by index: players are entities 1 to <c>maxClients</c>.</summary>
+    private bool IsPlayer(int entity) => entity >= 1 && entity <= _maxClients;
+
+    /// <summary><c>trace_t::DidHit</c>: <c>fraction &lt; 1 || allsolid || startsolid</c>.</summary>
+    private static bool DidHit(BspTrace trace) => trace.Fraction < 1f || trace.AllSolid || trace.StartSolid;
+
+    /// <summary>
+    /// <c>CGameMovement::CheckStuck</c> (<c>gamemovement.cpp:3384-3473</c>) on the client.
+    /// </summary>
+    /// <remarks>
+    /// <c>TestPlayerPosition</c> answers an entity when the box at the point starts solid. The world — a static prop too,
+    /// whose trace names the world entity (*interpolated*: engine trace code the SDK omits) — gets the 54 small nudges;
+    /// anything else, or a world that none frees, one table entry per frame behind <c>CHECKSTUCK_MINTIME</c>. The client's
+    /// <c>m_flStuckCheckTime</c> is a member nothing networks; prediction is one frame here, so the first check passes the
+    /// gate and any later one this frame does not.
+    /// </remarks>
+    private bool BaseCheckStuck()
+    {
+        BspTrace hit = TracePlayerBBox(_player.Origin, _player.Origin);
+
+        if (!hit.StartSolid)
+        {
+            _player.StuckLast = 0;
+            return false;
+        }
+
+        Vector3 origin = _player.Origin;
+
+        if (hit.BrushEntity < 0)
+        {
+            _player.StuckLast = 0;
+
+            for (int reps = 0; reps < StuckTable.Length; reps++)
+            {
+                if (TryStuckOffset(origin))
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (_stuckCheckedThisFrame)
+        {
+            return true;
+        }
+
+        _stuckCheckedThisFrame = true;
+
+        return !TryStuckOffset(origin);
+    }
+
+    /// <summary><c>GetRandomStuckOffsets</c> then <c>TestPlayerPosition</c>: moves him there and resets when it is clear.</summary>
+    private bool TryStuckOffset(Vector3 origin)
+    {
+        Vector3 test = origin + StuckTable[_player.StuckLast++ % StuckTable.Length];
+
+        if (TracePlayerBBox(test, test).StartSolid)
+        {
+            return false;
+        }
+
+        _player.StuckLast = 0;
+        _player.Origin = test;
+        return true;
+    }
+
+    /// <summary><c>rgv3tStuckTable</c> as <c>CreateStuckTable</c> fills it (<c>gamemovement.cpp:3233-3346</c>); the last entry stays zero.</summary>
+    private static readonly Vector3[] StuckTable = CreateStuckTable();
+
+    private static Vector3[] CreateStuckTable()
+    {
+        Vector3[] table = new Vector3[54];
+        int index = 0;
+
+        // Little moves along z, y, x, then the eight corners an eighth out.
+        for (float z = -0.125f; z <= 0.125f; z += 0.125f)
+        {
+            table[index++] = new Vector3(0f, 0f, z);
+        }
+
+        for (float y = -0.125f; y <= 0.125f; y += 0.125f)
+        {
+            table[index++] = new Vector3(0f, y, 0f);
+        }
+
+        for (float x = -0.125f; x <= 0.125f; x += 0.125f)
+        {
+            table[index++] = new Vector3(x, 0f, 0f);
+        }
+
+        for (float x = -0.125f; x <= 0.125f; x += 0.250f)
+        {
+            for (float y = -0.125f; y <= 0.125f; y += 0.250f)
+            {
+                for (float z = -0.125f; z <= 0.125f; z += 0.250f)
+                {
+                    table[index++] = new Vector3(x, y, z);
+                }
+            }
+        }
+
+        // Big moves: z by 0, 1 and 6, then y and x by two, then every combination.
+        float[] zi = [0f, 1f, 6f];
+
+        foreach (float z in zi)
+        {
+            table[index++] = new Vector3(0f, 0f, z);
+        }
+
+        for (float y = -2f; y <= 2f; y += 2f)
+        {
+            table[index++] = new Vector3(0f, y, 0f);
+        }
+
+        for (float x = -2f; x <= 2f; x += 2f)
+        {
+            table[index++] = new Vector3(x, 0f, 0f);
+        }
+
+        foreach (float z in zi)
+        {
+            for (float x = -2f; x <= 2f; x += 2f)
+            {
+                for (float y = -2f; y <= 2f; y += 2f)
+                {
+                    table[index++] = new Vector3(x, y, z);
+                }
+            }
+        }
+
+        return table;
     }
 
     private static Vector3 EndPos(Vector3 start, Vector3 end, BspTrace trace) => start + ((end - start) * trace.Fraction);
@@ -429,8 +645,18 @@ public sealed class TfGameMovement
 
     private void SetGroundEntity(BspTrace? trace)
     {
-        // The ground's own velocity is taken as zero: a moving brush entity's is not known here.
-        _player.OnGround = trace is not null;
+        // CGameMovement::SetGroundEntity (gamemovement.cpp:3611-3632): landing subtracts the new ground's GetAbsVelocity and
+        // takes its z, leaving adds the old one's. On the client that velocity is zero for anything but a player: no
+        // DT_BaseEntity, DT_BaseDoor or DT_FuncTrackTrain field carries m_vecVelocity (c_baseentity.cpp:438-485,
+        // c_basedoor.cpp:17-19), and nothing predicts them. *Interpolated:* a player as ground is taken as zero too.
+        bool newGround = trace is not null;
+
+        if (newGround != _player.OnGround)
+        {
+            _player.BaseVelocity = _player.BaseVelocity with { Z = 0f };
+        }
+
+        _player.OnGround = newGround;
 
         if (trace is null)
         {
@@ -480,6 +706,13 @@ public sealed class TfGameMovement
     {
         bool onGround = _player.OnGround;
 
+        // No ducking in water (tf_gamemovement.cpp:3184): WL_Feet (1) off the ground, or WL_Eyes (3).
+        if ((_player.WaterLevel >= 1 && !onGround) || _player.WaterLevel >= 3)
+        {
+            _buttons &= ~InDuck;
+        }
+
+        // tf_clamp_airducks is taken as its default 1 (:49).
         if (_player.CurTime < _player.DuckTimer && onGround)
         {
             _buttons &= ~InDuck;
@@ -545,7 +778,12 @@ public sealed class TfGameMovement
             }
         }
 
-        // m_bAllowAutoMovement is true for a TF player, so this always runs.
+        // Try to unduck unless automovement is not allowed; off the ground or mid-transition he always may (:3306).
+        if (!_player.AllowAutoMovement && !inAir && !_player.Ducking)
+        {
+            return;
+        }
+
         if ((released & InDuck) != 0)
         {
             if (inDuck)
