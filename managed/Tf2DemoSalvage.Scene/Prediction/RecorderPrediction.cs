@@ -50,6 +50,34 @@ public sealed class RecorderPrediction
     /// <summary>The surface data a ground trace stands on (<see cref="TfGameMovement.GroundSurface"/>); null for none.</summary>
     public Func<BspTrace, VphysicsSurface?>? GroundSurface { get; init; }
 
+    /// <summary>
+    /// The taunt's movement as <c>C_TFPlayer::UpdateTauntItem</c> (<c>c_tf_player.cpp:4899-4926</c>) and
+    /// <c>ParseSharedTauntDataFromEconItemView</c> (<c>tf_player_shared.cpp:13156-13171</c>) set it: off
+    /// <c>m_iTauntItemDefIndex</c>'s definition while <c>m_nActiveTauntSlot</c> is <c>LOADOUT_POSITION_INVALID</c>, an absent
+    /// attribute reading 0. Null when not known: a loadout slot names the GC inventory's item, which no demo carries; and no
+    /// item, or no schema, leaves the client's previous values, which no demo carries either.
+    /// </summary>
+    /// <param name="recorder">The player.</param>
+    /// <param name="hooks">The item schema's lookups; null for none.</param>
+    /// <returns>The taunt's movement, or null.</returns>
+    public static TauntMovement? TauntMovementOf(ScenePlayer recorder, AttributeHooks? hooks)
+    {
+        const int InvalidItemDefIndex = 65535;
+
+        if (hooks is null || recorder.ActiveTauntSlot is not -1 ||
+            recorder.TauntItemDefIndex is not { } definition || definition == InvalidItemDefIndex)
+        {
+            return null;
+        }
+
+        int Raw(string name) => hooks.DefinitionAttribute(definition, name) ?? 0;
+
+        return new TauntMovement(
+            ForceForward: Raw("taunt force move forward") != 0,
+            Speed: BitConverter.Int32BitsToSingle(Raw("taunt move speed")),
+            Acceleration: BitConverter.Int32BitsToSingle(Raw("taunt move acceleration time")));
+    }
+
     /// <summary>What the movement asks a player's items, as of his networked state.</summary>
     /// <param name="recorder">The player.</param>
     /// <param name="hooks">The attribute hooks; null hooks nothing.</param>
@@ -190,6 +218,7 @@ public sealed class RecorderPrediction
             ActiveWeaponIsMinigun = recorder.WeaponClass == "CTFMinigun",
             HasTheFlag = recorder.HasTheFlag,
             AllowMoveDuringTaunt = recorder.AllowMoveDuringTaunt,
+            TauntMovement = TauntMovementOf(recorder, hooks),
             CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
             VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
             GrapplingHook = grapple,

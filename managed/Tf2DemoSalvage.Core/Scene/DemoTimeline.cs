@@ -420,6 +420,12 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_hGrapplingHookTarget` (c_tf_player.cpp:3827) as its entity slot, or null for none.</summary>
     public int? GrapplingHookTarget { get; init; }
 
+    /// <summary>`m_iTauntItemDefIndex` (c_tf_player.cpp:3799): the taunt item when no loadout slot names it.</summary>
+    public int? TauntItemDefIndex { get; init; }
+
+    /// <summary>`m_nActiveTauntSlot` (c_tf_player.cpp:3798): the taunt's loadout slot, −1 (`LOADOUT_POSITION_INVALID`) for none.</summary>
+    public int? ActiveTauntSlot { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -3560,6 +3566,8 @@ public sealed class DemoTimeline
                     CurrentTauntMoveSpeed = player.Number("DT_TFPlayer.m_flCurrentTauntMoveSpeed"),
                     VehicleReverseTime = player.Number("DT_TFPlayer.m_flVehicleReverseTime"),
                     GrapplingHookTarget = EntityState.Slot(player.Integer("DT_TFPlayer.m_hGrapplingHookTarget")),
+                    TauntItemDefIndex = player.Integer("DT_TFPlayer.m_iTauntItemDefIndex"),
+                    ActiveTauntSlot = player.Integer("DT_TFPlayer.m_nActiveTauntSlot"),
                 });
             }
 

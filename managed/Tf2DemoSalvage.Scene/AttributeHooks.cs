@@ -46,6 +46,31 @@ public sealed class AttributeHooks(ItemSchema schema)
         return Owner(player, attributeClass, schema.Apply(Attributes(weapon), attributeClass, value), weapon);
     }
 
+    /// <summary>
+    /// `CEconItemView::FindAttribute` on a view `Init` from a definition alone (`AE_UNIQUE`, no item id), which holds only
+    /// the definition's static attributes: the named attribute's 32 raw bits, or null when it does not carry it.
+    /// </summary>
+    /// <param name="definitionIndex">The item definition.</param>
+    /// <param name="attributeName">The attribute's `name`, as a `CSchemaAttributeDefHandle` names it.</param>
+    /// <returns>The raw bits, or null.</returns>
+    public int? DefinitionAttribute(int definitionIndex, string attributeName)
+    {
+        if (schema.AttributeDefinitionIndex(attributeName) is not { } attribute)
+        {
+            return null;
+        }
+
+        foreach (EconAttributeValue value in schema.DefinitionAttributesFor(definitionIndex))
+        {
+            if (value.DefinitionIndex == attribute)
+            {
+                return value.RawBits;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`CALL_ATTRIB_HOOK_INT`: the float result rounded as `cvtss2si` rounds.</summary>
     /// <param name="value">The hooked float.</param>
     /// <returns>The integer.</returns>

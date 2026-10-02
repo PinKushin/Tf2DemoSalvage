@@ -8210,10 +8210,14 @@ guessed at in code.
   synthetic tests.* **Still declined, each because the demo does not carry the state:** `FL_WATERJUMP` arriving set
   (`m_flWaterJumpTime` is a `DEFINE_FIELD`, neither sent nor restored, `c_baseplayer.cpp:383`); a hook on a projectile
   (the timeline hands prediction no projectile position); the 0.2 s of `StunMove`'s fade (`m_flLastMovementStunChange`
-  is client state set by whichever prediction first saw the stun end); a moving taunt (its `"taunt move speed"`,
-  `"taunt force move forward"` and `"taunt move acceleration time"` are the taunt item's attributes,
-  `tf_player_shared.cpp:13156`, from `m_iTauntItemDefIndex` or the GC loadout slot — `items_game.txt` is not wired to
-  prediction). **Taken as defaults:** `CanPlayerMove` and `CanMoveDuringTaunt`'s competitive refusals (game rules), the
+  is client state set by whichever prediction first saw the stun end); a moving taunt from a **loadout slot**
+  (`m_nActiveTauntSlot` names the GC inventory's item, `c_tf_player.cpp:4914-4920`, which no demo carries) or with no
+  taunt item. **A moving taunt by definition is closed:** with the slot `LOADOUT_POSITION_INVALID`, `UpdateTauntItem`
+  views `m_iTauntItemDefIndex`'s definition (`:4901-4905`) and `ParseSharedTauntDataFromEconItemView` finds
+  `"taunt force move forward"`, `"taunt move speed"` and `"taunt move acceleration time"` on it
+  (`tf_player_shared.cpp:13156-13171`), an absent one reading 0 — `RecorderPrediction.TauntMovementOf` over main's
+  `AttributeHooks`, held by `RecorderPredictionTauntTests` (sabotaged: reading `"taunt turn speed"` reddened it). The
+  merge also made `CanJump`'s taunt refusal reachable (`:12279`); it is ported. **Taken as defaults:** `CanPlayerMove` and `CanMoveDuringTaunt`'s competitive refusals (game rules), the
   match-start and ConTracker freeze at the end of `StunMove`, the player-destruction team leader in the grapple,
   `cannot_swim`, `swimming_mastery` and `parachute_attribute` (so `ToggleParachute` does not toggle), the `tf_*`
   movement ConVars at their declared defaults (`tf_grapplinghook_use_acceleration` 0 picks the grapple's simple branch),

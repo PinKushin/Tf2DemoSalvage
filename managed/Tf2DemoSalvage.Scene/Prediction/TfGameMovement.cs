@@ -1103,7 +1103,7 @@ public sealed class TfGameMovement
         bool scout = _player.PlayerClass == ClassScout;
         bool onGround = _player.OnGround;
 
-        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test. A taunt never reaches here (declined above).
+        // tf_gamemovement.cpp:1210: CanJump comes before every ducking test.
         if (_player.IsDead || !CanJump() ||
             (_player.FlDucking && !(scout && !onGround)) ||
             (_player.Ducking && _player.FlDucking) || _player.DuckJumpTime > 0f ||
@@ -1170,8 +1170,9 @@ public sealed class TfGameMovement
         return _player.Conditions.Has(CondRuneAgility) ? mod * 1.8f : mod;
     }
 
-    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>) past its taunt test.</summary>
-    private bool CanJump() => Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
+    /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>): not while taunting, then the weapon and <c>no_jump</c>.</summary>
+    private bool CanJump() =>
+        !_player.Conditions.Has(CondTaunting) && Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
 
     /// <summary><c>CTFPlayer::CanAirDash</c> (<c>tf_player_shared.cpp:12840</c>).</summary>
     /// <remarks>
