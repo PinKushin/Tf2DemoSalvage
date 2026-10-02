@@ -238,6 +238,16 @@ public sealed class PlayerCompletenessTests
         FovTime = 12.5f,
         FovRate = 0.1f,
         DefaultFov = 85,
+
+        // The movement modes' inputs (B450).
+        ViewOffsetZ = 68f,
+        MovementStunTime = 2.5f,
+        MovementStunAmount = 153,
+        MovementStunParity = 3,
+        AllowMoveDuringTaunt = true,
+        CurrentTauntMoveSpeed = 212.5f,
+        VehicleReverseTime = 104.25f,
+        GrapplingHookTarget = 2,
     };
 
     /// <summary>Every property of a type that a test can read.</summary>
