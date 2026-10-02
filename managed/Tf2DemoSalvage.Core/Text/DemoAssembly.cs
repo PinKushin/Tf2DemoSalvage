@@ -108,10 +108,31 @@ public static class DemoAssembly
     /// <exception cref="InvalidDataException">The text is not valid assembly.</exception>
     public static (int Commands, int Bytes) Compile(string assemblyPath, string outputPath)
     {
-        using StreamReader reader = new(assemblyPath);
-        using FileStream output = new(outputPath, FileMode.Create, FileAccess.Write);
-        (int commands, long bytes) = Compile(reader, output);
-        return (commands, checked((int)bytes));
+        // Written beside the target and moved over it only once the whole text compiled: a parse that
+        // fails at the end must not leave a partial demo where the user asked for one. Same folder, so
+        // the move is a rename.
+        string temp = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(outputPath))!,
+            Path.GetFileName(outputPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+
+        try
+        {
+            (int commands, long bytes) result;
+
+            using (StreamReader reader = new(assemblyPath))
+            using (FileStream output = new(temp, FileMode.CreateNew, FileAccess.Write))
+            {
+                result = Compile(reader, output);
+            }
+
+            File.Move(temp, outputPath, overwrite: true);
+            return (result.commands, checked((int)result.bytes));
+        }
+        finally
+        {
+            // A no-op after the move; the cleanup of a failed compile otherwise.
+            File.Delete(temp);
+        }
     }
 
     /// <summary>Compiles assembly text into a demo on a stream, a command at a time (B449).</summary>
