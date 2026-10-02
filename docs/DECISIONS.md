@@ -9457,3 +9457,5 @@ guess. Number 3 is the only iffy one."*
      SdkReference both reference: clean direction, one more project.
    - *Leave it*: `GameInstall.Root` keeps `TF2_FOLDER` then its hard-coded library paths. Tests on a
      machine with TF2 elsewhere set `TF2_FOLDER`, which they already document.
+
+  **Chosen: leave it.** Owner, 2026-10-02: *"Yea just keep it as it is, it doesn't hurt anything I don't think."*
