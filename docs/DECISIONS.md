@@ -9459,3 +9459,12 @@ guess. Number 3 is the only iffy one."*
      machine with TF2 elsewhere set `TF2_FOLDER`, which they already document.
 
   **Chosen: leave it.** Owner, 2026-10-02: *"Yea just keep it as it is, it doesn't hurt anything I don't think."*
+
+## D204 — 0.1.0-beta.1 is published without an owner review of the draft (2026-10-02)
+
+The release workflow makes a draft so the owner can review it before anything is public. The owner waived that
+review: *"Tag and go back to parity work, actually release too, I don't want to review it, because I really can't.
+I'll post on team fortress.tv when I get home, so we can maybe get some downloads and beta testers."* So the
+assistant tagged `v0.1.0-beta.1` at `8501be74`, checked the CI-built zip itself (no workflow annotations; the
+packaged CLI summarised `z1800.dem`, `tf2demoview --help` exited 0, the bundled runtime and voice DLLs present),
+and published it as a pre-release. Later betas follow the same path unless the owner asks to review.
