@@ -134,29 +134,10 @@ public static class Tf2ConfigFiles
             .GetString(span);
     }
 
-    /// <summary>Where a stock Windows Steam install keeps the <c>tf</c> folder.</summary>
+    /// <summary>This machine's <c>tf</c> folder, from <see cref="SteamInstall"/>.</summary>
     /// <remarks>
-    /// **A guess, and it is allowed to be wrong.** Steam libraries move to other drives constantly,
-    /// so this is a default for the common case rather than a discovery mechanism — the viewer takes
-    /// the folder from its settings when one is configured, and falls back to here. Reporting "no
-    /// config found" is a correct outcome, not a failure.
+    /// Was a hand-typed Program Files guess until 2026-10-02; it now asks the one resolver. Null —
+    /// "no config found" — is a correct outcome, not a failure.
     /// </remarks>
-    public static string? DefaultGameFolder
-    {
-        get
-        {
-            string? programFiles = Environment.GetFolderPath(
-                Environment.SpecialFolder.ProgramFilesX86);
-
-            if (string.IsNullOrEmpty(programFiles))
-            {
-                return null;
-            }
-
-            string guess = Path.Combine(
-                programFiles, "Steam", "steamapps", "common", "Team Fortress 2", "tf");
-
-            return Directory.Exists(guess) ? guess : null;
-        }
-    }
+    public static string? DefaultGameFolder => SteamInstall.Machine.GameFolder();
 }
