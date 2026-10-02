@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Prediction;
@@ -26,7 +28,10 @@ public sealed class RecorderPrediction
 {
     private readonly DemoTimeline _timeline;
     private readonly Func<MapLevel?> _world;
-    private readonly MovementConVars _convars;
+
+    // The movement ConVars as of the tick predicted (B450), rebuilt only when a net_SetConVar has moved them.
+    private ServerConVars? _convarsFrom;
+    private MovementConVars _convars = MovementConVars.Defaults;
 
     private MapLevel? _brushLevel;
     private IReadOnlyList<(ScenePropTrack Track, int HeadNode)> _brushTracks = [];
@@ -41,7 +46,6 @@ public sealed class RecorderPrediction
     {
         _timeline = timeline ?? throw new ArgumentNullException(nameof(timeline));
         _world = world ?? throw new ArgumentNullException(nameof(world));
-        _convars = MovementConVars.From(timeline.ServerConVars);
     }
 
     /// <summary>The item schema's attribute hooks, asked per prediction because the schema loads on its own schedule; null for none.</summary>
@@ -88,15 +92,7 @@ public sealed class RecorderPrediction
     /// </remarks>
     public static MovementItems ItemsOf(ScenePlayer recorder, AttributeHooks? hooks)
     {
-        SceneItem? active = null;
-
-        foreach (SceneItem item in recorder.Items ?? [])
-        {
-            if (item.EntityIndex == recorder.ActiveWeapon)
-            {
-                active = item;
-            }
-        }
+        SceneItem? active = ActiveItem(recorder);
 
         Func<string, float, float> onPlayer = hooks is null
             ? MovementItems.None.OnPlayer
@@ -107,6 +103,81 @@ public sealed class RecorderPrediction
 
         return new MovementItems(onPlayer, onWeapon, active is not { ClassName: "CTFCompoundBow", ChargeBeginTime: not 0f });
     }
+
+    /// <summary><c>GetActiveTFWeapon()</c>: the item whose entity is <c>m_hActiveWeapon</c>, or null.</summary>
+    private static SceneItem? ActiveItem(ScenePlayer recorder)
+    {
+        SceneItem? active = null;
+
+        foreach (SceneItem item in recorder.Items ?? [])
+        {
+            if (item.EntityIndex == recorder.ActiveWeapon)
+            {
+                active = item;
+            }
+        }
+
+        return active;
+    }
+
+    /// <summary>
+    /// <c>IsFiring()</c>: <c>CTFFlameThrower</c>'s <c>m_iWeaponState == FT_STATE_FIRING</c> (<c>tf_weapon_flamethrower.h:36</c>,
+    /// <c>:92</c>), every other weapon the base's false (<c>tf_weaponbase.h:372</c>).
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the networked state stands for every command re-run. The client's <c>ItemPostFrame</c> moves it after each
+    /// command's movement (<c>tf_weapon_flamethrower.cpp:536-657</c>), on ammo, spin-up and a muzzle trace this port does not run.
+    /// </remarks>
+    private static bool IsFiring(SceneItem? weapon) => weapon is { ClassName: "CTFFlameThrower", FlameThrowerState: 2 };
+
+    /// <summary>
+    /// The active weapon's <c>m_flLastDeployTime</c> as the client has it: <c>Deploy</c> sets it to <c>gpGlobals-&gt;curtime</c>
+    /// (<c>tf_weaponbase.cpp:1319</c>) and no table sends or predicts it (<c>:169-248</c>), so it is the time of the last
+    /// command prediction ran that switched to the weapon — <c>RunCommand</c>'s <c>weaponselect</c> (<c>prediction.cpp:903-910</c>),
+    /// which <c>SelectItem</c> ignores for the weapon already held.
+    /// </summary>
+    /// <param name="commands">Every usercmd, in stream order.</param>
+    /// <param name="acknowledged">The last command the packet's state includes.</param>
+    /// <param name="activeWeapon">The active weapon's entity at the packet.</param>
+    /// <param name="activeBefore">The active weapon's entity before a command ran, by its sequence; null when not known.</param>
+    /// <param name="curTime">The curtime of the command after <paramref name="acknowledged"/>.</param>
+    /// <param name="intervalPerTick">The tick interval; each command advances curtime by one.</param>
+    /// <returns>When it deployed, or null when it did so earlier than <c>CanAirDash</c>'s 0.7 s could ask.</returns>
+    /// <remarks>*Interpolated:* a switch is taken to succeed — <c>Weapon_Switch</c> can refuse on <c>CanHolster</c>/<c>CanDeploy</c>.</remarks>
+    internal static float? LastDeployTime(
+        IReadOnlyList<RecordedUserCommand> commands,
+        int acknowledged,
+        int activeWeapon,
+        Func<int, int?> activeBefore,
+        float curTime,
+        float intervalPerTick)
+    {
+        ArgumentNullException.ThrowIfNull(commands);
+        ArgumentNullException.ThrowIfNull(activeBefore);
+
+        int window = (int)MathF.Ceiling(AtomizerDeployWindow / intervalPerTick);
+
+        for (int index = FirstAfter(commands, acknowledged) - 1; index >= 0; index--)
+        {
+            RecordedUserCommand command = commands[index];
+            int behind = acknowledged + 1 - command.Sequence;
+
+            if (behind > window)
+            {
+                break;
+            }
+
+            if (command.Command.WeaponSelect == activeWeapon && activeBefore(command.Sequence) is { } held && held != activeWeapon)
+            {
+                return curTime - (behind * intervalPerTick);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>The Atomizer's <c>flTimeSinceDeploy &lt; 0.7f</c> (<c>tf_player_shared.cpp:12871</c>).</summary>
+    private const float AtomizerDeployWindow = 0.7f;
 
     /// <summary>The recorder's predicted <c>m_vecVelocity</c> at a moment of playback.</summary>
     /// <param name="tick">The playback position.</param>
@@ -175,6 +246,14 @@ public sealed class RecorderPrediction
 
         AttributeHooks? hooks = Hooks?.Invoke();
         MovementWorld world = MovementWorld.At(_timeline, _brushTracks, level, packet.Tick, recorder);
+        ServerConVars serverConVars = _timeline.ServerConVarsAt(tick);
+
+        if (!ReferenceEquals(serverConVars, _convarsFrom))
+        {
+            _convars = MovementConVars.From(serverConVars);
+            _convarsFrom = serverConVars;
+        }
+
         TfGameMovement movement = new(world.Trace, _convars, _timeline.MaxClients)
         {
             Items = ItemsOf(recorder, hooks),
@@ -222,6 +301,11 @@ public sealed class RecorderPrediction
             CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
             VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
             GrapplingHook = grapple,
+            IsLoser = IsLoser(recorder, packet.Tick, serverConVars),
+            LastDeployTime = recorder.ActiveWeapon is { } active
+                ? LastDeployTime(
+                    _timeline.UserCommands, packet.Acknowledged, active, ActiveBefore, packetTime, _timeline.IntervalPerTick)
+                : null,
         };
 
         // A stun already running when the packet arrived was seen by every earlier prediction: its lerp target is set.
@@ -233,6 +317,16 @@ public sealed class RecorderPrediction
 
         foreach (RecordedUserCommand command in pending)
         {
+            // RunCommand's weapon selection, before the movement (prediction.cpp:903-910); Deploy stamps the time.
+            if (command.Command.WeaponSelect is not 0 and var selected && selected != recorder.ActiveWeapon &&
+                recorder.Items?.FirstOrDefault(item => item.IsWeapon && item.EntityIndex == selected) is { } weapon)
+            {
+                recorder = recorder with { ActiveWeapon = selected };
+                movement.Items = ItemsOf(recorder, hooks);
+                player.ActiveWeaponFiring = IsFiring(weapon);
+                player.LastDeployTime = player.CurTime;
+            }
+
             if (!movement.ProcessMovement(ref player, command.Command, _timeline.IntervalPerTick, first, command.Sequence))
             {
                 return null;
@@ -242,6 +336,48 @@ public sealed class RecorderPrediction
         }
 
         return (player.Velocity.X, player.Velocity.Y, player.Velocity.Z);
+    }
+
+    /// <summary><c>m_Shared.IsLoser()</c> off the game rules and ConVars at the packet; the rule is <see cref="LoserState.IsLoser"/>.</summary>
+    private bool IsLoser(ScenePlayer recorder, int packetTick, ServerConVars serverConVars) =>
+        LoserState.IsLoser(
+            alwaysLoser: (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0,
+            matchTypeCompetitive: _timeline.RulesAt(packetTick).IsMatchTypeCompetitive,
+            roundState: _timeline.RoundStateAt(packetTick),
+            winningTeam: _timeline.RulesAt(packetTick).WinningTeam,
+            team: recorder.Team,
+            playerClass: recorder.PlayerClass,
+            conditions: recorder.Conditions,
+            disguiseTeam: recorder.DisguiseTeam,
+            stunIndex: recorder.StunIndex,
+            stunFlags: recorder.StunFlags);
+
+    /// <summary>
+    /// The recorder's <c>m_hActiveWeapon</c> before a command ran: as of the last packet that did not yet include it.
+    /// </summary>
+    private int? ActiveBefore(int sequence)
+    {
+        IReadOnlyList<(int Tick, int Acknowledged)> packets = _timeline.PacketAcknowledgements;
+        int low = 0;
+        int high = packets.Count;
+
+        while (low < high)
+        {
+            int middle = (low + high) / 2;
+
+            if (packets[middle].Acknowledged < sequence)
+            {
+                low = middle + 1;
+            }
+            else
+            {
+                high = middle;
+            }
+        }
+
+        return low > 0 && _timeline.RecorderEntityIndex is { } recorder
+            ? Find(_timeline.PlayersAt(packets[low - 1].Tick), recorder)?.ActiveWeapon
+            : null;
     }
 
     private static int EnemyContents(int? team) => team switch
@@ -281,6 +417,9 @@ public sealed class RecorderPrediction
             Team = recorder.Team,
             EntityIndex = recorder.EntityIndex,
             Gravity = recorder.Gravity,
+            HypeMeter = recorder.HypeMeter ?? 0f,
+            OwnsPepBrawlerBlaster = recorder.Items?.Any(item => item is { IsWeapon: true, ClassName: "CTFPEPBrawlerBlaster" }) ?? false,
+            ActiveWeaponFiring = IsFiring(ActiveItem(recorder)),
 
             // m_pSurfaceData is client state from the last prediction, not networked. *Interpolated:* none, so the first
             // command's CheckParameters reads a speed factor of 1 until CategorizePosition finds the ground.
@@ -462,7 +601,17 @@ public sealed class RecorderPrediction
 
         List<RecordedUserCommand> pending = [];
 
-        // The first command read at or after the packet's sequence, found by bisection; usercmds rise in both.
+        for (int index = FirstAfter(commands, acknowledged); index < commands.Count && commands[index].Tick <= tick; index++)
+        {
+            pending.Add(commands[index]);
+        }
+
+        return pending;
+    }
+
+    /// <summary>The first command past the packet's sequence, found by bisection; usercmds rise in both.</summary>
+    private static int FirstAfter(IReadOnlyList<RecordedUserCommand> commands, int acknowledged)
+    {
         int low = 0;
         int high = commands.Count;
 
@@ -480,12 +629,7 @@ public sealed class RecorderPrediction
             }
         }
 
-        for (int index = low; index < commands.Count && commands[index].Tick <= tick; index++)
-        {
-            pending.Add(commands[index]);
-        }
-
-        return pending;
+        return low;
     }
 
     private static (int Tick, int Acknowledged)? LastPacket(IReadOnlyList<(int Tick, int Acknowledged)> packets, int tick)

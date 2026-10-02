@@ -36,10 +36,10 @@ namespace Tf2DemoSalvage.Scene.Prediction;
 /// <c>mod_air_control</c> and its blast-jump form, <c>CanAirDash</c>, <c>CanJump</c>, <c>CanDuck</c>), the ground's surfaceprop
 /// through <see cref="GroundSurface"/>, and <c>m_flGravity</c>.
 ///
-/// **Taken as their defaults, each filed under B450:** <c>GetMovementForwardPull</c> (0: it needs the weapon's
-/// <c>IsFiring()</c>), the Atomizer's deploy-time dash test, the game rules' gravity multiplier (1, never on the wire),
-/// and <c>IsLoser</c>'s duck crop (not a loser). A moving ground's velocity is zero because the client's is
-/// (<see cref="SetGroundEntity"/>).
+/// **Read off the player too** (B450): <c>GetMovementForwardPull</c> from the active weapon's fire state, the Atomizer's
+/// deploy-time dash test, <c>hype_resets_on_jump</c> with the Baby Face's speed term, <c>IsLoser</c>'s duck crop, and
+/// <c>tf_clamp_airducks</c>. **Taken as a default:** the game rules' gravity multiplier (1, never on the wire). A moving
+/// ground's velocity is zero because the client's is (<see cref="SetGroundEntity"/>).
 /// </remarks>
 public sealed class TfGameMovement
 {
@@ -70,6 +70,7 @@ public sealed class TfGameMovement
     private const int CondTaunting = 7;
     private const int CondStunned = 15;
     private const int CondShieldCharge = 17;
+    private const int CondSpeedBoost = 32;
     private const int CondSodaPopperHype = 36;
     private const int CondHalloweenSpeedBoost = 72;
     private const int CondBlastJumping = 81;
@@ -187,8 +188,8 @@ public sealed class TfGameMovement
     /// </summary>
     public Func<Vector3, int>? PointContents { get; init; }
 
-    /// <summary>The player's items, as the movement hooks their attributes; none by default.</summary>
-    public MovementItems Items { get; init; } = MovementItems.None;
+    /// <summary>The player's items, as the movement hooks their attributes; none by default. Set again when a command switches weapon.</summary>
+    public MovementItems Items { get; set; } = MovementItems.None;
 
     /// <summary>
     /// <c>GetSurfaceData( pm.surface.surfaceProps )</c> for a ground trace (<c>CategorizeGroundSurface</c>); null, or a null
@@ -255,6 +256,12 @@ public sealed class TfGameMovement
         {
             // Cleared for the next command, which starts from a world that may have arrived since.
             _noWorld = false;
+            return false;
+        }
+
+        if (_declined)
+        {
+            // A step inside the move this port cannot follow (TeamFortressSetSpeed).
             return false;
         }
 
@@ -816,7 +823,12 @@ public sealed class TfGameMovement
             _buttons &= ~InDuck;
         }
 
-        // tf_clamp_airducks is taken as its default 1 (:49).
+        // tf_clamp_airducks (:49, :3190-3191).
+        if (!_convars.ClampAirDucks)
+        {
+            return;
+        }
+
         if (_player.CurTime < _player.DuckTimer && onGround)
         {
             _buttons &= ~InDuck;
@@ -842,6 +854,14 @@ public sealed class TfGameMovement
             _sideMove *= Fraction;
             _upMove *= Fraction;
             _speedCropped = true;
+        }
+
+        // CTFGameMovement::HandleDuckingSpeedCrop (tf_gamemovement.cpp:3375-3383): a loser ducking cannot move.
+        if (_speedCropped && _player.IsLoser)
+        {
+            _forwardMove = 0f;
+            _sideMove = 0f;
+            _upMove = 0f;
         }
     }
 
@@ -1147,6 +1167,18 @@ public sealed class TfGameMovement
 
     private void AirDash()
     {
+        float jumpMod = JumpMod();
+
+        // Lose hype on airdash (tf_gamemovement.cpp:1007-1016).
+        int hypeResetsOnJump = HookInt(Items.OnPlayer("hype_resets_on_jump", 0f));
+
+        if (hypeResetsOnJump != 0)
+        {
+            float before = _player.HypeMeter;
+            SetScoutHypeMeter(_player.HypeMeter - hypeResetsOnJump);
+            TeamFortressSetSpeed(before);
+        }
+
         (Vector3 forward, Vector3 right) = FlatAxes();
 
         Vector3 wish = new(
@@ -1154,9 +1186,43 @@ public sealed class TfGameMovement
             (forward.Y * _forwardMove) + (right.Y * _sideMove),
             0f);
 
-        _player.Velocity = wish with { Z = AirDashZ * JumpMod() };
+        _player.Velocity = wish with { Z = AirDashZ * jumpMod };
         _player.AirDash++;
     }
+
+    /// <summary><c>SetScoutHypeMeter</c> (<c>tf_player_shared.cpp:14124-14129</c>): not while hype-buffed, clamped to 0..100.</summary>
+    private void SetScoutHypeMeter(float value)
+    {
+        if (!_player.Conditions.Has(CondSodaPopperHype))
+        {
+            _player.HypeMeter = Math.Clamp(value, 0f, 100f);
+        }
+    }
+
+    /// <summary><c>TeamFortress_SetSpeed</c> (<c>tf_player_shared.cpp:11130-11147</c>) after the hype meter moved.</summary>
+    /// <param name="hypeBefore">The hype the networked max speed was computed with.</param>
+    /// <remarks>
+    /// The max speed's only hype term is the Baby Face's <c>RemapValClamped( hype, 0, 100, 1, 1.45 )</c> (<c>:11080-11086</c>),
+    /// a factor near the end of <c>TeamFortress_CalculateMaxSpeed</c> with only factors after it, so the networked
+    /// <c>m_flMaxspeed</c> divided by the old term and multiplied by the new is the recompute. Not under
+    /// <c>TF_COND_SPEED_BOOST</c>, which adds to the speed under <c>GAME_DLL</c> only (<c>:10918-10928</c>): the client's
+    /// recompute drops it, which no division undoes, so that move is declined.
+    /// </remarks>
+    private void TeamFortressSetSpeed(float hypeBefore)
+    {
+        if (_player.Conditions.Has(CondSpeedBoost))
+        {
+            _declined = true;
+            return;
+        }
+
+        if (_player.OwnsPepBrawlerBlaster)
+        {
+            _player.MaxSpeed = _player.MaxSpeed / BabyFaceSpeed(hypeBefore) * BabyFaceSpeed(_player.HypeMeter);
+        }
+    }
+
+    private static float BabyFaceSpeed(float hype) => 1f + (0.45f * Math.Clamp(hype / 100f, 0f, 1f));
 
     /// <summary>
     /// <c>flJumpMod</c> (<c>tf_gamemovement.cpp:997-1020</c>, <c>:1287-1313</c>): <c>mod_jump_height</c> on the player, then
@@ -1170,15 +1236,20 @@ public sealed class TfGameMovement
         return _player.Conditions.Has(CondRuneAgility) ? mod * 1.8f : mod;
     }
 
+    /// <summary>
+    /// <c>CTFPlayer::GetMovementForwardPull</c> (<c>tf_player_shared.cpp:10767-10779</c>): <c>firing_forward_pull</c> on the active
+    /// weapon while it <c>IsFiring()</c>, else 0.
+    /// </summary>
+    private float GetMovementForwardPull() =>
+        Items.OnActiveWeapon is not null && _player.ActiveWeaponFiring ? Items.OnWeapon("firing_forward_pull", 0f) : 0f;
+
+    private static float Length2D(Vector3 value) => MathF.Sqrt((value.X * value.X) + (value.Y * value.Y));
+
     /// <summary><c>CTFPlayer::CanJump</c> (<c>tf_player_shared.cpp:12276</c>): not while taunting, then the weapon and <c>no_jump</c>.</summary>
     private bool CanJump() =>
         !_player.Conditions.Has(CondTaunting) && Items.OwnerCanJump && HookInt(Items.OnPlayer("no_jump", 0f)) == 0;
 
     /// <summary><c>CTFPlayer::CanAirDash</c> (<c>tf_player_shared.cpp:12840</c>).</summary>
-    /// <remarks>
-    /// *Not ported:* the Atomizer's third-jump test (<c>:12867-12873</c>), which needs the weapon's last deploy time; a third dash
-    /// within 0.7 s of deploying is allowed here.
-    /// </remarks>
     private bool CanAirDash()
     {
         PlayerConditions conditions = _player.Conditions;
@@ -1206,7 +1277,19 @@ public sealed class TfGameMovement
         // tf_scout_air_dash_count, FCVAR_DEVELOPMENTONLY with a default of 1 (tf_player_shared.cpp:113).
         int dashCount = HookInt(Items.OnWeapon("air_dash_count", 1f));
 
-        return _player.AirDash < dashCount && HookInt(Items.OnPlayer("set_scout_doublejump_disabled", 0f)) != 1;
+        if (_player.AirDash >= dashCount)
+        {
+            return false;
+        }
+
+        // The Atomizer's third jump (:12867-12873): not within 0.7 s of the active weapon's GetLastDeployTime().
+        if (Items.OnActiveWeapon is not null && dashCount >= 2 && _player.AirDash == 1 &&
+            _player.LastDeployTime is { } deployed && _player.CurTime - deployed < 0.7f)
+        {
+            return false;
+        }
+
+        return HookInt(Items.OnPlayer("set_scout_doublejump_disabled", 0f)) != 1;
     }
 
     private void PreventBunnyJumping()
@@ -1318,6 +1401,19 @@ public sealed class TfGameMovement
         {
             float scale = _maxSpeed / newSpeed;
             _player.Velocity = new Vector3(_player.Velocity.X * scale, _player.Velocity.Y * scale, _player.Velocity.Z);
+        }
+
+        // tf_gamemovement.cpp:1817-1828: z is 0 here, so the whole vector is normalised.
+        float forwardPull = GetMovementForwardPull();
+
+        if (forwardPull > 0f)
+        {
+            _player.Velocity += forward * forwardPull;
+
+            if (Length2D(_player.Velocity) > _maxSpeed)
+            {
+                _player.Velocity = Normalize(_player.Velocity) * _maxSpeed;
+            }
         }
 
         // tf_clamp_back_speed 0.9 above tf_clamp_back_speed_min 100 (tf_gamemovement.cpp:47-48, :1832).
@@ -1489,6 +1585,20 @@ public sealed class TfGameMovement
         }
 
         AirAccelerate(wishDirection, wishSpeed, airAccel);
+
+        // tf_gamemovement.cpp:2169-2183: cut back in the plane, the fall speed kept.
+        float forwardPull = GetMovementForwardPull();
+
+        if (forwardPull > 0f)
+        {
+            _player.Velocity += forward * forwardPull;
+
+            if (Length2D(_player.Velocity) > _maxSpeed)
+            {
+                float z = _player.Velocity.Z;
+                _player.Velocity = (Normalize(_player.Velocity with { Z = 0f }) * _maxSpeed) with { Z = z };
+            }
+        }
 
         _player.Velocity += _player.BaseVelocity;
 

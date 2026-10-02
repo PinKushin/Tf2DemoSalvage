@@ -171,6 +171,26 @@ public record struct PredictedPlayer
 
     /// <summary><c>GetGrapplingHookTarget()</c>: <c>m_hGrapplingHookTarget</c> resolved, or null.</summary>
     public GrapplingTarget? GrapplingHook { get; set; }
+
+    // ---- The remaining defaults (B450). ----
+
+    /// <summary>
+    /// <c>GetActiveTFWeapon()-&gt;IsFiring()</c>: only <c>CTFFlameThrower</c> overrides it, as <c>m_iWeaponState ==
+    /// FT_STATE_FIRING</c> (<c>tf_weapon_flamethrower.h:92</c>); the base answers false (<c>tf_weaponbase.h:372</c>).
+    /// </summary>
+    public bool ActiveWeaponFiring { get; set; }
+
+    /// <summary>The active weapon's <c>m_flLastDeployTime</c>, client state; null when it deployed outside anything asked.</summary>
+    public float? LastDeployTime { get; set; }
+
+    /// <summary><c>m_Shared.GetScoutHypeMeter()</c>: <c>m_flHypeMeter</c>.</summary>
+    public float HypeMeter { get; set; }
+
+    /// <summary><c>Weapon_OwnsThisID( TF_WEAPON_PEP_BRAWLER_BLASTER )</c>, which scales the max speed by the hype.</summary>
+    public bool OwnsPepBrawlerBlaster { get; set; }
+
+    /// <summary><c>m_Shared.IsLoser()</c> (<c>tf_player_shared.cpp:13654</c>), of the game rules at the packet.</summary>
+    public bool IsLoser { get; set; }
 }
 
 /// <summary>What <c>CTFGameMovement</c> asks the player's items: <c>CALL_ATTRIB_HOOK_*_ON_OTHER</c> and <c>OwnerCanJump</c> (B450).</summary>
@@ -219,7 +239,8 @@ public sealed record MovementConVars(
     float StepSize,
     float ForwardSpeed,
     float BackSpeed,
-    float SideSpeed)
+    float SideSpeed,
+    bool ClampAirDucks)
 {
     /// <summary>Valve's declared defaults (<c>movevars_shared.cpp</c>, <c>in_main.cpp:76-79</c>).</summary>
     public static MovementConVars Defaults { get; } = From(new ServerConVars());
@@ -242,6 +263,9 @@ public sealed record MovementConVars(
             server.Number("sv_stepsize"),
             server.Number("cl_forwardspeed"),
             server.Number("cl_backspeed"),
-            server.Number("cl_sidespeed"));
+            server.Number("cl_sidespeed"),
+
+            // GetBool() reads m_nValue, the value truncated: m_nValue = ( int )m_fValue (convar.cpp:937).
+            (int)server.Number("tf_clamp_airducks") != 0);
     }
 }

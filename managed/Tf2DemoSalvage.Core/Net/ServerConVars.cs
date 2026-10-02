@@ -113,6 +113,10 @@ public sealed class ServerConVars
         _state = new Settings(text, numbers);
     }
 
+    /// <summary>The settings in force now, kept apart from later <see cref="Apply"/> calls.</summary>
+    /// <returns>A copy sharing this one's immutable snapshot.</returns>
+    public ServerConVars Snapshot() => new() { _state = _state };
+
     /// <summary>The value in force, as text.</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>
