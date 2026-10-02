@@ -77,8 +77,12 @@ public sealed class DemoPlayer
         _interpAmount = (float)timeline.ClientInterpAmount;
     }
 
-    /// <summary>The watcher's <c>demo_*</c> ConVars.</summary>
-    public DemoViewConVars ConVars { get; init; } = DemoViewConVars.Defaults;
+    /// <summary>The watcher's <c>demo_*</c> ConVars, asked on every interpolation.</summary>
+    /// <remarks>
+    /// **Asked, not captured** (B450): <c>InterpolateViewpoint</c> (<c>0x180072180</c>) reads each ConVar per call,
+    /// so a config change while the demo plays applies on the next frame.
+    /// </remarks>
+    public Func<DemoViewConVars> ConVars { get; init; } = () => DemoViewConVars.Defaults;
 
     /// <summary><c>ResetDemoInterpolation</c> (vtable +0xa0, <c>0x180073990</c>): the next interpolation snaps.</summary>
     /// <remarks>
@@ -129,15 +133,16 @@ public sealed class DemoPlayer
         bool hasView = !current.IsDefault;
 
         int target = playbackTick;
+        DemoViewConVars conVars = ConVars();
 
         if (_maxClients == 1)
         {
-            target -= ConVars.LegacyRollback ? 1 + (int)((_interpAmount / _interval) + 0.5f) : 1;
+            target -= conVars.LegacyRollback ? 1 + (int)((_interpAmount / _interval) + 0.5f) : 1;
         }
 
         RecordedView? outinfo = null;
 
-        if (!_interpolateView || !ConVars.InterpolateView)
+        if (!_interpolateView || !conVars.InterpolateView)
         {
             if (hasView)
             {
@@ -146,7 +151,7 @@ public sealed class DemoPlayer
         }
         else if (hasView)
         {
-            outinfo = Between(current, target, hostRemainder);
+            outinfo = Between(current, target, hostRemainder, conVars);
         }
 
         _lastInterpolatedTick = target;
@@ -155,7 +160,7 @@ public sealed class DemoPlayer
     }
 
     /// <summary>The interpolating branch: the pair, the fraction, the two snaps and the blend.</summary>
-    private RecordedView Between(RecordedView current, int target, float hostRemainder)
+    private RecordedView Between(RecordedView current, int target, float hostRemainder, DemoViewConVars conVars)
     {
         ((int Tick, RecordedView View) prev, (int Tick, RecordedView View) next) = Pair(current, target);
 
@@ -184,7 +189,7 @@ public sealed class DemoPlayer
             angularSpeed = AngularSpeed(prev.View.LocalAngles, next.View.LocalAngles, 1d / dt);
         }
 
-        if (originSpeed > ConVars.InterpLimit || angularSpeed > ConVars.AvelLimit || _resetInterpolation)
+        if (originSpeed > conVars.InterpLimit || angularSpeed > conVars.AvelLimit || _resetInterpolation)
         {
             _resetInterpolation = false;
 

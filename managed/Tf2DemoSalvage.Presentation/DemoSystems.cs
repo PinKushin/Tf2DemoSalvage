@@ -88,7 +88,7 @@ public sealed class DemoSystems
     /// <summary>The watcher's own ConVar values — their TF2 configs, then this viewer's settings — or null where unset (D190).</summary>
     public Func<string, string?>? ClientConVars { get; set; }
 
-    /// <summary>The <c>demo_*</c> ConVars <c>InterpolateViewpoint</c> reads, from the watcher's config, read when a demo opens.</summary>
+    /// <summary>The <c>demo_*</c> ConVars <c>InterpolateViewpoint</c> reads, from the watcher's config, read on every interpolation (B450).</summary>
     private DemoViewConVars ViewConVars()
     {
         Scene.Hud.HudConVars vars = new(null, ClientConVars);
@@ -208,7 +208,7 @@ public sealed class DemoSystems
         _loops.Clear();
 
         // **One demo player, shared by the camera and the recorder's body** (B56), as the engine has one `demoplayer`.
-        DemoPlayer? player = timeline is { } played ? new DemoPlayer(played) { ConVars = ViewConVars() } : null;
+        DemoPlayer? player = timeline is { } played ? new DemoPlayer(played) { ConVars = ViewConVars } : null;
         _spectator.Eyes = timeline is { } eyes && player is not null ? new TimelineEyes(eyes, player) : null;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
 
