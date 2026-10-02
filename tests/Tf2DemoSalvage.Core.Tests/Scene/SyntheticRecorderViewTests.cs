@@ -69,6 +69,37 @@ public sealed class SyntheticRecorderViewTests
     }
 
     [Test]
+    public void PlayersAt_ASecondFrameHalfATickLater_TurnsTheFeetByTheFrameTime()
+    {
+        // B450: the feet converge per FRAME toward the local yaw (multiplayer_animstate.cpp:1759, frametime). He is
+        // moving, so the goal is the eye (:1716-1720); 90 degrees away saturates the scale (60), so half a tick at
+        // 0.015 turns them 720 * 0.0075 = 5.4 degrees — where the per-tick route, reading the server's zero eye yaw,
+        // leaves them where they were. The twist is measured against those same feet (:1765-1772).
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
+        RecorderFeet feet = new();
+
+        ScenePlayer first = Recorder(timeline, 105.5, feet);
+        ScenePlayer second = Recorder(timeline, 106.0, feet);
+
+        (second.Yaw - first.Yaw).ShouldBe(5.4f, 1e-3f);
+        second.AimYaw.ShouldNotBeNull().ShouldBe(-(90f - second.Yaw), 1e-3f);
+    }
+
+    [Test]
+    public void PlayersAt_AFrameBeforeTheLast_PlantsTheFeetWhereTheTimelineHasThem()
+    {
+        // A backward move restarts the anim state, as DemoPlayer restarts its reader: the feet a fresh state starts
+        // from at 105.5, not the ones carried from 106.
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
+        RecorderFeet feet = new();
+
+        Recorder(timeline, 105.5, feet);
+        Recorder(timeline, 106.0, feet);
+
+        Recorder(timeline, 105.5, feet).Yaw.ShouldBe(Recorder(timeline, 105.5, new RecorderFeet()).Yaw);
+    }
+
+    [Test]
     public void PlayersAt_WithAViewpoint_LeavesEveryoneElseAsTheyWere()
     {
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
@@ -90,6 +121,14 @@ public sealed class SyntheticRecorderViewTests
         DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander()).PlayersAt(105.5, players);
 
         players.Single(player => player.EntityIndex == 1).Y.ShouldBe(100f, 1e-3f);
+    }
+
+    private static ScenePlayer Recorder(DemoTimeline timeline, double tick, RecorderFeet feet)
+    {
+        List<ScenePlayer> players = [];
+        timeline.PlayersAt(tick, players, true, Viewpoint, feet);
+
+        return players.Single(player => player.EntityIndex == 1);
     }
 
     private static ScenePlayer Recorder(RecordedView viewpoint)
