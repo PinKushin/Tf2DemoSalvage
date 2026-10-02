@@ -69,7 +69,7 @@ public sealed class TfGameMovementModeConformanceTests
     public void ProcessMovement_WaterAtTheFeetOnly_WalksAsOnDryGround()
     {
         // WL_Feet is not InWater() (gamemovement.cpp:3479): the walk runs, 10 · 0.015 · 300 = 45 as on dry ground.
-        PredictedPlayer player = TfGameMovementConformanceTests.Standing();
+        PredictedPlayer player = TfGameMovementConformanceTests.Standing() with { ViewOffsetZ = 68f };
 
         Run(ref player, Command(forward: 450f), Water(10f));
 
