@@ -2147,7 +2147,7 @@ public sealed class DemoTimeline
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
-    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?)"/> answers.</returns>
+    /// <returns>A timeline whose <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?)"/> answers.</returns>
     /// <remarks>
     /// **The distinction this exists to make is the one B258 turned on.** `ForTracks` puts its
     /// tracks in `_props`, and `PropsAt` is therefore the only way to reach them — which is how two
@@ -5865,8 +5865,16 @@ public sealed class DemoTimeline
     /// What <c>CDemoPlayer::InterpolateViewpoint</c> handed the local player this frame (<see cref="DemoPlayer"/>), or
     /// null when it set nothing — a SourceTV demo, or a frame before the first view (B56).
     /// </param>
+    /// <param name="recorderFeet">
+    /// The viewer's anim-state feet for the recorder, carried from frame to frame (B450); null starts fresh feet from
+    /// the timeline's, which a single frame cannot tell apart.
+    /// </param>
     public void PlayersAt(
-        double tick, ICollection<ScenePlayer> into, bool interpolating = true, RecordedView? viewpoint = null)
+        double tick,
+        ICollection<ScenePlayer> into,
+        bool interpolating = true,
+        RecordedView? viewpoint = null,
+        RecorderFeet? recorderFeet = null)
     {
         ArgumentNullException.ThrowIfNull(into);
 
@@ -5886,7 +5894,7 @@ public sealed class DemoTimeline
             // **The local player is where the demo player's view put him** (B56): his origin is SetViewOrigin's.
             if (viewpoint is { } local && player.EntityIndex == RecorderEntityIndex)
             {
-                into.Add(LocalPlayer(player, local));
+                into.Add(LocalPlayer(player, local, tick, recorderFeet ?? new RecorderFeet()));
                 continue;
             }
 
@@ -6005,7 +6013,7 @@ public sealed class DemoTimeline
     /// <param name="entityIndex">The entity's slot.</param>
     /// <returns>Its track, or <c>null</c> when nothing about it was recorded.</returns>
     /// <remarks>
-    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?)"/>
+    /// **Exposed so a test can predict what <see cref="PlayersAt(double, ICollection{ScenePlayer}, bool, RecordedView?, RecorderFeet?)"/>
     /// should report.** Asserting a player's yaw against a literal would test the demo rather than
     /// the code; asserting it against the track this reads from tests the plumbing between them,
     /// which is where the number was being dropped.
@@ -6180,12 +6188,18 @@ public sealed class DemoTimeline
     /// <c>baseplayer_shared.cpp:303-311</c>) — <c>SetLocalViewAngles</c>' value. <c>EstimateAbsVelocity</c> returns
     /// <c>GetAbsVelocity()</c> for him (<c>c_baseentity.cpp:5852-5858</c>): the last <c>m_vecVelocity</c> received,
     /// stepped, since its <c>AddVar</c> is commented out (<c>:907-912</c>). Zero when never sent, as the entity is
-    /// allocated zeroed. The feet keep the timeline's per-tick advance (B448).
+    /// allocated zeroed. The feet advance per frame from that same local yaw (<see cref="RecorderFeet"/>, B450), are the
+    /// drawn yaw (<c>m_angRender[YAW] = m_flCurrentFeetYaw</c>, <c>multiplayer_animstate.cpp:1765</c>), and the twist
+    /// is measured against them (<c>:1768-1772</c>).
     /// </remarks>
-    private static ScenePlayer LocalPlayer(ScenePlayer player, RecordedView viewpoint)
+    private ScenePlayer LocalPlayer(ScenePlayer player, RecordedView viewpoint, double tick, RecorderFeet feet)
     {
         float eyeYaw = Normalize(viewpoint.LocalAngles.Yaw);
         (float X, float Y, float Z) velocity = player.Velocity ?? default;
+
+        // `vecVelocity.Length() > 1.0f` (:1709): the three-dimensional length, unlike the XY speed below.
+        float length = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y) + (velocity.Z * velocity.Z));
+        float feetYaw = feet.Advance(tick, eyeYaw, length, player.Yaw, IntervalPerTick);
 
         // GetOuterXYSpeed, and CalcMovementSpeed's `flSpeed > MOVING_MINIMUM_SPEED` (0.5).
         float speed = MathF.Sqrt((velocity.X * velocity.X) + (velocity.Y * velocity.Y));
@@ -6200,9 +6214,10 @@ public sealed class DemoTimeline
             X = viewpoint.Origin.X,
             Y = viewpoint.Origin.Y,
             Z = viewpoint.Origin.Z,
+            Yaw = feetYaw,
             EyeYaw = eyeYaw,
             EyePitch = Normalize(viewpoint.LocalAngles.Pitch),
-            AimYaw = FeetYaw.AimYaw(eyeYaw, player.Yaw),
+            AimYaw = FeetYaw.AimYaw(eyeYaw, feetYaw),
             Speed = speed,
             MoveX = moveX,
             MoveY = moveY,

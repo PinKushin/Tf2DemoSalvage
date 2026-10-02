@@ -59,6 +59,11 @@ public record struct FeetYaw
     /// <summary>Where the feet actually point, which is the yaw the body is drawn at.</summary>
     public float Current { get; private set; }
 
+    /// <summary>Feet already started, standing at <paramref name="yaw"/> with nowhere to turn.</summary>
+    /// <param name="yaw">Where they point.</param>
+    /// <returns>Feet whose goal and current yaw are both <paramref name="yaw"/>.</returns>
+    public static FeetYaw Planted(float yaw) => new() { _started = true, Goal = yaw, Current = yaw };
+
     /// <summary>Advances the feet one step.</summary>
     /// <param name="eyeYaw">Where the player is looking, in degrees.</param>
     /// <param name="speed">How fast they are moving, in units a second, in three dimensions.</param>
