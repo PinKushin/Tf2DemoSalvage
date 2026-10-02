@@ -814,9 +814,12 @@ internal static class SyntheticPlayer
         [
             Table("base", "DT_TFWeaponBase"), Table("knife", "DT_TFWeaponKnife"), Table("smg", "DT_WeaponChargedSMG"),
             Table("pack", "DT_TFWeaponRocketPack"), Table("cannon", "DT_ParticleCannon"), Table("bottle", "DT_TFPowerupBottle"),
-            Table("LocalWeaponData", "DT_LocalWeaponData"),
+            Table("LocalWeaponData", "DT_LocalWeaponData"), Table("flamethrower", "DT_WeaponFlameThrower"),
         ]));
         tables.Add(new SendTable("DT_LocalWeaponData", NeedsDecoder: true, [Int("m_iPrimaryAmmoType", bits: 8)]));
+
+        // tf_weapon_flamethrower.cpp:206: SendPropInt( SENDINFO( m_iWeaponState ), 4, SPROP_UNSIGNED | SPROP_CHANGES_OFTEN ).
+        tables.Add(new SendTable("DT_WeaponFlameThrower", NeedsDecoder: true, [UnsignedInt("m_iWeaponState", bits: 4)]));
 
         DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(ItemClassId, "CTFKnife", "DT_TestItem")]);
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -857,6 +860,7 @@ internal static class SyntheticPlayer
                 ["DT_ParticleCannon.m_flChargeBeginTime"] = PropertyValue.FromFloat(301.5f),
                 ["m_usNumCharges"] = PropertyValue.FromInt(3),
                 ["m_iPrimaryAmmoType"] = PropertyValue.FromInt(4),
+                ["m_iWeaponState"] = PropertyValue.FromInt(2),
             }),
         ];
 
@@ -1740,6 +1744,18 @@ internal static class SyntheticPlayer
             SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
             SyntheticDemo.DataTables(Schema()),
             SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 10, messages));
+
+    /// <summary>A demo whose packets carry these messages at these ticks, after the usual signon.</summary>
+    /// <param name="packets">Each packet's tick and messages, in stream order.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoWithMessagesAt(params (int Tick, INetMessage[] Messages)[] packets) =>
+        SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+                SyntheticDemo.DataTables(Schema()),
+                .. packets.Select(packet => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, packet.Tick, packet.Messages)),
+            ]);
 
     /// <summary>A demo whose snapshot follows a `net_Tick` naming the server's own tick.</summary>
     /// <param name="tick">The demo's tick for the snapshot.</param>
