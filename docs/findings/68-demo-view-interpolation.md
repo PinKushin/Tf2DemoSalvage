@@ -81,3 +81,18 @@ demo player is skipping or seeking (its vtable +0x48, B56). Playback hands the c
 re-runs those commands (`:1570-1698`). So the recorder's velocity in the game is prediction's, re-simulated by
 `CGameMovement` — which the port does not have, so it keeps the networked `m_vecVelocity` and files the gap (B450).
 *Disassembly plus published source.*
+
+## What the predicted player meets, and two things the client cannot know
+
+Porting `CTFGameMovement`'s trace (D205, B450) turned up engine behaviour with little prior art. **A
+`COLLISION_GROUP_PASSABLE_DOOR` still stops a player's movement**: `CGameRules::ShouldCollide` refuses it to
+`COLLISION_GROUP_PLAYER` only (`gamerules.cpp:710`), and movement traces as `COLLISION_GROUP_PLAYER_MOVEMENT`. **A
+respawn wall stops nobody whose mask lacks its team's contents** (`c_func_respawnroom.cpp:78-93`), and the mask drops
+the enemy's contents while `m_isPassingThroughEnemies` is set (`tf_gamemovement.cpp:269`) — so a player stuck in an
+enemy also walks through the enemy's spawn wall until he is clear. **The client's ground velocity is zero for every
+brush entity**: no client table receives `m_vecVelocity` for a door or a train (`c_baseentity.cpp:438-485`,
+`c_basedoor.cpp:17-19`, `c_func_tracktrain.cpp:41-42`), so `SetGroundEntity`'s add and subtract do nothing on the
+client, and `CTFGameMovement::CheckStuck`'s `func_tracktrain` rescue (`:1417`) can never fire there. And two pieces of
+movement state are the movement object's own and never networked — `m_isPassingThroughEnemies` and
+`m_flStuckCheckTime` — so a demo cannot say what they were; the port re-derives the first from the restored origin.
+*Published source; the last is interpolated.*

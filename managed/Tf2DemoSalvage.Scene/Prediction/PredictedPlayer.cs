@@ -86,6 +86,21 @@ public record struct PredictedPlayer
     /// <summary><c>gpGlobals->curtime</c>: <c>m_nTickBase · TICK_INTERVAL</c> during prediction.</summary>
     public float CurTime { get; set; }
 
+    /// <summary><c>m_Local.m_bAllowAutoMovement</c>: true as <c>CBasePlayer::Spawn</c> leaves it.</summary>
+    public bool AllowAutoMovement { get; set; } = true;
+
+    /// <summary><c>GetTeamNumber()</c>: which enemy contents <c>PlayerSolidMask</c> adds (<c>tf_gamemovement.cpp:269-283</c>).</summary>
+    public int? Team { get; set; }
+
+    /// <summary><c>entindex()</c>, which staggers <c>CheckInterval</c> between players (<c>gamemovement.cpp:695</c>).</summary>
+    public int EntityIndex { get; set; }
+
+    /// <summary><c>CTFGameMovement::m_isPassingThroughEnemies</c>, set by <c>CheckStuck</c> (<c>tf_gamemovement.cpp:1404</c>).</summary>
+    public bool PassingThroughEnemies { get; set; }
+
+    /// <summary><c>m_StuckLast</c>: the next <c>rgv3tStuckTable</c> entry to try (<c>gamemovement.cpp:3362</c>).</summary>
+    public int StuckLast { get; set; }
+
     /// <summary>
     /// <c>m_pSurfaceData</c>: the ground's surfaceprop as <c>CategorizeGroundSurface</c> last set it; null for none, which reads as
     /// factors of 1 (<c>gamemovement.cpp:1004</c>, <c>tf_gamemovement.cpp:1279</c>).

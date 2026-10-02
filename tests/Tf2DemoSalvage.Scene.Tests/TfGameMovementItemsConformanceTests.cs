@@ -233,8 +233,8 @@ public sealed class TfGameMovementItemsConformanceTests
 
     private static void Run(
         ref PredictedPlayer player, Core.Container.UserCommand command, MovementItems items, Func<Content.Bsp.BspTrace, VphysicsSurface?>? ground = null) =>
-        new TfGameMovement(Floor(), MovementConVars.Defaults) { Items = items, GroundSurface = ground }
-            .ProcessMovement(ref player, command, Tick, first: true).ShouldBeTrue();
+        new TfGameMovement(Floor(), MovementConVars.Defaults, maxClients: 24) { Items = items, GroundSurface = ground }
+            .ProcessMovement(ref player, command, Tick, first: true, commandNumber: 1).ShouldBeTrue();
 
     /// <summary>A player hook that multiplies one attribute class, or adds to it.</summary>
     private static MovementItems Player(string attribute, float multiply, float add = 0f) =>

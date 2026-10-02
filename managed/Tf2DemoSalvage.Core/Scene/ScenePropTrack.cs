@@ -1171,6 +1171,39 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int? TeamNumber { get; internal set; }
 
+    private readonly List<(int Tick, SceneCollision Collision)> _collisions = [];
+
+    /// <summary>Records the solidity the entity states at a tick; only a change is kept.</summary>
+    /// <param name="tick">The tick it was received.</param>
+    /// <param name="collision">Its solidity then.</param>
+    internal void Collide(int tick, SceneCollision collision)
+    {
+        if (_collisions.Count == 0 || _collisions[^1].Collision != collision)
+        {
+            _collisions.Add((tick, collision));
+        }
+    }
+
+    /// <summary>The solidity last stated at or before a tick, or null before the first.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The solidity.</returns>
+    public SceneCollision? CollisionAt(int tick)
+    {
+        SceneCollision? found = null;
+
+        foreach ((int at, SceneCollision collision) in _collisions)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            found = collision;
+        }
+
+        return found;
+    }
+
     /// <summary>The parity counter last seen, so a change can be noticed.</summary>
     /// <remarks>
     /// Null until the entity states one. An entity that never sends the field keeps its clock from
