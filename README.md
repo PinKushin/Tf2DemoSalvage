@@ -17,9 +17,10 @@ For players. Developers: skip to *Status* below.
    once. A demo can also be passed on the command line; `tf2demoview --help` lists every option.
 
 **Your TF2 install.** The viewer reads maps and game content from your own Team Fortress 2 install.
-It finds it by reading Steam's `libraryfolders.vdf` in the Steam folder under Program
-Files (x86), and picking the library that lists TF2 (app 440), so TF2
-may live on any drive. There is no folder picker for the install. If it is not found, the viewer
+It finds Steam where Steam records itself — the registry value `SteamPath` under
+`HKEY_CURRENT_USER\Software\Valve\Steam` (or the machine-wide `InstallPath`), falling back to
+Program Files (x86)\Steam — then reads that Steam folder's `steamapps\libraryfolders.vdf` and picks
+the library that lists TF2 (app 440). So Steam and TF2 may each live on any drive. There is no folder picker for the install. If it is not found, the viewer
 says so in the status bar and still plays the demo, without the game's maps and models; a map that
 is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
 

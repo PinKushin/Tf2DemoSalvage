@@ -92,7 +92,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
   needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
-  models, materials or sounds — and no demos. The viewer reads them from your install (found through Steam's library list) and, if it
+  models, materials or sounds — and no demos. The viewer reads them from your install (found through the Steam folder Steam records in the registry, then its library list, so Steam on another drive works) and, if it
   cannot find one, says so and plays the demo without the game's maps and models. The command-line tool needs only the demo.
 
 ## Licences
