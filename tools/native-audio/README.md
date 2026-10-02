@@ -64,3 +64,7 @@ BSD-style licence (in every source file's header): redistribution in source and 
 permitted with the copyright notice, but it states **"NO EXPRESS OR IMPLIED LICENSES TO ANY PARTY'S
 PATENT RIGHTS ARE GRANTED"** — the copyright licence is permissive, the patent position is not
 granted by it. The compiled binaries are redistributable under each licence's notice terms.
+
+`licenses/` holds each codec's licence text, committed (they are fixed for these pinned versions):
+Speex's and CELT's `COPYING` at their tags, and SILK's source-header licence verbatim.
+`build/package.ps1` ships them beside the DLLs.
