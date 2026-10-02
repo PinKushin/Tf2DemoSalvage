@@ -44,6 +44,11 @@ public sealed class ExportCompileUiTests
         string text = Path.Combine(_folder, "z1800.txt");
         string rebuilt = Path.Combine(_folder, "z1800-rebuilt.dem");
 
+        // The session waits for the world, not for the load to finish: run first, a press landed
+        // during the post-load collection and the viewer logged none (two runs of five). Synchronised
+        // on the line the load ends with.
+        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+
         Press("Export assembly");
         FillDialog(text);
         WaitForStatus("Exported");
@@ -63,7 +68,25 @@ public sealed class ExportCompileUiTests
     /// a window that is not active ignores — measured here as an invoke that completed and opened
     /// nothing — and this suite never takes the foreground.
     /// </remarks>
-    private static void Press(string itemName) => _viewer.InvokeMenuItem("File menu", itemName);
+    private static void Press(string itemName)
+    {
+        // Not ViewerApplication.InvokeMenuItem: its Collapse after the invoke races the posted
+        // dialog and, landing second, closed it — no dialog in one run of two. Invoking an item
+        // closes its menu on its own.
+        AutomationElement menu = Retry.WhileNull(
+            () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),
+            DialogTimeout).Result!;
+        menu.Patterns.ExpandCollapse.Pattern.Expand();
+
+        // Shown, not merely present: the item exists before its drop-down is on screen, and an
+        // invoke then was accepted and did nothing (the viewer logged no press).
+        Retry.WhileNull(
+                () => menu.FindFirstDescendant(search => search.ByName(itemName)) is { IsOffscreen: false } item
+                    ? item
+                    : null,
+                DialogTimeout)
+            .Result!.Patterns.Invoke.Pattern.Invoke();
+    }
 
     /// <summary>Types a path into the viewer's open file dialog and confirms it.</summary>
     private static void FillDialog(string path)

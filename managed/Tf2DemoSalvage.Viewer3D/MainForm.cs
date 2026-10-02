@@ -8622,6 +8622,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Writes the open demo's assembly text — the CLI's <c>--asm</c> — to a file the user picks.</summary>
     private Task<string> ExportDemo()
     {
+        // Before anything that can return early, so a press that did nothing is visible.
+        _log.LogInformation("{Message}", $"export: pressed with {(_demo is null ? "no demo open" : _demo.Path)}");
+
         if (_demo is null)
         {
             _status.Text = "Open a demo first.";
