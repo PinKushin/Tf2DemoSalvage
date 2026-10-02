@@ -12,7 +12,8 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="HeadNode">`dmodel_t::headnode`, the root of the entity's own subtree.</param>
 /// <param name="Origin">`m_vecOrigin` at the tick: the model's geometry is compiled about it.</param>
 /// <param name="Entity">Its entity index, which a decal on it rides.</param>
-public readonly record struct SolidBrush(int HeadNode, Vector3 Origin, int Entity = -1);
+/// <param name="Angles">`m_angRotation` as pitch, yaw, roll in degrees; zero for an unturned model (`CM_TransformedBoxTrace`).</param>
+public readonly record struct SolidBrush(int HeadNode, Vector3 Origin, int Entity = -1, Vector3 Angles = default);
 
 /// <summary>The brush entities a bullet can stop on, where each stands at a tick.</summary>
 /// <remarks>

@@ -8277,11 +8277,22 @@ guessed at in code.
     → 0, max 905.942 → 905.942; holding the last packet 25.725. The 2009 badlands demo is a solo recording, so it has
     no enemies or buildings to meet, and the gain is small and honest: what this closes is mostly not in that sample.
     The before figure, 10.123, is the same with or without the attributes/surfaces/gravity merge, which left it unchanged.
+- **A brush entity with angles** — **FIXED 2026-10-02 (`fix/b450-rotated-brushes`).** *Evidence class: read from the
+  shipped binary plus synthetic tests.* `CM_TransformedBoxTrace` is `engine.dll` (x64) `FUN_18016ab60`, the second caller
+  of `CM_BoxTrace` (`FUN_180168cb0`) beside `CEngineTrace::TraceRay`'s world pass (`FUN_18018e870`). With angles all zero
+  it subtracts the origin and nothing else. Otherwise `AngleMatrix( angles, origin )` (`FUN_180276390`); the box's
+  ORIGIN, `m_Start + m_StartOffset`, through `VectorITransform` (`FUN_180279620`); `m_StartOffset` taken off again
+  unrotated (`18016ac79`); the delta through `VectorIRotate` (`FUN_1802795a0`); **the extents copied untouched** — the
+  box turns with the model, so in the world it is an oriented box, neither grown to an AABB nor kept world-aligned.
+  A fraction under 1 puts `plane.normal` back through `VectorRotate` (`FUN_1802796c0`); `plane.dist`, `startsolid` and
+  `allsolid` stay local. `MapLevel`'s brush-entity loop does this for a `SolidBrush` with `Angles`, and `MovementWorld`
+  now keeps turned tracks with their angles. `RotatedBrushTraceConformanceTests` (9, synthetic `|x| ≤ 4` slab). Unturned
+  path bit-identical: `trace-identity` (now also hashing the player hull through a brush entity) gives `40D39947…7530`
+  on cp_process_f12 and `5DBF4773…58C5` on pl_vigil_rc9 before and after. *Interpolated:* the sine `FUN_180276390`
+  uses is not read; the SDK's `AngleMatrix` stands in. *Not on this path:* bullets (`SolidBrushEntities`), doors only.
 - **Still open across D205's port, each a default:** `GetMovementForwardPull` (`firing_forward_pull` needs the weapon's
   `IsFiring()`), the Atomizer's 0.7 s deploy test in `CanAirDash`, `hype_resets_on_jump`, `IsLoser`'s duck crop,
-  `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), **a brush entity with angles**,
-  left out of the trace (`CM_TransformedBoxTrace` rotates the ray into the model and the subtree walk here does not),
-  and the movement modes' declines and defaults listed above. D175's sticking friction is vphysics and is not on this
+  `tf_clamp_airducks` (its default 1), per-tick ConVars (the last value sent is used), and the movement modes' declines and defaults listed above. D175's sticking friction is vphysics and is not on this
   path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and props, and no
   world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **Reverse playback restarts the reader each frame.** A backward move replays from the last packet more
