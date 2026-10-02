@@ -216,13 +216,16 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// </remarks>
     public DemoPlayer? Player { get; init; }
 
+    /// <summary>The recorder's anim-state feet, turned per frame from the same viewpoint (B450).</summary>
+    private readonly RecorderFeet _recorderFeet = new();
+
     /// <inheritdoc />
     public float IntervalPerTick => timeline.IntervalPerTick;
 
     /// <inheritdoc />
     public void PlayersAt(
         double tick, ICollection<ScenePlayer> into, bool interpolating = true) =>
-        timeline.PlayersAt(tick, into, interpolating, Player?.InterpolateViewpoint(tick));
+        timeline.PlayersAt(tick, into, interpolating, Player?.InterpolateViewpoint(tick), _recorderFeet);
 
     /// <inheritdoc />
     public void PropsAt(
