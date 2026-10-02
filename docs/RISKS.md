@@ -8165,6 +8165,22 @@ guessed at in code.
   `GetAbsVelocity()` is whatever prediction last wrote. `C_BaseEntity` keeps no interpolation history for it
   (`c_baseentity.cpp:907-912` comments the `AddVar` out). Whether demo playback runs prediction at all for the
   recorder is unread. *Evidence class: published source; the playback half is unread.*
+  — **FIXED 2026-10-02 (D205).** `RecorderPrediction` restores the last packet's networked state and re-runs every
+  `dem_usercmd` past the packet's acknowledgement through `TfGameMovement`, a port of `CTFGameMovement` over
+  `CGameMovement`; `LocalPlayer` animates from that velocity. The acknowledgement is the packet prologue's second
+  sequence number (*measured*, probe `usercmd-ack`: on the 2013 POV badlands demo the packet carrying 6109 already
+  shows command 6109's key release). On `tf2-2009-build3862-pov-cp_badlands`, whose packets come every 3–4 ticks,
+  `CorpusRecorderPredictionTests` compares 9,783 packet gaps with the next packet's networked velocity: predicted mean
+  10.1 u/s, median 0, max 906; holding the last packet mean 25.7, median 0.7 (the max is server-side knockback). A
+  2013 listen-server demo acknowledges every command in the next packet, so prediction adds nothing there.
+  **Still open, each a default in the port:** water above the feet, taunt movement, karts, ghosts, grappling hooks,
+  parachutes and stuns decline (networked velocity stands); item attributes (`mod_jump_height`, `mod_air_control`,
+  extra air dashes, forward pull), the ground's surfaceprop (friction, jump and speed factors), a moving ground's
+  velocity, `m_flGravity` and the game-rules gravity multiplier, `CanJump`/`CanDuck`, `CheckStuck`, buildings as
+  boxes, brush entities (doors) in the trace, per-tick ConVars (the last value sent is used), and `m_flDucktime` and
+  the other `DT_Local` duck fields, which start from `FL_DUCKING` alone. D175's sticking friction is vphysics and is
+  not on this path. The world trace it needs — three extents, `startsolid`, `MASK_PLAYERSOLID` through terrain and
+  props, and no world answering null rather than clear — landed first on `fix/hull-trace-extents`.
 - **The feet yaw still advances per tick from the server's `m_angEyeAngles`.** The torso twist is measured
   against the interpolated local yaw, but the feet the timeline advanced come from the networked eye yaw, so
   the twist is up to one tick stale. The engine advances the feet from `EyeAngles()` per frame.

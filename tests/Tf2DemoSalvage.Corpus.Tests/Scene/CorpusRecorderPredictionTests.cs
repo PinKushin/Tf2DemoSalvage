@@ -82,7 +82,10 @@ public sealed class CorpusRecorderPredictionTests
         TestContext.Out.WriteLine(report);
 
         predictedError.Count.ShouldBeGreaterThan(100, report);
-        predictedError.Average().ShouldBeLessThan(heldError.Average(), report);
+        // Measured 2026-10-02: predicted 10.1 against held 25.7, median 0 against 0.7. Under half is the bound: inverting
+        // StepMove's road choice took the mean to 16.4, which "better than holding" alone let through.
+        predictedError.Average().ShouldBeLessThan(heldError.Average() / 2f, report);
+        Median(predictedError).ShouldBe(0f, report);
     }
 
     private static (float X, float Y, float Z)? Velocity(DemoTimeline timeline, int recorder, int tick)
