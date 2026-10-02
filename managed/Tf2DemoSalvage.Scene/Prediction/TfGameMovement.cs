@@ -372,7 +372,7 @@ public sealed class TfGameMovement
     /// <returns>True when he is stuck and the move is skipped.</returns>
     /// <remarks>
     /// The <c>func_tracktrain</c> branch (<c>:1417</c>) never runs on the client: it needs the train's
-    /// <c>GetAbsVelocity().z</c>, and <c>DT_FuncTrackTrain</c> sends no velocity (<c>c_func_tracktrain.cpp:67-68</c>).
+    /// <c>GetAbsVelocity().z</c>, and <c>DT_FuncTrackTrain</c> sends no velocity (<c>c_func_tracktrain.cpp:41-42</c>).
     /// </remarks>
     private bool CheckStuck()
     {
