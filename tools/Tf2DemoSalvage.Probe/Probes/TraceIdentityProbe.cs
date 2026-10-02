@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Security.Cryptography;
 
 using Microsoft.Extensions.Logging.Abstractions;
@@ -55,9 +56,17 @@ public sealed class TraceIdentityProbe : IProbe
 
             BspModel model = models[1 + (index % (models.Count - 1))];
             Add(hash, tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, size, model.HeadNode), ref hits);
+
+            // The player hull through an unturned brush entity standing off its compiled origin — MovementWorld's path.
+            SolidBrush brush = new(model.HeadNode, new Vector3(8f, -8f, 0f), index);
+            Add(
+                hash,
+                level.TraceHull(from, to, (-24f, -24f, 0f), (24f, 24f, 82f), BspLeafTree.MaskPlayerSolid, [brush])
+                    ?? default,
+                ref hits);
         }
 
-        output.WriteLine($"{count} x 3 traces, {hits} stopped, sha256 {Convert.ToHexString(hash.GetHashAndReset())}");
+        output.WriteLine($"{count} x 4 traces, {hits} stopped, sha256 {Convert.ToHexString(hash.GetHashAndReset())}");
     }
 
     private static float Coordinate(Lcg random) => (random.Next() * 8192f) - 4096f;
@@ -92,5 +101,7 @@ public sealed class TraceIdentityProbe : IProbe
         hash.AppendData(BitConverter.GetBytes(trace.AllSolid));
         hash.AppendData(BitConverter.GetBytes(trace.DisplacementTexdata));
         hash.AppendData(BitConverter.GetBytes(trace.SurfaceProp2));
+        hash.AppendData(BitConverter.GetBytes(trace.BrushEntity));
+        hash.AppendData(BitConverter.GetBytes(trace.StartSolid));
     }
 }
