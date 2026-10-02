@@ -52,6 +52,19 @@ public sealed class RotatedBrushTraceConformanceTests
     }
 
     [Test]
+    public void TraceHull_ABoxOffCentreInXAgainstAPitchedSlab_ReAddsItsOffsetUnrotated()
+    {
+        // Bounds (0, −24, 0)–(48, 24, 82) centre the box at (24, 0, 41). 18016ac79 takes m_StartOffset off AFTER the
+        // transform, so +24 lands on local x: the centre starts at −76 and meets x = −28 after 48 — (48 − ε) / 200. Rotating
+        // the offset with the ray would give −41 there and 113; leaving it off, 72.
+        BspTrace trace = Level().TraceHull(
+            (100f, 0f, 100f), (100f, 0f, -100f), (0f, -24f, 0f), (48f, 24f, 82f), BspLeafTree.MaskPlayerSolid, [Slab(90f, 0f, 0f)])
+            .ShouldNotBeNull();
+
+        trace.Fraction.ShouldBe((48f - Epsilon) / 200f, 1e-6f);
+    }
+
+    [Test]
     public void TraceHull_TheSameSlabUnturned_DoesNotStopTheBoxBesideIt()
     {
         // The control: upright, |x| ≤ 4 never comes within 24 of x = 100.
