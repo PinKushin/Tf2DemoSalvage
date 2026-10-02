@@ -60,6 +60,22 @@ public sealed class SyntheticRecorderViewTests
     }
 
     [Test]
+    public void PlayersAt_WithAPredictedVelocity_RunsTheRecorderOnItInsteadOfTheNetworkedOne()
+    {
+        // D205: prediction's m_vecVelocity, (300, 0, 0) — along X while he looks along +Y — replaces the networked
+        // (0, 300, 0). Travel 0 against a body yaw of 90 is a strafe: move_x 0, move_y 1.
+        List<ScenePlayer> players = [];
+        DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander())
+            .PlayersAt(105.5, players, true, Viewpoint, (300f, 0f, 0f));
+
+        ScenePlayer recorder = players.Single(player => player.EntityIndex == 1);
+
+        recorder.Speed.ShouldBe(300f, 1e-3f);
+        recorder.MoveX.ShouldBe(0f, 1e-3f);
+        recorder.MoveY.ShouldBe(1f, 1e-3f);
+    }
+
+    [Test]
     public void PlayersAt_WithAViewpoint_TwistsTheTorsoFromTheFeetToTheLocalYaw()
     {
         // body_yaw = -(eyeYaw - currentFeetYaw): the feet the timeline advanced (zero, along his server eye yaw)
