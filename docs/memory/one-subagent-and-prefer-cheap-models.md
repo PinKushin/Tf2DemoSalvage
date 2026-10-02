@@ -59,3 +59,5 @@ Owner: sonnet's problem was *"not continuing its work, not really its generation
 to fix it. Keep opus for implementation. Usage: two opus agents plus main-loop decompiles hit 50% of the 5-hour limit
 in an hour. **Standing rule (owner, 2026-09-30): one subagent at a time; two only if both are sonnet on small tasks** —
 *"running more than one agent at a time, eats my limit hard"*. Supersedes the parallel note above.
+**Temporary raise, 2026-10-01 until the Sunday weekly reset:** up to 3 at once — owner: *"you can use more than
+one subagent for the rest of the week... still max of like 3"* (under 20% of the week used). Back to one after.
