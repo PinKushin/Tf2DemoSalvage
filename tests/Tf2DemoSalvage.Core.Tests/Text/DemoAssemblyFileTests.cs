@@ -65,6 +65,43 @@ public sealed class DemoAssemblyFileTests
         DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")).ShouldBe((3, demo.Length));
     }
 
+    [Test]
+    public void Compile_IntoAStreamAfterThreeBytes_WritesTheDemoAfterThemAndReportsItsLength()
+    {
+        // The header is written last, over a placeholder, so it must land where the stream started (B449).
+        byte[] demo = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+
+        (int commands, long bytes, byte[] written) = CompileToStream(demo);
+
+        (commands, bytes).ShouldBe((3, (long)demo.Length));
+        written.ShouldBe([9, 9, 9, .. demo]);
+    }
+
+    [Test]
+    public void Compile_IntoAStreamFromACutDemo_WritesTheTail()
+    {
+        byte[] one = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1));
+        byte[] two = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+        byte[] cut = two[..(one.Length - 4 + 3)];
+
+        CompileToStream(cut).Written.ShouldBe([9, 9, 9, .. cut]);
+    }
+
+    private (int Commands, long Bytes, byte[] Written) CompileToStream(byte[] demo)
+    {
+        string demoPath = Path.Combine(_folder, "in.dem");
+        string text = Path.Combine(_folder, "in.txt");
+        File.WriteAllBytes(demoPath, demo);
+        DemoAssembly.Export(demoPath, text);
+
+        using StreamReader reader = new(text);
+        using MemoryStream output = new();
+        output.Write([9, 9, 9]);
+        (int commands, long bytes) = DemoAssembly.Compile(reader, output);
+
+        return (commands, bytes, output.ToArray());
+    }
+
     private byte[] RoundTrip(byte[] demo)
     {
         string demoPath = Path.Combine(_folder, "in.dem");
