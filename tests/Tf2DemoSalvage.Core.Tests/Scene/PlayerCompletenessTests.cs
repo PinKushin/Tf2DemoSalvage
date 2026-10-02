@@ -225,6 +225,9 @@ public sealed class PlayerCompletenessTests
         DisguiseSkinOverride = 1,
         DisguiseWeaponItem = new SceneItem(31, "CTFRevolver", 24, new EconAttributeWire([], [], HasValidItemId: true), IsWeapon: true) { Quality = 6 },
         Velocity = (1f, 2f, 3f),
+
+        // The recorder's restored movement state (B450), present where anyone else's is null.
+        Movement = new SceneLocalMovement { Ducked = true, DuckTime = 812.5f, TickBase = 4000 },
         WeaponAccountId = 1234u,
         DeathTime = 77.25f,
         WeaponQuality = 6,
