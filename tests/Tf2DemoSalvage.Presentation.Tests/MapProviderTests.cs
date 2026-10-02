@@ -200,6 +200,43 @@ public sealed class MapProviderTests
         return maps;
     }
 
+    /// <remarks>
+    /// **TF2_FOLDER is a full override (owner, 2026-10-02, D203):** the resolver's game folder is
+    /// the one answer for maps as well as archives and configs, so a folder that Steam's library
+    /// list does not name is still searched. The library file here is empty on purpose.
+    /// </remarks>
+    [Test]
+    public void GameFolder_WithAResolvedFolder_IsThatFolder()
+    {
+        string tf = TempFolder();
+        using MapProvider maps = new(
+            Path.Combine(TempFolder(), "libraryfolders.vdf"), TempFolder(), () => Downloader(tf), () => tf);
+
+        maps.GameFolder().ShouldBe(tf);
+    }
+
+    [Test]
+    public void Locate_WithAResolvedFolderHoldingTheMap_FindsItUnderItsMaps()
+    {
+        string tf = TempFolder();
+        string expected = Path.Combine(Directory.CreateDirectory(Path.Combine(tf, "maps")).FullName, "cp_badlands.bsp");
+        File.WriteAllBytes(expected, [0x56, 0x42, 0x53, 0x50]);
+        using MapProvider maps = new(
+            Path.Combine(TempFolder(), "libraryfolders.vdf"), TempFolder(), () => Downloader(tf), () => tf);
+
+        maps.Locate("cp_badlands").ShouldBe(expected);
+    }
+
+    [Test]
+    public void Find_WithAResolvedFolderLackingTheMap_IsNotInstalledRatherThanNoGame()
+    {
+        string tf = TempFolder();
+        using MapProvider maps = new(
+            Path.Combine(TempFolder(), "libraryfolders.vdf"), TempFolder(), () => Downloader(tf), () => tf);
+
+        maps.Find("cp_badlands").Outcome.ShouldBe(MapOutcome.NotInstalled);
+    }
+
     [Test]
     public void Construct_WithoutADownloader_Refuses()
     {

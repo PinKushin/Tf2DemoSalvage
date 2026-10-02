@@ -24,8 +24,12 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="overrideFolder">
 /// A <c>tf</c> folder named explicitly (<see cref="OverrideVariable"/>), which beats any detection.
 /// </param>
+/// <param name="fileExists">Whether a file exists; null means the real file system.</param>
 public sealed class SteamInstall(
-    Func<string, string, string?> readRegistry, string? programFilesX86, string? overrideFolder)
+    Func<string, string, string?> readRegistry,
+    string? programFilesX86,
+    string? overrideFolder,
+    Func<string, bool>? fileExists = null)
 {
     /// <summary>Names a <c>tf</c> folder that beats detection (D109's <c>TF2_FOLDER</c>).</summary>
     public const string OverrideVariable = "TF2_FOLDER";
@@ -39,29 +43,52 @@ public sealed class SteamInstall(
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
         Environment.GetEnvironmentVariable(OverrideVariable));
 
+    private readonly Func<string, bool> _fileExists = fileExists ?? File.Exists;
+
     /// <summary>Steam's own folder, or null when nothing names one.</summary>
+    /// <remarks>
+    /// The first source whose <c>libraryfolders.vdf</c> exists wins, so a stale registry value left
+    /// by a moved or uninstalled Steam falls through to the next (D203). When none has one, the
+    /// first source named is still the answer, so a "not installed" message names Steam's own record.
+    /// </remarks>
     public string? Root
     {
         get
         {
-            string? recorded = readRegistry(UserKey, "SteamPath") is { Length: > 0 } user
-                ? user
-                : readRegistry(MachineKey, "InstallPath");
+            // SteamPath is written with forward slashes; normalise so paths compare and print the
+            // way every other Windows path here does.
+            string?[] named =
+            [
+                readRegistry(UserKey, "SteamPath")?.Replace('/', '\\'),
+                readRegistry(MachineKey, "InstallPath")?.Replace('/', '\\'),
+                string.IsNullOrEmpty(programFilesX86) ? null : Path.Combine(programFilesX86, "Steam"),
+            ];
 
-            if (recorded is { Length: > 0 })
+            string? first = null;
+
+            foreach (string? candidate in named)
             {
-                // SteamPath is written with forward slashes; normalise so paths compare and print
-                // the way every other Windows path here does.
-                return recorded.Replace('/', '\\');
+                if (string.IsNullOrEmpty(candidate))
+                {
+                    continue;
+                }
+
+                if (_fileExists(LibraryFileUnder(candidate)))
+                {
+                    return candidate;
+                }
+
+                first ??= candidate;
             }
 
-            return string.IsNullOrEmpty(programFilesX86) ? null : Path.Combine(programFilesX86, "Steam");
+            return first;
         }
     }
 
     /// <summary>Steam's <c>libraryfolders.vdf</c>, or null when no Steam folder is named.</summary>
-    public string? LibraryFile =>
-        Root is { } root ? Path.Combine(root, "steamapps", "libraryfolders.vdf") : null;
+    public string? LibraryFile => Root is { } root ? LibraryFileUnder(root) : null;
+
+    private static string LibraryFileUnder(string root) => Path.Combine(root, "steamapps", "libraryfolders.vdf");
 
     /// <summary>The game's <c>tf</c> folder, or null when it is not installed.</summary>
     /// <returns>The override when it exists, otherwise the library that lists app 440.</returns>

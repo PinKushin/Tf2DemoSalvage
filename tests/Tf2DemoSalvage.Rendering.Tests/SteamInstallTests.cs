@@ -47,7 +47,7 @@ public sealed class SteamInstallTests
     public void Root_WithUserSteamPathOnAnotherDrive_IsThatPathWithBackslashes()
     {
         SteamInstall steam = new(
-            Registry(new() { [(UserKey, "SteamPath")] = "d:/steam" }), @"C:\Program Files (x86)", null);
+            Registry(new() { [(UserKey, "SteamPath")] = "d:/steam" }), @"C:\Program Files (x86)", null, _ => true);
 
         steam.Root.ShouldBe(@"d:\steam");
         steam.LibraryFile.ShouldBe(@"d:\steam\steamapps\libraryfolders.vdf");
@@ -57,7 +57,7 @@ public sealed class SteamInstallTests
     public void Root_WithOnlyMachineInstallPath_IsThatPath()
     {
         SteamInstall steam = new(
-            Registry(new() { [(MachineKey, "InstallPath")] = @"E:\Steam" }), @"C:\Program Files (x86)", null);
+            Registry(new() { [(MachineKey, "InstallPath")] = @"E:\Steam" }), @"C:\Program Files (x86)", null, _ => true);
 
         steam.Root.ShouldBe(@"E:\Steam");
     }
@@ -68,6 +68,54 @@ public sealed class SteamInstallTests
         SteamInstall steam = new(Registry([]), @"C:\Program Files (x86)", null);
 
         steam.Root.ShouldBe(@"C:\Program Files (x86)\Steam");
+    }
+
+    /// <remarks>
+    /// **Stale registry (owner, 2026-10-02, D203):** a SteamPath left behind by an uninstalled or
+    /// moved Steam must not win over a source that has a library list. The seam answers which
+    /// <c>libraryfolders.vdf</c> exists, so nothing touches the disk.
+    /// </remarks>
+    [Test]
+    public void Root_WithUserSteamPathLackingLibraryFile_IsMachineInstallPath()
+    {
+        SteamInstall steam = new(
+            Registry(new()
+            {
+                [(UserKey, "SteamPath")] = "d:/gone",
+                [(MachineKey, "InstallPath")] = @"E:\Steam",
+            }),
+            @"C:\Program Files (x86)",
+            null,
+            path => path == @"E:\Steam\steamapps\libraryfolders.vdf");
+
+        steam.Root.ShouldBe(@"E:\Steam");
+    }
+
+    [Test]
+    public void Root_WithBothRegistryPathsLackingLibraryFile_IsProgramFilesSteam()
+    {
+        SteamInstall steam = new(
+            Registry(new()
+            {
+                [(UserKey, "SteamPath")] = "d:/gone",
+                [(MachineKey, "InstallPath")] = @"E:\Gone",
+            }),
+            @"C:\Program Files (x86)",
+            null,
+            path => path == @"C:\Program Files (x86)\Steam\steamapps\libraryfolders.vdf");
+
+        steam.Root.ShouldBe(@"C:\Program Files (x86)\Steam");
+    }
+
+    [Test]
+    public void Root_WithNoSourceHavingLibraryFile_IsTheFirstNamedSource()
+    {
+        // Nothing valid anywhere: the answer is still the first source named, so a message about a
+        // missing install points at the folder Steam itself recorded.
+        SteamInstall steam = new(
+            Registry(new() { [(UserKey, "SteamPath")] = "d:/gone" }), @"C:\Program Files (x86)", null, _ => false);
+
+        steam.Root.ShouldBe(@"d:\gone");
     }
 
     [Test]

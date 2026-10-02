@@ -9430,3 +9430,30 @@ Five directions on the first release package (`build/package.ps1`, `RELEASE-NOTE
    one tested configuration); the owner's reason: *"I want the program to run without the user having to download
    anything extra, like an external runtime, 90% of bugs for programs that require users to download the right .net
    runtime, are the user not DLing the right fucking runtime lol"*. The zip grows; that is accepted.
+
+## D203 — TF2_FOLDER overrides everything, a stale registry falls through, the test helper keeps its own list (2026-10-02)
+
+Three follow-ups to the `SteamInstall` resolver, offered after it merged. The owner: *"Yes to all 3 I
+guess. Number 3 is the only iffy one."*
+
+1. **`TF2_FOLDER` is a full override.** When set (and the folder exists), maps, models, materials,
+   sounds and configs all come from it. `MapProvider.Installed()` now takes its game folder from
+   `SteamInstall.Machine.GameFolder`, and `Locate` searches that folder's `maps` first, so the one
+   answer feeds every lookup the viewer makes (archives through `LevelSystems`, configs through
+   `ConfigConsole`). Before this, the override reached configs only; maps still came from Steam's
+   library list. Documented in `README.md` and `RELEASE-NOTES.md`.
+2. **A stale registry falls through.** `SteamInstall.Root` takes the first of HKCU `SteamPath`, HKLM
+   `InstallPath`, Program Files `Steam` whose `steamapps\libraryfolders.vdf` exists. When none has
+   one, the first source named is still returned, so a "not installed" message names Steam's own
+   record rather than a guess.
+3. **Not built; the layering answer is "no such assembly".** The direction was: move the resolver
+   down into the lowest assembly both the viewer stack and `tests/Tf2DemoSalvage.SdkReference`
+   already reference, and never make the shared test helper depend on Scene. **SdkReference
+   references no project at all** (NUnit only), so that assembly does not exist, and the resolver
+   also needs `MapLocator`'s library-list parse, which lives in Scene. The options, for the owner:
+   - *SdkReference → Core*, with `SteamInstall` and the VDF parse moved into Core: the test helper
+     gains its first production dependency, and Core (the decoder) gains registry code.
+   - *A new leaf assembly* (registry + file system + VDF parse, no references) that Scene and
+     SdkReference both reference: clean direction, one more project.
+   - *Leave it*: `GameInstall.Root` keeps `TF2_FOLDER` then its hard-coded library paths. Tests on a
+     machine with TF2 elsewhere set `TF2_FOLDER`, which they already document.
