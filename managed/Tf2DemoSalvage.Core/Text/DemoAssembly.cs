@@ -108,16 +108,73 @@ public static class DemoAssembly
     /// <exception cref="InvalidDataException">The text is not valid assembly.</exception>
     public static (int Commands, int Bytes) Compile(string assemblyPath, string outputPath)
     {
-        AssembledDemo demo;
+        // Written beside the target and moved over it only once the whole text compiled: a parse that
+        // fails at the end must not leave a partial demo where the user asked for one. Same folder, so
+        // the move is a rename.
+        string temp = Path.Combine(
+            Path.GetDirectoryName(Path.GetFullPath(outputPath))!,
+            Path.GetFileName(outputPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
 
-        using (StreamReader reader = new(assemblyPath))
+        try
         {
-            demo = Parse(reader);
-        }
+            (int commands, long bytes) result;
 
-        byte[] bytes = DemoWriter.Write(demo.Header, demo.Commands, demo.Tail);
-        File.WriteAllBytes(outputPath, bytes);
-        return (demo.Commands.Count, bytes.Length);
+            using (StreamReader reader = new(assemblyPath))
+            using (FileStream output = new(temp, FileMode.CreateNew, FileAccess.Write))
+            {
+                result = Compile(reader, output);
+            }
+
+            File.Move(temp, outputPath, overwrite: true);
+            return (result.commands, checked((int)result.bytes));
+        }
+        finally
+        {
+            // A no-op after the move; the cleanup of a failed compile otherwise.
+            File.Delete(temp);
+        }
+    }
+
+    /// <summary>Compiles assembly text into a demo on a stream, a command at a time (B449).</summary>
+    /// <param name="reader">The assembly text.</param>
+    /// <param name="output">
+    /// Where the demo goes, from its current position. It must seek: the header is written last, over a
+    /// placeholder, because the text may state a header field anywhere in its <c>demo</c> block — as
+    /// <see cref="Parse"/> reads it — and a command cannot wait for the whole text.
+    /// </param>
+    /// <returns>The commands compiled — every one parsed, as <see cref="Parse"/> counts them — and the bytes written.</returns>
+    /// <exception cref="ArgumentNullException">An argument is <c>null</c>.</exception>
+    /// <exception cref="InvalidDataException">The text is not valid assembly.</exception>
+    /// <remarks>
+    /// Memory is one command and the parse state, never the demo: <see cref="Parse"/> then
+    /// <see cref="DemoWriter.Write"/> held the command list and the file, which a 2 GB demo outgrows. The
+    /// bytes are <see cref="DemoWriter"/>'s own, command by command, so the two routes cannot differ.
+    /// </remarks>
+    public static (int Commands, long Bytes) Compile(TextReader reader, Stream output)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(output);
+
+        long start = output.Position;
+        output.Write(new byte[DemoHeader.SizeBytes]);
+
+        int commands = 0;
+        bool open = true;
+
+        (DemoHeader header, byte[]? tail) = ParseEach(reader, command =>
+        {
+            commands++;
+            open = open && DemoWriter.WriteCommand(output, command);
+        });
+
+        output.Write(tail.AsSpan());
+        long end = output.Position;
+
+        output.Position = start;
+        output.Write(DemoWriter.WriteHeader(header));
+        output.Position = end;
+
+        return (commands, end - start);
     }
 
     /// <summary>Writes the demo as assembly text.</summary>
@@ -243,8 +300,15 @@ public static class DemoAssembly
     {
         ArgumentNullException.ThrowIfNull(reader);
 
-        Dictionary<string, string> fields = new(StringComparer.Ordinal);
         List<DemoCommand> commands = [];
+        (DemoHeader header, byte[]? tail) = ParseEach(reader, commands.Add);
+        return new AssembledDemo(header, commands, tail);
+    }
+
+    /// <summary>The one parse: each command handed on as it is compiled, the header and tail returned at the end.</summary>
+    private static (DemoHeader Header, byte[]? Tail) ParseEach(TextReader reader, Action<DemoCommand> emit)
+    {
+        Dictionary<string, string> fields = new(StringComparer.Ordinal);
         byte[]? tail = null;
         NetDecodeState state = new();
         EntityDecoder? entities = null;
@@ -325,7 +389,7 @@ public static class DemoAssembly
                 entities = BuildDecoder(command, state.NetworkProtocol);
             }
 
-            commands.Add(command);
+            emit(command);
         }
 
         if (!headerSeen)
@@ -333,7 +397,7 @@ public static class DemoAssembly
             throw new InvalidDataException("The assembly has no 'demo' header block.");
         }
 
-        return new AssembledDemo(BuildHeader(fields), commands, tail);
+        return (BuildHeader(fields), tail);
     }
 
     /// <summary>Expands a packet payload into one line per message.</summary>

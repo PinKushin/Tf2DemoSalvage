@@ -8178,7 +8178,7 @@ guessed at in code.
 - **ConVars are read when a demo opens.** A `demo_*` change in the watcher's config while a demo is open
   takes effect on the next open.
 
-### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — FIXED 2026-10-01 for the CLI's single-pass writers; the census and the timeline still hold the file
+### B449 — two idle-server demos of 1.3 and 2 GB cannot be held: the command list alone outgrows a 6 GiB heap — FIXED 2026-10-01 for the CLI's single-pass writers, 2026-10-02 for the census and the compile; the timeline still holds the file
 
 **Found by the decode census** (2026-09-30). Two ETF2L Season 29 recordings are servers left recording while
 nobody played: `auto-20180301-2156-koth_product_rc8.dem`, 1,300,749,497 bytes, and
@@ -8218,12 +8218,37 @@ Peak no longer grows with the file: 44, 49 and 51 MB across 9 MB, 1.3 GB and 2 G
 for the trace and 5% for the assembly, the cost of a counting pass and a per-command allocation. The traces are
 2.3 and 3.6 GB, the assemblies 5.1 and 7.5 GB. `CorpusStreamedOutputTests` holds the identity for every gcor demo.
 
-**Still open, on purpose:** the decode census holds `byte[]` and a `ReadWhole` list, because its assembly stage
-compares the rebuilt file to the original byte for byte, `Locate` finds a command's file offset through its
-slice of that array, and `DemoAssembly.Parse` plus `DemoWriter.Write` return whole lists and arrays — the compile
-direction is not a single forward pass. Its `Fits` budget still skips prolands. `DemoTimeline` keeps per-tick
-state at B439's 40–84x and is a separate problem. Probes keep `File.ReadAllBytes`; each answers a question about
-one tick of one demo, and none was named in B449.
+**Left open on 2026-10-01, closed 2026-10-02 except the timeline.** The census held `byte[]` and a `ReadWhole` list:
+its assembly compared the rebuilt array to the original, `Locate` found a command's file offset through its slice
+of that array, and `DemoAssembly.Parse` plus `DemoWriter.Write` returned whole lists and arrays. The belief that
+"the compile direction is not a single forward pass" was wrong: `Parse` is one forward pass whose only
+back-reference is the header, built from the `demo` block's fields after the walk. So:
+
+- `DemoAssembly.Compile(TextReader, Stream)` hands each command, as it is parsed, to `DemoWriter.WriteCommand`
+  — the per-command writer `DemoWriter.Write` now uses too — and writes the header last, over a 1,072-byte
+  placeholder, at the position the stream started at. `Compile(path, path)`, the CLI's `-c`, streams through it.
+- The census takes the path. Every stage but the timeline walks the file through `DemoCommandReader.Read(Stream)`;
+  a command's start and payload offset are the stream's own positions around the read, carried (B243), so a
+  failure's `where` reads as it did. The assembly writes its text to a temp file, compiles it into a second, and
+  compares the two by streaming both; `Locate` re-walks only on a difference. `Fits`, the 5x assembly budget and
+  the `Array.MaxLength` refusal are gone; the SHA-256 is hashed off a stream. *Measured.*
+
+**The census on the two, 2026-10-02**, Release, `--stages container,schema,messages,entities,trace,assembly,voice`;
+peak working set is the process's own counter (`working_set_peak_mb`). *Measured.*
+
+| demo | commands | messages re-encoded | snapshots exact | assembly | text | peak WS | wall |
+|---|---:|---:|---:|---|---:|---:|---:|
+| koth_product | 10,862,150 | 32,421,708 of 32,421,708 | 10,862,143 of 10,862,143 | 1,300,749,497 bytes, byte for byte | 5,071,753,076 B | 74 MB | 248 s |
+| prolands | 17,005,747 | 50,948,695 of 50,948,695 | 17,005,740 of 17,005,740 | 2,015,374,411 bytes, byte for byte | 7,518,980,004 B | 79 MB | 408 s |
+
+Every asked stage passes for both; voice is `none` (codec `steam`, no `svc_VoiceData` with a body). prolands'
+container, which ran out of memory under 6 GiB, now peaks under 80 MB with the assembly included. The census over
+gcor before and after the change agrees in all 1,000 compared cells (10 demos, 100 of 114 columns — the
+timing, memory and timeline-heap columns excluded); a planted difference is found.
+
+**Still open, on purpose:** `DemoTimeline` keeps per-tick state at B439's 40–84x and reads the whole file; the census
+reads it only for that stage, after its budget check. Probes keep `File.ReadAllBytes`; each answers a question
+about one tick of one demo, and none was named in B449.
 
 ---
 

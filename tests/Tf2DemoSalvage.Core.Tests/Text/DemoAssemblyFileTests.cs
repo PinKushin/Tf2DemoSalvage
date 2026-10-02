@@ -65,6 +65,69 @@ public sealed class DemoAssemblyFileTests
         DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")).ShouldBe((3, demo.Length));
     }
 
+    [Test]
+    public void Compile_MalformedText_LeavesNoOutputAndNoTemp()
+    {
+        // Text with a valid command but no 'demo' header block: the parse throws only at the end, after
+        // the streaming compile has written commands, so a partial file would exist without the guard.
+        string text = Path.Combine(_folder, "bad.txt");
+        File.WriteAllText(text, "consolecmd 5 data 6869\n");
+
+        Should.Throw<InvalidDataException>(() => DemoAssembly.Compile(text, Path.Combine(_folder, "out.dem")));
+
+        Directory.GetFiles(_folder).ShouldBe([text]);
+    }
+
+    [Test]
+    public void Compile_IntoAStreamAfterThreeBytes_WritesTheDemoAfterThemAndReportsItsLength()
+    {
+        // The header is written last, over a placeholder, so it must land where the stream started (B449).
+        byte[] demo = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+
+        (int commands, long bytes, byte[] written) = CompileToStream(demo);
+
+        (commands, bytes).ShouldBe((3, (long)demo.Length));
+        written.ShouldBe([9, 9, 9, .. demo]);
+    }
+
+    [Test]
+    public void Compile_IntoAStreamFromACutDemo_WritesTheTail()
+    {
+        byte[] one = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1));
+        byte[] two = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+        byte[] cut = two[..(one.Length - 4 + 3)];
+
+        CompileToStream(cut).Written.ShouldBe([9, 9, 9, .. cut]);
+    }
+
+    [Test]
+    public void Compile_IntoAStreamWithACommandAfterTheStop_CountsItAndWritesNothingAfterTheStop()
+    {
+        // Parse then DemoWriter.Write counted it and wrote nothing past dem_stop; the stream does the same.
+        byte[] demo = SyntheticDemo.From(SyntheticDemo.DefaultProtocol, Packet(1), Packet(2));
+
+        (int commands, long bytes, byte[] written) = CompileToStream(demo, "consolecmd 5 data 6869\n");
+
+        (commands, bytes).ShouldBe((4, (long)demo.Length));
+        written.ShouldBe([9, 9, 9, .. demo]);
+    }
+
+    private (int Commands, long Bytes, byte[] Written) CompileToStream(byte[] demo, string appended = "")
+    {
+        string demoPath = Path.Combine(_folder, "in.dem");
+        string text = Path.Combine(_folder, "in.txt");
+        File.WriteAllBytes(demoPath, demo);
+        DemoAssembly.Export(demoPath, text);
+        File.AppendAllText(text, appended);
+
+        using StreamReader reader = new(text);
+        using MemoryStream output = new();
+        output.Write([9, 9, 9]);
+        (int commands, long bytes) = DemoAssembly.Compile(reader, output);
+
+        return (commands, bytes, output.ToArray());
+    }
+
     private byte[] RoundTrip(byte[] demo)
     {
         string demoPath = Path.Combine(_folder, "in.dem");

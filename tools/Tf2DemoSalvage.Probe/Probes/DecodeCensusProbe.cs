@@ -34,9 +34,10 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// A file of any extension but Source's own content formats is opened, and is a candidate if it starts with the
 /// `HL2DEMO` stamp.
 ///
-/// **One demo at a time, and its memory is released before the next**: its bytes, commands, text and timeline
-/// never outlive its row, and a full compacting collection runs between demos. Anything whose predicted peak
-/// passes `--budget-mb` is skipped as `budget`, never attempted (`DemoCensus` has the multiples).
+/// **One demo at a time, and its memory is released before the next**: its commands and timeline never outlive
+/// its row, and a full compacting collection runs between demos. Every stage but the timeline streams the file
+/// (B449); a timeline whose predicted peak passes `--budget-mb` is skipped as `budget`, never attempted
+/// (`DemoCensus` has the multiple).
 ///
 /// **It resumes.** Rows are appended as each demo finishes; a rerun with the same `--csv` skips paths already
 /// there. Each stage is logged to `&lt;csv&gt;.log` before it starts, so a process that dies — a native voice decoder
@@ -250,25 +251,14 @@ public sealed class DecodeCensusProbe : IProbe
         row.Set("header_frames", header.PlaybackFrames);
         row.Set("header_seconds", header.PlaybackTimeSeconds);
 
-        if (candidate.Length > Array.MaxLength)
+        // Streamed, as every stage but the timeline now reads the demo (B449): no demo is too large to hold.
+        string sha;
+
+        using (FileStream stream = File.OpenRead(candidate.Path))
         {
-            // Not a budget question: every reader here takes the whole file as one array, so no budget reads it.
-            row.Fail("container", "larger than one .NET array", Invariant($"{candidate.Length} bytes; File.ReadAllBytes holds at most {Array.MaxLength}"), string.Empty);
-            return;
+            sha = Convert.ToHexStringLower(SHA256.HashData(stream));
         }
 
-        if (!DemoCensus.Fits(candidate.Length, options.BudgetBytes))
-        {
-            foreach (string stage in CensusRow.Stages)
-            {
-                row.Skip(stage, "budget", Invariant($"holding a {candidate.Length / Megabyte:N0} MB demo passes the {options.BudgetBytes / Megabyte:N0} MB budget"));
-            }
-
-            return;
-        }
-
-        byte[] bytes = File.ReadAllBytes(candidate.Path);
-        string sha = Convert.ToHexStringLower(SHA256.HashData(bytes));
         row["sha256"] = sha;
 
         if (seen.TryGetValue(sha, out string? original))
@@ -279,7 +269,7 @@ public sealed class DecodeCensusProbe : IProbe
         }
 
         seen[sha] = candidate.Path;
-        new DemoCensus(row, bytes, header, options, log).Run();
+        new DemoCensus(row, candidate.Path, candidate.Length, header, options, log).Run();
     }
 
     /// <summary>
