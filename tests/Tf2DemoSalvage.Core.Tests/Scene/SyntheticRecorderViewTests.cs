@@ -89,12 +89,13 @@ public sealed class SyntheticRecorderViewTests
     public void PlayersAt_AFrameBeforeTheLast_PlantsTheFeetWhereTheTimelineHasThem()
     {
         // A backward move restarts the anim state, as DemoPlayer restarts its reader: the feet a fresh state starts
-        // from at 105.5, not the ones carried from 106.
+        // from at 105.5, not the ones carried from 110. Far enough that a NEGATIVE frame time does not simply undo the
+        // turn: 48.6 degrees forward leaves 41.4 to go, so the scale (:1804-1805) shrinks and a step back is 33.5.
         DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander());
         RecorderFeet feet = new();
 
         Recorder(timeline, 105.5, feet);
-        Recorder(timeline, 106.0, feet);
+        Recorder(timeline, 110.0, feet);
 
         Recorder(timeline, 105.5, feet).Yaw.ShouldBe(Recorder(timeline, 105.5, new RecorderFeet()).Yaw);
     }
