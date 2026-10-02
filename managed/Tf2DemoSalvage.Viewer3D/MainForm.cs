@@ -7357,7 +7357,7 @@ internal class MainForm : Form, IFrameSteps
     private double _frameSeconds;
 
     /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
-    private readonly List<string> _measured = [];
+    private readonly MeasureLog _measured = new();
 
     /// <summary>Whether the previous frame had a loaded demo on screen — the first frame after a load is not counted.</summary>
     private bool _wasOnScreen;
@@ -7377,11 +7377,15 @@ internal class MainForm : Form, IFrameSteps
     {
         PrintMeasured(
             _seekedForMeasure
-                ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Count} samples")
-                : string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)")
+                : MeasuredPlaybackHeading());
 
         Close();
     }
+
+    /// <summary>The heading <c>build/playback-check.ps1</c> parses: seconds played, rate reports, rebuild reports.</summary>
+    private string MeasuredPlaybackHeading() =>
+        string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)");
 
     /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
     private int _framesMeasured;
@@ -7420,9 +7424,9 @@ internal class MainForm : Form, IFrameSteps
         _framesMeasured = 0;
         _phasesMeasured = default;
 
-        for (int at = _measured.Count > 1 ? 1 : 0; at < _measured.Count; at++)
+        foreach (string line in _measured.Lines)
         {
-            Console.WriteLine("  " + _measured[at]);
+            Console.WriteLine(line);
         }
     }
 
@@ -7776,13 +7780,13 @@ internal class MainForm : Form, IFrameSteps
             // rather than gathered separately so the two cannot differ: what stdout shows is
             // literally what the log shows, which is the rule that stops a summary from being a
             // second, disagreeing measurement.
-            _measured.Add(rate);
+            _measured.AddRate(rate);
 
             // The rebuild breakdown beside the rate, since one without the other says where the
             // frame went but not what it was doing.
             if (_moments.LastCost is { } cost)
             {
-                _measured.Add("    " + cost);
+                _measured.AddCost(cost);
                 _moments.LastCost = null;
             }
         }
@@ -7803,7 +7807,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 // B420's scenario: print what playback measured, then pause, seek and measure the paused frame as long.
                 _seekedForMeasure = true;
-                PrintMeasured(string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Count} samples"));
+                PrintMeasured(MeasuredPlaybackHeading());
                 _transport.Playing = false;
                 _playback.Seek(back);
                 _transport.ShowTick(back);
