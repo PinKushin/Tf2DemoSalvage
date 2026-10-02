@@ -27,6 +27,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The census's CSV reader, so a corpus test reads the row the census wrote (B451). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Corpus.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Core/Tf2DemoSalvage.Core.csproj" />
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Content/Tf2DemoSalvage.Content.csproj" />
 

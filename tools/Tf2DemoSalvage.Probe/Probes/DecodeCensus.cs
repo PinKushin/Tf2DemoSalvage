@@ -275,6 +275,10 @@ internal sealed class DemoCensus
         ReadOnlySpan<byte> payload = command.Payload.Span;
         NetMessageReadResult result = NetMessageReader.Read(payload, read);
 
+        // The width the read settled, carried: at protocol 15 the first packet decides it (B440) and the write
+        // state reads no packet, so untold it wrote five bits where the later builds wrote six (B451).
+        write.MessageTypeBits = read.MessageTypeBits;
+
         for (int index = 0; index < result.Messages.Count; index++)
         {
             INetMessage message = result.Messages[index];

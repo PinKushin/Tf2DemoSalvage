@@ -3,6 +3,7 @@ using System.Linq;
 
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -124,6 +125,37 @@ public sealed class Protocol15TypeWidthTests
         _ = NetMessageReader.Read(first.Payload.Span, state);
 
         state.MessageTypeBits.ShouldBe(expected);
+    }
+
+    [TestCase(true, NetMessage.TypeBits)]
+    [TestCase(false, NetMessage.OldTypeBits)]
+    public void Write_ServerInfoAtTheWidthTheReaderSettled_ReproducesItsBits(bool sixBits, int typeBits)
+    {
+        // A writer told the width the first packet settled writes ServerInfo back bit for bit at
+        // either build's width — the writer side of B451, whose census forgot to tell it.
+        ServerInfoMessage info = Info(Protocol);
+        DemoCommand first = sixBits
+            ? SyntheticDemo.SixBitPacket(null, 0, Signon(info))
+            : SyntheticDemo.Packet(Protocol, 0, Signon(info));
+        NetDecodeState read = new() { NetworkProtocol = Protocol };
+        NetMessageReadResult result = NetMessageReader.Read(first.Payload.Span, read);
+
+        NetDecodeState write = new() { NetworkProtocol = Protocol, MessageTypeBits = read.MessageTypeBits };
+        BitWriter writer = new();
+        NetMessageWriter.TryWrite(writer, result.Messages[0], write).ShouldBeTrue();
+
+        // The fixture is written by the same writer, so the width is pinned independently of it.
+        int length = result.MessageStartBits[1] - result.MessageStartBits[0];
+        writer.BitCount.ShouldBe(length);
+        BitReader typeField = new(writer.Build());
+        typeField.ReadUInt32(typeBits).ShouldBe((uint)NetMessageType.ServerInfo);
+        typeField.ReadUInt32(16).ShouldBe((uint)Protocol);
+        BitReader expected = new(first.Payload.Span);
+        BitReader actual = new(writer.Build());
+        for (int bit = 0; bit < length; bit++)
+        {
+            actual.ReadBit().ShouldBe(expected.ReadBit(), $"bit {bit}");
+        }
     }
 
     /// <summary>What a SourceTV signon opens with: ServerInfo, then a tick and the replicated cvars.</summary>
