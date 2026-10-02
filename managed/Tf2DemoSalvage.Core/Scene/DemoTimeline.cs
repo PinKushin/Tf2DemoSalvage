@@ -386,6 +386,30 @@ public readonly record struct ScenePlayer(
     /// <summary>`m_iDefaultFOV` (:8189): the player's `fov_desired`, clamped to 75..90 by the server (tf_gamerules.cpp:10275).</summary>
     public int? DefaultFov { get; init; }
 
+    /// <summary>`m_vecViewOffset[2]` (c_baseplayer.cpp:229, `DT_LocalPlayerExclusive`): the recorder's eye height, `CheckWater`'s eye point.</summary>
+    public float? ViewOffsetZ { get; init; }
+
+    /// <summary>`m_Shared.m_flMovementStunTime` (tf_player_shared.cpp:368): the active stun's duration.</summary>
+    public float? MovementStunTime { get; init; }
+
+    /// <summary>`m_Shared.m_iMovementStunAmount` (:369): the active stun's amount, 0..255.</summary>
+    public int? MovementStunAmount { get; init; }
+
+    /// <summary>`m_Shared.m_iMovementStunParity` (:370): changes with each new stun; the client restarts its stun clock then (:1440).</summary>
+    public int? MovementStunParity { get; init; }
+
+    /// <summary>`m_bAllowMoveDuringTaunt` (c_tf_player.cpp:3793).</summary>
+    public bool AllowMoveDuringTaunt { get; init; }
+
+    /// <summary>`m_flCurrentTauntMoveSpeed` (c_tf_player.cpp:3800): a moving taunt's or a kart's current speed.</summary>
+    public float? CurrentTauntMoveSpeed { get; init; }
+
+    /// <summary>`m_flVehicleReverseTime` (c_tf_player.cpp:3801): when a stopped kart starts reversing.</summary>
+    public float? VehicleReverseTime { get; init; }
+
+    /// <summary>`m_hGrapplingHookTarget` (c_tf_player.cpp:3827) as its entity slot, or null for none.</summary>
+    public int? GrapplingHookTarget { get; init; }
+
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
     /// <c>FL_DUCKING</c>. Null flags mean the recording never said, which is every player but the
@@ -3481,6 +3505,14 @@ public sealed class DemoTimeline
                     FovTime = player.Number("DT_BasePlayer.m_flFOVTime"),
                     FovRate = player.Number("DT_Local.m_flFOVRate"),
                     DefaultFov = player.Integer("DT_BasePlayer.m_iDefaultFOV"),
+                    ViewOffsetZ = player.Number("DT_LocalPlayerExclusive.m_vecViewOffset[2]"),
+                    MovementStunTime = player.Number("DT_TFPlayerShared.m_flMovementStunTime"),
+                    MovementStunAmount = player.Integer("DT_TFPlayerShared.m_iMovementStunAmount"),
+                    MovementStunParity = player.Integer("DT_TFPlayerShared.m_iMovementStunParity"),
+                    AllowMoveDuringTaunt = player.Integer("DT_TFPlayer.m_bAllowMoveDuringTaunt") is > 0,
+                    CurrentTauntMoveSpeed = player.Number("DT_TFPlayer.m_flCurrentTauntMoveSpeed"),
+                    VehicleReverseTime = player.Number("DT_TFPlayer.m_flVehicleReverseTime"),
+                    GrapplingHookTarget = EntityState.Slot(player.Integer("DT_TFPlayer.m_hGrapplingHookTarget")),
                 });
             }
 

@@ -103,6 +103,15 @@ public sealed class RecorderPrediction
 
         int flags = recorder.Flags ?? 0;
         (float X, float Y, float Z) velocity = recorder.Velocity ?? default;
+        float packetTime = packet.Tick * _timeline.IntervalPerTick;
+        float lastCommandTime = (packet.Tick + pending.Count) * _timeline.IntervalPerTick;
+
+        if (!TryGrapple(players, recorder, out GrapplingTarget? grapple) ||
+            StunExpireTime(packet.Tick, recorder) is not { } stunExpireTime ||
+            StunFadeUnknown(packet.Tick, recorder, stunExpireTime, lastCommandTime))
+        {
+            return null;
+        }
 
         PredictedPlayer player = new()
         {
@@ -116,13 +125,36 @@ public sealed class RecorderPrediction
             Conditions = recorder.Conditions,
             PlayerState = recorder.PlayerState,
             WaterLevel = recorder.WaterLevel ?? 0,
-            CurTime = packet.Tick * _timeline.IntervalPerTick,
+            CurTime = packetTime,
+            ViewOffsetZ = recorder.ViewOffsetZ ?? 0f,
+            WaterJumpUnknown = (flags & WaterJumpFlag) != 0,
+            StunActive = recorder.StunIndex is >= 0,
+            StunAmount = recorder.MovementStunAmount ?? 0,
+            StunFlags = recorder.StunFlags ?? 0,
+            StunExpireTime = stunExpireTime,
+            ActiveWeaponIsMinigun = recorder.WeaponClass == "CTFMinigun",
+            HasTheFlag = recorder.HasTheFlag,
+            AllowMoveDuringTaunt = recorder.AllowMoveDuringTaunt,
+            CurrentTauntMoveSpeed = recorder.CurrentTauntMoveSpeed ?? 0f,
+            VehicleReverseTime = recorder.VehicleReverseTime ?? float.MaxValue,
+            GrapplingHook = grapple,
         };
+
+        // A stun already running when the packet arrived was seen by every earlier prediction: its lerp target is set.
+        player.StunLerpTarget = player.StunActive && player.StunExpireTime > packetTime
+            ? Math.Clamp(player.StunAmount, 0, 255) / 255f
+            : 0f;
 
         List<(Vector3 Min, Vector3 Max)> enemies = Enemies(players, recorder);
         TfGameMovement movement = new(
             (start, end, mins, maxs, mask) => Trace(level, enemies, start, end, mins, maxs, mask),
-            _convars);
+            _convars)
+        {
+            // Without the eye height CheckWater cannot place its eye point; the networked water level then stands.
+            PointContents = recorder.ViewOffsetZ is null || level.Leaves is not { } leaves
+                ? null
+                : point => leaves.ContentsAt(point.X, point.Y, point.Z),
+        };
 
         bool first = true;
 
@@ -142,6 +174,146 @@ public sealed class RecorderPrediction
     /// <summary><c>FL_ONGROUND</c> and <c>FL_DUCKING</c> (<c>const.h:148-149</c>), the two bits every era agrees on.</summary>
     private const int OnGroundFlag = 1 << 0;
     private const int DuckingFlag = 1 << 1;
+
+    /// <summary><c>FL_WATERJUMP</c> outside the HL2 block of <c>const.h:155</c>.</summary>
+    private const int WaterJumpFlag = 1 << 3;
+
+    private const int CondStunned = 15;
+    private const int StunMovement = 1 << 0;
+    private const int StunControls = 1 << 1;
+
+    /// <summary><c>CONTROL_STUN_ANIM_TIME</c> (<c>tf_player_shared.h:202</c>).</summary>
+    private const float ControlStunAnimTime = 1.5f;
+
+    /// <summary><c>StunMove</c>'s fade out: <c>RemapValClamped( dt, 0.2, 0.0, … )</c> (<c>tf_gamemovement.cpp:594</c>).</summary>
+    private const float StunFadeSeconds = 0.2f;
+
+    /// <summary><c>CONTENTS_MONSTER</c>: a mask without it — a ghost's — passes through players.</summary>
+    private const int ContentsMonster = 0x2000000;
+
+    /// <summary>
+    /// <c>GetGrapplingHookTarget()</c> resolved; false when the hook's target is one this class cannot place — a hook
+    /// projectile, whose position the timeline does not hand it (B450) — so prediction declines.
+    /// </summary>
+    private static bool TryGrapple(IReadOnlyList<ScenePlayer> players, ScenePlayer recorder, out GrapplingTarget? target)
+    {
+        target = null;
+
+        if (recorder.GrapplingHookTarget is not { } slot)
+        {
+            return true;
+        }
+
+        if (Find(players, slot) is not { } hooked)
+        {
+            return false;
+        }
+
+        Vector3 center = Center(hooked);
+        Vector3? direction = null;
+
+        if (hooked.GrapplingHookTarget is { } theirs)
+        {
+            if (Find(players, theirs) is not { } theirTarget)
+            {
+                return false;
+            }
+
+            Vector3 toward = Center(theirTarget) - center;
+            direction = toward.LengthSquared() > 0f ? Vector3.Normalize(toward) : Vector3.Zero;
+        }
+
+        target = new GrapplingTarget(center, new Vector3(hooked.X, hooked.Y, hooked.Z), IsPlayer: true, direction);
+        return true;
+    }
+
+    private static ScenePlayer? Find(IReadOnlyList<ScenePlayer> players, int entityIndex)
+    {
+        foreach (ScenePlayer each in players)
+        {
+            if (each.EntityIndex == entityIndex)
+            {
+                return each;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary><c>WorldSpaceCenter()</c> of a player: the middle of his standing or ducked hull.</summary>
+    private static Vector3 Center(ScenePlayer player) =>
+        new(player.X, player.Y, player.Z + ((((player.Flags ?? 0) & DuckingFlag) != 0 ? 62f : 82f) * 0.5f));
+
+    private static bool MovementStunned(ScenePlayer player) =>
+        player.StunIndex is >= 0 && player.Conditions.Has(CondStunned) && ((player.StunFlags ?? 0) & StunMovement) != 0;
+
+    /// <summary>
+    /// <c>m_flStunEnd</c>: the client's curtime when <c>m_iMovementStunParity</c> last changed plus
+    /// <c>m_flMovementStunTime</c>, and <c>CONTROL_STUN_ANIM_TIME</c> for a control stun (<c>tf_player_shared.cpp:1440-1449</c>).
+    /// The change is found by walking back through the packets; zero when no movement stun is running.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the client's clock on receiving a packet is taken as the packet's tick, and the control stun's
+    /// animation as not yet started (<c>m_iStunAnimState</c> is the client's own).
+    /// </remarks>
+    private float? StunExpireTime(int packetTick, ScenePlayer recorder)
+    {
+        if (!MovementStunned(recorder))
+        {
+            return 0f;
+        }
+
+        if (recorder.MovementStunTime is not { } duration || recorder.MovementStunParity is not { } parity)
+        {
+            return null;
+        }
+
+        float extra = ((recorder.StunFlags ?? 0) & StunControls) != 0 ? ControlStunAnimTime : 0f;
+        int limit = packetTick - (int)MathF.Ceiling((duration + extra) / _timeline.IntervalPerTick) - 1;
+        IReadOnlyList<(int Tick, int Acknowledged)> packets = _timeline.PacketAcknowledgements;
+        int changed = packetTick;
+
+        for (int index = packets.Count - 1; index >= 0; index--)
+        {
+            int tick = packets[index].Tick;
+
+            if (tick > packetTick)
+            {
+                continue;
+            }
+
+            if (tick < limit)
+            {
+                // Older than the stun could be: it expired before this packet.
+                break;
+            }
+
+            if (Find(_timeline.PlayersAt(tick), recorder.EntityIndex) is not { } then || then.MovementStunParity != parity)
+            {
+                break;
+            }
+
+            changed = tick;
+        }
+
+        return (changed * _timeline.IntervalPerTick) + duration + extra;
+    }
+
+    /// <summary>
+    /// Whether <c>StunMove</c>'s fade out may be running: its start is client state no packet carries, set by whichever
+    /// prediction first saw the stun end — so prediction declines inside the fade's 0.2 seconds.
+    /// </summary>
+    private bool StunFadeUnknown(int packetTick, ScenePlayer recorder, float expireTime, float lastCommandTime)
+    {
+        if (MovementStunned(recorder))
+        {
+            return expireTime < lastCommandTime + StunFadeSeconds;
+        }
+
+        int before = packetTick - (int)MathF.Ceiling(StunFadeSeconds / _timeline.IntervalPerTick) - 1;
+
+        return Find(_timeline.PlayersAt(before), recorder.EntityIndex) is { } earlier && MovementStunned(earlier);
+    }
 
     /// <summary>The commands <c>PerformPrediction</c> runs: past the acknowledgement, read by now, in order.</summary>
     /// <param name="commands">Every usercmd, in stream order.</param>
@@ -239,7 +411,7 @@ public sealed class RecorderPrediction
             return null;
         }
 
-        foreach ((Vector3 min, Vector3 max) in enemies)
+        foreach ((Vector3 min, Vector3 max) in (mask & ContentsMonster) != 0 ? enemies : [])
         {
             if (SweepBox(start, end, min - maxs, max - mins) is { } hit && hit.Fraction < nearest.Fraction)
             {
