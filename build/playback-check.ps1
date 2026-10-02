@@ -6,7 +6,7 @@ Plays a real demo in the viewer and fails if playback does not finish (B408).
 The UI suite never plays a demo, so a hang in the physics loop passed both gate phases for days (B408): the viewer pinned one
 pair event forever 387 seconds into cp_process_f12. This builds the viewer, plays a demo from a seek for -Seconds of PLAYBACK
 (--measure counts playback, not wall clock), and requires the viewer to exit on its own within -LimitSeconds having printed
-its measurement with a sample for each second. A viewer still running at the limit is killed by ITS OWN process id - never by
+its measurement with at least half a frame-rate report per second played (arithmetic below). A viewer still running at the limit is killed by ITS OWN process id - never by
 image name, which would take whatever else is open - and the check fails.
 
 The default demo is lcor (git-ignored). Where it is absent the check FAILS rather than passing unchecked.
@@ -65,27 +65,34 @@ if (-not $viewer.WaitForExit($LimitSeconds * 1000)) {
 $text = Get-Content $out -Raw
 Remove-Item $out
 
-if ($text -notmatch 'measured (?<played>[\d.]+) seconds of playback, (?<samples>\d+) samples') {
+if ($text -notmatch 'measured (?<played>[\d.]+) seconds of playback, (?<samples>\d+) samples \((?<rebuilds>\d+) rebuild reports\)') {
     Write-Error "playback-check: FAILED - the viewer exited (code $($viewer.ExitCode)) without its measurement:`n$text"
     exit 1
 }
 
 $played = [double]::Parse($Matches.played, [Globalization.CultureInfo]::InvariantCulture)
 $samples = [int]$Matches.samples
+$rebuilds = [int]$Matches.rebuilds
 
-if ($played -lt $Seconds -or $samples -lt ($Seconds - 1)) {
-    Write-Error "playback-check: FAILED - $played s of playback in $samples samples, asked for $Seconds."
+# **`samples` is frame-rate reports only, carried from `MeasureLog`; rebuild reports are the separate count below.** It once
+# summed both, and a run with few rebuilds failed.
+# **The floor is half the ideal, derived rather than guessed:** a report needs at least FrameRateLog.IntervalSeconds (1 s) of
+# on-screen frame time and overshoots by the frame that crossed it, so reports <= played / 1 and the ideal 20 s run is 19-20;
+# measured 17 (cp_process_f12, 420 ms stalls). A mean interval under twice nominal is still continuous sampling:
+# $Seconds / (2 * 1 s) = 10 at the default.
+$floor = [math]::Ceiling($Seconds / 2)
+
+if ($played -lt $Seconds -or $samples -lt $floor) {
+    Write-Error "playback-check: FAILED - $played s of playback in $samples rate reports, asked for $Seconds s and at least $floor reports."
     exit 1
 }
 
 # **The samples must be of a demo, not of the loading screen** (D182). The window draws from the moment it opens now, and this
 # check once passed on twenty seconds of frames drawn while the demo was still decoding. A moment is rebuilt only while a demo
 # plays, so a run with no rebuild breakdown among its samples played nothing.
-$rebuilds = ([regex]::Matches($text, 'moment cost, mean over')).Count
-
 if ($rebuilds -lt 1) {
-    Write-Error "playback-check: FAILED - $samples samples and not one moment rebuilt; the demo never played:`n$text"
+    Write-Error "playback-check: FAILED - $samples rate reports and not one moment rebuilt; the demo never played:`n$text"
     exit 1
 }
 
-Write-Output "playback-check: $Demo from tick $Tick at ${Speed}x played $played s in $samples samples ($rebuilds rebuild reports) and exited on its own."
+Write-Output "playback-check: $Demo from tick $Tick at ${Speed}x played $played s in $samples rate reports ($rebuilds rebuild reports) and exited on its own."
