@@ -7,6 +7,7 @@ using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Text;
+using Tf2DemoSalvage.Probe.Probes;
 
 namespace Tf2DemoSalvage.Core.Tests.Net;
 
@@ -76,6 +77,38 @@ public sealed class CorpusProtocol15Tests
 
         state.NetworkProtocol.ShouldBe((ushort)15);
         state.MessageTypeBits.ShouldBe(typeBits);
+    }
+
+    /// <summary>
+    /// The census's messages stage re-encodes every message of both later-build demos bit for bit.
+    /// </summary>
+    /// <remarks>
+    /// Its write state never reads a packet, so the six-bit width the read state settled has to be
+    /// carried to it; before that, every ServerInfo came back one bit short (B451). Counts measured
+    /// 2026-10-01.
+    /// </remarks>
+    [TestCase(Cevo, 114_315)]
+    [TestCase(Esea, 311_418)]
+    public void DecodeCensusMessages_OfALaterProtocol15SourceTv_ReencodesEveryMessage(string name, long messages)
+    {
+        string path = Demo(name);
+        string csv = Path.Combine(Path.GetTempPath(), "b451-" + Guid.NewGuid().ToString("N") + ".csv");
+
+        try
+        {
+            new DecodeCensusProbe().Run(TextWriter.Null, [path, "--csv", csv, "--stages", "messages"]);
+
+            CensusRow row = CensusCsv.Read(csv).Values.Single();
+            row["messages_detail"].ShouldContain(" re-encoded bit for bit");
+            row.Status("messages").ShouldBe("pass", row["messages_detail"]);
+            row["messages"].ShouldBe(messages.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            row["messages_exact"].ShouldBe(row["messages"]);
+        }
+        finally
+        {
+            File.Delete(csv);
+            File.Delete(Path.ChangeExtension(csv, ".md"));
+        }
     }
 
     [TestCase(Cevo)]
