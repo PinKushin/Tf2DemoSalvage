@@ -220,6 +220,10 @@ in any public writeup found:
   window of packets from 32 ticks back to the first more than 8 ahead, slerps between the pair around the rolled-back
   tick, and snaps on a cut, a fast move, or a stop in the window. The recorder's body is placed and animated from the
   same viewpoint ([68](68-demo-view-interpolation.md)).
+- **The view's fog is the local player's, and a model's cube holds every light it has no slot for.** Fog comes from the
+  controller the player's `m_PlayerFog.m_hCtrl` names, the 3D sky's from the player's own `m_skybox3d.fog`, and the
+  server forces radial fog on official maps. The lightcache ranks lights by luminance and folds every loser into the
+  ambient cube rather than dropping it ([69](69-fog-is-the-players-and-a-cube-holds-the-rest.md)).
 
 ## Conventions used throughout
 

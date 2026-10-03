@@ -108,23 +108,9 @@ public sealed class UnimplementedEffectConformanceTests
             "corner, which is what B84 identified and did not close.");
     }
 
-    [Test]
-    public void Effects_Fog_IsControlledByAnEntityWithStartAndEndDistance()
-    {
-        // c_env_fog_controller declares the fog's colour, start and end distances and density. TF2's
-        // maps use it heavily and this project draws no fog at all, so distance reads flat and the
-        // 3D skybox — when it is drawn — will not blend into it.
-        //
-        // Worth specifying now rather than later precisely because it interacts: fog and the skybox
-        // are two halves of how a Source map fakes distance, and implementing either alone looks
-        // worse than neither.
-        SourceSdk.Text("src/game/client/c_env_fog_controller.cpp")
-            .ShouldNotBeNull("the fog controller source is missing from the SDK checkout");
-
-        Assert.Ignore(
-            "fog is not implemented. It pairs with the 3D skybox — implementing one without the " +
-            "other looks worse than neither, because the skybox then has a visible seam.");
-    }
+    // **`Effects_Fog_IsControlledByAnEntityWithStartAndEndDistance` stood here** until fog was drawn,
+    // world and 3D skybox both (B139, 2026-10-02): Rendering.Tests' FogConformanceTests and
+    // FogRenderTests, and ViewFogTests beside this file.
 
     [Test]
     public void Effects_RopesAndSprites_AreEntitiesWithTheirOwnDrawing()
