@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.9
+# Tf2DemoSalvage 0.1.0-beta.10
 
-## Changes since 0.1.0-beta.8
+## Changes since 0.1.0-beta.9
+
+- **See-through surfaces:** glass, grates and other translucent world surfaces draw in the game's order, leaf by
+  leaf as the world is walked, and surfaces facing away from the camera are no longer drawn.
+- **Water sort order:** surfaces above, below and across the water line draw in the game's group order, for the
+  world, its overlays and its see-through surfaces.
+
+## Changes in 0.1.0-beta.9
 
 - **Stances:** aiming, deployed and air-dash crouch poses are drawn as the game picks them — a scoped sniper, a
   spun-up heavy, a scout crouching after a double jump — and a round's losers crouch-idle as in TF2.
