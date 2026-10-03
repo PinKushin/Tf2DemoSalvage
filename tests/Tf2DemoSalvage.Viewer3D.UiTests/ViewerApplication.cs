@@ -629,8 +629,7 @@ internal sealed partial class ViewerApplication : IDisposable
         if (!HasFocus())
         {
             Log($"WARNING: focus was lost around the {key} press; it may not have reached the viewer");
-        }
-    }
+        }    }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
@@ -639,6 +638,17 @@ internal sealed partial class ViewerApplication : IDisposable
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint GetWindowThreadProcessId(IntPtr window, IntPtr processId);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
+    private static extern uint GetWindowProcessId(IntPtr window, out uint processId);
+
+    /// <summary>The process owning the foreground window — where a synthesized key actually goes.</summary>
+    public static uint ForegroundProcessId()
+    {
+        _ = GetWindowProcessId(GetForegroundWindow(), out uint processId);
+        return processId;
+    }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
@@ -866,29 +876,15 @@ internal sealed partial class ViewerApplication : IDisposable
     /// of every test that focuses the window, and it made a failure elsewhere read as "the viewer
     /// would not take focus".
     ///
-    /// Asking the automation system which element has focus, and whether that element belongs to
-    /// our process, answers the question actually being asked.
+    /// **Which process owns the foreground window answers it; which element UIA reports as focused
+    /// does not.** It used to ask UIA, and UIA reports the viewer's last focused control even while
+    /// another process owns the foreground: on CI, after the Export test's dialogs, focus read as the
+    /// viewer's menu bar (then its viewport) while synthesized keys went to the foreground terminal,
+    /// so every later key-press test was told the viewer had focus and pressed into nothing — ten
+    /// failures that looked like the viewer had stopped responding. A synthesized key goes to the
+    /// foreground window's thread, so that is what this compares.
     /// </remarks>
-    public bool HasFocus()
-    {
-        try
-        {
-            AutomationElement? focused = _automation.FocusedElement();
-
-            return focused is not null &&
-                focused.Properties.ProcessId.ValueOrDefault == _application.ProcessId;
-        }
-        catch (Exception failure) when (
-            failure is COMException or TimeoutException or PropertyNotSupportedException)
-        {
-            // A window closing under the query, or an element that has gone away between the two
-            // calls. Reported rather than swallowed: a focus check that quietly says "no" is how a
-            // test spends its retry budget on a question nobody answered.
-            Log($"focus check failed: {failure.Message}");
-
-            return false;
-        }
-    }
+    public bool HasFocus() => ForegroundProcessId() == (uint)_application.ProcessId;
 
     /// <summary>Writes a diagnostic line, flushed so a CI log keeps it on a crash.</summary>
     /// <param name="message">What happened.</param>

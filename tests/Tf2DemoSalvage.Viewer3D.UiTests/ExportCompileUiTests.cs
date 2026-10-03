@@ -50,11 +50,12 @@ public sealed class ExportCompileUiTests
     private string? _focusBefore;
 
     private static string Focused() =>
-        _viewer.Window.Automation.FocusedElement() is { } focused
+        (_viewer.Window.Automation.FocusedElement() is { } focused
             ? $"{focused.Properties.ControlType.ValueOrDefault} '{focused.Properties.Name.ValueOrDefault}' "
               + $"id={focused.Properties.AutomationId.ValueOrDefault} class={focused.Properties.ClassName.ValueOrDefault} "
               + $"pid={focused.Properties.ProcessId.ValueOrDefault}"
-            : "nothing";
+            : "nothing")
+        + $"; foreground pid={ViewerApplication.ForegroundProcessId()}, viewer pid={_viewer.Window.Properties.ProcessId.Value}";
 
     /// <remarks>
     /// A failure mid-dialog leaves it modal over the shared viewer, and every later test in the session
@@ -103,6 +104,11 @@ public sealed class ExportCompileUiTests
         // during the post-load collection and the viewer logged none (two runs of five). Synchronised
         // on the line the load ends with.
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+
+        // In front, as a user's would be: on CI the terminal owned the foreground, and the common
+        // dialog, opened behind it, saved its default name over the typed path.
+        _viewer.Focus();
+        _viewer.HasFocus().ShouldBeTrue("the viewer did not come to the foreground");
 
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
