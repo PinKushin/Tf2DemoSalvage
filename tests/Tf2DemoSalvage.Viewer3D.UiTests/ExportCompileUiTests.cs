@@ -173,10 +173,25 @@ public sealed class ExportCompileUiTests
             }
         }
 
+        // UIA parents an owned window under its owner, so a box the dialog raised is the dialog's
+        // child, not a desktop window — two levels down covers a message box over the file dialog.
         foreach (AutomationElement child in _viewer.Window.FindAllChildren(search => search.ByClassName("#32770")))
         {
             report.AppendLine(Invariant,
                 $"  viewer child dialog '{child.Properties.Name.ValueOrDefault}' enabled={child.Properties.IsEnabled.ValueOrDefault}");
+            foreach (AutomationElement inner in child.FindAllChildren())
+            {
+                report.AppendLine(Invariant,
+                    $"      {inner.Properties.ClassName.ValueOrDefault} '{inner.Properties.Name.ValueOrDefault}' enabled={inner.Properties.IsEnabled.ValueOrDefault}");
+                if (inner.Properties.ClassName.ValueOrDefault == "#32770")
+                {
+                    foreach (AutomationElement text in inner.FindAllChildren())
+                    {
+                        report.AppendLine(Invariant,
+                            $"          {text.Properties.ClassName.ValueOrDefault} '{text.Properties.Name.ValueOrDefault}'");
+                    }
+                }
+            }
         }
 
         report.AppendLine("viewer log tail:");
