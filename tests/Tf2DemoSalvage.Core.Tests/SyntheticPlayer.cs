@@ -436,7 +436,13 @@ internal static class SyntheticPlayer
         EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         ServerInfoMessage serverInfo = ServerInfo(intervalPerTick);
-        List<INetMessage> signon = [serverInfo];
+        // `sv_client_min_interp_ratio -1` leaves the window to the client (`ClientInterp.Amount`), so a test can decode
+        // with no window at all and have an event fire on the tick it arrives (B437) — or with the default, a tenth late.
+        List<INetMessage> signon =
+        [
+            serverInfo,
+            new SetConVarMessage([new KeyValuePair<string, string>("sv_client_min_interp_ratio", "-1")]),
+        ];
 
         if (alwaysLoser)
         {

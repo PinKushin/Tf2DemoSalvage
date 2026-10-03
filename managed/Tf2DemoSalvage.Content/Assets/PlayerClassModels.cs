@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -80,8 +82,15 @@ public sealed class PlayerClassModels : IClassAnimationScripts
     /// <summary>Classes whose script sets <c>DontDoNewJump</c>, so landing plays no gesture.</summary>
     private readonly HashSet<int> _noLandGesture = [];
 
-    private PlayerClassModels()
+    /// <summary>Opens a game file, kept for the models' activities, which are read only when first asked.</summary>
+    private readonly Func<string, byte[]?> _readFile;
+
+    /// <summary>Each class model's declared activities, its included models' with it, read on first ask.</summary>
+    private readonly ConcurrentDictionary<int, HashSet<string>> _activities = new();
+
+    private PlayerClassModels(Func<string, byte[]?> readFile)
     {
+        _readFile = readFile;
     }
 
     /// <summary>Reads every class script the install carries.</summary>
@@ -100,7 +109,7 @@ public sealed class PlayerClassModels : IClassAnimationScripts
     {
         ArgumentNullException.ThrowIfNull(readFile);
 
-        PlayerClassModels models = new();
+        PlayerClassModels models = new(readFile);
 
         IceCipher cipher = new(EncryptionKey);
 
@@ -177,6 +186,49 @@ public sealed class PlayerClassModels : IClassAnimationScripts
         playerClass is { } known
             ? new ClassAnimationScript(_noAirwalk.Contains(known), _noLandGesture.Contains(known))
             : default;
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// **The model and everything it includes**, because a player model holds almost none of its own sequences — they
+    /// live in `&lt;class&gt;_animations.mdl`, and `SelectWeightedSequence` searches the merged list. A class with no
+    /// model answers true: nothing is known, so the flag stands. Measured 2026-10-02: `ACT_MP_CROUCHWALK_LOSERSTATE`
+    /// is declared by none of the nine class models, so a humiliated loser never ducks here.
+    /// </remarks>
+    public bool HasCrouchWalk(int? playerClass, PlayerActivityOverride table)
+    {
+        string crouchWalk = PlayerActivityTable.For(table).TryGetValue(CrouchWalk, out string? rewritten)
+            ? rewritten
+            : CrouchWalk;
+
+        // ponytail: an unrewritten crouch walk is the weapon's to translate, and the role is not known at decode.
+        if (crouchWalk == CrouchWalk || playerClass is not { } known || Model(known) is not { } model)
+        {
+            return true;
+        }
+
+        return _activities.GetOrAdd(known, _ => ActivitiesOf(model)).Contains(crouchWalk);
+    }
+
+    /// <summary>`ACT_MP_CROUCHWALK`, the activity both duck tests translate.</summary>
+    private const string CrouchWalk = "ACT_MP_CROUCHWALK";
+
+    /// <summary>Every activity a model and the models it includes declare.</summary>
+    private HashSet<string> ActivitiesOf(string model)
+    {
+        HashSet<string> activities = new(StringComparer.Ordinal);
+
+        if (_readFile(model) is not { } root)
+        {
+            return activities;
+        }
+
+        foreach (byte[] file in StudioModelGroups.Read(root).Select(_readFile).Prepend(root).OfType<byte[]>())
+        {
+            activities.UnionWith(StudioSequences.Read(file).Select(sequence => sequence.Activity));
+        }
+
+        return activities;
+    }
 
     /// <summary>The class number of the demoman, from <c>tf_shareddefs.h</c>'s order.</summary>
     /// <remarks>
