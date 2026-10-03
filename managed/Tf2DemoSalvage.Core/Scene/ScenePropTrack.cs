@@ -407,6 +407,9 @@ public readonly record struct ScenePose
     /// </summary>
     public IReadOnlyDictionary<string, string>? ItemActivities { get; init; }
 
+    /// <summary>What TF's `HandleDucking` and `HandleMoving` ask beyond the flags (B437), carried from the player.</summary>
+    public TfPosture Posture { get; init; }
+
     /// <summary>How far up or down the player is looking, in degrees.</summary>
     /// <remarks>
     /// **Not <see cref="Pitch"/>, and the two must not be confused.** That one rotates the whole
@@ -2301,6 +2304,7 @@ public sealed class ScenePropTrack
             ActivityOverride = from.ActivityOverride,
             CompetitiveWinnerClass = from.CompetitiveWinnerClass,
             ItemActivities = from.ItemActivities,
+            Posture = from.Posture,
             EyePitch = from.EyePitch,
             EyeYaw = from.EyeYaw,
             AimYaw = from.AimYaw,

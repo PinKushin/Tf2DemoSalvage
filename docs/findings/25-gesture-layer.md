@@ -265,10 +265,17 @@ translated activity has no sequence. This project had a four-level ladder instea
 then run or stand, then the label `Stand_PRIMARY` — written to keep a player from lying on his back.
 None of it is the engine's. What it was really covering for is `HandleDucking`'s own check: a ducking
 player whose model has no crouch walk for what he holds is not ducking, unless he is a loser, and a
-ducking loser crouch-idles. Porting that and dropping the ladder is the engine's shape; the
-deployed and air-dash crouch branches of the same function are still not ported.
+ducking loser crouch-idles. Porting that and dropping the ladder is the engine's shape.
+
+**Then the rest of the function, and an approximation retired.** `HandleDucking` and `HandleMoving`
+also ask `IsAiming()` (deployed crouch and stand), the air dash (`ACT_MP_DOUBLEJUMP_CROUCH`) and a
+two-second deployed hold a zoomed sniper's shot starts — state the anim state keeps and only
+`HandleMoving` cancels, so it lives in the decode beside the jump clock. `IsLoser()` had been read as
+"the loser's table is in force", which is wrong whenever a kart or the competitive-loser condition
+picks another table; the decode already had the real rule for the gestures, so the body now gets the
+same answer.
 
 ## Open
 
-Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). B437 is closed;
-`HandleDucking`'s deployed and air-dash crouch remain, with private activity numbers.
+Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). B437 is closed; a
+private activity's number stays unnamed.

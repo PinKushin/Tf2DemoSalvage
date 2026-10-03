@@ -71,7 +71,43 @@ public enum PlayerActivity
 
     /// <summary>Dead.</summary>
     Die,
+
+    /// <summary>Crouched and still, deployed — `ACT_MP_CROUCH_DEPLOYED_IDLE` (`tf_playeranimstate.cpp:1356`).</summary>
+    CrouchDeployedIdle,
+
+    /// <summary>Crouched and moving, deployed — `ACT_MP_CROUCH_DEPLOYED` (`:1383`).</summary>
+    CrouchDeployed,
+
+    /// <summary>Crouched and moving with an air dash spent — `ACT_MP_DOUBLEJUMP_CROUCH` (`:1363`).</summary>
+    DoubleJumpCrouch,
+
+    /// <summary>Standing and moving, deployed — `ACT_MP_DEPLOYED` (`:1316`).</summary>
+    Deployed,
+
+    /// <summary>Standing still, deployed or holding the deployed pose — `ACT_MP_DEPLOYED_IDLE` (`:1320`, `:1326`).</summary>
+    DeployedIdle,
 }
+
+/// <summary>What TF's own `HandleDucking` and `HandleMoving` ask of the player beyond the flags (B437).</summary>
+/// <param name="IsLoser">`m_Shared.IsLoser()` — <see cref="LoserState.IsLoser"/>.</param>
+/// <param name="IsAiming">
+/// `m_Shared.IsAiming()`: `TF_COND_AIMING` on anyone but a soldier, or `TF_COND_ZOOMED` for a sniper holding the classic
+/// rifle (`tf_player_shared.cpp:11429-11441`).
+/// </param>
+/// <param name="AimsMinigun">The active weapon is the minigun, which never deployed-crouch-walks (`:1372-1381`).</param>
+/// <param name="AirDashing">`m_Shared.GetAirDash() &gt; 0`.</param>
+/// <param name="HoldsDeployedPose">`m_flHoldDeployedPoseUntilTime &gt; gpGlobals-&gt;curtime`.</param>
+/// <param name="LacksCrouchWalk">
+/// `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) &lt; 0` on the model being drawn; false when
+/// nobody has asked a model, so the flag stands.
+/// </param>
+public readonly record struct TfPosture(
+    bool IsLoser = false,
+    bool IsAiming = false,
+    bool AimsMinigun = false,
+    bool AirDashing = false,
+    bool HoldsDeployedPose = false,
+    bool LacksCrouchWalk = false);
 
 /// <summary>
 /// Chooses a player's body activity from the state a demo carries.
@@ -171,8 +207,10 @@ public static class PlayerActivityState
     /// <c>HandleJumping</c>'s answer — the activity it left when it returned true, or null when it returned false —
     /// from <see cref="PlayerGestureFeed.HandleJumping"/>, which holds the state it steps (B437).
     /// </param>
+    /// <param name="posture">What TF's `HandleDucking` and `HandleMoving` ask beyond the flags (B437).</param>
     /// <returns>The activity the engine would choose.</returns>
-    public static PlayerActivity For(int flags, float speed, bool waistDeep, bool alive, PlayerActivity? jumping = null)
+    public static PlayerActivity For(
+        int flags, float speed, bool waistDeep, bool alive, PlayerActivity? jumping = null, TfPosture posture = default)
     {
         bool moving = speed > MovingMinimumSpeed;
 
@@ -185,10 +223,9 @@ public static class PlayerActivityState
             return answered;
         }
 
-        // Then crouching, so a crouching player who is also moving crouch-walks rather than runs.
-        if ((flags & Ducking) != 0 && alive)
+        if (alive && Ducked(flags, speed, posture) is { } ducked)
         {
-            return moving ? PlayerActivity.CrouchWalk : PlayerActivity.CrouchIdle;
+            return ducked;
         }
 
         if (waistDeep && alive)
@@ -201,8 +238,53 @@ public static class PlayerActivityState
             return PlayerActivity.Die;
         }
 
-        // And what is left. Standing idle is the engine's starting value rather than a case it
-        // chooses, which is why HandleMoving only ever sets the running one.
+        return Moved(moving, posture);
+    }
+
+    /// <summary>Whether an answer of <see cref="For"/> is `HandleMoving`'s, so that `HandleMoving` ran this frame.</summary>
+    /// <param name="activity">The answer.</param>
+    /// <returns>True for the run, the stand and the two deployed stances.</returns>
+    public static bool IsMoving(PlayerActivity activity) =>
+        activity is PlayerActivity.Run or PlayerActivity.StandIdle or PlayerActivity.Deployed or PlayerActivity.DeployedIdle;
+
+    /// <summary>`CTFPlayerAnimState::HandleDucking` (`tf_playeranimstate.cpp:1341-1392`), or null when it returns false.</summary>
+    private static PlayerActivity? Ducked(int flags, float speed, TfPosture posture)
+    {
+        // The duck is dropped when the model has no crouch walk for what is held — unless a loser (:1343-1347).
+        if ((flags & Ducking) == 0 || (posture.LacksCrouchWalk && !posture.IsLoser))
+        {
+            return null;
+        }
+
+        // `GetOuterXYSpeed() < MOVING_MINIMUM_SPEED || IsLoser()` (:1351): strictly below, and a loser always idles.
+        if (speed < MovingMinimumSpeed || posture.IsLoser)
+        {
+            return posture.IsAiming || posture.HoldsDeployedPose ? PlayerActivity.CrouchDeployedIdle : PlayerActivity.CrouchIdle;
+        }
+
+        if (posture.IsAiming && !posture.AimsMinigun)
+        {
+            return PlayerActivity.CrouchDeployed;
+        }
+
+        return posture.AirDashing ? PlayerActivity.DoubleJumpCrouch : PlayerActivity.CrouchWalk;
+    }
+
+    /// <summary>`CTFPlayerAnimState::HandleMoving` (`:1297-1334`) over the base's run (`multiplayer_animstate.cpp:940`).</summary>
+    private static PlayerActivity Moved(bool moving, TfPosture posture)
+    {
+        if (!posture.IsLoser && posture.IsAiming)
+        {
+            return moving ? PlayerActivity.Deployed : PlayerActivity.DeployedIdle;
+        }
+
+        // Moving cancels the hold before anything reads it (:1301-1305).
+        if (!posture.IsLoser && posture.HoldsDeployedPose && !moving)
+        {
+            return PlayerActivity.DeployedIdle;
+        }
+
+        // Standing idle is the engine's starting value rather than a case it chooses.
         return moving ? PlayerActivity.Run : PlayerActivity.StandIdle;
     }
 
@@ -242,6 +324,11 @@ public static class PlayerActivityState
             PlayerActivity.LegacyJump => "ACT_MP_JUMP",
             PlayerActivity.SwimIdle or PlayerActivity.Swim => "ACT_MP_SWIM",
             PlayerActivity.Die => "ACT_DIESIMPLE",
+            PlayerActivity.CrouchDeployedIdle => "ACT_MP_CROUCH_DEPLOYED_IDLE",
+            PlayerActivity.CrouchDeployed => "ACT_MP_CROUCH_DEPLOYED",
+            PlayerActivity.DoubleJumpCrouch => "ACT_MP_DOUBLEJUMP_CROUCH",
+            PlayerActivity.Deployed => "ACT_MP_DEPLOYED",
+            PlayerActivity.DeployedIdle => "ACT_MP_DEPLOYED_IDLE",
             _ => throw new ArgumentOutOfRangeException(nameof(activity)),
         };
 }

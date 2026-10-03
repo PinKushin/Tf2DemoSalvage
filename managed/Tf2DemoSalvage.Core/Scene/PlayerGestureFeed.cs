@@ -234,6 +234,12 @@ public sealed class PlayerGestureFeed
                 _inAirWalk.Remove(who);
                 break;
 
+            // **A zoomed sniper's shot holds the deployed pose two seconds** (`tf_playeranimstate.cpp:1013-1028`), the
+            // `else if` after the minigun — the same test the gesture's own DEPLOYED activity is chosen by.
+            case PlayerAnimEvent.AttackPrimary when posture.IsSniperZoomed && !posture.IsMinigun:
+                _holdDeployedUntil[who] = seconds + HoldDeployedSeconds;
+                break;
+
             // **A respawn clears the animation state** (`multiplayer_animstate.cpp:310-313`).
             case PlayerAnimEvent.Spawn:
                 ClearAnimationState(who);
@@ -296,6 +302,31 @@ public sealed class PlayerGestureFeed
         slots[slot] = started;
 
         return true;
+    }
+
+    /// <summary>Each player's `m_flHoldDeployedPoseUntilTime`, in demo seconds (B437).</summary>
+    /// <remarks>Not cleared by `ClearAnimationState`, which leaves it alone; only moving cancels it.</remarks>
+    private readonly Dictionary<int, double> _holdDeployedUntil = [];
+
+    /// <summary>`curtime + 2.0` (`tf_playeranimstate.cpp:1028`).</summary>
+    private const double HoldDeployedSeconds = 2d;
+
+    /// <summary>`m_flHoldDeployedPoseUntilTime &gt; gpGlobals-&gt;curtime`.</summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <returns>Whether the deployed pose is held.</returns>
+    public bool HoldsDeployedPose(int entityIndex, double seconds) =>
+        _holdDeployedUntil.TryGetValue(entityIndex, out double until) && until > seconds;
+
+    /// <summary>`HandleMoving`'s cancel: `if ( flSpeed &gt; MOVING_MINIMUM_SPEED ) m_flHoldDeployedPoseUntilTime = 0.0;`.</summary>
+    /// <param name="entityIndex">The player, whose `HandleMoving` ran this frame.</param>
+    /// <param name="horizontalSpeed">`GetOuterXYSpeed()`.</param>
+    public void StepMoving(int entityIndex, float horizontalSpeed)
+    {
+        if (horizontalSpeed > PlayerActivityState.MovingMinimumSpeed)
+        {
+            _holdDeployedUntil.Remove(entityIndex);
+        }
     }
 
     /// <summary>Voice commands waiting behind each player's attack-and-reload gesture, oldest first.</summary>

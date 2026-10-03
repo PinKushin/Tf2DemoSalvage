@@ -9139,7 +9139,7 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — FIXED 2026-10-03 (residual: HandleDucking's deployed and air-dash crouch, and private activity numbers)
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — FIXED 2026-10-03 (residual: private activity numbers)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
@@ -9236,9 +9236,17 @@ against `ai_activity.h`.
   (primary form, run or stand, the label `Stand_PRIMARY`) was ours. What the ladder stood in for is
   `CTFPlayerAnimState::HandleDucking` (`tf_playeranimstate.cpp:1341-1353`), now ported in its two loser rules: a ducking
   player whose model lacks the translated crouch walk is not ducking unless he is a loser, and a ducking loser
-  crouch-idles moving or not. `IsLoser()` is read as the loser's table being in force, which misses a loser in a kart
-  or under `TF_COND_COMPETITIVE_LOSER` (marked in code). **Not ported from `HandleDucking`:** the deployed crouch idle
-  (`IsAiming()` / `m_flHoldDeployedPoseUntilTime`) and the air-dash crouch (`ACT_MP_DOUBLEJUMP_CROUCH`).
+  crouch-idles moving or not.
+- **`HandleDucking` and `HandleMoving` whole, sixth pass.** `PlayerActivityState.For` takes a `TfPosture` the decode
+  fills: the real `IsLoser()` (`LoserState.IsLoser`, the rule the gestures already ask — the table approximation is
+  gone), `IsAiming()` (`TF_COND_AIMING` on anyone but a soldier, `TF_COND_ZOOMED` for the classic rifle,
+  `tf_player_shared.cpp:11429-11441`), the minigun, `m_iAirDash > 0`, and `m_flHoldDeployedPoseUntilTime`, which a
+  zoomed sniper's shot sets two seconds ahead (`:1028`) and `HandleMoving` cancels the frame the player moves — so the
+  decode steps it only on frames `CalcMainActivity` reaches `HandleMoving`, with its own horizontal differencing. New
+  activities: `ACT_MP_CROUCH_DEPLOYED_IDLE`, `ACT_MP_CROUCH_DEPLOYED` (not for a minigun), `ACT_MP_DOUBLEJUMP_CROUCH`,
+  and `HandleMoving`'s `ACT_MP_DEPLOYED` / `_IDLE`. The model's crouch-walk half stays the scene's, asked of the model
+  drawn. **Residual:** the decode's cancel test asks the class model, the scene's duck the drawn one — a custom model
+  that uses the class animations is the only case they could differ.
 - FIXED 2026-10-03, fourth pass. **The item's own `GetActivityOverride`** (items_game `animation_replacement`), between the weapon and the winner.
 
 - **A rocket jumper lands with no landing gesture.** FIXED 2026-10-02, above. When the air-walk ends on the ground `HandleJumping` restarts the

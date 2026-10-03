@@ -319,6 +319,9 @@ public sealed class PoseCompletenessTests
         // Non-null, so a pose that dropped it draws the item's stock reload (B437).
         ItemActivities = new Dictionary<string, string> { ["ACT_MP_RELOAD_STAND_PRIMARY"] = "ACT_MP_RELOAD_STAND_PRIMARY3" },
 
+        // Non-default, so a pose that dropped it draws a humiliated, aiming player standing like anyone (B437).
+        Posture = new TfPosture(IsLoser: true, IsAiming: true),
+
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,
 

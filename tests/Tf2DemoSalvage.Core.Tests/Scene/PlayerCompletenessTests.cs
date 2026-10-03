@@ -257,6 +257,7 @@ public sealed class PlayerCompletenessTests
         GrapplingHookTarget = 2,
         TauntItemDefIndex = 1157,
         ActiveTauntSlot = -1,
+        Posture = new TfPosture(IsLoser: true, AirDashing: true),
     };
 
     /// <summary>Every property of a type that a test can read.</summary>

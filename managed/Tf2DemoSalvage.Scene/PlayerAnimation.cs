@@ -77,6 +77,7 @@ internal static class PlayerAnimation
     /// <param name="table">The player's own activity table, walked before the weapon's (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
+    /// <param name="posture">TF's HandleDucking and HandleMoving inputs from the decode (B437).</param>
     /// <returns>A merged sequence number; 0 when the model has none for the activity, as the engine draws.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -100,7 +101,8 @@ internal static class PlayerAnimation
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
-        IReadOnlyDictionary<string, string>? item = null)
+        IReadOnlyDictionary<string, string>? item = null,
+        TfPosture posture = default)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -115,24 +117,15 @@ internal static class PlayerAnimation
 
         Func<string, bool> declared = name => model.ForActivity(name) >= 0;
 
-        // **`CTFPlayerAnimState::HandleDucking`'s two loser rules** (`tf_playeranimstate.cpp:1343-1353`): the duck is
-        // dropped when the model has no crouch walk for what is held — unless the player is a loser — and a ducking
-        // loser crouch-idles whatever his speed. `IsLoser()` is read as the loser's table being the one in force.
-        // ponytail: a loser in a kart or under TF_COND_COMPETITIVE_LOSER walks another table; reads as not a loser here.
-        bool loser = table == PlayerActivityOverride.LoserState;
-
-        if ((state & PlayerActivityState.Ducking) != 0 && !loser &&
-            model.ForActivity(Translate(PlayerActivity.CrouchWalk, slot, table, competitiveWinnerClass, item, declared)) < 0)
+        // **TF's HandleDucking asks THIS model for the translated crouch walk** (`tf_playeranimstate.cpp:1343-1347`); the
+        // rest of the posture — `IsLoser()`, `IsAiming()`, the air dash, the deployed hold — the decode carried.
+        TfPosture asked = posture with
         {
-            state &= ~PlayerActivityState.Ducking;
-        }
+            LacksCrouchWalk =
+                model.ForActivity(Translate(PlayerActivity.CrouchWalk, slot, table, competitiveWinnerClass, item, declared)) < 0,
+        };
 
-        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping);
-
-        if (loser && activity == PlayerActivity.CrouchWalk)
-        {
-            activity = PlayerActivity.CrouchIdle;
-        }
+        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping, asked);
 
         // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`) — the engine's one
         // fallback. Sequence 0 is the merged model's first sequence, whatever that is.

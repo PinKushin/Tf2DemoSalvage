@@ -217,6 +217,9 @@ public readonly record struct ScenePlayer(
     float HandScale = 1f,
     float? MaxSpeed = null)
 {
+    /// <summary>What TF's `HandleDucking` and `HandleMoving` ask beyond the flags (B437); the scene adds the model's half.</summary>
+    public TfPosture Posture { get; init; }
+
     /// <summary>`GetMaxHealth()` — the player resource's `m_iMaxHealth`, which `C_TFPlayer` reads; null when not sent.</summary>
     /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
     public int? MaxHealth { get; init; }
@@ -1172,7 +1175,7 @@ public sealed class DemoTimeline
             TickBase = player.Integer("DT_LocalPlayerExclusive.m_nTickBase"),
             DuckTimer = player.Number("DT_TFPlayerShared.m_flDuckTimer") ?? 0f,
             AirDucked = player.Integer("DT_TFPlayerShared.m_nAirDucked") ?? 0,
-            AirDash = player.Integer("DT_TFPlayerShared.m_iAirDash") ?? player.Integer("DT_TFPlayerShared.m_bAirDash") ?? 0,
+            AirDash = player.Integer(AirDashProperty) ?? player.Integer(LaunchAirDashProperty) ?? 0,
         };
     }
 
@@ -3313,6 +3316,9 @@ public sealed class DemoTimeline
                 // choice uses.
                 float travelling = 0f;
 
+                // `GetOuterXYSpeed()`, the same differencing without the vertical: what HandleMoving's cancel asks.
+                float horizontal = 0f;
+
                 if (lastHeight.TryGetValue(
                         player.EntityIndex, out (int Tick, float X, float Y, float Z) before) &&
                     command.Tick > before.Tick &&
@@ -3328,6 +3334,7 @@ public sealed class DemoTimeline
 
                     travelling = MathF.Sqrt(
                         (acrossX * acrossX) + (acrossY * acrossY) + (upward * upward)) / elapsed;
+                    horizontal = MathF.Sqrt((acrossX * acrossX) + (acrossY * acrossY)) / elapsed;
                 }
 
                 lastHeight[player.EntityIndex] = (command.Tick, origin.X, origin.Y, origin.Z);
@@ -3353,6 +3360,18 @@ public sealed class DemoTimeline
                 // **The player's own activity table, chosen every frame `TranslateActivity` runs** (B437), from the
                 // same `IsLoser` the gestures ask and the carry flag the HUD reads. `HandleJumping`'s duck asks it too.
                 PlayerActivityOverride activityTable = ActivityTableOf(player, rulesNow, alwaysLoserNow);
+
+                // **What TF's HandleDucking and HandleMoving ask beyond the flags** (B437): the real `IsLoser()`,
+                // `IsAiming()`, the air dash and the weapon. The deployed hold is stepped below.
+                EntityState? wielded = entities.Resolve(player.ActiveWeaponHandle()) is { } wieldedSlot &&
+                    entities.TryGet(wieldedSlot, out EntityState? wieldedWeapon)
+                        ? wieldedWeapon
+                        : null;
+                TfPosture posture = new(
+                    IsLoser: IsLoser(player, rulesNow, alwaysLoserNow),
+                    IsAiming: IsAiming(player, wielded?.ClassName),
+                    AimsMinigun: string.Equals(wielded?.ClassName, MinigunClass, StringComparison.Ordinal),
+                    AirDashing: (player.Integer(AirDashProperty) ?? player.Integer(LaunchAirDashProperty) ?? 0) > 0);
 
                 if (!player.IsDrawn || !alive || player.CustomModelWithoutClassAnimations())
                 {
@@ -3381,6 +3400,27 @@ public sealed class DemoTimeline
                         ModelCrouchWalks(player, entities, classes, activityTable));
 
                     jumpActivity = interval > 0f ? answered : null;
+
+                    // **`HandleMoving` runs only when nothing before it answered** (`CalcMainActivity`,
+                    // `multiplayer_animstate.cpp:955-965`), and only then does moving cancel the deployed hold
+                    // (`tf_playeranimstate.cpp:1301-1305`). The duck asked is the class model's, as above.
+                    PlayerActivity reached = PlayerActivityState.For(
+                        stateFlags,
+                        horizontal,
+                        player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
+                        alive,
+                        answered,
+                        posture with { LacksCrouchWalk = !ModelCrouchWalks(player, entities, classes, activityTable) });
+
+                    if (answered is null && PlayerActivityState.IsMoving(reached))
+                    {
+                        gestures.StepMoving(player.EntityIndex, horizontal);
+                    }
+
+                    posture = posture with
+                    {
+                        HoldsDeployedPose = gestures.HoldsDeployedPose(player.EntityIndex, command.Tick * interval),
+                    };
                 }
 
                 // **The yaw has to be carried here too, and was not.** Every argument below is
@@ -3643,6 +3683,9 @@ public sealed class DemoTimeline
                     GrapplingHookTarget = EntityState.Slot(player.Integer("DT_TFPlayer.m_hGrapplingHookTarget")),
                     TauntItemDefIndex = player.Integer("DT_TFPlayer.m_iTauntItemDefIndex"),
                     ActiveTauntSlot = player.Integer("DT_TFPlayer.m_nActiveTauntSlot"),
+
+                    // TF's HandleDucking and HandleMoving inputs (B437).
+                    Posture = posture,
                 });
             }
 
@@ -4161,6 +4204,37 @@ public sealed class DemoTimeline
         return classes.HasCrouchWalk(
             player.PlayerClass(), table, weapon?.ClassName, weapon?.ItemDefinitionIndex(), First(player, TeamProperties) ?? 0);
     }
+
+    /// <summary>`CTFPlayerShared::IsAiming` (`tf_player_shared.cpp:11429-11441`).</summary>
+    /// <param name="player">The player.</param>
+    /// <param name="weaponClass">The active weapon's server class, or null.</param>
+    /// <returns>`TF_COND_AIMING` on anyone but a soldier; for a sniper with the classic rifle, `TF_COND_ZOOMED` instead.</returns>
+    private static bool IsAiming(EntityState player, string? weaponClass)
+    {
+        PlayerConditions conditions = player.Conditions();
+
+        if (player.PlayerClass() == SniperClass && string.Equals(weaponClass, ClassicSniperRifleClass, StringComparison.Ordinal))
+        {
+            return conditions.Has(PlayerConditions.Zoomed);
+        }
+
+        return conditions.Has(PlayerConditions.Aiming) && player.PlayerClass() != SoldierClass;
+    }
+
+    /// <summary>`TF_CLASS_SNIPER`.</summary>
+    private const int SniperClass = 2;
+
+    /// <summary>`TF_CLASS_SOLDIER`.</summary>
+    private const int SoldierClass = 3;
+
+    /// <summary>`TF_WEAPON_SNIPERRIFLE_CLASSIC`'s server class.</summary>
+    private const string ClassicSniperRifleClass = "CTFSniperRifleClassic";
+
+    /// <summary>`m_Shared.m_iAirDash`.</summary>
+    private const string AirDashProperty = "DT_TFPlayerShared.m_iAirDash";
+
+    /// <summary>The launch era's `m_bAirDash`.</summary>
+    private const string LaunchAirDashProperty = "DT_TFPlayerShared.m_bAirDash";
 
     /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
     private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";

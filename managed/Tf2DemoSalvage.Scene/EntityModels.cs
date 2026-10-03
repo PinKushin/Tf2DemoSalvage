@@ -4500,7 +4500,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass,
 
                 // The held item's own replacements, between the weapon and the winner (B437).
-                item: prop.Pose.ItemActivities);
+                item: prop.Pose.ItemActivities,
+
+                // TF's HandleDucking and HandleMoving inputs (B437).
+                posture: prop.Pose.Posture);
 
             // **A negative answer is left alone rather than written.** -1 means "this model has no
             // such sequence", and storing it would replace a working sequence with one that decodes
@@ -4579,7 +4582,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// <param name="table">The player's own activity table (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
-    /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
+    /// <param name="posture">TF's HandleDucking and HandleMoving inputs (B437).</param>
+    /// <returns>A merged sequence number, or −1 when the model is not skinned.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
     /// model was loaded skinned - a baked model has no merged sequence table to search.
@@ -4594,11 +4598,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
-        IReadOnlyDictionary<string, string>? item = null) =>
+        IReadOnlyDictionary<string, string>? item = null,
+        TfPosture posture = default) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
             ? PlayerAnimation.For(
-                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item)
+                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item, posture)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>

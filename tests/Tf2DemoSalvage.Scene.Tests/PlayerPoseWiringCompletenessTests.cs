@@ -190,6 +190,7 @@ public sealed class PlayerPoseWiringCompletenessTests
             AimYaw = 33f,
             WaterLevel = 2,
             DiscontinuitySeconds = 4.5d,
+            Posture = new TfPosture(IsLoser: true, HoldsDeployedPose: true),
         };
 
     /// <summary>An ordinary scout, stating nothing beyond what it must.</summary>

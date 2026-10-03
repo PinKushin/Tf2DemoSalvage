@@ -396,6 +396,7 @@ public static class PlayerProps
                     JumpActivity = player.JumpActivity,
                     ActivityOverride = player.ActivityOverride,
                     CompetitiveWinnerClass = player.CompetitiveWinner ? player.PlayerClass : null,
+                    Posture = player.Posture,
 
                     // The item's own replacements, after the weapon's table (B437) — only while a weapon is held.
                     ItemActivities = player.WeaponClass is null
