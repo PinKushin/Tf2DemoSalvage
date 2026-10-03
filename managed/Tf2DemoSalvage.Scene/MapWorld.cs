@@ -71,6 +71,8 @@ public readonly record struct MapWorld(
 /// <param name="OnNode">`dface_t.onNode`: the face lies on a node's plane and is drawn by the node, not the leaf.</param>
 /// <param name="Flags">The face's texinfo flags; SURF_TRANS sends it to the engine's translucent list (B457).</param>
 /// <param name="Displacement">The face's DISPINFO index, or −1 for a brush face.</param>
+/// <param name="SortId">The engine's surface sort ID — material and lightmap page (<see cref="LightmapSortIds"/>), or −1
+/// when not assigned, which keys by material alone.</param>
 public readonly record struct WorldFaceSpan(
     int Face,
     int FirstVertex,
@@ -83,7 +85,8 @@ public readonly record struct WorldFaceSpan(
     bool PlaneBack = false,
     bool OnNode = false,
     SurfaceProperties Flags = SurfaceProperties.None,
-    int Displacement = -1);
+    int Displacement = -1,
+    int SortId = -1);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -478,6 +481,9 @@ public static class MapWorldBuilder
         List<WorldBatch> batches = [];
         List<WorldFaceSpan> faceSpans = [];
 
+        // Every face of the map, drawn or not, takes part in the lightmap allocation that names the sort IDs (B457).
+        IReadOnlyDictionary<int, int> sortIds = LightmapSortIds.Assign(surfaces);
+
         // Rebases one group's spans onto the position the group just took in the shared buffer.
         void Rebase(bool terrain, int material, int baseVertex, SurfaceCategory category)
         {
@@ -505,7 +511,8 @@ public static class MapWorldBuilder
                     (face.Normal.Z * face.PlaneNormal.Z) < 0f,
                     face.OnNode,
                     face.Flags,
-                    face.DisplacementIndex));
+                    face.DisplacementIndex,
+                    sortIds.TryGetValue(face.FaceIndex, out int sortId) ? sortId : -1));
             }
         }
 

@@ -34187,15 +34187,32 @@ reached face exactly once and reorders when the walk reverses.
   `Order_AFragmentOnAFaceTheWorldDoesNotDraw_IsNeverDrawn` (green on arrival, so proved by sabotage:
   queueing span-less faces reddens it).
 - **Translucent surfaces (ported — was B458).** See B458.
-- **Lightmap page (NOT ported, and it can change order).** The sort IDs are the material system's
-  (`0x1800d2780` reads count and `{material, lightmapPage}` pairs from vtable +0x2e8/+0x2f0, sorts
-  them, remaps surface +0x16). The queue uses only the PARTITION of reached surfaces into sort IDs —
-  the numbers themselves never matter, because the list is ordered by first reach. So the key is a
-  no-op exactly when every material's reached surfaces share one lightmap page, and changes order
-  whenever a material spans two: surfaces A(m, page 0), B(n), C(m, page 1) queue A, B, C under the
-  engine's key and A, C, B under ours. Which surfaces share a page is decided by materialsystem.dll's
-  lightmap allocator; reading it needs the materialsystem Ghidra instance, which the MCP bridge here
-  could not reach (only engine.dll on 8089). **Open — needs the allocator read.**
+- **Lightmap page (ported, 2026-10-03).** The sort IDs are the material system's (`0x1800d2780`
+  reads `{material, lightmapPage}` pairs from vtable +0x2e8/+0x2f0, sorts them, remaps surface
+  +0x16). The queue uses only the PARTITION of reached surfaces into sort IDs, so the material-only
+  key differed exactly when a material spans two pages: A(m, page 0), B(n), C(m, page 1) queue A, B, C
+  in the engine and A, C, B under a material key. Read (materialsystem.dll loaded into the MCP
+  server from disk):
+  - engine `0x1800d2b10`: every face into a tree ordered by `0x1800d2650` — lit before unlit
+    (flag 1 = texinfo SURF_NOLIGHT), material enumeration ID (IMaterial +0x70), no light styles
+    before styles (Mod_LoadFaces' 0x400: style 0 not 0/255 or style 1 not 255), larger
+    `size[0]·size[1]` first, ties in face order — then `AllocateLightmap(size[0]+3 [×4 if the
+    material needs bumped lightmaps], size[1]+3)` per lit face, `AllocateWhiteLightmap` per unlit.
+  - materialsystem `0x180023900` AllocateLightmap: on a material change all pages but the last are
+    closed and, if a material was current, the last page's sort ID and the counter step; the block
+    goes in the first open page whose `CImagePacker::AddBlock` (`0x180047ea0`, wavefront, fits when
+    `y + h < H − 1`, remembers the smallest failed size) takes it, else a new page `min(1024, max
+    texture width) × min(512, max texture height)` (`0x1800480c0`; hardware config +0x70/+0x78) with
+    the next sort ID. `0x180023ef0` AllocateWhiteLightmap: a new sort ID per material change.
+    `0x180023f90` Begin opens one page, sort ID 0.
+  Ported as `LightmapSortIds` → `WorldFaceSpan.SortId`, the queue's key. *Interpolated:* the
+  enumeration ID orders materials by their name's CUtlSymbol (dict less-func `0x18000b780`: the
+  manually-created flag, then symbol id), i.e. by when the PROCESS first interned the name. A map's
+  materials are first loaded by `CMod_LoadTextures` (engine `0x18016eb00`) in texdata order, so in a
+  fresh process the order is the texdata index — what this uses. A material the process met before
+  the map (an earlier map, the menus) sorts earlier in the engine; that history is not in the demo.
+  "Needs bumped lightmaps" is texinfo SURF_BUMPLIGHT, which vbsp sets from the same property. Faces
+  our reader skips as degenerate (no edges, bad texinfo) take no part.
 
 Tests: `SurfaceOrderConformanceTests` (+4), `OverlayRenderListsConformanceTests` (+6, one renamed
 for the new translucent rule), map test now covers the displacement path. Each new branch sabotaged
@@ -34203,7 +34220,7 @@ and restored by the exact inverse: water bit, NOCULL, displacement index order, 
 displacement batch, culled-keeps-position, translucent run separation, displacement overlays after
 the leaf, span-less faces — each reddened exactly one test.
 
-**Still ours, named:** *interpolated* — the lightmap-page split above; a displacement's box is the
+**Still ours, named:** *interpolated* — the material enumeration order above; a displacement's box is the
 rendered terrain's, the engine's the collision tree's (`0x18016f470` reads +8/+0x18 of the collision
 displacement); fragments are one per face, the engine's one per face TRIANGLE (`0x1801117c0`), which
 never changes the order between overlays. A face with SURF_TRANS but an opaque material leaves the

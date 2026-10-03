@@ -43,8 +43,8 @@ public readonly record struct OverlayFragment(
 /// **A prepended list walked from its head is the appended list walked backwards**, so this appends and reads in
 /// reverse rather than keeping linked lists: the same order, with nothing to unlink.
 ///
-/// *Interpolated, named in B457:* the material sort ID is the surface's MATERIAL here; the engine's also splits by
-/// lightmap page, which materialsystem.dll assigns.
+/// The sort ID is <see cref="WorldFaceSpan.SortId"/>, material and lightmap page as <see cref="LightmapSortIds"/>
+/// reproduces the material system's allocation.
 /// </remarks>
 public sealed class OverlayRenderLists
 {
@@ -275,15 +275,18 @@ public sealed class OverlayRenderLists
     /// <summary>Appends a surface to its sort ID's chain, the ID to the list on its first — <c>0x1800d1140</c>.</summary>
     private void Sort(WorldFaceSpan span, bool queued)
     {
-        if (!_sorted.TryGetValue(span.MaterialIndex, out List<(int Face, bool Queued)>? chain))
+        // The engine's sort ID — material and lightmap page (LightmapSortIds); a span without one keys by material.
+        int key = span.SortId >= 0 ? span.SortId : -1 - span.MaterialIndex;
+
+        if (!_sorted.TryGetValue(key, out List<(int Face, bool Queued)>? chain))
         {
             chain = [];
-            _sorted[span.MaterialIndex] = chain;
+            _sorted[key] = chain;
         }
 
         if (chain.Count == 0)
         {
-            _sortOrder.Add(span.MaterialIndex);
+            _sortOrder.Add(key);
         }
 
         chain.Add((span.Face, queued));

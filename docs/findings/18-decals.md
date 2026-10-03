@@ -232,7 +232,7 @@ wrong together.
 | overlays on translucent surfaces | queued and drawn per surface inside `DrawTranslucentSurfaces` (0x1800e4fd0), with that surface | the same: drawn after their run in the translucent pass | **fixed**, B458 |
 | displacement overlays | their own batch, all layers, before any brush overlay; leaf lists by displacement index; a culled one keeps its sort place (0x1800e3a90, 0x1800c61f0) | the same | **fixed**, B457 |
 | overlays on brush entities | never drawn — `R_DrawBrushModel` never reaches the overlay manager | not drawn | matches, B457 |
-| sort key's lightmap page | sort ID is {material, lightmap page} from materialsystem.dll | material only | **open**, B457 (changes order when a material spans pages) |
+| sort key's lightmap page | sort ID is {material, lightmap page} from materialsystem.dll's allocator | the allocator ported (`LightmapSortIds`); material order assumes a fresh process | **fixed**, B457 |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
@@ -291,6 +291,19 @@ before a layer-0 overlay on a wall — the render-order passes are per batch, no
 search answered the brush-entity question by absence: nothing on `R_DrawBrushModel`'s three paths
 reaches the overlay manager, so an overlay on a door is never drawn, and dropping those fragments
 was already Valve's behaviour. *Evidence class: read from disassembly.*
+
+**The sort key's lightmap page comes from a packer, and the material order from the process.**
+The engine's surface sort ID is whatever materialsystem.dll's `AllocateLightmap` returns while the
+engine feeds it every face in a fixed order (lit first, then by material, then by luxel area). A
+material change closes every page but the last, so one material's faces can be split across two
+sort IDs — which is what the overlay queue sees. The wavefront packer and the 1024×512 page are
+fully deterministic and ported. The one input that is not: "by material" means by the material's
+ENUMERATION ID, which the material dictionary assigns in-order over a tree keyed by the name's
+`CUtlSymbol` — the order the whole PROCESS first interned each name. On a fresh launch a map's
+materials are interned by the collision loader in texdata order, so that is the port; a session that
+loaded another map first can order shared materials differently, and nothing in a demo records that.
+*Evidence class: read from disassembly (engine.dll and materialsystem.dll); the texdata order is
+interpolated for a fresh process.*
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This
