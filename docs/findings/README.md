@@ -224,6 +224,10 @@ in any public writeup found:
   controller the player's `m_PlayerFog.m_hCtrl` names, the 3D sky's from the player's own `m_skybox3d.fog`, and the
   server forces radial fog on official maps. The lightcache ranks lights by luminance and folds every loser into the
   ambient cube rather than dropping it ([69](69-fog-is-the-players-and-a-cube-holds-the-rest.md)).
+- **A translucent surface belongs to the leaf the world walk is in when it reaches it.** `R_DrawSurface` files it
+  under the world list's newest entry, so a node's glass goes with the last leaf of the near subtree and glass facing
+  away is never filed at all — which the LEAFFACES stand-in submitted
+  ([70](70-a-translucent-surface-joins-the-leaf-the-walk-is-in.md)).
 
 ## Conventions used throughout
 
