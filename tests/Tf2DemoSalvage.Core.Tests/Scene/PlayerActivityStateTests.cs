@@ -164,6 +164,27 @@ public sealed class PlayerActivityStateTests
             .ShouldBe(PlayerActivity.JumpStart);
     }
 
+    /// <remarks>
+    /// **A latched player who ducks stands** (B437). The duck keeps the air-walk block from running, but
+    /// `HandleJumping` still ends `if ( m_bJumping || m_bInAirWalk ) return true;` (`tf_playeranimstate.cpp:1534`),
+    /// so `CalcMainActivity` stops with `idealActivity` at its `ACT_MP_STAND_IDLE` start — in the air, after a
+    /// crouched landing, and in water alike. Not the crouch.
+    /// </remarks>
+    [Test]
+    public void For_LatchedAndDuckingWithNoJump_StandsIdle()
+    {
+        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: null, airwalking: true)
+            .ShouldBe(PlayerActivity.StandIdle);
+        PlayerActivityState.For(OnGround | Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null, airwalking: true)
+            .ShouldBe(PlayerActivity.StandIdle);
+        PlayerActivityState.For(Ducking, Still, waistDeep: true, alive: true, airborneSeconds: null, airwalking: true)
+            .ShouldBe(PlayerActivity.StandIdle);
+
+        // The control: the same duck without the latch crouches.
+        PlayerActivityState.For(OnGround | Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null, airwalking: false)
+            .ShouldBe(PlayerActivity.CrouchIdle);
+    }
+
     [Test]
     public void For_AnAirborneJumpWithoutTheAirWalk_IsThePushOff()
     {

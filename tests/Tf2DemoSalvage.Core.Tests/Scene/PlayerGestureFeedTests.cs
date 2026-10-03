@@ -269,21 +269,108 @@ public sealed class PlayerGestureFeedTests
         feed.Jumping(4, 20.05d, onGround: false, waistDeep: true).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **An ordinary jump lands with the landing gesture** (B437): `m_bJumping = false; RestartMainSequence();
+    /// if ( bNewJump ) RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` (`tf_playeranimstate.cpp:1501-1508`).
+    /// The jump itself plays no gesture, so a landing made by replacing what is in the slot never appeared.
+    /// `bNewJump` is the class script's and the scene applies it.
+    /// </remarks>
     [Test]
-    public void Landed_AfterADoubleJump_RestartsTheJumpSlotAsTheLandingOnce()
+    public void Jumping_AnOrdinaryJumpBackOnTheGround_RestartsTheJumpSlotAsTheLanding()
     {
-        // `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` (tf_playeranimstate.cpp:1507), past the same 0.2 s.
         PlayerGestureFeed feed = new();
-        feed.Landed(4, 1d);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 10d, default);
+
+        feed.Jumping(4, 10.1d, onGround: true, waistDeep: false);
+        Gestures(feed, 4).ShouldBeEmpty("too soon to believe the ground");
+
+        feed.Jumping(4, 10.5d, onGround: true, waistDeep: false).ShouldBeNull();
+        feed.Jumping(4, 11d, onGround: true, waistDeep: false);
+        SceneGesture landing = Gestures(feed, 4).ShouldHaveSingleItem();
+        (landing.Slot, landing.ActivityName, landing.StartedSeconds, landing.AutoKill, landing.FromAirwalk)
+            .ShouldBe((GestureSlot.Jump, "ACT_MP_JUMP_LAND", 10.5d, true, false), "made once, at the clear");
+    }
+
+    /// <remarks>The water clears the jump with no landing (`:1491-1495`).</remarks>
+    [Test]
+    public void Jumping_ClearedByWaistDeepWater_MakesNoLanding()
+    {
+        PlayerGestureFeed feed = new();
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 10d, default);
+
+        feed.Jumping(4, 10.5d, onGround: true, waistDeep: true).ShouldBeNull();
+        Gestures(feed, 4).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Jumping_AfterADoubleJump_TheLandingReplacesIt()
+    {
+        PlayerGestureFeed feed = new();
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.DoubleJump), 10d, default);
 
-        feed.Landed(4, 10.1d);
-        Gestures(feed, 4).ShouldHaveSingleItem().ActivityName.ShouldBe("ACT_MP_DOUBLEJUMP", "too soon to believe the ground");
+        feed.Jumping(4, 10.6d, onGround: true, waistDeep: false);
+        Gestures(feed, 4).ShouldHaveSingleItem().ActivityName.ShouldBe("ACT_MP_JUMP_LAND");
+    }
 
-        feed.Landed(4, 10.5d);
-        feed.Landed(4, 11d);
+    /// <remarks>
+    /// **The air-walk's own landing has no `bNewJump` gate** (`tf_playeranimstate.cpp:1449-1453`), so it is marked
+    /// for the scene, which drops it only for a class that never air-walks. A soldier — `DontDoNewJump` — lands a
+    /// rocket jump with the gesture and an ordinary jump without it. The water's clear makes none (`:1455-1458`).
+    /// </remarks>
+    [Test]
+    public void AirWalk_TheLatchEndingOnTheGround_RestartsTheJumpSlotAsTheAirwalkLanding()
+    {
+        PlayerGestureFeed feed = new();
+
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 3d);
+        Gestures(feed, 4).ShouldBeEmpty();
+
+        feed.AirWalk(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false, seconds: 4d).ShouldBeFalse();
         SceneGesture landing = Gestures(feed, 4).ShouldHaveSingleItem();
-        (landing.ActivityName, landing.StartedSeconds, landing.AutoKill).ShouldBe(("ACT_MP_JUMP_LAND", 10.5d, true), "not restarted by the second");
+        (landing.Slot, landing.ActivityName, landing.StartedSeconds, landing.FromAirwalk)
+            .ShouldBe((GestureSlot.Jump, "ACT_MP_JUMP_LAND", 4d, true));
+
+        feed.AirWalk(9, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 3d);
+        feed.AirWalk(9, 0f, InAir, waistDeep: true, grappling: false, firingHeavy: false, seconds: 4d).ShouldBeFalse();
+        Gestures(feed, 9).ShouldBeEmpty("the water clears with no landing");
+    }
+
+    /// <remarks>
+    /// **The jump's bookkeeping runs only when the air-walk block does not** — it is the `else` of `:1446` — so a
+    /// latched player's jump is neither timed out nor landed until the latch is gone; and a firing heavy returns
+    /// before both (`:1439-1440`), so neither moves and HandleJumping answers nothing.
+    /// </remarks>
+    [Test]
+    public void HandleJumping_WhileTheAirWalkBlockRuns_LeavesTheJumpUncleared()
+    {
+        PlayerGestureFeed feed = new();
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 10d, default);
+
+        feed.HandleJumping(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 10.3d)
+            .ShouldNotBeNull().ShouldBe(0.3d, 1e-9);
+        feed.InAirWalk(4).ShouldBeTrue();
+
+        // The latch ends on the ground; the jump is not looked at this step.
+        feed.HandleJumping(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false, seconds: 10.6d)
+            .ShouldNotBeNull().ShouldBe(0.6d, 1e-9);
+        Gestures(feed, 4).ShouldHaveSingleItem().FromAirwalk.ShouldBeTrue();
+
+        // The next step reaches the jump, which clears with its own landing.
+        feed.HandleJumping(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false, seconds: 10.7d).ShouldBeNull();
+        SceneGesture landing = Gestures(feed, 4).ShouldHaveSingleItem();
+        (landing.FromAirwalk, landing.StartedSeconds).ShouldBe((false, 10.7d));
+    }
+
+    [Test]
+    public void HandleJumping_AFiringHeavy_MovesNothingAndAnswersNothing()
+    {
+        PlayerGestureFeed feed = new();
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 10d, default);
+
+        feed.HandleJumping(4, 700f, OnGround, waistDeep: false, grappling: false, firingHeavy: true, seconds: 10.6d).ShouldBeNull();
+        feed.InAirWalk(4).ShouldBeFalse();
+        Gestures(feed, 4).ShouldBeEmpty("the ground did not clear the jump");
+        feed.Jumping(4, 10.65d, onGround: false, waistDeep: false).ShouldNotBeNull("still jumping");
     }
 
     [Test]
@@ -319,12 +406,12 @@ public sealed class PlayerGestureFeedTests
 
         feed.InAirWalk(4).ShouldBeFalse("nothing has happened yet");
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue();
-        feed.AirWalk(4, 120f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue("held as the rise slows");
-        feed.AirWalk(4, -500f, InAir, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeTrue("and on the way down");
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d).ShouldBeTrue();
+        feed.AirWalk(4, 120f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d).ShouldBeTrue("held as the rise slows");
+        feed.AirWalk(4, -500f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d).ShouldBeTrue("and on the way down");
         feed.Jumping(4, 1d, onGround: false, waistDeep: false).ShouldBeNull("no jump event, so no jump");
 
-        feed.AirWalk(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false).ShouldBeFalse();
+        feed.AirWalk(4, 0f, OnGround, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d).ShouldBeFalse();
         feed.InAirWalk(4).ShouldBeFalse();
     }
 
@@ -337,7 +424,7 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
 
         feed.InAirWalk(4).ShouldBeTrue();
         feed.InAirWalk(9).ShouldBeFalse();
@@ -357,7 +444,7 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)reload), 13.6d, default);
 
         SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
@@ -377,8 +464,8 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
-        feed.AirWalk(4, 0f, OnGround | Ducking, waistDeep: false, grappling: false, firingHeavy: false)
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
+        feed.AirWalk(4, 0f, OnGround | Ducking, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d)
             .ShouldBeTrue("a ducked landing does not reach the clear");
 
         feed.Record(
@@ -419,7 +506,7 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary), 13.6d, default);
 
         SceneGesture gesture = Gestures(feed, 4).ShouldHaveSingleItem();
@@ -437,7 +524,7 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.DoubleJump), 13.6d, default);
 
         feed.InAirWalk(4).ShouldBeFalse();
@@ -475,7 +562,7 @@ public sealed class PlayerGestureFeedTests
     {
         PlayerGestureFeed feed = new();
 
-        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+        feed.AirWalk(4, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Jump), 13.5d, default);
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.FlinchChest), 13.6d, default);
 
@@ -498,7 +585,7 @@ public sealed class PlayerGestureFeedTests
 
         foreach (int player in new[] { 4, 9 })
         {
-            feed.AirWalk(player, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false);
+            feed.AirWalk(player, 700f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d);
             feed.Record(PlayerGestureFeed.EventClassName, Event(player, anEvent: (int)PlayerAnimEvent.Jump), 13.5d, default);
             feed.Record(PlayerGestureFeed.EventClassName, Event(player, anEvent: (int)PlayerAnimEvent.Reload), 13.6d, default);
         }

@@ -320,6 +320,37 @@ public sealed class PlayerPropsTests
             .ActivityName.ShouldBe("ACT_MP_RELOAD_AIRWALK");
     }
 
+    /// <remarks>
+    /// **The two landings have different gates** (B437). The jump's is `if ( bNewJump )`
+    /// (`tf_playeranimstate.cpp:1505`), so a soldier — `DontDoNewJump` — loses it; the air-walk's has none
+    /// (`:1449-1453`) and is reached only by a class that air-walks, so the soldier keeps it and the medic, who
+    /// never latches, does not.
+    /// </remarks>
+    [Test]
+    public void Add_TheTwoLandings_AreGatedByTheirOwnClassFlags()
+    {
+        SceneGesture jumpLanding = new(GestureSlot.Jump, "ACT_MP_JUMP_LAND", null, AutoKill: true, 2d);
+        SceneGesture airwalkLanding = jumpLanding with { FromAirwalk = true };
+
+        List<SceneProp> drawn = [];
+        PlayerProps.Add(
+            [
+                Soldier() with { Gestures = [airwalkLanding] },
+                Soldier() with { EntityIndex = 4, Gestures = [jumpLanding] },
+                Soldier() with { EntityIndex = 5, PlayerClass = MedicClass, Gestures = [airwalkLanding] },
+                Soldier() with { EntityIndex = 6, PlayerClass = SpyClass, Gestures = [jumpLanding] },
+            ],
+            drawn,
+            new Appearance(),
+            NoParts);
+
+        drawn.Count.ShouldBe(4);
+        drawn[0].Pose.Gestures.ShouldNotBeNull().ShouldHaveSingleItem().ShouldBe(airwalkLanding, "a soldier's rocket-jump landing");
+        drawn[1].Pose.Gestures.ShouldBeNull("a soldier's ordinary landing");
+        drawn[2].Pose.Gestures.ShouldBeNull("a medic never latches");
+        drawn[3].Pose.Gestures.ShouldNotBeNull().ShouldHaveSingleItem().ShouldBe(jumpLanding, "the control: a class that lands");
+    }
+
     /// <summary>A reload begun mid-air-walk, carrying the base class's choice for a class that never air-walks.</summary>
     private static SceneGesture AirwalkReload =>
         new(GestureSlot.AttackAndReload, "ACT_MP_RELOAD_AIRWALK", null, AutoKill: true, 1.5d,
@@ -404,7 +435,8 @@ public sealed class PlayerPropsTests
 
         // The medic is the class TF2 measures as setting BOTH DontDoAirwalk and DontDoNewJump, so
         // the stub says the same thing rather than a convenient different one.
-        public bool Lands(int playerClass) => playerClass != MedicClass;
+        // And the soldier sets DontDoNewJump too (`ClassAirwalkTests`), which the landing tests need.
+        public bool Lands(int playerClass) => playerClass != MedicClass && playerClass != SoldierClass;
 
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;

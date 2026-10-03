@@ -171,11 +171,11 @@ public sealed class AirWalkConformanceTests
 
         if (latchedBefore)
         {
-            feed.AirWalk(Player, 400f, InAir, waistDeep: false, grappling: false, firingHeavy: false)
+            feed.AirWalk(Player, 400f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d)
                 .ShouldBeTrue("the precondition: one rising step in the air sets the latch");
         }
 
-        feed.AirWalk(Player, risingSpeed, flags, waistDeep, grappling, firingHeavy).ShouldBe(expected);
+        feed.AirWalk(Player, risingSpeed, flags, waistDeep, grappling, firingHeavy, seconds: 1d).ShouldBe(expected);
         feed.InAirWalk(Player).ShouldBe(expected, "the step's answer is the latch the feed now holds");
     }
 

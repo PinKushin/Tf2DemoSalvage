@@ -206,6 +206,48 @@ public sealed class GestureConformanceTests
         }
     }
 
+    /// <remarks>
+    /// **Where a landing gesture comes from** (B437), written down before the feed was changed. `HandleJumping`
+    /// restarts `ACT_MP_JUMP_LAND` in the jump slot at exactly two places, and neither needs a gesture already in the
+    /// slot: when the air-walk latch ends on the ground (no `bNewJump` gate), and when `m_bJumping` clears on the
+    /// ground (`if ( bNewJump )`). The feed used to make a landing only by replacing a double jump, so an ordinary
+    /// jump — which plays no gesture of its own — never landed with one.
+    /// </remarks>
+    [Test]
+    public void HandleJumping_BothLandings_RestartTheJumpSlotFromTheStateNotFromTheSlot()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore("the Source SDK is not available");
+            return;
+        }
+
+        string text = SourceSdk.Text(TfAnimState).ShouldNotBeNull();
+        int start = text.IndexOf("bool CTFPlayerAnimState::HandleJumping", StringComparison.Ordinal);
+        start.ShouldBeGreaterThan(0, "the control: HandleJumping must be found");
+        string body = text[start..text.IndexOf("\n}", start, StringComparison.Ordinal)];
+
+        string land = "RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )";
+        Regex.Matches(body, Regex.Escape(land)).Count.ShouldBe(2);
+
+        // The air-walk's landing: the latch on the ground, and the gesture with no bNewJump test between them.
+        Regex.IsMatch(
+            body,
+            @"FL_ONGROUND \) && m_bInAirWalk \)\s*\{\s*m_bInAirWalk = false;\s*RestartMainSequence\(\);\s*" + Regex.Escape(land))
+            .ShouldBeTrue();
+
+        // The jump's landing: m_bJumping cleared on the ground, then the gesture under bNewJump.
+        Regex.IsMatch(
+            body,
+            @"m_bJumping = false;\s*RestartMainSequence\(\);\s*if \( bNewJump \)\s*\{\s*" + Regex.Escape(land))
+            .ShouldBeTrue();
+
+        // And the return a latched, ducking player stops at with idealActivity untouched.
+        Regex.IsMatch(body, @"if \( m_bJumping \|\| m_bInAirWalk \)\s*return true;").ShouldBeTrue();
+    }
+
+    private const string TfAnimState = "src/game/shared/tf/tf_playeranimstate.cpp";
+
     /// <summary>The weapon roles a gesture activity can be suffixed with.</summary>
     /// <remarks>
     /// **Valve's own set, from the activity list itself** — a TF2 player model declares
