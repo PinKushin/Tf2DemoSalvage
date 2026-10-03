@@ -1,6 +1,16 @@
-# Tf2DemoSalvage 0.1.0-beta.6
+# Tf2DemoSalvage 0.1.0-beta.7
 
-## Changes since 0.1.0-beta.5
+## Changes since 0.1.0-beta.6
+
+- **Point-of-view demos:** your own recordings now read the string tables the demo stores when recording starts, as
+  the game does. The 3D skybox fog, step height and viewmodel visibility come through, and models, sounds and
+  cosmetics loaded before you hit record are no longer missing.
+- **Overlay order:** overlays are drawn in the order the game draws them each frame, from what is in view, including
+  on displacements and translucent surfaces, so overlapping overlays stack the way they do in TF2.
+- **Safer file lookup:** a loose file outside the game folder can no longer be reached through a folder whose name
+  starts like the game's.
+
+## Changes in 0.1.0-beta.6
 
 - **Decals and overlays:** overlays fade out at the distance the map sets for them, and decals sit on surfaces with
   the game's own depth offset, so they no longer flicker or show through.
