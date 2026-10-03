@@ -98,4 +98,23 @@ public static class RosterBuilder
             }
         }
     }
+
+    /// <summary>Starts the slot map again from a create's entries: a slot it leaves out is empty.</summary>
+    /// <param name="entries">The create's entries.</param>
+    /// <param name="players">The slot map, emptied first.</param>
+    /// <param name="everyone">The history by user id, which keeps everyone — it is not the engine's table.</param>
+    /// <remarks>A created table starts empty; see <c>NameTable.Replace</c> for the engine's reader (B452).</remarks>
+    public static void Replace(
+        IReadOnlyList<StringTableEntry> entries,
+        IDictionary<int, PlayerInfo> players,
+        IDictionary<int, PlayerInfo>? everyone = null)
+    {
+        if (players is null)
+        {
+            return;
+        }
+
+        players.Clear();
+        Apply(entries, players, everyone);
+    }
 }

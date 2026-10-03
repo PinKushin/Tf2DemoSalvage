@@ -2768,8 +2768,10 @@ public sealed class DemoTimeline
                         userMessages.Add(new SceneUserMessage(command.Tick, pickup.UserMessageType, pickup.Body) { Name = pickup.Name });
                         continue;
 
+                    // **A create — and the dem_stringtables block, read as one — is a fresh table**
+                    // (`NameTable.Replace`, B452): every create below replaces, every update merges.
                     case CreateStringTableMessage { Name: BaselineBuilder.TableName } create:
-                        BaselineBuilder.Apply(create.Entries, decoder);
+                        BaselineBuilder.Replace(create.Entries, decoder);
                         continue;
 
                     case UpdateStringTableMessage update
@@ -2780,7 +2782,7 @@ public sealed class DemoTimeline
                     // Which model each m_nModelIndex names. Without this every entity carrying a
                     // model resolves to nothing and the scene is players on an empty map.
                     case CreateStringTableMessage { Name: ModelPrecache.TableName } models:
-                        precache.Apply(models.Entries);
+                        precache.Replace(models.Entries);
                         continue;
 
                     // **The same arrangement for sounds, and it needs both messages.** A table is
@@ -2797,7 +2799,7 @@ public sealed class DemoTimeline
                     // who is here NOW and the by-user-id map says who PLAYED, and a slot reused by
                     // a later joiner silently loses the first occupant from the former.
                     case CreateStringTableMessage { Name: RosterBuilder.TableName } roster:
-                        RosterBuilder.Apply(roster.Entries, bySlot, everyone);
+                        RosterBuilder.Replace(roster.Entries, bySlot, everyone);
                         rosterAtEvent = null;
                         continue;
 
@@ -2812,7 +2814,7 @@ public sealed class DemoTimeline
                     // reason the sounds table gives: a table is created once and added to as the
                     // round goes on.
                     case CreateStringTableMessage { Name: ScenePrecache.TableName } sceneTable:
-                        scenePrecache.Apply(sceneTable.Entries);
+                        scenePrecache.Replace(sceneTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage sceneUpdate
@@ -2906,7 +2908,7 @@ public sealed class DemoTimeline
 
                     // **The decal names**, which `m_nIndex` points into. Both messages, as every precache table needs.
                     case CreateStringTableMessage { Name: DecalFeed.TableName } decalTable:
-                        feeds.Decals.Names.Apply(decalTable.Entries);
+                        feeds.Decals.Names.Replace(decalTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage decalUpdate
@@ -2916,7 +2918,7 @@ public sealed class DemoTimeline
 
                     // **The effect names**, which `m_iEffectName` points into.
                     case CreateStringTableMessage { Name: EffectDispatchFeed.TableName } effectTable:
-                        feeds.Dispatches.Names.Apply(effectTable.Entries);
+                        feeds.Dispatches.Names.Replace(effectTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage effectUpdate
@@ -2926,7 +2928,7 @@ public sealed class DemoTimeline
 
                     // **The particle system names**, which a `"ParticleEffect"` dispatch's `m_nHitBox` points into.
                     case CreateStringTableMessage { Name: EffectDispatchFeed.ParticleTableName } particleTable:
-                        feeds.Dispatches.ParticleNames.Apply(particleTable.Entries);
+                        feeds.Dispatches.ParticleNames.Replace(particleTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage particleUpdate
@@ -2936,7 +2938,7 @@ public sealed class DemoTimeline
 
                     // **The light style patterns**, which animate the world's switchable and flickering lights.
                     case CreateStringTableMessage { Name: LightStyleFeed.TableName } styleTable:
-                        lightStyles.Apply(styleTable.Entries, tick: null);
+                        lightStyles.Replace(styleTable.Entries);
                         continue;
 
                     case UpdateStringTableMessage styleUpdate
@@ -2956,7 +2958,7 @@ public sealed class DemoTimeline
                     // m_nModelIndex is a dynamic model, and the even ones are networked through
                     // here - see ModelPrecache.Path.
                     case CreateStringTableMessage { Name: ModelPrecache.DynamicTableName } dynamic:
-                        precache.ApplyDynamic(dynamic.Entries);
+                        precache.ReplaceDynamic(dynamic.Entries);
                         continue;
 
                     case UpdateStringTableMessage update

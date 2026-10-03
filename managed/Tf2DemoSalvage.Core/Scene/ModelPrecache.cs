@@ -56,6 +56,14 @@ public sealed class ModelPrecache
     /// </remarks>
     public void ApplyDynamic(IReadOnlyList<StringTableEntry> entries) => _dynamic.Apply(entries);
 
+    /// <summary>Starts the precache again from a create's entries (<see cref="NameTable.Replace"/>).</summary>
+    /// <param name="entries">The create's entries.</param>
+    public void Replace(IReadOnlyList<StringTableEntry> entries) => _paths.Replace(entries);
+
+    /// <summary>Starts <c>DynamicModels</c> again from a create's entries (<see cref="NameTable.Replace"/>).</summary>
+    /// <param name="entries">The create's entries.</param>
+    public void ReplaceDynamic(IReadOnlyList<StringTableEntry> entries) => _dynamic.Replace(entries);
+
     /// <summary>The model an index names.</summary>
     /// <param name="modelIndex">The entity's <c>m_nModelIndex</c>, already unpacked.</param>
     /// <returns>The model path, or <c>null</c> when the table cannot name one.</returns>

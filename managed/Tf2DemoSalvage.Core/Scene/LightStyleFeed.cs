@@ -41,6 +41,14 @@ public sealed class LightStyleFeed
         }
     }
 
+    /// <summary>Starts the table again from a create's entries, holding from the start (<see cref="NameTable.Replace"/>).</summary>
+    /// <param name="entries">The create's entries.</param>
+    public void Replace(IReadOnlyList<StringTableEntry> entries)
+    {
+        _changes.Clear();
+        Apply(entries, tick: null);
+    }
+
     /// <summary>A style's pattern at a tick.</summary>
     /// <param name="style">The style.</param>
     /// <param name="tick">The tick.</param>

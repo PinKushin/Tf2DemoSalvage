@@ -8197,9 +8197,27 @@ compared).
 Tests: `DemoStringTablesTests` (layout, `AsCreates`), the trace's baseline and roster through the block, the
 timeline's roster through the block with its no-block control, `From_NoEntityCarriesAHandle_IsNoFog`, and two
 output-level corpus assertions in `PovSkyFogCorpusTests` — the 2013 badlands POV has sky fog, and the 2011 viaduct
-POV's `ModelPaths()` holds the bird only the block precaches. **Not done:** the engine REPLACES each table from the
-block; this overlays, which is the same whenever the block is a superset of what came before, as it was on every demo
-measured.
+POV's `ModelPaths()` holds the bird only the block precaches.
+
+**The block REPLACES each table, and so does every create** (2026-10-03, *x64 disassembly*, `engine.dll`). The demo
+player hands the block to `CNetworkStringTableContainer::ReadStringTables` (`0x1801e86a0`, called from the playback
+reader `0x180072ee0` and `ReadCompleteDemoFile` `0x18019c240`): a byte of table count, then per table a name looked up
+in the existing container (vtable `+0x18`) and
+`CNetworkStringTable::ReadStringTable` (`0x1801e82f0`). That calls `DeleteAllStrings` (`0x1801e6880`: the item
+dictionary destroyed and rebuilt empty) FIRST, then for each entry reads a string and a bit, and calls `AddString`
+(vtable `+0x40`, server side) with a 16-bit length and that many bytes when the bit is set, or length `-1` and no data
+when not — so indices are the block's own order from zero, and user data is exactly what the block carries. The
+client-side half is read the same way, skipping its first two entries (the
+`___clientsideitemsplaceholder` pair `DeleteAllStrings` re-adds). The overlay this replaced was measured equal on
+every demo read and was still a divergence. Ported: `NameTable.Replace` (model, `DynamicModels`, scene, decal,
+effect and particle names), `PrecacheTable` clearing on a create (sounds), `LightStyleFeed.Replace`,
+`RosterBuilder.Replace` (the slot map only — `everyone` is this project's history of who played, not the engine's
+table), and `BaselineBuilder.Replace` via `EntityDecoder.ClearBaselines`; every create case in `DemoTimeline`, and the
+trace's baseline and roster creates, now replace. Tests: `StringTableReplaceTests` (each consumer forgets an entry the
+replacement omits), `GameEvents_ASlotTheBlockNoLongerHolds_IsGoneFromTheRoster`,
+`Trace_ABaselineTheStringTablesBlockOmits_IsGoneFromTheEnteringEntity`. **Not covered by a test of its own:** the
+timeline's create call sites for model, dynamic, scene, decal, effect, particle and light-style tables — each calls a
+`Replace` that is tested, but a call reverted to `Apply` would go unnoticed.
 
 The original filing, kept:
 

@@ -168,9 +168,10 @@ public static class DemoTraceWriter
             // Applied inside the message loop rather than in a pre-pass, because the table
             // must be recorded before the snapshot that relies on it and both can share a
             // packet. DemoTimeline has always done this; only the trace did not.
+            // A create is a fresh table (`NameTable.Replace`, B452).
             if (entities is not null && createdTable.Name == BaselineBuilder.TableName)
             {
-                BaselineBuilder.Apply(createdTable.Entries, entities);
+                BaselineBuilder.Replace(createdTable.Entries, entities);
             }
         }
         else if (message is UpdateStringTableMessage updatedTable)

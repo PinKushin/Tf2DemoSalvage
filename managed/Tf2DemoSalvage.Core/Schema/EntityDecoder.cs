@@ -954,6 +954,13 @@ public sealed class EntityDecoder : IEntityBaselines
 
     }
 
+    /// <summary>Forgets every class baseline, as a freshly created <c>instancebaseline</c> table holds none.</summary>
+    public void ClearBaselines()
+    {
+        _rawBaselines.Clear();
+        _decodedBaselines.Clear();
+    }
+
     /// <summary>A class's baseline properties, or <c>null</c> if it has none.</summary>
     /// <param name="classId">The networked class.</param>
     /// <returns>The decoded properties, or <c>null</c>.</returns>
