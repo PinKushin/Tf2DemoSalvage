@@ -9843,8 +9843,8 @@ the 3D-sky room's glass at literal size in the main view). Tests: `TranslucentIn
 `VisibleWorldTests.BlendedByLeaf_…`, `BspLeafTreeTests.NearestRank_…`, `TranslucentOrderTests.Sort_ANearer…`,
 `ScenePassOrderConformanceTests.DrawTranslucentRenderables_TheLeafInterleave_…`, and
 `TranslucentWorldOrderRenderTests.DrawTranslucentLeaf_…` (a translucent model behind world glass is covered, one
-in the glass's leaf is not). **Not done:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
-TF2 maps without water use group 0 only. (Translucent detail sprites in this walk were not done here either —
+in the glass's leaf is not). **Not done here:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
+ported later under B261. (Translucent detail sprites in this walk were not done here either —
 the grass was then drawn before the opaque models; B434 moved it into this walk.)
 
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
@@ -19589,8 +19589,15 @@ with the last leaf of the near subtree, and a surface the walk does not draw (fa
 never filed. `VisibleWorld.Surfaces` records each reached surface's and displacement's leaf place;
 `BlendedByLeaf` reads them (surfaces last first, then displacements in order, `0x1800e4fd0`), replacing the
 LEAFFACES-order filing and the displacements' `NearestRank`. Red c2cea438, green in the commit after; output
-level `TranslucentLeafRunsMapTests` on cp_process. Account: `docs/findings/70-…`. Still not modelled: the water
-sort groups (B426).
+level `TranslucentLeafRunsMapTests` on cp_process. Account: `docs/findings/70-…`.
+
+**The water sort groups, ported the same day** (`0x180104530` assigns, `0x180100b60` marks; overlays drawn group
+3 down to 0 by `0x1800e5e10`, a leaf's translucent surfaces group 0 up to 3 by `0x1800e4fd0`):
+`VisibleWorld.SortGroup`, `OverlayRenderLists.Order(…, sortGroup)`, `TranslucentLeafRuns.RunGroup`. Red 8002be29
+(compile failure), green in the commit after. The map test now files from an eye chosen so place 0 and a node
+face both hold glass (cp_process, in front of face 127: 19 filed, 1 at place 0, 15 on nodes) — the two sabotages
+that left it green before (place 0 dropped, node faces filed a leaf late) now redden it. Still ours, named in
+findings 70: the water views, world decals and opaque surfaces are not split by group.
 
 Original filing:
 
@@ -34370,8 +34377,7 @@ displacement); fragments are one per face, the engine's one per face TRIANGLE (`
 never changes the order between overlays. A face with SURF_TRANS but an opaque material leaves the
 opaque overlay pass (engine) but is not in this renderer's translucent runs, which are chosen by
 material — its overlays would not draw; vbsp derives SURF_TRANS from the material, so this needs a
-material changed after compile. Sort groups (water-relative, `>>22 & 3`) are not modelled: every
-surface is group 0.
+material changed after compile. Sort groups (water-relative, `>>22 & 3`): ported 2026-10-03, see B261.
 
 ---
 

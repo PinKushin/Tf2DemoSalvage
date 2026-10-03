@@ -305,12 +305,14 @@ public sealed class TranslucentLeafRuns
     /// <param name="starts">Where each leaf's runs begin, plus one entry past the last.</param>
     /// <param name="runFaces">Per run, the face it alone draws when that face carries overlays, else −1 (B457).</param>
     /// <param name="runDisplacement">Per run, whether it is a displacement's.</param>
+    /// <param name="runGroup">Per run, its surface's water sort group, 0 to 3 (<c>0x180104530</c>); all 0 when null.</param>
     /// <exception cref="ArgumentNullException">A list is null.</exception>
     public TranslucentLeafRuns(
         IReadOnlyList<WorldBatch> runs,
         IReadOnlyList<int> starts,
         IReadOnlyList<int>? runFaces = null,
-        IReadOnlyList<bool>? runDisplacement = null)
+        IReadOnlyList<bool>? runDisplacement = null,
+        IReadOnlyList<int>? runGroup = null)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(starts);
@@ -319,7 +321,11 @@ public sealed class TranslucentLeafRuns
         _starts = starts;
         RunFaces = runFaces ?? [.. Enumerable.Repeat(-1, runs.Count)];
         RunDisplacement = runDisplacement ?? [.. Enumerable.Repeat(false, runs.Count)];
+        RunGroup = runGroup ?? [.. Enumerable.Repeat(0, runs.Count)];
     }
+
+    /// <summary>Per run, its surface's water sort group, 0 to 3 (<c>0x180104530</c>).</summary>
+    public IReadOnlyList<int> RunGroup { get; }
 
     /// <summary>Every run, leaf by leaf.</summary>
     public IReadOnlyList<WorldBatch> Runs { get; }

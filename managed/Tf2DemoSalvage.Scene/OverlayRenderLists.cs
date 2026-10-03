@@ -110,77 +110,87 @@ public sealed class OverlayRenderLists
     /// **With no walk** there is no translucent leaf pass to carry a translucent surface's overlays, so they are
     /// queued after the brush surfaces — the uncullable map's only route to the screen, and named as ours in B457.
     /// </remarks>
+    /// <param name="sortGroup">Each face's water sort group (<c>0x180104530</c>); null puts every face in group 0.</param>
     public IReadOnlyList<WorldBatch> Order(
         IReadOnlyList<int>? surfaces,
         IReadOnlyList<ReachedDisplacement>? displacements,
         (float X, float Y, float Z)? eye,
-        Func<int, bool> blended)
+        Func<int, bool> blended,
+        Func<int, int>? sortGroup = null)
     {
         ArgumentNullException.ThrowIfNull(blended);
 
         _drawn.Clear();
 
-        // The displacements' own batch, drawn first (0x1800e3a90 → 0x1800c61f0).
-        ResetSort();
-
-        if (surfaces is null)
+        // **Group by group, 3 down to 0** (0x1800e5e10's counter from 3 over the table 0x18038ea98), each its own
+        // displacement batch and brush batch.
+        for (int group = VisibleWorld.SortGroups - 1; group >= 0; group--)
         {
-            foreach (WorldFaceSpan span in _spans)
+            bool InGroup(int face) => (sortGroup?.Invoke(face) ?? 0) == group;
+
+            // The displacements' own batch, drawn first (0x1800e3a90 → 0x1800c61f0).
+            ResetSort();
+
+            if (surfaces is null)
             {
-                if (span.Displacement >= 0 && !Translucent(span, blended))
+                foreach (WorldFaceSpan span in _spans)
+                {
+                    if (span.Displacement >= 0 && !Translucent(span, blended) && InGroup(span.Face))
+                    {
+                        Sort(span, queued: true);
+                    }
+                }
+            }
+            else
+            {
+                foreach (ReachedDisplacement reached in displacements ?? [])
+                {
+                    if (_spanOf.TryGetValue(reached.Face, out WorldFaceSpan span) && !Translucent(span, blended) &&
+                        InGroup(span.Face))
+                    {
+                        Sort(span, reached.InView);
+                    }
+                }
+            }
+
+            QueueSorted(eye);
+            Render(_drawn);
+
+            // The brush surfaces' batch (0x1800da3a0).
+            ResetSort();
+
+            int reachedCount = surfaces?.Count ?? _spans.Count;
+
+            for (int at = 0; at < reachedCount; at++)
+            {
+                if (surfaces is null && _spans[at].Displacement >= 0)
+                {
+                    continue;
+                }
+
+                int face = surfaces?[at] ?? _spans[at].Face;
+
+                if (_spanOf.TryGetValue(face, out WorldFaceSpan span) && !Translucent(span, blended) && InGroup(face))
                 {
                     Sort(span, queued: true);
                 }
             }
-        }
-        else
-        {
-            foreach (ReachedDisplacement reached in displacements ?? [])
+
+            QueueSorted(eye);
+
+            if (surfaces is null && group == 0)
             {
-                if (_spanOf.TryGetValue(reached.Face, out WorldFaceSpan span) && !Translucent(span, blended))
+                foreach (WorldFaceSpan span in _spans)
                 {
-                    Sort(span, reached.InView);
+                    if (span.Displacement < 0 && Translucent(span, blended))
+                    {
+                        Queue(span.Face, eye);
+                    }
                 }
             }
+
+            Render(_drawn);
         }
-
-        QueueSorted(eye);
-        Render(_drawn);
-
-        // The brush surfaces' batch (0x1800da3a0).
-        ResetSort();
-
-        int reachedCount = surfaces?.Count ?? _spans.Count;
-
-        for (int at = 0; at < reachedCount; at++)
-        {
-            if (surfaces is null && _spans[at].Displacement >= 0)
-            {
-                continue;
-            }
-
-            int face = surfaces?[at] ?? _spans[at].Face;
-
-            if (_spanOf.TryGetValue(face, out WorldFaceSpan span) && !Translucent(span, blended))
-            {
-                Sort(span, queued: true);
-            }
-        }
-
-        QueueSorted(eye);
-
-        if (surfaces is null)
-        {
-            foreach (WorldFaceSpan span in _spans)
-            {
-                if (span.Displacement < 0 && Translucent(span, blended))
-                {
-                    Queue(span.Face, eye);
-                }
-            }
-        }
-
-        Render(_drawn);
 
         return _drawn;
     }
@@ -235,24 +245,21 @@ public sealed class OverlayRenderLists
 
                 int face = runs.RunFaces[at];
 
-                if (face < 0)
-                {
-                    continue;
-                }
-
-                if (runs.RunDisplacement[at])
+                if (face >= 0 && runs.RunDisplacement[at])
                 {
                     terrain.Add(face);
                 }
-                else
+                else if (face >= 0)
                 {
                     after[at] = OrderSurfaces([face], eye);
                 }
-            }
 
-            if (terrain.Count > 0)
-            {
-                after[first + count - 1] = OrderSurfaces(terrain, eye);
+                // A group's displacements' overlays go after its last run: 0x1800c61f0 is called once per sort group.
+                if (terrain.Count > 0 && (at == first + count - 1 || runs.RunGroup[at + 1] != runs.RunGroup[at]))
+                {
+                    after[at] = OrderSurfaces(terrain, eye);
+                    terrain.Clear();
+                }
             }
         }
 

@@ -198,7 +198,67 @@ public sealed class VisibleWorld
         }
 
         _leafDisplacements = [.. byLeaf.Where(list => list is not null).SelectMany(list => list)];
+
+        // **The water sort group** (0x180104530, at load). 0x180100b60 walks the tree, skips a leaf whose contents are
+        // exactly CONTENTS_SOLID, and ORs 0x20000 (a water leaf) or 0x40000 into every surface it lists other than a
+        // displacement or a water surface (0x10800), then into every displacement on its displacement list.
+        const int Wet = 1, Dry = 2;
+        byte[] water = new byte[highest + 1];
+
+        for (int leaf = 0; leaf < tree.LeafCount; leaf++)
+        {
+            if (tree.Contents(leaf) == SolidOnly)
+            {
+                continue;
+            }
+
+            byte bit = tree.WaterDataId(leaf) == -1 ? (byte)Dry : (byte)Wet;
+            (int first, int count) = tree.LeafFaces(leaf);
+
+            for (int entry = 0; entry < count; entry++)
+            {
+                int face = leafFaces.Face(first + entry);
+
+                if (Span(face) is { } span && span.Displacement < 0 && (span.Flags & SurfaceProperties.Warp) == 0)
+                {
+                    water[face] |= bit;
+                }
+            }
+
+            foreach (int at in byLeaf[leaf] ?? [])
+            {
+                water[spans[at].Face] |= bit;
+            }
+        }
+
+        // Then the group: a water surface 3, both bits 2, under water alone 1, anything else 0.
+        _sortGroup = new byte[highest + 1];
+
+        for (int at = 0; at < spans.Count; at++)
+        {
+            int face = spans[at].Face;
+
+            _sortGroup[face] = (spans[at].Flags & SurfaceProperties.Warp) != 0
+                ? (byte)3
+                : water[face] switch
+                {
+                    Wet | Dry => (byte)2,
+                    Wet => (byte)1,
+                    _ => (byte)0,
+                };
+        }
     }
+
+    /// <summary>A leaf's contents when it is solid and nothing else — the value <c>0x180100b60</c> skips.</summary>
+    private const int SolidOnly = 1;
+
+    private readonly byte[] _sortGroup;
+
+    /// <summary>A face's water sort group (<c>MAT_SORT_GROUP_*</c>, <c>ivrenderview.h:50</c>), as <c>0x180104530</c> assigns it.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>0 above water, 1 under water, 2 intersecting the water's surface, 3 the water surface; 0 for a face the
+    /// build dropped.</returns>
+    public int SortGroup(int face) => face >= 0 && face < _sortGroup.Length ? _sortGroup[face] : 0;
 
     private readonly int[] _faceStart;
     private readonly int[] _faceSpans;
@@ -220,8 +280,9 @@ public sealed class VisibleWorld
     /// appends its leaf to the world list first (<c>0x1800e8820</c>), and <c>R_DrawSurface</c> (<c>0x1800dfbb0</c>)
     /// appends a TRANS surface to the chain of list entry <c>count − 1</c> — as <c>0x1800db7b0</c> does a translucent
     /// displacement. So a node surface goes with the last leaf of the near subtree, and a surface the walk does not
-    /// draw — facing away, already marked — joins no leaf. **Within a leaf, the last surface first**, then its
-    /// displacements in the order reached: <c>0x1800e4fd0</c> (<c>DrawTranslucentSurfaces</c>).
+    /// draw — facing away, already marked — joins no leaf. **Within a leaf, sort group by group, 0 to 3, and in each the
+    /// last surface first**, then the group's displacements in the order reached: <c>0x1800e4fd0</c>
+    /// (<c>DrawTranslucentSurfaces</c>), its outer loop over the group table <c>0x18038ea98</c>.
     ///
     /// A displacement whose box is out of view is left out, where the engine draws it; it is off screen either way.
     /// </remarks>
@@ -234,6 +295,7 @@ public sealed class VisibleWorld
         _blendedStarts.Clear();
         _runFaces.Clear();
         _runDisplacement.Clear();
+        _runGroup.Clear();
 
         int surface = 0;
         int displacement = 0;
@@ -243,30 +305,48 @@ public sealed class VisibleWorld
             _blendedStarts.Add(_blendedRuns.Count);
 
             int first = surface;
+            int firstDisplacement = displacement;
 
             while (surface < _surfaces.Count && _surfacePlace[surface] == place)
             {
                 surface++;
             }
 
-            for (int at = surface - 1; at >= first; at--)
+            while (displacement < _displacements.Count && _displacementPlace[displacement] == place)
             {
-                AddFace(_surfaces[at], blended, isDisplacement: false);
+                displacement++;
             }
 
-            for (; displacement < _displacements.Count && _displacementPlace[displacement] == place; displacement++)
+            // Group by group, 0 to 3 (0x1800e4fd0 walks the table 0x18038ea98 forwards).
+            for (int group = 0; group < SortGroups; group++)
             {
-                if (_displacements[displacement].InView)
+                for (int at = surface - 1; at >= first; at--)
                 {
-                    AddFace(_displacements[displacement].Face, blended, isDisplacement: true);
+                    if (SortGroup(_surfaces[at]) == group)
+                    {
+                        AddFace(_surfaces[at], blended, isDisplacement: false);
+                    }
+                }
+
+                for (int at = firstDisplacement; at < displacement; at++)
+                {
+                    if (_displacements[at].InView && SortGroup(_displacements[at].Face) == group)
+                    {
+                        AddFace(_displacements[at].Face, blended, isDisplacement: true);
+                    }
                 }
             }
         }
 
         _blendedStarts.Add(_blendedRuns.Count);
 
-        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts, _runFaces, _runDisplacement);
+        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts, _runFaces, _runDisplacement, _runGroup);
     }
+
+    /// <summary>How many water sort groups there are — <c>MAX_MAT_SORT_GROUPS</c>, <c>ivrenderview.h:57</c>.</summary>
+    public const int SortGroups = 4;
+
+    private readonly List<int> _runGroup = [];
 
     /// <summary>Appends every span of one face.</summary>
     private void AddFace(int face, Func<int, bool> blended, bool isDisplacement)
@@ -298,6 +378,8 @@ public sealed class VisibleWorld
         if (!own &&
             last >= _blendedStarts[^1] &&
             _runFaces[last] < 0 &&
+            _runGroup[last] == SortGroup(span.Face) &&
+            _runDisplacement[last] == displacement &&
             run.MaterialIndex == span.MaterialIndex &&
             run.Category == span.Category &&
             run.FirstVertex + run.VertexCount == span.FirstVertex)
@@ -310,6 +392,7 @@ public sealed class VisibleWorld
             span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category));
         _runFaces.Add(own ? span.Face : -1);
         _runDisplacement.Add(displacement);
+        _runGroup.Add(SortGroup(span.Face));
     }
 
     private readonly List<int> _surfaces = [];

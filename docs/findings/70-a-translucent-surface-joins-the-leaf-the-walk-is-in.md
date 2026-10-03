@@ -46,6 +46,43 @@ Evidence class: read in disassembly. Tests: `SurfaceOrderConformanceTests.Blende
 (synthetic, red before the change), `TranslucentLeafRunsMapTests` (cp_process: the runs are exactly the reached
 translucent surfaces, once each).
 
-**Still not modelled**, unchanged from B426: the four water sort groups (`0x1800e4fd0`'s outer loop over
-`>>22 & 3`); every surface is group 0. A displacement whose box is out of view is left out where the engine draws
-it — off screen either way.
+A displacement whose box is out of view is left out where the engine draws it — off screen either way.
+
+## The water sort groups
+
+B426 and B457 both filed the same omission: every surface treated as one group. Read in disassembly, engine.dll x64:
+
+- **Marking**, `0x180100b60`, called from `0x180104530` at load with the world's head node: it recurses the tree,
+  RETURNS at a leaf whose contents are exactly 1 (CONTENTS_SOLID alone, `0x180100b6b`), and ORs `0x20000` into a
+  leaf's surfaces when its water data ID (+0x42) is not −1, `0x40000` otherwise — skipping surfaces with `0x10800`
+  (displacement, water surface) — then the same bit into each displacement on the leaf's displacement list
+  (`0x180100bee`..`0x180100c3f`).
+- **Assignment**, `0x180104530` (only at DX level 80 and up, which is every modern client): `0x10000` → `0xc00000`,
+  group 3; `0x20000` and `0x40000` both → 2; `0x20000` → 1; `0x40000` → 0 (`0x1801045b5`..`0x1801045f4`). A surface
+  with neither prints a warning (at most ten) and stays 0. These are `MAT_SORT_GROUP_*`, `ivrenderview.h:50`.
+- **The opaque world**, `0x1800e5e10`: a counter from 3 down to 0 indexes the table `0x18038ea98` = {0, 1, 2, 3}
+  with the draw flag `8 >> n`, so groups draw **3, 2, 1, 0** — each its displacement chain (`0x1800e3a90`), brush
+  chains (`0x1800e27d0`), overlay queue (`0x1800da3a0`) and `RenderOverlays`, then world decals (`0x1801158d0`).
+- **The translucent world**, `0x1800e4fd0`: the same table walked FORWARDS with flag `1 << n`, so a leaf's groups
+  draw **0, 1, 2, 3**, each its surfaces last first then its displacements and their overlays (`0x1800c61f0`, once
+  per group).
+
+The opposite directions are the point: opaque from the water surface down, translucent from above the water up.
+
+Ported: `VisibleWorld.SortGroup` (the marking and assignment, `0x10000` read as texinfo SURF_WARP as B457 already
+does — *interpolated*), `OverlayRenderLists.Order`'s per-group batches, `BlendedByLeaf`'s per-group runs with
+`TranslucentLeafRuns.RunGroup`, and `ForTranslucentLeaves` flushing displacement overlays at each group's end.
+
+**Still ours.** The main view draws every group in one `DrawWorldLists` call, as the client's `CSimpleWorldView`
+does when no water is in view; the water views that split groups across reflection and refraction passes are not
+modelled. World decals are not drawn per group, and the opaque surfaces are not either — the latter is invisible
+under the depth test.
+
+## The map test needed a chosen eye
+
+The first cp_process assertion compared sets, so two sabotages passed it: dropping place 0 (the eye's leaf held no
+glass) and filing node surfaces one leaf late (a set does not care which leaf). The second test searches for an eye
+in front of a translucent leaf face whose view files glass at place 0 AND on a node — measured, the first candidate
+qualifies: face 127, eye (−864, −2760, 808), 19 filed, 1 at place 0, 15 on nodes — and asserts each surface's leaf:
+a leaf face must be listed by its leaf, a node face's leaf must lie under the node's child on the eye's side. Both
+sabotages now redden it.

@@ -302,6 +302,11 @@ public sealed class WorldCulling
     public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended, Func<int, bool>? separate = null) =>
         CanCull ? _surfaces.BlendedByLeaf(blended, separate) : null;
 
+    /// <summary>A face's water sort group — see <see cref="VisibleWorld.SortGroup"/>.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>0 to 3.</returns>
+    public int SortGroup(int face) => _surfaces.SortGroup(face);
+
     /// <summary>The place in the last view's leaf list of the nearest leaf a box touches, or −1.</summary>
     /// <param name="minX">The box, in world space.</param>
     /// <param name="minY">The box, in world space.</param>
