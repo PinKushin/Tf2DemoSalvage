@@ -9477,3 +9477,11 @@ usercmds — so the real client animates the recorder from prediction's velocity
 that divergence next, if it's not a divergence that is from us allowing actual rewinding and reverse playback."* It is
 not: prediction re-simulates forward from the last received network state every frame, so it holds after a seek or
 a rewind the same way it does after a packet. B56's out-of-scope line is reversed by this entry.
+
+## D206 — the published release always matches the completed code on main (2026-10-02)
+
+Owner: *"i havent made a post either, because i wasnt sure it was really ready yet, if the app has changed since the
+release we need to do another release, the release should basically always be the code we have completed."* So after
+a merge that changes what a user runs (viewer, CLI, packaging), the assistant cuts the next beta from main — version
+bump in `Directory.Build.props`, a "Changes since" section in `RELEASE-NOTES.md`, tag, the CI zip smoke-tested, then
+published as a pre-release under D204. Docs-only and test-only merges do not need a release.

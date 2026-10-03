@@ -1,6 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.1
+# Tf2DemoSalvage 0.1.0-beta.2
 
-The first public beta. Tf2DemoSalvage reads Team Fortress 2 `.dem` files from any period of TF2's
+## Changes since 0.1.0-beta.1
+
+- **POV demos:** the recorder's own body now moves the way the game predicts it. His recorded inputs are
+  re-simulated between packets, covering items, surfaces, doors, buildings, water, taunts, karts, stuns,
+  parachutes and grappling hooks. His legs turn smoothly every frame instead of stepping each tick.
+- **Steam on any drive:** the viewer finds TF2 wherever Steam records it, not only under Program Files.
+  `TF2_FOLDER` overrides every lookup.
+- **File > Export assembly / Compile assembly**, the same text and byte-identical rebuild as the CLI.
+- **Very large demos** decompile in under 100 MB of memory.
+- `demo_*` settings in your config take effect without reopening the demo.
+
+Tf2DemoSalvage is a public beta. Tf2DemoSalvage reads Team Fortress 2 `.dem` files from any period of TF2's
 history, including demos the current game client can no longer play, because it decodes each demo
 against the entity schema the demo carries rather than one hardcoded for a single era.
 
