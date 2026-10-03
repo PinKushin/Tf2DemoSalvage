@@ -4,7 +4,9 @@ using System.Linq;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Input;
 using FlaUI.Core.Tools;
+using FlaUI.Core.WindowsAPI;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
@@ -157,7 +159,20 @@ public sealed class ExportCompileUiTests
         Retry.WhileFalse(() => Address(dialog).Contains("Address: ", StringComparison.Ordinal), DialogTimeout)
             .Success.ShouldBeTrue("the dialog never named the folder it opened in: " + Address(dialog));
         Mark($"navigated; value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
-        name.Patterns.Value.Pattern.SetValue(path);
+        // **Typed, not set through ValuePattern.** On the CI runner the box read back a path set that
+        // way right up to OK, and the dialog still saved its default name in its default folder —
+        // with a D: path as well as one under AppData, with one visible Save button, with the viewer
+        // in front and no menu involved (runs 37145752910, 37147390608, 37157773686). Keystrokes are
+        // what the dialog is built to hear; they go only after the guard confirms the box has focus.
+        name.Focus();
+        Retry.WhileFalse(
+                () => _viewer.HasFocus()
+                    && _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault
+                        == name.Properties.AutomationId.ValueOrDefault,
+                DialogTimeout)
+            .Success.ShouldBeTrue("the dialog's name box did not take keyboard focus: " + Focused());
+        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+        Keyboard.Type(path);
 
         string typed = Retry.WhileFalse(
                 () => name.Patterns.Value.Pattern.Value.ValueOrDefault == path, DialogTimeout).Success
