@@ -248,6 +248,30 @@ public sealed class GestureConformanceTests
 
     private const string TfAnimState = "src/game/shared/tf/tf_playeranimstate.cpp";
 
+    /// <remarks>
+    /// **The voice command's slot rule, and what "active" means** (B437): the event restarts the slot only while it
+    /// is inactive, and on the client a slot goes inactive only when an auto-kill gesture's cycle passes one.
+    /// </remarks>
+    [Test]
+    public void DoAnimationEvent_TheVoiceCommand_RestartsTheSlotOnlyWhenItIsInactive()
+    {
+        if (!SourceSdk.Available)
+        {
+            Assert.Ignore("the Source SDK is not available");
+            return;
+        }
+
+        SourceSdk.Text(TfAnimState).ShouldNotBeNull().ShouldMatch(
+            @"(?s)case\s+PLAYERANIMEVENT_VOICE_COMMAND_GESTURE:\s*\{\s*if\s*\(\s*!IsGestureSlotActive\(\s*GESTURE_SLOT_ATTACK_AND_RELOAD\s*\)\s*\)" +
+            @"\s*\{\s*RestartGesture\(\s*GESTURE_SLOT_ATTACK_AND_RELOAD\s*,\s*\(Activity\)nData\s*\);");
+
+        SourceSdk.Text(AnimStateCpp).ShouldNotBeNull().ShouldMatch(
+            @"(?s)if\(\s*flCycle\s*>\s*1\.0f\s*\)\s*\{\s*RunGestureSlotAnimEventsToCompletion\(\s*pGesture\s*\);\s*" +
+            @"if\s*\(\s*pGesture->m_bAutoKill\s*\)\s*\{\s*ResetGestureSlot\(");
+    }
+
+    private const string AnimStateCpp = "src/game/shared/Multiplayer/multiplayer_animstate.cpp";
+
     /// <summary>The weapon roles a gesture activity can be suffixed with.</summary>
     /// <remarks>
     /// **Valve's own set, from the activity list itself** — a TF2 player model declares
