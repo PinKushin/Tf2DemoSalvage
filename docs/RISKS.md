@@ -34011,3 +34011,68 @@ delayed copy the way `m_flChargeLevel` does (`UnimplementedGameplayEntityConform
 
 *Evidence class: read from `tf_weapon_medigun.cpp`; the "nothing decodes it" half is a grep, with a
 control (the same grep for `Rocket` in `managed/` finds six files, so the search itself works).*
+
+---
+
+## B455 — overlays never faded; lump 60 was not read — FIXED 2026-10-02
+
+**Read from engine.dll (x64, live), 0x18010a580**, the fragment-queueing walk of `COverlayMgr`.
+`r_overlayfadeenable` defaults to `"0"` (0x18035de18), and with it 0 every overlay fades on its OWN
+`doverlayfade_t` (lump 60, `bspfile.h:1056`): max² not positive → never fades; distance² from the
+view origin to the overlay origin at or past max² → not queued, not drawn; min² negative or
+distance² inside it → alpha 1; between → `(max² − d²)·k` clamped, written into every fragment
+vertex's alpha. The ConVar branch (0x18010b000, `r_overlayfademin/max`, only when enabled) computes
+its own `k = 1/(max² − min²)`; the per-overlay `k` is *interpolated* as the same, since its write
+site was not read.
+
+**Measured (`overlay-fades` probe): 4,502 of 47,538 stock overlays fade, on 80 maps** — 368 of 383
+on cp_dustbowl, 452 of 461 on koth_king. cp_process_final has 6 at ~1021 units; cp_process_f12
+stores ~1021⁴ (squared twice by its compiler), so on the reference demo nothing fades — faithfully.
+
+**Fix:** `BspOverlays` reads lump 60 (`FadeMinSquared`, `FadeMaxSquared`); a fading overlay gets its
+own batch carrying an `OverlayFade`; `DrawDecals` skips it past max and multiplies its alpha into
+`modulation.a`. *Interpolated:* the engine writes vertex alpha; whether LightmappedGeneric honours it
+without `$vertexalpha` was not read, and this applies it unconditionally. Red e9f6d60c, green
+3ce39a82; three sabotages each reddened their test. koth_harvest_event, tick 5000, same camera,
+pre/post build: 1,038 pixels change (leaf scatter near the cliff gap); post/post control: 0.
+
+---
+
+## B456 — DecalModulate decals had no polygon offset, because −262144 was read as the bias — FIXED 2026-10-02
+
+**Read from shaderapidx9.dll (x64, live), 0x180014600 — `ApplyZBias`**, found by its R200 fallback
+constant −1/4096. It turns each config term into its **reciprocal** (`x == 0 ? 0 : 1/x`, config
++0x54..+0x60 = `materialsystem_config.h:131-136` in order), and for `SHADER_POLYOFFSET_DECAL` sets
+`D3DRS_SLOPESCALEDEPTHBIAS` (0xAF) = 1/−0.5 = **−2** and `D3DRS_DEPTHBIAS` (0xC3) = 1/−262144 =
+−2⁻¹⁸ of the range = **−64 steps** on our D24 buffer.
+
+**This settles B70 from the other end.** Every attempt applied −262144 *steps*, 1/64 of the depth
+range, which floated markings in front of everything — and B70 concluded the bias was not
+overlays'. That conclusion stands (LightmappedGeneric never requests it), but the number itself
+was misread: the engine's offset is 4,096 times smaller. Our overlay pass's slope −0.5 equalled the
+config literal and was therefore believed to be Valve's; it is ours (the measured anti-hatching
+term `DecalState` records), and Valve applies −2 only to polyoffset shaders.
+
+**Fix:** `DecalState.PolyOffsetDepthBias = -64`, `PolyOffsetSlopeScaledBias = -2`; a second marking
+rasteriser carries them and `DrawDecalBatch` chooses it for DecalModulate materials (world, entity
+and model decals all route there). Red 80eca2ba, green 030f0a08. f12, tick 20000, first person:
+71 pixels change against the pre-fix build; control 0; inverting the material condition also
+changes 71. **Still ours:** overlays keep slope −0.5; how the engine keeps a LightmappedGeneric
+overlay from fighting its wall (a vertex offset in `Overlay.cpp`?) is unread.
+
+---
+
+## B457 — overlays within one render order draw in lump order; the engine's is per frame — OPEN
+
+**Read, engine.dll x64:** the world sort-group loop (0x1800e5e10) draws, per group, the surface
+chains (`Shader_DrawChains`), then `COverlayMgr::RenderOverlays` (vtable +0x38, 0x180110630), then
+`DecalSurfaceDraw` (0x1801158d0, the `r_drawdecals`/`r_queued_decals`/`r_drawbatchdecals` reader).
+**So overlays before world decals — which this renderer already does.**
+
+**Within one render order it differs.** `0x18010a580` queues each visible fragment by PREPENDING
+it to its material bucket, and prepends the bucket to the group's material list the first time it
+gets a fragment that frame. `RenderOverlays` then walks that list — so materials draw in the
+**reverse of the order the visible-leaf walk first reached them, every frame**. This project uses
+first-seen lump order, fixed at build. Matching it means queueing overlay fragments per frame from
+the visible leaves — a structural change (`tf2-parity-structural-fix`), not a sort. Visible only
+where two overlays of different materials on the same layer overlap.

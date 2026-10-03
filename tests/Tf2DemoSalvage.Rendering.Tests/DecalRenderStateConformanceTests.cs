@@ -70,17 +70,46 @@ public sealed class DecalRenderStateConformanceTests
     }
 
     [Test]
-    public void DecalBias_TheSlopeScaledTerm_IsValves()
+    public void DecalBias_TheConfigsSlopeTerm_IsNotTheOverlaySlopeValveApplies()
     {
         float valves = Initialiser("m_SlopeScaleDepthBias_Decal");
 
         valves.ShouldBe(-0.5f, "materialsystem_config.h:223");
 
-        DecalState.SlopeScaledBias.ShouldBe(valves);
+        // **The overlay pass's -0.5 equals this number and is NOT Valve's.** shaderapidx9 applies
+        // the reciprocal, -2, and only to shaders requesting SHADER_POLYOFFSET_DECAL — never to an
+        // overlay's LightmappedGeneric. Ours is the measured anti-hatching term DecalState records;
+        // that it matches the config's literal was a reading of the wrong number (2026-10-02).
+        DecalState.SlopeScaledBias.ShouldBe(-0.5f);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldNotBe(DecalState.SlopeScaledBias);
 
         // Control: the other two slope-scaled terms differ from this one and from each other.
         Initialiser("m_SlopeScaleDepthBias_Normal").ShouldBe(0f);
         Initialiser("m_SlopeScaleDepthBias_ShadowMap").ShouldBe(0.5f);
+    }
+
+    [Test]
+    public void PolyOffset_AsShaderApiApplies_IsTheReciprocalOfEachConfigTerm()
+    {
+        // **Read from shaderapidx9.dll (x64, live), 0x180014600 — CShaderAPIDx8::ApplyZBias**,
+        // located by its R200 fallback constant -1/4096 (0xB9800000 at 0x18007e110). It loads the
+        // four config floats at +0x54/+0x58/+0x5c/+0x60 — m_SlopeScaleDepthBias_Normal,
+        // m_DepthBias_Normal, m_SlopeScaleDepthBias_Decal, m_DepthBias_Decal in declaration order,
+        // materialsystem_config.h:131-136 — and turns each into `x == 0 ? 0 : 1 / x`. For
+        // SHADER_POLYOFFSET_DECAL it then sets D3DRS_SLOPESCALEDEPTHBIAS (0xAF) to 1/-0.5 and
+        // D3DRS_DEPTHBIAS (0xC3) to 1/-262144.
+        //
+        // **So -262144 was never a depth-bias value; its reciprocal is.** D3D9's DEPTHBIAS is a
+        // fraction of the depth range: -1/262144 = -2^-18, which on a 24-bit UNORM buffer is -64 of
+        // its 2^-24 steps. Read as -262144 steps it is 1/64 of the range — the push-through B70
+        // chased three times, which the engine never had.
+        float depth = Initialiser("m_DepthBias_Decal");
+        float slope = Initialiser("m_SlopeScaleDepthBias_Decal");
+
+        DecalState.PolyOffsetDepthBias.ShouldBe((int)MathF.Round((1f / depth) * (1 << 24)));
+        DecalState.PolyOffsetDepthBias.ShouldBe(-64);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldBe(1f / slope);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldBe(-2f);
     }
 
     [Test]
@@ -163,7 +192,8 @@ public sealed class DecalRenderStateConformanceTests
         // range, a round number chosen deliberately rather than tuned.
         (Initialiser("m_DepthBias_Decal") * step).ShouldBe(-0.015625, 1e-9);
 
-        // **What 1/64 of the range costs under perspective, which is why we do not apply it.**
+        // **What 1/64 of the range would cost — the misreading B70 chased, kept as the arithmetic of
+        // why it looked wrong. The engine applies the reciprocal (B456, the test above).**
         // Window depth goes as z ≈ 1 − N/d, so an offset Δz moves a surface Δd ≈ Δz·d²/N toward the
         // camera. At Valve's own VIEW_NEARZ of 7, a marking 500 units away tests as though it were
         // at 236 — in front of everything between. That is a fact about the projection, and it is

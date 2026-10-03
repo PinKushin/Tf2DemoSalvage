@@ -137,6 +137,9 @@ internal static class BspLumpIndex
     /// <summary>Authored decals — the stripes and signage painted onto the world.</summary>
     public const int Overlays = 45;
 
+    /// <summary>One <c>doverlayfade_t</c> per overlay, parallel to <see cref="Overlays"/>.</summary>
+    public const int OverlayFades = 60;
+
     /// <summary>Index into <see cref="LeafAmbientLightingHdr"/>.</summary>
     public const int LeafAmbientIndexHdr = 51;
 

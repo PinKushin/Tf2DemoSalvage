@@ -226,7 +226,9 @@ wrong together.
 | depth writes on a marking | `EnableDepthWrites( false )` — `DecalModulate_dx9.cpp:66` | wrote depth, so an overlay occluded what was drawn afterwards | **fixed**, B135 |
 | depth bias | `SHADER_POLYOFFSET_DECAL` → `m_DepthBias_Decal = -262144` — `materialsystem_config.h:223` | none. Valve's number is a **D3D9** value and the APIs disagree on what a bias is (D46, D48); our fragments are coplanar by construction since B134, so the intent needs no offset | differs **deliberately** |
 | render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | batches keyed by order and material, emitted order-major — read from `COverlayMgr::RenderOverlays` in engine.dll (below) | **fixed**, B138 |
-| fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), with `r_overlayfadeenable`, `r_overlayfademin`, `r_overlayfademax` | **lump not read at all** | **open** |
+| fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), per overlay while `r_overlayfadeenable` is 0 (engine.dll 0x18010a580) | read; faded per batch from the view origin | **fixed**, B455 |
+| decal polygon offset | `ApplyZBias` (shaderapidx9 0x180014600) applies the **reciprocals**: 1/−262144 of the range, slope 1/−0.5 | DecalModulate takes −64 steps and −2 | **fixed**, B456 |
+| order within a layer | material buckets prepended as the visible-leaf walk first reaches them, per frame | first-seen lump order, fixed | **open**, B457 |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
@@ -239,6 +241,17 @@ order, the largest is remembered, and a fragment draws only on the pass equal to
 whole map's material list is walked once per layer in use. The cost of four layers is four walks,
 not a sort, which is why the engine can afford it every frame; ours pays it once at build by keying
 the batches on `(order, material)`. Fixed 2026-10-02 (B138).
+
+**The decal bias was a reciprocal all along** *(evidence class: read from a decompilation)*.
+Every reading of `m_DepthBias_Decal = -262144` in this project — as D3D9 units, as `glPolygonOffset`
+units via togl, as 1/64 of a D24 range — took the config value as the bias. `ApplyZBias` in
+shaderapidx9.dll (0x180014600) never uses it that way: it divides one by each of the four config
+terms before setting `D3DRS_DEPTHBIAS`/`D3DRS_SLOPESCALEDEPTHBIAS`. So Valve's decal offset is
+2⁻¹⁸ of the range, 64 D24 steps, and the "1/64 of the range floats markings off the map" arithmetic
+B70 rested on described a bias the engine never applied. The togl read was right about units and
+wrong about the value, because togl receives the render state *after* the reciprocal. The lesson
+for this project: a config struct's field is an input, and the number on the wire is whatever the
+consumer makes of it — read the consumer (B456).
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This

@@ -49,7 +49,7 @@ public sealed class OverlayRenderOrderConformanceTests
         world.Decals.Select(batch => batch.VertexCount).ShouldBe([6, 6, 6]);
     }
 
-    private static BspSurface Floor() =>
+    internal static BspSurface Floor() =>
         new(
             0,
             [
@@ -64,7 +64,7 @@ public sealed class OverlayRenderOrderConformanceTests
             SurfaceProperties.None,
             -1);
 
-    private static BspOverlay Overlay(int id, int material, int order) =>
+    internal static BspOverlay Overlay(int id, int material, int order) =>
         new(
             Id: id,
             TexInfo: 0,

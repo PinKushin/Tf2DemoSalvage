@@ -1823,6 +1823,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
     private IReadOnlyList<WorldBatch> _decals = [];
 
+    /// <summary>The view origin from the last <see cref="SetCamera"/>, for overlay fade; null with no eye.</summary>
+    private (float X, float Y, float Z)? _eye;
+
     /// <summary>Depth state for an opaque pass: tested and written, nearer wins.</summary>
     /// <remarks>
     /// **Owned here because the props pass has to ESTABLISH it, not inherit it (B135).** The overlay
@@ -1864,6 +1867,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// settled it: in game the pack sits clearly on top of a much smaller patch.
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
+
+    /// <summary>The marking rasteriser plus <c>SHADER_POLYOFFSET_DECAL</c>, for a shader that requests it (DecalModulate).</summary>
+    private ComPtr<ID3D11RasterizerState> _decalPolyOffset;
 
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
@@ -2378,6 +2384,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
 
+        // **The decal shaders' own polygon offset**, for the materials whose shader requests
+        // SHADER_POLYOFFSET_DECAL (DecalModulate) — Valve's terms as shaderapidx9 applies them.
+        RasterizerDesc polyOffset = biased;
+
+        polyOffset.DepthBias = DecalState.PolyOffsetDepthBias;
+        polyOffset.SlopeScaledDepthBias = DecalState.PolyOffsetSlopeScaledBias;
+
+        ComPtr<ID3D11RasterizerState> decalPolyOffset = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in polyOffset, ref decalPolyOffset));
+
         // **A wireframe twin of every state, because `mat_wireframe` changes the FILL and nothing
         // else.** Valve's is `MATERIAL_FILLMODE_WIREFRAME`, applied to whatever is being drawn, so
         // each pass keeps its own culling and its own depth bias and differs only in fill. Building
@@ -2403,6 +2419,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         AddWire(culled, modelRasterizer);
         AddWire(mirrored, mirroredRasterizer);
         AddWire(decalOffset, biased);
+        AddWire(decalPolyOffset, polyOffset);
 
         return new WorldRenderer(
             loggers,
@@ -2416,6 +2433,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _modelCull = culled,
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
+            _decalPolyOffset = decalPolyOffset,
             _wireframeFor = wireframe,
             _device = device,
             _whiteColour = ColourStream(device, [1f, 1f, 1f]),
@@ -3840,6 +3858,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // guessing and the shader is told there is no cubemap in that case.
         (float X, float Y, float Z)? found = EyePosition.From(matrix);
         (float X, float Y, float Z) eye = found ?? (0f, 0f, 0f);
+        _eye = found;
         float hasEye = found is null ? 0f : 1f;
 
         // The matrix, then a float4 whose first component is the category-view switch, then the
@@ -5196,7 +5215,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         (float Red, float Green, float Blue)? tint = null,
         (float Red, float Green, float Blue)? paint = null,
         float burn = 0f,
-        (float Red, float Green, float Blue)? urine = null)
+        (float Red, float Green, float Blue)? urine = null,
+        float alpha = 1f)
     {
         // **The category view's underlay, chosen per material because that is what decides it.**
         // A material that resolved to nothing draws Valve's magenta-and-black chequer; everything
@@ -5424,6 +5444,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
             target[CategoryColourRed + 3] = 1f;
         }
 
+        // **An overlay's distance fade, per draw** (lump 60). The engine writes it into the
+        // fragment's vertex alpha; this multiplies it into the same `modulation.a` that `$alpha`
+        // drives, which the shader already folds into the output alpha.
+        ((float*)mapped.PData)[ModulationAlpha] *= alpha;
+
         context.Unmap(_material, 0);
         context.PSSetConstantBuffers(1, 1, ref _material);
 
@@ -5560,7 +5585,14 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // DrawDecalBatch, because a modulating decal wants a different one.
         foreach (WorldBatch batch in _decals)
         {
-            DrawDecalBatch(context, batch);
+            // **Faded per overlay from the view origin** (lump 60, engine.dll 0x18010a580): past its
+            // maximum the engine never queues it. Without an eye there is no distance, so it draws.
+            float? alpha = batch.Fade is { } fade && _eye is { } eye ? fade.Alpha(eye.X, eye.Y, eye.Z) : 1f;
+
+            if (alpha is { } drawn)
+            {
+                DrawDecalBatch(context, batch, drawn);
+            }
         }
 
         // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
@@ -5810,7 +5842,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     private static readonly float[] ModelIdentity = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f];
 
     /// <summary>Draws one decal run with its material's textures, in whatever vertex buffer is bound.</summary>
-    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch)
+    private void DrawDecalBatch(ComPtr<ID3D11DeviceContext> context, WorldBatch batch, float alpha = 1f)
     {
         if (batch.MaterialIndex < 0 || batch.MaterialIndex >= _textures.Count)
         {
@@ -5823,10 +5855,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
         ComPtr<ID3D11BlendState> blending = _alphaBlend;
 
-        if (_modulate.TryGetValue(batch.MaterialIndex, out bool twice))
+        // **And its polygon offset, which is the shader's too**: DecalModulate requests
+        // SHADER_POLYOFFSET_DECAL, LightmappedGeneric does not (shaderapidx9 0x180014600 applies it).
+        bool modulates = _modulate.TryGetValue(batch.MaterialIndex, out bool twice);
+
+        if (modulates)
         {
             blending = twice ? _modulateTwiceBlend : _modulateBlend;
         }
+
+        context.RSSetState(Raster(modulates && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset));
 
         if (blending.Handle is not null)
         {
@@ -5840,7 +5878,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
         ComPtr<ID3D11ShaderResourceView> texture = still;
 
-        SetMaterial(context, batch.MaterialIndex, batch.Category);
+        SetMaterial(context, batch.MaterialIndex, batch.Category, alpha: alpha);
 
         // A decal's second texture, on the same rule as everything else: the real one when the
         // material names it, and the base otherwise so a mix stays an identity.
@@ -6056,6 +6094,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseModelBuffers();
         _whiteColour.Dispose();
         _decalOffset.Dispose();
+        _decalPolyOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
 

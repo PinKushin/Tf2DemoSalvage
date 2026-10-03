@@ -34,8 +34,9 @@ namespace Tf2DemoSalvage.Render;
 /// Direct3D 11 defines its integer <c>DepthBias</c> with the same scale on a UNORM format:
 /// <c>bias = DepthBias · r + SlopeScaledDepthBias · maxDepthSlope</c>.
 ///
-/// **So it is one quantity under three APIs, and Valve's number transfers unchanged.** −262144 · r
-/// is −0.015625 of the depth range, whichever of the three draws it.
+/// **The units transfer; the number did not (B456).** shaderapidx9's <c>ApplyZBias</c> sets the
+/// render state to the RECIPROCAL of the config term, so what reaches togl is 1/−262144, not
+/// −262144 — see <see cref="PolyOffsetDepthBias"/>.
 /// </remarks>
 internal static class DecalState
 {
@@ -84,6 +85,20 @@ internal static class DecalState
     /// <c>SHADER_POLYOFFSET_DECAL</c> is trading against, and the answer to "name the trade" (D46).
     /// </remarks>
     internal const float SlopeScaledBias = -0.5f;
+
+    /// <summary>The constant term for a shader that requests <c>SHADER_POLYOFFSET_DECAL</c>, in 2⁻²⁴ steps.</summary>
+    /// <remarks>
+    /// **The reciprocal, as shaderapidx9.dll applies it** (x64 0x180014600, <c>ApplyZBias</c>):
+    /// <c>D3DRS_DEPTHBIAS = 1 / m_DepthBias_Decal = -2⁻¹⁸</c> of the depth range, which on this D24
+    /// buffer is −64 steps. Reading −262144 as the bias itself made it 1/64 of the range — B70's
+    /// push-through, which the engine never had. <c>DecalModulate</c> requests it; an overlay's
+    /// LightmappedGeneric does not, which is why <see cref="ConstantBias"/> stays zero.
+    /// </remarks>
+    internal const int PolyOffsetDepthBias = -64;
+
+    /// <summary>The slope-scaled term for a shader that requests <c>SHADER_POLYOFFSET_DECAL</c>.</summary>
+    /// <remarks><c>D3DRS_SLOPESCALEDEPTHBIAS = 1 / m_SlopeScaleDepthBias_Decal = 1 / −0.5</c>, same read.</remarks>
+    internal const float PolyOffsetSlopeScaledBias = -2f;
 
     /// <summary>Back faces are culled, as <c>MATERIAL_CULLMODE_CCW</c> has the engine do.</summary>
     /// <remarks>

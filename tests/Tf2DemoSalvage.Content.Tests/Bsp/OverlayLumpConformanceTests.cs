@@ -139,7 +139,7 @@ public sealed class OverlayLumpConformanceTests
     }
 
     [Test]
-    public void OverlayFades_ValvesLumpSixty_IsNotAmongTheLumpsThisReaderNames()
+    public void OverlayFades_ValvesLumpSixty_IsTheIndexThisReaderReads()
     {
         IReadOnlyDictionary<string, int> constants = SourceSdk.Constants(BspFile);
 
@@ -161,43 +161,8 @@ public sealed class OverlayLumpConformanceTests
         fade.Value.ShouldContain("flFadeDistMinSq");
         fade.Value.ShouldContain("flFadeDistMaxSq");
 
-        // **Ours: the gap, measured against the reader rather than asserted in prose.**
-        // BspLumpIndex names every lump this project reads, and 60 is not among them — so every
-        // overlay draws at every distance where the engine fades it out. Lump 45 beside it IS read,
-        // which is the control: without that, "60 is absent" would be consistent with the whole
-        // enum being empty.
-        IReadOnlyList<int> lumps = Lumps();
-
-        lumps.ShouldContain(BspLumpIndex.Overlays, "the overlay lump itself is read");
-
-        lumps.ShouldNotContain(
-            fades,
-            "lump 60 is not read; when it is, delete this assertion and test the fade distances "
-            + "against r_overlayfademin / r_overlayfademax instead (D45)");
-
-        // Read 2026-08-21 from the live client's engine.dll, beside COverlayMgr::RenderOverlays:
-        // r_renderoverlayfragment, r_overlaywireframe, r_overlayfadeenable, r_overlayfademin,
-        // r_overlayfademax. Recorded as the names an implementation should be checked against; not
-        // asserted, because the binary is not in the repository and must never be — see
-        // docs/memory/where-the-game-and-clients-live.md.
-    }
-
-    /// <summary>Every lump index this project names.</summary>
-    private static List<int> Lumps()
-    {
-        List<int> indices = [];
-
-        foreach (FieldInfo field in typeof(BspLumpIndex).GetFields(
-            BindingFlags.Public | BindingFlags.Static))
-        {
-            if (field.IsLiteral && field.GetRawConstantValue() is int value)
-            {
-                indices.Add(value);
-            }
-        }
-
-        indices.ShouldNotBeEmpty("BspLumpIndex read as empty would make the assertions above vacuous");
-
-        return indices;
+        // **Ours: read since 2026-10-02.** The gap this marked is closed — the distances are
+        // OverlayFadeLumpTests, and how they fade is OverlayFadeConformanceTests (engine.dll).
+        BspLumpIndex.OverlayFades.ShouldBe(fades);
     }
 }

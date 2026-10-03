@@ -21,6 +21,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="BasisV">The basis axis down, derived from the normal and U.</param>
 /// <param name="Origin">Where it sits in the world.</param>
 /// <param name="BasisNormal">The direction it faces.</param>
+/// <param name="FadeMinSquared">Lump 60's <c>flFadeDistMinSq</c>: fully opaque inside this squared distance.</param>
+/// <param name="FadeMaxSquared">Lump 60's <c>flFadeDistMaxSq</c>: not drawn at or past it; 0 means it never fades.</param>
 /// <remarks>
 /// **An overlay is a decal that survived compilation.** Signs, scorch marks, the arrows painted on
 /// a floor, the numbers on a control point — all of them are quads pinned to the faces underneath
@@ -39,7 +41,9 @@ public sealed record BspOverlay(
     (float X, float Y, float Z) Origin,
     (float X, float Y, float Z) BasisNormal,
     (float X, float Y, float Z) BasisU,
-    (float X, float Y, float Z) BasisV)
+    (float X, float Y, float Z) BasisV,
+    float FadeMinSquared = 0f,
+    float FadeMaxSquared = 0f)
 {
     /// <summary>How many world faces the overlay is pinned to.</summary>
     public int FaceCount => Faces.Count;
@@ -148,6 +152,17 @@ public static class BspOverlays
         int count = overlays.Length / OverlayStride;
         List<BspOverlay> read = new(count);
 
+        // **Lump 60, parallel to this one** — `doverlayfade_t`, two floats, one per overlay
+        // (`bspfile.h:1056`). Read only when it holds exactly one record per overlay; a map compiled
+        // without it simply never fades, which is what 0 means to the engine. Measured after
+        // decompression, because the directory's length is the packed one.
+        ReadOnlySpan<byte> fades = BspLumpData.Read(file, header.Lump(BspLumpIndex.OverlayFades)).Span;
+
+        if (fades.Length != count * 8)
+        {
+            fades = [];
+        }
+
         for (int index = 0; index < count; index++)
         {
             ReadOnlySpan<byte> entry = overlays.Slice(index * OverlayStride, OverlayStride);
@@ -223,7 +238,9 @@ public static class BspOverlays
                 Vector(entry, OverlayOriginOffset),
                 normal,
                 basisU,
-                basisV));
+                basisV,
+                fades.IsEmpty ? 0f : Float(fades, index * 8),
+                fades.IsEmpty ? 0f : Float(fades, (index * 8) + 4)));
         }
 
         return read;
