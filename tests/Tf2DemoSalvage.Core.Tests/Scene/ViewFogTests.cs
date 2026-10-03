@@ -33,7 +33,7 @@ public sealed class ViewFogTests
     public void From_NoEntityCarriesAHandle_TakesTheServersMasterRuleTheFirstController()
     {
         // **No entity carries the handle at all** — every point-of-view recording in the corpus,
-        // where the player's DT_Local fog and skybox fields never arrive (B451). The server assigns
+        // where the player's DT_Local fog and skybox fields never arrive (B452). The server assigns
         // every player `GetMasterFogController()`, which with no controller marked master is "the
         // first fog controller found" (fogcontroller.cpp:363-383) — so that rule, read from the
         // server, stands in for the handle the decode cannot see. A map with a master-flagged second

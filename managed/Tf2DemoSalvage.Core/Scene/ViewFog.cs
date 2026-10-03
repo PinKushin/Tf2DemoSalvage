@@ -38,7 +38,7 @@ public readonly record struct ViewFog(SceneFog? World, SceneFog? Sky)
         }
 
         // **No entity carries the handle at all**, which is every point-of-view recording in the
-        // corpus (B451): the player's DT_Local fog and skybox fields never reach the decoded state.
+        // corpus (B452): the player's DT_Local fog and skybox fields never reach the decoded state.
         // The server gives every player `GetMasterFogController()` — with none flagged master,
         // "the first fog controller found" (fogcontroller.cpp:363-383) — so that rule stands in.
         // ponytail: lowest index for FindEntityByClassname's order; a master-flagged later

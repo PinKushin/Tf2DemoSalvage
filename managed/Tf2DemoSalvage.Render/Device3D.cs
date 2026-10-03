@@ -1696,6 +1696,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             }
 
             _worldFog = value;
+
+            // A transition, so it is logged once per change rather than per frame.
+            _render.LogInformation("{Message}", $"world fog: {value?.ToString() ?? "none"}");
+
             ReapplyCamera();
         }
     }
@@ -1707,7 +1711,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// `CSkyboxView::Enable3dSkyboxFog` (viewrender.cpp:4806), its distances divided by the sky
     /// camera's scale there.
     /// </remarks>
-    public Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog { get; set; }
+    public Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog
+    {
+        get => _skyFog;
+        set
+        {
+            if (_skyFog != value)
+            {
+                _render.LogInformation("{Message}", $"sky fog: {value?.ToString() ?? "none"}");
+            }
+
+            _skyFog = value;
+        }
+    }
+
+    private Tf2DemoSalvage.Core.Scene.SceneFog? _skyFog;
 
     /// <summary>`1 / m_skybox3d.scale`, or one when the scale is not positive (viewrender.cpp:4821).</summary>
     private float SkyFogDistanceScale => _skyRoom is { Scale: > 0f } room ? 1f / room.Scale : 1f;
