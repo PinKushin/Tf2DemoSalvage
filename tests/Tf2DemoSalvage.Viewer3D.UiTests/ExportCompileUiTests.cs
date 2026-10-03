@@ -1,10 +1,9 @@
 using System;
 using System.IO;
+using System.Linq;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
-using FlaUI.Core.Input;
-using FlaUI.Core.WindowsAPI;
 using FlaUI.Core.Tools;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
@@ -107,11 +106,6 @@ public sealed class ExportCompileUiTests
         // on the line the load ends with.
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
-        // In front, because FillDialog types the path as keystrokes; on CI a terminal owns the
-        // foreground until something takes it.
-        _viewer.Focus();
-        _viewer.HasFocus().ShouldBeTrue("the viewer did not come to the foreground");
-
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
         WaitForStatus("Exported");
@@ -192,19 +186,7 @@ public sealed class ExportCompileUiTests
             edit => $"'{edit.Properties.Name.ValueOrDefault}' id={edit.Properties.AutomationId.ValueOrDefault} "
                 + $"offscreen={edit.Properties.IsOffscreen.ValueOrDefault} enabled={edit.Properties.IsEnabled.ValueOrDefault}")));
         Mark($"name box ready: id={name.Properties.AutomationId.ValueOrDefault} value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'");
-        // Typed as keystrokes, not ValuePattern.SetValue: on the CI runner the box read back the
-        // set path and the dialog still saved its default name in Documents (runs 37135177480 and
-        // 37136603324, the second with the viewer in the foreground). Keystrokes are what the dialog
-        // is built to hear; they go only where the focus guard says the viewer is in front.
-        name.Focus();
-        Retry.WhileFalse(
-                () => _viewer.HasFocus()
-                    && _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault
-                        == name.Properties.AutomationId.ValueOrDefault,
-                DialogTimeout)
-            .Success.ShouldBeTrue("the dialog's name box did not take keyboard focus: " + Focused());
-        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-        Keyboard.Type(path);
+        name.Patterns.Value.Pattern.SetValue(path);
 
         string typed = Retry.WhileFalse(
                 () => name.Patterns.Value.Pattern.Value.ValueOrDefault == path, DialogTimeout).Success
@@ -278,8 +260,9 @@ public sealed class ExportCompileUiTests
             }
         }
 
-        report.AppendLine("viewer log tail:");
-        foreach (string line in _viewer.Tail(40))
+        // Without the per-frame render lines, which otherwise fill any tail.
+        report.AppendLine("viewer log tail (render lines left out):");
+        foreach (string line in _viewer.Tail(4000).Where(line => !line.Contains("[render]", StringComparison.Ordinal)).TakeLast(40))
         {
             report.Append("    ").AppendLine(line);
         }
@@ -293,6 +276,6 @@ public sealed class ExportCompileUiTests
             () => _viewer.StatusText().StartsWith(prefix, StringComparison.Ordinal),
             WorkTimeout).Success;
 
-        reached.ShouldBeTrue($"the status bar never said '{prefix}…'; it says '{_viewer.StatusText()}'");
+        reached.ShouldBeTrue($"the status bar never said '{prefix}…'; it says '{_viewer.StatusText()}'\n" + DescribeWindows());
     }
 }
