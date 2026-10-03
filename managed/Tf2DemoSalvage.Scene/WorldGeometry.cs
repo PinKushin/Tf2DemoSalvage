@@ -1,3 +1,5 @@
+using System;
+
 namespace Tf2DemoSalvage.Scene;
 
 // These three types describe GEOMETRY, not drawing: a vertex, a run of triangles sharing a
@@ -60,6 +62,7 @@ public readonly record struct WorldVertex(
 /// <param name="BodyModel">Which of that part's alternatives, so one can be chosen per entity.</param>
 /// <param name="Category">What this run of triangles is, for the category view (B219).</param>
 /// <param name="MaterialSlot">The mesh skinref this run came from, for the skin lookup (B229).</param>
+/// <param name="Fade">The one overlay's distance fade, when this run holds a single fading overlay.</param>
 /// <remarks>
 /// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
 /// grouping key is the material AND the part and alternative it came from, so a run can be skipped
@@ -86,7 +89,55 @@ public readonly record struct WorldBatch(
     // which is why the run is keyed on this as well as on the material.
     //
     // −1 for world brushwork, which has no skin table and is never handed a family.
-    int MaterialSlot = -1);
+    int MaterialSlot = -1,
+
+    // **One overlay's distance fade, for a batch holding exactly that overlay** (lump 60). The
+    // engine fades per overlay, so a fading overlay cannot share a run with any other.
+    OverlayFade? Fade = null);
+
+/// <summary>An overlay's distance fade, as engine.dll applies it with <c>r_overlayfadeenable 0</c>.</summary>
+/// <param name="X">The overlay's origin, which the distance is measured to.</param>
+/// <param name="Y">The origin, across.</param>
+/// <param name="Z">The origin, up.</param>
+/// <param name="MinSquared">Opaque at or inside this squared distance; negative means opaque until the maximum.</param>
+/// <param name="MaxSquared">Not drawn at or past this squared distance; not positive means it never fades.</param>
+public readonly record struct OverlayFade(float X, float Y, float Z, float MinSquared, float MaxSquared)
+{
+    /// <summary>The alpha the overlay draws with from an eye, or null when it is not drawn at all.</summary>
+    /// <param name="eyeX">The view origin.</param>
+    /// <param name="eyeY">The view origin, across.</param>
+    /// <param name="eyeZ">The view origin, up.</param>
+    /// <returns>An alpha in [0, 1], or null.</returns>
+    /// <remarks>
+    /// engine.dll x64 0x18010a580: past the maximum the fragment is never queued; inside the minimum
+    /// it is 1; between, <c>(max² − d²) / (max² − min²)</c> clamped — the divisor is the ConVar
+    /// branch's own (0x18010b000), interpolated for the per-overlay field.
+    /// </remarks>
+    public float? Alpha(float eyeX, float eyeY, float eyeZ)
+    {
+        if (MaxSquared <= 0f)
+        {
+            return 1f;
+        }
+
+        float dx = eyeX - X;
+        float dy = eyeY - Y;
+        float dz = eyeZ - Z;
+        float distanceSquared = (dx * dx) + (dy * dy) + (dz * dz);
+
+        if (distanceSquared >= MaxSquared)
+        {
+            return null;
+        }
+
+        if (MinSquared < 0f || distanceSquared <= MinSquared)
+        {
+            return 1f;
+        }
+
+        return Math.Clamp((MaxSquared - distanceSquared) / (MaxSquared - MinSquared), 0f, 1f);
+    }
+}
 
 /// <summary>What a drawn surface is, for the diagnostic view.</summary>
 /// <remarks>

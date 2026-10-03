@@ -577,7 +577,12 @@ public static class MapWorldBuilder
         // x64, 0x180110630) wraps its material walk in a pass per render order, drawing a fragment
         // only when its overlay's order equals the pass — so layer 0 is drawn whole before layer 1,
         // whatever the materials. Keyed by material alone, a layer-1 overlay listed first drew first.
-        Dictionary<(int Order, int Material), List<WorldVertex>> byMaterial = [];
+        //
+        // **And by overlay, for one that fades** (lump 60): the engine writes each overlay's own fade
+        // alpha into its fragments, so a fading overlay merged with a neighbour would fade both.
+        // Overlays that never fade carry -1 here and still share a run.
+        Dictionary<(int Order, int Material, int Faded), List<WorldVertex>> byMaterial = [];
+        Dictionary<(int Order, int Material, int Faded), OverlayFade> fadeOf = [];
         int placed = 0;
         int unlit = 0;
 
@@ -627,10 +632,20 @@ public static class MapWorldBuilder
             // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
             // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
             // ninety degrees out and squeezed into a narrow column.
-            if (!byMaterial.TryGetValue((overlay.RenderOrder, overlay.MaterialIndex), out List<WorldVertex>? into))
+            bool fades = overlay.FadeMaxSquared > 0f;
+            (int, int, int) key = (overlay.RenderOrder, overlay.MaterialIndex, fades ? overlay.Id : -1);
+
+            if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
             {
                 into = [];
-                byMaterial[(overlay.RenderOrder, overlay.MaterialIndex)] = into;
+                byMaterial[key] = into;
+
+                if (fades)
+                {
+                    fadeOf[key] = new OverlayFade(
+                        overlay.Origin.X, overlay.Origin.Y, overlay.Origin.Z,
+                        overlay.FadeMinSquared, overlay.FadeMaxSquared);
+                }
             }
 
             // **An overlay's face list is the set of surfaces to CLIP against, not a list of
@@ -744,13 +759,14 @@ public static class MapWorldBuilder
         }
 
         // OrderBy is stable, so materials keep their first-seen order within a layer.
-        foreach (KeyValuePair<(int Order, int Material), List<WorldVertex>> group in byMaterial.OrderBy(group => group.Key.Order))
+        foreach (KeyValuePair<(int Order, int Material, int Faded), List<WorldVertex>> group in byMaterial.OrderBy(group => group.Key.Order))
         {
             decals.Add(new WorldBatch(
                 group.Key.Material,
                 all.Count,
                 group.Value.Count,
-                Category: SurfaceCategory.Overlay));
+                Category: SurfaceCategory.Overlay,
+                Fade: fadeOf.TryGetValue(group.Key, out OverlayFade fade) ? fade : null));
             all.AddRange(group.Value);
         }
 
