@@ -1804,6 +1804,13 @@ public sealed class TfGameMovement
         Vector3 position = _player.Origin;
         Vector3 velocity = _player.Velocity;
 
+        // tf_gamemovement.cpp:2845, :2875-2878: without m_bAllowAutoMovement there is no high road, only the low.
+        if (!_player.AllowAutoMovement)
+        {
+            TryPlayerMove(destination, saveTrace, 0f);
+            return;
+        }
+
         // The high road: up a step, across, back down.
         Vector3 endPos = _player.Origin with { Z = _player.Origin.Z + _convars.StepSize + DistEpsilon };
         trace = TracePlayerBBox(_player.Origin, endPos);
@@ -1966,6 +1973,7 @@ public sealed class TfGameMovement
             return;
         }
 
+        // Stryker disable once all : emptying the guard leaves `taunt` unassigned, and Safe Mode drops the method.
         if (_player.TauntMovement is not { } taunt)
         {
             // The taunt item's attributes are not known: the move is declined rather than guessed.
@@ -2121,6 +2129,7 @@ public sealed class TfGameMovement
     /// </summary>
     private void GrapplingHookMove()
     {
+        // Stryker disable once all : emptying the guard leaves `hook` unassigned, and Safe Mode drops the method.
         if (_player.GrapplingHook is not { } hook)
         {
             return;
@@ -2214,6 +2223,7 @@ public sealed class TfGameMovement
     /// <summary><c>CTFGameMovement::CheckWater</c> (<c>tf_gamemovement.cpp:1452</c>): feet, then eyes, then waist.</summary>
     private void CheckWater()
     {
+        // Stryker disable once all : emptying the guard leaves `contents` unassigned, and Safe Mode drops the method.
         if (PointContents is not { } contents)
         {
             return;
