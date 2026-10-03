@@ -30,13 +30,20 @@ public sealed class ViewFogTests
     }
 
     [Test]
-    public void From_NoEntityCarriesAHandle_IsNoFogWhateverTheControllersSay()
+    public void From_NoEntityCarriesAHandle_TakesTheServersMasterRuleTheFirstController()
     {
+        // **No entity carries the handle at all** — every point-of-view recording in the corpus,
+        // where the player's DT_Local fog and skybox fields never arrive (B451). The server assigns
+        // every player `GetMasterFogController()`, which with no controller marked master is "the
+        // first fog controller found" (fogcontroller.cpp:363-383) — so that rule, read from the
+        // server, stands in for the handle the decode cannot see. A map with a master-flagged second
+        // controller would differ; the flag is not networked.
         EntityStateTable table = new(EntityBaselines.None);
 
+        Controller(table, 100, serial: 1, start: 0f, end: 1000f);
         Controller(table, 194, serial: 3, start: 100f, end: 11000f);
 
-        ViewFog.From(table).World.ShouldBeNull();
+        ViewFog.From(table).World.ShouldBe(new SceneFog(0f, 1000f, 1f, 1f, 1f, 1f));
     }
 
     [Test]
@@ -82,17 +89,20 @@ public sealed class ViewFogTests
 
     private static int Handle(int slot, int serial) => slot | (serial << EdictBits);
 
-    private static EntityState Enter(EntityStateTable table, int index, int serial)
+    private const int ControllerClass = 48;
+
+    private static EntityState Enter(EntityStateTable table, int index, int serial, int classId = 0)
     {
-        table.Apply(new DecodedEntity(index, ClassId: 0, SerialNumber: serial, EntityUpdateType.Enter, []));
+        table.SetClassName(ControllerClass, "CFogController");
+        table.Apply(new DecodedEntity(index, ClassId: classId, SerialNumber: serial, EntityUpdateType.Enter, []));
         table.TryGet(index, out EntityState? state).ShouldBeTrue();
 
-        return state!;
+        return state;
     }
 
     private static void Controller(EntityStateTable table, int index, int serial, float start, float end)
     {
-        EntityState state = Enter(table, index, serial);
+        EntityState state = Enter(table, index, serial, ControllerClass);
 
         state.Set("DT_FogController.m_fog.enable", PropertyValue.FromInt(1));
         state.Set("DT_FogController.m_fog.start", PropertyValue.FromFloat(start));

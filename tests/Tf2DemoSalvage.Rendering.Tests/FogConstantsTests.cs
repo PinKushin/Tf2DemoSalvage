@@ -54,6 +54,16 @@ public sealed class FogConstantsTests
     }
 
     [Test]
+    public void For_RadialFog_MarksTheColoursWAsTwo()
+    {
+        // w carries the PIXEL_FOG_TYPE the shader selects: 0 off (none), 1 range, 2 radial — the
+        // shader's own numbering is RANGE 0 and RANGE_RADIAL 2 (common_ps_fxc.h:69-71), shifted by
+        // one so that zero can mean no fog.
+        FogConstants.For(Process)[3].ShouldBe(1f);
+        FogConstants.For(Process with { Radial = true })[3].ShouldBe(2f);
+    }
+
+    [Test]
     public void For_AMaxDensityBelowOne_IsCarriedUnchanged()
     {
         FogConstants.For(Process with { MaxDensity = 0.6f })[6].ShouldBe(0.6f);

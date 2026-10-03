@@ -130,8 +130,34 @@ public sealed class FogRenderTests
         fogged.ShouldBe((0, 0, 0));
     }
 
+    [Test]
+    public void Draw_RadialFogAtTheEdgeOfTheView_FogsByDistanceNotDepth()
+    {
+        // **The condition separates the two by construction.** At pixel (2, 32) the wall is at
+        // depth 0.9 but about 1.29 from the eye (x ≈ -0.92; the identity camera's eye is the
+        // origin). Fog ending at 1.0: range fog reaches 0.9 there, radial fog saturates — so only
+        // radial gives the pure fog colour.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null || Assets is not { } assets)
+        {
+            Assert.Ignore("no Direct3D, or the map or the game is not installed");
+            return;
+        }
+
+        SceneFog range = new(0f, 1f, 1f, 0f, 0f, 1f);
+
+        (int Red, int Green, int Blue) byDepth = Draw(target, assets, range, pixelX: 2);
+        (int Red, int Green, int Blue) byDistance = Draw(target, assets, range with { Radial = true }, pixelX: 2);
+
+        TestContext.Out.WriteLine($"FOG edge pixel: range {byDepth} / radial {byDistance}");
+
+        byDepth.ShouldNotBe((255, 0, 0), "the control: by depth the edge is not yet fully fogged");
+        byDistance.ShouldBe((255, 0, 0));
+    }
+
     private static (int Red, int Green, int Blue) Draw(
-        OffscreenTarget target, MapAssets assets, SceneFog? fog, int material = 0)
+        OffscreenTarget target, MapAssets assets, SceneFog? fog, int material = 0, int pixelX = 32)
     {
         const float lit = 0.5f;
 
@@ -148,7 +174,7 @@ public sealed class FogRenderTests
         target.Clear(0f, 0f, 0f);
         target.DrawWorld(wall, [new WorldBatch(material, 0, wall.Count)], Identity, assets, fog: fog);
 
-        return target.PixelAt(32, 32);
+        return target.PixelAt(pixelX, 32);
     }
 
     private static float[] Identity =>

@@ -96,6 +96,21 @@ public sealed class EntityFogTests
         fog.Value.MaxDensity.ShouldBe(1f);
     }
 
+    [Test]
+    public void Fog_AControllerSendingRadial_IsRadial()
+    {
+        // `m_fog.radial`, which modern TF2's server forces on for official maps
+        // (fogcontroller.cpp:375). Absent — the 2007 table has no such field — is range fog.
+        EntityState state = Controller(enable: 1, start: 0f, end: 6500f, colour: 1, density: 1f);
+
+        // Compared as bool? so that a null fog fails rather than passing as "not radial".
+        (state.Fog()?.Radial).ShouldBe(false);
+
+        state.Set($"{Table}.m_fog.radial", PropertyValue.FromInt(1));
+
+        (state.Fog()?.Radial).ShouldBe(true);
+    }
+
     private static EntityState Controller(int enable, float start, float end, int colour, float density)
     {
         EntityState state = new(1, 0, 0, "CFogController");

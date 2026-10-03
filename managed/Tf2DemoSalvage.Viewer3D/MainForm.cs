@@ -4405,6 +4405,7 @@ internal class MainForm : Form, IFrameSteps
         // **The fog in force at this tick, from the demo** (B139) — `EnableWorldFog` runs in every
         // view setup, so this is set beside the camera rather than once per map.
         _device.WorldFog = _timeline?.FogAt(_transport.CurrentTick);
+        _device.SkyFog = _timeline?.SkyFogAt(_transport.CurrentTick);
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
