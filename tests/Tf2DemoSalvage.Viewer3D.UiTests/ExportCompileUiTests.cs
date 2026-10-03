@@ -288,6 +288,7 @@ public sealed class ExportCompileUiTests
         string? line = _viewer.LastLine(marker);
         (logged && line is not null).ShouldBeTrue(
             $"the viewer never logged '{outcome} …'; last failure: '{_viewer.LastLine("] Failed: ")}'\n" + DescribeWindows());
-        return line;
+        // The log is CRLF and lines are split on the LF, so each keeps its CR.
+        return line.TrimEnd();
     }
 }
