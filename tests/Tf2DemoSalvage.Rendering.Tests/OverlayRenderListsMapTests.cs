@@ -30,9 +30,20 @@ public sealed class OverlayRenderListsMapTests
         culling.Batches(eye.X, eye.Y, eye.Z, default);
 
         IReadOnlyList<int> reached = [.. culling.Surfaces.ShouldNotBeNull("the walk ran")];
-        IReadOnlyList<WorldBatch> drawn = [.. queue.Order(reached, null, _ => false)];
+        IReadOnlyList<ReachedDisplacement> terrain = [.. culling.Displacements];
+        IReadOnlyList<WorldBatch> drawn = [.. queue.Order(reached, terrain, null, _ => false)];
 
-        HashSet<int> faces = [.. reached];
+        // Reached and drawn by the opaque passes: not the texinfo-translucent faces, which the translucent pass draws.
+        HashSet<int> translucent =
+            [.. world.FaceSpans.Where(span => (span.Flags & SurfaceProperties.Translucent) != 0).Select(span => span.Face)];
+
+        HashSet<int> faces =
+        [
+            .. reached.Where(face => !translucent.Contains(face)),
+            .. terrain.Where(reach => reach.InView && !translucent.Contains(reach.Face)).Select(reach => reach.Face),
+        ];
+
+        terrain.ShouldNotBeEmpty("cp_process has displacements in view, so the displacement path ran");
         int expected = world.OverlayFragments.Where(fragment => faces.Contains(fragment.Face)).Sum(fragment => fragment.VertexCount);
 
         // The control: a view of the whole tree from inside the map must reach some overlay.
@@ -50,7 +61,7 @@ public sealed class OverlayRenderListsMapTests
         }
 
         // Reversing the walk must reorder the draws: the order belongs to the frame, not to the lump.
-        IReadOnlyList<WorldBatch> reversed = queue.Order([.. reached.Reverse()], null, _ => false);
+        IReadOnlyList<WorldBatch> reversed = queue.Order([.. reached.Reverse()], [.. terrain.Reverse()], null, _ => false);
 
         reversed.Select(batch => batch.FirstVertex).ShouldNotBe(drawn.Select(batch => batch.FirstVertex));
     }

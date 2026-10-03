@@ -53,7 +53,7 @@ public sealed class OverlayRenderOrderConformanceTests
 
     /// <summary>The overlay draws for a world with no tree, as the viewer queues them.</summary>
     internal static IReadOnlyList<WorldBatch> Drawn(MapWorld world) =>
-        new OverlayRenderLists(world.OverlayFragments, world.FaceSpans).Order(null, null, _ => false);
+        new OverlayRenderLists(world.OverlayFragments, world.FaceSpans).Order(null, null, null, _ => false);
 
     internal static BspSurface Floor() =>
         new(
