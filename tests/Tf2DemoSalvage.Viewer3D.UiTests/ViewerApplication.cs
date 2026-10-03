@@ -174,6 +174,13 @@ internal sealed partial class ViewerApplication : IDisposable
         return tally.Seen;
     }
 
+    /// <summary>The last <paramref name="count"/> lines of this run's log, for a failure report.</summary>
+    public IReadOnlyList<string> Tail(int count)
+    {
+        List<string> lines = Lines();
+        return lines.GetRange(Math.Max(0, lines.Count - count), Math.Min(count, lines.Count));
+    }
+
     /// <summary>The log so far, read once and then only appended to.</summary>
     /// <remarks>
     /// **This was re-reading the whole file on every call, and it became the slowest thing in the

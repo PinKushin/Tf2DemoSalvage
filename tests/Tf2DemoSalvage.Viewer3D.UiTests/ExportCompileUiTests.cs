@@ -19,6 +19,9 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ExportCompileUiTests
 {
+    private static readonly System.Globalization.CultureInfo Invariant =
+        System.Globalization.CultureInfo.InvariantCulture;
+
     private static readonly TimeSpan DialogTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>z1800 is 30 MB of text; a minute is generous on any machine this runs on.</summary>
@@ -44,7 +47,7 @@ public sealed class ExportCompileUiTests
     {
         if (Dialog() is { } dialog)
         {
-            TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it");
+            TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it\n" + DescribeWindows());
             dialog.FindFirstChild(search => search.ByAutomationId("2"))?.AsButton().Invoke();
             Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
         }
@@ -119,12 +122,13 @@ public sealed class ExportCompileUiTests
         // Enabled, not merely present: on CI the edit exists before the dialog finishes initialising,
         // and SetValue then threw ElementNotEnabledException and left the dialog open over every later
         // test (Test workflow red from c3b05a7b).
-        AutomationElement name = Retry.WhileNull(
+        AutomationElement? name = Retry.WhileNull(
             () => dialog.FindFirstDescendant(search => search
                 .ByControlType(ControlType.Edit).And(search.ByName("File name:"))) is { IsEnabled: true } edit
                 ? edit
                 : null,
-            DialogTimeout).Result!;
+            DialogTimeout).Result;
+        name.ShouldNotBeNull("the file dialog's name box never became enabled:\n" + DescribeWindows());
         name.Patterns.Value.Pattern.SetValue(path);
 
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
@@ -144,6 +148,45 @@ public sealed class ExportCompileUiTests
         ?? _viewer.Window.Automation.GetDesktop().FindFirstChild(search => search
             .ByProcessId(_viewer.Window.Properties.ProcessId.Value)
             .And(search.ByClassName("#32770")));
+
+    /// <summary>
+    /// Every top-level window on the desktop — class, name, owning process, enabled — with the text
+    /// of each dialog, and the viewer's log tail: what is modal over what, when a dialog is disabled.
+    /// </summary>
+    private static string DescribeWindows()
+    {
+        System.Text.StringBuilder report = new();
+        int viewer = _viewer.Window.Properties.ProcessId.Value;
+        foreach (AutomationElement window in _viewer.Window.Automation.GetDesktop().FindAllChildren())
+        {
+            int pid = window.Properties.ProcessId.ValueOrDefault;
+            report.Append(pid == viewer ? "  * " : "    ")
+                .Append(Invariant, $"{window.Properties.ClassName.ValueOrDefault} '{window.Properties.Name.ValueOrDefault}' ")
+                .AppendLine(Invariant, $"pid={pid} enabled={window.Properties.IsEnabled.ValueOrDefault}");
+            if (window.Properties.ClassName.ValueOrDefault == "#32770")
+            {
+                foreach (AutomationElement text in window.FindAllDescendants(search => search
+                    .ByControlType(ControlType.Text)))
+                {
+                    report.AppendLine(Invariant, $"        text: {text.Properties.Name.ValueOrDefault}");
+                }
+            }
+        }
+
+        foreach (AutomationElement child in _viewer.Window.FindAllChildren(search => search.ByClassName("#32770")))
+        {
+            report.AppendLine(Invariant,
+                $"  viewer child dialog '{child.Properties.Name.ValueOrDefault}' enabled={child.Properties.IsEnabled.ValueOrDefault}");
+        }
+
+        report.AppendLine("viewer log tail:");
+        foreach (string line in _viewer.Tail(40))
+        {
+            report.Append("    ").AppendLine(line);
+        }
+
+        return report.ToString();
+    }
 
     private static void WaitForStatus(string prefix)
     {
