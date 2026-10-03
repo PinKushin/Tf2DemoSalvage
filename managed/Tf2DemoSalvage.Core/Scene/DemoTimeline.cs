@@ -6403,6 +6403,9 @@ public sealed class DemoTimeline
             Speed = speed,
             MoveX = moveX,
             MoveY = moveY,
+
+            // One GetAbsVelocity() for every reader, e.g. InvisibilityThink's motion cloak (tf_player_shared.cpp:8020).
+            Velocity = predictedVelocity ?? player.Velocity,
         };
     }
 
