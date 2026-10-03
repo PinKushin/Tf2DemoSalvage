@@ -31,12 +31,30 @@ public sealed class ExportCompileUiTests
 
     private string _folder = string.Empty;
 
+    /// <summary>What happened in each dialog and when, printed at teardown.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentQueue<string> Timeline = new();
+
     [SetUp]
     public void CreateFolder()
     {
         _folder = Path.Combine(Path.GetTempPath(), "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_folder);
+        TestContext.Out.WriteLine("focus at setup: " + Focused());
+        _focusBefore = _viewer.Window.Automation.FocusedElement() is { } focused
+            && focused.Properties.ProcessId.ValueOrDefault == _viewer.Window.Properties.ProcessId.Value
+                ? focused.Properties.AutomationId.ValueOrDefault
+                : null;
     }
+
+    /// <summary>The viewer control that had keyboard focus before the test, or null if none did.</summary>
+    private string? _focusBefore;
+
+    private static string Focused() =>
+        _viewer.Window.Automation.FocusedElement() is { } focused
+            ? $"{focused.Properties.ControlType.ValueOrDefault} '{focused.Properties.Name.ValueOrDefault}' "
+              + $"id={focused.Properties.AutomationId.ValueOrDefault} class={focused.Properties.ClassName.ValueOrDefault} "
+              + $"pid={focused.Properties.ProcessId.ValueOrDefault}"
+            : "nothing";
 
     /// <remarks>
     /// A failure mid-dialog leaves it modal over the shared viewer, and every later test in the session
@@ -60,6 +78,18 @@ public sealed class ExportCompileUiTests
             Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
         }
 
+        // Driving the File menu through UIA leaves the menu bar holding keyboard focus (measured:
+        // "focus at teardown: MenuBar 'Main menu'"), and every later key-press test then typed into
+        // the menu — the ten failures after this one on CI. Put focus back where the test found it.
+        string restore = string.IsNullOrEmpty(_focusBefore) ? "Viewport" : _focusBefore;
+        _viewer.Find(restore).Focus();
+        bool restored = Retry.WhileFalse(
+            () => _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault == restore,
+            DialogTimeout).Success;
+        TestContext.Out.WriteLine("focus at teardown: " + Focused());
+        restored.ShouldBeTrue($"keyboard focus did not return to '{restore}'");
+        TestContext.Out.WriteLine("dialog timeline:\n" + string.Join("\n", Timeline));
+        Timeline.Clear();
         Directory.Delete(_folder, recursive: true);
     }
 
@@ -135,6 +165,10 @@ public sealed class ExportCompileUiTests
         // the export went to Documents\z1800.txt and Compile's open dialog then sat under "File not
         // found" (Test workflow red from c3b05a7b; run 37131359285). The extension is not compared
         // because Explorer hides a known one in that box.
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        void Mark(string what) => Timeline.Enqueue($"{clock.ElapsedMilliseconds,6} ms  {what}");
+        Mark($"dialog '{dialog.Properties.Name.ValueOrDefault}' found");
+
         string stem = Path.GetFileNameWithoutExtension(defaultName);
         AutomationElement? name = Retry.WhileNull(
             () => dialog.FindFirstDescendant(search => search
@@ -145,14 +179,22 @@ public sealed class ExportCompileUiTests
                 : null,
             DialogTimeout).Result;
         name.ShouldNotBeNull($"the file dialog's name box never became enabled holding '{stem}':\n" + DescribeWindows());
+        Mark("name boxes: " + string.Join("; ", Array.ConvertAll(
+            dialog.FindAllDescendants(search => search.ByControlType(ControlType.Edit).And(search.ByName("File name:"))),
+            edit => $"'{edit.Properties.Name.ValueOrDefault}' id={edit.Properties.AutomationId.ValueOrDefault} "
+                + $"offscreen={edit.Properties.IsOffscreen.ValueOrDefault} enabled={edit.Properties.IsEnabled.ValueOrDefault}")));
+        Mark($"name box ready: id={name.Properties.AutomationId.ValueOrDefault} value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'");
         name.Patterns.Value.Pattern.SetValue(path);
 
         string typed = name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
+        Mark($"typed; reads back '{typed}'");
         typed.ShouldBe(path, "the name box did not keep the typed path");
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
+        Mark("OK invoked");
 
-        Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success.ShouldBeTrue(
-            $"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
+        bool closed = Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success;
+        Mark("closed: " + closed);
+        closed.ShouldBeTrue($"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
     }
 
     /// <summary>
