@@ -8171,7 +8171,55 @@ per-light visibility trace in `FUN_1801b8e20` (for point lights, gated by a cvar
 
 ---
 
-### B452 — a point-of-view recording carries no `m_PlayerFog.m_hCtrl` and no `m_skybox3d` on its player — OPEN, decode
+### B452 — a point-of-view recording carries no `m_PlayerFog.m_hCtrl` and no `m_skybox3d` on its player — FIXED 2026-10-03
+
+**Cause: the `dem_stringtables` block was never read.** A recording started mid-match carries every string table as
+it stood at the start in that block; a POV demo's `CTFPlayer` instancebaseline exists only there (the signon's create
+predates it), so the player's first full update decoded against no baseline and lost every field equal to it —
+`m_PlayerFog.m_hCtrl`, all of `m_skybox3d`, `m_flStepSize`, `m_bDrawViewmodel`. *Measured:* read, the movement-test
+POV's player carries `m_hCtrl 2042050` (its STV twin's value) and `m_skybox3d.area 8`; every gcor POV now carries the
+handle (2007/2008 have no block and already did). Layout cross-checked with demostf/parser; the engine's reader is
+closed.
+
+**Fixed:** `DemoStringTables.Read` parses the block, and `AsCreates` hands each table on as the create that would
+have built it — the engine rebuilds EVERY client table from the block, so `DemoTimeline` walks it through the same
+message switch a packet takes (baselines, both model precaches, sounds, scenes, decals, effects, particles, light
+styles, roster), and the trace through the same `ObserveTable` plus `Roster.Observe` its packets use. `ViewFog`'s
+first-controller stand-in is deleted — no handle is no fog, as `UpdateFogController` has it.
+
+**What only the block carries, measured** (`stringtables-block` probe, which compares each table against every
+create and update before it): `instancebaseline` 6-8 classes in every gcor POV with a block (2009, 2011, 2013);
+`modelprecache` [552] `models/props_forest/bird.mdl` in the 2011 viaduct POV; in `movement-test-pov-cp_process`, 8
+`soundprecache` entries (the Winger's shots, Eviction Notice) and 3 `DynamicModels` cosmetics. The 2013 foundry STV
+block adds nothing — the control. `userinfo` agreed on every demo read (by index and text; the user data was not
+compared).
+
+Tests: `DemoStringTablesTests` (layout, `AsCreates`), the trace's baseline and roster through the block, the
+timeline's roster through the block with its no-block control, `From_NoEntityCarriesAHandle_IsNoFog`, and two
+output-level corpus assertions in `PovSkyFogCorpusTests` — the 2013 badlands POV has sky fog, and the 2011 viaduct
+POV's `ModelPaths()` holds the bird only the block precaches.
+
+**The block REPLACES each table, and so does every create** (2026-10-03, *x64 disassembly*, `engine.dll`). The demo
+player hands the block to `CNetworkStringTableContainer::ReadStringTables` (`0x1801e86a0`, called from the playback
+reader `0x180072ee0` and `ReadCompleteDemoFile` `0x18019c240`): a byte of table count, then per table a name looked up
+in the existing container (vtable `+0x18`) and
+`CNetworkStringTable::ReadStringTable` (`0x1801e82f0`). That calls `DeleteAllStrings` (`0x1801e6880`: the item
+dictionary destroyed and rebuilt empty) FIRST, then for each entry reads a string and a bit, and calls `AddString`
+(vtable `+0x40`, server side) with a 16-bit length and that many bytes when the bit is set, or length `-1` and no data
+when not — so indices are the block's own order from zero, and user data is exactly what the block carries. The
+client-side half is read the same way, skipping its first two entries (the
+`___clientsideitemsplaceholder` pair `DeleteAllStrings` re-adds). The overlay this replaced was measured equal on
+every demo read and was still a divergence. Ported: `NameTable.Replace` (model, `DynamicModels`, scene, decal,
+effect and particle names), `PrecacheTable` clearing on a create (sounds), `LightStyleFeed.Replace`,
+`RosterBuilder.Replace` (the slot map only — `everyone` is this project's history of who played, not the engine's
+table), and `BaselineBuilder.Replace` via `EntityDecoder.ClearBaselines`; every create case in `DemoTimeline`, and the
+trace's baseline and roster creates, now replace. Tests: `StringTableReplaceTests` (each consumer forgets an entry the
+replacement omits), `GameEvents_ASlotTheBlockNoLongerHolds_IsGoneFromTheRoster`,
+`Trace_ABaselineTheStringTablesBlockOmits_IsGoneFromTheEnteringEntity`. **Not covered by a test of its own:** the
+timeline's create call sites for model, dynamic, scene, decal, effect, particle and light-style tables — each calls a
+`Replace` that is tested, but a call reverted to `Apply` would go unnoticed.
+
+The original filing, kept:
 
 **Measured, 2026-10-02:** traces of `movement-test-pov-cp_process` and `tf2-2013-build1729296-pov-cp_badlands` never
 send `DT_Local.m_PlayerFog.m_hCtrl` or any `DT_Local.m_skybox3d.*`; the SourceTV recording of the same session sends
@@ -10955,8 +11003,8 @@ exactly this and it had never been run on the overlay lump.
 > black (interpolated: `DefaultFog`'s body is closed; every additive pass the SDK shows does); modulating decals take
 > none where Valve fogs them to grey (`decalmodulate_dx9.cpp:80`) — named ceiling. The view's fog is the controller the
 > local player's `m_PlayerFog.m_hCtrl` names (`ViewFog`, `UpdateFogController`); the 3D skybox draws through the
-> player's `m_skybox3d.fog` with its distances over the sky scale (`Enable3dSkyboxFog`). POV demos lack the handle —
-> B452. Not done: the `lerptime` transition, `blend`'s two-colour view-angle mix, `fog_override` and its cvars, fog on
+> player's `m_skybox3d.fog` with its distances over the sky scale (`Enable3dSkyboxFog`). POV demos carry the handle in
+> `dem_stringtables` — B452, fixed. Not done: the `lerptime` transition, `blend`'s two-colour view-angle mix, `fog_override` and its cvars, fog on
 > detail sprites, particles and the 2D sky (`$nofog`, already off there), and `$nofog` on world/model materials.
 > Captures: `fog-before-long.png` / `fog-after-long.png` (f12, tick 20000, camera `-3000 -1280 900 8 0`): the far
 > building at (450,150) goes (102,104,117) → (102,105,119); process's fog is 100–11000, so it is faint, as in TF2.

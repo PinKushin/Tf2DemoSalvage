@@ -41,6 +41,19 @@ public sealed class NameTable
         }
     }
 
+    /// <summary>Starts the table again from a create's entries: what it held before is gone.</summary>
+    /// <param name="entries">The create's entries.</param>
+    /// <remarks>
+    /// A created table is empty before its entries, and the <c>dem_stringtables</c> block is read as a create
+    /// because the engine's reader empties each table first (<c>DeleteAllStrings</c>, engine.dll
+    /// <c>0x1801e6880</c>, called at the top of <c>ReadStringTable</c>, <c>0x1801e82f0</c>) — B452.
+    /// </remarks>
+    public void Replace(IReadOnlyList<StringTableEntry>? entries)
+    {
+        _names.Clear();
+        Apply(entries);
+    }
+
     /// <summary>The name at an index, or null when the table has none there.</summary>
     /// <param name="index">The index the demo sent.</param>
     /// <returns>The name.</returns>

@@ -23,6 +23,21 @@ public static class BaselineBuilder
     /// <summary>The table this reads. Updates name their table only by id, not by name.</summary>
     public const string TableName = "instancebaseline";
 
+    /// <summary>Starts the baselines again from a create's entries: a class it leaves out has none.</summary>
+    /// <param name="entries">The create's entries.</param>
+    /// <param name="decoder">Decoder whose class baselines are replaced.</param>
+    /// <remarks>See <c>NameTable.Replace</c> for the engine's reader this follows (B452).</remarks>
+    public static void Replace(IReadOnlyList<StringTableEntry> entries, EntityDecoder decoder)
+    {
+        if (decoder is null)
+        {
+            return;
+        }
+
+        decoder.ClearBaselines();
+        Apply(entries, decoder);
+    }
+
     /// <summary>Records every usable baseline in a table's entries.</summary>
     /// <param name="entries">Entries from a create or update message.</param>
     /// <param name="decoder">Decoder to record them in. Later entries replace earlier ones.</param>

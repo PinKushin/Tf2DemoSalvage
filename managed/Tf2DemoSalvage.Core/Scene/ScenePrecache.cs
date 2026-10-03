@@ -38,6 +38,10 @@ public sealed class ScenePrecache
     /// <param name="entries">Entries from the message; later ones replace earlier ones.</param>
     public void Apply(IReadOnlyList<StringTableEntry> entries) => _scenes.Apply(entries);
 
+    /// <summary>Starts the table again from a create's entries (<see cref="NameTable.Replace"/>).</summary>
+    /// <param name="entries">The create's entries.</param>
+    public void Replace(IReadOnlyList<StringTableEntry> entries) => _scenes.Replace(entries);
+
     /// <summary>The scene an index names.</summary>
     /// <param name="sceneIndex">The entity's <c>m_nSceneStringIndex</c>.</param>
     /// <returns>The scene's filename, or null when the table cannot name one.</returns>

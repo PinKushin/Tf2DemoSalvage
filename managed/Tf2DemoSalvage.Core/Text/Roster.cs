@@ -39,8 +39,9 @@ internal static class Roster
     {
         switch (message)
         {
+            // A create is a fresh table (`NameTable.Replace`, B452).
             case CreateStringTableMessage table when table.Name == UserInfoTable:
-                RosterBuilder.Apply(table.Entries, players, everyone);
+                RosterBuilder.Replace(table.Entries, players, everyone);
                 break;
 
             // Mid-game joins arrive here, not in the create message (RISKS B22).

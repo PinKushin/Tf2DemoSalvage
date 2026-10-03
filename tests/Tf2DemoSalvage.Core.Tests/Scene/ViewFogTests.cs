@@ -30,20 +30,18 @@ public sealed class ViewFogTests
     }
 
     [Test]
-    public void From_NoEntityCarriesAHandle_TakesTheServersMasterRuleTheFirstController()
+    public void From_NoEntityCarriesAHandle_IsNoFog()
     {
-        // **No entity carries the handle at all** — every point-of-view recording in the corpus,
-        // where the player's DT_Local fog and skybox fields never arrive (B452). The server assigns
-        // every player `GetMasterFogController()`, which with no controller marked master is "the
-        // first fog controller found" (fogcontroller.cpp:363-383) — so that rule, read from the
-        // server, stands in for the handle the decode cannot see. A map with a master-flagged second
-        // controller would differ; the flag is not networked.
+        // **No handle, no fog, however many controllers the map has** — `UpdateFogController` sets
+        // `m_CurrentFog.enable = false`. This once fell back to the first controller, standing in
+        // for a handle point-of-view demos seemed not to carry; they carry it in `dem_stringtables`'
+        // player baseline (B452), so the stand-in went.
         EntityStateTable table = new(EntityBaselines.None);
 
         Controller(table, 100, serial: 1, start: 0f, end: 1000f);
         Controller(table, 194, serial: 3, start: 100f, end: 11000f);
 
-        ViewFog.From(table).World.ShouldBe(new SceneFog(0f, 1000f, 1f, 1f, 1f, 1f));
+        ViewFog.From(table).ShouldBe(default);
     }
 
     [Test]

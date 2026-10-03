@@ -62,6 +62,9 @@ public sealed class PrecacheTable
 
         if (string.Equals(table.Name, TableName, StringComparison.Ordinal))
         {
+            // A created table starts empty — and the dem_stringtables block, read as a create,
+            // empties each table first (DeleteAllStrings, engine.dll 0x1801e6880) — B452.
+            _byIndex.Clear();
             Take(table.Entries);
         }
     }
