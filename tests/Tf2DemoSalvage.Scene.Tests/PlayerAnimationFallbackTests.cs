@@ -81,9 +81,16 @@ public sealed class PlayerAnimationFallbackTests
         const int Crouched = PlayerActivityState.Ducking | PlayerActivityState.OnGround;
         PropModels.SkinnedModel model = SyntheticSkinnedModel.With("ACT_MP_RUN_LOSERSTATE", "ACT_MP_CROUCH_LOSERSTATE");
 
-        PlayerAnimation.For(model, Running, Crouched, alive: true, table: PlayerActivityOverride.LoserState).ShouldBe(1);
-        PlayerAnimation.For(model, Running, PlayerActivityState.OnGround, alive: true, table: PlayerActivityOverride.LoserState)
+        TfPosture loser = new(IsLoser: true);
+
+        PlayerAnimation.For(model, Running, Crouched, alive: true, table: PlayerActivityOverride.LoserState, posture: loser)
+            .ShouldBe(1);
+        PlayerAnimation.For(
+                model, Running, PlayerActivityState.OnGround, alive: true, table: PlayerActivityOverride.LoserState, posture: loser)
             .ShouldBe(0, "the control: standing, he runs");
+
+        // **`IsLoser()` itself, not the table** (B437): the same table without the loser drops the duck and runs.
+        PlayerAnimation.For(model, Running, Crouched, alive: true, table: PlayerActivityOverride.LoserState).ShouldBe(0);
     }
 
     [Test]

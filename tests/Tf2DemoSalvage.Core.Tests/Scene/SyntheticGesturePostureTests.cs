@@ -543,6 +543,73 @@ public sealed class SyntheticGesturePostureTests
         timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity.ShouldBe(expected);
     }
 
+    /// <remarks>
+    /// **`m_Shared.IsLoser()` itself reaches the body, not the table it picks** (B437): `HandleDucking` and
+    /// `HandleMoving` ask `IsLoser()` (`tf_playeranimstate.cpp:1307`, `:1344`, `:1351`), the rule
+    /// <see cref="LoserState.IsLoser"/> already ports. The winning team's player is the control.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, true)]
+    [TestCase(SceneTeams.Red, false)]
+    public void Build_DuringHumiliation_CarriesIsLoserToThePosture(int winningTeam, bool expected)
+    {
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
+            Interval, SceneTeams.Red, Scout, (TeamWin, winningTeam, NoMatchGroup), alwaysLoser: false,
+            At(100, 0f, OnGround), At(101, 0f, OnGround)));
+
+        timeline.Frames.Single(frame => frame.Tick == 101).Players.Single().Posture.IsLoser.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **`IsAiming()` is `TF_COND_AIMING` on anyone but a soldier** (`tf_player_shared.cpp:11429-11441`) — the soldier
+    /// row is the control on the class — and the air dash is `m_iAirDash &gt; 0`.
+    /// </remarks>
+    [TestCase(Heavy, Aiming, 0, true, false)]
+    [TestCase(Soldier, Aiming, 0, false, false)]
+    [TestCase(Scout, 0, 1, false, true)]
+    public void Build_TheAimAndTheAirDash_ReachThePosture(int playerClass, int condition, int airDash, bool aiming, bool dashing)
+    {
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
+            Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false,
+            At(100, 0f, OnGround), At(101, 0f, OnGround) with { PlayerCond = condition, AirDash = airDash }));
+
+        TfPosture posture = timeline.Frames.Single(frame => frame.Tick == 101).Players.Single().Posture;
+        (posture.IsAiming, posture.AirDashing).ShouldBe((aiming, dashing));
+    }
+
+    /// <remarks>
+    /// **A zoomed sniper's shot holds the deployed pose for two seconds** (`m_flHoldDeployedPoseUntilTime = curtime +
+    /// 2.0`, `tf_playeranimstate.cpp:1028`), and `HandleMoving` cancels it the frame the player moves (`:1301-1305`).
+    /// Held still, it lapses at two seconds; moving at 102, it is gone at once.
+    /// </remarks>
+    [Test]
+    public void Build_AZoomedSnipersShot_HoldsTheDeployedPoseUntilHeMovesOrTwoSecondsPass()
+    {
+        const int Sniper = 2;
+        const int Zoomed = 1 << 1;
+
+        SyntheticPlayer.GestureSnapshot Held(int tick, float x = 64f) =>
+            At(tick, 0f, OnGround) with { WeaponItem = 14, SniperRifle = true, PlayerCond = Zoomed, X = x };
+
+        bool Holds(DemoTimeline timeline, int tick) =>
+            timeline.Frames.Single(frame => frame.Tick == tick).Players.Single().Posture.HoldsDeployedPose;
+
+        DemoTimeline still = Decode(SyntheticPlayer.DemoOfGestures(
+            Interval, SceneTeams.Red, Sniper, rules: null, alwaysLoser: false,
+            Held(100), Held(101) with { Events = [PlayerAnimEvent.AttackPrimary] }, Held(102), Held(234), Held(236)));
+
+        Holds(still, 100).ShouldBeFalse("the control: no shot yet");
+        Holds(still, 102).ShouldBeTrue();
+        Holds(still, 234).ShouldBeTrue("101 + 2 s is tick 234.3");
+        Holds(still, 236).ShouldBeFalse();
+
+        DemoTimeline moved = Decode(SyntheticPlayer.DemoOfGestures(
+            Interval, SceneTeams.Red, Sniper, rules: null, alwaysLoser: false,
+            Held(100), Held(101) with { Events = [PlayerAnimEvent.AttackPrimary] }, Held(102, x: 70f), Held(103, x: 70f)));
+
+        Holds(moved, 102).ShouldBeFalse("HandleMoving cancelled it");
+        Holds(moved, 103).ShouldBeFalse();
+    }
+
     /// <summary>A model lacking the crouch walk only for item 18 in a red soldier's <see cref="SyntheticPlayer.GestureWeaponClass"/>.</summary>
     private sealed class WeaponCrouchWalk : IClassAnimationScripts
     {

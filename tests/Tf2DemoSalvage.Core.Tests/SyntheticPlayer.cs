@@ -350,6 +350,9 @@ internal static class SyntheticPlayer
     /// <summary>Class id of the weapon a <see cref="GestureSnapshot.WeaponItem"/> puts in the player's hands.</summary>
     private const int GestureWeaponClassId = 3;
 
+    /// <summary>Class id of the sniper rifle a <see cref="GestureSnapshot.SniperRifle"/> snapshot holds instead.</summary>
+    private const int GestureSniperRifleClassId = 4;
+
     /// <summary>That weapon's server class.</summary>
     public const string GestureWeaponClass = "CTFRocketLauncher";
 
@@ -407,6 +410,15 @@ internal static class SyntheticPlayer
 
         /// <summary>The item definition of the weapon in hand (<see cref="GestureWeaponClass"/>), or null for none.</summary>
         public int? WeaponItem { get; init; }
+
+        /// <summary>Holds a <c>CTFSniperRifle</c> instead of the rocket launcher, when a weapon is held.</summary>
+        public bool SniperRifle { get; init; }
+
+        /// <summary>The player's X, for horizontal motion.</summary>
+        public float X { get; init; } = 64f;
+
+        /// <summary><c>m_Shared.m_iAirDash</c>.</summary>
+        public int AirDash { get; init; }
 
         /// <summary>The events the player raises in this snapshot's packet, after its entities, in order.</summary>
         public IReadOnlyList<PlayerAnimEvent> Events { get; init; } = [];
@@ -494,7 +506,7 @@ internal static class SyntheticPlayer
             {
                 entities.Add(Entity(
                     decoder,
-                    GestureWeaponClassId,
+                    snapshot.SniperRifle ? GestureSniperRifleClassId : GestureWeaponClassId,
                     GestureWeaponEntityIndex,
                     new Dictionary<string, PropertyValue>
                     {
@@ -556,7 +568,8 @@ internal static class SyntheticPlayer
     private static Dictionary<string, PropertyValue> GesturePlayerValues(GestureSnapshot snapshot, int team, int playerClass) =>
         new()
         {
-            ["m_vecOrigin"] = PropertyValue.FromVectorXY(64f, 0f),
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(snapshot.X, 0f),
+            ["m_iAirDash"] = PropertyValue.FromInt(snapshot.AirDash),
             ["m_vecOrigin[2]"] = PropertyValue.FromFloat(snapshot.Z),
             ["m_fFlags"] = PropertyValue.FromInt(snapshot.Flags),
             ["m_lifeState"] = PropertyValue.FromInt(snapshot.LifeState),
@@ -642,7 +655,11 @@ internal static class SyntheticPlayer
             String("m_iszCustomModel"),
             UnsignedInt("m_bUseClassAnimations", bits: 1),
         ]));
-        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true, [UnsignedInt("m_nPlayerCond", bits: 32)]));
+        tables.Add(new SendTable("DT_TFPlayerShared", NeedsDecoder: true,
+        [
+            UnsignedInt("m_nPlayerCond", bits: 32),
+            UnsignedInt("m_iAirDash", bits: 4),
+        ]));
         tables.Add(new SendTable("DT_TeamplayRoundBasedRules", NeedsDecoder: true,
         [
             Int("m_iRoundState", bits: 5),
@@ -670,6 +687,7 @@ internal static class SyntheticPlayer
                 new ServerClass(GestureRulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
                 new ServerClass(AnimEventClassId, "CTEPlayerAnimEvent", "DT_TEPlayerAnimEvent"),
                 new ServerClass(GestureWeaponClassId, GestureWeaponClass, "DT_GestureWeapon"),
+                new ServerClass(GestureSniperRifleClassId, "CTFSniperRifle", "DT_GestureWeapon"),
             ]);
     }
 
