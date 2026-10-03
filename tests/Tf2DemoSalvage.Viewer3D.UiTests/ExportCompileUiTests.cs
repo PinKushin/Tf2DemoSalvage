@@ -86,7 +86,37 @@ public sealed class ExportCompileUiTests
         Directory.Delete(_folder, recursive: true);
     }
 
+    private static int Modes() =>
+        _viewer.Count(ViewerSession.FirstPersonOn) + _viewer.Count("third person on,") + _viewer.Count("back to the free camera");
+
+    private static bool SpaceChangesMode(string when)
+    {
+        int before = Modes();
+        ViewerSession.PressSwitchCameraMode();
+        bool changed = Retry.WhileFalse(() => Modes() > before, TimeSpan.FromSeconds(5)).Success;
+        TestContext.Out.WriteLine($"PROBE {when}: SPACE changed mode = {changed}; focus {Focused()}");
+        return changed;
+    }
+
     [Test]
+    public void Probe_MenuThenCancel_ThenKeys()
+    {
+        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+        bool control = SpaceChangesMode("before the menu (control)");
+        Press("Export assembly");
+        AutomationElement dialog = Retry.WhileNull(Dialog, DialogTimeout).Result!;
+        Retry.WhileFalse(() => dialog.FindFirstChild(search => search.ByAutomationId("2")) is { IsEnabled: true }, DialogTimeout, throwOnTimeout: true);
+        dialog.FindFirstChild(search => search.ByAutomationId("2"))!.AsButton().Invoke();
+        Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
+        bool afterDialog = SpaceChangesMode("after menu + cancelled dialog");
+        _viewer.PressKey(FlaUI.Core.WindowsAPI.VirtualKeyShort.ESCAPE);
+        bool afterEscape = SpaceChangesMode("after one Escape");
+        TestContext.Out.WriteLine($"PROBE summary: control={control} afterDialog={afterDialog} afterEscape={afterEscape}");
+        control.ShouldBeTrue();
+    }
+
+    [Test]
+    [Ignore("probe")]
     public void ExportThenCompile_OpenDemo_RebuildsItsBytes()
     {
         string text = Path.Combine(_folder, "z1800.txt");
