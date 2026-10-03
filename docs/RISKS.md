@@ -8219,6 +8219,16 @@ replacement omits), `GameEvents_ASlotTheBlockNoLongerHolds_IsGoneFromTheRoster`,
 timeline's create call sites for model, dynamic, scene, decal, effect, particle and light-style tables — each calls a
 `Replace` that is tested, but a call reverted to `Apply` would go unnoticed.
 
+**A test premise the block overturned** (2026-10-03, *measured*): `CorpusEmptyModelWeaponTests` held the lcor
+`20150119_2240_cp_process_final_(ovo)_blu` engineer's Basic Spellbook (entity 1130) to be a prop for 54 ticks with
+`c_engineer_arms.mdl` and `m_iState 0`, the census's only empty-`model_player` weapon. Both were decoded against no
+baseline: `CTFSpellBook`'s (class 287) is one of the 21 that demo's block alone carries. Read against it, the entity
+enters with `m_fEffects 161` (`EF_BONEMERGE | EF_NODRAW | EF_BONEMERGE_FASTCULL`) and `m_iState 1`, and no update
+clears the flag (`item-props`: present at 0 of 54 sampled ticks), so nothing draws it — the engine's answer, since
+`CL_CopyNewEntity` deltas an ENTER against the class baseline. The test now asserts it is not a prop, with the same
+engineer's earphones as the control; with the block unread it fails. The empty-`model_player` rule keeps only its
+synthetic coverage (`WeaponWorldModelConformanceTests`).
+
 The original filing, kept:
 
 **Measured, 2026-10-02:** traces of `movement-test-pov-cp_process` and `tf2-2013-build1729296-pov-cp_badlands` never
