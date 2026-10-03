@@ -107,8 +107,8 @@ public sealed class ExportCompileUiTests
         // on the line the load ends with.
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
-        // In front, as a user's would be: on CI the terminal owned the foreground, and the common
-        // dialog, opened behind it, saved its default name over the typed path.
+        // In front, because FillDialog types the path as keystrokes; on CI a terminal owns the
+        // foreground until something takes it.
         _viewer.Focus();
         _viewer.HasFocus().ShouldBeTrue("the viewer did not come to the foreground");
 

@@ -877,12 +877,11 @@ internal sealed partial class ViewerApplication : IDisposable
     /// would not take focus".
     ///
     /// **Which process owns the foreground window answers it; which element UIA reports as focused
-    /// does not.** It used to ask UIA, and UIA reports the viewer's last focused control even while
-    /// another process owns the foreground: on CI, after the Export test's dialogs, focus read as the
-    /// viewer's menu bar (then its viewport) while synthesized keys went to the foreground terminal,
-    /// so every later key-press test was told the viewer had focus and pressed into nothing — ten
-    /// failures that looked like the viewer had stopped responding. A synthesized key goes to the
-    /// foreground window's thread, so that is what this compares.
+    /// is a second route to it.** A synthesized key goes to the foreground window's thread, so that
+    /// is what this compares — the same Win32 question the comment in <c>Ready</c> already described.
+    /// Changed while chasing the CI failures after the Export test, which turned out to be the
+    /// viewer's render loop (see <c>MessageQueue.Waiting</c>), not focus; kept because it is the
+    /// direct answer.
     /// </remarks>
     public bool HasFocus() => ForegroundProcessId() == (uint)_application.ProcessId;
 

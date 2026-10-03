@@ -4052,13 +4052,13 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void OnIdle(object? sender, EventArgs e)
     {
-        uint waiting;
+        uint? waiting;
 
         // A cross-thread caller (UI Automation, over COM) sends its next call right after our reply.
         // Serve it before drawing, or each call waits a whole frame.
         if (FramePacer.AwaitsTraffic(_idleEndedBy) && MessageQueue.ArrivesWithin(FramePacer.TrafficWaitSeconds))
         {
-            _idleEndedBy = MessageQueue.Waiting();
+            _idleEndedBy = MessageQueue.Waiting() ?? 0;
             _frames.Yielded();
             return;
         }
@@ -4104,11 +4104,12 @@ internal class MainForm : Form, IFrameSteps
             // viewer drops to twenty frames a second after a demo switch, and because this loop
             // runs only while the queue is empty, that is a statement about who is posting messages
             // rather than about how long a frame takes.
+            // Null, not zero: a WM_NULL is a message to yield to (see MessageQueue.Waiting).
             waiting = MessageQueue.Waiting();
         }
-        while (waiting == 0);
+        while (waiting is null);
 
-        _idleEndedBy = waiting;
+        _idleEndedBy = waiting.Value;
         _frames.Yielded();
     }
 
