@@ -35,8 +35,22 @@ public sealed class ExportCompileUiTests
         Directory.CreateDirectory(_folder);
     }
 
+    /// <remarks>
+    /// A failure mid-dialog leaves it modal over the shared viewer, and every later test in the session
+    /// then fails on a disabled window; cancelling it here keeps one failure one failure.
+    /// </remarks>
     [TearDown]
-    public void DeleteFolder() => Directory.Delete(_folder, recursive: true);
+    public void CloseDialogAndDeleteFolder()
+    {
+        if (Dialog() is { } dialog)
+        {
+            TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it");
+            dialog.FindFirstChild(search => search.ByAutomationId("2"))?.AsButton().Invoke();
+            Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
+        }
+
+        Directory.Delete(_folder, recursive: true);
+    }
 
     [Test]
     public void ExportThenCompile_OpenDemo_RebuildsItsBytes()
@@ -102,9 +116,14 @@ public sealed class ExportCompileUiTests
                 _viewer.Window.FindAllChildren(),
                 child => $"{child.Properties.ClassName.ValueOrDefault}/{child.Properties.Name.ValueOrDefault}")));
 
+        // Enabled, not merely present: on CI the edit exists before the dialog finishes initialising,
+        // and SetValue then threw ElementNotEnabledException and left the dialog open over every later
+        // test (Test workflow red from c3b05a7b).
         AutomationElement name = Retry.WhileNull(
             () => dialog.FindFirstDescendant(search => search
-                .ByControlType(ControlType.Edit).And(search.ByName("File name:"))),
+                .ByControlType(ControlType.Edit).And(search.ByName("File name:"))) is { IsEnabled: true } edit
+                ? edit
+                : null,
             DialogTimeout).Result!;
         name.Patterns.Value.Pattern.SetValue(path);
 

@@ -15,4 +15,9 @@ costs a full asset load and races the instance already there.
 **How to apply:** launch only when no client is answering. Reset state inside the running client: `disconnect`,
 `map <name>`, redefine aliases. A command chain already queued with `wait` survives `disconnect` and `map`, so
 redefine the aliases it will call as no-ops rather than quitting. Quit only when the owner asks or the session's work
-with TF2 is over. Related: [[record-specimens-with-the-tf2-mcp]], [[nunit-shared-fixture-is-the-standard]].
+with TF2 is over.
+
+**It does not hold the desktop lock** (owner, 2026-10-03: *"a backgrounded tf2 which you are not working with, shouldnt
+block the gate… since its a mcp, it probably shouldnt block the gate at all"*): the UI suites never need the
+foreground or real clicks. `TF2MCP_DESKTOP_MUTEX` was removed from the MCP's config after an idle TF2 starved the UI
+gate for 30 min and `run-exclusive` timed out. Do not set it again. Related: [[record-specimens-with-the-tf2-mcp]], [[nunit-shared-fixture-is-the-standard]].
