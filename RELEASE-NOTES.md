@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.8
+# Tf2DemoSalvage 0.1.0-beta.9
 
-## Changes since 0.1.0-beta.7
+## Changes since 0.1.0-beta.8
+
+- **Stances:** aiming, deployed and air-dash crouch poses are drawn as the game picks them — a scoped sniper, a
+  spun-up heavy, a scout crouching after a double jump — and a round's losers crouch-idle as in TF2.
+- **Voice and custom gestures** now play their animations instead of being skipped.
+- **A model missing an animation** shows the pose the game shows for it, rather than a substitute this viewer chose.
+
+## Changes in 0.1.0-beta.8
 
 - **Animations follow the weapon and item:** crouching, reloads and attacks use the activity the game picks for the
   class, the weapon's role and the item's own animation replacements, and a gesture takes the player's posture at the
