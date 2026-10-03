@@ -305,6 +305,45 @@ public sealed class CorpusPlayerGestureTests
             counts.GetValueOrDefault(PlayerActivityOverride.LoserState), "the control: most of a match is no one's loss");
     }
 
+    /// <remarks>
+    /// **On a real match, voice commands arrive over attacks and reloads and wait behind them** (B437) rather than
+    /// replacing them: z1800 carries 251 voice-command events. Counted in the timeline's output, every frame.
+    /// </remarks>
+    [Test]
+    public void Frames_OnARealMatch_QueueVoiceCommandsBehindTheSlotHolder()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        int queued = 0;
+        int heldByAQueuedVoice = 0;
+
+        foreach (ScenePlayer player in TimelineCache.For(path).Frames.SelectMany(frame => frame.Players))
+        {
+            if (player.Gestures is not { } gestures)
+            {
+                continue;
+            }
+
+            List<SceneGesture> slot = [.. gestures.Where(gesture => gesture.Slot == GestureSlot.AttackAndReload)];
+
+            queued += slot.Count(gesture => gesture.OnlyIfSlotIdle);
+
+            if (slot.Count > 0 && slot[0].OnlyIfSlotIdle)
+            {
+                heldByAQueuedVoice++;
+            }
+        }
+
+        TestContext.Out.WriteLine($"queued voice-command frames {queued}");
+
+        queued.ShouldBeGreaterThan(0);
+        heldByAQueuedVoice.ShouldBe(0, "a queued voice command always follows the gesture it waits behind");
+    }
+
     /// <summary>The two flags as the shipped class scripts set them, measured in <c>ClassAirwalkTests</c>.</summary>
     private sealed class StockScripts : IClassAnimationScripts
     {

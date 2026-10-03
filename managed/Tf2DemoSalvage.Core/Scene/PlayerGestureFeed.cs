@@ -45,6 +45,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// scene containing a `LOOP` (<c>c_tf_player.cpp:9505</c>), deliberately, so that a running taunt
 /// plays out — so the decision needs the resolved plan and cannot be made here.
 /// </param>
+/// <param name="OnlyIfSlotIdle">
+/// A voice command queued behind the gesture holding its slot: it plays only if that gesture is no longer active when
+/// it arrives — `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`tf_playeranimstate.cpp:1053-1058`).
+/// Whether it is depends on that gesture's cycle, which needs the model, so the scene decides (B437).
+/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
@@ -53,7 +58,8 @@ public readonly record struct SceneGesture(
     double StartedSeconds,
     string? SceneName = null,
     SceneTaunt? Taunt = null,
-    double? StoppedSeconds = null);
+    double? StoppedSeconds = null,
+    bool OnlyIfSlotIdle = false);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -260,15 +266,43 @@ public sealed class PlayerGestureFeed
             return true;
         }
 
-        slots[slot] = new SceneGesture(
-            trigger.Slot,
-            trigger.ActivityName,
-            trigger.ActivityNumber,
-            trigger.AutoKill,
-            seconds);
+        SceneGesture started = new(trigger.Slot, trigger.ActivityName, trigger.ActivityNumber, trigger.AutoKill, seconds);
+
+        // **A voice command over an occupied slot waits behind it** (B437) — see SceneGesture.OnlyIfSlotIdle. Every
+        // other event in the slot is a RestartGesture, which replaces whatever held it and whatever waited.
+        if ((PlayerAnimEvent)which == PlayerAnimEvent.VoiceCommandGesture && slots[slot] is not null)
+        {
+            if (!_waiting.TryGetValue(who, out List<SceneGesture>? queue))
+            {
+                queue = [];
+                _waiting[who] = queue;
+            }
+
+            // ponytail: a bounded queue; a player who spams voice commands over one held gesture keeps the latest 8.
+            if (queue.Count == MaxWaiting)
+            {
+                queue.RemoveAt(0);
+            }
+
+            queue.Add(started with { OnlyIfSlotIdle = true });
+            return true;
+        }
+
+        if (slot == (int)GestureSlot.AttackAndReload)
+        {
+            _waiting.Remove(who);
+        }
+
+        slots[slot] = started;
 
         return true;
     }
+
+    /// <summary>Voice commands waiting behind each player's attack-and-reload gesture, oldest first.</summary>
+    private readonly Dictionary<int, List<SceneGesture>> _waiting = [];
+
+    /// <summary>How many voice commands one slot keeps waiting.</summary>
+    private const int MaxWaiting = 8;
 
     /// <summary>Each player's `m_bInAirWalk` (`tf_playeranimstate.h`), the latch `HandleJumping` keeps (B112).</summary>
     private readonly HashSet<int> _inAirWalk = [];
@@ -403,6 +437,7 @@ public sealed class PlayerGestureFeed
         _inAirWalk.Remove(entityIndex);
         _jumpStarted.Remove(entityIndex);
         _byPlayer.Remove(entityIndex);
+        _waiting.Remove(entityIndex);
     }
 
     /// <summary>Each player's `m_flJumpStartTime` while `m_bJumping` holds, in demo seconds.</summary>
@@ -557,6 +592,15 @@ public sealed class PlayerGestureFeed
             if (slots[slot] is { } gesture)
             {
                 into.Add(gesture);
+            }
+
+            // The waiting voice commands follow the gesture they wait behind, in arrival order.
+            if (slot == (int)GestureSlot.AttackAndReload && _waiting.TryGetValue(entityIndex, out List<SceneGesture>? queue))
+            {
+                foreach (SceneGesture waiting in queue)
+                {
+                    into.Add(waiting);
+                }
             }
         }
     }

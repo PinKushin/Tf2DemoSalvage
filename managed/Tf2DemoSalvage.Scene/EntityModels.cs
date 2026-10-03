@@ -1835,8 +1835,34 @@ public sealed class EntityModelSet : Hud.IMdlCache
             return layers;
         }
 
+        // **The attack-and-reload slot's holder, decided before it is drawn** (B437): a voice command waiting behind it
+        // takes the slot only if the holder is no longer active when the command arrives. Drawn when the walk moves past
+        // the slot, so the layer keeps its place in slot order.
+        (SceneGesture Gesture, int Sequence)? holder = null;
+
         foreach (SceneGesture gesture in gestures)
         {
+            if (gesture.Slot == GestureSlot.AttackAndReload)
+            {
+                int resolved = gesture.ActivityName is { Length: > 0 } asked
+                    ? skinned.ForActivity(TranslateGesture(prop, asked))
+                    : 0;
+
+                if (!gesture.OnlyIfSlotIdle ||
+                    holder is not { } held ||
+                    !ActiveAt(skinned, held.Sequence, held.Gesture, gesture.StartedSeconds))
+                {
+                    holder = (gesture, resolved);
+                }
+
+                continue;
+            }
+
+            if (holder is { } playing)
+            {
+                Layer(layers, skinned, playing.Sequence, playing.Gesture, seconds);
+                holder = null;
+            }
 
             // **A VCD gesture names a SEQUENCE, not an activity**, and so takes neither the weapon
             // rewrite nor the activity search below (B351). `C_TFPlayer::StartGestureSceneEvent` does
@@ -1896,8 +1922,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
             // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
             // voice gestures are the `_BUILDING` ones.
-            string activity = PlayerActivityTable.Translate(
-                named, prop.Pose.Slot ?? "PRIMARY", prop.Pose.ActivityOverride, prop.Pose.CompetitiveWinnerClass);
+            string activity = TranslateGesture(prop, named);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -1944,7 +1969,35 @@ public sealed class EntityModelSet : Hud.IMdlCache
             Layer(layers, skinned, sequence, gesture, seconds);
         }
 
+        if (holder is { } last)
+        {
+            Layer(layers, skinned, last.Sequence, last.Gesture, seconds);
+        }
+
         return layers;
+    }
+
+    /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the winner's (B437).</summary>
+    private static string TranslateGesture(SceneProp prop, string activity) =>
+        PlayerActivityTable.Translate(
+            activity, prop.Pose.Slot ?? "PRIMARY", prop.Pose.ActivityOverride, prop.Pose.CompetitiveWinnerClass);
+
+    /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
+    /// <remarks>
+    /// `m_bActive` is set when `AddToGestureSlot` finds a sequence and cleared only when an auto-kill gesture's cycle
+    /// passes one (`UpdateGestureLayer`'s `ResetGestureSlot`); one that does not auto-kill holds until replaced. A
+    /// gesture whose activity resolved to nothing never became active.
+    /// </remarks>
+    private static bool ActiveAt(PropModels.SkinnedModel skinned, int sequence, SceneGesture gesture, double seconds)
+    {
+        if (sequence <= 0)
+        {
+            return false;
+        }
+
+        float rate = skinned.CyclesPerSecond(sequence);
+
+        return !gesture.AutoKill || (rate > 0f ? (seconds - gesture.StartedSeconds) * rate : 0d) <= 1d;
     }
 
     /// <summary>Turns one resolved gesture sequence into a pose layer, or into nothing.</summary>
