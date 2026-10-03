@@ -147,8 +147,8 @@ public sealed class LevelLighting
     /// </summary>
     /// <remarks>
     /// The ranking is this port's <see cref="LocalLights.Strongest"/> over the world lights and the dynamic ones together,
-    /// which is what the static selection would have been with them present; the engine folds the losers into the
-    /// cube and the port drops them, as it does for world lights.
+    /// which is what the static selection would have been with them present; the losers are folded into the cube, as the
+    /// engine folds them (B453).
     /// </remarks>
     private PointLighting WithDynamicLights(PointLighting lit, DynamicLights dynamic, BspLeafTree tree, float x, float y, float z)
     {
@@ -179,13 +179,20 @@ public sealed class LevelLighting
             return lit;
         }
 
+        // Keyed on the point's own leaf and lit at its cell's point, as LightingAt does.
+        int leaf = tree.LeafAt(x, y, z);
+
         (x, y, z) = CachePoint(x, y, z);
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
+
+        // Folded from the BOUNCE cube again, not from the entry's: the entry's cube already holds the world lights that
+        // lost to each other, and they are re-ranked here with the dynamic ones (B453).
+        AmbientCube cube = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
+        int found = LocalLights.Split(lights, x, y, z, nearest, ref cube, StyleScale);
         Array.Resize(ref nearest, found);
 
-        return new PointLighting(lit.Cube, nearest);
+        return new PointLighting(cube, nearest);
     }
 
     /// <summary>The sun a model's light cache entry sees: see <see cref="ModelLightingAt"/>.</summary>
@@ -532,9 +539,9 @@ public sealed class LevelLighting
     /// highlight from it. Handed over as lights, each one shades the model and adds its highlight
     /// and rim, which is how a weapon indoors gets a specular term at all (B170).
     ///
-    /// **Nothing here folds anything in**, deliberately. `PixelShaderDoLightingLinear` accumulates
-    /// the cube and then each light, so a light appearing in both would be counted twice — and that
-    /// mistake reads as a lighting change rather than as a bug.
+    /// **Only the lights that take no slot are folded in** (B453, `LocalLights.Split`), which is the engine's own
+    /// split. `PixelShaderDoLightingLinear` accumulates the cube and then each light, so a light appearing in both
+    /// would be counted twice — and that mistake reads as a lighting change rather than as a bug.
     /// </remarks>
     public PointLighting LightingAt(float x, float y, float z)
     {
@@ -559,7 +566,8 @@ public sealed class LevelLighting
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
 
-        int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, StyleScale);
+        // **The lights that take no slot are folded into the cube** (B453), as the lightcache does.
+        int found = LocalLights.Split(_worldLights, x, y, z, nearest, ref bounced, StyleScale);
 
         if (found == 0)
         {

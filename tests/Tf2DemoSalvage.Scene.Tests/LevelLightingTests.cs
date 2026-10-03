@@ -258,6 +258,26 @@ public sealed class LevelLightingTests
         lighting.ModelLightingAt(30f, 0f, 100f).Locals[0].X.ShouldBe(230f);
     }
 
+    /// <remarks>
+    /// The production path a model is drawn with folds a fifth lamp into its cube (B453, `LocalLights.Split`): five
+    /// lamps to the east, so the fold lands on +X only, and four lamps are the control — nothing left to fold.
+    /// </remarks>
+    [Test]
+    public void LightingAt_FiveLampsToTheEast_FoldsTheFifthIntoThePositiveXFace()
+    {
+        BspWorldLight[] five = [.. new[] { 100f, 200f, 300f, 400f, 500f }.Select(x => Lamp((x, 0f, 100f), 400f))];
+
+        PointLighting withFive = Lit(five).LightingAt(0f, 0f, 100f);
+        PointLighting withFour = Lit(five[..4]).LightingAt(0f, 0f, 100f);
+
+        withFive.Locals.Count.ShouldBe(4);
+        withFour.Cube.PositiveX.Red.ShouldBe(0.6f, "the control: four lamps all take slots");
+        withFive.Cube.NegativeX.Red.ShouldBe(0.6f, "a lamp to the east adds nothing to the west face");
+
+        // About 400 / 500² = 0.0016, from wherever the cache cell puts the point.
+        withFive.Cube.PositiveX.Red.ShouldBeGreaterThan(0.6f + 0.001f);
+    }
+
     /// <summary>A map lit brightly above the z = 0 plane and dimly below it.</summary>
     internal static LevelLighting Lit(
         IReadOnlyList<BspWorldLight>? worldLights = null,

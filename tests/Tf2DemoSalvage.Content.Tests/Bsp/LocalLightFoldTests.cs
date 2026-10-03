@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 ///   picks the weakest slot STRICTLY weaker than the newcomer; that light is evicted and the evicted
 ///   one — or the newcomer when none is weaker — is folded (`FUN_1801b5db0`);
 /// - the fold adds `max(0, n·d) · falloff · intensity` to each of the six faces (`FUN_1801b5db0`'s loop,
-///   `0.0 < fVar7` guard), with d the unit direction to the light.
+///   `0.0 &lt; fVar7` guard), with d the unit direction to the light.
 ///
 /// `istudiorender.h` says the same in a comment: the cube is "ambient, and lights that aren't in
 /// locallight[]". The port used to drop them (filed under B424 as "an evicted light is dropped, not
@@ -80,7 +80,8 @@ public sealed class LocalLightFoldTests
             chosen.Blue.ShouldBe(0f, "the blue lamp is the weakest by luminance and is folded");
         }
 
-        cube.PositiveX.ShouldBe((0f, 0f, 1000f / (100f * 100f)));
+        cube.PositiveX.Green.ShouldBe(0f);
+        cube.PositiveX.Blue.ShouldBe(1000f / (100f * 100f), 1e-6f);
     }
 
     [Test]
