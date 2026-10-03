@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Tf2DemoSalvage.Core.Net;
@@ -23,25 +22,6 @@ public static class BaselineBuilder
 {
     /// <summary>The table this reads. Updates name their table only by id, not by name.</summary>
     public const string TableName = "instancebaseline";
-
-    /// <summary>Records the baselines a <c>dem_stringtables</c> block carries (B452).</summary>
-    /// <param name="payload">The block's payload.</param>
-    /// <param name="decoder">Decoder to record them in.</param>
-    /// <remarks>
-    /// The demo player rebuilds every client table from this block, so a baseline the server added
-    /// before recording began — a point-of-view demo's <c>CTFPlayer</c> — reaches the client here
-    /// and nowhere else. See <see cref="DemoStringTables"/>.
-    /// </remarks>
-    public static void ApplyBlock(ReadOnlySpan<byte> payload, EntityDecoder decoder)
-    {
-        foreach (DemoStringTable table in DemoStringTables.Read(payload))
-        {
-            if (table.Name == TableName)
-            {
-                Apply(table.Entries, decoder);
-            }
-        }
-    }
 
     /// <summary>Records every usable baseline in a table's entries.</summary>
     /// <param name="entries">Entries from a create or update message.</param>

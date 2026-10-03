@@ -39,6 +39,9 @@ baseline, which lives only in that block. Without it the player's first full upd
 field equal to the baseline — the fog handle, `m_skybox3d`, even `m_flStepSize 18` — never arrives. Read, the
 movement-test POV's player carries `m_hCtrl 2042050`, the same handle its SourceTV twin sends, and `m_skybox3d.area 8`.
 *Measured on the corpus; the block's layout cross-checked with demostf/parser (the engine's reader is closed).* The
+baselines were not the only thing in there: a probe comparing each table against every message before the block found
+the viaduct POV's `bird.mdl` precached only there, and the movement-test POV's newer weapon sounds and three cosmetic
+models. All of it now goes through the route a create takes. The
 stand-in went: with the handle present, no handle means no fog, as `UpdateFogController` has it. The wrong turn worth
 keeping is the order of suspicion — the probe that said "no baseline" read only the signon's tables, an absence with
 no control.

@@ -83,7 +83,8 @@ public sealed class SceneGameEventTests
         // them, and the demo player rebuilds the table from `dem_stringtables`.
         DemoTimeline timeline = WatchingAfterBlock(BlockedRoster("Alice", 7));
 
-        timeline.Roster[1].Name.ShouldBe("Alice");
+        // Keyed by user id, not slot.
+        timeline.Roster[7].Name.ShouldBe("Alice");
     }
 
     [Test]
@@ -100,7 +101,7 @@ public sealed class SceneGameEventTests
             SyntheticDemo.DefaultProtocol,
             SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
             BlockedRoster("Alice", 7),
-            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [Declaration, Death(7, 3)]));
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, Declaration, Death(7, 3)));
 
         StringWriter text = new() { NewLine = "\n" };
         DemoTraceWriter.Write(
@@ -121,7 +122,7 @@ public sealed class SceneGameEventTests
             [
                 SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
                 .. block is { } carried ? [carried] : Array.Empty<DemoCommand>(),
-                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [Declaration]),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, Declaration),
             ]));
 
     private static SceneGameEvent Event(Dictionary<string, object?> values) => new(0, "test", values, new Dictionary<int, PlayerInfo>());

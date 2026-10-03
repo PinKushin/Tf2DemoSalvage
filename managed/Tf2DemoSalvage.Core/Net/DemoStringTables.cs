@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Net;
@@ -53,6 +54,18 @@ public static class DemoStringTables
 
         return tables;
     }
+
+    /// <summary>Every table in the block, as the create that would have built it.</summary>
+    /// <param name="payload">The command's payload.</param>
+    /// <returns>One decoded, uncompressed create per table, in block order.</returns>
+    /// <remarks>
+    /// **The engine rebuilds every client table from the block**, so each is handed to whatever a
+    /// create feeds — baselines, precaches, the roster — by the one route a create already takes.
+    /// The block carries no capacity, so <c>MaxEntries</c> is zero; no consumer of a create reads it.
+    /// </remarks>
+    public static IReadOnlyList<CreateStringTableMessage> AsCreates(ReadOnlySpan<byte> payload) =>
+        [.. Read(payload).Select(table =>
+            new CreateStringTableMessage(table.Name, 0, table.Entries, IsCompressed: false, UndecodedReason: null))];
 
     private static List<StringTableEntry> ReadEntries(ref BitReader reader)
     {

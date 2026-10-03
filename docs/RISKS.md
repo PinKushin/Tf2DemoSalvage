@@ -8181,13 +8181,25 @@ POV's player carries `m_hCtrl 2042050` (its STV twin's value) and `m_skybox3d.ar
 handle (2007/2008 have no block and already did). Layout cross-checked with demostf/parser; the engine's reader is
 closed.
 
-**Fixed:** `DemoStringTables.Read` parses the block; `BaselineBuilder.ApplyBlock` routes its `instancebaseline` into
-the decoder from both `DemoTimeline` and the trace. `ViewFog`'s first-controller stand-in is deleted — no handle is no
-fog, as `UpdateFogController` has it. Tests: `DemoStringTablesTests`,
-`Trace_ABaselineOnlyTheStringTablesBlockCarries_AppearsOnTheEnteringEntity`, `From_NoEntityCarriesAHandle_IsNoFog`,
-and the output-level `PovSkyFogCorpusTests` (2013 badlands POV has sky fog). **Not done:** the block's other tables
-(`modelprecache`, `userinfo`, ...) are not applied; the engine rebuilds them too, and a precache or roster entry
-added before recording began would be missing from a POV demo — unmeasured.
+**Fixed:** `DemoStringTables.Read` parses the block, and `AsCreates` hands each table on as the create that would
+have built it — the engine rebuilds EVERY client table from the block, so `DemoTimeline` walks it through the same
+message switch a packet takes (baselines, both model precaches, sounds, scenes, decals, effects, particles, light
+styles, roster), and the trace through the same `ObserveTable` plus `Roster.Observe` its packets use. `ViewFog`'s
+first-controller stand-in is deleted — no handle is no fog, as `UpdateFogController` has it.
+
+**What only the block carries, measured** (`stringtables-block` probe, which compares each table against every
+create and update before it): `instancebaseline` 6-8 classes in every gcor POV with a block (2009, 2011, 2013);
+`modelprecache` [552] `models/props_forest/bird.mdl` in the 2011 viaduct POV; in `movement-test-pov-cp_process`, 8
+`soundprecache` entries (the Winger's shots, Eviction Notice) and 3 `DynamicModels` cosmetics. The 2013 foundry STV
+block adds nothing — the control. `userinfo` agreed on every demo read (by index and text; the user data was not
+compared).
+
+Tests: `DemoStringTablesTests` (layout, `AsCreates`), the trace's baseline and roster through the block, the
+timeline's roster through the block with its no-block control, `From_NoEntityCarriesAHandle_IsNoFog`, and two
+output-level corpus assertions in `PovSkyFogCorpusTests` — the 2013 badlands POV has sky fog, and the 2011 viaduct
+POV's `ModelPaths()` holds the bird only the block precaches. **Not done:** the engine REPLACES each table from the
+block; this overlays, which is the same whenever the block is a superset of what came before, as it was on every demo
+measured.
 
 The original filing, kept:
 

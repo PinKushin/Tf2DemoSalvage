@@ -2655,15 +2655,12 @@ public sealed class DemoTimeline
                 packetAcknowledgements.Add((command.Tick, acknowledged));
             }
 
-            // **The tables as they stood when recording began** (B452): a point-of-view demo's
-            // player baseline arrives only here, and without it DT_Local's fog handle and 3D sky
-            // never reach the player.
-            if (command.Type == DemoCommandType.StringTables)
-            {
-                BaselineBuilder.ApplyBlock(command.Payload.Span, decoder);
-            }
+            // **The tables as they stood when recording began** (B452) are walked like a packet of
+            // creates: the engine rebuilds every client table from the block, and a recording
+            // started mid-match finds a player baseline, a precache or a roster entry only here.
+            bool block = command.Type == DemoCommandType.StringTables;
 
-            if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
+            if (!block && command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;
             }
@@ -2672,10 +2669,13 @@ public sealed class DemoTimeline
             // for it per frame cannot re-walk a 39 MB demo, and this loop is the only pass over
             // the commands there is. Every packet, zeroed ones included: the demo player's current
             // view is the last packet read, and a zeroed one is the engine's "set nothing".
-            viewCommands.Add(new DemoViewCommand(
-                command.Type,
-                command.Tick,
-                command.Prologue.Length >= RecordedView.SizeBytes ? RecordedView.Parse(command.Prologue.Span) : default));
+            if (!block)
+            {
+                viewCommands.Add(new DemoViewCommand(
+                    command.Type,
+                    command.Tick,
+                    command.Prologue.Length >= RecordedView.SizeBytes ? RecordedView.Parse(command.Prologue.Span) : default));
+            }
 
             bool moved = false;
 
@@ -2688,8 +2688,9 @@ public sealed class DemoTimeline
             // happened to pull the next message.
             long readFrom = Stopwatch.GetTimestamp();
 
-            IReadOnlyList<INetMessage> messages =
-                [.. NetMessageReader.Read(command.Payload.Span, state).Messages];
+            IReadOnlyList<INetMessage> messages = block
+                ? DemoStringTables.AsCreates(command.Payload.Span)
+                : [.. NetMessageReader.Read(command.Payload.Span, state).Messages];
 
             messageTicks += Stopwatch.GetTimestamp() - readFrom;
 

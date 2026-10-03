@@ -150,6 +150,43 @@ public static class DemoTraceWriter
         return null;
     }
 
+    /// <summary>Records what a table message feeds the rest of the trace: sound names and baselines.</summary>
+    private static void ObserveTable(
+        INetMessage message, NetDecodeState state, EntityDecoder? entities, SoundNames soundNames)
+    {
+        if (message is CreateStringTableMessage createdTable)
+        {
+            soundNames.Add(createdTable);
+
+            // **An entity ENTER is a delta against its class baseline, not against zero.**
+            // Without this the trace decoded every entity from nothing, so any property the
+            // map sets once at init and never resends was simply missing from the dump:
+            // m_iNumControlPoints, m_vCPPositions, m_bCPIsVisible and the rest, absent from
+            // 782 MB of cp_process trace while the same entity's gameplay properties appeared
+            // hundreds of times.
+            //
+            // Applied inside the message loop rather than in a pre-pass, because the table
+            // must be recorded before the snapshot that relies on it and both can share a
+            // packet. DemoTimeline has always done this; only the trace did not.
+            if (entities is not null && createdTable.Name == BaselineBuilder.TableName)
+            {
+                BaselineBuilder.Apply(createdTable.Entries, entities);
+            }
+        }
+        else if (message is UpdateStringTableMessage updatedTable)
+        {
+            soundNames.Add(updatedTable, state.StringTableName(updatedTable.TableId));
+
+            // Updates name their table only by id, so the id is resolved through the decode
+            // state exactly as the sound path above does.
+            if (entities is not null &&
+                state.StringTableName(updatedTable.TableId) == BaselineBuilder.TableName)
+            {
+                BaselineBuilder.Apply(updatedTable.Entries, entities);
+            }
+        }
+    }
+
     private static void WriteBlock(
         TextWriter writer,
         DemoCommand command,
@@ -173,11 +210,16 @@ public static class DemoTraceWriter
                 return;
             }
 
-            // The tables as they stood when recording began: a baseline only this block carries
-            // still decides what an entering entity holds (B452). Printed as the bare block below.
-            if (command.Type == DemoCommandType.StringTables && entities is not null)
+            // The tables as they stood when recording began, rebuilt as the engine rebuilds them:
+            // a baseline, sound or player only this block carries still reaches what follows
+            // (B452). Printed as the bare block below.
+            if (command.Type == DemoCommandType.StringTables)
             {
-                BaselineBuilder.ApplyBlock(command.Payload.Span, entities);
+                foreach (CreateStringTableMessage table in DemoStringTables.AsCreates(command.Payload.Span))
+                {
+                    ObserveTable(table, state, entities, soundNames);
+                    Roster.Observe(table, state, roster);
+                }
             }
 
             if (command.Type == DemoCommandType.ConsoleCmd && !command.Payload.IsEmpty)
@@ -228,37 +270,7 @@ public static class DemoTraceWriter
         {
             // Captured before rendering, so a sound in the same packet as the table that names
             // it still resolves. Both message kinds are still printed by the switch below.
-            if (message is CreateStringTableMessage createdTable)
-            {
-                soundNames.Add(createdTable);
-
-                // **An entity ENTER is a delta against its class baseline, not against zero.**
-                // Without this the trace decoded every entity from nothing, so any property the
-                // map sets once at init and never resends was simply missing from the dump:
-                // m_iNumControlPoints, m_vCPPositions, m_bCPIsVisible and the rest, absent from
-                // 782 MB of cp_process trace while the same entity's gameplay properties appeared
-                // hundreds of times.
-                //
-                // Applied inside the message loop rather than in a pre-pass, because the table
-                // must be recorded before the snapshot that relies on it and both can share a
-                // packet. DemoTimeline has always done this; only the trace did not.
-                if (entities is not null && createdTable.Name == BaselineBuilder.TableName)
-                {
-                    BaselineBuilder.Apply(createdTable.Entries, entities);
-                }
-            }
-            else if (message is UpdateStringTableMessage updatedTable)
-            {
-                soundNames.Add(updatedTable, state.StringTableName(updatedTable.TableId));
-
-                // Updates name their table only by id, so the id is resolved through the decode
-                // state exactly as the sound path above does.
-                if (entities is not null &&
-                    state.StringTableName(updatedTable.TableId) == BaselineBuilder.TableName)
-                {
-                    BaselineBuilder.Apply(updatedTable.Entries, entities);
-                }
-            }
+            ObserveTable(message, state, entities, soundNames);
 
             if (message is PacketEntitiesMessage snapshot && entities is not null &&
                 WithinLimit(options, snapshots))
