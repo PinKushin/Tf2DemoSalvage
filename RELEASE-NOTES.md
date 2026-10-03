@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.3
+# Tf2DemoSalvage 0.1.0-beta.4
 
-## Changes since 0.1.0-beta.2
+## Changes since 0.1.0-beta.3
+
+- **Landings:** players play the landing animation after a jump, as the game does — demoman, heavy, pyro, engineer,
+  sniper and spy after any jump, and every class after a rocket or sticky jump. A player crouching through the end of
+  a rocket jump is drawn standing, as TF2 draws him.
+
+## Changes in 0.1.0-beta.3
 
 - **Overlay layers:** overlays draw in the layers the mapper gave them, one layer at a time, as the game does, so a
   marking placed on top stays on top (136 stock maps layer their overlays, e.g. cp_badlands, cp_dustbowl, cp_granary).

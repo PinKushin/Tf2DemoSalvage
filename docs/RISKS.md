@@ -3680,7 +3680,13 @@ The owner has deprioritised it until players are done. Filed with the numbers so
 one measurement rather than from nothing.
 
 
-## B61 — the rest of CTFPlayerAnimState — OPEN, emulation rather than decode
+## B61 — the rest of CTFPlayerAnimState — CLOSED as a heading 2026-10-02 (stale); what remains is B437
+
+**Closed 2026-10-02 by checking each item against the code.** Per-class playback rate: `m_flMaxGroundSpeed` scales
+the run since a944c8e0. Ducking: `FL_DUCKING` chooses the crouch since 5b11832a. Upper-body aim: `body_pitch` is B109,
+resolved 81c3b5ec; the feet-yaw machine is the RESOLVED B61 below (ee5ced53). Jumping and swimming: B100/B112;
+taunts: B351. What is left of the list — the loser state's main-sequence table and the voice command's slot rule — is
+tracked in B437. The text below is the original filing.
 
 Players stand and run. Everything else about what they are doing is still computed wrongly, and
 none of it is a decoding problem: the demo says nothing about any of it by design, so each is a
@@ -3772,7 +3778,11 @@ Work needed, none of it in the decoder:
 Full account, including two wrong diagnoses that survived a round of work each, in
 `docs/findings/22-bone-merged-attachments.md`.
 
-## B64 — a player's movement sequence is a blend grid we take the corner of — OPEN, emulation
+## B64 — a player's movement sequence is a blend grid we take the corner of — CLOSED (5eda339a, 2026-08-14; heading corrected 2026-10-02)
+
+**The heading was stale.** 5eda339a ("Resolve the blend grid, so the legs run where the player is going") added
+`StudioBlendGrid`, which blends the surrounding animations by `move_x`/`move_y` rather than taking `anim[0]`; the
+pose parameters are merged across included models by a29a63c5 (B101). The text below is the original filing.
 
 **The legs run one fixed direction whatever way the body faces**, reported as "the model faces
 right, but the feet and legs bend 180 degrees the wrong way".
@@ -9003,23 +9013,35 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — OPEN 2026-09-29
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — PARTLY FIXED 2026-10-02 (landings, the suspended jump, the latched duck; voice command, loser tables and the model's crouch OPEN)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
 in B112; each item below is something TF2 draws that this viewer does not. Evidence class: read from published source.
 
-- **A rocket jumper lands with no landing gesture.** When the air-walk ends on the ground `HandleJumping` restarts the
+**Fixed 2026-10-02 (`fix/parity-animstate`, red f5892d7a, green 9377f2e7, output test a5bcdfba).** The audit found
+the first item was the smaller half of a larger divergence: **no ordinary jump ever landed with a gesture.**
+`PlayerGestureFeed.Landed` made `ACT_MP_JUMP_LAND` only by replacing a gesture already in the jump slot, and
+`PLAYERANIMEVENT_JUMP` puts none there — so only a scout's double jump ever landed. The engine makes the landing from
+STATE at its two clears (`:1449-1453`, `:1501-1508`), whatever the slot held. Now `PlayerGestureFeed.HandleJumping`
+steps both halves as the engine does: the jump's bookkeeping is the `else` of the air-walk block, a firing heavy moves
+neither and answers nothing, each clear writes the landing, and the air-walk's is marked `SceneGesture.FromAirwalk` so
+the scene gates it by `DontDoAirwalk` rather than `DontDoNewJump`. `PlayerActivityState.For` stands a latched,
+ducking player. **Measured in the output on z1800** (`CorpusPlayerGestureTests`, sampled every 200 ticks): 2,738
+non-scout jump landings and 161 air-walk landings, against 0 non-scout landings under the old rule (sabotaged and
+watched fail). Items 1-3 below are closed by that; the respawn item was wrong (below).
+
+- **A rocket jumper lands with no landing gesture.** FIXED 2026-10-02, above. When the air-walk ends on the ground `HandleJumping` restarts the
   main sequence and plays `ACT_MP_JUMP_LAND` in the jump slot (`:1449-1453`) — with no `bNewJump` gate, unlike the
   jump's own landing (`:1505-1508`). So a soldier, whose script sets `DontDoNewJump`, lands a rocket jump WITH the
   gesture and an ordinary jump without it. `PlayerGestureFeed.Landed` only replaces a gesture already in the jump slot,
   and `PlayerProps.Landing` drops every landing for a `DontDoNewJump` class, so neither half fits; this landing's gate
   is `DontDoAirwalk`, since only an air-walking class ever latches.
-- **An air-walk suspends the jump's own bookkeeping.** The jumping branch runs only when the air-walk block's
+- FIXED 2026-10-02. **An air-walk suspends the jump's own bookkeeping.** The jumping branch runs only when the air-walk block's
   condition is false (`:1446` against `:1476`), so while a latched player air-walks `m_bJumping` is neither cleared nor
   timed; and a firing heavy's early return (`:1439-1440`) freezes the jump as it freezes the latch.
   `PlayerGestureFeed.Jumping` clears the jump on the ground regardless of either.
-- **A latched player who ducks is drawn crouching; TF2 draws him standing.** `HandleJumping` returns
+- FIXED 2026-10-02. **A latched player who ducks is drawn crouching; TF2 draws him standing.** `HandleJumping` returns
   `m_bJumping || m_bInAirWalk` (`:1534`) even when the duck kept the block from running, so `CalcMainActivity` stops
   there with `idealActivity` still `ACT_MP_STAND_IDLE` (or a jump phase): a soldier who crouches through the end of a
   rocket jump, or lands crouched, stands idle until he stands up. `PlayerActivityState.For` asks the air-walk only of an
@@ -9028,14 +9050,23 @@ in B112; each item below is something TF2 draws that this viewer does not. Evide
   drop `bInDuck` when the model has no sequence for the translated crouch walk (`:971-975`, `:1429-1433`). The gesture
   context's `InDuck` and the latch's duck test read `FL_DUCKING` alone, because the sequence list is the scene's.
   Whether any stock class model and weapon lacks that sequence has not been measured.
-- **A respawn does not re-seat the feet.** `ClearAnimationState` also clears `m_bCurrentFeetYawInitialized` and
-  `m_nSpecificMainSequence` (`multiplayer_animstate.cpp:141`, `:143`). The feet yaw is `DemoTimeline`'s `FeetYaw`,
-  which death, dormancy and a respawn leave where it was.
+- **WITHDRAWN 2026-10-02 — a respawn does not re-seat the feet in TF2 either.** `ClearAnimationState` clears
+  `m_bCurrentFeetYawInitialized` (`multiplayer_animstate.cpp:141`), but nothing in `multiplayer_animstate.cpp` or
+  `tf_playeranimstate.cpp` ever READS it — it is written at `:58` and `:141` only. The feet re-seat on
+  `m_flLastAimTurnTime <= 0` (`:1725`), which only `PLAYERANIMEVENT_SNAP_YAW` zeroes (`:318`), and the server raises
+  that from one console path (`server/client.cpp:1393`). So the claim rested on a vestigial field. What does remain:
+  `SNAP_YAW` is not honoured here (rare: a cheat-command path), and `m_nSpecificMainSequence` is held by nothing because
+  `PLAYERANIMEVENT_CUSTOM` main sequences are not ported.
 - **A voice command cancels a reload.** `VOICE_COMMAND_GESTURE` restarts the attack-and-reload slot only
   `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`:1053-1058`). `PlayerGestureEvent.Map` returns it
   unconditionally, so the feed replaces a playing reload or attack with a numbered gesture that is then skipped at
   draw. Whether the slot is active depends on the gesture's cycle, which needs the model, so the rule belongs where
-  `EntityModelSet.LayersFor` resolves the sequence. z1800 carries 251 of these events.
+  `EntityModelSet.LayersFor` resolves the sequence. z1800 carries 251 of these events. **Still OPEN 2026-10-02**, and
+  the shape it needs is now read: `m_bActive` drops only when an auto-kill gesture's cycle passes 1
+  (`UpdateGestureLayer` → `ResetGestureSlot`), the cycle advancing by `GetSequenceCycleRate × frametime ×
+  GetGesturePlaybackRate()`; a non-auto-kill gesture stays active until replaced. So the feed must keep the displaced
+  attack/reload beside the voice gesture rather than overwrite it, and the scene picks by whether that one's cycle had
+  passed 1 at the voice event's start.
 - **The loser's other animations.** `IsLoser` also selects `s_acttableLoserState` in `ActivityOverride`
   (`:223-269`, table `:170-184`), which rewrites the main sequence's stand, run, crouch, air-walk, jump and swim and the
   landing gesture `ACT_MP_JUMP_LAND` to their `_LOSERSTATE` forms — the body of humiliation. Only the weapon's
@@ -10907,7 +10938,11 @@ those equations rather than deleted (D45).
 
 ---
 
-## B140 — gesture layers are decoded, typed, tested, and reach no renderer — OPEN
+## B140 — gesture layers are decoded, typed, tested, and reach no renderer — CLOSED (7fa27521, 2026-09-02; heading corrected 2026-10-02)
+
+**The heading was stale.** b1429d60 feeds a player's gestures from the `CTEPlayerAnimEvent` temp entities and
+7fa27521 ("gestures reach the skeleton as layers", B282) composes them in `EntityModels.LayersFor`; B112 records the
+rest of the wiring. What the anim state still does differently is B437. The text below is the original filing.
 
 **Found 2026-08-21 by sweeping for the B139 pattern rather than by tripping over it.**
 

@@ -53,6 +53,11 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// script, so it carries both and the layer with the installed game picks — the same split the body's
 /// air-walk has.
 /// </param>
+/// <param name="FromAirwalk">
+/// Whether this is the landing the air-walk latch's end makes (`tf_playeranimstate.cpp:1449-1453`) rather than the
+/// jump's (`:1505-1508`). The two have different class gates — the jump's is `bNewJump`, the air-walk's is only that
+/// the class air-walks at all — and both are in the class script, so the scene applies them (B437).
+/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
@@ -62,7 +67,8 @@ public readonly record struct SceneGesture(
     string? SceneName = null,
     SceneTaunt? Taunt = null,
     double? StoppedSeconds = null,
-    string? ActivityWithoutAirwalk = null);
+    string? ActivityWithoutAirwalk = null,
+    bool FromAirwalk = false);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -339,36 +345,93 @@ public sealed class PlayerGestureFeed
     /// (<see cref="SceneGesture.ActivityWithoutAirwalk"/>, and the body's own air-walk beside it). A class that never
     /// air-walks never reaches the block in the engine, so the latch here is the engine's for every class that does.
     ///
-    /// The landing also restarts the jump slot as `ACT_MP_JUMP_LAND` (`:1453`) and the main sequence; neither is done
-    /// here (B437).
+    /// **The landing restarts the jump slot as `ACT_MP_JUMP_LAND`** (`:1453`), marked
+    /// <see cref="SceneGesture.FromAirwalk"/> because no `bNewJump` gates it (B437). The water's clear makes none.
     /// </remarks>
+    /// <param name="seconds">Demo time now, which a landing starts at.</param>
     public bool AirWalk(
-        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy)
+        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy, double seconds)
     {
-        bool latched = InAirWalk(entityIndex);
-
-        if (firingHeavy)
+        if (!firingHeavy && AirWalkBlockRuns(entityIndex, risingSpeed, flags, grappling))
         {
-            return latched;
-        }
-
-        bool onGround = (flags & PlayerActivityState.OnGround) != 0;
-
-        if ((risingSpeed > PlayerActivityState.AirwalkRiseSpeed || latched || grappling) &&
-            (flags & PlayerActivityState.Ducking) == 0)
-        {
-            // The landing (:1449-1451) and the water (:1455-1458) both clear, and both are asked before the air.
-            if ((onGround && latched) || waistDeep)
-            {
-                _inAirWalk.Remove(entityIndex);
-            }
-            else if (!onGround)
-            {
-                _inAirWalk.Add(entityIndex);
-            }
+            StepAirWalk(entityIndex, flags, waistDeep, seconds);
         }
 
         return InAirWalk(entityIndex);
+    }
+
+    /// <summary>`CTFPlayerAnimState::HandleJumping`, both halves, once a frame (`tf_playeranimstate.cpp:1427-1537`).</summary>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="risingSpeed">As <see cref="AirWalk"/> takes it.</param>
+    /// <param name="flags">`m_fFlags`.</param>
+    /// <param name="waistDeep">`GetWaterLevel() &gt;= WL_Waist`.</param>
+    /// <param name="grappling">`GetGrapplingHookTarget() != NULL`.</param>
+    /// <param name="firingHeavy">A heavy under `TF_COND_AIMING`.</param>
+    /// <param name="seconds">Demo time now.</param>
+    /// <returns>
+    /// Seconds since the jump while `m_bJumping` holds, else null — and null for a firing heavy, for whom the function
+    /// returns false before touching either.
+    /// </returns>
+    /// <remarks>
+    /// **The jump's bookkeeping is the `else` of the air-walk block** (`:1446`, `:1476`), so while the block runs the
+    /// jump is neither timed out nor landed (B437). `bValidAirWalkClass` is not applied, as in <see cref="AirWalk"/>:
+    /// for a medic lifted past 300 u/s this suspends a jump the engine would have let clear — the known ceiling of
+    /// keeping the class script out of Core.
+    /// </remarks>
+    public double? HandleJumping(
+        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy, double seconds)
+    {
+        if (firingHeavy)
+        {
+            return null;
+        }
+
+        if (AirWalkBlockRuns(entityIndex, risingSpeed, flags, grappling))
+        {
+            StepAirWalk(entityIndex, flags, waistDeep, seconds);
+
+            return _jumpStarted.TryGetValue(entityIndex, out double started) ? Math.Max(0d, seconds - started) : null;
+        }
+
+        return Jumping(entityIndex, seconds, (flags & PlayerActivityState.OnGround) != 0, waistDeep);
+    }
+
+    /// <summary>`( vecVelocity.z &gt; 300.0f || m_bInAirWalk || grapple ) &amp;&amp; !bInDuck` (`:1446`).</summary>
+    private bool AirWalkBlockRuns(int entityIndex, float? risingSpeed, int flags, bool grappling) =>
+        (risingSpeed > PlayerActivityState.AirwalkRiseSpeed || InAirWalk(entityIndex) || grappling) &&
+        (flags & PlayerActivityState.Ducking) == 0;
+
+    /// <summary>The air-walk block's body (`:1448-1473`).</summary>
+    private void StepAirWalk(int entityIndex, int flags, bool waistDeep, double seconds)
+    {
+        bool onGround = (flags & PlayerActivityState.OnGround) != 0;
+
+        // The landing (:1449-1453) and the water (:1455-1458) both clear, and both are asked before the air.
+        if (onGround && _inAirWalk.Remove(entityIndex))
+        {
+            Land(entityIndex, seconds, fromAirwalk: true);
+        }
+        else if (waistDeep)
+        {
+            _inAirWalk.Remove(entityIndex);
+        }
+        else if (!onGround)
+        {
+            _inAirWalk.Add(entityIndex);
+        }
+    }
+
+    /// <summary>`RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )`, whatever the slot held.</summary>
+    private void Land(int entityIndex, double seconds, bool fromAirwalk)
+    {
+        if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots))
+        {
+            slots = new SceneGesture?[SlotCount];
+            _byPlayer[entityIndex] = slots;
+        }
+
+        slots[(int)GestureSlot.Jump] = new SceneGesture(
+            GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds, FromAirwalk: fromAirwalk);
     }
 
     /// <summary>`ClearAnimationState`, for everything this feed holds of one player.</summary>
@@ -380,8 +443,8 @@ public sealed class PlayerGestureFeed
     /// animations (`tf_playeranimstate.cpp:340-366`), `EF_NODRAW`, a dormant player and a dead one
     /// (`multiplayer_animstate.cpp:1381-1395`).
     ///
-    /// Not held here and so not cleared here: the feet yaw's re-initialisation and the specific main sequence, which
-    /// the base also resets (B437).
+    /// Not held here and so not cleared here: the specific main sequence, which the base also resets. The base's
+    /// `m_bCurrentFeetYawInitialized = false` is vestigial — nothing reads it — so it moves no feet (B437).
     /// </remarks>
     public void ClearAnimationState(int entityIndex)
     {
@@ -409,9 +472,20 @@ public sealed class PlayerGestureFeed
             return null;
         }
 
-        if (waistDeep || (onGround && seconds - started > GroundBelievedAfterSeconds))
+        if (waistDeep)
         {
             _jumpStarted.Remove(entityIndex);
+            return null;
+        }
+
+        // **The landing is made HERE, by the clear, whatever the slot held** (`:1501-1508`, B437). An ordinary jump
+        // plays no gesture of its own, so a landing that replaced the slot's double jump never followed one. Without
+        // it `ACT_MP_DOUBLEJUMP` — a full-body animation — also goes on playing after the landing (B284). `bNewJump`
+        // is the class script's, applied by the scene.
+        if (onGround && seconds - started > GroundBelievedAfterSeconds)
+        {
+            _jumpStarted.Remove(entityIndex);
+            Land(entityIndex, seconds, fromAirwalk: false);
             return null;
         }
 
@@ -431,54 +505,6 @@ public sealed class PlayerGestureFeed
     /// ground flag of the tick it started on.
     /// </remarks>
     private const double GroundBelievedAfterSeconds = 0.2d;
-
-    /// <summary>Ends a jump gesture because the player is back on the ground.</summary>
-    /// <param name="entityIndex">The player.</param>
-    /// <param name="seconds">Demo time now.</param>
-    /// <remarks>
-    /// **<c>RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )</c>**, which
-    /// <c>CTFPlayerAnimState::HandleJumping</c> runs the moment a jumping player is on the ground
-    /// again (<c>tf_playeranimstate.cpp:1507</c>, and again at <c>:1453</c> when an air-walk ends).
-    ///
-    /// **A demo carries no event for it.** Every gesture in <see cref="Record"/> arrives as a
-    /// `CTEPlayerAnimEvent`; landing is a decision the client makes from the ground flag, so this
-    /// is the one gesture transition a reader has to derive rather than receive. Without it
-    /// `ACT_MP_DOUBLEJUMP` — a full-body animation, not an arms layer — goes on playing after the
-    /// player has landed and takes the whole skeleton with it (B284).
-    ///
-    /// **Only the JUMP slot**, because that is the slot the engine names. A reload or a flinch is
-    /// unaffected by landing and keeps running.
-    /// </remarks>
-    public void Landed(int entityIndex, double seconds)
-    {
-        if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots))
-        {
-            return;
-        }
-
-        int slot = (int)GestureSlot.Jump;
-
-        // Stryker disable all : the guard condition spans two lines, so a mutant that empties the
-        // guard body leaves 'jumping' unassigned at its use below (CS0165), and Safe Mode then
-        // drops every mutation in this method — B410.
-        if (slots[slot] is not { } jumping ||
-            seconds - jumping.StartedSeconds <= GroundBelievedAfterSeconds)
-        {
-            return;
-        }
-
-        // Stryker restore all
-
-        // Already the landing gesture: replacing it every tick on the ground would restart it for
-        // ever, which is the same ratchet a naive "reset while grounded" would produce.
-        if (string.Equals(jumping.ActivityName, LandActivity, StringComparison.Ordinal))
-        {
-            return;
-        }
-
-        slots[slot] = new SceneGesture(
-            GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds);
-    }
 
     /// <summary>Records a choreographed scene as a VCD gesture on the player it animates (B351).</summary>
     /// <param name="entityIndex">The actor, out of the scene entity's <c>m_hActorList</c>.</param>

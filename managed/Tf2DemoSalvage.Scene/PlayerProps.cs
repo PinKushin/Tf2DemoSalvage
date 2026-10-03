@@ -608,15 +608,36 @@ public static class PlayerProps
 
         for (int index = 0; index < gestures.Count; index++)
         {
-            if (gestures[index].ActivityWithoutAirwalk is { } without)
+            SceneGesture gesture = gestures[index];
+
+            // Copied once, at the first gesture to change; order and every other gesture kept.
+            if (restored is null && (gesture.FromAirwalk || gesture.ActivityWithoutAirwalk is not null))
             {
-                // Copied once, at the first gesture to change, and patched in place: order and every other gesture kept.
-                restored ??= [.. gestures];
-                restored[index] = gestures[index] with { ActivityName = without, ActivityWithoutAirwalk = null };
+                restored = [];
+
+                for (int before = 0; before < index; before++)
+                {
+                    restored.Add(gestures[before]);
+                }
             }
+
+            // **The air-walk's landing never happens for such a class** (B437) — no latch, nothing to end.
+            if (gesture.FromAirwalk)
+            {
+                continue;
+            }
+
+            restored?.Add(gesture.ActivityWithoutAirwalk is { } without
+                ? gesture with { ActivityName = without, ActivityWithoutAirwalk = null }
+                : gesture);
         }
 
-        return restored ?? gestures;
+        if (restored is null)
+        {
+            return gestures;
+        }
+
+        return restored.Count > 0 ? restored : null;
     }
 
     /// <summary>Drops the landing gesture for a class that does not play one.</summary>
@@ -644,7 +665,9 @@ public static class PlayerProps
 
         foreach (SceneGesture gesture in gestures)
         {
+            // The air-walk's landing has no bNewJump gate (`:1449-1453`, B437); `Airwalk` gates it instead.
             if (gesture.Slot != GestureSlot.Jump ||
+                gesture.FromAirwalk ||
                 !string.Equals(
                     gesture.ActivityName,
                     PlayerGestureFeed.LandActivity,
