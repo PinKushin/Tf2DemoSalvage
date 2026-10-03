@@ -9119,7 +9119,7 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-02 (the model's crouch-walk check and the event-time posture OPEN)
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-03 (crouch-walk check and event-time posture fixed; sequence 0, voice numbers, item override OPEN)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
@@ -9163,15 +9163,24 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
   every gesture (`:124-153`), compared row for row with the SDK both ways. z1800: 6,513 loser and 610 carrying
   player-frames.
 
-**Still open, with what blocks each:**
+**Fixed 2026-10-03, third pass (`fix/b437-duck-and-fire-time`).** Evidence: read from published source; the model
+facts measured on the installed game.
 
-- **The model's crouch-walk check** (below) — **now measured, and it does fire on stock content**:
-  `ACT_MP_CROUCHWALK_LOSERSTATE` is declared by none of the nine class animation models (`game-file` over each
-  `*_animations.mdl`, 2026-10-02), so every humiliated loser's `bInDuck` is false in `HandleJumping` and
-  `DoAnimationEvent`. Implementing it needs the model's declared activities and the weapon's role at DECODE time, and
-  both are scene state built after the decode (`GameAppearance`); the class-script carry-in is the pattern, but the
-  role needs `items_game` and the weapon scripts too. Small on screen: a loser cannot attack or reload, so only the
-  air-walk block is affected.
+- **The model's crouch-walk check.** `IClassAnimationScripts.HasCrouchWalk` (implemented by `PlayerClassModels` from
+  the class model and its includes) answers `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) >= 0`,
+  and both `PostureOf` (`DoAnimationEvent`, `:971-975`) and `HandleJumping` (`:1429-1433`) drop the duck on a no. The
+  weapon role was NOT needed for the case that fires: the loser's and carrier's tables rewrite the crouch walk to names
+  no weapon table rewrites again. Measured (`ClassAirwalkTests`): all nine models lack `CROUCHWALK_LOSERSTATE`, the
+  engineer has `CROUCHWALK_BUILDING_DEPLOYED`. z1800 carries 10 ducking-loser player-frames and none latched, so
+  nothing on it draws differently. **Residual:** with no player-table rewrite the weapon role decides, which decode
+  does not know, and the answer is "has it" (the flag stands) — unmeasured whether any class model lacks a role's
+  crouch walk. The item's `animation_replacement` is not applied here either (below).
+- **The event-time posture.** Gesture events queue with their `CL_QueueEvent` fire tick and fire before and after
+  each packet (`DemoTimeline.FireGestures`), reading flags, the latch and `IsLoser` then and starting the gesture at
+  the fire tick. Synthetic: a reload arriving standing fires six ticks later crouched; an event due between packets
+  reads the earlier one. Output: the independent latch walk on z1800 moved to fire time and matches all 1,981 reloads.
+
+**Still open, with what blocks each:**
 - **A main sequence that resolves to nothing** draws sequence 0 in the engine (`ComputeMainSequence`:
   `if ( animDesired < 0 ) animDesired = 0;`); `PlayerAnimation.For` falls back to the primary table and then the run or
   stand. A loser crouch-walking reaches this (no `CROUCHWALK_LOSERSTATE`). Filed, not changed: what sequence 0 looks
@@ -9197,7 +9206,7 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
 - **The duck both functions ask is the model's as well as the flag's.** `DoAnimationEvent` and `HandleJumping` each
   drop `bInDuck` when the model has no sequence for the translated crouch walk (`:971-975`, `:1429-1433`). The gesture
   context's `InDuck` and the latch's duck test read `FL_DUCKING` alone, because the sequence list is the scene's.
-  OPEN; measured 2026-10-02 — see the second pass above.
+  FIXED 2026-10-03 — see the third pass above.
 - **WITHDRAWN 2026-10-02 — a respawn does not re-seat the feet in TF2 either.** `ClearAnimationState` clears
   `m_bCurrentFeetYawInitialized` (`multiplayer_animstate.cpp:141`), but nothing in `multiplayer_animstate.cpp` or
   `tf_playeranimstate.cpp` ever READS it — it is written at `:58` and `:141` only. The feet re-seat on
@@ -9220,7 +9229,7 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
   landing gesture `ACT_MP_JUMP_LAND` to their `_LOSERSTATE` forms — the body of humiliation. Only the weapon's
   own table is ported (`WeaponActivityTable`); the competitive-loser and kart tables are the same mechanism. B61 names
   the loser state in its list.
-- **A gesture's posture is read when its event arrives, not when it fires.** `CL_QueueEvent` fires a temp entity an
+- FIXED 2026-10-03, third pass. **A gesture's posture is read when its event arrives, not when it fires.** `CL_QueueEvent` fires a temp entity an
   interpolation window late (B415) and `DoAnimationEvent` reads `GetFlags()` then; the feed records at arrival, with the
   arrival's posture and start time. The air-walk latch follows the same convention — the event reads the value the last
   snapshot left, because `DoAnimationEvent` runs before that frame's `HandleJumping` — so moving gestures to the fire

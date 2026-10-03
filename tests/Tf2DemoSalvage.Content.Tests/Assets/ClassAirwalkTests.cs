@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 
@@ -107,6 +108,32 @@ public sealed class ClassAirwalkTests
             2,
             "the soldier and the medic set DontDoNewJump — if this count moves, TF2 has changed " +
             "and the timeline's bNewJump gate now applies to a different set of classes");
+    }
+
+    /// <summary>Which class models have the crouch walk each player table translates to (B437).</summary>
+    /// <remarks>
+    /// **`bInDuck` is the model's as well as the flag's** (`tf_playeranimstate.cpp:971-975`, `:1429-1433`). The loser's
+    /// table rewrites the crouch walk to `ACT_MP_CROUCHWALK_LOSERSTATE`, which no class model declares, so a humiliated
+    /// player never ducks; the carrier's rewrites it to `ACT_MP_CROUCHWALK_BUILDING_DEPLOYED`, which the engineer's
+    /// model does declare. The `None` row is the control: a table that leaves the crouch walk to the weapon answers yes.
+    /// </remarks>
+    [Test]
+    public void HasCrouchWalk_TheShippedClassModels_LackOnlyTheLosersCrouchWalk()
+    {
+        if (Reader() is not { } read)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        PlayerClassModels classes = PlayerClassModels.Read(read);
+        int[] all = [.. Enumerable.Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)];
+        const int Engineer = 9;
+
+        all.ShouldAllBe(playerClass => classes.Model(playerClass) != null, "every class script must be read");
+        all.ShouldAllBe(playerClass => classes.HasCrouchWalk(playerClass, PlayerActivityOverride.None));
+        all.ShouldAllBe(playerClass => !classes.HasCrouchWalk(playerClass, PlayerActivityOverride.LoserState));
+        classes.HasCrouchWalk(Engineer, PlayerActivityOverride.BuildingDeployed).ShouldBeTrue();
     }
 
     /// <summary>Reads a file out of the installed game, or null when it is absent.</summary>

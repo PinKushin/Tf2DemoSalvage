@@ -207,9 +207,30 @@ weapon's had been ported, so 6,513 losing player-frames on z1800 ran like winner
 `*_animations.mdl`), so the engine's model check on `bInDuck` fires for every humiliated loser: a check
 that reads as defensive turns out to be live on stock content.
 
+## The duck is the model's, and the event reads the player when it fires (B437, 2026-10-03)
+
+**The crouch-walk check needed less than it was filed as needing.** The entry said it wanted the
+weapon's role at decode time. Reading the chain again: the loser's and the carrier's tables rewrite
+`ACT_MP_CROUCHWALK` to `_LOSERSTATE` / `_BUILDING_DEPLOYED`, and no weapon table has a row for either
+name (the ported tables, compared row for row with the SDK, contain neither), so for those two tables
+the model alone answers `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) )`. The
+class model reader (`PlayerClassModels.HasCrouchWalk`) reads the model and its includes; measured on
+the shipped install: all nine lack the loser's crouch walk, the engineer has the carrier's, and every
+class answers yes for an unrewritten one. Evidence: read from published source, measured on the game's
+files. On z1800 it changes nothing drawn — 10 ducking-loser player-frames, none latched in the air.
+
+**Gestures moved from arrival to fire time.** `DoAnimationEvent` runs from `CL_FireEvents`, an
+interpolation window after the temp entity arrived (`CL_QueueEvent`, B415), and reads `GetFlags()`,
+the latch and `IsLoser()` then — values the client holds as RECEIVED, none interpolated. The timeline
+used to read them on arrival and start the gesture there. Now the events queue with their fire tick
+and fire twice a packet: before applying it, those due before its tick (the client fired them on frames
+in between, holding the earlier packet), and after it, those due on it — both before that tick's
+`HandleJumping`. The independent latch walk in `CorpusPlayerGestureTests` was moved to the same clock
+and agrees on all 1,981 z1800 reloads (26 air-walking); sabotaged back to arrival, it fails.
+
 ## Open
 
 Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What remains of B437:
-the model's own crouch-walk check on `bInDuck`, which needs the model and the weapon's role at decode
-time; the engine's sequence-0 answer for an activity the model lacks; voice gestures named by activity
-number; and the item's own activity override.
+the crouch-walk check for a table that does not rewrite the crouch walk, which is the weapon role's to
+translate and is taken as present; the engine's sequence-0 answer for an activity the model lacks;
+voice gestures named by activity number; and the item's own activity override.

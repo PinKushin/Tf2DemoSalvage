@@ -2499,6 +2499,7 @@ public sealed class DemoTimeline
         // replaces it or its sequence runs out — which only the scene can decide, because only the
         // scene has the model that says how long the sequence is.
         PlayerGestureFeed gestures = new();
+        List<(int Fires, DecodedTempEntity Effect)> queuedGestures = [];
 
         // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
@@ -2678,6 +2679,13 @@ public sealed class DemoTimeline
             }
 
             bool moved = false;
+
+            // The events due on frames between the last packet and this one, against the last packet (B437).
+            if (command.Type == DemoCommandType.Packet)
+            {
+                FireGestures(
+                    queuedGestures, command.Tick - 1, interval, entities, AlwaysLoser(serverConVars), classes, gestures);
+            }
 
             // Per packet, because "did the demo mention this entity" is a question about THIS
             // packet and nothing earlier.
@@ -2887,9 +2895,9 @@ public sealed class DemoTimeline
                     // all; what IS sent is `CTEPlayerAnimEvent` (`tf_player.cpp:324`), a temp
                     // entity naming the player and a `PlayerAnimEvent_t`.
                     //
-                    // **The posture is read at ARRIVAL**, because the engine picks the activity
-                    // inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`) — a reload begun
-                    // crouched stays the crouching reload even if the player stands during it.
+                    // **The posture is read when the event FIRES** (B437), because the engine picks the
+                    // activity inside `DoAnimationEvent` (`tf_playeranimstate.cpp:969`), which `CL_FireEvents`
+                    // calls an interpolation window after arrival — queued here, fired by FireGestures.
                     case TempEntitiesMessage effects when effects.BodyBits > 0:
                         RecordEffects(
                             decoder,
@@ -2897,12 +2905,9 @@ public sealed class DemoTimeline
                             command.Tick,
                             interval,
                             client.Amount(serverConVars),
-
-                            // `tf_always_loser.GetBool()`: the int of the float, as `ConVar::GetBool` reads it.
-                            (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0,
                             effectClassNames,
                             entities,
-                            gestures,
+                            queuedGestures,
                             feeds);
                         continue;
 
@@ -3118,6 +3123,9 @@ public sealed class DemoTimeline
                 // handle instead, below (B139).
             }
 
+            // The events due on this packet's tick, once it is applied and before its HandleJumping (B437).
+            FireGestures(queuedGestures, command.Tick, interval, entities, AlwaysLoser(serverConVars), classes, gestures);
+
             // **The view's fog, as `UpdateFogController` chooses it** (B139), recorded on change —
             // null included, because a player whose handle leaves every controller loses fog.
             ViewFog viewFog = ViewFog.From(entities);
@@ -3220,7 +3228,7 @@ public sealed class DemoTimeline
 
             // Asked once a frame rather than per player: the round state and the ConVar are the frame's.
             EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
-            bool alwaysLoserNow = (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0;
+            bool alwaysLoserNow = AlwaysLoser(serverConVars);
 
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
@@ -3342,6 +3350,10 @@ public sealed class DemoTimeline
                 bool firingHeavy =
                     player.PlayerClass() == HeavyClass && player.Conditions().Has(PlayerConditions.Aiming);
 
+                // **The player's own activity table, chosen every frame `TranslateActivity` runs** (B437), from the
+                // same `IsLoser` the gestures ask and the carry flag the HUD reads. `HandleJumping`'s duck asks it too.
+                PlayerActivityOverride activityTable = ActivityTableOf(player, rulesNow, alwaysLoserNow);
+
                 if (!player.IsDrawn || !alive || player.CustomModelWithoutClassAnimations())
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
@@ -3365,7 +3377,8 @@ public sealed class DemoTimeline
                         grappling: entities.Resolve(player.GrapplingHookTarget()) is not null,
                         firingHeavy: firingHeavy,
                         seconds: command.Tick * interval,
-                        classes?.ScriptOf(player.PlayerClass()) ?? default);
+                        classes?.ScriptOf(player.PlayerClass()) ?? default,
+                        ModelCrouchWalks(player, classes, activityTable));
 
                     jumpActivity = interval > 0f ? answered : null;
                 }
@@ -3488,12 +3501,7 @@ public sealed class DemoTimeline
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     JumpActivity: jumpActivity,
 
-                    // **The player's own activity table, chosen every frame `TranslateActivity` runs** (B437), from the
-                    // same `IsLoser` the gestures ask and the carry flag the HUD reads.
-                    ActivityOverride: PlayerActivityOverrides.For(
-                        player.Conditions(),
-                        IsLoser(player, rulesNow, alwaysLoserNow),
-                        player.Integer(CarryingObjectProperty) is > 0),
+                    ActivityOverride: activityTable,
                     CompetitiveWinner: player.Conditions().Has(PlayerConditions.CompetitiveWinner),
 
                     // **In seconds, like every other clock on this record**, so the consumer
@@ -3869,13 +3877,9 @@ public sealed class DemoTimeline
     /// <param name="tick">The demo tick the packet arrived on.</param>
     /// <param name="interval">Seconds per tick, for the feeds that want time rather than ticks.</param>
     /// <param name="interpolation">`GetClientInterpAmount()`, in seconds.</param>
-    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`, the first line of `IsLoser`.</param>
     /// <param name="classNames">Class id to name, since an effect names its class by id.</param>
-    /// <param name="entities">
-    /// The entity table, for the player's posture at this moment and for whether a blast struck a player. A snapshot
-    /// writes its entities before its temp entities, so the table is as the client's list was when the effect fired.
-    /// </param>
-    /// <param name="gestures">The gesture feed.</param>
+    /// <param name="entities">The entity table, for whether a blast struck a player.</param>
+    /// <param name="gestures">Gesture events waiting for their fire tick, in arrival order.</param>
     /// <param name="feeds">The one-shot effect feeds.</param>
     /// <remarks>
     /// **A body that will not read is skipped rather than fatal**, which is the rule everywhere
@@ -3897,10 +3901,9 @@ public sealed class DemoTimeline
         int tick,
         double interval,
         double interpolation,
-        bool alwaysLoser,
         Dictionary<int, string> classNames,
         EntityStateTable entities,
-        PlayerGestureFeed gestures,
+        List<(int Fires, DecodedTempEntity Effect)> gestures,
         EffectFeeds feeds)
     {
         try
@@ -3922,9 +3925,10 @@ public sealed class DemoTimeline
                     continue;
                 }
 
+                // Queued, not recorded: the event reads the player when it FIRES (B437) — see FireGestures.
                 if (string.Equals(className, PlayerGestureFeed.EventClassName, StringComparison.Ordinal))
                 {
-                    gestures.Record(className, effect, tick * interval, PostureOf(effect, entities, alwaysLoser));
+                    gestures.Add((fires, effect));
                 }
             }
         }
@@ -3934,6 +3938,53 @@ public sealed class DemoTimeline
             // Skipped for the same reason a sounds body is: everything else in this packet is
             // independent of it, and salvaging what is readable is the point of the project.
         }
+    }
+
+    /// <summary>`tf_always_loser.GetBool()`: the int of the float, as `ConVar::GetBool` reads it.</summary>
+    private static bool AlwaysLoser(ServerConVars server) => (int)server.Number(LoserState.AlwaysLoserConVar) != 0;
+
+    /// <summary>`CL_FireEvents` for the gesture events: every one due by a tick, in the order they arrived (B437).</summary>
+    /// <param name="queued">The waiting events and their fire ticks; the fired ones are removed.</param>
+    /// <param name="dueBy">The last tick whose events fire now.</param>
+    /// <param name="interval">Seconds per tick; the gesture starts at its fire tick.</param>
+    /// <param name="entities">The entity table as the client holds it when they fire.</param>
+    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`.</param>
+    /// <param name="classes">The class scripts and models, or null.</param>
+    /// <param name="gestures">The gesture feed.</param>
+    /// <remarks>
+    /// **`DoAnimationEvent` runs when the event fires, an interpolation window after it arrives** (`CL_QueueEvent`,
+    /// <see cref="FireTick"/>), and reads `GetFlags()`, the latch and `IsLoser()` then — the latest the client has
+    /// RECEIVED, since none of them is interpolated. So the timeline fires twice a packet: before applying it, every
+    /// event due before its tick, against the packet before (the client fired them on frames between the two); and
+    /// after it, every event due on its tick. Both run before that tick's `HandleJumping`, as the engine's events run
+    /// before its animation update. An event still waiting when the demo ends never fires.
+    /// </remarks>
+    private static void FireGestures(
+        List<(int Fires, DecodedTempEntity Effect)> queued,
+        int dueBy,
+        double interval,
+        EntityStateTable entities,
+        bool alwaysLoser,
+        IClassAnimationScripts? classes,
+        PlayerGestureFeed gestures)
+    {
+        int kept = 0;
+
+        for (int next = 0; next < queued.Count; next++)
+        {
+            (int fires, DecodedTempEntity effect) = queued[next];
+
+            if (fires > dueBy)
+            {
+                queued[kept++] = (fires, effect);
+                continue;
+            }
+
+            gestures.Record(
+                PlayerGestureFeed.EventClassName, effect, fires * interval, PostureOf(effect, entities, alwaysLoser, classes));
+        }
+
+        queued.RemoveRange(kept, queued.Count - kept);
     }
 
     /// <summary>The tick a temp entity FIRES on — `CL_QueueEvent`, read out of `engine.dll` (`0x1801f9bc0`, B415).</summary>
@@ -3990,10 +4041,11 @@ public sealed class DemoTimeline
         return new ShotShooter(First(player, TeamProperties) ?? 0, weapon, item);
     }
 
-    /// <summary>What the player named by a gesture event was doing when it arrived.</summary>
+    /// <summary>What the player named by a gesture event was doing when it fired (B437).</summary>
     /// <param name="effect">The gesture event.</param>
     /// <param name="entities">The entity table.</param>
     /// <param name="alwaysLoser">`tf_always_loser.GetBool()`.</param>
+    /// <param name="classes">The class scripts and models, whose crouch walk decides the duck; null for none.</param>
     /// <returns>The context the activity choice is made against.</returns>
     /// <remarks>
     /// **Five of the seven context fields; the feed fills the other two** (B112). `NData` is the event's own
@@ -4018,7 +4070,8 @@ public sealed class DemoTimeline
     /// state, the winning team and the match group; the player gives his own team and class, conditions, disguise
     /// team and stun. The rule is <see cref="LoserState.IsLoser"/>, which the HUD asks too.
     /// </remarks>
-    private static GestureContext PostureOf(DecodedTempEntity effect, EntityStateTable entities, bool alwaysLoser)
+    private static GestureContext PostureOf(
+        DecodedTempEntity effect, EntityStateTable entities, bool alwaysLoser, IClassAnimationScripts? classes)
     {
         int player = 0;
 
@@ -4044,11 +4097,15 @@ public sealed class DemoTimeline
                 ? carried.ClassName
                 : null;
 
+        EntityState? rules = entities.OfClass(GameRulesClass).FirstOrDefault();
+
         return new GestureContext(
+            // `bInDuck`, dropped when the model lacks the translated crouch walk (`tf_playeranimstate.cpp:971-975`).
             InDuck: state.Flags() is { } flags &&
-                (flags & PlayerActivityState.Ducking) != 0,
+                (flags & PlayerActivityState.Ducking) != 0 &&
+                ModelCrouchWalks(state, classes, ActivityTableOf(state, rules, alwaysLoser)),
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
-            IsLoser: IsLoser(state, entities.OfClass(GameRulesClass).FirstOrDefault(), alwaysLoser),
+            IsLoser: IsLoser(state, rules, alwaysLoser),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
                 state.Conditions().Has(PlayerConditions.Zoomed));
@@ -4072,6 +4129,20 @@ public sealed class DemoTimeline
             state.DisguiseTeam(),
             state.StunIndex(),
             state.StunFlags());
+
+    /// <summary>`CTFPlayerAnimState::ActivityOverride`'s table for one player now, by <see cref="PlayerActivityOverrides.For"/>.</summary>
+    private static PlayerActivityOverride ActivityTableOf(EntityState player, EntityState? rules, bool alwaysLoser) =>
+        PlayerActivityOverrides.For(
+            player.Conditions(),
+            IsLoser(player, rules, alwaysLoser),
+            player.Integer(CarryingObjectProperty) is > 0);
+
+    /// <summary>
+    /// `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) &gt;= 0` — the half of `bInDuck` that is the
+    /// model's (B437). True without the install, which leaves the flag alone.
+    /// </summary>
+    private static bool ModelCrouchWalks(EntityState player, IClassAnimationScripts? classes, PlayerActivityOverride table) =>
+        classes?.HasCrouchWalk(player.PlayerClass(), table) ?? true;
 
     /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
     private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";

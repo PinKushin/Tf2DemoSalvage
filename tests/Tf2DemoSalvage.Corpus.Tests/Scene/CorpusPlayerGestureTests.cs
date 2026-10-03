@@ -422,7 +422,8 @@ public sealed class CorpusPlayerGestureTests
 
         foreach (((int who, double started, string activity), int? playerClass) in reloads)
         {
-            // A gesture's start is its event's arrival, `tick * interval`, so the tick comes back exactly.
+            // A gesture's start is its event's FIRE tick times the interval (B437), so the tick comes back exactly, and
+            // must be the fire tick the independent walk computed — an arrival-time start finds no reload there.
             int tick = (int)Math.Round(started / timeline.IntervalPerTick);
             bool output = activity.StartsWith(AirwalkReloadActivityPrefix, StringComparison.Ordinal);
 
@@ -516,12 +517,43 @@ public sealed class CorpusPlayerGestureTests
         HashSet<int> latched = [];
         Dictionary<int, (int Tick, float Z)> lastSeen = [];
         Dictionary<(int Player, int Tick), bool> atReload = [];
+        ServerConVars server = new();
+        List<(int Fires, int Who, int Which)> queued = [];
+
+        // `CL_FireEvents`: every event whose time has passed, in arrival order, reading the latch as it stands.
+        void Fire(int dueBy)
+        {
+            foreach ((int fires, int who, int which) in queued.Where(one => one.Fires <= dueBy))
+            {
+                switch ((PlayerAnimEvent)which)
+                {
+                    case PlayerAnimEvent.Reload or PlayerAnimEvent.ReloadLoop or PlayerAnimEvent.ReloadEnd:
+                        atReload[(who, fires)] = latched.Contains(who);
+                        break;
+
+                    case PlayerAnimEvent.DoubleJump or PlayerAnimEvent.Spawn:
+                        latched.Remove(who);
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            queued.RemoveAll(one => one.Fires <= dueBy);
+        }
 
         foreach (DemoCommand command in DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)))
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;
+            }
+
+            // Due on a frame between the last packet and this one: fired against the last.
+            if (command.Type == DemoCommandType.Packet)
+            {
+                Fire(command.Tick - 1);
             }
 
             bool snapshot = false;
@@ -547,6 +579,10 @@ public sealed class CorpusPlayerGestureTests
                         entities.PacketTick = netTick.Tick;
                         break;
 
+                    case SetConVarMessage convars:
+                        server.Apply(convars);
+                        break;
+
                     case PacketEntitiesMessage { LengthBits: > 0 } entityMessage:
                         foreach (DecodedEntity entity in decoder.Decode(
                             entityMessage.Body.Span, entityMessage, entityMessage.LengthBits))
@@ -561,22 +597,12 @@ public sealed class CorpusPlayerGestureTests
                         foreach (DecodedTempEntity effect in decoder.DecodeTempEntities(
                             effects.Body.Span, effects.Count, effects.BodyBits))
                         {
+                            // `CL_QueueEvent`: due its own delay plus the watcher's interpolation amount later.
                             if (classNames.GetValueOrDefault(effect.ClassId) == "CTEPlayerAnimEvent" &&
                                 AnimEvent(effect) is ({ } who, { } which))
                             {
-                                switch ((PlayerAnimEvent)which)
-                                {
-                                    case PlayerAnimEvent.Reload or PlayerAnimEvent.ReloadLoop or PlayerAnimEvent.ReloadEnd:
-                                        atReload[(who, command.Tick)] = latched.Contains(who);
-                                        break;
-
-                                    case PlayerAnimEvent.DoubleJump or PlayerAnimEvent.Spawn:
-                                        latched.Remove(who);
-                                        break;
-
-                                    default:
-                                        break;
-                                }
+                                double late = (effect.DelaySeconds + new ClientInterp().Amount(server)) / interval;
+                                queued.Add((command.Tick + (int)Math.Floor(late + 1e-6), who, which));
                             }
                         }
 
@@ -586,6 +612,9 @@ public sealed class CorpusPlayerGestureTests
                         break;
                 }
             }
+
+            // Due on this tick: fired once the packet is applied, before its HandleJumping.
+            Fire(command.Tick);
 
             if (!snapshot)
             {
