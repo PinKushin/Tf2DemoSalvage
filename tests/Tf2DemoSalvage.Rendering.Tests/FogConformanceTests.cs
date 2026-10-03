@@ -44,7 +44,7 @@ public sealed class FogConformanceTests
     }
 
     [Test]
-    public void Fog_TheEquations_AreRecordedForAnImplementationThatDoesNotExistYet()
+    public void Fog_TheEquations_AreRangeFogThenASquaredBlend()
     {
         // **Kept as citations rather than as assertions on transcribed arithmetic.** The previous
         // version computed `Squared(0.5f).ShouldBe(0.25f)` against a helper defined in the same

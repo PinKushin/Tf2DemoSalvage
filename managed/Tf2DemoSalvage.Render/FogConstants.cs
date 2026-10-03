@@ -43,7 +43,10 @@ public static class FogConstants
             MathF.Pow(on.Red, Gamma),
             MathF.Pow(on.Green, Gamma),
             MathF.Pow(on.Blue, Gamma),
-            1f,
+
+            // Which PIXEL_FOG_TYPE the shader runs (common_ps_fxc.h:69-71): 1 range, 2 radial, and
+            // 0 — every float of a null fog — off.
+            on.Radial ? 2f : 1f,
             start / range,
             0f,
             on.MaxDensity,

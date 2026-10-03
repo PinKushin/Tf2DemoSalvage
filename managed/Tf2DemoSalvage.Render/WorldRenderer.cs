@@ -199,7 +199,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 debugModes2;
 
             // **Range fog, Valve's two registers** (B139): `g_LinearFogColor` (common_ps_fxc.h:45)
-            // with w = 1 when fog is on, and `fogParams` as CalcRangeFog unpacks it — x start over
+            // with w the fog type — 0 off, 1 range, 2 radial — and `fogParams` as CalcRangeFog unpacks it — x start over
             // range, z max density, w one over range. FogConstants packs both.
             float4 fogColour;
             float4 fogParams;
@@ -1636,9 +1636,15 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // the PROJECTED z — `saturate( min( maxdensity, z * OORange - startOverRange ) )` — then
             // BlendPixelFog's lerp by the factor SQUARED. Our projection is D3D's, as Source's is, so
             // clip z is the same `flProjPosZ` the engine's vertex shader writes.
+            //
+            // fogColour.w 2 is RANGE_RADIAL: CalcRadialFog_NonFixedFunction (common_fxc.h:334) takes
+            // the straight-line distance from the eye instead, `min( maxdensity, saturate( ... ) )`,
+            // which is the same value for any max density in 0..1.
             if (fogColour.w > 0.5f && tintControl.z < 1.5f)
             {
-                float projZ = mul(float4(input.wpos, 1.0f), viewProjection).z;
+                float projZ = fogColour.w > 1.5f
+                    ? distance(eyePosition.xyz, input.wpos)
+                    : mul(float4(input.wpos, 1.0f), viewProjection).z;
                 float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
                 float3 toward = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb;
                 lit = lerp(lit, toward, fogFactor * fogFactor);
