@@ -115,3 +115,4 @@
 - [A corpus sweep holds one demo at a time](a-corpus-sweep-holds-one-demo-at-a-time.md) — `TimelineCache` (B439); [a streamed demo is read per enumeration](a-streamed-demo-is-read-per-enumeration.md) (B449).
 - [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — B440.
 - [A declared codec is not the payload's](a-declared-codec-is-not-the-payloads.md) — vaudio_speex carried SILK; CRC32 tail decides (B441).
+- [A flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) — class scripts carried into the decode (B437).

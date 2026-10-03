@@ -180,8 +180,36 @@ that field (written at `multiplayer_animstate.cpp:58` and `:141` only). The feet
 `m_flLastAimTurnTime <= 0`, which only `PLAYERANIMEVENT_SNAP_YAW` zeroes, raised from one console path
 (`server/client.cpp:1393`). A cleared flag is not a behaviour until something reads it.
 
+## A "finished migration" that was not, and where the class script belongs (B437, 2026-10-02)
+
+**What was believed:** `DontDoNewJump` guards the old single `ACT_MP_JUMP`, its comment says "Remove
+me once all classes are doing the new jump", and every shipped class has it false — so reading it
+would reproduce a migration that finished. That was written into `PlayerActivity` as the reason not to.
+
+**What killed it:** a measurement this project already had. `ClassAirwalkTests` reads the shipped class
+scripts and asserts that exactly two set `DontDoNewJump` — the soldier and the medic. The two claims sat
+in the same repository, one measured and one assumed, and only the measured one had a test. On z1800
+the soldier's jumps were 5,615 frames of the split push-off and float where TF2 plays `ACT_MP_JUMP`
+(differential: the same demo built with and without the scripts).
+
+**Where the flag is read decides what can be exact.** The first port kept the class script in the
+scene, because only the scene had the installed game, and filtered Core's output: a reload carried its
+non-air-walk alternative, a landing carried which clear made it. That works for flags that only CHOOSE
+between outputs. `bValidAirWalkClass` changes STATE — whether the air-walk block runs, and so whether
+the jump's bookkeeping is suspended — and no output filter can undo a state machine that took the
+wrong branch. Carrying the scripts INTO the decode (`IClassAnimationScripts`, read the way
+`tf_classdata.cpp:187-188` reads them) made every branch exact and let the filters go.
+
+**Valve's order in `TranslateActivity` is the player before the weapon.** `ActivityOverride` walks one
+of four player tables — kart, competitive loser, loser, carrying — and only then the weapon's. Only the
+weapon's had been ported, so 6,513 losing player-frames on z1800 ran like winners. And
+`CROUCHWALK_LOSERSTATE` exists in none of the nine class models (measured from the shipped
+`*_animations.mdl`), so the engine's model check on `bInDuck` fires for every humiliated loser: a check
+that reads as defensive turns out to be live on stock content.
+
 ## Open
 
-Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What the same engine
-functions do besides is B437: the voice command's slot rule, the loser state's main-sequence table, and
-the model's own crouch-walk check on `bInDuck`.
+Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What remains of B437:
+the model's own crouch-walk check on `bInDuck`, which needs the model and the weapon's role at decode
+time; the engine's sequence-0 answer for an activity the model lacks; voice gestures named by activity
+number; and the item's own activity override.
