@@ -308,11 +308,52 @@ public sealed class SyntheticGesturePostureTests
             At(103, 0f, OnGround | Ducking),
             At(104, 0f, OnGround));
 
-        IEnumerable<bool> airwalking = new[] { 100, 101, 102, 103, 104 }
-            .Select(tick => timeline.Frames.Single(frame => frame.Tick == tick).Players.Single().Airwalking);
+        // Ducked while latched, HandleJumping returns true having set nothing: ACT_MP_STAND_IDLE (B437).
+        IEnumerable<PlayerActivity?> answered = new[] { 100, 101, 102, 103, 104 }
+            .Select(tick => timeline.Frames.Single(frame => frame.Tick == tick).Players.Single().JumpActivity);
 
-        airwalking.ShouldBe([false, true, true, true, false]);
+        answered.ShouldBe([null, PlayerActivity.Airwalk, PlayerActivity.StandIdle, PlayerActivity.StandIdle, null]);
     }
+
+    /// <remarks>
+    /// **The class script reaches the timeline** (B437). `DemoTimeline.Build` takes the scripts the client reads —
+    /// `scripts/playerclasses/*.txt` — so a class that sets `DontDoAirwalk` never latches, and one that sets
+    /// `DontDoNewJump` jumps as the single `ACT_MP_JUMP`. Without them the engine's own default holds: every class
+    /// air-walks and jumps the new way.
+    /// </remarks>
+    [Test]
+    public void Build_TheClassScripts_DecideTheAirWalkAndTheJump()
+    {
+        SyntheticPlayer.GestureSnapshot[] rocketJump =
+        [
+            At(100, 0f, OnGround),
+            At(101, 6f, InAir) with { Events = [PlayerAnimEvent.Jump] },
+            At(102, 12f, InAir),
+        ];
+
+        PlayerActivity? Answer(DemoTimeline timeline) =>
+            timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity;
+
+        Answer(Build(Soldier, rocketJump)).ShouldBe(PlayerActivity.Airwalk, "no scripts: the engine's defaults");
+
+        Answer(Build(Soldier, new Scripts(Soldier, new(DontDoAirwalk: true, DontDoNewJump: true)), rocketJump))
+            .ShouldBe(PlayerActivity.LegacyJump);
+        Answer(Build(Soldier, new Scripts(Soldier, new(DontDoAirwalk: true, DontDoNewJump: false)), rocketJump))
+            .ShouldBe(PlayerActivity.JumpStart);
+        Answer(Build(Soldier, new Scripts(Scout, new(DontDoAirwalk: true, DontDoNewJump: true)), rocketJump))
+            .ShouldBe(PlayerActivity.Airwalk, "the control: another class's script is not this player's");
+    }
+
+    /// <summary>A class-script source that sets one class's flags.</summary>
+    private sealed class Scripts(int playerClass, ClassAnimationScript script) : IClassAnimationScripts
+    {
+        public ClassAnimationScript Of(int? asked) => asked == playerClass ? script : default;
+    }
+
+    private static DemoTimeline Build(int playerClass, IClassAnimationScripts classes, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
+        DemoTimeline.Build(
+            SyntheticPlayer.DemoOfGestures(Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false, snapshots),
+            classes: classes);
 
     private static SyntheticPlayer.GestureSnapshot At(int tick, float z, int flags) => new(tick, z, flags);
 

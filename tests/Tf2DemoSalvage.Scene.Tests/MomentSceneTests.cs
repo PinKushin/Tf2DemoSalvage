@@ -1307,10 +1307,6 @@ public sealed class MomentSceneTests
         public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) =>
             RolesKnown && weaponClass is not null ? "PRIMARY" : null;
 
-        public bool Airwalks(int playerClass) => true;
-
-        /// <inheritdoc/>
-        public bool Lands(int playerClass) => true;
 
         public string? Hands(int playerClass) =>
             playerClass == SoldierClass ? "models/weapons/c_models/c_soldier_arms.mdl" : null;

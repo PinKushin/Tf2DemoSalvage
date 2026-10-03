@@ -22,9 +22,9 @@ namespace Tf2DemoSalvage.Core.Tests.Scene;
 /// else { HandleMoving( idealActivity ); }
 /// </code>
 ///
-/// The tests below are that order, because the order is the part a reimplementation gets wrong: a
-/// crouching player who is also moving must crouch-walk rather than run, and each case has to be
-/// asked WITH the others true to prove the precedence rather than merely the mapping.
+/// **HandleJumping's own answer comes from `PlayerGestureFeed.HandleJumping`** (B437), which keeps the state it
+/// steps — the latch, the jump clock, the class script — so this takes that answer and asks the rest in order.
+/// Its branches are tested in <c>PlayerGestureFeedTests</c>.
 /// </remarks>
 public sealed class PlayerActivityStateTests
 {
@@ -90,109 +90,34 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void For_JumpingWhateverElseIsTrue_Jumps()
+    public void For_HandleJumpingAnsweredWhateverElseIsTrue_TakesItsAnswer()
     {
-        // HandleJumping is asked first and returns true while `m_bJumping`, so nothing below it can win. Tested with
-        // crouch and movement both set, because that is the combination that would expose an implementation ordering
-        // the checks by convenience.
-        PlayerActivityState.For(0, Running, waistDeep: false, alive: true, airborneSeconds: 1f)
-            .ShouldBe(PlayerActivity.Jump);
-
-        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: 1f)
-            .ShouldBe(PlayerActivity.Jump);
+        // HandleJumping is asked first and, when it returns true, nothing below it can win — crouch, water and
+        // movement all set, because that is the combination that would expose an ordering by convenience. Its answer
+        // includes ACT_MP_STAND_IDLE, the value it leaves untouched when it returns true without setting one.
+        foreach (PlayerActivity answered in new[]
+            {
+                PlayerActivity.Airwalk, PlayerActivity.JumpStart, PlayerActivity.Jump,
+                PlayerActivity.LegacyJump, PlayerActivity.StandIdle,
+            })
+        {
+            PlayerActivityState.For(Ducking, Running, waistDeep: true, alive: true, jumping: answered)
+                .ShouldBe(answered);
+        }
     }
 
     [Test]
-    public void For_AirborneWithoutAJumpEvent_CrouchesOrRuns()
+    public void For_AirborneWithoutHandleJumpingAnswering_CrouchesOrRuns()
     {
         // **Off the ground is not a jump.** `m_bJumping` is set only by PLAYERANIMEVENT_JUMP
         // (`multiplayer_animstate.cpp:288`), so a rocket jump or a step off a ledge falls through HandleJumping to
         // HandleDucking — the tucked crouch — or to HandleMoving. Drawing the jump there put a crouched rocket-jumper's
         // pelvis 30-45 units from the server's hitbox (f12 ticks 14252, 16756).
-        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: null)
+        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, jumping: null)
             .ShouldBe(PlayerActivity.CrouchWalk);
 
-        PlayerActivityState.For(Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null)
-            .ShouldBe(PlayerActivity.CrouchIdle);
-
-        PlayerActivityState.For(0, Running, waistDeep: false, alive: true, airborneSeconds: null)
+        PlayerActivityState.For(0, Running, waistDeep: false, alive: true, jumping: null)
             .ShouldBe(PlayerActivity.Run);
-
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: null)
-            .ShouldBe(PlayerActivity.StandIdle);
-    }
-
-    [Test]
-    public void For_AJumpUpToHalfASecondOld_IsThePushOff()
-    {
-        // **Half a second, strictly** — `gpGlobals->curtime - m_flJumpStartTime > 0.5` in
-        // CTFPlayerAnimState::HandleJumping, so exactly the threshold is still the push-off. Both
-        // sides are asserted because a comparison with the wrong direction passes either one alone.
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0f)
-            .ShouldBe(PlayerActivity.JumpStart);
-
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0.5f)
-            .ShouldBe(PlayerActivity.JumpStart, "the engine's test is strictly greater than");
-
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 0.51f)
-            .ShouldBe(PlayerActivity.Jump);
-    }
-
-    [Test]
-    public void For_AirWalkingAtEitherJumpPhase_AirWalks()
-    {
-        // **HandleJumping checks the air-walk BEFORE the jump and it supersedes it**, so a
-        // fast-rising player runs in the air rather than tucking — whatever the jump clock says.
-        // Asserted at both phases, because a check placed after the split would pass at one.
-        PlayerActivityState
-            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: true)
-            .ShouldBe(PlayerActivity.Airwalk);
-
-        PlayerActivityState
-            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 2f, airwalking: true)
-            .ShouldBe(PlayerActivity.Airwalk);
-    }
-
-    [Test]
-    public void For_AnAirWalkWhileDucking_IsThePushOff()
-    {
-        // `( bValidAirWalkClass && ( vecVelocity.z > 300.0f || m_bInAirWalk ) && !bInDuck )` — a
-        // crouched rocket jump tucks rather than running in the air, which is what a crouch-jump
-        // looks like in the game.
-        PlayerActivityState.For(
-            Ducking, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: true)
-            .ShouldBe(PlayerActivity.JumpStart);
-    }
-
-    /// <remarks>
-    /// **A latched player who ducks stands** (B437). The duck keeps the air-walk block from running, but
-    /// `HandleJumping` still ends `if ( m_bJumping || m_bInAirWalk ) return true;` (`tf_playeranimstate.cpp:1534`),
-    /// so `CalcMainActivity` stops with `idealActivity` at its `ACT_MP_STAND_IDLE` start — in the air, after a
-    /// crouched landing, and in water alike. Not the crouch.
-    /// </remarks>
-    [Test]
-    public void For_LatchedAndDuckingWithNoJump_StandsIdle()
-    {
-        PlayerActivityState.For(Ducking, Running, waistDeep: false, alive: true, airborneSeconds: null, airwalking: true)
-            .ShouldBe(PlayerActivity.StandIdle);
-        PlayerActivityState.For(OnGround | Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null, airwalking: true)
-            .ShouldBe(PlayerActivity.StandIdle);
-        PlayerActivityState.For(Ducking, Still, waistDeep: true, alive: true, airborneSeconds: null, airwalking: true)
-            .ShouldBe(PlayerActivity.StandIdle);
-
-        // The control: the same duck without the latch crouches.
-        PlayerActivityState.For(OnGround | Ducking, Still, waistDeep: false, alive: true, airborneSeconds: null, airwalking: false)
-            .ShouldBe(PlayerActivity.CrouchIdle);
-    }
-
-    [Test]
-    public void For_AnAirborneJumpWithoutTheAirWalk_IsThePushOff()
-    {
-        // The control for the two above: the air-walk must not swallow every airborne case. This
-        // is the same input with the flag cleared, and it has to answer differently.
-        PlayerActivityState
-            .For(0, Running, waistDeep: false, alive: true, airborneSeconds: 0.1f, airwalking: false)
-            .ShouldBe(PlayerActivity.JumpStart);
     }
 
     [Test]
@@ -202,43 +127,29 @@ public sealed class PlayerActivityStateTests
     }
 
     [Test]
-    public void IdealName_TheJumpPhases_AreTwoActivities()
+    public void IdealName_TheJumpPhases_AreTwoActivitiesAndTheOldJumpIsOne()
     {
         // The land is deliberately not here: ACT_MP_JUMP_LAND is started with
         // RestartGesture( GESTURE_SLOT_JUMP, ... ), so it is a layered gesture over whatever the
         // body is doing rather than a body activity. Returning it as one would replace the run a
-        // player lands into.
+        // player lands into. A class whose script sets DontDoNewJump plays the single ACT_MP_JUMP (B437).
         PlayerActivityState.IdealName(PlayerActivity.JumpStart).ShouldBe("ACT_MP_JUMP_START");
         PlayerActivityState.IdealName(PlayerActivity.Jump).ShouldBe("ACT_MP_JUMP_FLOAT");
+        PlayerActivityState.IdealName(PlayerActivity.LegacyJump).ShouldBe("ACT_MP_JUMP");
     }
 
     [Test]
-    public void For_JumpingIntoWaistDeepWater_Swims()
-    {
-        // HandleJumping clears the jump the moment the water reaches the waist, before it can
-        // return true. So a player who leaps into water swims rather than falling with their legs
-        // tucked, which is what a naive "not on the ground means jumping" would draw.
-        PlayerActivityState.For(0, Still, waistDeep: true, alive: true, airborneSeconds: 1f)
-            .ShouldBe(PlayerActivity.SwimIdle);
-
-        PlayerActivityState.For(0, Running, waistDeep: true, alive: true, airborneSeconds: 1f)
-            .ShouldBe(PlayerActivity.Swim);
-    }
-
-    [Test]
-    public void For_WaterBelowTheWaist_IsStillAJump()
+    public void For_WaistDeepWithNoAnswer_Swims()
     {
         // **WL_Waist is 2**, from Valve's own comment at player.cpp:1961 — 0 dry, 1 feet, 2 waist,
-        // 3 eyes — and both HandleJumping and HandleSwimming test `>= WL_Waist`. Feet-deep water is
-        // therefore NOT swimming, which is the boundary worth pinning: a player wading through a
-        // shallow puddle keeps running.
+        // 3 eyes — and both HandleJumping and HandleSwimming test `>= WL_Waist`.
         PlayerActivityState.WaistDeepWaterLevel.ShouldBe(2);
 
-        PlayerActivityState.For(0, Still, waistDeep: false, alive: true, airborneSeconds: 1f)
-            .ShouldBe(PlayerActivity.Jump, "feet in water is not swimming; this is still a jump");
-
-        PlayerActivityState.For(0, Still, waistDeep: true, alive: true, airborneSeconds: 1f)
+        PlayerActivityState.For(0, Still, waistDeep: true, alive: true)
             .ShouldBe(PlayerActivity.SwimIdle);
+
+        PlayerActivityState.For(0, Running, waistDeep: true, alive: true)
+            .ShouldBe(PlayerActivity.Swim);
     }
 
     [Test]
@@ -269,8 +180,8 @@ public sealed class PlayerActivityStateTests
         PlayerActivityState.For(OnGround | Ducking, Running, waistDeep: false, alive: false)
             .ShouldBe(PlayerActivity.Die);
 
-        PlayerActivityState.For(0, Running, waistDeep: false, alive: false)
-            .ShouldBe(PlayerActivity.Die);
+        PlayerActivityState.For(0, Running, waistDeep: false, alive: false, jumping: PlayerActivity.Jump)
+            .ShouldBe(PlayerActivity.Die, "the dead are cleared, so a stale answer must not animate them");
     }
 
     [Test]

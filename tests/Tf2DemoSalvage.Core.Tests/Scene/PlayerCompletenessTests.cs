@@ -118,8 +118,8 @@ public sealed class PlayerCompletenessTests
         WeaponClass: "CTFRevolver",
         WeaponItem: 61,
 
-        // Inside the push-off window, so losing it reads as the float rather than as a default.
-        AirborneSeconds: 0.25f,
+        // HandleJumping's answer, not null and not the push-off, so losing it reads as falling through to the run.
+        JumpActivity: PlayerActivity.LegacyJump,
 
         // **A disguise that is BOTH up and enemy-facing**, because both halves gate every branch of
         // `C_TFPlayer::ValidateModelIndex` and `GetSkin`. A fixture with the condition and no
@@ -141,9 +141,6 @@ public sealed class PlayerCompletenessTests
         DisguiseTeam: SceneTeams.Red,
         DisguiseMaskClass: 5,
         IsEnemy: true,
-
-        // True, since false is the default and would hide the field being dropped.
-        Airwalking: true,
 
         // **When this player last teleported or respawned** (B346), non-zero so losing it reads as
         // "never jumped" rather than as a default — and distinct from every other clock here, since

@@ -72,10 +72,10 @@ public sealed class WeaponSlotAnimationTests
         const int airborne = 0;
 
         int start = PlayerAnimation.For(
-            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", airborneSeconds: 0.1f);
+            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", jumping: PlayerActivity.JumpStart);
 
         int floating = PlayerAnimation.For(
-            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", airborneSeconds: 1.0f);
+            model, speed: 200f, airborne, alive: true, slot: "PRIMARY", jumping: PlayerActivity.Jump);
 
         start.ShouldBeGreaterThanOrEqualTo(0, "a medic has a jump push-off");
         floating.ShouldBeGreaterThanOrEqualTo(0, "and a float");

@@ -245,10 +245,6 @@ public sealed class DisguiseDrawProbe
 
         public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => null;
 
-        public bool Airwalks(int playerClass) => true;
-
-        /// <inheritdoc/>
-        public bool Lands(int playerClass) => true;
 
         public string? Hands(int playerClass) => null;
 

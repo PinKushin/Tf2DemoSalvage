@@ -187,16 +187,13 @@ public sealed class CorpusPlayerGestureTests
     }
 
     /// <remarks>
-    /// **Both landings reach the output** (B437). Before, a landing existed only as the replacement for a double
+    /// **Landings reach the output** (B437). Before, a landing existed only as the replacement for a double
     /// jump, so an ordinary jump — which plays no gesture — and a rocket jump never landed with one. Asked of what
     /// the timeline hands the scene, at sampled ticks; the slot keeps its last gesture until replaced, so a sample
     /// finds a landing long after it was made.
     /// </remarks>
-    /// <summary>`TF_CLASS_SCOUT`.</summary>
-    private const int ScoutClass = 1;
-
     [Test]
-    public void PlayersAt_OnARealMatch_CarriesTheJumpAndTheAirwalkLandings()
+    public void PlayersAt_OnARealMatch_LandsNonScoutJumps()
     {
         if (Corpus.Demo("z1800") is not { } path)
         {
@@ -206,37 +203,100 @@ public sealed class CorpusPlayerGestureTests
 
         DemoTimeline timeline = TimelineCache.For(path);
         List<ScenePlayer> players = [];
-        int fromJump = 0;
-        int fromAirwalk = 0;
+        int landed = 0;
 
         for (int tick = timeline.FirstTick + 100; tick < timeline.LastTick; tick += 200)
         {
             timeline.PlayersAt(tick, players);
 
             // **Not a scout's**, because the old feed did land a scout: it replaced his double jump. Any other class's
-            // jump-landing could only come from the jump's own clear.
-            foreach ((int? playerClass, SceneGesture landing) in players
-                .SelectMany(one => (one.Gestures ?? []).Select(gesture => (one.PlayerClass, gesture)))
-                .Where(pair => pair.gesture.ActivityName == PlayerGestureFeed.LandActivity))
+            // landing could only come from a clear.
+            foreach (SceneGesture landing in players
+                .Where(one => one.PlayerClass != ScoutClass)
+                .SelectMany(one => one.Gestures ?? [])
+                .Where(gesture => gesture.ActivityName == PlayerGestureFeed.LandActivity))
             {
                 landing.Slot.ShouldBe(GestureSlot.Jump);
-
-                if (landing.FromAirwalk)
-                {
-                    fromAirwalk++;
-                }
-                else if (playerClass != ScoutClass)
-                {
-                    fromJump++;
-                }
+                landed++;
             }
         }
 
-        TestContext.Out.WriteLine($"sampled landings: {fromJump} from a non-scout jump, {fromAirwalk} from an air-walk");
+        TestContext.Out.WriteLine($"sampled non-scout landings: {landed}");
 
-        fromJump.ShouldBeGreaterThan(0, "a match is full of ordinary jumps, and each clear makes a landing");
-        fromAirwalk.ShouldBeGreaterThan(0, "z1800 is full of rocket and sticky jumps, and each latch ends in one");
+        landed.ShouldBeGreaterThan(0, "a match is full of jumps, and each clear makes a landing");
     }
+
+    /// <remarks>
+    /// **The class scripts reach the timeline's output** (B437). Built with the two flags the shipped scripts carry —
+    /// measured by <c>ClassAirwalkTests</c>: the soldier and medic set `DontDoNewJump`, the medic `DontDoAirwalk` — a
+    /// soldier jumps as the single `ACT_MP_JUMP` and never as the split push-off and float, and a medic never
+    /// air-walks. The control is the same demo without scripts, where the soldier's jumps split.
+    /// </remarks>
+    [Test]
+    public void Build_OnARealMatchWithTheClassScripts_JumpsTheSoldierTheOldWay()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        static (int Legacy, int Split, int MedicAirwalk) Count(DemoTimeline timeline)
+        {
+            int legacy = 0, split = 0, medicAirwalk = 0;
+
+            foreach (ScenePlayer player in timeline.Frames.SelectMany(frame => frame.Players))
+            {
+                if (player.PlayerClass == SoldierClass && player.JumpActivity == PlayerActivity.LegacyJump)
+                {
+                    legacy++;
+                }
+                else if (player.PlayerClass == SoldierClass &&
+                    player.JumpActivity is PlayerActivity.JumpStart or PlayerActivity.Jump)
+                {
+                    split++;
+                }
+                else if (player.PlayerClass == MedicClass && player.JumpActivity == PlayerActivity.Airwalk)
+                {
+                    medicAirwalk++;
+                }
+            }
+
+            return (legacy, split, medicAirwalk);
+        }
+
+        (int Legacy, int Split, int MedicAirwalk) scripted =
+            Count(DemoTimeline.Build(File.ReadAllBytes(path), classes: new StockScripts()));
+        (int Legacy, int Split, int MedicAirwalk) control = Count(TimelineCache.For(path));
+
+        TestContext.Out.WriteLine($"scripted {scripted}, without scripts {control}");
+
+        scripted.Legacy.ShouldBeGreaterThan(0);
+        scripted.Split.ShouldBe(0);
+        scripted.MedicAirwalk.ShouldBe(0);
+        control.Split.ShouldBeGreaterThan(0, "the control: without the script the soldier's jump splits");
+        control.Legacy.ShouldBe(0);
+    }
+
+    /// <summary>The two flags as the shipped class scripts set them, measured in <c>ClassAirwalkTests</c>.</summary>
+    private sealed class StockScripts : IClassAnimationScripts
+    {
+        public ClassAnimationScript Of(int? playerClass) => playerClass switch
+        {
+            SoldierClass => new(DontDoAirwalk: false, DontDoNewJump: true),
+            MedicClass => new(DontDoAirwalk: true, DontDoNewJump: true),
+            _ => default,
+        };
+    }
+
+    /// <summary>`TF_CLASS_SCOUT`.</summary>
+    private const int ScoutClass = 1;
+
+    /// <summary>`TF_CLASS_SOLDIER`.</summary>
+    private const int SoldierClass = 3;
+
+    /// <summary>`TF_CLASS_MEDIC`.</summary>
+    private const int MedicClass = 5;
 
     /// <remarks>
     /// **The air-walking reload, counted in the OUTPUT and checked against a second reading of the

@@ -48,10 +48,6 @@ public sealed class PlayerPoseWiringCompletenessTests
             "non-default fixture cannot distinguish carried from dropped here — covered by " +
             "PlayerCompletenessTests, which guards the record itself",
 
-        ["Airwalking"] =
-            "gated by the class script: `player.Airwalking && appearance.Airwalks(class)`, and " +
-            "only the medic opts out — so a stub appearance decides this, not the player",
-
         ["Skin"] =
             "computed rather than carried: `m_nSkin = (team == TF_TEAM_RED) ? 0 : 1`, which the " +
             "client works out for itself (`c_tf_player.cpp:712`)",
@@ -186,7 +182,7 @@ public sealed class PlayerPoseWiringCompletenessTests
             MoveX = 0.25f,
             MoveY = -0.75f,
             Flags = 1,
-            AirborneSeconds = 0.375f,
+            JumpActivity = PlayerActivity.JumpStart,
             EyePitch = 11f,
             EyeYaw = 22f,
             AimYaw = 33f,
