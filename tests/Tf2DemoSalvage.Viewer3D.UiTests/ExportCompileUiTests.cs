@@ -184,7 +184,13 @@ public sealed class ExportCompileUiTests
             dialog.FindAllDescendants(search => search.ByControlType(ControlType.Edit).And(search.ByName("File name:"))),
             edit => $"'{edit.Properties.Name.ValueOrDefault}' id={edit.Properties.AutomationId.ValueOrDefault} "
                 + $"offscreen={edit.Properties.IsOffscreen.ValueOrDefault} enabled={edit.Properties.IsEnabled.ValueOrDefault}")));
-        Mark($"name box ready: id={name.Properties.AutomationId.ValueOrDefault} value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'");
+        Mark($"name box ready: id={name.Properties.AutomationId.ValueOrDefault} value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
+
+        // Navigated, not merely drawn: the address band names its folder once the dialog has
+        // browsed there, and anything typed before that can be replaced by the dialog's own setup.
+        Retry.WhileFalse(() => Address(dialog).Contains("Address: ", StringComparison.Ordinal), DialogTimeout)
+            .Success.ShouldBeTrue("the dialog never named the folder it opened in: " + Address(dialog));
+        Mark($"navigated; value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
         name.Patterns.Value.Pattern.SetValue(path);
 
         string typed = Retry.WhileFalse(
@@ -192,9 +198,6 @@ public sealed class ExportCompileUiTests
             ? path
             : name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
         Mark($"typed; reads back '{typed}'");
-        Mark("address: " + string.Join(" | ", Array.ConvertAll(
-            dialog.FindAllDescendants(search => search.ByControlType(ControlType.ToolBar)),
-            bar => bar.Properties.Name.ValueOrDefault)));
         typed.ShouldBe(path, "the name box did not end up holding the typed path");
         AutomationElement[] oks = dialog.FindAllDescendants(search => search.ByAutomationId("1"));
         Mark("buttons with id 1: " + string.Join("; ", Array.ConvertAll(oks, ok =>
@@ -203,6 +206,7 @@ public sealed class ExportCompileUiTests
             + $"parent={ok.Parent?.Properties.ClassName.ValueOrDefault}")));
         AutomationElement confirm = Array.Find(oks, ok => ok.Properties.ControlType.ValueOrDefault == ControlType.Button
             && !ok.Properties.IsOffscreen.ValueOrDefault) ?? throw new InvalidOperationException("no visible OK button");
+        Mark($"before OK: value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
         confirm.AsButton().Invoke();
         Mark($"'{confirm.Properties.Name.ValueOrDefault}' invoked");
 
@@ -210,6 +214,11 @@ public sealed class ExportCompileUiTests
         Mark("closed: " + closed);
         closed.ShouldBeTrue($"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
     }
+
+    /// <summary>The dialog's toolbar names, which include "Address: &lt;folder&gt;" once it has navigated.</summary>
+    private static string Address(AutomationElement dialog) => string.Join(" | ", Array.ConvertAll(
+        dialog.FindAllDescendants(search => search.ByControlType(ControlType.ToolBar)),
+        bar => bar.Properties.Name.ValueOrDefault));
 
     /// <summary>
     /// The viewer's common dialog, found as a top-level window of its process.
