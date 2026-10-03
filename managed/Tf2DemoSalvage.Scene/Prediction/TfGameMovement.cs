@@ -673,7 +673,8 @@ public sealed class TfGameMovement
             }
             else
             {
-                _player.Conditions = Without(_player.Conditions, CondLostFooting);
+                // RemoveCond( TF_COND_LOST_FOOTING ): bit 30 of m_nPlayerCondEx3 (conditions 96 to 127).
+                _player.Conditions = _player.Conditions with { Ex3 = _player.Conditions.Ex3 & ~(1 << (CondLostFooting - 96)) };
             }
         }
 
@@ -704,15 +705,6 @@ public sealed class TfGameMovement
         SetGroundEntity(inAir || !Hit(trace) ? null : trace);
         _player.SurfaceFriction *= inAir ? airFrictionMult : groundFrictionMult;
     }
-
-    private static PlayerConditions Without(PlayerConditions conditions, int condition) => (condition / 32) switch
-    {
-        0 => conditions with { Cond = conditions.Cond & ~(1 << condition) },
-        1 => conditions with { Ex = conditions.Ex & ~(1 << (condition - 32)) },
-        2 => conditions with { Ex2 = conditions.Ex2 & ~(1 << (condition - 64)) },
-        3 => conditions with { Ex3 = conditions.Ex3 & ~(1 << (condition - 96)) },
-        _ => conditions with { Ex4 = conditions.Ex4 & ~(1 << (condition - 128)) },
-    };
 
     /// <summary><c>TracePlayerBBoxForGround</c> (<c>gamemovement.cpp:3660</c>): the four quadrant boxes.</summary>
     private BspTrace TracePlayerBBoxForGround(Vector3 start, Vector3 end, BspTrace original)
