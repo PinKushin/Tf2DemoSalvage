@@ -3,6 +3,8 @@ using System.IO;
 
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using FlaUI.Core.Input;
+using FlaUI.Core.WindowsAPI;
 using FlaUI.Core.Tools;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
@@ -190,11 +192,26 @@ public sealed class ExportCompileUiTests
             edit => $"'{edit.Properties.Name.ValueOrDefault}' id={edit.Properties.AutomationId.ValueOrDefault} "
                 + $"offscreen={edit.Properties.IsOffscreen.ValueOrDefault} enabled={edit.Properties.IsEnabled.ValueOrDefault}")));
         Mark($"name box ready: id={name.Properties.AutomationId.ValueOrDefault} value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'");
-        name.Patterns.Value.Pattern.SetValue(path);
+        // Typed as keystrokes, not ValuePattern.SetValue: on the CI runner the box read back the
+        // set path and the dialog still saved its default name in Documents (runs 37135177480 and
+        // 37136603324, the second with the viewer in the foreground). Keystrokes are what the dialog
+        // is built to hear; they go only where the focus guard says the viewer is in front.
+        name.Focus();
+        Retry.WhileFalse(
+                () => _viewer.HasFocus()
+                    && _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault
+                        == name.Properties.AutomationId.ValueOrDefault,
+                DialogTimeout)
+            .Success.ShouldBeTrue("the dialog's name box did not take keyboard focus: " + Focused());
+        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+        Keyboard.Type(path);
 
-        string typed = name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
+        string typed = Retry.WhileFalse(
+                () => name.Patterns.Value.Pattern.Value.ValueOrDefault == path, DialogTimeout).Success
+            ? path
+            : name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
         Mark($"typed; reads back '{typed}'");
-        typed.ShouldBe(path, "the name box did not keep the typed path");
+        typed.ShouldBe(path, "the name box did not end up holding the typed path");
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
         Mark("OK invoked");
 
