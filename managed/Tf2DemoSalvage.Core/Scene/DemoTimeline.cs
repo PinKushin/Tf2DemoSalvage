@@ -36,6 +36,14 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// Stepped by <see cref="PlayerGestureFeed.HandleJumping"/>, which keeps the latch, the jump clock from the
 /// `PLAYERANIMEVENT_JUMP` event and the class script.
 /// </param>
+/// <param name="ActivityOverride">
+/// Which of the player's own activity tables `CTFPlayerAnimState::ActivityOverride` walks before the weapon's —
+/// kart, competitive loser, loser or carrying a building (B437).
+/// </param>
+/// <param name="CompetitiveWinner">
+/// `TF_COND_COMPETITIVE_WINNER`, which turns certain stands into `ACT_MP_COMPETITIVE_WINNERSTATE` after the weapon's
+/// table (`tf_playeranimstate.cpp:142-151`).
+/// </param>
 /// <param name="DiscontinuitySeconds">
 /// When this player last JUMPED — a teleport or a respawn — so a sequence change at that moment
 /// cuts rather than cross-fading (B346). `CheckForSequenceChange` empties the transition queue on
@@ -175,6 +183,8 @@ public readonly record struct ScenePlayer(
     int? Flags = null,
     bool Drawn = true,
     PlayerActivity? JumpActivity = null,
+    PlayerActivityOverride ActivityOverride = PlayerActivityOverride.None,
+    bool CompetitiveWinner = false,
     double DiscontinuitySeconds = 0d,
 
     // **The spy disguise, and the side we are on.** `C_TFPlayer::ValidateModelIndex` and `GetSkin`
@@ -3175,6 +3185,10 @@ public sealed class DemoTimeline
                         ?? First(recorder, TeamProperties)
                     : null;
 
+            // Asked once a frame rather than per player: the round state and the ConVar are the frame's.
+            EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
+            bool alwaysLoserNow = (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0;
+
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 // **Remembered before the visibility guard, because a dying player fails it.**
@@ -3441,6 +3455,14 @@ public sealed class DemoTimeline
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     JumpActivity: jumpActivity,
 
+                    // **The player's own activity table, chosen every frame `TranslateActivity` runs** (B437), from the
+                    // same `IsLoser` the gestures ask and the carry flag the HUD reads.
+                    ActivityOverride: PlayerActivityOverrides.For(
+                        player.Conditions(),
+                        IsLoser(player, rulesNow, alwaysLoserNow),
+                        player.Integer(CarryingObjectProperty) is > 0),
+                    CompetitiveWinner: player.Conditions().Has(PlayerConditions.CompetitiveWinner),
+
                     // **In seconds, like every other clock on this record**, so the consumer
                     // compares stamps rather than converting ticks itself (B346).
                     DiscontinuitySeconds:
@@ -3522,7 +3544,7 @@ public sealed class DemoTimeline
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
-                    CarryingObject = player.Integer("DT_TFPlayerShared.m_bCarryingObject") is > 0,
+                    CarryingObject = player.Integer(CarryingObjectProperty) is > 0,
                     StunFlags = player.StunFlags(),
                     StunIndex = player.StunIndex(),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
@@ -3989,27 +4011,37 @@ public sealed class DemoTimeline
                 ? carried.ClassName
                 : null;
 
-        EntityState? rules = entities.OfClass(GameRulesClass).FirstOrDefault();
-
         return new GestureContext(
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0,
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
-            IsLoser: LoserState.IsLoser(
-                alwaysLoser,
-                SceneGameRules.MatchTypeCompetitive(rules?.Integer(MatchGroupProperty) ?? -1),
-                rules?.Integer(RoundStateProperty),
-                rules?.Integer(WinningTeamProperty),
-                First(state, TeamProperties),
-                state.PlayerClass(),
-                state.Conditions(),
-                state.DisguiseTeam(),
-                state.StunIndex(),
-                state.StunFlags()),
+            IsLoser: IsLoser(state, entities.OfClass(GameRulesClass).FirstOrDefault(), alwaysLoser),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
                 state.Conditions().Has(PlayerConditions.Zoomed));
     }
+
+    /// <summary>`m_Shared.IsLoser()` of one player against the game rules, by <see cref="LoserState.IsLoser"/>.</summary>
+    /// <param name="state">The player.</param>
+    /// <param name="rules">The game rules entity, or null.</param>
+    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`.</param>
+    /// <returns>Whether the player is a loser.</returns>
+    /// <remarks>One place, asked by the gesture context and by the activity table alike (B437).</remarks>
+    private static bool IsLoser(EntityState state, EntityState? rules, bool alwaysLoser) =>
+        LoserState.IsLoser(
+            alwaysLoser,
+            SceneGameRules.MatchTypeCompetitive(rules?.Integer(MatchGroupProperty) ?? -1),
+            rules?.Integer(RoundStateProperty),
+            rules?.Integer(WinningTeamProperty),
+            First(state, TeamProperties),
+            state.PlayerClass(),
+            state.Conditions(),
+            state.DisguiseTeam(),
+            state.StunIndex(),
+            state.StunFlags());
+
+    /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
+    private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";
 
     /// <summary>The server class of the weapon <c>bIsMinigun</c> tests for.</summary>
     private const string MinigunClass = "CTFMinigun";

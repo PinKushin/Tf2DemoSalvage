@@ -384,6 +384,8 @@ public static class PlayerProps
                     // each the other's table without it.
                     Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass, player.WeaponItem),
                     JumpActivity = player.JumpActivity,
+                    ActivityOverride = player.ActivityOverride,
+                    CompetitiveWinnerClass = player.CompetitiveWinner ? player.PlayerClass : null,
                     EyePitch = player.EyePitch,
                     EyeYaw = player.EyeYaw,
                     AimYaw = player.AimYaw,

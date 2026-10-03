@@ -47,6 +47,15 @@ public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex
     /// <summary><c>TF_COND_STUNNED</c>, <c>tf_shareddefs.h:705</c> — "Any type of stun. Check iStunFlags for more info."</summary>
     public const int Stunned = 15;
 
+    /// <summary>`TF_COND_HALLOWEEN_KART` (`tf_shareddefs.h:772`).</summary>
+    public const int HalloweenKart = 82;
+
+    /// <summary>`TF_COND_COMPETITIVE_WINNER` (`tf_shareddefs.h:806`).</summary>
+    public const int CompetitiveWinner = 116;
+
+    /// <summary>`TF_COND_COMPETITIVE_LOSER` (`tf_shareddefs.h:807`).</summary>
+    public const int CompetitiveLoser = 117;
+
     /// <summary><c>TF_COND_ZOOMED</c>, <c>tf_shareddefs.h:691</c> — a scoped sniper rifle.</summary>
     /// <remarks>
     /// **It selects a different ATTACK gesture, not just a viewmodel.**

@@ -58,15 +58,15 @@ public sealed class PlayerActivityTableConformanceTests
         // The player's table first, then the weapon's (:127-131): ACT_MP_RUN becomes ACT_MP_RUN_LOSERSTATE, which no
         // weapon table rewrites, so it reaches the model as that; a reload, which the loser table leaves alone, is the
         // weapon's.
-        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinner: false, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinnerClass: null)
             .ShouldBe("ACT_MP_RUN_LOSERSTATE");
-        PlayerActivityTable.Translate("ACT_MP_JUMP_LAND", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinner: false, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_JUMP_LAND", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinnerClass: null)
             .ShouldBe("ACT_MP_JUMP_LAND_LOSERSTATE");
-        PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinner: false, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.LoserState, competitiveWinnerClass: null)
             .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY");
 
         // The control: no override, the weapon's table alone.
-        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.None, competitiveWinner: false, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.None, competitiveWinnerClass: null)
             .ShouldBe("ACT_MP_RUN_PRIMARY");
     }
 
@@ -74,15 +74,15 @@ public sealed class PlayerActivityTableConformanceTests
     public void Translate_ACompetitiveWinner_StandsInTheWinnersPoseOnlyWhereTheEngineSaysSo()
     {
         // :142-151 — after the weapon: STAND_PRIMARY for anyone, STAND_MELEE for a spy, STAND_SECONDARY for a demoman.
-        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "PRIMARY", PlayerActivityOverride.None, competitiveWinner: true, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "PRIMARY", PlayerActivityOverride.None, competitiveWinnerClass: 3)
             .ShouldBe("ACT_MP_COMPETITIVE_WINNERSTATE");
-        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "MELEE", PlayerActivityOverride.None, competitiveWinner: true, playerClass: 8)
+        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "MELEE", PlayerActivityOverride.None, competitiveWinnerClass: 8)
             .ShouldBe("ACT_MP_COMPETITIVE_WINNERSTATE");
-        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "MELEE", PlayerActivityOverride.None, competitiveWinner: true, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "MELEE", PlayerActivityOverride.None, competitiveWinnerClass: 3)
             .ShouldBe("ACT_MP_STAND_MELEE", "only a spy's melee stand");
-        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "SECONDARY", PlayerActivityOverride.None, competitiveWinner: true, playerClass: 4)
+        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "SECONDARY", PlayerActivityOverride.None, competitiveWinnerClass: 4)
             .ShouldBe("ACT_MP_COMPETITIVE_WINNERSTATE");
-        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.None, competitiveWinner: true, playerClass: 3)
+        PlayerActivityTable.Translate("ACT_MP_RUN", "PRIMARY", PlayerActivityOverride.None, competitiveWinnerClass: 3)
             .ShouldBe("ACT_MP_RUN_PRIMARY", "a run is not a stand");
     }
 

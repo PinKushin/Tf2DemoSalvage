@@ -314,7 +314,7 @@ public sealed class PoseCompletenessTests
 
         // Neither at its default, so a pose that dropped either draws the winner's ordinary body (B437).
         ActivityOverride = PlayerActivityOverride.LoserState,
-        CompetitiveWinner = true,
+        CompetitiveWinnerClass = 8,
 
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,

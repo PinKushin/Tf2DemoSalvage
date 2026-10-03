@@ -1892,7 +1892,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // and landings and wrong for every attack: `ACT_MP_ATTACK_STAND_PRIMARYFIRE` maps to
             // `ACT_MP_ATTACK_STAND_PRIMARY`, a rename rather than a suffix, and
             // `ACT_MP_CROUCH_DEPLOYED` maps to `ACT_MP_CROUCHWALK_DEPLOYED`.
-            string activity = WeaponActivityTable.Override(prop.Pose.Slot ?? "PRIMARY", named);
+            //
+            // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
+            // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
+            // voice gestures are the `_BUILDING` ones.
+            string activity = PlayerActivityTable.Translate(
+                named, prop.Pose.Slot ?? "PRIMARY", prop.Pose.ActivityOverride, prop.Pose.CompetitiveWinnerClass);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -4430,7 +4435,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 jumping: prop.Pose.JumpActivity,
 
                 // Waist deep turns a jump into a swim.
-                waterLevel: prop.Pose.WaterLevel);
+                waterLevel: prop.Pose.WaterLevel,
+
+                // The player's own table before the weapon's, and the winner's stand after it (B437).
+                table: prop.Pose.ActivityOverride,
+                competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass);
 
             // **A negative answer is left alone rather than written.** -1 means "this model has no
             // such sequence", and storing it would replace a working sequence with one that decodes
@@ -4506,6 +4515,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// <param name="slot">The table the held weapon drives, such as <c>SECONDARY</c>.</param>
     /// <param name="jumping">HandleJumping's answer, or null when it returned false (B437).</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
+    /// <param name="table">The player's own activity table (B437).</param>
+    /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
@@ -4518,10 +4529,13 @@ public sealed class EntityModelSet : Hud.IMdlCache
         bool alive = true,
         string slot = "PRIMARY",
         PlayerActivity? jumping = null,
-        int? waterLevel = null) =>
+        int? waterLevel = null,
+        PlayerActivityOverride table = PlayerActivityOverride.None,
+        int? competitiveWinnerClass = null) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
-            ? PlayerAnimation.For(skinned, speed, flags, alive, slot, jumping, waterLevel)
+            ? PlayerAnimation.For(
+                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>

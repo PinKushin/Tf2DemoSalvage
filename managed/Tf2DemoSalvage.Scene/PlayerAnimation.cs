@@ -82,6 +82,8 @@ internal static class PlayerAnimation
     /// </param>
     /// <param name="jumping">HandleJumping's answer, or null when it returned false (B437).</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
+    /// <param name="table">The player's own activity table, walked before the weapon's (B437).</param>
+    /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -103,7 +105,9 @@ internal static class PlayerAnimation
         bool alive,
         string slot = "PRIMARY",
         PlayerActivity? jumping = null,
-        int? waterLevel = null)
+        int? waterLevel = null,
+        PlayerActivityOverride table = PlayerActivityOverride.None,
+        int? competitiveWinnerClass = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -118,7 +122,7 @@ internal static class PlayerAnimation
 
         PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping);
 
-        int wanted = model.ForActivity(Translate(activity, slot));
+        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass));
 
         if (wanted >= 0)
         {
@@ -130,7 +134,7 @@ internal static class PlayerAnimation
         // that is nearer to what the player is doing than a different activity would be. Only after
         // both fail does the activity itself change, below.
         if (!string.Equals(slot, "PRIMARY", StringComparison.Ordinal) &&
-            model.ForActivity(Translate(activity, "PRIMARY")) is var primary and >= 0)
+            model.ForActivity(Translate(activity, "PRIMARY", table, competitiveWinnerClass)) is var primary and >= 0)
         {
             return primary;
         }
@@ -138,23 +142,27 @@ internal static class PlayerAnimation
         // The two the engine starts from, in order: whatever the player is doing, standing or
         // running is closer to it than the reference pose.
         int fallback = speed > MovingMinimumSpeed
-            ? model.ForActivity(Translate(PlayerActivity.Run, slot))
-            : model.ForActivity(Translate(PlayerActivity.StandIdle, slot));
+            ? model.ForActivity(Translate(PlayerActivity.Run, slot, table, competitiveWinnerClass))
+            : model.ForActivity(Translate(PlayerActivity.StandIdle, slot, table, competitiveWinnerClass));
 
         return fallback >= 0 ? fallback : model.Find("Stand_PRIMARY");
     }
 
-    /// <summary>The activity a model is asked for: <c>CalcMainActivity</c>'s answer through the weapon's table.</summary>
+    /// <summary>The activity a model is asked for: <c>CalcMainActivity</c>'s answer through `TranslateActivity`.</summary>
     /// <param name="activity">What the player is doing.</param>
     /// <param name="role">The held weapon's table, as <c>WeaponRoles</c> names it.</param>
-    /// <returns>The row the table holds for it, or the activity's own name when it holds none.</returns>
+    /// <param name="table">The player's own table, walked first (B437).</param>
+    /// <param name="competitiveWinnerClass">The class of a competitive winner, else null.</param>
+    /// <returns>The name the model is asked for.</returns>
     /// <remarks>
-    /// **`CTFPlayerAnimState::TranslateActivity`'s weapon step** (`tf_playeranimstate.cpp:133`):
-    /// `pWeapon->ActivityOverride( translateActivity, NULL )` walks the table `ActivityList` picked, the same one every
-    /// gesture goes through (`EntityModels.LayersFor`), so the body and its layers cannot disagree about the weapon.
-    /// A row missing is Valve's miss too — `ActivityOverride` hands back what it was given — which is how
-    /// `ACT_DIESIMPLE` reaches the model unchanged.
+    /// **`CTFPlayerAnimState::TranslateActivity`** (`tf_playeranimstate.cpp:124-153`), by
+    /// <see cref="PlayerActivityTable.Translate"/> — the same route every gesture takes (`EntityModels.LayersFor`), so
+    /// the body and its layers cannot disagree.
     /// </remarks>
-    internal static string Translate(PlayerActivity activity, string role) =>
-        WeaponActivityTable.Override(role, PlayerActivityState.IdealName(activity));
+    internal static string Translate(
+        PlayerActivity activity,
+        string role,
+        PlayerActivityOverride table = PlayerActivityOverride.None,
+        int? competitiveWinnerClass = null) =>
+        PlayerActivityTable.Translate(PlayerActivityState.IdealName(activity), role, table, competitiveWinnerClass);
 }

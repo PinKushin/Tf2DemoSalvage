@@ -392,6 +392,15 @@ public readonly record struct ScenePose
     /// </remarks>
     public PlayerActivity? JumpActivity { get; init; }
 
+    /// <summary>The player's own activity table, walked before the weapon's (B437).</summary>
+    public PlayerActivityOverride ActivityOverride { get; init; }
+
+    /// <summary>
+    /// The player's class while `TF_COND_COMPETITIVE_WINNER` holds, else null: the winner's stand depends on both
+    /// (`tf_playeranimstate.cpp:142-151`, B437).
+    /// </summary>
+    public int? CompetitiveWinnerClass { get; init; }
+
     /// <summary>How far up or down the player is looking, in degrees.</summary>
     /// <remarks>
     /// **Not <see cref="Pitch"/>, and the two must not be confused.** That one rotates the whole
@@ -2283,6 +2292,8 @@ public sealed class ScenePropTrack
 
             Slot = from.Slot,
             JumpActivity = from.JumpActivity,
+            ActivityOverride = from.ActivityOverride,
+            CompetitiveWinnerClass = from.CompetitiveWinnerClass,
             EyePitch = from.EyePitch,
             EyeYaw = from.EyeYaw,
             AimYaw = from.AimYaw,
