@@ -73,13 +73,6 @@ public sealed class ExportCompileUiTests
             Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
         }
 
-        // Collapsed, as every other menu-driving helper leaves its menu (ViewerApplication.InvokeMenuItem).
-        // Press cannot collapse straight after its invoke — that raced the posted dialog and closed it —
-        // and leaving it expanded broke the shared viewer: opening Export from this menu and cancelling,
-        // with no export at all, failed nine later key-press and full-screen tests on CI (probe run
-        // 37147488078), against none with this test ignored (run 37138141067). The menu bar was
-        // holding keyboard focus afterwards ("focus at teardown: MenuBar 'Main menu'").
-        FileMenu().Patterns.ExpandCollapse.Pattern.Collapse();
         TestContext.Out.WriteLine("focus at teardown: " + Focused());
         TestContext.Out.WriteLine("dialog timeline:\n" + string.Join("\n", Timeline));
         Timeline.Clear();
@@ -100,7 +93,6 @@ public sealed class ExportCompileUiTests
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
         WaitForStatus("Exported").ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
-        FileMenu().Patterns.ExpandCollapse.Pattern.Collapse();
 
         Press("Compile assembly");
         FillDialog(text, string.Empty);
@@ -110,6 +102,54 @@ public sealed class ExportCompileUiTests
         File.ReadAllBytes(rebuilt).AsSpan().SequenceEqual(File.ReadAllBytes(ViewerSession.DemoPath))
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
     }
+
+    [Test]
+    public void FileDialog_CancelledAfterTheFileMenu_LeavesTheKeyBindingsWorking()
+    {
+        // **The dialog returned and no control had keyboard focus**, so the next keystroke went to
+        // the window as a system key — UIA reported focus on its title-bar menu — and ProcessCmdKey,
+        // where every binding lives, never ran. On CI that was ten key-press and full-screen tests
+        // failing after the Export test; reproduced locally with no export at all: SPACE switched
+        // the camera before the File menu and a cancelled dialog, and did nothing after, Escape
+        // included. The same shape as full screen hiding the focused playlist (MainForm).
+        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE did not switch the camera before the dialog either — no control");
+
+        Press("Export assembly");
+        AutomationElement dialog = Retry.WhileNull(Dialog, DialogTimeout).Result
+            ?? throw new InvalidOperationException("no file dialog opened");
+        Retry.WhileNull(
+                () => dialog.FindFirstChild(search => search.ByAutomationId("2")) is { IsEnabled: true } cancel ? cancel : null,
+                DialogTimeout)
+            .Result!.AsButton().Invoke();
+        Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
+
+        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE stopped switching the camera after the dialog: " + Focused());
+    }
+
+    /// <summary>Presses the camera-mode key, then returns the camera to the free view it started in.</summary>
+    private static bool SpaceSwitchesTheCamera()
+    {
+        int before = CameraModeChanges();
+        ViewerSession.PressSwitchCameraMode();
+        bool changed = Retry.WhileFalse(() => CameraModeChanges() > before, DialogTimeout).Success;
+
+        // Back to free, as FirstPersonUiTests' own setup does: the session is shared.
+        int free = _viewer.Count(BackToTheFreeCamera);
+        for (int press = 0; changed && press < 2 && _viewer.Count(BackToTheFreeCamera) == free; press++)
+        {
+            int was = CameraModeChanges();
+            ViewerSession.PressSwitchCameraMode();
+            Retry.WhileFalse(() => CameraModeChanges() > was, DialogTimeout, throwOnTimeout: true);
+        }
+
+        return changed;
+    }
+
+    private const string BackToTheFreeCamera = "back to the free camera";
+
+    private static int CameraModeChanges() =>
+        _viewer.Count(ViewerSession.FirstPersonOn) + _viewer.Count("third person on,") + _viewer.Count(BackToTheFreeCamera);
 
     private static AutomationElement FileMenu() => Retry.WhileNull(
         () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),

@@ -8561,6 +8561,50 @@ internal class MainForm : Form, IFrameSteps
         return button;
     }
 
+    /// <summary>Shows a common dialog over this window and makes sure a key lands somewhere afterwards.</summary>
+    /// <param name="dialog">The dialog to show.</param>
+    /// <returns>What the dialog returned.</returns>
+    /// <remarks>
+    /// **A dialog can return with no control focused**, and then this window takes no keys at all:
+    /// with no focused window, Windows delivers a keystroke to the active window as a SYSTEM key, so
+    /// SPACE opens the title-bar menu and <see cref="ProcessCmdKey"/>, where every binding lives,
+    /// never runs. Measured by a UI test that opens Export from the File menu and cancels: SPACE
+    /// switched the camera before and did nothing after, Escape included, with UIA reporting focus
+    /// on the title-bar menu — and on CI it failed ten later key-press tests. The same shape as full
+    /// screen hiding the focused playlist, fixed the same way: focus put back on the active control.
+    /// </remarks>
+    private DialogResult ShowModal(CommonDialog dialog)
+    {
+        DialogResult result = dialog.ShowDialog(this);
+
+        RefocusIfNothingHasFocus("the dialog returned");
+        BeginInvoke(() => RefocusIfNothingHasFocus("after the dialog's messages"));
+
+        return result;
+    }
+
+    /// <summary>Puts keyboard focus on the viewport when nothing, or only the menu bar, holds it.</summary>
+    /// <param name="when">Which check this is, for the log.</param>
+    /// <remarks>
+    /// **The menu bar is the case that was measured.** Opened through UI Automation, the File menu
+    /// took keyboard focus and kept it through the dialog: on return `ActiveControl` was the menu
+    /// strip, which holds a real window handle, so a "nothing is focused" check passed and every key
+    /// still went to the menu rather than to a binding.
+    /// </remarks>
+    private void RefocusIfNothingHasFocus(string when)
+    {
+        IntPtr focused = ForegroundProbe.FocusedWindow();
+        bool lost = focused == IntPtr.Zero || FocusedControl() is ToolStrip;
+        _log.LogInformation(
+            "{Message}",
+            string.Create(CultureInfo.InvariantCulture, $"focus check, {when}: window {focused:x}, lost {lost}{FocusHere()}"));
+
+        if (lost && !_viewport.Focus())
+        {
+            _ = Focus();
+        }
+    }
+
     private void OpenFolder()
     {
         using FolderBrowserDialog dialog = new()
@@ -8569,7 +8613,7 @@ internal class MainForm : Form, IFrameSteps
             UseDescriptionForTitle = true,
         };
 
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        if (ShowModal(dialog) == DialogResult.OK)
         {
             AddToLibrary(dialog.SelectedPath);
         }
@@ -8657,7 +8701,7 @@ internal class MainForm : Form, IFrameSteps
             FileName = Path.GetFileNameWithoutExtension(demoPath) + ".txt",
         };
 
-        return dialog.ShowDialog(this) == DialogResult.OK
+        return ShowModal(dialog) == DialogResult.OK
             ? RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", dialog.FileName, output =>
                 $"Exported {DemoAssembly.Export(demoPath, output):N0} commands to {output}")
             : FileWork;
@@ -8674,7 +8718,7 @@ internal class MainForm : Form, IFrameSteps
             Title = "Compile demo assembly",
         })
         {
-            if (open.ShowDialog(this) != DialogResult.OK)
+            if (ShowModal(open) != DialogResult.OK)
             {
                 return FileWork;
             }
@@ -8689,7 +8733,7 @@ internal class MainForm : Form, IFrameSteps
             FileName = Path.GetFileNameWithoutExtension(source) + ".dem",
         };
 
-        return save.ShowDialog(this) == DialogResult.OK
+        return ShowModal(save) == DialogResult.OK
             ? RunFileWork($"Compiling {Path.GetFileName(source)}...", save.FileName, output =>
             {
                 (int commands, int bytes) = DemoAssembly.Compile(source, output);
@@ -8734,7 +8778,7 @@ internal class MainForm : Form, IFrameSteps
             Multiselect = true,
         };
 
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        if (ShowModal(dialog) == DialogResult.OK)
         {
             AddToLibrary(dialog.FileNames);
         }
