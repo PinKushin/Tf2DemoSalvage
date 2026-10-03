@@ -69,6 +69,26 @@ public sealed class TraceBaselineAndProgressTests
     }
 
     [Test]
+    public void Trace_ABaselineOnlyTheStringTablesBlockCarries_AppearsOnTheEnteringEntity()
+    {
+        // **A recording started mid-match** (B452): the signon's table predates the class's baseline,
+        // and the baseline reaches the client only through `dem_stringtables`.
+        DemoSchema schema = SyntheticPlayer.Schema();
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        byte[] block = Net.DemoStringTablesTests.Block(
+            (BaselineBuilder.TableName, [(ClassKey, Payload(decoder, (BaselineOnly, 7)))]));
+
+        string trace = Trace(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(schema),
+            new DemoCommand(DemoCommandType.StringTables, 0, block),
+            Snapshot(decoder)));
+
+        trace.ShouldContain($"{BaselineOnly} 7");
+    }
+
+    [Test]
     public void Trace_WithoutABaseline_OmitsTheUnsentProperty()
     {
         // **The control.** Without it, an assertion that a property appears cannot distinguish
