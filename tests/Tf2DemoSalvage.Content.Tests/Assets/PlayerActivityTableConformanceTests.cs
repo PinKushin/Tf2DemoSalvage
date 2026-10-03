@@ -108,6 +108,27 @@ public sealed class PlayerActivityTableConformanceTests
             .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY", "the control: no item");
     }
 
+    /// <remarks>
+    /// **A replacement naming an activity the game never registered is dropped** — `GetActivityOverride` returns the
+    /// replacement only `if ( pData-&gt;iReplacement &gt; 0 )`, the index `ActivityList_IndexForName` gave it
+    /// (`econ_item_schema.cpp:3582-3590`). Registered means shared (the `Activity` enum), or private to a model the
+    /// game has loaded; the model being animated is one, so a name it declares stands.
+    /// </remarks>
+    [Test]
+    public void Translate_AReplacementNamingNoRegisteredActivity_KeepsTheWeaponsAnswer()
+    {
+        Dictionary<string, string> item = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ACT_MP_RELOAD_STAND_PRIMARY"] = "ACT_MP_RELOAD_NOWHERE",
+        };
+
+        PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.None, null, item)
+            .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY");
+        PlayerActivityTable.Translate(
+                "ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.None, null, item, name => name == "ACT_MP_RELOAD_NOWHERE")
+            .ShouldBe("ACT_MP_RELOAD_NOWHERE", "the model declares it, so loading the model registered it");
+    }
+
     [Test]
     public void TranslateActivity_TheEngine_AsksThePlayerThenTheWeaponThenTheWinner()
     {
