@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using Tf2DemoSalvage.Content.Assets;
 
@@ -177,12 +178,12 @@ public sealed class WaterViewsConformanceTests
         // :2689 CSimpleWorldView; :5710-5741.
         WaterRenderInfo info = Determine(Material(reflect: false), distance: 9f, cheapEnd: 1f);
 
-        WaterView only = WaterViews.Plan(info, Above, mainClear: ViewClearFlags.Depth).ShouldHaveSingleItem();
+        WaterView only = WaterViews.Plan(info, Above, mainClear: ViewClears.Depth).ShouldHaveSingleItem();
 
         only.Kind.ShouldBe(WaterViewKind.Simple);
         only.Draw.ShouldBe(
-            ViewDrawFlags.DrawEntities | ViewDrawFlags.RenderAboveWater | ViewDrawFlags.RenderWater | ViewDrawFlags.DrawSkybox);
-        only.Clear.ShouldBe(ViewClearFlags.Depth);
+            ViewDraws.DrawEntities | ViewDraws.RenderAboveWater | ViewDraws.RenderWater | ViewDraws.DrawSkybox);
+        only.Clear.ShouldBe(ViewClears.Depth);
         only.Fog.ShouldBe(WaterViewFog.World);
         only.Clip.ShouldBe(HeightClip.None);
     }
@@ -193,10 +194,10 @@ public sealed class WaterViewsConformanceTests
         // :5724-5726, :5738 (no skybox from inside), :5770-5781 (clear to the volume's fog colour).
         WaterRenderInfo info = Determine(Material(reflect: false), distance: 9f, cheapEnd: 1f);
 
-        WaterView only = WaterViews.Plan(info, Above with { EyeInFogVolume = true }, ViewClearFlags.Depth).ShouldHaveSingleItem();
+        WaterView only = WaterViews.Plan(info, Above with { EyeInFogVolume = true }, ViewClears.Depth).ShouldHaveSingleItem();
 
-        only.Draw.ShouldBe(ViewDrawFlags.DrawEntities | ViewDrawFlags.RenderUnderWater | ViewDrawFlags.RenderWater);
-        only.Clear.ShouldBe(ViewClearFlags.Depth | ViewClearFlags.Color);
+        only.Draw.ShouldBe(ViewDraws.DrawEntities | ViewDraws.RenderUnderWater | ViewDraws.RenderWater);
+        only.Clear.ShouldBe(ViewClears.Depth | ViewClears.Color);
         only.Fog.ShouldBe(WaterViewFog.Volume);
         only.ClearToFogColor.ShouldBeTrue();
     }
@@ -207,23 +208,23 @@ public sealed class WaterViewsConformanceTests
         // :5718-5722 "have to draw both sides if we can see both."
         WaterRenderInfo info = Determine(Material(reflect: false), distance: 9f, cheapEnd: 1f);
 
-        WaterViews.Plan(info, Above with { ViewIntersectsWater = true }, ViewClearFlags.Depth)[0].Draw
-            .ShouldBe(ViewDrawFlags.DrawEntities | ViewDrawFlags.RenderUnderWater | ViewDrawFlags.RenderAboveWater |
-                      ViewDrawFlags.RenderWater | ViewDrawFlags.DrawSkybox);
+        WaterViews.Plan(info, Above with { ViewIntersectsWater = true }, ViewClears.Depth)[0].Draw
+            .ShouldBe(ViewDraws.DrawEntities | ViewDraws.RenderUnderWater | ViewDraws.RenderAboveWater |
+                      ViewDraws.RenderWater | ViewDraws.DrawSkybox);
     }
 
     [Test]
     public void Plan_AboveExpensive_IsReflectionThenRefractionThenMain()
     {
         // :5908-5949 — the order AddViewToScene draws them in.
-        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above, ViewClearFlags.Depth)];
+        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above, ViewClears.Depth)];
 
         views.Select(view => view.Kind).ShouldBe([WaterViewKind.Reflection, WaterViewKind.Refraction, WaterViewKind.Main]);
 
         // :5974-5988 — no entities unless $reflectentities.
-        views[0].Draw.ShouldBe(ViewDrawFlags.RenderReflection | ViewDrawFlags.ClipZ | ViewDrawFlags.ClipBelow |
-                               ViewDrawFlags.RenderAboveWater | ViewDrawFlags.DrawSkybox);
-        views[0].Clear.ShouldBe(ViewClearFlags.Depth);
+        views[0].Draw.ShouldBe(ViewDraws.RenderReflection | ViewDraws.ClipZ | ViewDraws.ClipBelow |
+                               ViewDraws.RenderAboveWater | ViewDraws.DrawSkybox);
+        views[0].Clear.ShouldBe(ViewClears.Depth);
         views[0].Fog.ShouldBe(WaterViewFog.World);
         views[0].Target.ShouldBe(WaterViewTarget.Reflection);
 
@@ -231,18 +232,18 @@ public sealed class WaterViewsConformanceTests
         views[0].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderAbove, 62f));
 
         // :6037-6041.
-        views[1].Draw.ShouldBe(ViewDrawFlags.RenderRefraction | ViewDrawFlags.ClipZ | ViewDrawFlags.RenderUnderWater |
-                               ViewDrawFlags.FudgeUp | ViewDrawFlags.DrawEntities);
-        views[1].Clear.ShouldBe(ViewClearFlags.Color | ViewClearFlags.Depth);
+        views[1].Draw.ShouldBe(ViewDraws.RenderRefraction | ViewDraws.ClipZ | ViewDraws.RenderUnderWater |
+                               ViewDraws.FudgeUp | ViewDraws.DrawEntities);
+        views[1].Clear.ShouldBe(ViewClears.Color | ViewClears.Depth);
         views[1].Fog.ShouldBe(WaterViewFog.VolumeHeight);
         views[1].ClearToFogColor.ShouldBeTrue();
         views[1].Target.ShouldBe(WaterViewTarget.Refraction);
         views[1].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderBelow, 66f));
 
         // :5869-5889 — refraction is on, so the main view leaves the under-water world to it.
-        views[2].Draw.ShouldBe(ViewDrawFlags.RenderAboveWater | ViewDrawFlags.DrawEntities | ViewDrawFlags.DrawSkybox |
-                               ViewDrawFlags.RenderWater);
-        views[2].Clear.ShouldBe(ViewClearFlags.Depth);
+        views[2].Draw.ShouldBe(ViewDraws.RenderAboveWater | ViewDraws.DrawEntities | ViewDraws.DrawSkybox |
+                               ViewDraws.RenderWater);
+        views[2].Clear.ShouldBe(ViewClears.Depth);
         views[2].Target.ShouldBe(WaterViewTarget.BackBuffer);
         views[2].Clip.ShouldBe(HeightClip.None);
     }
@@ -251,22 +252,22 @@ public sealed class WaterViewsConformanceTests
     public void Plan_AboveReflectingEntities_ReflectionDrawsThem()
     {
         Determine(Material(reflectEntities: true)).ShouldSatisfyAllConditions(info =>
-            WaterViews.Plan(info, Above, ViewClearFlags.Depth)[0].Draw.HasFlag(ViewDrawFlags.DrawEntities).ShouldBeTrue());
+            WaterViews.Plan(info, Above, ViewClears.Depth)[0].Draw.HasFlag(ViewDraws.DrawEntities).ShouldBeTrue());
     }
 
     [Test]
     public void Plan_AboveRefractionIntersectingTheNearPlane_ClipsMainBelowAndAddsTheIntersectionView()
     {
         // :5924, :5939-5944 (hardware clip planes), :5958-5961, :6085, :6094-6098.
-        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above with { ViewIntersectsWater = true }, ViewClearFlags.Depth)];
+        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above with { ViewIntersectsWater = true }, ViewClears.Depth)];
 
         views.Select(view => view.Kind).ShouldBe(
             [WaterViewKind.Reflection, WaterViewKind.Refraction, WaterViewKind.Main, WaterViewKind.Intersection]);
 
-        views[2].Draw.HasFlag(ViewDrawFlags.ClipZ | ViewDrawFlags.ClipBelow).ShouldBeTrue();
+        views[2].Draw.HasFlag(ViewDraws.ClipZ | ViewDraws.ClipBelow).ShouldBeTrue();
         views[2].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderAbove, 62f));
 
-        views[3].Draw.ShouldBe(ViewDrawFlags.RenderUnderWater | ViewDrawFlags.ClipZ | ViewDrawFlags.DrawEntities);
+        views[3].Draw.ShouldBe(ViewDraws.RenderUnderWater | ViewDraws.ClipZ | ViewDraws.DrawEntities);
         views[3].Fog.ShouldBe(WaterViewFog.VolumeHeight);
         views[3].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderBelow, 62f));
         views[3].Target.ShouldBe(WaterViewTarget.BackBuffer);
@@ -277,34 +278,34 @@ public sealed class WaterViewsConformanceTests
     {
         // :5886-5889 (translucent, no refraction → DF_RENDER_UNDERWATER) and :5927-5930 (no refraction, no skybox).
         WaterRenderInfo info = Determine(Material(translucent: true), cvars: WaterConVars.Defaults with { DrawRefraction = false });
-        WaterView[] views = [.. WaterViews.Plan(info, Above with { DrawSkybox = false }, ViewClearFlags.Depth)];
+        WaterView[] views = [.. WaterViews.Plan(info, Above with { DrawSkybox = false }, ViewClears.Depth)];
 
         views.Select(view => view.Kind).ShouldBe([WaterViewKind.Reflection, WaterViewKind.Main]);
-        views[1].Draw.ShouldBe(ViewDrawFlags.RenderAboveWater | ViewDrawFlags.DrawEntities | ViewDrawFlags.RenderWater |
-                               ViewDrawFlags.RenderUnderWater);
-        views[1].Clear.ShouldBe(ViewClearFlags.Depth | ViewClearFlags.Color);
+        views[1].Draw.ShouldBe(ViewDraws.RenderAboveWater | ViewDraws.DrawEntities | ViewDraws.RenderWater |
+                               ViewDraws.RenderUnderWater);
+        views[1].Clear.ShouldBe(ViewClears.Depth | ViewClears.Color);
     }
 
     [Test]
     public void Plan_UnderExpensive_IsRefractionIntoTheBackBufferThenMain()
     {
         // :6167-6183; :6206-6215; :6247-6248 the copy out.
-        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above with { EyeInFogVolume = true }, ViewClearFlags.Depth)];
+        WaterView[] views = [.. WaterViews.Plan(Determine(Material()), Above with { EyeInFogVolume = true }, ViewClears.Depth)];
 
         views.Select(view => view.Kind).ShouldBe([WaterViewKind.UnderRefraction, WaterViewKind.UnderMain]);
 
-        views[0].Draw.ShouldBe(ViewDrawFlags.ClipZ | ViewDrawFlags.ClipBelow | ViewDrawFlags.RenderAboveWater |
-                               ViewDrawFlags.DrawEntities | ViewDrawFlags.DrawSkybox | ViewDrawFlags.ClipSkybox);
-        views[0].Clear.ShouldBe(ViewClearFlags.Depth | ViewClearFlags.Color);
+        views[0].Draw.ShouldBe(ViewDraws.ClipZ | ViewDraws.ClipBelow | ViewDraws.RenderAboveWater |
+                               ViewDraws.DrawEntities | ViewDraws.DrawSkybox | ViewDraws.ClipSkybox);
+        views[0].Clear.ShouldBe(ViewClears.Depth | ViewClears.Color);
         views[0].Target.ShouldBe(WaterViewTarget.BackBufferCopiedToRefraction);
         views[0].Fog.ShouldBe(WaterViewFog.World);
         views[0].ClearToFogColor.ShouldBeTrue();
         views[0].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderAbove, 62f));
 
         // :6133-6147 — hardware clip, so DF_CLIP_Z; refraction is on, so no DF_RENDER_ABOVEWATER.
-        views[1].Draw.ShouldBe(ViewDrawFlags.FudgeUp | ViewDrawFlags.RenderUnderWater | ViewDrawFlags.DrawEntities |
-                               ViewDrawFlags.ClipZ | ViewDrawFlags.RenderWater);
-        views[1].Clear.ShouldBe(ViewClearFlags.Depth);
+        views[1].Draw.ShouldBe(ViewDraws.FudgeUp | ViewDraws.RenderUnderWater | ViewDraws.DrawEntities |
+                               ViewDraws.ClipZ | ViewDraws.RenderWater);
+        views[1].Clear.ShouldBe(ViewClears.Depth);
         views[1].Fog.ShouldBe(WaterViewFog.Volume);
         views[1].ClearToFogColor.ShouldBeFalse();
         views[1].Clip.ShouldBe(new HeightClip(HeightClipMode.RenderBelow, 66f));
@@ -315,11 +316,11 @@ public sealed class WaterViewsConformanceTests
     {
         // :6173-6179.
         WaterRenderInfo info = Determine(Material(translucent: true), cvars: WaterConVars.Defaults with { DrawRefraction = false });
-        WaterView only = WaterViews.Plan(info, Above with { EyeInFogVolume = true }, ViewClearFlags.Depth).ShouldHaveSingleItem();
+        WaterView only = WaterViews.Plan(info, Above with { EyeInFogVolume = true }, ViewClears.Depth).ShouldHaveSingleItem();
 
         only.Kind.ShouldBe(WaterViewKind.UnderMain);
         only.ClearToFogColor.ShouldBeTrue();
-        only.Draw.HasFlag(ViewDrawFlags.RenderAboveWater).ShouldBeTrue();
+        only.Draw.HasFlag(ViewDraws.RenderAboveWater).ShouldBeTrue();
     }
 
     [Test]
@@ -328,18 +329,18 @@ public sealed class WaterViewsConformanceTests
         // :5308 — "( m_DrawFlags & DF_CLIP_Z ) && mat_clipz.GetBool()".
         WaterRenderInfo info = Determine(Material());
 
-        WaterViews.Plan(info, Above, ViewClearFlags.Depth, WaterConVars.Defaults with { MatClipZ = false })
+        WaterViews.Plan(info, Above, ViewClears.Depth, WaterConVars.Defaults with { MatClipZ = false })
             .ShouldAllBe(view => view.Clip == HeightClip.None);
     }
 
     // ---- BuildEngineDrawWorldListFlags :696 and the sort groups ivrenderview.h:50 ----
 
-    [TestCase(ViewDrawFlags.RenderAboveWater, new[] { 0, 2 })]
-    [TestCase(ViewDrawFlags.RenderUnderWater, new[] { 1, 2 })]
-    [TestCase(ViewDrawFlags.RenderWater, new[] { 3 })]
-    [TestCase(ViewDrawFlags.RenderAboveWater | ViewDrawFlags.RenderUnderWater | ViewDrawFlags.RenderWater, new[] { 0, 1, 2, 3 })]
-    [TestCase(ViewDrawFlags.DrawEntities, new int[0])]
-    public void SortGroups_ForADrawFlagSet_AreTheEnginesWorldListGroups(ViewDrawFlags flags, int[] groups) =>
+    [TestCase(ViewDraws.RenderAboveWater, new[] { 0, 2 })]
+    [TestCase(ViewDraws.RenderUnderWater, new[] { 1, 2 })]
+    [TestCase(ViewDraws.RenderWater, new[] { 3 })]
+    [TestCase(ViewDraws.RenderAboveWater | ViewDraws.RenderUnderWater | ViewDraws.RenderWater, new[] { 0, 1, 2, 3 })]
+    [TestCase(ViewDraws.DrawEntities, new int[0])]
+    public void SortGroups_ForADrawFlagSet_AreTheEnginesWorldListGroups(ViewDraws flags, int[] groups) =>
         Enumerable.Range(0, VisibleWorld.SortGroups).Where(group => WaterViews.DrawsSortGroup(flags, group)).ShouldBe(groups);
 
     // ---- AdjustView :5265-5285, the mirrored camera ----
