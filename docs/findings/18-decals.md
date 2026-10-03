@@ -225,11 +225,20 @@ wrong together.
 | overlay cull mode | the material's, and `MATERIAL_CULLMODE_CCW` is the default — `imaterialsystem.h:180` | `CullMode.None`, copied from the world's both-sided state | **fixed**, B135 |
 | depth writes on a marking | `EnableDepthWrites( false )` — `DecalModulate_dx9.cpp:66` | wrote depth, so an overlay occluded what was drawn afterwards | **fixed**, B135 |
 | depth bias | `SHADER_POLYOFFSET_DECAL` → `m_DepthBias_Decal = -262144` — `materialsystem_config.h:223` | none. Valve's number is a **D3D9** value and the APIs disagree on what a bias is (D46, D48); our fragments are coplanar by construction since B134, so the intent needs no offset | differs **deliberately** |
-| render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | **read and then ignored.** `BspOverlay.RenderOrder` is parsed and nothing sorts by it | **open** |
+| render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | batches keyed by order and material, emitted order-major — read from `COverlayMgr::RenderOverlays` in engine.dll (below) | **fixed**, B138 |
 | fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), with `r_overlayfadeenable`, `r_overlayfademin`, `r_overlayfademax` | **lump not read at all** | **open** |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
+
+**Render order, as the engine actually draws it** *(evidence class: read from a decompilation)*.
+`COverlayMgr::RenderOverlays` (engine.dll x64, 0x180110630, located by its VProf scope string
+`"COverlayMgr::RenderOverlays"`) is NOT a sort. It is a loop over render orders wrapped around the
+ordinary per-material fragment walk: the pass starts at 0, every fragment's overlay is asked for its
+order, the largest is remembered, and a fragment draws only on the pass equal to its order — so the
+whole map's material list is walked once per layer in use. The cost of four layers is four walks,
+not a sort, which is why the engine can afford it every frame; ours pays it once at build by keying
+the batches on `(order, material)`. Fixed 2026-10-02 (B138).
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This

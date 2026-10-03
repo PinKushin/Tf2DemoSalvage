@@ -573,7 +573,11 @@ public static class MapWorldBuilder
             byFace[surface.FaceIndex] = surface;
         }
 
-        Dictionary<int, List<WorldVertex>> byMaterial = [];
+        // **Keyed by render order AND material (B138).** `COverlayMgr::RenderOverlays` (engine.dll
+        // x64, 0x180110630) wraps its material walk in a pass per render order, drawing a fragment
+        // only when its overlay's order equals the pass — so layer 0 is drawn whole before layer 1,
+        // whatever the materials. Keyed by material alone, a layer-1 overlay listed first drew first.
+        Dictionary<(int Order, int Material), List<WorldVertex>> byMaterial = [];
         int placed = 0;
         int unlit = 0;
 
@@ -623,10 +627,10 @@ public static class MapWorldBuilder
             // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
             // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
             // ninety degrees out and squeezed into a narrow column.
-            if (!byMaterial.TryGetValue(overlay.MaterialIndex, out List<WorldVertex>? into))
+            if (!byMaterial.TryGetValue((overlay.RenderOrder, overlay.MaterialIndex), out List<WorldVertex>? into))
             {
                 into = [];
-                byMaterial[overlay.MaterialIndex] = into;
+                byMaterial[(overlay.RenderOrder, overlay.MaterialIndex)] = into;
             }
 
             // **An overlay's face list is the set of surfaces to CLIP against, not a list of
@@ -739,10 +743,11 @@ public static class MapWorldBuilder
             placed++;
         }
 
-        foreach (KeyValuePair<int, List<WorldVertex>> group in byMaterial)
+        // OrderBy is stable, so materials keep their first-seen order within a layer.
+        foreach (KeyValuePair<(int Order, int Material), List<WorldVertex>> group in byMaterial.OrderBy(group => group.Key.Order))
         {
             decals.Add(new WorldBatch(
-                group.Key,
+                group.Key.Material,
                 all.Count,
                 group.Value.Count,
                 Category: SurfaceCategory.Overlay));
@@ -756,7 +761,7 @@ public static class MapWorldBuilder
         // have shown the loss was the one nobody logged.
         map.LogInformation(
             "{Message}",
-            $"{placed} decals placed across {decals.Count} materials, {totalFragments} fragments " +
+            $"{placed} decals placed across {decals.Count} material-and-layer batches, {totalFragments} fragments " +
             $"over {namedFaces} faces named by {overlays?.Count ?? 0} overlays, " +
             $"{unlit} lying flat on nothing");
 
