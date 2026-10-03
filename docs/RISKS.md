@@ -9966,7 +9966,7 @@ accused this one on its first run because its probe measured whether proxies wer
 marker claimed something else — an audit measuring the wrong quantity is the same defect it exists to
 catch, one level up.
 
-## B55 — the last piece: `$normalmapalphaenvmapmask` — OPEN, small, and visible on the capture point
+## B55 — the last piece: `$normalmapalphaenvmapmask` — CLOSED 2026-08-21, see "B55 final piece" below (heading corrected 2026-10-02)
 
 B55 and B124 closed the reflection itself; B125 made it visible. What is left of `$envmap` is one
 parameter.
@@ -10507,7 +10507,13 @@ than another reasoned guess.
 
 ---
 
-## B135 — the decal depth bias is sized for the orthographic camera — OPEN
+## B135 — the decal depth bias is sized for the orthographic camera — CLOSED (heading corrected 2026-10-02)
+
+> **Closed by cc5a2060 (B70) and 5eaefe18/e7b95cfc/1a5b0a19.** The map-sized constant is gone: the
+> overlay pass's constant bias is `DecalState.ConstantBias = 0`, because `LightmappedGeneric` never
+> calls `EnablePolyOffset`, and only a slope-scaled term remains — proportional to the depth gradient,
+> so it scales with the projection rather than fighting it. Props now draw after the overlays, as
+> `viewrender.cpp:5487` orders them. Nothing camera-dependent is left of what is described below.
 
 **The owner's observation is the measurement, and it is decisive:** pipes standing off a wall are
 drawn *behind* the stripe painted on that wall — and *"they will [render in front] if you place the
@@ -10551,7 +10557,11 @@ spot.
 
 ---
 
-## B136 — the height cut is a DEPTH cut, and decals ignore it — OPEN
+## B136 — the height cut is a DEPTH cut, and decals ignore it — CLOSED, the cut was removed (heading corrected 2026-10-02)
+
+> **The height cut no longer exists** — b2e5f79d (B213) ripped it out as an orthographic-only tool,
+> so there is no `clip(input.pos.z …)` left for a decal to ignore. The unexplained half below was
+> never diagnosed and now cannot be.
 
 **Reported by the owner from the free camera**, with a screenshot: walls sliced away while the red
 and blue stripes that live on them stay, tracing the outline of geometry that is no longer drawn.
@@ -10745,7 +10755,23 @@ wearing a different name.
 
 ---
 
-## B138 — overlay render order is parsed and ignored, and 58% of stock maps use it — OPEN
+## B138 — overlay render order is parsed and ignored, and 58% of stock maps use it — FIXED 2026-10-02
+
+> **Fixed by drawing layer by layer, as the engine does — read, not guessed.** `COverlayMgr::RenderOverlays`
+> (engine.dll x64, live, 0x180110630, found by its VProf scope string) wraps its per-material walk
+> in an outer pass over render orders `0..max`: each fragment's overlay is asked for its order (a
+> short at +6), the maximum is tracked, and a fragment draws only on the pass equal to its order.
+> So every layer-0 fragment on the map draws before any layer-1 one, whatever the material.
+>
+> `MapWorldBuilder.AppendDecals` now buckets by `(RenderOrder, MaterialIndex)` and emits the buckets
+> in ascending order, stable, so materials keep first-seen order within a layer. Pinned by
+> `OverlayRenderOrderConformanceTests` (red 8b8a56f5: `[0, 1]` against `[1, 0, 0]`); sabotaged by
+> flipping the sort to descending, which reddens it.
+>
+> **No picture of it on the reference demo, and that is the arithmetic, not an omission:** every
+> overlay on cp_process is at order 0, so its batches are byte-identical before and after. The
+> owner sees it on the 136 layered stock maps — cp_badlands, cp_dustbowl, cp_granary — where an
+> overlay the mapper put on a higher layer now always lands on top.
 
 **Filed 2026-08-21, during the conformance sweep, with a number rather than a worry.**
 

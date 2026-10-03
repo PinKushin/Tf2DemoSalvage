@@ -45,7 +45,7 @@ public sealed class OverlayPassConformanceTests
     }
 
     [Test]
-    public void RenderOrder_OurReaderParsesIt_AndNothingDownstreamSortsByIt()
+    public void RenderOrder_OnALayeredStockMap_ReadsMoreThanOneLayerInRange()
     {
         string text = SourceSdk.Text("src/public/bspfile.h")
             ?? throw new InvalidOperationException("bspfile.h is missing");
@@ -82,26 +82,10 @@ public sealed class OverlayPassConformanceTests
                 0, 3, "an order outside 0..3 means the packed field was split wrongly");
         }
 
-        // **The condition check, and it decides whether the gap below is observable at all.** If
-        // every overlay in the map sits on one layer then sorting by layer is a no-op here, and a
-        // test asserting the gap would be measuring nothing — the same fault as the rest of this
-        // sweep, arrived at from the other side.
-        if (orders.Count < 2)
-        {
-            Assert.Ignore(
-                $"every overlay on this map is at render order {string.Join(",", orders)}, so "
-                + "layering is unobservable and the gap cannot be measured on it");
-
-            return;
-        }
-
-        // The gap: the renderer receives overlays in lump order and nothing reorders them. When
-        // that changes, this assertion is the one to delete (D45).
-        orders.Count.ShouldBeGreaterThan(
-            1,
-            "reached only when the map does layer its overlays — at which point the renderer must "
-            + "sort the decal batches by RenderOrder, and this marker should be replaced by a test "
-            + "that the batches come out in that order");
+        // **The specimen check: a layered map is the only one on which the order is observable.**
+        // The gap this test used to mark is closed (B138) — the batches coming out in layer order
+        // is OverlayRenderOrderConformanceTests, with the engine read it follows.
+        orders.Count.ShouldBeGreaterThan(1, "cp_badlands and cp_dustbowl both layer their overlays");
     }
 
     /// <summary>A map that actually layers its overlays, or null when none is installed.</summary>

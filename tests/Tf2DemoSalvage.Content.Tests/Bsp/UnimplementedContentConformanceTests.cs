@@ -161,21 +161,13 @@ public sealed class UnimplementedContentConformanceTests
     [Test]
     public void Content_Overlays_CarryARenderOrder()
     {
-        // This project reads overlays and draws them (B68). What it does not use is the render
-        // ORDER, packed into the top two bits of m_nFaceCountAndRenderOrder at offset 6 —
-        // OVERLAY_RENDER_ORDER_MASK is 0xC000 and OVERLAY_RENDER_ORDER_NUM_BITS is 2.
-        //
-        // Two overlays on the same surface are drawn in that order, so ignoring it makes their
-        // stacking arbitrary: a stain over a sign or a sign over a stain, decided by lump order
-        // rather than by the author.
+        // The render ORDER, packed into the top two bits of m_nFaceCountAndRenderOrder at offset 6 —
+        // OVERLAY_RENDER_ORDER_MASK is 0xC000 and OVERLAY_RENDER_ORDER_NUM_BITS is 2. Used since
+        // B138: the overlay batches draw layer by layer, OverlayRenderOrderConformanceTests.
         IReadOnlyDictionary<string, int> lumps = SourceSdk.Constants("src/public/bspfile.h");
 
         lumps["OVERLAY_RENDER_ORDER_MASK"].ShouldBe(0xC000);
         BspStructLayout.OverlayFaceCountOffset.ShouldBe(6);
-
-        Assert.Ignore(
-            "overlay render order is decoded into the same field as the face count and not used, " +
-            "so overlapping decals stack in lump order rather than the author's order.");
     }
 
     [Test]

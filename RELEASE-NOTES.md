@@ -1,6 +1,11 @@
-# Tf2DemoSalvage 0.1.0-beta.2
+# Tf2DemoSalvage 0.1.0-beta.3
 
-## Changes since 0.1.0-beta.1
+## Changes since 0.1.0-beta.2
+
+- **Overlay layers:** overlays draw in the layers the mapper gave them, one layer at a time, as the game does, so a
+  marking placed on top stays on top (136 stock maps layer their overlays, e.g. cp_badlands, cp_dustbowl, cp_granary).
+
+## Changes in 0.1.0-beta.2
 
 - **POV demos:** the recorder's own body now moves the way the game predicts it. His recorded inputs are
   re-simulated between packets, covering items, surfaces, doors, buildings, water, taunts, karts, stuns,
