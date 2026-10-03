@@ -96,17 +96,8 @@ public sealed class EffectConformanceTests
         Assert.Ignore("Entity shadows undrawn; models read as floating.");
     }
 
-    [Test]
-    public void Fog_IsNotApplied()
-    {
-        // A map's env_fog_controller sets start, end and colour, and every shader in the engine
-        // takes a fog factor — CalcPixelFogFactor is in the same pixel shaders this project has
-        // ported other parts of.
-        //
-        // WHAT YOU SEE: distance does not fade. On an outdoor map the far side reads as close as
-        // the near side, which flattens depth and is why a skybox alone would not fix the horizon.
-        Assert.Ignore("Fog unapplied; distance does not fade.");
-    }
+    // **`Fog_IsNotApplied` stood here** until fog was drawn (B139, 2026-10-02): FogRenderTests and
+    // FogConformanceTests.
 
     [Test]
     public void HdrAndTonemapping_AreNotApplied()

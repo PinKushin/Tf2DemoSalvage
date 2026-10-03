@@ -98,7 +98,7 @@ public sealed class FogConformanceTests
         //
         //   GetFogEnable  — `pFogParams->enable != false`; no params means no fog at all.
         //   GetFogColor   — colorPrimary in 0..255, then `VectorScale( pColor, 1.0f / 255.0f )`:
-        //                   GAMMA space ("FIXME: convert to linear colorspace"), so the shader API's
+        //                   GAMMA space (Valve's own note says it should be converted to linear), so the shader API's
         //                   `g_LinearFogColor` (common_ps_fxc.h:45) is a conversion of it.
         //   FogStart/End  — the distances themselves; the shader API turns them into the
         //                   start/(end-start) and 1/(end-start) the pixel shader reads.

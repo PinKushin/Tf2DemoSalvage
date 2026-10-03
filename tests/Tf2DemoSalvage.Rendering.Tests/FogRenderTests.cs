@@ -15,8 +15,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// **The condition is chosen so the prediction is exact.** The quad sits at clip depth 0.9 under an
 /// identity camera, so <c>flProjPosZ</c> is 0.9. Fog from 0 to 0.9 puts that depth at factor 1:
 /// the pixel IS the fog colour. A max density of 0.5 caps the factor before the saturate, and the
-/// blend squares it — 0.25 — so the pixel is a quarter of the way to the fog colour in LINEAR light
-/// (the back buffer is sRGB, so the comparison decodes and re-encodes).
+/// blend squares it — 0.25 — so the pixel is a quarter of the way to the fog colour. A prediction
+/// written for an sRGB target first said 138 and the target answered 74: the offscreen target is
+/// UNORM, so the shader's linear output is what is stored.
 /// </remarks>
 public sealed class FogRenderTests
 {
@@ -72,18 +73,65 @@ public sealed class FogRenderTests
         (int Red, int Green, int Blue) clear = Draw(target, assets, null);
         (int Red, int Green, int Blue) fogged = Draw(target, assets, new SceneFog(0f, Depth, 1f, 0f, 0f, 0.5f));
 
-        // lerp( shader, fog, 0.5 * 0.5 ) per channel in linear light; fog is (1, 0, 0).
+        // lerp( shader, fog, 0.5 * 0.5 ) per channel; fog is (1, 0, 0). The offscreen target is
+        // UNORM, not sRGB, so the shader's linear output is stored as it is and read back the same.
         static int Predict(int channel, float fog) =>
-            (int)MathF.Round(Encode((Decode(channel) * 0.75f) + (fog * 0.25f)) * 255f);
+            (int)MathF.Round(((channel / 255f * 0.75f) + (fog * 0.25f)) * 255f);
 
         TestContext.Out.WriteLine($"FOG clear {clear} / half-density red fog {fogged}");
 
-        fogged.Red.ShouldBe(Predict(clear.Red, 1f), 1);
-        fogged.Green.ShouldBe(Predict(clear.Green, 0f), 1);
-        fogged.Blue.ShouldBe(Predict(clear.Blue, 0f), 1);
+        // One step either way for eight-bit rounding on both reads.
+        fogged.Red.ShouldBeInRange(Predict(clear.Red, 1f) - 1, Predict(clear.Red, 1f) + 1);
+        fogged.Green.ShouldBeInRange(Predict(clear.Green, 0f) - 1, Predict(clear.Green, 0f) + 1);
+        fogged.Blue.ShouldBeInRange(Predict(clear.Blue, 0f) - 1, Predict(clear.Blue, 0f) + 1);
     }
 
-    private static (int Red, int Green, int Blue) Draw(OffscreenTarget target, MapAssets assets, SceneFog? fog)
+    [Test]
+    public void Draw_AnAdditiveMaterialInFullFog_FogsToBlackSoAddsNothing()
+    {
+        // An additive surface ADDS its output to what is behind it, so fogging it toward the fog
+        // colour would paint the fog colour on top of the haze; fogged toward black it fades out.
+        // Over a black clear, full fog therefore leaves black — and the control, unfogged, does not.
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null || Assets is not { } assets)
+        {
+            Assert.Ignore("no Direct3D, or the map or the game is not installed");
+            return;
+        }
+
+        // **The first additive material that ADDS something at the sampled texel**, found rather
+        // than assumed: the first one cp_process lists draws black there, which made the control
+        // fail before the prediction could mean anything.
+        int additive = -1;
+        (int Red, int Green, int Blue) clear = default;
+
+        for (int index = 0; index < assets.Textures.Count && additive < 0; index++)
+        {
+            if (assets.Textures[index] is { IsAdditive: true } &&
+                Draw(target, assets, null, index) is var drawn && drawn != (0, 0, 0))
+            {
+                additive = index;
+                clear = drawn;
+            }
+        }
+
+        if (additive < 0)
+        {
+            Assert.Ignore("this map has no additive material that draws at the sampled texel");
+            return;
+        }
+
+        (int Red, int Green, int Blue) fogged = Draw(target, assets, new SceneFog(0f, Depth, 1f, 1f, 1f, 1f), additive);
+
+        TestContext.Out.WriteLine($"FOG additive material {additive}: clear {clear} / full white fog {fogged}");
+
+        clear.ShouldNotBe((0, 0, 0), "the control: unfogged, the additive surface must add something");
+        fogged.ShouldBe((0, 0, 0));
+    }
+
+    private static (int Red, int Green, int Blue) Draw(
+        OffscreenTarget target, MapAssets assets, SceneFog? fog, int material = 0)
     {
         const float lit = 0.5f;
 
@@ -98,19 +146,10 @@ public sealed class FogRenderTests
         ];
 
         target.Clear(0f, 0f, 0f);
-        target.DrawWorld(wall, [new WorldBatch(0, 0, wall.Count)], Identity, assets, fog: fog);
+        target.DrawWorld(wall, [new WorldBatch(material, 0, wall.Count)], Identity, assets, fog: fog);
 
         return target.PixelAt(32, 32);
     }
-
-    private static float Decode(int channel)
-    {
-        float c = channel / 255f;
-        return c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
-    }
-
-    private static float Encode(float linear) =>
-        linear <= 0.0031308f ? linear * 12.92f : (1.055f * MathF.Pow(linear, 1f / 2.4f)) - 0.055f;
 
     private static float[] Identity =>
     [

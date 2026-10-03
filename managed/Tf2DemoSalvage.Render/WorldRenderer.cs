@@ -197,6 +197,12 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // y, z, w: unused, and left named rather than removed so the next debug mode costs an
             //    assignment instead of a constant-buffer change on both sides.
             float4 debugModes2;
+
+            // **Range fog, Valve's two registers** (B139): `g_LinearFogColor` (common_ps_fxc.h:45)
+            // with w = 1 when fog is on, and `fogParams` as CalcRangeFog unpacks it — x start over
+            // range, z max density, w one over range. FogConstants packs both.
+            float4 fogColour;
+            float4 fogParams;
         };
 
         // **The model transform, which is Valve's own shape.** IMaterialSystem::LoadBoneMatrix
@@ -418,6 +424,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // y: `$blendtintcoloroverbase`, Valve's `g_fTintReplacementControl` — 0 multiplies the
             //    tint into the albedo and keeps its detail, 1 replaces the albedo with the flat
             //    colour. Zero is the common case and TF2's cosmetics use it.
+            // z: the material's fog mode (B139) — 0 toward the fog colour, 1 toward black
+            //    (additive), 2 no fog (modulating decals; see the C# side for the ceiling).
             //
             // **Appended rather than folded into an existing float4**, and every array feeding this
             // buffer had to grow with it. The comment on `SetMaterial`'s length check records what
@@ -1622,6 +1630,18 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 {
                     lit += specular;
                 }
+            }
+
+            // **Valve's FinalOutput fog, last of everything** (common_ps_fxc.h:366): CalcRangeFog on
+            // the PROJECTED z — `saturate( min( maxdensity, z * OORange - startOverRange ) )` — then
+            // BlendPixelFog's lerp by the factor SQUARED. Our projection is D3D's, as Source's is, so
+            // clip z is the same `flProjPosZ` the engine's vertex shader writes.
+            if (fogColour.w > 0.5f && tintControl.z < 1.5f)
+            {
+                float projZ = mul(float4(input.wpos, 1.0f), viewProjection).z;
+                float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
+                float3 toward = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb;
+                lit = lerp(lit, toward, fogFactor * fogFactor);
             }
 
             return float4(lit, albedo.a);
@@ -3100,6 +3120,21 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float tintByBaseAlpha = surface is { TintsByBaseAlpha: true } ? 1f : 0f;
             float tintOverBase = surface?.TintOverBase ?? 0f;
 
+            // **Which colour this material fogs toward** (B139), the shader's SHADOW_STATE fog mode:
+            // 0 the scene's fog colour (`DefaultFog`, vertexlitgeneric_dx9_helper.cpp:913), 1 black
+            // for an additive material — fog that ADDS the fog colour would brighten the haze where
+            // the material should fade out. INTERPOLATED: `DefaultFog`'s body is in the closed
+            // shaderlib; every additive pass the SDK shows fogs to black (`FogToBlack`,
+            // BaseVSShader.cpp:1305, the envmap pass added over a lightmapped surface) — and 2 none for a
+            // modulating decal. ponytail: Valve fogs a modulate decal to middle grey
+            // (decalmodulate_dx9.cpp:80), which fades it; none leaves it at full strength in fog.
+            float fogMode = surface switch
+            {
+                { IsAdditive: true } => 1f,
+                { IsModulate: true } or { IsModulateTwice: true } => 2f,
+                _ => 0f,
+            };
+
             // **The two colours TF2's paint chain works on, kept apart from their product** (B330).
             // `$colortint_base` non-null is also what marks a material as tintable at all, so a
             // material without one never builds the proxy variable table.
@@ -3217,7 +3252,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     1f, 1f, 1f, 0f,
 
                     // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
-                    tintByBaseAlpha, tintOverBase, 0f, 0f,
+                    tintByBaseAlpha, tintOverBase, fogMode, 0f,
                 ]
                 :
                 [
@@ -3277,7 +3312,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
                     1f, 1f, 1f, 0f,
 
                     // tintControl: `$blendtintbybasealpha` and `$blendtintcoloroverbase` (B331).
-                    tintByBaseAlpha, tintOverBase, 0f, 0f,
+                    tintByBaseAlpha, tintOverBase, fogMode, 0f,
                 ]);
         }
 
@@ -3742,6 +3777,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// specular highlight at all. The same kind of switch as <paramref name="specular"/>: a
     /// material feature turned off wholesale, not a debug visualisation.
     /// </param>
+    /// <param name="fog">
+    /// The fog this view draws through, or null for <c>MATERIAL_FOG_NONE</c> — the world's from the
+    /// local player's controller, or the 3D skybox's own (B139).
+    /// </param>
+    /// <param name="fogDistanceScale">
+    /// What fog distances are multiplied by: one, or <c>1 / m_skybox3d.scale</c> for the sky view.
+    /// </param>
     /// <exception cref="ArgumentException"><paramref name="matrix"/> is not sixteen floats.</exception>
     /// <remarks>
     /// **This is what a resize costs now.** The geometry is uploaded in world coordinates and never
@@ -3757,7 +3799,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
         bool specular = true,
         Fullbright fullbright = Fullbright.Off,
         DebugModes debug = default,
-        bool phong = true)
+        bool phong = true,
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        float fogDistanceScale = 1f)
     {
         ArgumentNullException.ThrowIfNull(matrix);
 
@@ -3821,6 +3865,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
             0f,
             0f,
             0f,
+
+            // fogColour and fogParams (B139); all zero, fog off, when there is none.
+            .. FogConstants.For(fog, fogDistanceScale),
         ];
 
         MappedSubresource mapped = default;
@@ -4187,7 +4234,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// mode takes a component of the existing word rather than a register of its own — a register
     /// per feature would run out at a dozen features, and Valve never needed to.
     /// </remarks>
-    private const int CameraConstants = 16 + 4 + 4 + 4 + 4;
+    // The last two float4s are fog's, which Valve keeps in the engine's own registers rather than
+    // the shader's twelve (B139).
+    private const int CameraConstants = 16 + 4 + 4 + 4 + 4 + 4 + 4;
 
     /// <summary>Floats in the bone buffer: three rows of four per bone.</summary>
     private const int BoneConstants = MaxBones * 3 * 4;
