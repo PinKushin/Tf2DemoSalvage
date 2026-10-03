@@ -34157,24 +34157,76 @@ node step moved before the near child, leaf facing test broken → both `Surface
 each time. Output level: `OverlayRenderListsMapTests` on cp_process_final draws every fragment on a
 reached face exactly once and reorders when the walk reverses.
 
-**Still ours, named:** *interpolated* — the material sort ID is the surface's MATERIAL (the engine's
-also splits by lightmap page, which a single atlas does not have); displacement surfaces are reached
-after the walk, by their own box, because the engine's displacement-in-leaf path was not read;
-overlay fragments are one per face, the engine's one per face TRIANGLE (`0x1801117c0`), which only
-matters within one overlay on one face and so never changes the order between overlays. *Not read:*
-node-surface flag 0x20000, which the node test ORs with the plane-back match, and the leaf test's
-NOCULL bit. A face the build dropped (tool, brush entity, outside the play area) carries no span
-and its fragments are no longer drawn — they were drawn before, statically. **Sibling still open:
-B458.**
+**Follow-up, 2026-10-03 — the four divergences the first pass named, each read in disassembly first.**
+
+- **Displacements (ported).** `R_DrawLeaf` reaches a leaf's displacements FIRST (`0x1800db7b0`), each
+  not yet marked, in the leaf's list order, into a separate sort list (opaque) or the translucent one.
+  A leaf's list is the collision loader's, copied by `Mod_LoadLeafs` (`0x180102300`, collision leaf
+  +0xc/+0xe, table `CM_DispTreeLeafnum`): `0x18016fa20` takes every displacement in index order,
+  `0x18016f470` walks its box down the tree (axial plane: back when `min < dist`, front when
+  `dist < max` or `min ≥ dist`; otherwise `BoxOnPlaneSide`) and `0x180170210` files it into each leaf
+  reached — so leaves list displacements in index order. Per sort group `0x1800e5e10` calls
+  `Shader_DrawDispChain` (`0x1800e3a90`) BEFORE the brush chains: the displacement sort list is
+  flattened, `0x1800c61f0` queues each displacement whose box survives `R_CullBox`
+  (`0x1800c0f90`) — with no frame dedupe — and calls `RenderOverlays` and the clear. So displacement
+  overlays are a batch of their own, all four layers, drawn before any brush overlay; and a culled
+  displacement keeps its place in the sort list while queueing nothing. Ported:
+  `BspLeafTree.LeavesTouchingBox`, `VisibleWorld` leaf displacement lists and
+  `WorldCulling.Displacements`, `OverlayRenderLists.Order`'s first batch.
+- **The node and leaf bits (ported).** 0x20000 is set by `0x180100b60` on every surface of a leaf
+  whose `leafWaterDataID` is not −1 (0x40000 otherwise), skipping displacements and warp faces
+  (0x10800): a node surface in a water leaf is drawn whichever side it faces. 0x200 is NOCULL, set by
+  `0x1800fa3d0` from the material's vtable +0x108 (`$nocull`): a leaf surface carrying it skips the
+  facing test. `BspLeafTree.WaterDataId`, `WorldRenderer.IsTwoSidedMaterial`.
+- **Brush-entity faces (confirmed, nothing to port).** `R_DrawBrushModel` (`0x1800df3d0`) and its
+  three paths (`0x1800db920`, `0x1800dd600`, `0x1800df720`) draw surfaces and decals
+  (`0x180115700`, `0x1801158d0`) and never reach the overlay manager — the only callers of its
+  getter `0x18010e740` are the world queue, the translucent pass, the displacement chain, level
+  init and the flashlight. **The engine never draws an overlay on a brush entity's face**, so the
+  dropped fragments are Valve's behaviour, not a loss. Pinned by
+  `Order_AFragmentOnAFaceTheWorldDoesNotDraw_IsNeverDrawn` (green on arrival, so proved by sabotage:
+  queueing span-less faces reddens it).
+- **Translucent surfaces (ported — was B458).** See B458.
+- **Lightmap page (NOT ported, and it can change order).** The sort IDs are the material system's
+  (`0x1800d2780` reads count and `{material, lightmapPage}` pairs from vtable +0x2e8/+0x2f0, sorts
+  them, remaps surface +0x16). The queue uses only the PARTITION of reached surfaces into sort IDs —
+  the numbers themselves never matter, because the list is ordered by first reach. So the key is a
+  no-op exactly when every material's reached surfaces share one lightmap page, and changes order
+  whenever a material spans two: surfaces A(m, page 0), B(n), C(m, page 1) queue A, B, C under the
+  engine's key and A, C, B under ours. Which surfaces share a page is decided by materialsystem.dll's
+  lightmap allocator; reading it needs the materialsystem Ghidra instance, which the MCP bridge here
+  could not reach (only engine.dll on 8089). **Open — needs the allocator read.**
+
+Tests: `SurfaceOrderConformanceTests` (+4), `OverlayRenderListsConformanceTests` (+6, one renamed
+for the new translucent rule), map test now covers the displacement path. Each new branch sabotaged
+and restored by the exact inverse: water bit, NOCULL, displacement index order, the separate
+displacement batch, culled-keeps-position, translucent run separation, displacement overlays after
+the leaf, span-less faces — each reddened exactly one test.
+
+**Still ours, named:** *interpolated* — the lightmap-page split above; a displacement's box is the
+rendered terrain's, the engine's the collision tree's (`0x18016f470` reads +8/+0x18 of the collision
+displacement); fragments are one per face, the engine's one per face TRIANGLE (`0x1801117c0`), which
+never changes the order between overlays. A face with SURF_TRANS but an opaque material leaves the
+opaque overlay pass (engine) but is not in this renderer's translucent runs, which are chosen by
+material — its overlays would not draw; vbsp derives SURF_TRANS from the material, so this needs a
+material changed after compile. Sort groups (water-relative, `>>22 & 3`) are not modelled: every
+surface is group 0.
 
 ---
 
-## B458 — overlays on translucent surfaces are drawn in the overlay pass; the engine draws them with the surface — OPEN
+## B458 — overlays on translucent surfaces are drawn in the overlay pass; the engine draws them with the surface — FIXED 2026-10-03
 
 **Read, engine.dll x64:** `R_DrawSurface` (`0x1800dfbb0`) puts a TRANS (0x20) surface on the
 translucent list, which `0x1800da3a0` never walks. `DrawTranslucentSurfaces` (`0x1800e4fd0`) draws
 each such surface and, per surface, calls `AddFragmentListToRenderList` (+0x30),
 `RenderOverlays` (+0x38) and the list clear (+0x20) — so a translucent surface's overlays are drawn
-right after that surface, inside the translucent pass, back to front. `OverlayRenderLists` queues
-them after the opaque walk and draws them in the opaque overlay pass (B457, *interpolated* there so
-they do not vanish). Fixing it means handing each translucent leaf run its surfaces' fragments.
+right after that surface, inside the translucent pass, back to front. Then the leaf's translucent
+displacements are drawn and `0x1800c61f0` queues all of theirs that are in view and renders them once.
+
+**Fix:** `VisibleWorld.BlendedByLeaf` gives a face carrying overlays a run of its own and names it
+(`TranslucentLeafRuns.RunFaces`, `RunDisplacement`); `OverlayRenderLists.ForTranslucentLeaves`
+builds the overlays drawn after each run — a brush face's own, the leaf's displacements' together
+after its last run; `WorldRenderer.DrawTranslucentLeaf` draws them with the overlay state and puts
+the translucent state back. The opaque pass no longer queues translucent surfaces at all. A map that
+cannot be culled has no translucent leaf pass, so there (only) they stay queued after the opaque
+brush overlays. Red 67354d94, green in the commit after.

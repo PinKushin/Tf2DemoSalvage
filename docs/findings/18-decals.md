@@ -229,7 +229,10 @@ wrong together.
 | fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), per overlay while `r_overlayfadeenable` is 0 (engine.dll 0x18010a580) | read; faded per batch from the view origin | **fixed**, B455 |
 | decal polygon offset | `ApplyZBias` (shaderapidx9 0x180014600) applies the **reciprocals**: 1/−262144 of the range, slope 1/−0.5 | DecalModulate takes −64 steps and −2 | **fixed**, B456 |
 | order within a layer | material buckets prepended as the opaque material-sort walk queues each surface's (prepended) fragment list, per frame | the same, queued per view from the cull's own walk (`OverlayRenderLists`) | **fixed**, B457 |
-| overlays on translucent surfaces | queued and drawn per surface inside `DrawTranslucentSurfaces` (0x1800e4fd0), with that surface | queued after the opaque walk, drawn in the overlay pass | **open**, B458 |
+| overlays on translucent surfaces | queued and drawn per surface inside `DrawTranslucentSurfaces` (0x1800e4fd0), with that surface | the same: drawn after their run in the translucent pass | **fixed**, B458 |
+| displacement overlays | their own batch, all layers, before any brush overlay; leaf lists by displacement index; a culled one keeps its sort place (0x1800e3a90, 0x1800c61f0) | the same | **fixed**, B457 |
+| overlays on brush entities | never drawn — `R_DrawBrushModel` never reaches the overlay manager | not drawn | matches, B457 |
+| sort key's lightmap page | sort ID is {material, lightmap page} from materialsystem.dll | material only | **open**, B457 (changes order when a material spans pages) |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
@@ -279,6 +282,15 @@ a visible leaf has MARKED and whose plane-back flag equals the eye's side, then 
 `R_DrawLeaf` (`0x1800df9d0`) marks node surfaces and marks-and-draws the others it faces
 (`dot − dist ≥ −0.01` on the unflipped plane). A node surface whose only marking leaf lies in the far
 subtree is therefore not drawn at that node — ported as read, not repaired (B457).
+
+**Displacements are a separate batch, drawn first — the second thing the first pass missed.**
+Following the overlay manager's getter to every caller found a third queue: `Shader_DrawDispChain`
+(`0x1800e3a90`) runs before the brush chains in each sort group, and its `0x1800c61f0` queues the
+displacements' overlays and calls `RenderOverlays` itself. So a layer-1 overlay on terrain draws
+before a layer-0 overlay on a wall — the render-order passes are per batch, not per frame. The same
+search answered the brush-entity question by absence: nothing on `R_DrawBrushModel`'s three paths
+reaches the overlay manager, so an overlay on a door is never drawn, and dropping those fragments
+was already Valve's behaviour. *Evidence class: read from disassembly.*
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This

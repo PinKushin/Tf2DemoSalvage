@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Scene;
 
@@ -302,18 +303,35 @@ public sealed class TranslucentLeafRuns
     /// <summary>Groups runs by leaf place.</summary>
     /// <param name="runs">Every run, leaf by leaf.</param>
     /// <param name="starts">Where each leaf's runs begin, plus one entry past the last.</param>
+    /// <param name="runFaces">Per run, the face it alone draws when that face carries overlays, else −1 (B457).</param>
+    /// <param name="runDisplacement">Per run, whether it is a displacement's.</param>
     /// <exception cref="ArgumentNullException">A list is null.</exception>
-    public TranslucentLeafRuns(IReadOnlyList<WorldBatch> runs, IReadOnlyList<int> starts)
+    public TranslucentLeafRuns(
+        IReadOnlyList<WorldBatch> runs,
+        IReadOnlyList<int> starts,
+        IReadOnlyList<int>? runFaces = null,
+        IReadOnlyList<bool>? runDisplacement = null)
     {
         ArgumentNullException.ThrowIfNull(runs);
         ArgumentNullException.ThrowIfNull(starts);
 
         Runs = runs;
         _starts = starts;
+        RunFaces = runFaces ?? [.. Enumerable.Repeat(-1, runs.Count)];
+        RunDisplacement = runDisplacement ?? [.. Enumerable.Repeat(false, runs.Count)];
     }
 
     /// <summary>Every run, leaf by leaf.</summary>
     public IReadOnlyList<WorldBatch> Runs { get; }
+
+    /// <summary>Per run, the face it alone draws when that face carries overlays, else −1 (B457).</summary>
+    public IReadOnlyList<int> RunFaces { get; }
+
+    /// <summary>Per run, whether it is a displacement's.</summary>
+    public IReadOnlyList<bool> RunDisplacement { get; }
+
+    /// <summary>Per run, the overlays to draw straight after it — <c>0x1800e4fd0</c>; empty until set (B457).</summary>
+    public IReadOnlyList<IReadOnlyList<WorldBatch>> OverlaysAfter { get; set; } = [];
 
     /// <summary>How many leaf places there are.</summary>
     public int LeafCount => Math.Max(0, _starts.Count - 1);

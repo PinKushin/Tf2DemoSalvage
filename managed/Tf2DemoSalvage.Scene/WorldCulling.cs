@@ -196,7 +196,9 @@ public sealed class WorldCulling
     /// answer is a function of the eye and the frustum and nothing else, so a still camera would
     /// get the same runs back for the cost of walking the tree again.
     /// </remarks>
-    public IReadOnlyList<WorldBatch>? Batches(float x, float y, float z, ViewFrustum frustum)
+    /// <param name="twoSided">Whether a material is <c>$nocull</c>, for the overlay walk's leaf test (B457); null for none.</param>
+    public IReadOnlyList<WorldBatch>? Batches(
+        float x, float y, float z, ViewFrustum frustum, Func<int, bool>? twoSided = null)
     {
         if (!CanCull)
         {
@@ -243,7 +245,7 @@ public sealed class WorldCulling
             }
         }
 
-        Surfaces = _surfaces.Surfaces(_mainWalk, x, y, z);
+        Surfaces = _surfaces.Surfaces(_mainWalk, x, y, z, frustum, twoSided);
 
         // Each main leaf's place in the list, for the translucent pass (B426): the previous view's places cleared.
         for (int at = 0; at < _placed.Count; at++)
@@ -287,6 +289,9 @@ public sealed class WorldCulling
     /// <remarks>What the overlay queue is built from (B457) — see <see cref="VisibleWorld.Surfaces"/>.</remarks>
     public IReadOnlyList<int>? Surfaces { get; private set; }
 
+    /// <summary>The displacements the same walk reached, in order (B457).</summary>
+    public IReadOnlyList<ReachedDisplacement> Displacements => _surfaces.Displacements;
+
     private readonly List<int> _placed = [];
     private readonly int[] _positionByLeaf;
     private ViewFrustum _lastFrustum;
@@ -296,8 +301,9 @@ public sealed class WorldCulling
     /// <returns>The runs over the leaves <see cref="Batches"/> last drew, valid until the next call; null when this map cannot be culled.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="blended"/> is null.</exception>
     /// <remarks>See <see cref="VisibleWorld.BlendedByLeaf"/> (B426).</remarks>
-    public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended) =>
-        CanCull ? _surfaces.BlendedByLeaf(_mainLeaves, _lastFrustum, blended, _positionByLeaf) : null;
+    /// <param name="separate">Whether a face carries overlays, so its run is its own (B457); null for none.</param>
+    public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended, Func<int, bool>? separate = null) =>
+        CanCull ? _surfaces.BlendedByLeaf(_mainLeaves, _lastFrustum, blended, _positionByLeaf, separate) : null;
 
     /// <summary>The place in the last view's leaf list of the nearest leaf a box touches, or −1.</summary>
     /// <param name="minX">The box, in world space.</param>

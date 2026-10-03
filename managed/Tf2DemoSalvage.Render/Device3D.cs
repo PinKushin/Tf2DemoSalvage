@@ -2345,16 +2345,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _culledFor = view;
 
             _world.VisibleBatches = _culling?.Batches(
-                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum, _world.IsTwoSidedMaterial);
 
-            // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426).
-            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial);
+            (float X, float Y, float Z) overlayEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
 
-            // **The overlays, queued from the surfaces that same walk reached** (B457). A map that cannot be walked
-            // queues every face in buffer order.
+            // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426) — a surface
+            // carrying overlays in a run of its own, its overlays drawn straight after it (0x1800e4fd0, B457).
+            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial, _overlays is { } separate ? separate.HasOverlays : null);
+
+            if (_world.TranslucentLeaves is { } leaves && _overlays is { } perSurface)
+            {
+                leaves.OverlaysAfter = perSurface.ForTranslucentLeaves(leaves, overlayEye);
+            }
+
+            // **The opaque world's overlays, queued from the surfaces that same walk reached** (B457). A map that
+            // cannot be walked queues every face in buffer order.
+            bool walked = _world.VisibleBatches is not null;
+
             _world.Overlays = _overlays?.Order(
-                _world.VisibleBatches is null ? null : _culling?.Surfaces,
-                (camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
+                walked ? _culling?.Surfaces : null,
+                walked ? _culling?.Displacements : null,
+                overlayEye,
                 _world.IsBlendedMaterial) ?? [];
 
             // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve

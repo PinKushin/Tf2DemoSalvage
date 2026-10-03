@@ -5554,6 +5554,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
             return;
         }
 
+        DrawOverlayList(context, overlays);
+
+        // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
+        // (B415), from their own buffer because they change while the map plays. *Interpolated order:* both are drawn by
+        // the engine's world pass, and which of the two it draws first was not read.
+        if (_shotDecals.Count > 0 && _shotDecalBuffer.Handle is not null)
+        {
+            uint stride = VertexStride;
+            uint offset = 0;
+
+            context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
+
+            foreach (WorldBatch batch in _shotDecals)
+            {
+                DrawDecalBatch(context, batch);
+            }
+
+            context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        }
+
+        // Back to the ordinary rasteriser, or everything after this is pulled forward too.
+        context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>Draws one list of overlay runs from the world buffer with the overlay pass's state — one
+    /// <c>RenderOverlays</c> (B457).</summary>
+    private void DrawOverlayList(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<WorldBatch> overlays)
+    {
         context.RSSetState(Raster(_decalOffset));
 
         // **Tested, never written (B135).** Set here rather than left to the opaque pass's state,
@@ -5594,27 +5622,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 DrawDecalBatch(context, batch, drawn);
             }
         }
-
-        // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
-        // (B415), from their own buffer because they change while the map plays. *Interpolated order:* both are drawn by
-        // the engine's world pass, and which of the two it draws first was not read.
-        if (_shotDecals.Count > 0 && _shotDecalBuffer.Handle is not null)
-        {
-            uint stride = VertexStride;
-            uint offset = 0;
-
-            context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
-
-            foreach (WorldBatch batch in _shotDecals)
-            {
-                DrawDecalBatch(context, batch);
-            }
-
-            context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
-        }
-
-        // Back to the ordinary rasteriser, or everything after this is pulled forward too.
-        context.RSSetState(Raster(_bothSides));
     }
 
     /// <summary>The vertex light a mod2x decal's corners carry so this pipeline reproduces the engine's blend (B415).</summary>
@@ -6027,6 +6034,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     public bool IsBlendedMaterial(int material) =>
         _translucent.Contains(material) || _additive.Contains(material);
 
+    /// <summary>Whether a material is <c>$nocull</c> — the engine's NOCULL surface bit (0x1800fa3d0, B457).</summary>
+    /// <param name="material">The material index.</param>
+    /// <returns>True for a two-sided material.</returns>
+    public bool IsTwoSidedMaterial(int material) => _noCull.Contains(material);
+
     /// <summary>One leaf's translucent and additive world runs — <c>DrawTranslucentSurfaces</c> for one leaf.</summary>
     /// <param name="context">Context to issue the draws on.</param>
     /// <param name="position">The leaf's place in the world list.</param>
@@ -6072,6 +6084,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.OMSetBlendState(additive ? _addBlend : _alphaBlend, factor, 0xFFFFFFFF);
             DrawBlendedBatch(context, batch, additive);
+
+            // **The surface's overlays straight after it** (0x1800e4fd0, B457), with the overlay pass's own state;
+            // then the translucent state back for the next run.
+            if (at < leaves.OverlaysAfter.Count && leaves.OverlaysAfter[at].Count > 0)
+            {
+                DrawOverlayList(context, leaves.OverlaysAfter[at]);
+                context.RSSetState(Raster(_bothSides));
+
+                if (_depthReadOnly.Handle is not null)
+                {
+                    context.OMSetDepthStencilState(_depthReadOnly, 0);
+                }
+            }
         }
 
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);

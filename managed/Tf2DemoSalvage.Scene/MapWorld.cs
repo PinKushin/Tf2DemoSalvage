@@ -69,6 +69,8 @@ public readonly record struct MapWorld(
 /// <param name="Plane">The face's PLANE, unflipped — what the engine's leaf pass tests the eye against (B457).</param>
 /// <param name="PlaneBack">Whether the face looks down the back of that plane, the engine's plane-back flag.</param>
 /// <param name="OnNode">`dface_t.onNode`: the face lies on a node's plane and is drawn by the node, not the leaf.</param>
+/// <param name="Flags">The face's texinfo flags; SURF_TRANS sends it to the engine's translucent list (B457).</param>
+/// <param name="Displacement">The face's DISPINFO index, or −1 for a brush face.</param>
 public readonly record struct WorldFaceSpan(
     int Face,
     int FirstVertex,
@@ -79,7 +81,9 @@ public readonly record struct WorldFaceSpan(
     (float X, float Y, float Z) Max = default,
     (float X, float Y, float Z, float Distance) Plane = default,
     bool PlaneBack = false,
-    bool OnNode = false);
+    bool OnNode = false,
+    SurfaceProperties Flags = SurfaceProperties.None,
+    int Displacement = -1);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -499,7 +503,9 @@ public static class MapWorldBuilder
                     // The side-corrected normal against the plane's: opposed is the engine's plane-back flag.
                     (face.Normal.X * face.PlaneNormal.X) + (face.Normal.Y * face.PlaneNormal.Y) +
                     (face.Normal.Z * face.PlaneNormal.Z) < 0f,
-                    face.OnNode));
+                    face.OnNode,
+                    face.Flags,
+                    face.DisplacementIndex));
             }
         }
 
