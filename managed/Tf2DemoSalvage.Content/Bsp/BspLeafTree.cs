@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 
 using static Tf2DemoSalvage.Content.Bsp.BspStructLayout;
@@ -535,6 +536,116 @@ public sealed class BspLeafTree
         return (
             BinaryPrimitives.ReadUInt16LittleEndian(leaves[(at + 20)..]),
             BinaryPrimitives.ReadUInt16LittleEndian(leaves[(at + 22)..]));
+    }
+
+    /// <summary>A leaf's water data ID — `dleaf_t.leafWaterDataID`, a short at offset 28 — or −1 for none.</summary>
+    /// <param name="leaf">The leaf index.</param>
+    /// <returns>The ID, −1 for a dry leaf or no such leaf.</returns>
+    /// <remarks>
+    /// engine.dll <c>0x180100b60</c> flags every surface of a leaf whose ID is not −1 with 0x20000, which the world
+    /// walk reads as "draw at the node whichever side it faces" (B457). Same offset in both struct versions.
+    /// </remarks>
+    public int WaterDataId(int leaf)
+    {
+        ReadOnlySpan<byte> leaves = _leaves.Span;
+        int at = leaf * _leafStride;
+
+        return leaf < 0 || at + 30 > leaves.Length ? -1 : BinaryPrimitives.ReadInt16LittleEndian(leaves[(at + 28)..]);
+    }
+
+    /// <summary>Every leaf a box reaches by the engine's displacement-to-leaf walk, in the order reached.</summary>
+    /// <param name="min">The box's low corner.</param>
+    /// <param name="max">The box's high corner.</param>
+    /// <param name="into">Where the leaves are appended.</param>
+    /// <remarks>
+    /// **engine.dll <c>0x18016f470</c>, which files a displacement into the leaves it touches** (B457). For an axial
+    /// plane (type &lt; 3) the box goes BACK when <c>min &lt; dist</c> and FRONT when <c>dist &lt; max</c> or
+    /// <c>min ≥ dist</c>; for any other plane, <c>BoxOnPlaneSide</c> (front when the far corner is at or past the
+    /// plane, back when the near corner is short of it).
+    /// </remarks>
+    public void LeavesTouchingBox(
+        (float X, float Y, float Z) min, (float X, float Y, float Z) max, ICollection<int> into)
+    {
+        static float Axis((float X, float Y, float Z) corner, int type) => type switch
+        {
+            0 => corner.X,
+            1 => corner.Y,
+            _ => corner.Z,
+        };
+
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (IsEmpty)
+        {
+            return;
+        }
+
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+        Queue<int> pending = new();
+
+        pending.Enqueue(0);
+
+        // A tree visits each node once; a malformed one with a cycle must not spin for ever.
+        int budget = NodeCount + LeafCount + 1;
+
+        while (pending.Count > 0 && budget-- > 0)
+        {
+            int node = pending.Dequeue();
+
+            if (node < 0)
+            {
+                into.Add(-node - 1);
+                continue;
+            }
+
+            int at = node * NodeStride;
+            int planeAt = at + NodeStride <= nodes.Length
+                ? BinaryPrimitives.ReadInt32LittleEndian(nodes[at..]) * PlaneStride
+                : -1;
+
+            if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+            {
+                continue;
+            }
+
+            (float nx, float ny, float nz) = (
+                BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]),
+                BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]),
+                BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]));
+            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+            int type = BinaryPrimitives.ReadInt32LittleEndian(planes[(planeAt + 16)..]);
+
+            bool front;
+            bool back;
+
+            if (type is >= 0 and < 3)
+            {
+                float low = Axis(min, type);
+                float high = Axis(max, type);
+
+                back = low < distance;
+                front = !back || distance < high;
+            }
+            else
+            {
+                float near = (nx * (nx < 0 ? max.X : min.X)) + (ny * (ny < 0 ? max.Y : min.Y)) + (nz * (nz < 0 ? max.Z : min.Z));
+                float far = (nx * (nx < 0 ? min.X : max.X)) + (ny * (ny < 0 ? min.Y : max.Y)) + (nz * (nz < 0 ? min.Z : max.Z));
+
+                front = far >= distance;
+                back = near < distance;
+            }
+
+            if (front)
+            {
+                pending.Enqueue(BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 4)..]));
+            }
+
+            if (back)
+            {
+                pending.Enqueue(BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 8)..]));
+            }
+        }
     }
 
     /// <summary>How far a box may travel between two points before it meets something solid.</summary>

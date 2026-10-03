@@ -1820,8 +1820,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <summary>The translucent batches, farthest first.</summary>
     private IReadOnlyList<WorldBatch> _sortedTranslucent = [];
 
-    /// <summary>The decal batches, drawn over the world with a depth bias.</summary>
-    private IReadOnlyList<WorldBatch> _decals = [];
+    /// <summary>The overlay draws for this view, in the engine's order; null until a view queues them.</summary>
+    /// <remarks>
+    /// **Set per view by the caller, from <c>OverlayRenderLists</c>** (B457): the engine queues overlays each frame from the
+    /// surfaces its walk reached, so the order is the view's and not the build's. Null after a material upload, like
+    /// <see cref="TranslucentLeaves"/>, because which surfaces are translucent decides it.
+    /// </remarks>
+    public IReadOnlyList<WorldBatch>? Overlays { get; set; }
 
     /// <summary>The view origin from the last <see cref="SetCamera"/>, for overlay fade; null with no eye.</summary>
     private (float X, float Y, float Z)? _eye;
@@ -3387,13 +3392,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// <param name="device">Device to create the vertex buffer on.</param>
     /// <param name="vertices">Every triangle corner, already in clip space.</param>
     /// <param name="batches">The runs, one per material.</param>
-    /// <param name="decals">Overlay runs, drawn with the world and after its surfaces.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void UploadGeometry(
         ComPtr<ID3D11Device> device,
         IReadOnlyList<WorldVertex> vertices,
-        IReadOnlyList<WorldBatch> batches,
-        IReadOnlyList<WorldBatch>? decals = null)
+        IReadOnlyList<WorldBatch> batches)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -3410,11 +3413,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
         CreateVertexBuffer(device, data);
 
         _batches = batches;
-
-        // **Sorted once, at upload, because the order does not depend on the camera.** Looking
-        // straight down, depth IS height, and height does not change when the view pans or zooms.
-        // A perspective camera would have to re-sort per frame; this one never does.
-        _decals = decals ?? [];
 
         _sortedTranslucent = SortTranslucent(vertices, batches, _translucent);
 
@@ -5549,11 +5547,41 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private void DrawDecals(ComPtr<ID3D11DeviceContext> context)
     {
-        if ((_decals.Count == 0 && _shotDecals.Count == 0) || _decalOffset.Handle is null)
+        IReadOnlyList<WorldBatch> overlays = Overlays ?? [];
+
+        if ((overlays.Count == 0 && _shotDecals.Count == 0) || _decalOffset.Handle is null)
         {
             return;
         }
 
+        DrawOverlayList(context, overlays);
+
+        // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
+        // (B415), from their own buffer because they change while the map plays. *Interpolated order:* both are drawn by
+        // the engine's world pass, and which of the two it draws first was not read.
+        if (_shotDecals.Count > 0 && _shotDecalBuffer.Handle is not null)
+        {
+            uint stride = VertexStride;
+            uint offset = 0;
+
+            context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
+
+            foreach (WorldBatch batch in _shotDecals)
+            {
+                DrawDecalBatch(context, batch);
+            }
+
+            context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
+        }
+
+        // Back to the ordinary rasteriser, or everything after this is pulled forward too.
+        context.RSSetState(Raster(_bothSides));
+    }
+
+    /// <summary>Draws one list of overlay runs from the world buffer with the overlay pass's state — one
+    /// <c>RenderOverlays</c> (B457).</summary>
+    private void DrawOverlayList(ComPtr<ID3D11DeviceContext> context, IReadOnlyList<WorldBatch> overlays)
+    {
         context.RSSetState(Raster(_decalOffset));
 
         // **Tested, never written (B135).** Set here rather than left to the opaque pass's state,
@@ -5583,7 +5611,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         // of the stain. Drawn opaque, the transparent surround is painted as solid colour, which
         // is why the squares had hard edges no decal in the game has. The state is set per batch, in
         // DrawDecalBatch, because a modulating decal wants a different one.
-        foreach (WorldBatch batch in _decals)
+        foreach (WorldBatch batch in overlays)
         {
             // **Faded per overlay from the view origin** (lump 60, engine.dll 0x18010a580): past its
             // maximum the engine never queues it. Without an eye there is no distance, so it draws.
@@ -5594,27 +5622,6 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 DrawDecalBatch(context, batch, drawn);
             }
         }
-
-        // **The decals the game put there — bullet holes and the demo's own decal events — after the map's overlays**
-        // (B415), from their own buffer because they change while the map plays. *Interpolated order:* both are drawn by
-        // the engine's world pass, and which of the two it draws first was not read.
-        if (_shotDecals.Count > 0 && _shotDecalBuffer.Handle is not null)
-        {
-            uint stride = VertexStride;
-            uint offset = 0;
-
-            context.IASetVertexBuffers(0, 1, ref _shotDecalBuffer, in stride, in offset);
-
-            foreach (WorldBatch batch in _shotDecals)
-            {
-                DrawDecalBatch(context, batch);
-            }
-
-            context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
-        }
-
-        // Back to the ordinary rasteriser, or everything after this is pulled forward too.
-        context.RSSetState(Raster(_bothSides));
     }
 
     /// <summary>The vertex light a mod2x decal's corners carry so this pipeline reproduces the engine's blend (B415).</summary>
@@ -6027,6 +6034,11 @@ internal sealed unsafe class WorldRenderer : IDisposable
     public bool IsBlendedMaterial(int material) =>
         _translucent.Contains(material) || _additive.Contains(material);
 
+    /// <summary>Whether a material is <c>$nocull</c> — the engine's NOCULL surface bit (0x1800fa3d0, B457).</summary>
+    /// <param name="material">The material index.</param>
+    /// <returns>True for a two-sided material.</returns>
+    public bool IsTwoSidedMaterial(int material) => _noCull.Contains(material);
+
     /// <summary>One leaf's translucent and additive world runs — <c>DrawTranslucentSurfaces</c> for one leaf.</summary>
     /// <param name="context">Context to issue the draws on.</param>
     /// <param name="position">The leaf's place in the world list.</param>
@@ -6072,6 +6084,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
 
             context.OMSetBlendState(additive ? _addBlend : _alphaBlend, factor, 0xFFFFFFFF);
             DrawBlendedBatch(context, batch, additive);
+
+            // **The surface's overlays straight after it** (0x1800e4fd0, B457), with the overlay pass's own state;
+            // then the translucent state back for the next run.
+            if (at < leaves.OverlaysAfter.Count && leaves.OverlaysAfter[at].Count > 0)
+            {
+                DrawOverlayList(context, leaves.OverlaysAfter[at]);
+                context.RSSetState(Raster(_bothSides));
+
+                if (_depthReadOnly.Handle is not null)
+                {
+                    context.OMSetDepthStencilState(_depthReadOnly, 0);
+                }
+            }
         }
 
         context.OMSetBlendState(default(ComPtr<ID3D11BlendState>), factor, 0xFFFFFFFF);
@@ -6162,7 +6187,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _detailAnimation.Clear();
         _colourFactors.Clear();
         _sortedTranslucent = [];
-        _decals = [];
+        Overlays = null;
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();

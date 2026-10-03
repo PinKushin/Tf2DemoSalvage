@@ -116,7 +116,7 @@ public sealed class DecalOrientationTests
             null,
             [CaptureZone()]);
 
-        world.Decals.Count.ShouldBe(1, "the overlay lies flat on the floor, so it should be placed");
+        world.OverlayFragments.Count.ShouldBe(1,"the overlay lies flat on the floor, so it should be placed");
 
         return world.Vertices;
     }

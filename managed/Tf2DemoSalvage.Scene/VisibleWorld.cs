@@ -1,9 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
+
+/// <summary>A displacement the world walk reached (B457).</summary>
+/// <param name="Face">Its face.</param>
+/// <param name="InView">Whether its box survives the frustum — whether its overlays are queued (<c>0x1800c61f0</c>).</param>
+public readonly record struct ReachedDisplacement(int Face, bool InView);
 
 /// <summary>
 /// The world surfaces a view can see, gathered from its visible leaves into drawable runs.
@@ -143,6 +149,57 @@ public sealed class VisibleWorld
         }
 
         _claimed = new int[highest + 1];
+
+        // **The engine's water bit** (0x180100b60): every surface of a leaf with a water data ID, except
+        // displacements and warp faces (0x10800).
+        _underwater = new bool[highest + 1];
+
+        for (int leaf = 0; leaf < tree.LeafCount; leaf++)
+        {
+            if (tree.WaterDataId(leaf) == -1)
+            {
+                continue;
+            }
+
+            (int first, int count) = tree.LeafFaces(leaf);
+
+            for (int entry = 0; entry < count; entry++)
+            {
+                int face = leafFaces.Face(first + entry);
+
+                if (Span(face) is { } span && span.Displacement < 0 && (span.Flags & SurfaceProperties.Warp) == 0)
+                {
+                    _underwater[face] = true;
+                }
+            }
+        }
+
+        // **Each leaf's displacements, as the collision loader files them** (0x18016fa20, 0x18016f470, 0x180170210):
+        // every displacement in DISPINFO order, walked down the tree by its box, appended to each leaf it reaches.
+        List<int>[] byLeaf = new List<int>[tree.LeafCount];
+        List<int> reached = [];
+
+        foreach (int at in Enumerable.Range(0, spans.Count)
+                     .Where(at => spans[at].Displacement >= 0 && _faceSpans[_faceStart[spans[at].Face]] == at)
+                     .OrderBy(at => spans[at].Displacement))
+        {
+            reached.Clear();
+            tree.LeavesTouchingBox(spans[at].Min, spans[at].Max, reached);
+
+            foreach (int leaf in reached.Where(leaf => leaf >= 0 && leaf < byLeaf.Length))
+            {
+                (byLeaf[leaf] ??= []).Add(at);
+            }
+        }
+
+        _leafDisplacementStart = new int[tree.LeafCount + 1];
+
+        for (int leaf = 0; leaf < tree.LeafCount; leaf++)
+        {
+            _leafDisplacementStart[leaf + 1] = _leafDisplacementStart[leaf] + (byLeaf[leaf]?.Count ?? 0);
+        }
+
+        _leafDisplacements = [.. byLeaf.Where(list => list is not null).SelectMany(list => list)];
     }
 
     private readonly int[] _faceStart;
@@ -176,17 +233,23 @@ public sealed class VisibleWorld
     /// *interpolated*. A displacement is placed in the nearest listed leaf its box touches, or the nearest leaf of
     /// all when it touches none.
     /// </remarks>
+    /// <param name="separate">Whether a face carries overlays, which <c>0x1800e4fd0</c> draws straight after that face
+    /// (B457), so its run is its own and names it; null for none.</param>
     public TranslucentLeafRuns BlendedByLeaf(
         IReadOnlyList<int> leaves,
         ViewFrustum frustum,
         Func<int, bool> blended,
-        ReadOnlySpan<int> positionByLeaf)
+        ReadOnlySpan<int> positionByLeaf,
+        Func<int, bool>? separate = null)
     {
         ArgumentNullException.ThrowIfNull(leaves);
         ArgumentNullException.ThrowIfNull(blended);
 
+        _separate = separate;
         _blendedRuns.Clear();
         _blendedStarts.Clear();
+        _runFaces.Clear();
+        _runDisplacement.Clear();
         _placedUnreachable.Clear();
         _claimFrame++;
 
@@ -229,23 +292,27 @@ public sealed class VisibleWorld
 
                 for (int at = _faceStart[face]; at < _faceStart[face + 1]; at++)
                 {
-                    AddBlended(_faceSpans[at], blended);
+                    AddBlended(_faceSpans[at], blended, displacement: false);
                 }
             }
 
             for (; placed < _placedUnreachable.Count && _placedUnreachable[placed].Position == position; placed++)
             {
-                AddBlended(_placedUnreachable[placed].Span, blended);
+                AddBlended(_placedUnreachable[placed].Span, blended, displacement: true);
             }
         }
 
         _blendedStarts.Add(_blendedRuns.Count);
 
-        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts);
+        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts, _runFaces, _runDisplacement);
     }
 
+    private Func<int, bool>? _separate;
+    private readonly List<int> _runFaces = [];
+    private readonly List<bool> _runDisplacement = [];
+
     /// <summary>Appends a blended span to the current leaf's runs, continuing the last run when it follows it.</summary>
-    private void AddBlended(int index, Func<int, bool> blended)
+    private void AddBlended(int index, Func<int, bool> blended, bool displacement)
     {
         WorldFaceSpan span = _spans[index];
 
@@ -254,10 +321,13 @@ public sealed class VisibleWorld
             return;
         }
 
+        bool own = _separate?.Invoke(span.Face) ?? false;
         int last = _blendedRuns.Count - 1;
         WorldBatch run = last >= 0 ? _blendedRuns[last] : default;
 
-        if (last >= _blendedStarts[^1] &&
+        if (!own &&
+            last >= _blendedStarts[^1] &&
+            _runFaces[last] < 0 &&
             run.MaterialIndex == span.MaterialIndex &&
             run.Category == span.Category &&
             run.FirstVertex + run.VertexCount == span.FirstVertex)
@@ -268,7 +338,132 @@ public sealed class VisibleWorld
 
         _blendedRuns.Add(new WorldBatch(
             span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category));
+        _runFaces.Add(own ? span.Face : -1);
+        _runDisplacement.Add(displacement);
     }
+
+    private readonly List<int> _surfaces = [];
+
+    /// <summary>Which surfaces walk last marked each face — a frame number, as <see cref="_stamped"/> is.</summary>
+    private int[]? _marked;
+
+    private int _markFrame;
+
+    private readonly List<ReachedDisplacement> _displacements = [];
+
+    /// <summary>The displacements the last <see cref="Surfaces"/> walk reached, in the order reached (B457).</summary>
+    public IReadOnlyList<ReachedDisplacement> Displacements => _displacements;
+
+    /// <summary>The faces a walk reaches, in the order the engine hands them to <c>R_DrawSurface</c> (B457).</summary>
+    /// <param name="walk">The walk, as <see cref="WorldVisibility.Walk"/> records it, without the leaves this view does not draw.</param>
+    /// <param name="x">The eye.</param>
+    /// <param name="y">The eye.</param>
+    /// <param name="z">The eye.</param>
+    /// <param name="frustum">The view volume, for each displacement's own box (<c>0x1800c0f90</c>).</param>
+    /// <param name="twoSided">Whether a material is <c>$nocull</c> — the surface's NOCULL bit; null for none.</param>
+    /// <returns>Brush face indices, valid until the next call; the displacements are <see cref="Displacements"/>.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="walk"/> is null.</exception>
+    /// <remarks>
+    /// **Read from engine.dll (x64, live), in disassembly.** <c>R_DrawLeaf</c> (<c>0x1800df9d0</c>) first reaches the
+    /// leaf's displacements (<c>0x1800db7b0</c>: each not yet marked, in the leaf's list order), then marks its node
+    /// surfaces, then marks and draws each other surface not already marked that is NOCULL (0x200) or whose UNFLIPPED
+    /// plane the eye is in front of, <c>dot − dist ≥ −0.01</c>. <c>R_RecursiveWorldNode</c> (<c>0x1800e0600</c>)
+    /// draws, between a node's children, each of its surfaces marked this frame that is in a water leaf (0x20000,
+    /// <c>0x180100b60</c>) or whose plane-back flag equals the eye's side.
+    ///
+    /// A displacement is reached whatever its box; its box decides only whether its overlays are queued
+    /// (<c>0x1800c61f0</c>), which is why <see cref="ReachedDisplacement.InView"/> rides along rather than filtering.
+    /// </remarks>
+    public IReadOnlyList<int> Surfaces(
+        IReadOnlyList<WorldWalkStep> walk,
+        float x,
+        float y,
+        float z,
+        ViewFrustum frustum = default,
+        Func<int, bool>? twoSided = null)
+    {
+        ArgumentNullException.ThrowIfNull(walk);
+
+        _marked ??= new int[_stamped.Length];
+        _markFrame++;
+        _surfaces.Clear();
+        _displacements.Clear();
+
+        foreach (WorldWalkStep step in walk)
+        {
+            if (step.IsNode)
+            {
+                if (_tree.Node(step.Index) is not { } node)
+                {
+                    continue;
+                }
+
+                for (int face = node.FirstFace; face < node.FirstFace + node.FaceCount; face++)
+                {
+                    if (Span(face) is { } span && _marked[face] == _markFrame &&
+                        (_underwater[face] || span.PlaneBack == step.EyeBehind))
+                    {
+                        _surfaces.Add(face);
+                    }
+                }
+
+                continue;
+            }
+
+            for (int at = _leafDisplacementStart[step.Index]; at < _leafDisplacementStart[step.Index + 1]; at++)
+            {
+                WorldFaceSpan terrain = _spans[_leafDisplacements[at]];
+
+                if (_marked[terrain.Face] == _markFrame)
+                {
+                    continue;
+                }
+
+                _marked[terrain.Face] = _markFrame;
+                _displacements.Add(new ReachedDisplacement(
+                    terrain.Face,
+                    !frustum.Cull(terrain.Min.X, terrain.Min.Y, terrain.Min.Z, terrain.Max.X, terrain.Max.Y, terrain.Max.Z)));
+            }
+
+            (int first, int count) = _tree.LeafFaces(step.Index);
+
+            for (int entry = 0; entry < count; entry++)
+            {
+                int face = _leafFaces.Face(first + entry);
+
+                if (Span(face) is not { } span || _marked[face] == _markFrame)
+                {
+                    continue;
+                }
+
+                _marked[face] = _markFrame;
+
+                if (!span.OnNode &&
+                    ((twoSided?.Invoke(span.MaterialIndex) ?? false) ||
+                     (span.Plane.X * x) + (span.Plane.Y * y) + (span.Plane.Z * z) - span.Plane.Distance >= -0.01f))
+                {
+                    _surfaces.Add(face);
+                }
+            }
+        }
+
+        return _surfaces;
+    }
+
+    /// <summary>Per face, whether it lies in a water leaf — the engine's 0x20000 (<c>0x180100b60</c>).</summary>
+    private readonly bool[] _underwater;
+
+    /// <summary>Each leaf's displacement spans, by DISPINFO index: leaf L holds
+    /// <c>_leafDisplacements[_leafDisplacementStart[L] .. _leafDisplacementStart[L + 1])</c>.</summary>
+    private readonly int[] _leafDisplacementStart;
+
+    private readonly int[] _leafDisplacements;
+
+    /// <summary>A face's span, or null for a face the build dropped.</summary>
+    private WorldFaceSpan? Span(int face) =>
+        face >= 0 && face < _stamped.Length && _faceStart[face] < _faceStart[face + 1]
+            ? _spans[_faceSpans[_faceStart[face]]]
+            : null;
 
     /// <summary>Spans no leaf names, which must be culled by their own box or not at all.</summary>
     private readonly int[] _unreachable;

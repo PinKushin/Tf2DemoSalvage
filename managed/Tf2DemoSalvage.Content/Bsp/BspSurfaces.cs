@@ -81,6 +81,9 @@ public readonly record struct LuxelMapping(
 /// </param>
 /// <param name="PlaneDistance">That plane's `dist`.</param>
 /// <param name="OnNode">`dface_t.onNode`: the face lies on a node's plane, which the engine's leaf pass skips.</param>
+/// <param name="Style0">`dface_t.styles[0]`, offset 16.</param>
+/// <param name="Style1">`dface_t.styles[1]`, offset 17; with <paramref name="Style0"/>, whether the face has light styles
+/// (engine.dll Mod_LoadFaces, <c>0x180101840</c>: flag 0x400 unless style 0 is 0 or 255 and style 1 is 255).</param>
 public sealed record BspSurface(
     int FaceIndex,
     IReadOnlyList<SurfaceVertex> Vertices,
@@ -96,7 +99,9 @@ public sealed record BspSurface(
     (float X, float Y, float Z, float Offset) TextureT = default,
     (float X, float Y, float Z) PlaneNormal = default,
     float PlaneDistance = 0f,
-    bool OnNode = false)
+    bool OnNode = false,
+    byte Style0 = 0,
+    byte Style1 = 255)
 {
     /// <summary>Whether this face is the base quad of a displacement.</summary>
     /// <remarks>
@@ -272,7 +277,9 @@ public static class BspSurfaces
                 Row(info, 16),
                 ReadNormal(planes, planeIndex, flipped: false),
                 BinaryPrimitives.ReadSingleLittleEndian(planes[((planeIndex * PlaneStride) + 12)..]),
-                face[3] != 0));
+                face[3] != 0,
+                face[16],
+                face[17]));
         }
 
         return surfaces;

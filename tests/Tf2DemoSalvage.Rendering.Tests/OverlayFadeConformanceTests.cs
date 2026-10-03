@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
@@ -69,9 +70,11 @@ public sealed class OverlayFadeConformanceTests
             ]);
 
         // Merged with its neighbour, one alpha would fade both; the engine fades per overlay.
-        world.Decals.Count.ShouldBe(2);
-        world.Decals[0].Fade.ShouldBeNull();
-        world.Decals[1].Fade.ShouldBe(new OverlayFade(8f, 0f, 0f, 250_000f, 1_000_000f));
-        world.Decals.Select(batch => batch.VertexCount).ShouldBe([6, 6]);
+        IReadOnlyList<WorldBatch> drawn = OverlayRenderOrderConformanceTests.Drawn(world);
+
+        drawn.Count.ShouldBe(2);
+        drawn[0].Fade.ShouldBeNull();
+        drawn[1].Fade.ShouldBe(new OverlayFade(8f, 0f, 0f, 250_000f, 1_000_000f));
+        drawn.Select(batch => batch.VertexCount).ShouldBe([6, 6]);
     }
 }

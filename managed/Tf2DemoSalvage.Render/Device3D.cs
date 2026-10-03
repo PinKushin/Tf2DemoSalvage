@@ -1601,9 +1601,15 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _world ??= WorldRenderer.Create(_device, _loggers);
-        _world.UploadGeometry(
-            _device, world.Vertices, world.Batches, world.Decals);
+        _world.UploadGeometry(_device, world.Vertices, world.Batches);
+
+        // Queued per view from the walk, in SetCamera (B457); null until then.
+        _overlays = new OverlayRenderLists(world.OverlayFragments, world.FaceSpans);
+        _world.Overlays = null;
     }
+
+    /// <summary>The map's overlay fragments, queued per view (B457).</summary>
+    private OverlayRenderLists? _overlays;
 
     /// <summary>The vertex light a mod2x decal's corners carry — the reasoning is on the renderer's own constant.</summary>
     public const float ModulateTwiceLight = WorldRenderer.ModulateTwiceLight;
@@ -2333,16 +2339,34 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         // **Also when the translucent runs were dropped** by a material upload, which the view did not change (B426).
         if (_world is not null &&
-            (_culledFor != view || _world.VisibleBatches is null ||
+            (_culledFor != view || _world.VisibleBatches is null || _world.Overlays is null ||
              (_world.TranslucentLeaves is null && _culling is { CanCull: true })))
         {
             _culledFor = view;
 
             _world.VisibleBatches = _culling?.Batches(
-                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum);
+                camera.Origin.X, camera.Origin.Y, camera.Origin.Z, _frustum, _world.IsTwoSidedMaterial);
 
-            // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426).
-            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial);
+            (float X, float Y, float Z) overlayEye = (camera.Origin.X, camera.Origin.Y, camera.Origin.Z);
+
+            // **The same view's blended surfaces, by leaf place**, for the translucent interleave (B426) — a surface
+            // carrying overlays in a run of its own, its overlays drawn straight after it (0x1800e4fd0, B457).
+            _world.TranslucentLeaves = _culling?.BlendedRuns(_world.IsBlendedMaterial, _overlays is { } separate ? separate.HasOverlays : null);
+
+            if (_world.TranslucentLeaves is { } leaves && _overlays is { } perSurface)
+            {
+                leaves.OverlaysAfter = perSurface.ForTranslucentLeaves(leaves, overlayEye);
+            }
+
+            // **The opaque world's overlays, queued from the surfaces that same walk reached** (B457). A map that
+            // cannot be walked queues every face in buffer order.
+            bool walked = _world.VisibleBatches is not null;
+
+            _world.Overlays = _overlays?.Order(
+                walked ? _culling?.Surfaces : null,
+                walked ? _culling?.Displacements : null,
+                overlayEye,
+                _world.IsBlendedMaterial) ?? [];
 
             // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve
             // builds it as a separate `CSkyboxView` and calls `ViewSetupVis` at the sky camera's

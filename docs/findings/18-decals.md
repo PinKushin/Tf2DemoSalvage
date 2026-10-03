@@ -228,7 +228,11 @@ wrong together.
 | render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | batches keyed by order and material, emitted order-major — read from `COverlayMgr::RenderOverlays` in engine.dll (below) | **fixed**, B138 |
 | fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), per overlay while `r_overlayfadeenable` is 0 (engine.dll 0x18010a580) | read; faded per batch from the view origin | **fixed**, B455 |
 | decal polygon offset | `ApplyZBias` (shaderapidx9 0x180014600) applies the **reciprocals**: 1/−262144 of the range, slope 1/−0.5 | DecalModulate takes −64 steps and −2 | **fixed**, B456 |
-| order within a layer | material buckets prepended as the visible-leaf walk first reaches them, per frame | first-seen lump order, fixed | **open**, B457 |
+| order within a layer | material buckets prepended as the opaque material-sort walk queues each surface's (prepended) fragment list, per frame | the same, queued per view from the cull's own walk (`OverlayRenderLists`) | **fixed**, B457 |
+| overlays on translucent surfaces | queued and drawn per surface inside `DrawTranslucentSurfaces` (0x1800e4fd0), with that surface | the same: drawn after their run in the translucent pass | **fixed**, B458 |
+| displacement overlays | their own batch, all layers, before any brush overlay; leaf lists by displacement index; a culled one keeps its sort place (0x1800e3a90, 0x1800c61f0) | the same | **fixed**, B457 |
+| overlays on brush entities | never drawn — `R_DrawBrushModel` never reaches the overlay manager | not drawn | matches, B457 |
+| sort key's lightmap page | sort ID is {material, lightmap page} from materialsystem.dll's allocator | the allocator ported (`LightmapSortIds`); material order assumes a fresh process | **fixed**, B457 |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
@@ -252,6 +256,54 @@ B70 rested on described a bias the engine never applied. The togl read was right
 wrong about the value, because togl receives the render state *after* the reciprocal. The lesson
 for this project: a config struct's field is an input, and the number on the wire is whatever the
 consumer makes of it — read the consumer (B456).
+
+**The order within a layer is three lists deep, and the filing named one of them** *(evidence class:
+read from disassembly, engine.dll x64)*. B457 was filed as "buckets prepended in the order the
+visible-leaf walk first reaches them". Reading the producers before building found two more lists
+between the walk and the buckets, and each one changes the answer:
+
+1. **A surface's own fragment list is prepended at load.** `0x18010b1c0` builds overlays in lump
+   order; the fragment writer `0x180111b30` links each new fragment before the surface's head
+   (surface +0x14, `0x1801123a1`..`0x180112421`). Queue that list, prepend again into the bucket,
+   and two overlays on ONE surface draw in lump order — the two reversals cancel. A port of the
+   filing alone would have drawn them backwards.
+2. **The walk does not queue overlays; the material sort does.** `R_DrawSurface` (`0x1800dfbb0`)
+   appends each opaque surface to its material-sort chain (`0x1800d1140`), and `0x1800da3a0` —
+   called per sort group from `0x1800e5e10` just before `RenderOverlays` — walks the sort IDs in
+   first-reached order and each chain in order. So surfaces of one material are queued together
+   wherever the walk found them. A translucent surface (flag 0x20) is on the other list and its
+   overlays are queued and drawn per surface inside `DrawTranslucentSurfaces` (`0x1800e4fd0`) —
+   a sibling still open (B458).
+3. **Only then the buckets** (`0x18010a580`): a fragment faded past its maximum is never queued, so
+   it cannot claim its bucket's position either.
+
+The walk itself is `R_RecursiveWorldNode` (`0x1800e0600`): near child, then the node's surfaces that
+a visible leaf has MARKED and whose plane-back flag equals the eye's side, then the far child;
+`R_DrawLeaf` (`0x1800df9d0`) marks node surfaces and marks-and-draws the others it faces
+(`dot − dist ≥ −0.01` on the unflipped plane). A node surface whose only marking leaf lies in the far
+subtree is therefore not drawn at that node — ported as read, not repaired (B457).
+
+**Displacements are a separate batch, drawn first — the second thing the first pass missed.**
+Following the overlay manager's getter to every caller found a third queue: `Shader_DrawDispChain`
+(`0x1800e3a90`) runs before the brush chains in each sort group, and its `0x1800c61f0` queues the
+displacements' overlays and calls `RenderOverlays` itself. So a layer-1 overlay on terrain draws
+before a layer-0 overlay on a wall — the render-order passes are per batch, not per frame. The same
+search answered the brush-entity question by absence: nothing on `R_DrawBrushModel`'s three paths
+reaches the overlay manager, so an overlay on a door is never drawn, and dropping those fragments
+was already Valve's behaviour. *Evidence class: read from disassembly.*
+
+**The sort key's lightmap page comes from a packer, and the material order from the process.**
+The engine's surface sort ID is whatever materialsystem.dll's `AllocateLightmap` returns while the
+engine feeds it every face in a fixed order (lit first, then by material, then by luxel area). A
+material change closes every page but the last, so one material's faces can be split across two
+sort IDs — which is what the overlay queue sees. The wavefront packer and the 1024×512 page are
+fully deterministic and ported. The one input that is not: "by material" means by the material's
+ENUMERATION ID, which the material dictionary assigns in-order over a tree keyed by the name's
+`CUtlSymbol` — the order the whole PROCESS first interned each name. On a fresh launch a map's
+materials are interned by the collision loader in texdata order, so that is the port; a session that
+loaded another map first can order shared materials differently, and nothing in a demo records that.
+*Evidence class: read from disassembly (engine.dll and materialsystem.dll); the texdata order is
+interpolated for a fresh process.*
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This
