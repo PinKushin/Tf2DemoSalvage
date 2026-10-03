@@ -52,6 +52,7 @@ public sealed class TfGameMovementWalkConformanceTests
         Run(ref player, Move(side: 450f));
 
         player.Velocity.Y.ShouldBe(-75f, 1e-3f);
+        player.Origin.Y.ShouldBe(-75f * Tick, 1e-4f);
     }
 
     [Test]
@@ -85,6 +86,7 @@ public sealed class TfGameMovementWalkConformanceTests
         Run(ref player, Move());
 
         player.Velocity.X.ShouldBe(44f, 1e-3f);
+        player.Origin.X.ShouldBe(44f * Tick, 1e-4f);
     }
 
     [Test]
@@ -294,6 +296,201 @@ public sealed class TfGameMovementWalkConformanceTests
         player.Velocity.Y.ShouldBe(-10.607f, 1e-2f);
     }
 
+    [Test]
+    public void ProcessMovement_FacingNorthMovingForwardAndRight_AcceleratesNorthAndEast()
+    {
+        // AngleVectors (mathlib_base.cpp): at yaw 90 forward is +y and right is +x. Wish (30, 30) is 42.43, over the
+        // threshold 40, so Accelerate adds 10 · 0.015 · 42.43 = 6.364 split evenly: 4.5 each.
+        PredictedPlayer player = Standing();
+
+        Run(ref player, Look(30f, 90f, 0f, forward: 30f, side: 30f));
+
+        player.Velocity.X.ShouldBe(4.5f, 1e-3f);
+        player.Velocity.Y.ShouldBe(4.5f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_AScoutAirDashingSideways_DashesAlongHisRight()
+    {
+        // AirDash (tf_gamemovement.cpp:992-1031): CheckParameters cuts sidemove 450 to the max 400, right is (0, −1, 0), so
+        // the velocity is (0, −400, 268.33), less the end-of-move half-tick of gravity.
+        PredictedPlayer player = AirborneScout();
+
+        Run(ref player, Move(side: 450f, buttons: InJump));
+
+        player.Velocity.Y.ShouldBe(-400f, 1e-3f);
+        player.Velocity.Z.ShouldBe(262.3281573f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_AScoutAirDashingWithTheAgilityRune_DashesOnePointEightTimesHigher()
+    {
+        // AirDash's z is 268.33 · flJumpMod, and RUNE_AGILITY makes it 1.8 (tf_gamemovement.cpp:1019): 482.99 − 6.
+        PredictedPlayer player = AirborneScout() with { Conditions = Cond(97) };
+
+        Run(ref player, Move(buttons: InJump));
+
+        player.Velocity.Z.ShouldBe((268.3281573f * 1.8f) - 6f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_FallingFasterThanMaxVelocity_IsBoundedBySvMaxVelocity()
+    {
+        // CheckVelocity (gamemovement.cpp:1094-1128): each axis is clamped to sv_maxvelocity 3500.
+        PredictedPlayer player = Airborne() with { Velocity = new Vector3(5000f, 0f, 0f) };
+
+        Run(ref player, Move());
+
+        player.Velocity.X.ShouldBe(3500f);
+    }
+
+    [Test]
+    public void ProcessMovement_AVelocityThatIsNaN_IsZeroed()
+    {
+        // CheckVelocity (gamemovement.cpp:1100-1106): an IS_NAN component is set to 0.
+        PredictedPlayer player = Airborne() with { Velocity = new Vector3(float.NaN, 0f, 0f) };
+
+        Run(ref player, Move());
+
+        player.Velocity.X.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ProcessMovement_StandingOnAConveyor_MovesByItsBaseVelocityAndKeepsNoneOfIt()
+    {
+        // WalkMove (tf_gamemovement.cpp:1861, :1882-1886): the base velocity is added for the trace and removed after.
+        PredictedPlayer player = Standing() with { BaseVelocity = new Vector3(100f, 0f, 0f) };
+
+        Run(ref player, Move());
+
+        player.Origin.X.ShouldBe(1.5f, 1e-4f);
+        player.Velocity.X.ShouldBe(0f, 1e-4f);
+    }
+
+    [Test]
+    public void ProcessMovement_OnAConveyorSlowerThanOneUnit_IsNotMoved()
+    {
+        // :1864-1869: under 1 unit/s the velocity is zeroed and he stays put; the base velocity is not removed.
+        PredictedPlayer player = Standing() with { BaseVelocity = new Vector3(0.5f, 0f, 0f) };
+
+        Run(ref player, Move());
+
+        player.Origin.X.ShouldBe(0f);
+        player.Velocity.X.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ProcessMovement_InTheAirWithAnUpwardBaseVelocity_TakesATickOfItIntoTheFall()
+    {
+        // StartGravity (gamemovement.cpp:1240-1262): z += basevelocity.z · dt, then basevelocity.z = 0: −6 + 1.5 − 6.
+        PredictedPlayer player = Airborne() with { BaseVelocity = new Vector3(0f, 0f, 100f) };
+
+        Run(ref player, Move());
+
+        player.Velocity.Z.ShouldBe(-10.5f, 1e-4f);
+        player.BaseVelocity.Z.ShouldBe(0f);
+    }
+
+    [Test]
+    public void ProcessMovement_RunningNearTheMaxSpeedHoldingForward_AddsOnlyTheShortfall()
+    {
+        // Accelerate (gamemovement.cpp:1450-1485): (280, 100) loses 6 % to friction, (263.2, 94); addspeed 300 − 263.2 =
+        // 36.8 is under 45, so x is 300; |(300, 94)| = 314.38 is cut back to 300.
+        PredictedPlayer player = Standing() with { Velocity = new Vector3(280f, 100f, 0f) };
+
+        Run(ref player, Move(forward: 450f));
+
+        player.Velocity.X.ShouldBe(286.276f, 1e-2f);
+        player.Velocity.Y.ShouldBe(89.700f, 1e-2f);
+    }
+
+    [Test]
+    public void ProcessMovement_InTheAirWithARolledViewAndHighAirControl_CapsTheWishAtTheMaxSpeed()
+    {
+        // AirMove (tf_gamemovement.cpp:2133-2137): pitch 45 and roll 90 flatten right to −forward, so forward 212 and side
+        // −212 wish 424 along x, capped at 300; mod_air_control 20 lifts the air cap to 600, so AirAccelerate adds
+        // 10 · 300 · 0.015 = 45 rather than 10 · 424 · 0.015.
+        PredictedPlayer player = Airborne();
+        MovementItems items = MovementItems.None with { OnPlayer = (name, value) => name == "mod_air_control" ? value * 20f : value };
+
+        Run(ref player, Look(45f, 0f, 90f, forward: 450f, side: -450f), items: items);
+
+        player.Velocity.X.ShouldBe(45f, 1e-2f);
+    }
+
+    [Test]
+    public void ProcessMovement_InTheAirAgainstTwoWalls_SlidesOffBothAndKeepsOnlyTheFall()
+    {
+        // TryPlayerMove (gamemovement.cpp:2558-2760): touching x = 100 and y = 100, the first plane clips x away; the
+        // second, met without moving, clips y away against both planes; the fall alone goes on: −6, then −6 more.
+        const float Touching = 100f - 24f - 0.03125f;
+        PredictedPlayer player = Airborne() with { Origin = new Vector3(Touching, Touching, 500f), Velocity = new Vector3(100f, 50f, 0f) };
+
+        Run(ref player, Move(), trace: Corner());
+
+        player.Velocity.ShouldBe(new Vector3(0f, 0f, -12f));
+        player.Origin.X.ShouldBe(Touching);
+        player.Origin.Y.ShouldBe(Touching);
+        player.Origin.Z.ShouldBe(500f - 0.09f, 1e-4f);
+    }
+
+    [Test]
+    public void ProcessMovement_RunningIntoACornerOnTheGround_Stops()
+    {
+        // TryPlayerMove on the ground (:2700-2752): each of two planes' clips runs into the other, so the crease of x = 100
+        // and y = 100 is vertical and leaves nothing of a level run.
+        const float Touching = 100f - 24f - 0.03125f;
+        PredictedPlayer player = Standing() with
+        {
+            Origin = new Vector3(Touching, Touching, 0.03125f),
+            Velocity = new Vector3(300f, 300f, 0f),
+        };
+
+        Run(ref player, Move(), trace: Corner());
+
+        player.Velocity.ShouldBe(Vector3.Zero);
+        player.Origin.ShouldBe(new Vector3(Touching, Touching, 0.03125f));
+    }
+
+    [Test]
+    public void ProcessMovement_DuckedUnderALowCeiling_WalksWithTheDuckedHull()
+    {
+        // GetPlayerMins/Maxs ducked (gamemovement.cpp:3500-3520): the 62-unit hull fits under a ceiling at 70 where the
+        // 82-unit one would start solid; 100 less a tick of friction moves him 94 · 0.015.
+        PredictedPlayer player = Standing() with { Ducked = true, FlDucking = true, Velocity = new Vector3(100f, 0f, 0f) };
+
+        Run(ref player, Move(buttons: InDuck), oldButtons: InDuck, trace: LowCeiling());
+
+        player.Origin.X.ShouldBe(1.41f, 1e-4f);
+    }
+
+    [Test]
+    public void ProcessMovement_JumpingWhileTheDuckJumpTimerRuns_DoesNotJump()
+    {
+        // CheckJumpButton (tf_gamemovement.cpp:1213): m_flDuckJumpTime 100, less 15, is still above 0.
+        PredictedPlayer player = Standing() with { DuckJumpTime = 100f };
+
+        Run(ref player, Move(buttons: InJump));
+
+        player.Velocity.Z.ShouldBe(0f);
+        player.DuckJumpTime.ShouldBe(85f);
+    }
+
+    /// <summary>Walls at x ≥ 100 and y ≥ 100, over a floor below z = 0.</summary>
+    private static PlayerTraceRay Corner() => BoxWorld.Of(
+        (new Vector3(-1e4f, -1e4f, -1000f), new Vector3(1e4f, 1e4f, 0f)),
+        (new Vector3(100f, -1e4f, -1000f), new Vector3(1e4f, 1e4f, 1e4f)),
+        (new Vector3(-1e4f, 100f, -1000f), new Vector3(1e4f, 1e4f, 1e4f)));
+
+    /// <summary>A floor below z = 0 and a ceiling from z = 70.</summary>
+    internal static PlayerTraceRay LowCeiling() => BoxWorld.Of(
+        (new Vector3(-1e4f, -1e4f, -1000f), new Vector3(1e4f, 1e4f, 0f)),
+        (new Vector3(-1e4f, -1e4f, 70f), new Vector3(1e4f, 1e4f, 1000f)));
+
+    private static PredictedPlayer Airborne() => Standing() with { Origin = new Vector3(0f, 0f, 500f), OnGround = false };
+
+    private static PredictedPlayer AirborneScout() => Airborne() with { PlayerClass = 1, MaxSpeed = 400f };
+
     /// <summary>A floor below z = 0 and a step 10 high from x = 40 on.</summary>
     private static PlayerTraceRay Step() => BoxWorld.Of(
         (new Vector3(-1e4f, -1e4f, -1000f), new Vector3(1e4f, 1e4f, 0f)),
@@ -311,13 +508,17 @@ public sealed class TfGameMovementWalkConformanceTests
     private static UserCommand Move(float forward = 0f, float side = 0f, uint buttons = 0) =>
         new(1, 1, 0f, 0f, 0f, forward, side, 0f, buttons, 0, 0, 0, 0, 0, 0);
 
-    private static void Run(ref PredictedPlayer player, UserCommand command, uint oldButtons = 0, PlayerTraceRay? trace = null)
+    private static void Run(
+        ref PredictedPlayer player, UserCommand command, uint oldButtons = 0, PlayerTraceRay? trace = null, MovementItems? items = null)
     {
         player.OldButtons = oldButtons;
 
-        new TfGameMovement(trace ?? Floor(), MovementConVars.Defaults, maxClients: 24)
+        new TfGameMovement(trace ?? Floor(), MovementConVars.Defaults, maxClients: 24) { Items = items ?? MovementItems.None }
             .ProcessMovement(ref player, command, Tick, first: true, commandNumber: 1).ShouldBeTrue();
     }
+
+    internal static UserCommand Look(float pitch, float yaw, float roll, float forward = 0f, float side = 0f, uint buttons = 0) =>
+        new(1, 1, pitch, yaw, roll, forward, side, 0f, buttons, 0, 0, 0, 0, 0, 0);
 }
 
 /// <summary>
