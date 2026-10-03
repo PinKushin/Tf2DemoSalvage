@@ -2,9 +2,11 @@
 
 A standalone parser, text decompiler/compiler and 3D viewer for Team Fortress 2 `.dem` files — built to work on demos from any era of TF2's 18-year history, including ones Valve's own client updates have broken.
 
-Independent, clean-room project. Not affiliated with Valve. Ships no Valve-authored game
-assets — maps are resolved from your own TF2 install or a source you configure, not bundled
-(see `docs/DECISIONS.md` D9).
+Independent project, not affiliated with Valve. Its goal is exact parity with the game, so it is
+written from Valve's published Source SDK 2013, the game's own shipped data, and disassembly of the
+shipped binaries — never leaked source — with the engine behavior it ports cited in the code. It is
+not a clean-room implementation. Ships no Valve-authored game assets — maps and models are read from
+your own TF2 install or a source you configure, not bundled (see `docs/DECISIONS.md` D9).
 
 ## Using it
 

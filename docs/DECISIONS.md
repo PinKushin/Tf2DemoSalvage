@@ -9485,3 +9485,14 @@ release we need to do another release, the release should basically always be th
 a merge that changes what a user runs (viewer, CLI, packaging), the assistant cuts the next beta from main — version
 bump in `Directory.Build.props`, a "Changes since" section in `RELEASE-NOTES.md`, tag, the CI zip smoke-tested, then
 published as a pre-release under D204. Docs-only and test-only merges do not need a release.
+
+---
+
+## D207 — "clean-room" withdrawn: the project is written from the SDK, shipped data and disassembly (2026-10-03)
+
+A teamfortress.tv reply pointed out that "clean-room" does not fit a project built with access to everything,
+including Valve's source. Correct: clean-room means implementers who never saw the original code, and this project
+quotes the Source SDK 2013 in its comments and disassembles the shipped binaries (D174, `docs/DECOMPILING.md`) — which
+the parity rule (D89) requires. The phrase was the owner's own early wording, carried into the README and ROADMAP.
+Owner: *"yea fix the readme wording"* — the README now says what the sources actually are: the published SDK, the
+game's shipped data and disassembly of the shipped binaries, never leaked source, and no Valve assets distributed (D9).

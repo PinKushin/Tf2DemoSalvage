@@ -440,7 +440,7 @@ Tf2DemoSalvage/
   tests/                 golden-output regression tests, one per corpus demo
 ```
 
-CI: build the C core + run the C# test suite against the full corpus on Windows, fail on any output regression. License: MIT (locked), with a clear note that it's an independent/clean-room project unaffiliated with Valve. Map assets are resolved at runtime rather than bundled — see `docs/DECISIONS.md` D9, which supersedes the earlier blanket "ships no game assets" wording.
+CI: build the C core + run the C# test suite against the full corpus on Windows, fail on any output regression. License: MIT (locked), with a clear note that it's an independent project unaffiliated with Valve, written from the published SDK, shipped data and disassembly (not clean-room; see README). Map assets are resolved at runtime rather than bundled — see `docs/DECISIONS.md` D9, which supersedes the earlier blanket "ships no game assets" wording.
 
 ## 5. Corpus status
 
