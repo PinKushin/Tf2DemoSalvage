@@ -34,8 +34,9 @@ namespace Tf2DemoSalvage.Render;
 /// Direct3D 11 defines its integer <c>DepthBias</c> with the same scale on a UNORM format:
 /// <c>bias = DepthBias · r + SlopeScaledDepthBias · maxDepthSlope</c>.
 ///
-/// **So it is one quantity under three APIs, and Valve's number transfers unchanged.** −262144 · r
-/// is −0.015625 of the depth range, whichever of the three draws it.
+/// **The units transfer; the number did not (B453).** shaderapidx9's <c>ApplyZBias</c> sets the
+/// render state to the RECIPROCAL of the config term, so what reaches togl is 1/−262144, not
+/// −262144 — see <see cref="PolyOffsetDepthBias"/>.
 /// </remarks>
 internal static class DecalState
 {

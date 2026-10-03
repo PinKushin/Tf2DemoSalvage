@@ -192,7 +192,8 @@ public sealed class DecalRenderStateConformanceTests
         // range, a round number chosen deliberately rather than tuned.
         (Initialiser("m_DepthBias_Decal") * step).ShouldBe(-0.015625, 1e-9);
 
-        // **What 1/64 of the range costs under perspective, which is why we do not apply it.**
+        // **What 1/64 of the range would cost — the misreading B70 chased, kept as the arithmetic of
+        // why it looked wrong. The engine applies the reciprocal (B453, the test above).**
         // Window depth goes as z ≈ 1 − N/d, so an offset Δz moves a surface Δd ≈ Δz·d²/N toward the
         // camera. At Valve's own VIEW_NEARZ of 7, a marking 500 units away tests as though it were
         // at 236 — in front of everything between. That is a fact about the projection, and it is
