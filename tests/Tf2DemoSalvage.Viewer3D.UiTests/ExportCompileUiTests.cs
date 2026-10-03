@@ -108,8 +108,7 @@ public sealed class ExportCompileUiTests
 
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
-        WaitForStatus("Exported");
-        _viewer.StatusText().ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
+        WaitForStatus("Exported").ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
 
         Press("Compile assembly");
         FillDialog(text, string.Empty);
@@ -197,8 +196,15 @@ public sealed class ExportCompileUiTests
             dialog.FindAllDescendants(search => search.ByControlType(ControlType.ToolBar)),
             bar => bar.Properties.Name.ValueOrDefault)));
         typed.ShouldBe(path, "the name box did not end up holding the typed path");
-        dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
-        Mark("OK invoked");
+        AutomationElement[] oks = dialog.FindAllDescendants(search => search.ByAutomationId("1"));
+        Mark("buttons with id 1: " + string.Join("; ", Array.ConvertAll(oks, ok =>
+            $"{ok.Properties.ControlType.ValueOrDefault} '{ok.Properties.Name.ValueOrDefault}' "
+            + $"offscreen={ok.Properties.IsOffscreen.ValueOrDefault} enabled={ok.Properties.IsEnabled.ValueOrDefault} "
+            + $"parent={ok.Parent?.Properties.ClassName.ValueOrDefault}")));
+        AutomationElement confirm = Array.Find(oks, ok => ok.Properties.ControlType.ValueOrDefault == ControlType.Button
+            && !ok.Properties.IsOffscreen.ValueOrDefault) ?? throw new InvalidOperationException("no visible OK button");
+        confirm.AsButton().Invoke();
+        Mark($"'{confirm.Properties.Name.ValueOrDefault}' invoked");
 
         bool closed = Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success;
         Mark("closed: " + closed);
@@ -273,12 +279,15 @@ public sealed class ExportCompileUiTests
         return report.ToString();
     }
 
-    private static void WaitForStatus(string prefix)
+    /// <returns>The status text that matched — the reading itself, never a second read, which came
+    /// back empty a moment after a match (a local run).</returns>
+    private static string WaitForStatus(string prefix)
     {
-        bool reached = Retry.WhileFalse(
-            () => _viewer.StatusText().StartsWith(prefix, StringComparison.Ordinal),
-            WorkTimeout).Success;
+        string? reached = Retry.WhileNull(
+            () => _viewer.StatusText() is { } status && status.StartsWith(prefix, StringComparison.Ordinal) ? status : null,
+            WorkTimeout).Result;
 
-        reached.ShouldBeTrue($"the status bar never said '{prefix}…'; it says '{_viewer.StatusText()}'\n" + DescribeWindows());
+        reached.ShouldNotBeNull($"the status bar never said '{prefix}…'; it says '{_viewer.StatusText()}'\n" + DescribeWindows());
+        return reached;
     }
 }
