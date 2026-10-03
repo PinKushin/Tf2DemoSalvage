@@ -848,6 +848,11 @@ internal sealed partial class ViewerApplication : IDisposable
     {
         Window.SetForeground();
 
+        if (!HasFocus())
+        {
+            TakeForeground();
+        }
+
         if (HasFocus())
         {
             return;

@@ -41,14 +41,7 @@ public sealed class ExportCompileUiTests
         _folder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_folder);
         TestContext.Out.WriteLine("focus at setup: " + Focused());
-        _focusBefore = _viewer.Window.Automation.FocusedElement() is { } focused
-            && focused.Properties.ProcessId.ValueOrDefault == _viewer.Window.Properties.ProcessId.Value
-                ? focused.Properties.AutomationId.ValueOrDefault
-                : null;
     }
-
-    /// <summary>The viewer control that had keyboard focus before the test, or null if none did.</summary>
-    private string? _focusBefore;
 
     private static string Focused() =>
         (_viewer.Window.Automation.FocusedElement() is { } focused
@@ -80,16 +73,14 @@ public sealed class ExportCompileUiTests
             Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
         }
 
-        // Driving the File menu through UIA leaves the menu bar holding keyboard focus (measured:
-        // "focus at teardown: MenuBar 'Main menu'"), and every later key-press test then typed into
-        // the menu — the ten failures after this one on CI. Put focus back where the test found it.
-        string restore = string.IsNullOrEmpty(_focusBefore) ? "Viewport" : _focusBefore;
-        _viewer.Find(restore).Focus();
-        bool restored = Retry.WhileFalse(
-            () => _viewer.Window.Automation.FocusedElement()?.Properties.AutomationId.ValueOrDefault == restore,
-            DialogTimeout).Success;
+        // Collapsed, as every other menu-driving helper leaves its menu (ViewerApplication.InvokeMenuItem).
+        // Press cannot collapse straight after its invoke — that raced the posted dialog and closed it —
+        // and leaving it expanded broke the shared viewer: opening Export from this menu and cancelling,
+        // with no export at all, failed nine later key-press and full-screen tests on CI (probe run
+        // 37147488078), against none with this test ignored (run 37138141067). The menu bar was
+        // holding keyboard focus afterwards ("focus at teardown: MenuBar 'Main menu'").
+        FileMenu().Patterns.ExpandCollapse.Pattern.Collapse();
         TestContext.Out.WriteLine("focus at teardown: " + Focused());
-        restored.ShouldBeTrue($"keyboard focus did not return to '{restore}'");
         TestContext.Out.WriteLine("dialog timeline:\n" + string.Join("\n", Timeline));
         Timeline.Clear();
         Directory.Delete(_folder, recursive: true);
@@ -109,6 +100,7 @@ public sealed class ExportCompileUiTests
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
         WaitForStatus("Exported").ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
+        FileMenu().Patterns.ExpandCollapse.Pattern.Collapse();
 
         Press("Compile assembly");
         FillDialog(text, string.Empty);
@@ -118,6 +110,10 @@ public sealed class ExportCompileUiTests
         File.ReadAllBytes(rebuilt).AsSpan().SequenceEqual(File.ReadAllBytes(ViewerSession.DemoPath))
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
     }
+
+    private static AutomationElement FileMenu() => Retry.WhileNull(
+        () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),
+        DialogTimeout).Result ?? throw new InvalidOperationException("no File menu");
 
     /// <summary>Invokes a File menu item; the viewer posts the dialog, so this returns before it opens.</summary>
     /// <remarks>
@@ -130,9 +126,7 @@ public sealed class ExportCompileUiTests
         // Not ViewerApplication.InvokeMenuItem: its Collapse after the invoke races the posted
         // dialog and, landing second, closed it — no dialog in one run of two. Invoking an item
         // closes its menu on its own.
-        AutomationElement menu = Retry.WhileNull(
-            () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),
-            DialogTimeout).Result!;
+        AutomationElement menu = FileMenu();
         menu.Patterns.ExpandCollapse.Pattern.Expand();
 
         // Shown, not merely present: the item exists before its drop-down is on screen, and an
