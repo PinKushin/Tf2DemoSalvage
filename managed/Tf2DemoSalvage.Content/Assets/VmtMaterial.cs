@@ -1687,7 +1687,12 @@ public sealed class VmtMaterial
             : material;
     }
 
-    private float Number(string key, float fallback)
+    /// <summary>Reads a float parameter.</summary>
+    /// <param name="key">The parameter, with its <c>$</c>.</param>
+    /// <param name="fallback">What an undeclared parameter reads as.</param>
+    /// <returns>The value.</returns>
+    /// <exception cref="InvalidDataException">The value is not a number.</exception>
+    public float Number(string key, float fallback)
     {
         string? text = Value(key);
 
@@ -1815,7 +1820,11 @@ public sealed class VmtMaterial
             ? value
             : 0f;
 
-    private (float Red, float Green, float Blue) Colour(string key)
+    /// <summary>Reads a colour parameter, white when undeclared.</summary>
+    /// <param name="key">The parameter, with its <c>$</c>.</param>
+    /// <returns>The colour as written (gamma).</returns>
+    /// <exception cref="InvalidDataException">The value is not one or three numbers.</exception>
+    public (float Red, float Green, float Blue) Colour(string key)
     {
         string? text = Value(key);
 
