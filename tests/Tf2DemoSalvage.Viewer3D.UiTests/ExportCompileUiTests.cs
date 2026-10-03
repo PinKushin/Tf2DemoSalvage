@@ -15,7 +15,15 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// **Export writes the open demo's assembly text and Compile turns it back into the same bytes**,
 /// so the one assertion that matters is the rebuilt file against the demo on disk. The dialogs are
 /// the stock Win32 common dialogs, reached as modal windows of the viewer and filled through UIA's
-/// value and invoke patterns — no synthesized input, so nothing can land in another window.
+/// value and invoke patterns.
+///
+/// **Opened by clicking the action-row buttons, never through the File menu.** Expanding the menu
+/// through UI Automation leaves WinForms in keyboard menu mode, which outlives the dialog and eats
+/// every later keystroke whatever control has focus: opening Export from the menu and cancelling,
+/// with no export at all, failed nine key-press and full-screen tests after it on CI (probe run
+/// 37147488078), against none with this test ignored (run 37138141067); moving focus back to the
+/// viewport did not help (run 37155302709). A real click is what a user does and enters no menu
+/// mode. It needs the foreground, which ViewerApplication.Click takes and verifies.
 /// </remarks>
 [TestFixture]
 public sealed class ExportCompileUiTests
@@ -90,93 +98,17 @@ public sealed class ExportCompileUiTests
         // on the line the load ends with.
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
-        Press("Export assembly");
+        _viewer.Click(MainForm.ExportButtonId);
         FillDialog(text, "z1800.txt");
         WaitForStatus("Exported").ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
 
-        Press("Compile assembly");
+        _viewer.Click(MainForm.CompileButtonId);
         FillDialog(text, string.Empty);
         FillDialog(rebuilt, "z1800.dem");
         WaitForStatus("Compiled");
 
         File.ReadAllBytes(rebuilt).AsSpan().SequenceEqual(File.ReadAllBytes(ViewerSession.DemoPath))
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
-    }
-
-    [Test]
-    public void FileDialog_CancelledAfterTheFileMenu_LeavesTheKeyBindingsWorking()
-    {
-        // **The dialog returned and no control had keyboard focus**, so the next keystroke went to
-        // the window as a system key — UIA reported focus on its title-bar menu — and ProcessCmdKey,
-        // where every binding lives, never ran. On CI that was ten key-press and full-screen tests
-        // failing after the Export test; reproduced locally with no export at all: SPACE switched
-        // the camera before the File menu and a cancelled dialog, and did nothing after, Escape
-        // included. The same shape as full screen hiding the focused playlist (MainForm).
-        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
-        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE did not switch the camera before the dialog either — no control");
-
-        Press("Export assembly");
-        AutomationElement dialog = Retry.WhileNull(Dialog, DialogTimeout).Result
-            ?? throw new InvalidOperationException("no file dialog opened");
-        Retry.WhileNull(
-                () => dialog.FindFirstChild(search => search.ByAutomationId("2")) is { IsEnabled: true } cancel ? cancel : null,
-                DialogTimeout)
-            .Result!.AsButton().Invoke();
-        Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
-
-        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE stopped switching the camera after the dialog: " + Focused());
-    }
-
-    /// <summary>Presses the camera-mode key, then returns the camera to the free view it started in.</summary>
-    private static bool SpaceSwitchesTheCamera()
-    {
-        int before = CameraModeChanges();
-        ViewerSession.PressSwitchCameraMode();
-        bool changed = Retry.WhileFalse(() => CameraModeChanges() > before, DialogTimeout).Success;
-
-        // Back to free, as FirstPersonUiTests' own setup does: the session is shared.
-        int free = _viewer.Count(BackToTheFreeCamera);
-        for (int press = 0; changed && press < 2 && _viewer.Count(BackToTheFreeCamera) == free; press++)
-        {
-            int was = CameraModeChanges();
-            ViewerSession.PressSwitchCameraMode();
-            Retry.WhileFalse(() => CameraModeChanges() > was, DialogTimeout, throwOnTimeout: true);
-        }
-
-        return changed;
-    }
-
-    private const string BackToTheFreeCamera = "back to the free camera";
-
-    private static int CameraModeChanges() =>
-        _viewer.Count(ViewerSession.FirstPersonOn) + _viewer.Count("third person on,") + _viewer.Count(BackToTheFreeCamera);
-
-    private static AutomationElement FileMenu() => Retry.WhileNull(
-        () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),
-        DialogTimeout).Result ?? throw new InvalidOperationException("no File menu");
-
-    /// <summary>Invokes a File menu item; the viewer posts the dialog, so this returns before it opens.</summary>
-    /// <remarks>
-    /// Through the File menu, not the action-row buttons: a button's UIA Invoke is a BM_CLICK, which
-    /// a window that is not active ignores — measured here as an invoke that completed and opened
-    /// nothing — and this suite never takes the foreground.
-    /// </remarks>
-    private static void Press(string itemName)
-    {
-        // Not ViewerApplication.InvokeMenuItem: its Collapse after the invoke races the posted
-        // dialog and, landing second, closed it — no dialog in one run of two. Invoking an item
-        // closes its menu on its own.
-        AutomationElement menu = FileMenu();
-        menu.Patterns.ExpandCollapse.Pattern.Expand();
-
-        // Shown, not merely present: the item exists before its drop-down is on screen, and an
-        // invoke then was accepted and did nothing (the viewer logged no press).
-        Retry.WhileNull(
-                () => menu.FindFirstDescendant(search => search.ByName(itemName)) is { IsOffscreen: false } item
-                    ? item
-                    : null,
-                DialogTimeout)
-            .Result!.Patterns.Invoke.Pattern.Invoke();
     }
 
     /// <summary>Types a path into the viewer's open file dialog and confirms it.</summary>

@@ -74,17 +74,6 @@ internal static partial class ForegroundProbe
         }
     }
 
-    /// <summary>The window holding keyboard focus on the calling thread, or zero when none does.</summary>
-    /// <remarks>
-    /// Zero is the state that matters: with no focused window, Windows hands a keystroke to the
-    /// active window as a SYSTEM key, so no control's key handling runs at all.
-    /// </remarks>
-    public static IntPtr FocusedWindow() => GetFocus();
-
-    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
-    [LibraryImport("user32.dll")]
-    private static partial IntPtr GetFocus();
-
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [LibraryImport("user32.dll")]
     private static partial IntPtr GetForegroundWindow();
