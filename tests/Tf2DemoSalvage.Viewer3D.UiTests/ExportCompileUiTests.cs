@@ -38,7 +38,7 @@ public sealed class ExportCompileUiTests
     [SetUp]
     public void CreateFolder()
     {
-        _folder = Path.Combine(Path.GetTempPath(), "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
+        _folder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_folder);
         TestContext.Out.WriteLine("focus at setup: " + Focused());
         _focusBefore = _viewer.Window.Automation.FocusedElement() is { } focused
@@ -193,6 +193,9 @@ public sealed class ExportCompileUiTests
             ? path
             : name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
         Mark($"typed; reads back '{typed}'");
+        Mark("address: " + string.Join(" | ", Array.ConvertAll(
+            dialog.FindAllDescendants(search => search.ByControlType(ControlType.ToolBar)),
+            bar => bar.Properties.Name.ValueOrDefault)));
         typed.ShouldBe(path, "the name box did not end up holding the typed path");
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
         Mark("OK invoked");
