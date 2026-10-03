@@ -4142,7 +4142,7 @@ public sealed class DemoTimeline
     /// model's (B437). True without the install, which leaves the flag alone.
     /// </summary>
     private static bool ModelCrouchWalks(EntityState player, IClassAnimationScripts? classes, PlayerActivityOverride table) =>
-        classes?.HasCrouchWalk(player.PlayerClass(), table) ?? true;
+        classes?.HasCrouchWalk(player.PlayerClass(), table, null, null, 0) ?? true;
 
     /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
     private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";

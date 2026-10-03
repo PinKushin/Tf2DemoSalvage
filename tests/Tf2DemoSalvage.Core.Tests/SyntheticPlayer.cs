@@ -347,6 +347,15 @@ internal static class SyntheticPlayer
     /// <summary>Class id of <c>CTEPlayerAnimEvent</c> in <see cref="DemoOfGestures"/>.</summary>
     private const int AnimEventClassId = 2;
 
+    /// <summary>Class id of the weapon a <see cref="GestureSnapshot.WeaponItem"/> puts in the player's hands.</summary>
+    private const int GestureWeaponClassId = 3;
+
+    /// <summary>That weapon's server class.</summary>
+    public const string GestureWeaponClass = "CTFRocketLauncher";
+
+    /// <summary>That weapon's entity slot.</summary>
+    private const int GestureWeaponEntityIndex = 30;
+
     /// <summary>
     /// The game rules entity's slot in <see cref="DemoOfGestures"/> — and an entity that exists, for a grappling
     /// hook to name.
@@ -395,6 +404,9 @@ internal static class SyntheticPlayer
 
         /// <summary>Leaves the PVS at this snapshot: a LEAVE update and nothing else, then an ENTER after it.</summary>
         public bool Dormant { get; init; }
+
+        /// <summary>The item definition of the weapon in hand (<see cref="GestureWeaponClass"/>), or null for none.</summary>
+        public int? WeaponItem { get; init; }
 
         /// <summary>The events the player raises in this snapshot's packet, after its entities, in order.</summary>
         public IReadOnlyList<PlayerAnimEvent> Events { get; init; } = [];
@@ -456,6 +468,7 @@ internal static class SyntheticPlayer
         ];
 
         bool present = false;
+        bool weaponPresent = false;
 
         for (int index = 0; index < snapshots.Length; index++)
         {
@@ -475,6 +488,23 @@ internal static class SyntheticPlayer
                     UpdateType = present ? EntityUpdateType.Delta : EntityUpdateType.Enter,
                 });
                 present = true;
+            }
+
+            if (snapshot.WeaponItem is { } weaponItem)
+            {
+                entities.Add(Entity(
+                    decoder,
+                    GestureWeaponClassId,
+                    GestureWeaponEntityIndex,
+                    new Dictionary<string, PropertyValue>
+                    {
+                        ["DT_ScriptCreatedItem.m_iItemDefinitionIndex"] = PropertyValue.FromInt(weaponItem),
+                    }) with
+                {
+                    SerialNumber = 1,
+                    UpdateType = weaponPresent ? EntityUpdateType.Delta : EntityUpdateType.Enter,
+                });
+                weaponPresent = true;
             }
 
             if (index == 0 && rules is { } round)
@@ -545,6 +575,8 @@ internal static class SyntheticPlayer
                 snapshot.GrapplingHookTarget is { } target
                     ? target | (snapshot.GrapplingHookSerial << 11)
                     : InvalidNetworkedHandle),
+            ["DT_BaseCombatCharacter.m_hActiveWeapon"] = PropertyValue.FromInt(
+                snapshot.WeaponItem is not null ? GestureWeaponEntityIndex | (1 << 11) : InvalidNetworkedHandle),
         };
 
     /// <summary>One <c>CTEPlayerAnimEvent</c>, carrying every field as a full update.</summary>
@@ -593,10 +625,16 @@ internal static class SyntheticPlayer
                             UnsignedInt("m_hGrapplingHookTarget", bits: 21),
                             Table("playerclass", "DT_TFPlayerClassShared"),
                             Table("playershared", "DT_TFPlayerShared"),
+                            Table("bcc", "DT_BaseCombatCharacter"),
                         ],
                     }
                     : table);
         }
+
+        // The held weapon (B437): its handle on the player, its item on the weapon.
+        tables.Add(new SendTable("DT_BaseCombatCharacter", NeedsDecoder: true, [UnsignedInt("m_hActiveWeapon", bits: 21)]));
+        tables.Add(new SendTable("DT_ScriptCreatedItem", NeedsDecoder: true, [UnsignedInt("m_iItemDefinitionIndex", bits: 16)]));
+        tables.Add(new SendTable("DT_GestureWeapon", NeedsDecoder: true, [Table("m_Item", "DT_ScriptCreatedItem")]));
 
         tables.Add(new SendTable("DT_TFPlayerClassShared", NeedsDecoder: true,
         [
@@ -631,6 +669,7 @@ internal static class SyntheticPlayer
                 .. baseline.ServerClasses,
                 new ServerClass(GestureRulesClassId, "CTFGameRulesProxy", "DT_TFGameRulesProxy"),
                 new ServerClass(AnimEventClassId, "CTEPlayerAnimEvent", "DT_TEPlayerAnimEvent"),
+                new ServerClass(GestureWeaponClassId, GestureWeaponClass, "DT_GestureWeapon"),
             ]);
     }
 

@@ -208,6 +208,9 @@ public sealed class ItemSchema
         /// <summary>`player_poseparam` per visuals block (econ_item_schema.cpp:2583).</summary>
         public Dictionary<string, List<(string Name, float Value)>> PlayerPoseParams { get; } = new(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>`animation_replacement` per visuals block (econ_item_schema.cpp:2551-2558): activity to replacement.</summary>
+        public Dictionary<string, Dictionary<string, string>> ActivityReplacements { get; } = new(StringComparer.OrdinalIgnoreCase);
+
         /// <summary>The visuals blocks with an `animation_*` entry for `taunt_concept` (econ_item_schema.cpp:2551-2582).</summary>
         public HashSet<string> TauntConceptBlocks { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -408,6 +411,7 @@ public sealed class ItemSchema
         bool inStyles = false;
         bool inPoseParam = false;
         bool inAnimation = false;
+        bool inReplacement = false;
         ItemStyle? style = null;
         string styleBlock = string.Empty;
         PerClassBlock? perClassBlock = null;
@@ -436,7 +440,7 @@ public sealed class ItemSchema
                 case 1:
                     section = key;
                     entry = null;
-                    inStyles = inPoseParam = inAnimation = false;
+                    inStyles = inPoseParam = inAnimation = inReplacement = false;
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
@@ -446,7 +450,7 @@ public sealed class ItemSchema
                     break;
 
                 case 2:
-                    inStyles = inPoseParam = inAnimation = false;
+                    inStyles = inPoseParam = inAnimation = inReplacement = false;
                     inPerClass = false;
                     inVisuals = false;
                     inAttached = false;
@@ -588,7 +592,7 @@ public sealed class ItemSchema
 
                     inAttached = false;
                     inCustomParticle = false;
-                    inStyles = inPoseParam = inAnimation = false;
+                    inStyles = inPoseParam = inAnimation = inReplacement = false;
 
                     if (value is null && string.Equals(key, "taunt", StringComparison.OrdinalIgnoreCase))
                     {
@@ -686,6 +690,7 @@ public sealed class ItemSchema
                     inStyles = visualsTeam.Length == 0 && key.Equals("styles", StringComparison.OrdinalIgnoreCase);
                     inPoseParam = key.Equals("player_poseparam", StringComparison.OrdinalIgnoreCase);
                     inAnimation = key.StartsWith("animation_", StringComparison.OrdinalIgnoreCase);
+                    inReplacement = key.Equals("animation_replacement", StringComparison.OrdinalIgnoreCase);
                     style = null;
 
                     if (inStyles)
@@ -708,6 +713,18 @@ public sealed class ItemSchema
                 case 5 when entry is not null && inAnimation && value is not null
                     && key.Equals("taunt_concept", StringComparison.OrdinalIgnoreCase):
                     entry.TauntConceptBlocks.Add(visualsTeam);
+
+                    // `taunt_concept` can be replaced too; the block it sits in decides both.
+                    if (inReplacement)
+                    {
+                        Replacements(entry, visualsTeam)[key] = value;
+                    }
+
+                    break;
+
+                // `GetOrCreateAnimationActivity( pVisData, name )->pszReplacement` (econ_item_schema.cpp:2553-2557).
+                case 5 when entry is not null && inReplacement && value is not null:
+                    Replacements(entry, visualsTeam)[key] = value;
                     break;
 
                 // `FOR_EACH_SUBKEY( pKVStyles, pKVStyle )` (econ_item_schema.cpp:2810): one style per child, in order.
@@ -1990,6 +2007,45 @@ public sealed class ItemSchema
         }
 
         return found;
+    }
+
+    /// <summary>`CEconItemDefinition::GetActivityOverride( iTeam, baseAct )` (econ_item_schema.cpp:3567-3595).</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The holder's team.</param>
+    /// <param name="activity">The activity the weapon's table left.</param>
+    /// <returns>The best block's `animation_replacement` for it, or the activity itself.</returns>
+    /// <remarks>
+    /// **The best block for the team** — `GetNumAnimations` and `GetAnimationData` go through `GetBestVisualTeamData`
+    /// (`econ_item_schema.h:1831-1854`) — and the nearest declaration in the prefab chain, as every visual here is
+    /// read. Not checked: `ActivityList_IndexForName( pszReplacement ) &gt; 0`, which drops a replacement naming an
+    /// activity the game never registered; none of the shipped replacements was found to need it.
+    /// </remarks>
+    public string ActivityOverride(int definitionIndex, int team, string activity)
+    {
+        if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
+        {
+            return activity;
+        }
+
+        return Search(
+            item,
+            entry => entry.ActivityReplacements.TryGetValue(section, out Dictionary<string, string>? rows) &&
+                rows.TryGetValue(activity, out string? replacement)
+                    ? replacement
+                    : null,
+            LongestChain) ?? activity;
+    }
+
+    /// <summary>One block's `animation_replacement` rows, created on first use.</summary>
+    private static Dictionary<string, string> Replacements(Entry entry, string block)
+    {
+        if (!entry.ActivityReplacements.TryGetValue(block, out Dictionary<string, string>? rows))
+        {
+            rows = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            entry.ActivityReplacements[block] = rows;
+        }
+
+        return rows;
     }
 
     /// <summary>`TEAM_VISUAL_SECTIONS` (econ_item_schema.cpp:77).</summary>

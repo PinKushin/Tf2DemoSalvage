@@ -86,6 +86,30 @@ public sealed class PlayerActivityTableConformanceTests
             .ShouldBe("ACT_MP_RUN_PRIMARY", "a run is not a stand");
     }
 
+    /// <remarks>
+    /// **The item's `animation_replacement` sits between the weapon and the winner** (`:135-139`): it is keyed on the
+    /// activity the weapon's table left, so a replacement of the bare activity never matches a weapon that rewrote it.
+    /// </remarks>
+    [Test]
+    public void Translate_AnItemReplacement_AppliesToTheWeaponsAnswerBeforeTheWinner()
+    {
+        Dictionary<string, string> rows = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["ACT_MP_RELOAD_STAND_PRIMARY"] = "ACT_MP_RELOAD_STAND_PRIMARY3",
+            ["ACT_MP_RELOAD_STAND"] = "ACT_MP_RELOAD_STAND_SECONDARY2",
+            ["ACT_MP_STAND_PRIMARY"] = "ACT_MP_STAND_SECONDARY",
+        };
+        string Item(string activity) => rows.GetValueOrDefault(activity, activity);
+        Func<string, string> item = Item;
+
+        PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.None, null, item)
+            .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY3");
+        PlayerActivityTable.Translate("ACT_MP_STAND_IDLE", "PRIMARY", PlayerActivityOverride.None, competitiveWinnerClass: 3, item)
+            .ShouldBe("ACT_MP_STAND_SECONDARY", "the item turned the stand away from the winner's");
+        PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.None, null)
+            .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY", "the control: no item");
+    }
+
     [Test]
     public void TranslateActivity_TheEngine_AsksThePlayerThenTheWeaponThenTheWinner()
     {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
@@ -115,7 +116,7 @@ public sealed class ClassAirwalkTests
     /// **`bInDuck` is the model's as well as the flag's** (`tf_playeranimstate.cpp:971-975`, `:1429-1433`). The loser's
     /// table rewrites the crouch walk to `ACT_MP_CROUCHWALK_LOSERSTATE`, which no class model declares, so a humiliated
     /// player never ducks; the carrier's rewrites it to `ACT_MP_CROUCHWALK_BUILDING_DEPLOYED`, which the engineer's
-    /// model does declare. The `None` row is the control: a table that leaves the crouch walk to the weapon answers yes.
+    /// model does declare — the control. A table that leaves the crouch walk to the weapon is the next test's.
     /// </remarks>
     [Test]
     public void HasCrouchWalk_TheShippedClassModels_LackOnlyTheLosersCrouchWalk()
@@ -126,14 +127,89 @@ public sealed class ClassAirwalkTests
             return;
         }
 
-        PlayerClassModels classes = PlayerClassModels.Read(read);
+        PlayerClassModels models = PlayerClassModels.Read(read);
+        ClassAnimation classes = new(models, items: null, read);
         int[] all = [.. Enumerable.Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)];
         const int Engineer = 9;
 
-        all.ShouldAllBe(playerClass => classes.Model(playerClass) != null, "every class script must be read");
-        all.ShouldAllBe(playerClass => classes.HasCrouchWalk(playerClass, PlayerActivityOverride.None));
-        all.ShouldAllBe(playerClass => !classes.HasCrouchWalk(playerClass, PlayerActivityOverride.LoserState));
-        classes.HasCrouchWalk(Engineer, PlayerActivityOverride.BuildingDeployed).ShouldBeTrue();
+        all.ShouldAllBe(playerClass => models.Model(playerClass) != null, "every class script must be read");
+        all.ShouldAllBe(playerClass => !classes.HasCrouchWalk(playerClass, PlayerActivityOverride.LoserState, null, null, 0));
+        classes.HasCrouchWalk(Engineer, PlayerActivityOverride.BuildingDeployed, null, null, 0).ShouldBeTrue();
+    }
+
+    /// <summary>The weapon in hand, through its script's role and its item's `anim_slot` (B437).</summary>
+    /// <remarks>
+    /// **Real scripts, real items, real models.** A rocket launcher's script says primary, and the spy's model has no
+    /// `ACT_MP_CROUCHWALK_PRIMARY`; the Gunslinger's `anim_slot` is `item2`, which the engineer's model has. The
+    /// soldier holding the launcher is the control on the class.
+    /// </remarks>
+    [Test]
+    public void HasCrouchWalk_TheHeldWeapon_IsTranslatedThroughItsRoleAndItem()
+    {
+        // items_game.txt ships loose in the tf folder, not in a VPK.
+        string loose = Path.Combine(Game, "scripts", "items", "items_game.txt");
+
+        if (Reader() is not { } read || !File.Exists(loose))
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        ClassAnimation classes = new(PlayerClassModels.Read(read), ItemSchema.Read(File.ReadAllBytes(loose)), read);
+        const int Soldier = 3;
+        const int Spy = 8;
+        const int Engineer = 9;
+        const int RocketLauncher = 18;
+        const int Gunslinger = 142;
+
+        classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, "CTFRocketLauncher", RocketLauncher, 2).ShouldBeFalse();
+        classes.HasCrouchWalk(Soldier, PlayerActivityOverride.None, "CTFRocketLauncher", RocketLauncher, 2).ShouldBeTrue();
+        classes.HasCrouchWalk(Engineer, PlayerActivityOverride.None, "CTFRobotArm", Gunslinger, 2).ShouldBeTrue();
+        classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, null, null, 2)
+            .ShouldBeFalse("no weapon: ACT_MP_CROUCHWALK itself, which no class model names");
+    }
+
+    /// <summary>Which class models lack the crouch walk a weapon role translates to (B437).</summary>
+    /// <remarks>
+    /// **Measured, and the check is far from dead**: 49 of the 117 class-and-role pairs have no sequence for the
+    /// role's crouch walk — every class but the engineer lacks `ACT_MP_CROUCHWALK_PDA` and `_BUILDING`, the spy lacks
+    /// `_PRIMARY`, the soldier and medic lack `_ITEM1`. Asserted on the pairs that decide something, with controls:
+    /// the all-class melee every class has, and the engineer's own PDA and building tables.
+    /// </remarks>
+    [Test]
+    public void DeclaresActivity_EveryRolesCrouchWalk_MeasuredPerClass()
+    {
+        if (Reader() is not { } read)
+        {
+            Assert.Ignore("the game is not installed");
+            return;
+        }
+
+        PlayerClassModels classes = PlayerClassModels.Read(read);
+        List<string> missing = [];
+
+        foreach (int playerClass in Enumerable.Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass))
+        {
+            foreach (string role in WeaponActivityTable.Roles.Order(StringComparer.Ordinal))
+            {
+                string crouchWalk = WeaponActivityTable.Override(role, "ACT_MP_CROUCHWALK");
+
+                if (!classes.DeclaresActivity(playerClass, crouchWalk))
+                {
+                    missing.Add($"{playerClass}:{role}");
+                }
+            }
+        }
+
+        TestContext.Out.WriteLine($"MISSING {missing.Count}: {string.Join(", ", missing)}");
+
+        missing.Count.ShouldBe(49, "if this moves, TF2's class models have changed");
+        missing.ShouldContain("8:PRIMARY");
+        missing.ShouldContain("3:ITEM1");
+        missing.ShouldContain("1:PDA");
+        missing.ShouldNotContain("9:PDA", "the control: the engineer crouch-walks with his PDA");
+        missing.ShouldNotContain("9:BUILDING");
+        missing.ShouldNotContain(item => item.EndsWith(":MELEEALLCLASS", StringComparison.Ordinal));
     }
 
     /// <summary>Reads a file out of the installed game, or null when it is absent.</summary>

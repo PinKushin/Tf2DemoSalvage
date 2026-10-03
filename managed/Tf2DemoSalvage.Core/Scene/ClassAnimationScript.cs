@@ -31,13 +31,16 @@ public interface IClassAnimationScripts
     /// </summary>
     /// <param name="playerClass">The class number as the demo reports it, or null when unknown.</param>
     /// <param name="table">The player's own activity table this frame.</param>
+    /// <param name="weaponClass">`GetActiveWeapon()`'s server class, or null when nothing is held.</param>
+    /// <param name="weaponItem">That weapon's `m_iItemDefinitionIndex`, or null.</param>
+    /// <param name="team">The player's `GetTeamNumber()`, which picks the item's visuals block.</param>
     /// <returns>False only when the model is known to lack it.</returns>
     /// <remarks>
     /// **`DoAnimationEvent` and `HandleJumping` drop `bInDuck` when this is false** (`tf_playeranimstate.cpp:971-975`,
-    /// `:1429-1433`). Only the player's table is applied: a table that rewrites the crouch walk (the loser's, the
-    /// carrier's) leaves a name no weapon table rewrites again, so the model alone answers it. A table that does not
-    /// leaves the weapon's role to decide, which is not known at decode, and the answer is true — the flag stands.
-    /// Not ported: the item's own `GetActivityOverride`. Without an install every answer is true.
+    /// `:1429-1433`). `TranslateActivity` runs whole: the player's table, the weapon role's, the item's
+    /// `animation_replacement`; the winner's step touches only stands. Without an install every answer is true.
     /// </remarks>
-    public bool HasCrouchWalk(int? playerClass, PlayerActivityOverride table) => true;
+    public bool HasCrouchWalk(
+        int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team) =>
+        true;
 }

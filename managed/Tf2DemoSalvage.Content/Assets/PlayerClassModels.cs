@@ -187,30 +187,23 @@ public sealed class PlayerClassModels : IClassAnimationScripts
             ? new ClassAnimationScript(_noAirwalk.Contains(known), _noLandGesture.Contains(known))
             : default;
 
-    /// <inheritdoc/>
+    /// <summary>Whether a class's model, with the models it includes, has a sequence for an activity.</summary>
+    /// <param name="playerClass">The class number, or null when unknown.</param>
+    /// <param name="activity">The activity's name.</param>
+    /// <returns>
+    /// `SelectWeightedSequence( activity ) &gt;= 0` — or true when the class has no model here, because nothing is
+    /// known and a caller's flag should stand.
+    /// </returns>
     /// <remarks>
     /// **The model and everything it includes**, because a player model holds almost none of its own sequences — they
-    /// live in `&lt;class&gt;_animations.mdl`, and `SelectWeightedSequence` searches the merged list. A class with no
-    /// model answers true: nothing is known, so the flag stands. Measured 2026-10-02: `ACT_MP_CROUCHWALK_LOSERSTATE`
-    /// is declared by none of the nine class models, so a humiliated loser never ducks here.
+    /// live in `&lt;class&gt;_animations.mdl`, and `SelectWeightedSequence` searches the merged list (B437).
     /// </remarks>
-    public bool HasCrouchWalk(int? playerClass, PlayerActivityOverride table)
-    {
-        string crouchWalk = PlayerActivityTable.For(table).TryGetValue(CrouchWalk, out string? rewritten)
-            ? rewritten
-            : CrouchWalk;
-
-        // ponytail: an unrewritten crouch walk is the weapon's to translate, and the role is not known at decode.
-        if (crouchWalk == CrouchWalk || playerClass is not { } known || Model(known) is not { } model)
-        {
-            return true;
-        }
-
-        return _activities.GetOrAdd(known, _ => ActivitiesOf(model)).Contains(crouchWalk);
-    }
+    public bool DeclaresActivity(int? playerClass, string activity) =>
+        playerClass is not { } known || Model(known) is not { } model ||
+        _activities.GetOrAdd(known, _ => ActivitiesOf(model)).Contains(activity);
 
     /// <summary>`ACT_MP_CROUCHWALK`, the activity both duck tests translate.</summary>
-    private const string CrouchWalk = "ACT_MP_CROUCHWALK";
+    internal const string CrouchWalk = "ACT_MP_CROUCHWALK";
 
     /// <summary>Every activity a model and the models it includes declare.</summary>
     private HashSet<string> ActivitiesOf(string model)

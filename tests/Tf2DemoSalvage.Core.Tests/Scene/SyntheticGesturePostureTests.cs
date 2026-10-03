@@ -497,6 +497,63 @@ public sealed class SyntheticGesturePostureTests
         fired.StartedSeconds.ShouldBe(107 * (double)Interval, 1e-9);
     }
 
+    /// <remarks>
+    /// **The weapon in hand is asked too** (B437): `TranslateActivity( ACT_MP_CROUCHWALK )` runs the weapon role's
+    /// table and the item's `animation_replacement`, so the check needs the weapon's class, its item and the player's
+    /// team. The model here lacks the crouch walk only for item 18 in a red soldier's rocket launcher; the other rows are
+    /// the controls on each of the three.
+    /// </remarks>
+    [TestCase(18, SceneTeams.Red, "ACT_MP_RELOAD_STAND")]
+    [TestCase(19, SceneTeams.Red, "ACT_MP_RELOAD_CROUCH")]
+    [TestCase(18, SceneTeams.Blu, "ACT_MP_RELOAD_CROUCH")]
+    [TestCase(null, SceneTeams.Red, "ACT_MP_RELOAD_CROUCH")]
+    public void Build_ADuckedReload_AsksTheModelAboutTheHeldWeaponsCrouchWalk(int? item, int team, string expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                team,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                At(100, 0f, OnGround | Ducking) with { WeaponItem = item },
+                At(101, 0f, OnGround | Ducking) with { WeaponItem = item, Events = [PlayerAnimEvent.Reload] }),
+            new WeaponCrouchWalk());
+
+        Reload(timeline, 101).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>`HandleJumping` asks the same weapon (`:1429-1433`): a latched red soldier holding item 18 keeps air-walking.</remarks>
+    [TestCase(18, PlayerActivity.Airwalk)]
+    [TestCase(19, PlayerActivity.StandIdle)]
+    public void Build_ALatchedPlayerWhoDucks_AsksTheModelAboutTheHeldWeaponsCrouchWalk(int item, PlayerActivity expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                At(100, 0f, OnGround) with { WeaponItem = item },
+                At(101, 6f, InAir) with { WeaponItem = item },
+                At(102, 7f, InAir | Ducking) with { WeaponItem = item }),
+            new WeaponCrouchWalk());
+
+        timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity.ShouldBe(expected);
+    }
+
+    /// <summary>A model lacking the crouch walk only for item 18 in a red soldier's <see cref="SyntheticPlayer.GestureWeaponClass"/>.</summary>
+    private sealed class WeaponCrouchWalk : IClassAnimationScripts
+    {
+        public ClassAnimationScript ScriptOf(int? playerClass) => default;
+
+        public bool HasCrouchWalk(
+            int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team) =>
+            !(playerClass == Soldier && weaponClass == SyntheticPlayer.GestureWeaponClass && weaponItem == 18 &&
+              team == SceneTeams.Red);
+    }
+
     /// <summary>A class-script source that sets one class's flags.</summary>
     private sealed class Scripts(int scripted, ClassAnimationScript script) : IClassAnimationScripts
     {
@@ -508,7 +565,8 @@ public sealed class SyntheticGesturePostureTests
     {
         public ClassAnimationScript ScriptOf(int? playerClass) => default;
 
-        public bool HasCrouchWalk(int? playerClass, PlayerActivityOverride table) =>
+        public bool HasCrouchWalk(
+            int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team) =>
             has || table != PlayerActivityOverride.LoserState;
     }
 
