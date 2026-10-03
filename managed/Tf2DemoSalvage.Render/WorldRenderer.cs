@@ -1842,6 +1842,9 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private ComPtr<ID3D11RasterizerState> _decalOffset;
 
+    /// <summary>The marking rasteriser plus <c>SHADER_POLYOFFSET_DECAL</c>, for a shader that requests it (DecalModulate).</summary>
+    private ComPtr<ID3D11RasterizerState> _decalPolyOffset;
+
     /// <summary>Blend state that ADDS a fragment to what is already there.</summary>
     private ComPtr<ID3D11BlendState> _addBlend;
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendTextures = [];
@@ -2355,6 +2358,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ComPtr<ID3D11RasterizerState> decalOffset = default;
         SilkMarshal.ThrowHResult(device.CreateRasterizerState(in biased, ref decalOffset));
 
+        // **The decal shaders' own polygon offset**, for the materials whose shader requests
+        // SHADER_POLYOFFSET_DECAL (DecalModulate) — Valve's terms as shaderapidx9 applies them.
+        RasterizerDesc polyOffset = biased;
+
+        polyOffset.DepthBias = DecalState.PolyOffsetDepthBias;
+        polyOffset.SlopeScaledDepthBias = DecalState.PolyOffsetSlopeScaledBias;
+
+        ComPtr<ID3D11RasterizerState> decalPolyOffset = default;
+        SilkMarshal.ThrowHResult(device.CreateRasterizerState(in polyOffset, ref decalPolyOffset));
+
         // **A wireframe twin of every state, because `mat_wireframe` changes the FILL and nothing
         // else.** Valve's is `MATERIAL_FILLMODE_WIREFRAME`, applied to whatever is being drawn, so
         // each pass keeps its own culling and its own depth bias and differs only in fill. Building
@@ -2380,6 +2393,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         AddWire(culled, modelRasterizer);
         AddWire(mirrored, mirroredRasterizer);
         AddWire(decalOffset, biased);
+        AddWire(decalPolyOffset, polyOffset);
 
         return new WorldRenderer(
             loggers,
@@ -2393,6 +2407,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             _modelCull = culled,
             _viewmodelCull = mirrored,
             _decalOffset = decalOffset,
+            _decalPolyOffset = decalPolyOffset,
             _wireframeFor = wireframe,
             _device = device,
             _whiteColour = ColourStream(device, [1f, 1f, 1f]),
@@ -5785,10 +5800,16 @@ internal sealed unsafe class WorldRenderer : IDisposable
         float* factor = stackalloc float[4] { 1f, 1f, 1f, 1f };
         ComPtr<ID3D11BlendState> blending = _alphaBlend;
 
-        if (_modulate.TryGetValue(batch.MaterialIndex, out bool twice))
+        // **And its polygon offset, which is the shader's too**: DecalModulate requests
+        // SHADER_POLYOFFSET_DECAL, LightmappedGeneric does not (shaderapidx9 0x180014600 applies it).
+        bool modulates = _modulate.TryGetValue(batch.MaterialIndex, out bool twice);
+
+        if (modulates)
         {
             blending = twice ? _modulateTwiceBlend : _modulateBlend;
         }
+
+        context.RSSetState(Raster(modulates && _decalPolyOffset.Handle is not null ? _decalPolyOffset : _decalOffset));
 
         if (blending.Handle is not null)
         {
@@ -6018,6 +6039,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         ReleaseModelBuffers();
         _whiteColour.Dispose();
         _decalOffset.Dispose();
+        _decalPolyOffset.Dispose();
         _bothSides.Dispose();
         _modelCull.Dispose();
 

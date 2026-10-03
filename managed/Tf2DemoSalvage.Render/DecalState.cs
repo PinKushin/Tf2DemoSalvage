@@ -85,6 +85,20 @@ internal static class DecalState
     /// </remarks>
     internal const float SlopeScaledBias = -0.5f;
 
+    /// <summary>The constant term for a shader that requests <c>SHADER_POLYOFFSET_DECAL</c>, in 2⁻²⁴ steps.</summary>
+    /// <remarks>
+    /// **The reciprocal, as shaderapidx9.dll applies it** (x64 0x180014600, <c>ApplyZBias</c>):
+    /// <c>D3DRS_DEPTHBIAS = 1 / m_DepthBias_Decal = -2⁻¹⁸</c> of the depth range, which on this D24
+    /// buffer is −64 steps. Reading −262144 as the bias itself made it 1/64 of the range — B70's
+    /// push-through, which the engine never had. <c>DecalModulate</c> requests it; an overlay's
+    /// LightmappedGeneric does not, which is why <see cref="ConstantBias"/> stays zero.
+    /// </remarks>
+    internal const int PolyOffsetDepthBias = -64;
+
+    /// <summary>The slope-scaled term for a shader that requests <c>SHADER_POLYOFFSET_DECAL</c>.</summary>
+    /// <remarks><c>D3DRS_SLOPESCALEDEPTHBIAS = 1 / m_SlopeScaleDepthBias_Decal = 1 / −0.5</c>, same read.</remarks>
+    internal const float PolyOffsetSlopeScaledBias = -2f;
+
     /// <summary>Back faces are culled, as <c>MATERIAL_CULLMODE_CCW</c> has the engine do.</summary>
     /// <remarks>
     /// **B135.** The overlay state was copied from the both-sided one the world uses, so an overlay

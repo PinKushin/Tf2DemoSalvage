@@ -70,13 +70,18 @@ public sealed class DecalRenderStateConformanceTests
     }
 
     [Test]
-    public void DecalBias_TheSlopeScaledTerm_IsValves()
+    public void DecalBias_TheConfigsSlopeTerm_IsNotTheOverlaySlopeValveApplies()
     {
         float valves = Initialiser("m_SlopeScaleDepthBias_Decal");
 
         valves.ShouldBe(-0.5f, "materialsystem_config.h:223");
 
-        DecalState.SlopeScaledBias.ShouldBe(valves);
+        // **The overlay pass's -0.5 equals this number and is NOT Valve's.** shaderapidx9 applies
+        // the reciprocal, -2, and only to shaders requesting SHADER_POLYOFFSET_DECAL — never to an
+        // overlay's LightmappedGeneric. Ours is the measured anti-hatching term DecalState records;
+        // that it matches the config's literal was a reading of the wrong number (2026-10-02).
+        DecalState.SlopeScaledBias.ShouldBe(-0.5f);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldNotBe(DecalState.SlopeScaledBias);
 
         // Control: the other two slope-scaled terms differ from this one and from each other.
         Initialiser("m_SlopeScaleDepthBias_Normal").ShouldBe(0f);
