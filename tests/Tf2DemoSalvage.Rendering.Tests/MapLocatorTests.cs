@@ -220,6 +220,7 @@ public sealed class MapLocatorTests
     }
 
     [Test]
+    [Platform("Win", Reason = "a backslash is a path separator only on Windows, where Steam writes this file")]
     public void MapLocator_EscapedBackslashesInLibraryPaths_AreUnescaped()
     {
         // A VDF stores Windows paths with doubled backslashes. Reading them literally produces a

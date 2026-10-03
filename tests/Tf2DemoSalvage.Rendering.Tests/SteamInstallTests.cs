@@ -12,6 +12,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// the registry; these feed that value through the seam rather than reading the real registry,
 /// whose contents are a property of the machine and not of the code.
 /// </remarks>
+[Platform("Win", Reason = "Steam's registry keys and backslash paths exist only on Windows")]
 public sealed class SteamInstallTests
 {
     private const string UserKey = @"HKEY_CURRENT_USER\Software\Valve\Steam";

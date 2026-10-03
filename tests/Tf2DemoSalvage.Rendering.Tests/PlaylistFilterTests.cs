@@ -165,14 +165,15 @@ public sealed class PlaylistFilterTests
             .ShouldBe(["pugs", "season31", "season31"]);
     }
 
+    /// <remarks>
+    /// Split on the fixture's own backslashes, not the host's <c>Path</c>: <see cref="PlaylistFilter"/>
+    /// does no path work — <see cref="DemoLibrary"/> builds entries off the real disk — so these
+    /// literals are notation, and on Linux <c>Path.GetFileName</c> would not split them at all (B217).
+    /// </remarks>
     private static DemoEntry Entry(string path)
     {
-        string folder = System.IO.Path.GetDirectoryName(path)!;
+        string[] parts = path.Split('\\');
 
-        return new DemoEntry(
-            path,
-            System.IO.Path.GetFileName(path),
-            System.IO.Path.GetFileName(folder),
-            @"D:\demos");
+        return new DemoEntry(path, parts[^1], parts[^2], @"D:\demos");
     }
 }

@@ -36,6 +36,17 @@ internal static class Direct3DApi
     private static readonly Lazy<D3D11> Loaded =
         new(() => D3D11.GetApi(null), LazyThreadSafetyMode.ExecutionAndPublication);
 
+    /// <summary>Whether this machine can load <c>d3d11.dll</c> at all — only Windows ships it.</summary>
+    /// <remarks>
+    /// Off Windows, Silk.NET's `GetApi` does not throw `DllNotFoundException` but a
+    /// `NullReferenceException` from inside its loader (measured on the Linux mutation box, B217),
+    /// which reads as a bug rather than as an absent platform. Asking first keeps that out.
+    /// </remarks>
+    internal static bool IsAvailable => OperatingSystem.IsWindows();
+
     /// <summary>The shared API object. Never dispose it; see the type's own remarks.</summary>
-    internal static D3D11 Api => Loaded.Value;
+    /// <exception cref="PlatformNotSupportedException">Off Windows, where there is no Direct3D 11.</exception>
+    internal static D3D11 Api => IsAvailable
+        ? Loaded.Value
+        : throw new PlatformNotSupportedException("Direct3D 11 is not available on this machine.");
 }

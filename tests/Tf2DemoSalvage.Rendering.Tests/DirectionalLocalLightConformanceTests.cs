@@ -47,6 +47,7 @@ public sealed class DirectionalLocalLightConformanceTests
     [TestCase("PsMain", "ps_5_0")]
     public void Compile_TheModelShader_Succeeds(string entry, string profile)
     {
+        Direct3DRequired.OrIgnore();
         MethodInfo compile = typeof(WorldRenderer).GetMethod("Compile", BindingFlags.NonPublic | BindingFlags.Static)!;
         using D3DCompiler compiler = D3DCompiler.GetApi();
 

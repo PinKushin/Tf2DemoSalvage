@@ -91,6 +91,11 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     public static OffscreenTarget? TryCreate(
         int width, int height, ILoggerFactory? loggers = null)
     {
+        if (!Direct3DApi.IsAvailable)
+        {
+            return null;
+        }
+
         // The process's one copy, shared with `Device3D` and never unloaded (B402). This type is
         // built 34 times across the render suite, and `D3D11.GetApi` loads the library afresh on
         // every call, so a per-target handle was both a leak and, when released, the crash.
