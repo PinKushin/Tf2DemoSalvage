@@ -1,6 +1,14 @@
-# Tf2DemoSalvage 0.1.0-beta.7
+# Tf2DemoSalvage 0.1.0-beta.8
 
-## Changes since 0.1.0-beta.6
+## Changes since 0.1.0-beta.7
+
+- **Animations follow the weapon and item:** crouching, reloads and attacks use the activity the game picks for the
+  class, the weapon's role and the item's own animation replacements, and a gesture takes the player's posture at the
+  moment the game plays it.
+- **Point-of-view demos:** the recorder's predicted speed now drives everything that reads it, including the spy's
+  cloak fade.
+
+## Changes in 0.1.0-beta.7
 
 - **Point-of-view demos:** your own recordings now read the string tables the demo stores when recording starts, as
   the game does. The 3D skybox fog, step height and viewmodel visibility come through, and models, sounds and
