@@ -42,12 +42,18 @@ public sealed class OverlayRenderOrderConformanceTests
             null,
             [Overlay(1, material: 0, order: 1), Overlay(2, material: 1, order: 0), Overlay(3, material: 0, order: 0)]);
 
-        // Layer 0 holds materials 1 then 0 (first seen within the layer), then layer 1 holds 0.
-        world.Decals.Select(batch => batch.MaterialIndex).ShouldBe([1, 0, 0]);
+        IReadOnlyList<WorldBatch> drawn = Drawn(world);
+
+        // Layer 0 holds materials 1 then 0 (the queue's order within the layer, B457), then layer 1 holds 0.
+        drawn.Select(batch => batch.MaterialIndex).ShouldBe([1, 0, 0]);
 
         // Six vertices each — one quad as a two-triangle fan — so no batch swallowed another.
-        world.Decals.Select(batch => batch.VertexCount).ShouldBe([6, 6, 6]);
+        drawn.Select(batch => batch.VertexCount).ShouldBe([6, 6, 6]);
     }
+
+    /// <summary>The overlay draws for a world with no tree, as the viewer queues them.</summary>
+    internal static IReadOnlyList<WorldBatch> Drawn(MapWorld world) =>
+        new OverlayQueue(world.OverlayFragments, world.FaceSpans).Order(null, null, _ => false);
 
     internal static BspSurface Floor() =>
         new(

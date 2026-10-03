@@ -32,7 +32,7 @@ public sealed class WorldCullingMapTests
     /// `LoadedMap.BuildWorld` passes, so this is the same world the viewer draws — and
     /// <see cref="MapCache"/> means the assets are decoded once for the whole assembly.
     /// </remarks>
-    private static (MapLevel Level, MapWorld World) Built(string mapName = MapCache.DefaultMap)
+    internal static (MapLevel Level, MapWorld World) Built(string mapName = MapCache.DefaultMap)
     {
         MapAssets assets = MapCache.Load(mapName: mapName);
         MapLevel level = MapLevel.Read(MapCache.Bytes(mapName), NullLogger.Instance);
@@ -51,7 +51,7 @@ public sealed class WorldCullingMapTests
     }
 
     /// <summary>A roomy leaf with a real cluster, and the point at its centre.</summary>
-    private static (int Leaf, (float X, float Y, float Z) Middle) SomewhereInside(BspLeafTree tree)
+    internal static (int Leaf, (float X, float Y, float Z) Middle) SomewhereInside(BspLeafTree tree)
     {
         for (int leaf = 1; leaf < tree.LeafCount; leaf++)
         {
@@ -82,7 +82,7 @@ public sealed class WorldCullingMapTests
         return default;
     }
 
-    private static ViewFrustum Looking((float X, float Y, float Z) from) =>
+    internal static ViewFrustum Looking((float X, float Y, float Z) from) =>
         ViewFrustum.PerspectiveFromAspect(
             from,
             forward: (1f, 0f, 0f),
