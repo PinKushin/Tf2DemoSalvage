@@ -1,6 +1,14 @@
-# Tf2DemoSalvage 0.1.0-beta.5
+# Tf2DemoSalvage 0.1.0-beta.6
 
-## Changes since 0.1.0-beta.4
+## Changes since 0.1.0-beta.5
+
+- **Decals and overlays:** overlays fade out at the distance the map sets for them, and decals sit on surfaces with
+  the game's own depth offset, so they no longer flicker or show through.
+- **Player animation:** each class plays its own activity for a weapon, as the game's activity table maps it, and
+  gestures replace the base animation where the game replaces it. Class jump behavior is part of the decode, so
+  crouch and landing poses follow the class.
+
+## Changes in 0.1.0-beta.5
 
 - **Fog:** maps now draw their fog, using the fog controller the game picks for the recording player, with radial
   fog where the server enables it and the 3D skybox's own fog.
