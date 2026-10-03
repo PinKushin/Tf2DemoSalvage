@@ -16,8 +16,8 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// <remarks>
 /// **Export writes the open demo's assembly text and Compile turns it back into the same bytes**,
 /// so the one assertion that matters is the rebuilt file against the demo on disk. The dialogs are
-/// the stock Win32 common dialogs, reached as modal windows of the viewer and filled through UIA's
-/// value and invoke patterns.
+/// the stock Win32 common dialogs, reached as modal windows of the viewer, with the path typed into
+/// the name box and Save or Open invoked through UIA.
 ///
 /// **Opened by clicking the action-row buttons, never through the File menu.** Expanding the menu
 /// through UI Automation leaves WinForms in keyboard menu mode, which outlives the dialog and eats
@@ -48,7 +48,7 @@ public sealed class ExportCompileUiTests
     [SetUp]
     public void CreateFolder()
     {
-        _folder = Path.Combine(TestContext.CurrentContext.WorkDirectory, "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
+        _folder = Path.Combine(Path.GetTempPath(), "tf2ds-ui-export-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_folder);
         TestContext.Out.WriteLine("focus at setup: " + Focused());
     }
@@ -100,14 +100,16 @@ public sealed class ExportCompileUiTests
         // on the line the load ends with.
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
+        int exported = _viewer.Count("] Exported ");
         _viewer.Click(MainForm.ExportButtonId);
         FillDialog(text, "z1800.txt");
-        WaitForStatus("Exported").ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
+        WaitForOutcome("Exported", exported).ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
 
+        int compiled = _viewer.Count("] Compiled ");
         _viewer.Click(MainForm.CompileButtonId);
         FillDialog(text, string.Empty);
         FillDialog(rebuilt, "z1800.dem");
-        WaitForStatus("Compiled");
+        WaitForOutcome("Compiled", compiled).ShouldContain(" to " + rebuilt + " (", Case.Sensitive, "the compile went somewhere else");
 
         File.ReadAllBytes(rebuilt).AsSpan().SequenceEqual(File.ReadAllBytes(ViewerSession.DemoPath))
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
@@ -269,15 +271,23 @@ public sealed class ExportCompileUiTests
         return report.ToString();
     }
 
-    /// <returns>The status text that matched — the reading itself, never a second read, which came
-    /// back empty a moment after a match (a local run).</returns>
-    private static string WaitForStatus(string prefix)
+    /// <summary>Waits for the viewer to log a new outcome line starting with <paramref name="outcome"/>.</summary>
+    /// <returns>The line, which names the file written.</returns>
+    /// <remarks>
+    /// **The log, not the status bar.** The status label carries the same sentence, but a long path
+    /// makes it wider than the strip, WinForms then drops the label as unavailable, and UIA reads the
+    /// status as empty — two runs read '' for two minutes after an export that had succeeded.
+    /// </remarks>
+    private static string WaitForOutcome(string outcome, int before)
     {
-        string? reached = Retry.WhileNull(
-            () => _viewer.StatusText() is { } status && status.StartsWith(prefix, StringComparison.Ordinal) ? status : null,
-            WorkTimeout).Result;
+        string marker = "] " + outcome + " ";
+        bool logged = Retry.WhileFalse(
+            () => _viewer.Count(marker) > before || _viewer.Count("] Failed: ") > 0,
+            WorkTimeout).Success;
 
-        reached.ShouldNotBeNull($"the status bar never said '{prefix}…'; it says '{_viewer.StatusText()}'\n" + DescribeWindows());
-        return reached;
+        string? line = _viewer.LastLine(marker);
+        (logged && line is not null).ShouldBeTrue(
+            $"the viewer never logged '{outcome} …'; last failure: '{_viewer.LastLine("] Failed: ")}'\n" + DescribeWindows());
+        return line;
     }
 }
