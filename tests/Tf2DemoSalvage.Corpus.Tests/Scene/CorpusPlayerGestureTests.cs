@@ -187,6 +187,58 @@ public sealed class CorpusPlayerGestureTests
     }
 
     /// <remarks>
+    /// **Both landings reach the output** (B437). Before, a landing existed only as the replacement for a double
+    /// jump, so an ordinary jump — which plays no gesture — and a rocket jump never landed with one. Asked of what
+    /// the timeline hands the scene, at sampled ticks; the slot keeps its last gesture until replaced, so a sample
+    /// finds a landing long after it was made.
+    /// </remarks>
+    /// <summary>`TF_CLASS_SCOUT`.</summary>
+    private const int ScoutClass = 1;
+
+    [Test]
+    public void PlayersAt_OnARealMatch_CarriesTheJumpAndTheAirwalkLandings()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        DemoTimeline timeline = TimelineCache.For(path);
+        List<ScenePlayer> players = [];
+        int fromJump = 0;
+        int fromAirwalk = 0;
+
+        for (int tick = timeline.FirstTick + 100; tick < timeline.LastTick; tick += 200)
+        {
+            timeline.PlayersAt(tick, players);
+
+            // **Not a scout's**, because the old feed did land a scout: it replaced his double jump. Any other class's
+            // jump-landing could only come from the jump's own clear.
+            foreach ((int? playerClass, SceneGesture landing) in players
+                .SelectMany(one => (one.Gestures ?? []).Select(gesture => (one.PlayerClass, gesture)))
+                .Where(pair => pair.gesture.ActivityName == PlayerGestureFeed.LandActivity))
+            {
+                landing.Slot.ShouldBe(GestureSlot.Jump);
+
+                if (landing.FromAirwalk)
+                {
+                    fromAirwalk++;
+                }
+                else if (playerClass != ScoutClass)
+                {
+                    fromJump++;
+                }
+            }
+        }
+
+        TestContext.Out.WriteLine($"sampled landings: {fromJump} from a non-scout jump, {fromAirwalk} from an air-walk");
+
+        fromJump.ShouldBeGreaterThan(0, "a match is full of ordinary jumps, and each clear makes a landing");
+        fromAirwalk.ShouldBeGreaterThan(0, "z1800 is full of rocket and sticky jumps, and each latch ends in one");
+    }
+
+    /// <remarks>
     /// **The air-walking reload, counted in the OUTPUT and checked against a second reading of the
     /// same bytes** (B112). `CTFPlayerAnimState::DoAnimationEvent` picks `ACT_MP_RELOAD_AIRWALK`,
     /// `_LOOP` or `_END` whenever `m_bInAirWalk` holds (`tf_playeranimstate.cpp:1141`, `:1154`,
