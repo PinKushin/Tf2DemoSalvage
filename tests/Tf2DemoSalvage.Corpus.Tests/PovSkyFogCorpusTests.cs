@@ -23,4 +23,15 @@ public sealed class PovSkyFogCorpusTests
         timeline.SkyFogAt(int.MaxValue).ShouldNotBeNull(
             "the player's m_skybox3d rides the CTFPlayer instance baseline only dem_stringtables carries");
     }
+
+    [Test]
+    public void ModelPaths_APointOfViewRecordingWhoseModelOnlyTheBlockPrecaches_IncludesIt()
+    {
+        // Measured with the `stringtables-block` probe: of every table this demo's block carries,
+        // modelprecache entry 552 is the one no earlier create or update stated.
+        DemoTimeline timeline = TimelineCache.For(
+            Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct"));
+
+        timeline.ModelPaths().ShouldContain("models/props_forest/bird.mdl");
+    }
 }

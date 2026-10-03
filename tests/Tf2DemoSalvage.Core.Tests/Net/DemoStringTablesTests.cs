@@ -31,6 +31,19 @@ public sealed class DemoStringTablesTests
         tables[1].Entries[1].UserData.ShouldBe([0x12]);
     }
 
+    [Test]
+    public void AsCreates_TwoTables_AreCreatesNamingEachTablesEntries()
+    {
+        // **The block feeds the same consumers a create does** — the engine rebuilds every table
+        // from it, so each one is handed on as the message that would have built it.
+        IReadOnlyList<CreateStringTableMessage> creates = DemoStringTables.AsCreates(Block());
+
+        creates.Count.ShouldBe(2);
+        creates[1].Name.ShouldBe("instancebaseline");
+        creates[1].Entries[1].Text.ShouldBe("48");
+        creates[1].IsDecoded.ShouldBeTrue();
+    }
+
     /// <summary>A block written at the layout the reader documents.</summary>
     internal static byte[] Block(params (string Name, (string Text, byte[]? Data)[] Entries)[] tables)
     {

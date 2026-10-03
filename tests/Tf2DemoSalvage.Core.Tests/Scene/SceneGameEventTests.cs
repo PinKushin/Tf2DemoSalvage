@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 
+using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
+using Tf2DemoSalvage.Core.Text;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
@@ -72,6 +75,54 @@ public sealed class SceneGameEventTests
         values.GetString("number", "none").ShouldBe("none");
         values.GetString("absent").ShouldBe(string.Empty);
     }
+
+    [Test]
+    public void Roster_AUserinfoEntryOnlyTheStringTablesBlockCarries_NamesThePlayer()
+    {
+        // **A player who joined before recording began** (B452): the signon's `userinfo` predates
+        // them, and the demo player rebuilds the table from `dem_stringtables`.
+        DemoTimeline timeline = WatchingAfterBlock(BlockedRoster("Alice", 7));
+
+        timeline.Roster[1].Name.ShouldBe("Alice");
+    }
+
+    [Test]
+    public void Roster_WithoutTheBlock_IsEmpty()
+    {
+        // The control: the name above can only have come from the block.
+        WatchingAfterBlock(null).Roster.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void Trace_AUserinfoEntryOnlyTheStringTablesBlockCarries_NamesTheKiller()
+    {
+        byte[] demo = SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            BlockedRoster("Alice", 7),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [Declaration, Death(7, 3)]));
+
+        StringWriter text = new() { NewLine = "\n" };
+        DemoTraceWriter.Write(
+            text,
+            "synthetic.dem",
+            DemoHeader.Parse(demo.AsSpan(0, DemoHeader.SizeBytes)),
+            [.. DemoCommandReader.Read(demo.AsMemory(DemoHeader.SizeBytes))]);
+
+        text.ToString().ShouldContain("Alice");
+    }
+
+    private static DemoCommand BlockedRoster(string name, int userId) => new(
+        DemoCommandType.StringTables, 0, Net.DemoStringTablesTests.Block(("userinfo", [("0", Record(name, userId))])));
+
+    private static DemoTimeline WatchingAfterBlock(DemoCommand? block) =>
+        DemoTimeline.Build(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                .. block is { } carried ? [carried] : Array.Empty<DemoCommand>(),
+                SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [Declaration]),
+            ]));
 
     private static SceneGameEvent Event(Dictionary<string, object?> values) => new(0, "test", values, new Dictionary<int, PlayerInfo>());
 
