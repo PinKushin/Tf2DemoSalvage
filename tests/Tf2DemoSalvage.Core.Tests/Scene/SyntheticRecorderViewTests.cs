@@ -76,6 +76,19 @@ public sealed class SyntheticRecorderViewTests
     }
 
     [Test]
+    public void PlayersAt_WithAPredictedVelocity_IsTheRecordersVelocityForEveryReader()
+    {
+        // B450: GetAbsVelocity() is ONE value on the client — what CPrediction::FinishMove wrote (prediction.cpp:708) —
+        // so every reader of it sees prediction's, not only the anim state: InvisibilityThink's motion cloak
+        // (tf_player_shared.cpp:8020) reads m_pOuter->GetAbsVelocity() too. Networked is (0, 300, 0).
+        List<ScenePlayer> players = [];
+        DemoTimeline.Build(SyntheticPlayer.DemoOfARecorderAndABystander())
+            .PlayersAt(105.5, players, true, Viewpoint, predictedVelocity: (300f, 0f, 0f));
+
+        players.Single(player => player.EntityIndex == 1).Velocity.ShouldBe((300f, 0f, 0f));
+    }
+
+    [Test]
     public void PlayersAt_WithAViewpoint_TwistsTheTorsoFromTheFeetToTheLocalYaw()
     {
         // body_yaw = -(eyeYaw - currentFeetYaw): the feet the timeline advanced (zero, along his server eye yaw)
