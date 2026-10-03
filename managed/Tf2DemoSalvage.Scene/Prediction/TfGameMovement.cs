@@ -247,7 +247,9 @@ public sealed class TfGameMovement
         HighMaxSpeedMove();
         PlayerMove(first);
 
-        // FinishMove (gamemovement.cpp:1197) and CPrediction::FinishMove's m_nOldButtons.
+        // FinishMove (gamemovement.cpp:1197) and CPrediction::FinishMove's m_nOldButtons. Every write the move makes to
+        // m_nOldButtons before this — Duck's IN_DUCK, the IN_JUMP set by CheckJumpButton and CheckWaterJump and cleared by
+        // FullWalkMove — is overwritten here with nothing reading it between, so none of them is ported (D180).
         _player.OldButtons = _buttons;
         _player.OldForwardMove = _forwardMove;
         _player.CurTime += frametime;
@@ -785,8 +787,6 @@ public sealed class TfGameMovement
         uint pressed = changed & _buttons;
         uint released = changed & _player.OldButtons;
 
-        _player.OldButtons = (_buttons & InDuck) != 0 ? _player.OldButtons | InDuck : _player.OldButtons & ~InDuck;
-
         if (_player.IsDead)
         {
             return;
@@ -1048,10 +1048,6 @@ public sealed class TfGameMovement
         {
             CheckJumpButton();
         }
-        else
-        {
-            _player.OldButtons &= ~InJump;
-        }
 
         CheckVelocity();
 
@@ -1107,7 +1103,6 @@ public sealed class TfGameMovement
 
             _player.Velocity = _player.Velocity with { Z = MathF.Min(z, GetAirSpeedCap()) };
             FinishGravity();
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1116,7 +1111,6 @@ public sealed class TfGameMovement
         {
             _player.Velocity = _player.Velocity with { Z = GhostUpSpeed };
             FinishGravity();
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1138,10 +1132,8 @@ public sealed class TfGameMovement
             {
                 AirDash();
                 _player.AirDucked = 0;
-                return;
             }
 
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1161,8 +1153,6 @@ public sealed class TfGameMovement
         }
 
         FinishGravity();
-
-        _player.OldButtons |= InJump;
     }
 
     private void AirDash()
@@ -2281,10 +2271,6 @@ public sealed class TfGameMovement
         {
             CheckJumpButton();
         }
-        else
-        {
-            _player.OldButtons &= ~InJump;
-        }
 
         WaterMove();
         CategorizePosition();
@@ -2378,7 +2364,6 @@ public sealed class TfGameMovement
         if (trace.Fraction < 1f && trace.Normal.Z >= 0.7f)
         {
             _player.Velocity = _player.Velocity with { Z = TfWaterJumpUp };
-            _player.OldButtons |= InJump;
             _player.WaterJumpTime = 2000f;
         }
     }
