@@ -1,30 +1,31 @@
 using System.Collections.Generic;
 using System.Linq;
 
-using Microsoft.Extensions.Logging.Abstractions;
-
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Scene;
-using Tf2DemoSalvage.SdkReference;
 
 // Namespaced away from `Tf2DemoSalvage.Corpus.Tests.*`, where `Corpus` binds to the namespace rather than to the
 // helper class — the same reason `CorpusItemAnimSlotTests` beside it gives.
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
 /// <summary>
-/// On a real recording, a weapon whose item's `model_player` is empty is RESOLVED to no model (B105's open item).
+/// The census's only empty-`model_player` weapon on the wire is not a prop at all once its class baseline is read (B452).
 /// </summary>
 /// <remarks>
-/// **The assertion on the output of the step**: `MomentScene.Build` runs `WeaponPropModels.Resolve` handed the installed
-/// game's `WeaponModels.For` and `WorldDisplayModel` over the props the timeline holds at the tick, and this reads back the
-/// model it gave the prop. The rule and its citations are `WeaponWorldModelConformanceTests`.
+/// **What this test used to assert, and why it was wrong.** The `item-props` census (2026-09-30) found an engineer's
+/// Basic Spellbook (entity 1130) on `20150119_2240_cp_process_final_(ovo)_blu` as a prop for the recording's first 54
+/// ticks with `c_engineer_arms.mdl` on the wire and `m_iState` 0, and this test ran `WeaponPropModels.Resolve` on it to
+/// show an item whose `model_player` is "" resolves to no model. **Both observations were decoded against no
+/// baseline.** `CTFSpellBook`'s instancebaseline (class 287) exists only in the demo's `dem_stringtables` block, which
+/// nothing read until B452 (the `baseline` probe, reading the signon's tables, reports "NO ENTRY"; the
+/// `stringtables-block` probe lists 21 baselines only the block carries). Read against it, the entity enters with
+/// `m_fEffects 161` — `EF_BONEMERGE | EF_NODRAW | EF_BONEMERGE_FASTCULL` — and `m_iState 1`. No later update sends
+/// `m_fEffects` for it in a way that clears the flag (`item-props`: present at 0 of 54 sampled ticks), so the engine's client, which deltas every ENTER against the class baseline
+/// (`CL_CopyNewEntity`), holds `EF_NODRAW` for its whole life: nothing draws it. *Measured on the demo (trace,
+/// `--entity-limit 3`); the baseline rule is the engine's, B452.*
 ///
-/// **The specimen is the census's only one** (`item-props` probe over gcor and lcor, 2026-09-30). The items are common —
-/// the Duel MiniGame on most modern matches, fists and spellbooks from 2009 on — but everywhere else the wire names no
-/// model for them. Here an engineer's Basic Spellbook is a prop for the recording's first 54 ticks with
-/// `c_engineer_arms.mdl` on the wire: `m_nModelIndex`, his hands, with no world index sent. **It is holstered throughout**
-/// (`m_iState` 0), so `WeaponVisibility` hides it before and after and nothing on screen changes; what changes is the
-/// model a HELD spellbook would draw. It is lcor, so the gate's gcor-only run skips it.
+/// So the rule `WeaponPropModels.Resolve` applies to an empty `model_player` has no real specimen left; it stays
+/// covered by `WeaponWorldModelConformanceTests`. What a real recording proves is the answer below. It is lcor, so
+/// the gate's gcor-only run skips it.
 /// </remarks>
 public sealed class CorpusEmptyModelWeaponTests
 {
@@ -32,30 +33,19 @@ public sealed class CorpusEmptyModelWeaponTests
     private const int BasicSpellbook = 1070;
 
     [Test]
-    public void Resolve_TheSpellbookAnEngineerCarries_NamesNoModel()
+    public void PropsAt_TheSpellbookAnEngineerCarries_IsNotAPropItsClassBaselineHidesIt()
     {
-        string path = Corpus.Demo("20150119_2240_cp_process_final_(ovo)_blu");
-        string root = GameInstall.Require();
-        DemoTimeline timeline = TimelineCache.For(path);
-        GameContent game = GameContent.Open(root, NullLoggerFactory.Instance);
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("20150119_2240_cp_process_final_(ovo)_blu"));
 
         ScenePropTrack spellbook = timeline.Props.Single(track => track.ItemDefinitionIndex == BasicSpellbook);
 
         List<SceneProp> props = [];
-        List<ScenePlayer> players = [];
         timeline.PropsAt(spellbook.FirstTick, props);
-        timeline.PlayersAt(spellbook.FirstTick, players);
 
-        int at = props.FindIndex(prop => prop.EntityIndex == spellbook.EntityIndex);
+        // The control: the same engineer's earphones, a wearable bone-merged to him, ARE a prop at that tick, so an
+        // empty answer below is about the spellbook and not about the sample.
+        props.ShouldContain(prop => prop.ModelPath == "models/player/items/engineer/engy_earphones.mdl");
 
-        // The controls: a prop at that tick, a combat weapon, and a model on the wire. Without all three a blank answer
-        // below would pass while measuring nothing.
-        at.ShouldBeGreaterThanOrEqualTo(0, "the census found it a prop at its first tick");
-        props[at].WeaponState.ShouldNotBeNull("a combat weapon, which the client re-derives from its item");
-        props[at].ModelPath.ShouldBe("models/weapons/c_models/c_engineer_arms.mdl", "the wire's model: his hands");
-
-        new WeaponPropModels().Resolve(props, players, game.Weapons.For, game.Weapons.WorldDisplayModel);
-
-        props[at].ModelPath.ShouldBe(string.Empty, "the item's \"\" is the world model, and it indexes none");
+        props.ShouldNotContain(prop => prop.EntityIndex == spellbook.EntityIndex, "its class baseline sets EF_NODRAW");
     }
 }
