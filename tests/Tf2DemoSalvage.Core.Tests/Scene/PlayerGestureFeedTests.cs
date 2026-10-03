@@ -455,6 +455,40 @@ public sealed class PlayerGestureFeedTests
             .ShouldBe(PlayerActivity.JumpStart);
     }
 
+    /// <remarks>
+    /// **A voice command queues behind what holds the slot, and only the scene can say whether it plays** (B437).
+    /// `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) ) RestartGesture( …, nData )`
+    /// (`tf_playeranimstate.cpp:1053-1058`): whether the reload is still active is its cycle, which needs the model.
+    /// So the feed keeps the reload and carries the voice gesture after it, marked; the next attack or reload
+    /// replaces both, as `RestartGesture` would.
+    /// </remarks>
+    [Test]
+    public void Record_AVoiceCommandOverAReload_KeepsTheReloadAndQueuesTheVoiceBehindIt()
+    {
+        PlayerGestureFeed feed = new();
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.Reload), 1d, default);
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.VoiceCommandGesture, data: 1234), 1.2d, default);
+
+        List<SceneGesture> gestures = Gestures(feed, 4);
+        gestures.Count.ShouldBe(2);
+        (gestures[0].ActivityName, gestures[0].OnlyIfSlotIdle).ShouldBe(("ACT_MP_RELOAD_STAND", false));
+        (gestures[1].Slot, gestures[1].ActivityNumber, gestures[1].StartedSeconds, gestures[1].OnlyIfSlotIdle)
+            .ShouldBe((GestureSlot.AttackAndReload, 1234, 1.2d, true));
+
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary), 2d, default);
+        Gestures(feed, 4).ShouldHaveSingleItem().ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_PRIMARYFIRE");
+    }
+
+    [Test]
+    public void Record_AVoiceCommandIntoAnEmptySlot_TakesItOutright()
+    {
+        PlayerGestureFeed feed = new();
+        feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.VoiceCommandGesture, data: 1234), 1d, default);
+
+        SceneGesture voice = Gestures(feed, 4).ShouldHaveSingleItem();
+        (voice.ActivityNumber, voice.OnlyIfSlotIdle).ShouldBe((1234, false));
+    }
+
     /// <summary>One step of HandleJumping for its air-walk latch, as the engine's class default sees it.</summary>
     private static bool Latch(
         PlayerGestureFeed feed, int player, float? rising, int flags, bool waistDeep, bool grappling, bool firingHeavy, double seconds)
