@@ -34,4 +34,22 @@ public sealed class GameArchivesFullPathTests
         archives.FullPathOnDisk("../" + Path.GetFileName(_folder) + "/resource/face.ttf").ShouldNotBeNull("the control: the same file reached back in");
         archives.FullPathOnDisk("../escape.ttf").ShouldBeNull();
     }
+
+    [Test]
+    public void FullPathOnDisk_ASiblingFolderSharingTheNamePrefix_IsNull()
+    {
+        string sibling = _folder + "-sibling";
+        Directory.CreateDirectory(sibling);
+
+        try
+        {
+            File.WriteAllBytes(Path.Combine(sibling, "face.ttf"), [1]);
+
+            GameArchives.Open(_folder).FullPathOnDisk("../" + Path.GetFileName(sibling) + "/face.ttf").ShouldBeNull();
+        }
+        finally
+        {
+            Directory.Delete(sibling, recursive: true);
+        }
+    }
 }
