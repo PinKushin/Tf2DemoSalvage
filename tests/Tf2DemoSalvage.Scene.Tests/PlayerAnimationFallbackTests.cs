@@ -3,32 +3,21 @@ using Tf2DemoSalvage.Core.Scene;
 namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
-/// What a player is drawn doing when the model has no sequence for it.
+/// What a player is drawn doing when the model has no sequence for it — the engine's answer (B437).
 /// </summary>
 /// <remarks>
-/// **This is the code that decides whether a player stands or lies on their back**, and none of it
-/// was covered. Every existing test of it builds its model from the installed game, so on a machine
-/// without TF2 — every CI runner, and the one this was written on — the whole chain is skipped.
-/// Measured 2026-08-19 on the first Windows mutation run: 20 of PlayerAnimation's 28 mutants had no
-/// coverage, and the uncovered lines were exactly the fallbacks.
+/// **`ComputeMainSequence` has one fallback, and it is sequence 0** (`multiplayer_animstate.cpp:1170-1177`):
+/// <code>
+/// int animDesired = SelectWeightedSequence( TranslateActivity( idealActivity ) );
+/// if ( animDesired &lt; 0 ) animDesired = 0;
+/// </code>
+/// This file used to test a four-level ladder of our own — the primary form of the activity, then running or
+/// standing, then the label <c>Stand_PRIMARY</c> — none of which the engine has. What it does have, and what that ladder
+/// was standing in for, is <c>CTFPlayerAnimState::HandleDucking</c>'s own check (`tf_playeranimstate.cpp:1341-1358`):
+/// a ducking player whose model lacks the translated crouch walk is not ducking, unless he is a loser, and a ducking
+/// loser crouch-idles whatever his speed. Both are ported here; nothing else falls back.
 ///
-/// The chain has four levels and they are tried in this order:
-///
-/// 1. the activity with the held weapon's suffix — <c>ACT_MP_CROUCHWALK_SECONDARY</c>;
-/// 2. the same activity in its primary form, because a class missing a crouch-walk for the slot it
-///    is holding still has the primary one, and that is nearer to what the player is doing than a
-///    different activity would be;
-/// 3. running or standing for the slot, whichever the speed suggests;
-/// 4. the label <c>Stand_PRIMARY</c>, looked up by name.
-///
-/// **Level 4 is the one with history.** It is a label lookup rather than an activity lookup, and it
-/// was once written with <c>Contains</c> — which returned sequence 9, <c>AttackStand_PRIMARY</c>,
-/// for a scout, while the real <c>stand_PRIMARY</c> at 175 was never reached. An attack sequence is
-/// a fraction of a second long, so every player in the demo was drawn mid-swing and then dropped.
-/// <c>Studio_LookupSequence</c> compares with <c>stricmp</c>; so does this now.
-///
-/// A synthetic model is what makes any of this reachable — see <see cref="SyntheticSkinnedModel"/>
-/// for why that is legitimate here and where its limits are.
+/// A synthetic model is what makes any of this reachable — see <see cref="SyntheticSkinnedModel"/>.
 /// </remarks>
 public sealed class PlayerAnimationFallbackTests
 {
@@ -39,109 +28,75 @@ public sealed class PlayerAnimationFallbackTests
     private const float Still = 0f;
 
     [Test]
-    public void For_AModelWithTheExactActivity_TakesItRatherThanAFallback()
+    public void For_AModelWithTheExactActivity_TakesIt()
     {
-        // The control for the whole file. Every test below asserts that a fallback was reached, and
-        // a selector that always fell through would satisfy all of them.
+        // The control for the whole file: the translated activity, found.
         PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
             "ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_SECONDARY", "Stand_PRIMARY");
 
-        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "SECONDARY")
+        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "SECONDARY").ShouldBe(1);
+    }
+
+    [Test]
+    public void For_AnActivityTheModelLacks_PlaysSequenceZero()
+    {
+        // Running with a secondary the model has no run for: the engine plays sequence 0, not the primary run at 1.
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
+            "ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_PRIMARY", "Stand_PRIMARY");
+
+        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "SECONDARY").ShouldBe(0);
+    }
+
+    [Test]
+    public void For_AModelOfferingNothing_PlaysSequenceZero()
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.With("ACT_MP_SWIM_PRIMARY", "Stand_PRIMARY");
+
+        PlayerAnimation.For(model, Still, flags: null, alive: true).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **`HandleDucking` drops the duck when the model has no crouch walk for what is held** (`:1343-1347`), so the
+    /// player runs; with the crouch walk present he crouch-walks — the control.
+    /// </remarks>
+    [Test]
+    public void For_ADuckingPlayerWhoseModelLacksTheCrouchWalk_Runs()
+    {
+        const int Crouched = PlayerActivityState.Ducking | PlayerActivityState.OnGround;
+        PropModels.SkinnedModel lacking = SyntheticSkinnedModel.With("ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_PRIMARY");
+        PropModels.SkinnedModel having = SyntheticSkinnedModel.With("ACT_MP_RUN_PRIMARY", "ACT_MP_CROUCHWALK_PRIMARY");
+
+        PlayerAnimation.For(lacking, Running, Crouched, alive: true).ShouldBe(1);
+        PlayerAnimation.For(having, Running, Crouched, alive: true).ShouldBe(1);
+        PlayerAnimation.For(having, Still, Crouched, alive: true).ShouldBe(0, "no crouch idle on this model: sequence 0");
+    }
+
+    /// <remarks>
+    /// **A loser keeps his duck without the crouch walk, and crouch-idles moving or not** (`:1344`, `:1351`) — so a
+    /// humiliated player crouching while he runs is drawn in `ACT_MP_CROUCH_LOSERSTATE`, not running.
+    /// </remarks>
+    [Test]
+    public void For_ADuckingLoser_CrouchIdlesEvenWhileMoving()
+    {
+        const int Crouched = PlayerActivityState.Ducking | PlayerActivityState.OnGround;
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.With("ACT_MP_RUN_LOSERSTATE", "ACT_MP_CROUCH_LOSERSTATE");
+
+        TfPosture loser = new(IsLoser: true);
+
+        PlayerAnimation.For(model, Running, Crouched, alive: true, table: PlayerActivityOverride.LoserState, posture: loser)
             .ShouldBe(1);
-    }
+        PlayerAnimation.For(
+                model, Running, PlayerActivityState.OnGround, alive: true, table: PlayerActivityOverride.LoserState, posture: loser)
+            .ShouldBe(0, "the control: standing, he runs");
 
-    [Test]
-    public void For_ASlotTheModelLacks_FallsBackToThePrimaryFormOfTheSameActivity()
-    {
-        // Level 2. The player is running and holding a secondary, and the model has only the
-        // primary run — which is the same motion with a different weapon held, and much closer
-        // than changing what the player is doing.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_PRIMARY", "Stand_PRIMARY");
-
-        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "SECONDARY")
-            .ShouldBe(1);
-    }
-
-    [Test]
-    public void For_NeitherFormOfTheActivity_FallsBackToRunningWhenMoving()
-    {
-        // Level 3, moving. The model has no crouch-walk in any form, so the activity itself has to
-        // change — and running is nearer to a crouch-walk than standing is.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_PRIMARY", "Stand_PRIMARY");
-
-        int crouched = PlayerAnimation.For(
-            model,
-            Running,
-            flags: PlayerActivityState.Ducking | PlayerActivityState.OnGround,
-            alive: true);
-
-        crouched.ShouldBe(1);
-    }
-
-    [Test]
-    public void For_NeitherFormOfTheActivity_FallsBackToStandingWhenStill()
-    {
-        // Level 3, stationary — the other arm of the same branch. A test that only ever moved
-        // would leave the speed comparison free to be written either way round.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "ACT_MP_STAND_PRIMARY", "ACT_MP_RUN_PRIMARY", "Stand_PRIMARY");
-
-        int crouched = PlayerAnimation.For(
-            model,
-            Still,
-            flags: PlayerActivityState.Ducking | PlayerActivityState.OnGround,
-            alive: true);
-
-        crouched.ShouldBe(0);
-    }
-
-    [Test]
-    public void For_AModelWithNoActivitiesAtAll_FindsStandPrimaryByLabel()
-    {
-        // **Level 4, and the one that laid every player on their back.** No sequence here carries a
-        // matching activity, so the last resort is a label lookup — and the label it wants is
-        // present alongside a LONGER one that embeds it. A `Contains` match returns the wrong one;
-        // an exact match returns index 1.
-        //
-        // The decoy is first on purpose: a lookup that scans in order and stops on a substring
-        // finds it before ever reaching the real sequence, which is exactly how the original bug
-        // presented.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "AttackStand_PRIMARY", "Stand_PRIMARY");
-
-        PlayerAnimation.For(model, Still, flags: null, alive: true).ShouldBe(1);
-    }
-
-    [Test]
-    public void For_TheLabelLookup_IsCaseInsensitiveLikeStudioLookupSequence()
-    {
-        // `Studio_LookupSequence` compares with stricmp, and real models spell it `stand_PRIMARY`
-        // in lower case where this code asks for `Stand_PRIMARY`. An ordinal comparison finds
-        // nothing and the player drops to the reference pose.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With(
-            "AttackStand_PRIMARY", "stand_PRIMARY");
-
-        PlayerAnimation.For(model, Still, flags: null, alive: true).ShouldBe(1);
-    }
-
-    [Test]
-    public void For_AModelOfferingNothingSuitable_ReportsMinusOneRatherThanGuessing()
-    {
-        // The end of the chain. Returning 0 would be a plausible-looking answer that draws whatever
-        // sequence happens to be first, which on a real model is rarely a standing pose; −1 lets
-        // the caller leave the model in its rest pose and say so.
-        PropModels.SkinnedModel model = SyntheticSkinnedModel.With("ACT_MP_SWIM_PRIMARY");
-
-        PlayerAnimation.For(model, Still, flags: null, alive: true).ShouldBe(-1);
+        // **`IsLoser()` itself, not the table** (B437): the same table without the loser drops the duck and runs.
+        PlayerAnimation.For(model, Running, Crouched, alive: true, table: PlayerActivityOverride.LoserState).ShouldBe(0);
     }
 
     [Test]
     public void For_ANullModel_IsRefused()
     {
-        // A null model is a caller bug rather than a missing animation, and the two want different
-        // handling: one is a fallback, the other is a defect worth surfacing.
+        // A null model is a caller bug rather than a missing animation.
         Should.Throw<System.ArgumentNullException>(
             () => PlayerAnimation.For(null!, Still, flags: null, alive: true));
     }

@@ -112,6 +112,49 @@ public sealed class UpdateClientSideAnimationsTests
         drawn[0].EntityIndex.ShouldBe(3);
     }
 
+    /// <remarks>
+    /// **The pose's posture reaches the drawn model's sequence choice** (B437) — the last hop from the decode's
+    /// `IsAiming()` to `SelectWeightedSequence`: a still player aiming stands `ACT_MP_DEPLOYED_IDLE`
+    /// (`tf_playeranimstate.cpp:1320`), the same player not aiming stands idle — the control.
+    /// </remarks>
+    [TestCase(true, 2)]
+    [TestCase(false, 1)]
+    public void UpdateClientSideAnimations_APlayerAiming_TakesTheDeployedStand(bool aiming, int expected)
+    {
+        EntityModelSet models = new();
+        SceneProp player = PropAt(sequence: 9, speed: 0f) with
+        {
+            Pose = PropAt(sequence: 9, speed: 0f).Pose with { Posture = new TfPosture(IsAiming: aiming) },
+        };
+
+        models.Add([player], Deployable);
+
+        List<SceneProp> drawn = [player];
+
+        models.UpdateClientSideAnimations(drawn);
+
+        drawn[0].Pose.Sequence.ShouldBe(expected);
+    }
+
+    /// <summary>A packed model with a reference pose, a stand and a deployed stand, each its own activity.</summary>
+    private static PropModels.ModelFrames? Deployable(string path) =>
+        new(
+            [
+                new PropVertex[]
+                {
+                    new(1f, 0f, 0f, 0f, 0f, MaterialIndex: 3),
+                    new(0f, 1f, 0f, 1f, 0f, MaterialIndex: 3),
+                    new(0f, 0f, 1f, 0f, 1f, MaterialIndex: 3),
+                },
+            ],
+            new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+            [0],
+            [true],
+            Skinned: SyntheticSkinnedModel.WithActivities(
+                ("ref", "ACT_REFERENCE"),
+                ("stand_PRIMARY", "ACT_MP_STAND_PRIMARY"),
+                ("deployed_PRIMARY", "ACT_MP_DEPLOYED_IDLE")));
+
     /// <summary>A packed model carrying the one activity a standing player asks for.</summary>
     /// <remarks>
     /// <c>ACT_MP_STAND_PRIMARY</c> — `PlayerActivity.NameOf(StandIdle, "PRIMARY")`. Without a label

@@ -46,6 +46,8 @@
     <!-- Build 3258's whole dem_datatables, for its SourceTV recordings that cut it at 2^16 bytes
          (B24, KnownSchema). -->
     <EmbeddedResource Include="Schema\Data\build3258-datatables.bin" LogicalName="Tf2DemoSalvage.Core.build3258-datatables.bin" />
+    <!-- The shared activity list, ai_activity.h's enum in order (B437, SharedActivities). -->
+    <EmbeddedResource Include="Scene\Data\shared-activities.txt" LogicalName="Tf2DemoSalvage.Core.shared-activities.txt" />
   </ItemGroup>
 
 </Project>

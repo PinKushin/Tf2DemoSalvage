@@ -9139,7 +9139,7 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-03 (crouch-walk check, event-time posture and item override fixed; sequence 0 and voice numbers OPEN)
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — FIXED 2026-10-03 (residual: private activity numbers)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
@@ -9207,19 +9207,46 @@ facts measured on the installed game.
 - **The item's own `GetActivityOverride`, everywhere `TranslateActivity` runs.** `ItemSchema.ActivityReplacements`
   reads `animation_replacement` from the best visuals block for the team (`GetNumAnimations` → `GetBestVisualTeamData`,
   `econ_item_schema.h:1831-1854`), nearest prefab first; `PlayerActivityTable.Translate` applies it between the weapon
-  and the winner; the pose carries it (`ScenePose.ItemActivities`), so the body and every gesture take it. Not
-  checked: `ActivityList_IndexForName( replacement ) > 0`, which drops a replacement naming an unregistered activity.
+  and the winner; the pose carries it (`ScenePose.ItemActivities`), so the body and every gesture take it.
 - **The event-time posture.** Gesture events queue with their `CL_QueueEvent` fire tick and fire before and after
   each packet (`DemoTimeline.FireGestures`), reading flags, the latch and `IsLoser` then and starting the gesture at
   the fire tick. Synthetic: a reload arriving standing fires six ticks later crouched; an event due between packets
   reads the earlier one. Output: the independent latch walk on z1800 moved to fire time and matches all 1,981 reloads.
 
-**Still open, with what blocks each:**
-- **A main sequence that resolves to nothing** draws sequence 0 in the engine (`ComputeMainSequence`:
-  `if ( animDesired < 0 ) animDesired = 0;`); `PlayerAnimation.For` falls back to the primary table and then the run or
-  stand. A loser crouch-walking reaches this (no `CROUCHWALK_LOSERSTATE`). Filed, not changed: what sequence 0 looks
-  like on a merged class model has not been looked at.
-- **A voice gesture's activity number** is the server's `ActivityList` index, and nothing here maps it to a name.
+**Fixed 2026-10-03, fifth pass (`fix/b437-last-three`).** Evidence: read from published source; the list measured
+against `ai_activity.h`.
+
+- **The shared activity list.** `REGISTER_SHARED_ACTIVITY( ACT_X )` registers each shared name at its enum value
+  (`activitylist.cpp:108-137`), and the enum and the registrations agree name for name (1,947 each, `ACT_RESET` = 0).
+  `SharedActivities` carries that list as data (`Core/Scene/Data/shared-activities.txt`), compared both ways with the
+  SDK by `SharedActivitiesConformanceTests`.
+- **A voice gesture names its activity.** `RestartGesture( …, (Activity)nData )` gets the server's list index; a
+  shared index is now named and resolves like any gesture (through `TranslateActivity`, so a carrying engineer's is the
+  `_BUILDING` one). An index past the shared list is a private activity the server numbered at load and stays a number
+  — no list can name it. `CustomGesture` takes the same route.
+- **An unregistered replacement is dropped.** `GetActivityOverride` returns the replacement only
+  `if ( pData->iReplacement > 0 )` (`econ_item_schema.cpp:3582-3590`): `ActivityList_IndexForName` must find it.
+  Registered is shared, or private to a model the game has loaded — the model being animated is one, so a name it
+  declares stands. Measured: of 350 shipped `animation_replacement` rows, six name an activity outside the shared list,
+  all viewmodel ones (`ACT_ITEM2_VM_FIRE`, `ACT_SECONDARY_ALT2_VM_INSPECT_*`…). **Ambiguous in the engine itself:**
+  whether one of those is registered depends on whether some OTHER model declaring it was loaded before the first
+  lookup caches `iReplacement`; this port answers by the animated model alone.
+- **Sequence 0.** `ComputeMainSequence` has one fallback — `if ( animDesired < 0 ) animDesired = 0;`
+  (`multiplayer_animstate.cpp:1174-1177`) — and `PlayerAnimation.For` now returns it. The four-level ladder it replaced
+  (primary form, run or stand, the label `Stand_PRIMARY`) was ours. What the ladder stood in for is
+  `CTFPlayerAnimState::HandleDucking` (`tf_playeranimstate.cpp:1341-1353`), now ported in its two loser rules: a ducking
+  player whose model lacks the translated crouch walk is not ducking unless he is a loser, and a ducking loser
+  crouch-idles moving or not.
+- **`HandleDucking` and `HandleMoving` whole, sixth pass.** `PlayerActivityState.For` takes a `TfPosture` the decode
+  fills: the real `IsLoser()` (`LoserState.IsLoser`, the rule the gestures already ask — the table approximation is
+  gone), `IsAiming()` (`TF_COND_AIMING` on anyone but a soldier, `TF_COND_ZOOMED` for the classic rifle,
+  `tf_player_shared.cpp:11429-11441`), the minigun, `m_iAirDash > 0`, and `m_flHoldDeployedPoseUntilTime`, which a
+  zoomed sniper's shot sets two seconds ahead (`:1028`) and `HandleMoving` cancels the frame the player moves — so the
+  decode steps it only on frames `CalcMainActivity` reaches `HandleMoving`, with its own horizontal differencing. New
+  activities: `ACT_MP_CROUCH_DEPLOYED_IDLE`, `ACT_MP_CROUCH_DEPLOYED` (not for a minigun), `ACT_MP_DOUBLEJUMP_CROUCH`,
+  and `HandleMoving`'s `ACT_MP_DEPLOYED` / `_IDLE`. The model's crouch-walk half stays the scene's, asked of the model
+  drawn. **Residual:** the decode's cancel test asks the class model, the scene's duck the drawn one — a custom model
+  that uses the class animations is the only case they could differ.
 - FIXED 2026-10-03, fourth pass. **The item's own `GetActivityOverride`** (items_game `animation_replacement`), between the weapon and the winner.
 
 - **A rocket jumper lands with no landing gesture.** FIXED 2026-10-02, above. When the air-walk ends on the ground `HandleJumping` restarts the

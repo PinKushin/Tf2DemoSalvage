@@ -140,13 +140,14 @@ public sealed class PlayerGestureEventTests
     [Test]
     public void GestureEvent_AVoiceCommand_CarriesItsActivityInData()
     {
-        // RestartGesture( GESTURE_SLOT_ATTACK_AND_RELOAD, (Activity)nData ) — the activity is dynamic.
+        // RestartGesture( GESTURE_SLOT_ATTACK_AND_RELOAD, (Activity)nData ) — the activity is dynamic. Past the shared
+        // list it is a private index the server numbered, and stays a number (a shared one is named, B437).
         GestureTrigger trigger = Map(
-            PlayerAnimEvent.VoiceCommandGesture, new GestureContext(NData: 1502));
+            PlayerAnimEvent.VoiceCommandGesture, new GestureContext(NData: 5002));
 
         trigger.Slot.ShouldBe(GestureSlot.AttackAndReload);
         trigger.ActivityName.ShouldBeNull();
-        trigger.ActivityNumber.ShouldBe(1502);
+        trigger.ActivityNumber.ShouldBe(5002);
     }
 
     [Test]
@@ -155,8 +156,10 @@ public sealed class PlayerGestureEventTests
         GestureTrigger trigger = Map(
             PlayerAnimEvent.CustomGesture, new GestureContext(NData: 1088));
 
+        // 1088 is shared, so it arrives named: the enum's own entry at that index.
         trigger.Slot.ShouldBe(GestureSlot.Custom);
-        trigger.ActivityNumber.ShouldBe(1088);
+        trigger.ActivityName.ShouldBe(SharedActivities.NameOf(1088));
+        trigger.ActivityNumber.ShouldBeNull();
     }
 
     [Test]

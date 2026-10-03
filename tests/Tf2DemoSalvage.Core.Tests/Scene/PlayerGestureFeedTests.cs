@@ -472,8 +472,9 @@ public sealed class PlayerGestureFeedTests
         List<SceneGesture> gestures = Gestures(feed, 4);
         gestures.Count.ShouldBe(2);
         (gestures[0].ActivityName, gestures[0].OnlyIfSlotIdle).ShouldBe(("ACT_MP_RELOAD_STAND", false));
-        (gestures[1].Slot, gestures[1].ActivityNumber, gestures[1].StartedSeconds, gestures[1].OnlyIfSlotIdle)
-            .ShouldBe((GestureSlot.AttackAndReload, 1234, 1.2d, true));
+        // 1234 is a shared index, so the gesture arrives under its name (B437).
+        (gestures[1].Slot, gestures[1].ActivityName, gestures[1].StartedSeconds, gestures[1].OnlyIfSlotIdle)
+            .ShouldBe((GestureSlot.AttackAndReload, SharedActivities.NameOf(1234), 1.2d, true));
 
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.AttackPrimary), 2d, default);
         Gestures(feed, 4).ShouldHaveSingleItem().ActivityName.ShouldBe("ACT_MP_ATTACK_STAND_PRIMARYFIRE");
@@ -486,7 +487,7 @@ public sealed class PlayerGestureFeedTests
         feed.Record(PlayerGestureFeed.EventClassName, Event(player: 4, anEvent: (int)PlayerAnimEvent.VoiceCommandGesture, data: 1234), 1d, default);
 
         SceneGesture voice = Gestures(feed, 4).ShouldHaveSingleItem();
-        (voice.ActivityNumber, voice.OnlyIfSlotIdle).ShouldBe((1234, false));
+        (voice.ActivityName, voice.OnlyIfSlotIdle).ShouldBe((SharedActivities.NameOf(1234), false));
     }
 
     /// <summary>One step of HandleJumping for its air-walk latch, as the engine's class default sees it.</summary>

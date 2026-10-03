@@ -49,19 +49,10 @@ namespace Tf2DemoSalvage.Scene;
 /// </remarks>
 internal static class PlayerAnimation
 {
-    /// <summary>
-    /// <c>MOVING_MINIMUM_SPEED</c> from <c>base_playeranimstate.h</c>: half a unit a second.
-    /// </summary>
-    /// <remarks>
-    /// Small enough to mean "moving at all" rather than "moving quickly", which is what the engine
-    /// means by it — a player easing off a ledge is still running, animation-wise.
-    /// </remarks>
-    private const float MovingMinimumSpeed = 0.5f;
-
     /// <summary>Which sequence to play at a given speed.</summary>
     /// <param name="model">The player's model, for resolving names to numbers.</param>
     /// <param name="speed">Horizontal speed in units a second.</param>
-    /// <returns>A merged sequence number, or −1 when the model offers neither.</returns>
+    /// <returns>A merged sequence number; 0 when the model has none for it.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
     /// The primary-weapon variants, which is the engine's default as well as this overload's:
@@ -86,7 +77,8 @@ internal static class PlayerAnimation
     /// <param name="table">The player's own activity table, walked before the weapon's (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
-    /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
+    /// <param name="posture">TF's HandleDucking and HandleMoving inputs from the decode (B437).</param>
+    /// <returns>A merged sequence number; 0 when the model has none for the activity, as the engine draws.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
     /// **Null flags are a real case rather than an error**, though a rarer one than this comment
@@ -95,10 +87,9 @@ internal static class PlayerAnimation
     /// PVS (B103). Absent, the state machine sees a player standing on the ground — which is what
     /// they usually are.
     ///
-    /// **Falls back rather than returning nothing.** A model that claims no sequence for the chosen
-    /// activity — a crouch-walk it does not have, say — takes the standing form instead. A player
-    /// frozen in the reference pose lies on their back, which reads as a broken model rather than as
-    /// a missing animation.
+    /// **Sequence 0, not a ladder of our own** (B437). This used to try the primary form of the activity, then
+    /// running or standing, then the label <c>Stand_PRIMARY</c>; the engine has none of that. What it does have is
+    /// `HandleDucking`'s crouch-walk check, which is what the ladder was mostly standing in for — ported above.
     /// </remarks>
     public static int For(
         PropModels.SkinnedModel model,
@@ -110,7 +101,8 @@ internal static class PlayerAnimation
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
-        IReadOnlyDictionary<string, string>? item = null)
+        IReadOnlyDictionary<string, string>? item = null,
+        TfPosture posture = default)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -123,32 +115,23 @@ internal static class PlayerAnimation
         // water level was decoded, so nobody in any recording ever swam.
         bool waistDeep = waterLevel >= PlayerActivityState.WaistDeepWaterLevel;
 
-        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping);
+        Func<string, bool> declared = name => model.ForActivity(name) >= 0;
 
-        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass, item));
-
-        if (wanted >= 0)
+        // **TF's HandleDucking asks THIS model for the translated crouch walk** (`tf_playeranimstate.cpp:1343-1347`); the
+        // rest of the posture — `IsLoser()`, `IsAiming()`, the air dash, the deployed hold — the decode carried.
+        TfPosture asked = posture with
         {
-            return wanted;
-        }
+            LacksCrouchWalk =
+                model.ForActivity(Translate(PlayerActivity.CrouchWalk, slot, table, competitiveWinnerClass, item, declared)) < 0,
+        };
 
-        // **The weapon's own table first, then the primary table's row for the same activity.** A
-        // class that has no crouch-walk for the table it is holding still has the primary one, and
-        // that is nearer to what the player is doing than a different activity would be. Only after
-        // both fail does the activity itself change, below.
-        if (!string.Equals(slot, "PRIMARY", StringComparison.Ordinal) &&
-            model.ForActivity(Translate(activity, "PRIMARY", table, competitiveWinnerClass, item)) is var primary and >= 0)
-        {
-            return primary;
-        }
+        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping, asked);
 
-        // The two the engine starts from, in order: whatever the player is doing, standing or
-        // running is closer to it than the reference pose.
-        int fallback = speed > MovingMinimumSpeed
-            ? model.ForActivity(Translate(PlayerActivity.Run, slot, table, competitiveWinnerClass, item))
-            : model.ForActivity(Translate(PlayerActivity.StandIdle, slot, table, competitiveWinnerClass, item));
+        // **`if ( animDesired < 0 ) animDesired = 0;`** (`multiplayer_animstate.cpp:1174-1177`) — the engine's one
+        // fallback. Sequence 0 is the merged model's first sequence, whatever that is.
+        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass, item, declared));
 
-        return fallback >= 0 ? fallback : model.Find("Stand_PRIMARY");
+        return wanted >= 0 ? wanted : 0;
     }
 
     /// <summary>The activity a model is asked for: <c>CalcMainActivity</c>'s answer through `TranslateActivity`.</summary>
@@ -157,6 +140,7 @@ internal static class PlayerAnimation
     /// <param name="table">The player's own table, walked first (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null.</param>
     /// <param name="item">The held item's `animation_replacement` rows, or null.</param>
+    /// <param name="declared">Whether the model declares an activity, for a replacement outside the shared list.</param>
     /// <returns>The name the model is asked for.</returns>
     /// <remarks>
     /// **`CTFPlayerAnimState::TranslateActivity`** (`tf_playeranimstate.cpp:124-153`), by
@@ -168,6 +152,8 @@ internal static class PlayerAnimation
         string role,
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
-        IReadOnlyDictionary<string, string>? item = null) =>
-        PlayerActivityTable.Translate(PlayerActivityState.IdealName(activity), role, table, competitiveWinnerClass, item);
+        IReadOnlyDictionary<string, string>? item = null,
+        Func<string, bool>? declared = null) =>
+        PlayerActivityTable.Translate(
+            PlayerActivityState.IdealName(activity), role, table, competitiveWinnerClass, item, declared);
 }

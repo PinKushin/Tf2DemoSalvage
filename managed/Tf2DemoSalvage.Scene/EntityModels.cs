@@ -1845,7 +1845,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             if (gesture.Slot == GestureSlot.AttackAndReload)
             {
                 int resolved = gesture.ActivityName is { Length: > 0 } asked
-                    ? skinned.ForActivity(TranslateGesture(prop, asked))
+                    ? skinned.ForActivity(TranslateGesture(prop, skinned, asked))
                     : 0;
 
                 if (!gesture.OnlyIfSlotIdle ||
@@ -1922,7 +1922,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
             // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
             // voice gestures are the `_BUILDING` ones.
-            string activity = TranslateGesture(prop, named);
+            string activity = TranslateGesture(prop, skinned, named);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -1978,13 +1978,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
     }
 
     /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the item's, the winner's (B437).</summary>
-    private static string TranslateGesture(SceneProp prop, string activity) =>
+    private static string TranslateGesture(SceneProp prop, PropModels.SkinnedModel skinned, string activity) =>
         PlayerActivityTable.Translate(
             activity,
             prop.Pose.Slot ?? "PRIMARY",
             prop.Pose.ActivityOverride,
             prop.Pose.CompetitiveWinnerClass,
-            prop.Pose.ItemActivities);
+            prop.Pose.ItemActivities,
+            name => skinned.ForActivity(name) >= 0);
 
     /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
     /// <remarks>
@@ -4499,7 +4500,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass,
 
                 // The held item's own replacements, between the weapon and the winner (B437).
-                item: prop.Pose.ItemActivities);
+                item: prop.Pose.ItemActivities,
+
+                // TF's HandleDucking and HandleMoving inputs (B437).
+                posture: prop.Pose.Posture);
 
             // **A negative answer is left alone rather than written.** -1 means "this model has no
             // such sequence", and storing it would replace a working sequence with one that decodes
@@ -4578,7 +4582,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// <param name="table">The player's own activity table (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
-    /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
+    /// <param name="posture">TF's HandleDucking and HandleMoving inputs (B437).</param>
+    /// <returns>A merged sequence number, or −1 when the model is not skinned.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
     /// model was loaded skinned - a baked model has no merged sequence table to search.
@@ -4593,11 +4598,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
         int? competitiveWinnerClass = null,
-        IReadOnlyDictionary<string, string>? item = null) =>
+        IReadOnlyDictionary<string, string>? item = null,
+        TfPosture posture = default) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
             ? PlayerAnimation.For(
-                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item)
+                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item, posture)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>
