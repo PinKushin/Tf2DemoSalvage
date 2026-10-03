@@ -195,9 +195,11 @@ public static class StringTableAssembly
     private static void AppendEntries(
         List<string> lines, IReadOnlyList<StringTableEntry> entries)
     {
+        System.Text.StringBuilder line = new();
+
         foreach (StringTableEntry entry in entries)
         {
-            System.Text.StringBuilder line = new("  entry ");
+            line.Clear().Append("  entry ");
 
             // Stryker disable all : the String mutator wraps the interpolated literal in a
             // ternary that cannot bind to string.Create's interpolated-string handler (CS1620),

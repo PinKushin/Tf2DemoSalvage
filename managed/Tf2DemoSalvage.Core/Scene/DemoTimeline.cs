@@ -6278,28 +6278,8 @@ public sealed class DemoTimeline
     /// tractable. A caller that reports the first when the second is true sends the reader looking
     /// for a decode bug.
     /// </remarks>
-    public IReadOnlyList<ScenePropTrack> TracksFor(int entityIndex)
-    {
-        List<ScenePropTrack> found = [];
-
-        foreach (ScenePropTrack track in _props)
-        {
-            if (track.EntityIndex == entityIndex)
-            {
-                found.Add(track);
-            }
-        }
-
-        foreach (ScenePropTrack track in _playerTracks)
-        {
-            if (track.EntityIndex == entityIndex)
-            {
-                found.Add(track);
-            }
-        }
-
-        return found;
-    }
+    public IReadOnlyList<ScenePropTrack> TracksFor(int entityIndex) =>
+        [.. _props.Concat(_playerTracks).Where(track => track.EntityIndex == entityIndex)];
 
     /// <summary>How fast a track is moving horizontally at a moment.</summary>
     /// <remarks>

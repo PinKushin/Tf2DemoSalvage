@@ -238,6 +238,24 @@ public sealed class GameArchives
         return new GameArchives([.. sources, .. _sources]);
     }
 
+    /// <summary>A loose file's full path, or null when <paramref name="path"/> is rooted or resolves outside <paramref name="folder"/> (D32).</summary>
+    /// <remarks>
+    /// The prefix compared ends in a separator: without it `tf_custom/x` passed as inside `tf`. A rooted path is
+    /// refused outright, as `Path.Combine` did by dropping the folder and failing the prefix.
+    /// </remarks>
+    private static string? InsideFolder(string folder, string path)
+    {
+        if (Path.IsPathRooted(path))
+        {
+            return null;
+        }
+
+        string root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder)) + Path.DirectorySeparatorChar;
+        string candidate = Path.GetFullPath(Path.Join(folder, path));
+
+        return candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? candidate : null;
+    }
+
     /// <summary>`V_RemoveDotSlashes` (tier1/strtools.cpp:2315) with `/`: separators unified, empty and `.` segments dropped, each `..` taking the directory before it.</summary>
     /// <param name="path">A game path.</param>
     /// <returns>The path, or null where a `..` has no directory to take — the engine's `false`.</returns>
@@ -319,9 +337,7 @@ public sealed class GameArchives
             }
 
             // Joined, then checked to be inside the folder, as Read does (D32).
-            string candidate = Path.GetFullPath(Path.Combine(folder, path));
-
-            if (candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase) && File.Exists(candidate))
+            if (InsideFolder(folder, path) is { } candidate && File.Exists(candidate))
             {
                 return candidate;
             }
@@ -364,9 +380,7 @@ public sealed class GameArchives
                 // **The path is joined and then checked to be inside the folder.** It comes from a
                 // material name in a map written by a stranger, and ".." in one would otherwise
                 // read any file on the machine (D32).
-                string candidate = Path.GetFullPath(Path.Combine(folder, path));
-
-                if (!candidate.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
+                if (InsideFolder(folder, path) is not { } candidate)
                 {
                     continue;
                 }

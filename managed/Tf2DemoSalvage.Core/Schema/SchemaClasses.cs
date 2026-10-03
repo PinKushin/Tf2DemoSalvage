@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Schema;
 
@@ -134,13 +135,10 @@ public static class SchemaClasses
                 continue;
             }
 
-            foreach (SendProperty property in table.Properties)
+            foreach (SendProperty property in table.Properties.Where(property =>
+                property.Type == SendPropType.DataTable && property.ReferencedTable.Length > 0))
             {
-                if (property.Type == SendPropType.DataTable &&
-                    property.ReferencedTable.Length > 0)
-                {
-                    pending.Push(property.ReferencedTable);
-                }
+                pending.Push(property.ReferencedTable);
             }
         }
 

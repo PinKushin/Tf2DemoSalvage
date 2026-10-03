@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -45,15 +46,7 @@ public static class PlayerLookup
 
         string wanted = who.Trim();
 
-        List<PlayerInfo> real = [];
-
-        foreach (PlayerInfo player in roster)
-        {
-            if (!player.IsSourceTv)
-            {
-                real.Add(player);
-            }
-        }
+        List<PlayerInfo> real = [.. roster.Where(player => !player.IsSourceTv)];
 
         foreach (PlayerInfo player in real)
         {

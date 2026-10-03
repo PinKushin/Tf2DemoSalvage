@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Net;
@@ -566,9 +567,8 @@ public static class MessageAssembly
         List<string> tokens, Func<string?> nextLine, NetDecodeState state)
     {
         List<DecodedSound> sounds = [];
-        foreach (List<string> entry in Block(nextLine))
+        foreach (Dictionary<string, string> fields in Block(nextLine).Select(Fields))
         {
-            Dictionary<string, string> fields = Fields(entry);
             sounds.Add(new DecodedSound(
                 Field(fields, "entity"),
                 Field(fields, "num"),

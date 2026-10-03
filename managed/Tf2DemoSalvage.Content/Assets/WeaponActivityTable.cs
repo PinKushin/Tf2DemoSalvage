@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -520,15 +521,8 @@ public static class WeaponActivityTable
     {
         Dictionary<string, Dictionary<string, string>> built = new(StringComparer.Ordinal);
 
-        foreach (string row in Rows)
+        foreach (string[] parts in Rows.Select(row => row.Split('|')).Where(parts => parts.Length == 3))
         {
-            string[] parts = row.Split('|');
-
-            if (parts.Length != 3)
-            {
-                continue;
-            }
-
             if (!built.TryGetValue(parts[0], out Dictionary<string, string>? table))
             {
                 table = new Dictionary<string, string>(StringComparer.Ordinal);
