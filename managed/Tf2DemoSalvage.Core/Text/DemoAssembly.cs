@@ -111,7 +111,7 @@ public static class DemoAssembly
         // Written beside the target and moved over it only once the whole text compiled: a parse that
         // fails at the end must not leave a partial demo where the user asked for one. Same folder, so
         // the move is a rename.
-        string temp = Path.Combine(
+        string temp = Path.Join(
             Path.GetDirectoryName(Path.GetFullPath(outputPath))!,
             Path.GetFileName(outputPath) + "." + Guid.NewGuid().ToString("N") + ".tmp");
 
@@ -251,10 +251,11 @@ public static class DemoAssembly
             MessageTypeBits = typeBits,
         };
 
+        StringBuilder line = new();
+
         foreach (DemoCommand command in commands)
         {
-            StringBuilder line = new();
-            line.Append(Keyword(command.Type))
+            line.Clear().Append(Keyword(command.Type))
                 .Append(' ')
                 .Append(command.Tick.ToString(CultureInfo.InvariantCulture));
 

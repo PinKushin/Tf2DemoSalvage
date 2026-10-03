@@ -97,12 +97,9 @@ public sealed class EntityStateTable
 
         ids.Add(classId);
 
-        foreach (EntityState state in _entities.Values)
+        foreach (EntityState state in _entities.Values.Where(state => state.ClassId == classId))
         {
-            if (state.ClassId == classId)
-            {
-                state.ClassName = className;
-            }
+            state.ClassName = className;
         }
     }
 

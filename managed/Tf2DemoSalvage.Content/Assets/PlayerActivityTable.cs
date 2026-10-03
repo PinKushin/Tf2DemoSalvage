@@ -109,16 +109,14 @@ public static class PlayerActivityTable
 
         translated = WeaponActivityTable.Override(role, translated);
 
-        if (competitiveWinnerClass is { } winner &&
-            (translated == "ACT_MP_STAND_PRIMARY" ||
-                (winner == Spy && translated == "ACT_MP_STAND_MELEE") ||
-                (winner == Demoman && translated == "ACT_MP_STAND_SECONDARY")))
-        {
-            return WinnerState;
-        }
-
-        return translated;
+        return competitiveWinnerClass is { } winner && IsWinnerStand(winner, translated) ? WinnerState : translated;
     }
+
+    /// <summary>The stands `TranslateActivity` swaps for the winner's: any class's primary, a spy's melee, a demoman's secondary.</summary>
+    private static bool IsWinnerStand(int winner, string translated) =>
+        translated == "ACT_MP_STAND_PRIMARY" ||
+        (winner == Spy && translated == "ACT_MP_STAND_MELEE") ||
+        (winner == Demoman && translated == "ACT_MP_STAND_SECONDARY");
 
     private static Dictionary<string, string> Rows(params (string From, string To)[] rows)
     {

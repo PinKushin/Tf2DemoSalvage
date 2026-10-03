@@ -85,7 +85,7 @@ public static class GameSearchPath
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gameFolder);
 
-        string file = Path.Combine(gameFolder, "gameinfo.txt");
+        string file = Path.Join(gameFolder, "gameinfo.txt");
 
         string text;
 
@@ -128,10 +128,8 @@ public static class GameSearchPath
         bool inside = false;
         int depth = 0;
 
-        foreach (string raw in text.Split('\n'))
+        foreach (string line in text.Split('\n').Select(Strip))
         {
-            string line = Strip(raw);
-
             if (line.Length == 0)
             {
                 continue;
@@ -214,7 +212,7 @@ public static class GameSearchPath
             path = path[..^2];
         }
 
-        return Path.IsPathRooted(path) ? path : Path.Combine(root, path);
+        return Path.IsPathRooted(path) ? path : Path.Join(root, path);
     }
 
     /// <summary>Adds one resolved entry, expanding a wildcard and naming archives properly.</summary>

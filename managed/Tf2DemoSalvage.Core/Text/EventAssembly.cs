@@ -59,10 +59,11 @@ public static class EventAssembly
                 CultureInfo.InvariantCulture, $"svc_gameeventlist bits={message.BodyBits} {{"),
         ];
 
+        System.Text.StringBuilder line = new();
+
         foreach (GameEventDefinition definition in message.Definitions)
         {
-            System.Text.StringBuilder line = new("  event ");
-            line.Append(definition.Id.ToString(CultureInfo.InvariantCulture))
+            line.Clear().Append("  event ").Append(definition.Id.ToString(CultureInfo.InvariantCulture))
                 .Append(' ')
                 .Append(Quote(definition.Name));
 

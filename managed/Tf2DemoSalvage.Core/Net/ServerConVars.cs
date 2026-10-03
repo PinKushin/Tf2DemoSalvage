@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Net;
 
@@ -182,19 +183,16 @@ public sealed class ServerConVars
     {
         get
         {
-            List<string> moved = [];
             Settings current = _state;
 
-            foreach (EngineConVar declared in EngineConVars.All)
-            {
-                if (current.Text.TryGetValue(declared.Name, out string? sent) &&
-                    !string.Equals(sent, declared.Default, StringComparison.Ordinal))
-                {
-                    moved.Add(declared.Name);
-                }
-            }
-
-            return moved;
+            return
+            [
+                .. EngineConVars.All
+                    .Where(declared =>
+                        current.Text.TryGetValue(declared.Name, out string? sent) &&
+                        !string.Equals(sent, declared.Default, StringComparison.Ordinal))
+                    .Select(declared => declared.Name),
+            ];
         }
     }
 }

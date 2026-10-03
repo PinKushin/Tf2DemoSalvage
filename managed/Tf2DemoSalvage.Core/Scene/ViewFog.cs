@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace Tf2DemoSalvage.Core.Scene;
 
 /// <summary>The fog the view draws through, chosen as the client chooses it (B139).</summary>
@@ -43,15 +45,7 @@ public readonly record struct ViewFog(SceneFog? World, SceneFog? Sky)
         // "the first fog controller found" (fogcontroller.cpp:363-383) — so that rule stands in.
         // ponytail: lowest index for FindEntityByClassname's order; a master-flagged later
         // controller (the flag is not networked) would differ. The sky fog stays unknown: none.
-        EntityState? first = null;
-
-        foreach (EntityState controller in entities.OfClass(ControllerClass))
-        {
-            if (first is null || controller.EntityIndex < first.EntityIndex)
-            {
-                first = controller;
-            }
-        }
+        EntityState? first = entities.OfClass(ControllerClass).MinBy(controller => controller.EntityIndex);
 
         return new ViewFog(first?.Fog(), null);
     }

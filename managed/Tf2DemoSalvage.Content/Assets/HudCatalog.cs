@@ -84,7 +84,7 @@ public static class HudCatalog
     }
 
     private static bool IsHudFolder(string folder) =>
-        HudMarkers.Any(marker => Directory.Exists(Path.Combine(folder, marker)));
+        HudMarkers.Any(marker => Directory.Exists(Path.Join(folder, marker)));
 
     private static bool IsHudVpk(string path)
     {
