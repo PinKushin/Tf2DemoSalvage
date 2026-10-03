@@ -3293,60 +3293,33 @@ public sealed class DemoTimeline
                 // model without the class's animations (`tf_playeranimstate.cpp:340-366`), `EF_NODRAW` or death
                 // (`multiplayer_animstate.cpp:1381-1395`) mean the frame is not animated at all: `ClearAnimationState`
                 // runs instead, which clears the air-walk, the jump and every gesture slot.
+                bool firingHeavy =
+                    player.PlayerClass() == HeavyClass && player.Conditions().Has(PlayerConditions.Aiming);
+
                 if (!player.IsDrawn || !alive || player.CustomModelWithoutClassAnimations())
                 {
                     gestures.ClearAnimationState(player.EntityIndex);
                 }
                 else if (player.Flags() is { } stateFlags)
                 {
-                    // **The jump clock is the jump EVENT's** (`m_flJumpStartTime`), not the moment the ground flag
-                    // cleared: a rocket jump or a fall is airborne without jumping, and HandleJumping lets it through to
-                    // the crouch or the run. Null while the interval is unknown, as before.
-                    airborne = interval > 0f &&
-                        gestures.Jumping(
-                            player.EntityIndex,
-                            command.Tick * interval,
-                            (stateFlags & PlayerActivityState.OnGround) != 0,
-                            player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel) is { } jumping
-                        ? (float)jumping
-                        : null;
-
-                    if ((stateFlags & PlayerActivityState.OnGround) != 0)
-                    {
-                        // **Landing ends the jump gesture, and this is what was missing** (B284).
-                        // `CTFPlayerAnimState::HandleJumping` (`tf_playeranimstate.cpp:1498`):
-                        //
-                        //     else if ( gpGlobals->curtime - m_flJumpStartTime > 0.2f )
-                        //     {
-                        //         if ( GetBasePlayer()->GetFlags() & FL_ONGROUND )
-                        //         {
-                        //             m_bJumping = false;
-                        //             RestartMainSequence();
-                        //             if ( bNewJump ) RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND );
-                        //         }
-                        //     }
-                        //
-                        // **A demo carries no event for landing.** The double jump arrives as a
-                        // `CTEPlayerAnimEvent`; the landing that replaces it is a decision the
-                        // client makes from the ground flag, so a reader driven by events alone
-                        // leaves `ACT_MP_DOUBLEJUMP` — a FULL-BODY animation — playing after the
-                        // player is back on the ground, and it takes the whole skeleton with it.
-                        // That is what laid one scout flat while every other player stood.
-                        gestures.Landed(player.EntityIndex, command.Tick * interval);
-                    }
-
-                    // **`m_bInAirWalk`, stepped once a tick as `HandleJumping` steps it once a frame** (B112) — the one
-                    // latch both the body's air-walk and the reload read. The rise is the differenced height above, which
-                    // is the client's own `EstimateAbsVelocity`; a heavy spinning his minigun returns before the air walk
-                    // (`tf_playeranimstate.cpp:1439-1440`); a grappling hook whose handle resolves, serial and all, keeps
-                    // the block alive with no rise at all (`:1446`).
-                    gestures.AirWalk(
+                    // **`CTFPlayerAnimState::HandleJumping`, stepped once a tick as the engine steps it once a frame**
+                    // (B112, B437): the air-walk latch the body and the reload both read, and — only when the air-walk
+                    // block does not run — the jump, timed from the jump EVENT (`m_flJumpStartTime`) rather than from
+                    // the ground flag, so a rocket jump or a fall is airborne without jumping. Both clears make the
+                    // landing gesture themselves, because a demo carries no event for it. The rise is the differenced
+                    // height above, the client's own `EstimateAbsVelocity`; a heavy spinning his minigun returns before
+                    // either (`tf_playeranimstate.cpp:1439-1440`); a grappling hook whose handle resolves keeps the
+                    // block alive with no rise at all (`:1446`). Null while the interval is unknown, as before.
+                    double? jumping = gestures.HandleJumping(
                         player.EntityIndex,
                         rising,
                         stateFlags,
                         waistDeep: player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
                         grappling: entities.Resolve(player.GrapplingHookTarget()) is not null,
-                        firingHeavy: player.PlayerClass() == HeavyClass && player.Conditions().Has(PlayerConditions.Aiming));
+                        firingHeavy: firingHeavy,
+                        seconds: command.Tick * interval);
+
+                    airborne = interval > 0f && jumping is { } since ? (float)since : null;
                 }
 
                 // **The yaw has to be carried here too, and was not.** Every argument below is
@@ -3466,7 +3439,8 @@ public sealed class DemoTimeline
                     // is, and only this loop can see both. Resolved rather than carried as a bare
                     // index so no consumer has to keep the entity table alive to make sense of it.
                     AirborneSeconds: airborne,
-                    Airwalking: gestures.InAirWalk(player.EntityIndex),
+                    // A firing heavy's HandleJumping returns false before the latch is asked (`:1439-1440`).
+                    Airwalking: !firingHeavy && gestures.InAirWalk(player.EntityIndex),
 
                     // **In seconds, like every other clock on this record**, so the consumer
                     // compares stamps rather than converting ticks itself (B346).

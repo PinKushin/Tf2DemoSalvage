@@ -228,7 +228,7 @@ public sealed class GestureConformanceTests
         string body = text[start..text.IndexOf("\n}", start, StringComparison.Ordinal)];
 
         string land = "RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )";
-        Regex.Matches(body, Regex.Escape(land)).Count.ShouldBe(2);
+        Regex.Count(body, Regex.Escape(land)).ShouldBe(2);
 
         // The air-walk's landing: the latch on the ground, and the gesture with no bNewJump test between them.
         Regex.IsMatch(

@@ -219,6 +219,15 @@ public static class PlayerActivityState
             }
         }
 
+        // **A latched player the duck kept out of the block still stops HandleJumping** (B437):
+        // `if ( m_bJumping || m_bInAirWalk ) return true;` (`tf_playeranimstate.cpp:1534`) leaves `idealActivity` at
+        // the ACT_MP_STAND_IDLE it started as, so he stands — in the air, after a crouched landing and in water.
+        // Not ducking, the latch only survives the step in the air, which the air-walk above has answered.
+        if (airwalking && alive)
+        {
+            return PlayerActivity.StandIdle;
+        }
+
         // Then crouching, so a crouching player who is also moving crouch-walks rather than runs.
         if ((flags & Ducking) != 0 && alive)
         {
