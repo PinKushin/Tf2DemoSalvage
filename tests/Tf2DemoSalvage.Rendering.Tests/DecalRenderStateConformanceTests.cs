@@ -84,6 +84,30 @@ public sealed class DecalRenderStateConformanceTests
     }
 
     [Test]
+    public void PolyOffset_AsShaderApiApplies_IsTheReciprocalOfEachConfigTerm()
+    {
+        // **Read from shaderapidx9.dll (x64, live), 0x180014600 — CShaderAPIDx8::ApplyZBias**,
+        // located by its R200 fallback constant -1/4096 (0xB9800000 at 0x18007e110). It loads the
+        // four config floats at +0x54/+0x58/+0x5c/+0x60 — m_SlopeScaleDepthBias_Normal,
+        // m_DepthBias_Normal, m_SlopeScaleDepthBias_Decal, m_DepthBias_Decal in declaration order,
+        // materialsystem_config.h:131-136 — and turns each into `x == 0 ? 0 : 1 / x`. For
+        // SHADER_POLYOFFSET_DECAL it then sets D3DRS_SLOPESCALEDEPTHBIAS (0xAF) to 1/-0.5 and
+        // D3DRS_DEPTHBIAS (0xC3) to 1/-262144.
+        //
+        // **So -262144 was never a depth-bias value; its reciprocal is.** D3D9's DEPTHBIAS is a
+        // fraction of the depth range: -1/262144 = -2^-18, which on a 24-bit UNORM buffer is -64 of
+        // its 2^-24 steps. Read as -262144 steps it is 1/64 of the range — the push-through B70
+        // chased three times, which the engine never had.
+        float depth = Initialiser("m_DepthBias_Decal");
+        float slope = Initialiser("m_SlopeScaleDepthBias_Decal");
+
+        DecalState.PolyOffsetDepthBias.ShouldBe((int)MathF.Round((1f / depth) * (1 << 24)));
+        DecalState.PolyOffsetDepthBias.ShouldBe(-64);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldBe(1f / slope);
+        DecalState.PolyOffsetSlopeScaledBias.ShouldBe(-2f);
+    }
+
+    [Test]
     public void PolyOffset_ForALightmappedGenericOverlay_IsNeverRequested()
     {
         // **Having Valve's number is not having Valve's mechanism**, and this is the test that
