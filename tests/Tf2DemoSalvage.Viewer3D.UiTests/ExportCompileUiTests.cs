@@ -109,7 +109,7 @@ public sealed class ExportCompileUiTests
         Press("Export assembly");
         FillDialog(text, "z1800.txt");
         WaitForStatus("Exported");
-        _viewer.StatusText().ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
+        _viewer.StatusText().ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else\n" + DescribeWindows());
 
         Press("Compile assembly");
         FillDialog(text, string.Empty);
