@@ -12,7 +12,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <summary>A map turned into triangles the renderer can draw in a few calls.</summary>
 /// <param name="Vertices">Every triangle corner, grouped so one material's are contiguous.</param>
 /// <param name="Batches">World surfaces, one run per material actually used, drawn first.</param>
-/// <param name="Decals">Overlay fragments, drawn with the world and after its surfaces.</param>
+/// <param name="OverlayFragments">
+/// Overlay fragments in the order the engine builds them — overlays in lump order, each over its faces in order. Drawn
+/// with the world and after its surfaces, in an order <see cref="OverlayRenderLists"/> decides per view (B457).
+/// </param>
 /// <param name="FaceSpans">
 /// Where each world face's triangles ended up in <see cref="Vertices"/>, in buffer order. This is
 /// what makes per-frame visibility possible: a leaf names faces, and this says which vertices a
@@ -21,7 +24,7 @@ namespace Tf2DemoSalvage.Scene;
 public readonly record struct MapWorld(
     IReadOnlyList<WorldVertex> Vertices,
     IReadOnlyList<WorldBatch> Batches,
-    IReadOnlyList<WorldBatch> Decals,
+    IReadOnlyList<OverlayFragment> OverlayFragments,
     IReadOnlyList<WorldFaceSpan> FaceSpans = null!)
 {
     /// <summary>Where each world face's triangles are, or an empty list.</summary>
@@ -63,6 +66,9 @@ public readonly record struct MapWorld(
 /// automated check passed, because the coverage test's denominator was the leaves and a face no leaf
 /// names could not be counted as lost.
 /// </remarks>
+/// <param name="Plane">The face's PLANE, unflipped — what the engine's leaf pass tests the eye against (B457).</param>
+/// <param name="PlaneBack">Whether the face looks down the back of that plane, the engine's plane-back flag.</param>
+/// <param name="OnNode">`dface_t.onNode`: the face lies on a node's plane and is drawn by the node, not the leaf.</param>
 public readonly record struct WorldFaceSpan(
     int Face,
     int FirstVertex,
@@ -70,7 +76,10 @@ public readonly record struct WorldFaceSpan(
     int MaterialIndex,
     SurfaceCategory Category,
     (float X, float Y, float Z) Min = default,
-    (float X, float Y, float Z) Max = default);
+    (float X, float Y, float Z) Max = default,
+    (float X, float Y, float Z, float Distance) Plane = default,
+    bool PlaneBack = false,
+    bool OnNode = false);
 
 /// <summary>
 /// Turns a map's surfaces into batched, projected triangles.
@@ -96,12 +105,14 @@ public static class MapWorldBuilder
     /// <param name="Count">How many corners it contributed.</param>
     /// <param name="Min">The world box those corners occupy, low corner.</param>
     /// <param name="Max">The world box those corners occupy, high corner.</param>
+    /// <param name="Surface">The face itself, for its plane (B457).</param>
     private readonly record struct PendingSpan(
         int Face,
         int Start,
         int Count,
         (float X, float Y, float Z) Min,
-        (float X, float Y, float Z) Max);
+        (float X, float Y, float Z) Max,
+        BspSurface Surface);
 
     /// <summary>Builds the drawable world.</summary>
     /// <param name="terrain">The map's displacement lumps, or null when it has none.</param>
@@ -220,7 +231,7 @@ public static class MapWorldBuilder
         // falls well outside the flat quad it was built from — culling a hillside by its base quad
         // would drop it whenever the camera saw only its peak.
         void Span(
-            bool terrain, int material, int face, List<WorldVertex> written, int start, int count)
+            bool terrain, int material, BspSurface face, List<WorldVertex> written, int start, int count)
         {
             if (count <= 0)
             {
@@ -244,7 +255,7 @@ public static class MapWorldBuilder
                 spans[(terrain, material)] = within;
             }
 
-            within.Add(new PendingSpan(face, start, count, min, max));
+            within.Add(new PendingSpan(face.FaceIndex, start, count, min, max, face));
         }
 
         foreach (BspSurface surface in surfaces)
@@ -370,7 +381,7 @@ public static class MapWorldBuilder
                     Span(
                         terrain: true,
                         surface.MaterialIndex,
-                        surface.FaceIndex,
+                        surface,
                         vertices,
                         startInGroup,
                         vertices.Count - startInGroup);
@@ -403,7 +414,7 @@ public static class MapWorldBuilder
             Span(
                 surface.IsDisplacement,
                 surface.MaterialIndex,
-                surface.FaceIndex,
+                surface,
                 vertices,
                 startInGroup,
                 vertices.Count - startInGroup);
@@ -473,6 +484,8 @@ public static class MapWorldBuilder
 
             foreach (PendingSpan pending in within)
             {
+                BspSurface face = pending.Surface;
+
                 faceSpans.Add(new WorldFaceSpan(
                     pending.Face,
                     baseVertex + pending.Start,
@@ -480,7 +493,13 @@ public static class MapWorldBuilder
                     material,
                     category,
                     pending.Min,
-                    pending.Max));
+                    pending.Max,
+                    (face.PlaneNormal.X, face.PlaneNormal.Y, face.PlaneNormal.Z, face.PlaneDistance),
+
+                    // The side-corrected normal against the plane's: opposed is the engine's plane-back flag.
+                    (face.Normal.X * face.PlaneNormal.X) + (face.Normal.Y * face.PlaneNormal.Y) +
+                    (face.Normal.Z * face.PlaneNormal.Z) < 0f,
+                    face.OnNode));
             }
         }
 
@@ -520,13 +539,12 @@ public static class MapWorldBuilder
             all.AddRange(group.Value);
         }
 
-        List<WorldBatch> decals = AppendDecals(
+        List<OverlayFragment> decals = AppendDecals(
             factory.CreateLogger("map"),
             all, overlays, materials, surfaces, atlas, area);
 
-        // **Spans cover the world's own surfaces only** — not decals. Overlay fragments are clipped to
-        // the surfaces they mark, so they are not named by a leaf's face list and keep being drawn
-        // whole for now, which is the conservative direction.
+        // **Spans cover the world's own surfaces only** — not decals. A fragment names the face it lies
+        // on, and the per-view queue reaches it through that face (B457).
         return new MapWorld(all, batches, decals, faceSpans);
     }
 
@@ -547,7 +565,7 @@ public static class MapWorldBuilder
     /// the same approximation as not clipping it.
     /// </remarks>
     // The map logger is a parameter because this is static (D83).
-    private static List<WorldBatch> AppendDecals(
+    private static List<OverlayFragment> AppendDecals(
         ILogger map,
         List<WorldVertex> all,
         IReadOnlyList<BspOverlay>? overlays,
@@ -559,7 +577,10 @@ public static class MapWorldBuilder
         // White, always — an overlay's batch is tagged `Overlay` and the renderer colours it.
         (float red, float green, float blue) = (1f, 1f, 1f);
 
-        List<WorldBatch> decals = [];
+        // **One fragment per overlay per face, in the engine's build order** (B457): `0x18010b1c0` walks the
+        // overlays in lump order and each one's faces in order. Which order they DRAW in is decided per view,
+        // by `OverlayRenderLists`; the render order (B138) and each overlay's own fade (lump 60) ride on the fragment.
+        List<OverlayFragment> decals = [];
 
         if (overlays is null || overlays.Count == 0)
         {
@@ -573,16 +594,6 @@ public static class MapWorldBuilder
             byFace[surface.FaceIndex] = surface;
         }
 
-        // **Keyed by render order AND material (B138).** `COverlayMgr::RenderOverlays` (engine.dll
-        // x64, 0x180110630) wraps its material walk in a pass per render order, drawing a fragment
-        // only when its overlay's order equals the pass — so layer 0 is drawn whole before layer 1,
-        // whatever the materials. Keyed by material alone, a layer-1 overlay listed first drew first.
-        //
-        // **And by overlay, for one that fades** (lump 60): the engine writes each overlay's own fade
-        // alpha into its fragments, so a fading overlay merged with a neighbour would fade both.
-        // Overlays that never fade carry -1 here and still share a run.
-        Dictionary<(int Order, int Material, int Faded), List<WorldVertex>> byMaterial = [];
-        Dictionary<(int Order, int Material, int Faded), OverlayFade> fadeOf = [];
         int placed = 0;
         int unlit = 0;
 
@@ -632,21 +643,11 @@ public static class MapWorldBuilder
             // corners arrive anticlockwise from the U/V minimum. Transposed - which is what this
             // did - capture_zone maps a 4:1 banner onto a 1:4 strip, which drew the lettering
             // ninety degrees out and squeezed into a narrow column.
-            bool fades = overlay.FadeMaxSquared > 0f;
-            (int, int, int) key = (overlay.RenderOrder, overlay.MaterialIndex, fades ? overlay.Id : -1);
-
-            if (!byMaterial.TryGetValue(key, out List<WorldVertex>? into))
-            {
-                into = [];
-                byMaterial[key] = into;
-
-                if (fades)
-                {
-                    fadeOf[key] = new OverlayFade(
-                        overlay.Origin.X, overlay.Origin.Y, overlay.Origin.Z,
-                        overlay.FadeMinSquared, overlay.FadeMaxSquared);
-                }
-            }
+            OverlayFade? fade = overlay.FadeMaxSquared > 0f
+                ? new OverlayFade(
+                    overlay.Origin.X, overlay.Origin.Y, overlay.Origin.Z,
+                    overlay.FadeMinSquared, overlay.FadeMaxSquared)
+                : null;
 
             // **An overlay's face list is the set of surfaces to CLIP against, not a list of
             // candidates to pick one from.** This used to take the first face sharing an
@@ -735,13 +736,18 @@ public static class MapWorldBuilder
                         blue));
                 }
 
+                int first = all.Count;
+
                 // A fan, because clipping a convex quad against convex edges stays convex.
                 for (int corner = 1; corner + 1 < corners.Count; corner++)
                 {
-                    into.Add(corners[0]);
-                    into.Add(corners[corner]);
-                    into.Add(corners[corner + 1]);
+                    all.Add(corners[0]);
+                    all.Add(corners[corner]);
+                    all.Add(corners[corner + 1]);
                 }
+
+                decals.Add(new OverlayFragment(
+                    piece.FaceIndex, overlay.RenderOrder, overlay.MaterialIndex, first, all.Count - first, fade));
 
                 fragments++;
             }
@@ -758,18 +764,6 @@ public static class MapWorldBuilder
             placed++;
         }
 
-        // OrderBy is stable, so materials keep their first-seen order within a layer.
-        foreach (KeyValuePair<(int Order, int Material, int Faded), List<WorldVertex>> group in byMaterial.OrderBy(group => group.Key.Order))
-        {
-            decals.Add(new WorldBatch(
-                group.Key.Material,
-                all.Count,
-                group.Value.Count,
-                Category: SurfaceCategory.Overlay,
-                Fade: fadeOf.TryGetValue(group.Key, out OverlayFade fade) ? fade : null));
-            all.AddRange(group.Value);
-        }
-
         // **The FRAGMENT total, not just the overlay total, and the difference is the whole of
         // B134.** An overlay wrapping a chamfered corner draws one fragment per face it covers, so
         // an orientation filter that refused 108 of cp_process's 634 named faces still reported all
@@ -777,14 +771,14 @@ public static class MapWorldBuilder
         // have shown the loss was the one nobody logged.
         map.LogInformation(
             "{Message}",
-            $"{placed} decals placed across {decals.Count} material-and-layer batches, {totalFragments} fragments " +
+            $"{placed} decals placed, {totalFragments} fragments " +
             $"over {namedFaces} faces named by {overlays?.Count ?? 0} overlays, " +
             $"{unlit} lying flat on nothing");
 
         // **Named with their transparency, because a decal drawn opaque is a square of paint.**
         // An overlay blends onto the surface it marks; if its material is not carrying alpha, the
         // blend has nothing to work with and the quad's whole extent is painted.
-        foreach (int material in decals.Select(batch => batch.MaterialIndex))
+        foreach (int material in decals.Select(fragment => fragment.MaterialIndex).Distinct())
         {
             string name = material >= 0 && material < materials.Count
                 ? materials[material].Name

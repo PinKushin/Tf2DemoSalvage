@@ -231,6 +231,20 @@ public sealed class WorldCulling
 
         IReadOnlyList<WorldBatch> runs = _surfaces.Batches(_mainLeaves, frustum);
 
+        // **The same walk, in the order it reached the surfaces**, for the overlay queue (B457) — without the sky
+        // room's leaves, which this view does not draw.
+        _mainWalk.Clear();
+
+        foreach (WorldWalkStep step in _visibility.Walk)
+        {
+            if (step.IsNode || SkyArea < 0 || _tree.Area(step.Index) != SkyArea)
+            {
+                _mainWalk.Add(step);
+            }
+        }
+
+        Surfaces = _surfaces.Surfaces(_mainWalk, x, y, z);
+
         // Each main leaf's place in the list, for the translucent pass (B426): the previous view's places cleared.
         for (int at = 0; at < _placed.Count; at++)
         {
@@ -266,6 +280,12 @@ public sealed class WorldCulling
     /// <param name="place">The place.</param>
     /// <returns>The leaf, or −1 for a place outside the list.</returns>
     public int LeafAt(int place) => place >= 0 && place < _mainLeaves.Count ? _mainLeaves[place] : -1;
+
+    private readonly List<WorldWalkStep> _mainWalk = [];
+
+    /// <summary>The faces the last <see cref="Batches"/> walk reached, in <c>R_DrawSurface</c> order; null before one.</summary>
+    /// <remarks>What the overlay queue is built from (B457) — see <see cref="VisibleWorld.Surfaces"/>.</remarks>
+    public IReadOnlyList<int>? Surfaces { get; private set; }
 
     private readonly List<int> _placed = [];
     private readonly int[] _positionByLeaf;

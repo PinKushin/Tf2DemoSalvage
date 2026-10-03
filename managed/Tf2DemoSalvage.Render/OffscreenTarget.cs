@@ -196,7 +196,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         // returns zero and every fragment is discarded - which reads as "the geometry is wrong".
         _world.UploadTextures(_device, _context, assets);
         _uploaded = assets;
-        _world.UploadGeometry(_device, vertices, batches, decals);
+        _world.UploadGeometry(_device, vertices, batches);
+        _world.Overlays = decals ?? [];
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, specular: true, fullbright,
             debug, fog: fog);

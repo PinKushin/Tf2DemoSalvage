@@ -228,7 +228,8 @@ wrong together.
 | render order | four layers, `OVERLAY_RENDER_ORDER_NUM_BITS`, packed into `m_nFaceCountAndRenderOrder` and set by `SetRenderOrder` | batches keyed by order and material, emitted order-major — read from `COverlayMgr::RenderOverlays` in engine.dll (below) | **fixed**, B138 |
 | fade distance | `doverlayfade_t` in `LUMP_OVERLAY_FADES` (60), per overlay while `r_overlayfadeenable` is 0 (engine.dll 0x18010a580) | read; faded per batch from the view origin | **fixed**, B455 |
 | decal polygon offset | `ApplyZBias` (shaderapidx9 0x180014600) applies the **reciprocals**: 1/−262144 of the range, slope 1/−0.5 | DecalModulate takes −64 steps and −2 | **fixed**, B456 |
-| order within a layer | material buckets prepended as the visible-leaf walk first reaches them, per frame | first-seen lump order, fixed | **open**, B457 |
+| order within a layer | material buckets prepended as the opaque material-sort walk queues each surface's (prepended) fragment list, per frame | the same, queued per view from the cull's own walk (`OverlayRenderLists`) | **fixed**, B457 |
+| overlays on translucent surfaces | queued and drawn per surface inside `DrawTranslucentSurfaces` (0x1800e4fd0), with that surface | queued after the opaque walk, drawn in the overlay pass | **open**, B458 |
 | fragment construction | `COverlayMgr::RenderOverlays`, `engine/Overlay.cpp` — not published | face clipped to the overlay's projected volume (B134) | **interpolated** |
 
 ### The two still open, and why they are worth doing
@@ -252,6 +253,32 @@ B70 rested on described a bias the engine never applied. The togl read was right
 wrong about the value, because togl receives the render state *after* the reciprocal. The lesson
 for this project: a config struct's field is an input, and the number on the wire is whatever the
 consumer makes of it — read the consumer (B456).
+
+**The order within a layer is three lists deep, and the filing named one of them** *(evidence class:
+read from disassembly, engine.dll x64)*. B457 was filed as "buckets prepended in the order the
+visible-leaf walk first reaches them". Reading the producers before building found two more lists
+between the walk and the buckets, and each one changes the answer:
+
+1. **A surface's own fragment list is prepended at load.** `0x18010b1c0` builds overlays in lump
+   order; the fragment writer `0x180111b30` links each new fragment before the surface's head
+   (surface +0x14, `0x1801123a1`..`0x180112421`). Queue that list, prepend again into the bucket,
+   and two overlays on ONE surface draw in lump order — the two reversals cancel. A port of the
+   filing alone would have drawn them backwards.
+2. **The walk does not queue overlays; the material sort does.** `R_DrawSurface` (`0x1800dfbb0`)
+   appends each opaque surface to its material-sort chain (`0x1800d1140`), and `0x1800da3a0` —
+   called per sort group from `0x1800e5e10` just before `RenderOverlays` — walks the sort IDs in
+   first-reached order and each chain in order. So surfaces of one material are queued together
+   wherever the walk found them. A translucent surface (flag 0x20) is on the other list and its
+   overlays are queued and drawn per surface inside `DrawTranslucentSurfaces` (`0x1800e4fd0`) —
+   a sibling still open (B458).
+3. **Only then the buckets** (`0x18010a580`): a fragment faded past its maximum is never queued, so
+   it cannot claim its bucket's position either.
+
+The walk itself is `R_RecursiveWorldNode` (`0x1800e0600`): near child, then the node's surfaces that
+a visible leaf has MARKED and whose plane-back flag equals the eye's side, then the far child;
+`R_DrawLeaf` (`0x1800df9d0`) marks node surfaces and marks-and-draws the others it faces
+(`dot − dist ≥ −0.01` on the unflipped plane). A node surface whose only marking leaf lies in the far
+subtree is therefore not drawn at that node — ported as read, not repaired (B457).
 
 **Render order is not cosmetic where overlays overlap.** Valve gives every overlay one of four
 layers and draws them in that order, which is how a sign on top of a stripe stays on top. This

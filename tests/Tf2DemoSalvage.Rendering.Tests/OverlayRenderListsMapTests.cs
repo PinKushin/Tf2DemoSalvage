@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// queue reads, that every fragment on a reached face is drawn exactly once, and that the order is a property
 /// of the VIEW rather than of the build. Built and culled through the same calls the viewer makes.
 /// </remarks>
-public sealed class OverlayQueueMapTests
+public sealed class OverlayRenderListsMapTests
 {
     [Test]
     public void Order_ForCpProcessFromOneEye_DrawsEveryReachedFragmentOnceAndTurnsWithTheView()
@@ -25,7 +25,7 @@ public sealed class OverlayQueueMapTests
         (_, (float X, float Y, float Z) eye) = WorldCullingMapTests.SomewhereInside(tree);
 
         WorldCulling culling = level.Culling(world.FaceSpans).ShouldNotBeNull("cp_process can be culled");
-        OverlayQueue queue = new(world.OverlayFragments, world.FaceSpans);
+        OverlayRenderLists queue = new(world.OverlayFragments, world.FaceSpans);
 
         culling.Batches(eye.X, eye.Y, eye.Z, default);
 

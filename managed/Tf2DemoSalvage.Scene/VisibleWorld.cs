@@ -270,6 +270,100 @@ public sealed class VisibleWorld
             span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category));
     }
 
+    private readonly List<int> _surfaces = [];
+
+    /// <summary>Which surfaces walk last marked each face — a frame number, as <see cref="_stamped"/> is.</summary>
+    private int[]? _marked;
+
+    private int _markFrame;
+
+    /// <summary>The faces a walk reaches, in the order the engine hands them to <c>R_DrawSurface</c> (B457).</summary>
+    /// <param name="walk">The walk, as <see cref="WorldVisibility.Walk"/> records it, without the leaves this view does not draw.</param>
+    /// <param name="x">The eye.</param>
+    /// <param name="y">The eye.</param>
+    /// <param name="z">The eye.</param>
+    /// <returns>Face indices, valid until the next call.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="walk"/> is null.</exception>
+    /// <remarks>
+    /// **Read from engine.dll (x64, live), in disassembly.** <c>R_DrawLeaf</c> (<c>0x1800df9d0</c>) marks a leaf's
+    /// node surfaces, and marks and draws each other surface not already marked whose plane the eye is in front of,
+    /// <c>dot − dist ≥ −0.01</c> against the UNFLIPPED plane. <c>R_RecursiveWorldNode</c> (<c>0x1800e0600</c>) draws,
+    /// between a node's children, each of its surfaces marked this frame whose plane-back flag equals the eye's side.
+    /// The surfaces no leaf names — displacements — come after, as <see cref="Batches"/> kept them: *interpolated*,
+    /// since the engine's displacement path was not read. *Not read:* the node test's other bit (flag 0x20000, which
+    /// draws a surface whichever side it faces) and the leaf test's NOCULL bit (0x200).
+    ///
+    /// **Call after <see cref="Batches"/> for the same view**, whose stamps decide the displacements.
+    /// </remarks>
+    public IReadOnlyList<int> Surfaces(IReadOnlyList<WorldWalkStep> walk, float x, float y, float z)
+    {
+        ArgumentNullException.ThrowIfNull(walk);
+
+        _marked ??= new int[_stamped.Length];
+        _markFrame++;
+        _surfaces.Clear();
+
+        foreach (WorldWalkStep step in walk)
+        {
+            if (step.IsNode)
+            {
+                if (_tree.Node(step.Index) is not { } node)
+                {
+                    continue;
+                }
+
+                for (int face = node.FirstFace; face < node.FirstFace + node.FaceCount; face++)
+                {
+                    if (Span(face) is { } span && _marked[face] == _markFrame && span.PlaneBack == step.EyeBehind)
+                    {
+                        _surfaces.Add(face);
+                    }
+                }
+
+                continue;
+            }
+
+            (int first, int count) = _tree.LeafFaces(step.Index);
+
+            for (int entry = 0; entry < count; entry++)
+            {
+                int face = _leafFaces.Face(first + entry);
+
+                if (Span(face) is not { } span || _marked[face] == _markFrame)
+                {
+                    continue;
+                }
+
+                _marked[face] = _markFrame;
+
+                if (!span.OnNode &&
+                    (span.Plane.X * x) + (span.Plane.Y * y) + (span.Plane.Z * z) - span.Plane.Distance >= -0.01f)
+                {
+                    _surfaces.Add(face);
+                }
+            }
+        }
+
+        foreach (int at in _unreachable)
+        {
+            int face = _spans[at].Face;
+
+            if (_stamped[face] == _frame && _marked[face] != _markFrame)
+            {
+                _marked[face] = _markFrame;
+                _surfaces.Add(face);
+            }
+        }
+
+        return _surfaces;
+    }
+
+    /// <summary>A face's span, or null for a face the build dropped.</summary>
+    private WorldFaceSpan? Span(int face) =>
+        face >= 0 && face < _stamped.Length && _faceStart[face] < _faceStart[face + 1]
+            ? _spans[_faceSpans[_faceStart[face]]]
+            : null;
+
     /// <summary>Spans no leaf names, which must be culled by their own box or not at all.</summary>
     private readonly int[] _unreachable;
 

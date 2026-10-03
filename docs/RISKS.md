@@ -34104,7 +34104,7 @@ overlay from fighting its wall (a vertex offset in `Overlay.cpp`?) is unread.
 
 ---
 
-## B457 — overlays within one render order draw in lump order; the engine's is per frame — OPEN
+## B457 — overlays within one render order draw in lump order; the engine's is per frame — FIXED 2026-10-03
 
 **Read, engine.dll x64:** the world sort-group loop (0x1800e5e10) draws, per group, the surface
 chains (`Shader_DrawChains`), then `COverlayMgr::RenderOverlays` (vtable +0x38, 0x180110630), then
@@ -34118,3 +34118,63 @@ gets a fragment that frame. `RenderOverlays` then walks that list — so materia
 first-seen lump order, fixed at build. Matching it means queueing overlay fragments per frame from
 the visible leaves — a structural change (`tf2-parity-structural-fix`), not a sort. Visible only
 where two overlays of different materials on the same layer overlap.
+
+**Read before building, in disassembly — and the filing above was one list short of two.** The
+whole chain, producer to draw:
+
+- **Build:** `0x18010b1c0` walks overlays in lump order, each over its faces in order; the fragment
+  writer `0x180111b30` PREPENDS each fragment to its surface's list (surface +0x14; `0x1801123a1`
+  loads the old head, `0x1801123bf` links it as next, `0x180112421` stores the new head). The
+  displacement writer `0x18010bc20` does the same (`0x18010c4a9`..`0x18010c520`).
+- **Walk:** `R_RecursiveWorldNode` (`0x1800e0600`) — near child (`dot − dist < 0` → back), then each
+  node surface marked this frame (bitset +0x580) whose plane-back bit (6) equals that side, then the
+  far child. `R_DrawLeaf` (`0x1800df9d0`) marks the leaf's node surfaces, and marks and draws each
+  other not-yet-marked surface with `dot − dist ≥ −0.01` (or NOCULL 0x200).
+- **Sort:** `R_DrawSurface` (`0x1800dfbb0`) sends an opaque surface to `0x1800d1140`, which appends it
+  to its material-sort ID's chain and appends the ID to the group's list on its first surface; a
+  TRANS (0x20) surface goes to the translucent list instead.
+- **Queue:** `0x1800da3a0`, called per group by `0x1800e5e10` before `RenderOverlays`, walks the sort
+  IDs in order and each chain in order, calling `AddFragmentListToRenderList` (vtable +0x30,
+  `0x18010a580`) per surface: skip faded-out, prepend to the material bucket, prepend the bucket.
+- **Draw:** `0x180110630` walks buckets and fragments from their heads, per render order. Its inner
+  loop also sub-groups a bucket by the overlay's +0xa0 pointer — the proxy data handed to `Bind`,
+  null for every map overlay, so it changes nothing here.
+
+**Fix (structural):** the build emits `OverlayFragment`s in that build order (`MapWorld.Decals` is
+gone); `WorldVisibility` records the walk (leaves, and nodes between their children);
+`VisibleWorld.Surfaces` replays `R_DrawLeaf`/`R_RecursiveWorldNode` over it into `R_DrawSurface`
+order, carried to `WorldCulling.Surfaces` from the same `Batches` call; `OverlayRenderLists` builds
+the sort list and the buckets from that and emits the draws; `Device3D` re-queues on every view
+change and `WorldRenderer.Overlays` draws them. Prepend-then-walk-from-head is implemented as
+append-then-read-backwards — the same order with nothing to unlink.
+
+Red 39503f36 (compile failure: the types did not exist), green in the commit after. Sabotaged, each
+restored by the exact inverse: surface lists appended instead of prepended → 3 red
+(same-surface lump order, adjacent merge, the B455 fade test); buckets read forwards → 7 red; fade
+skip disabled → `Order_AFragmentFadedPastItsMaximum_TakesNoBucketPosition`; translucent test
+disabled → `Order_ASurfaceOfATranslucentMaterial_TakesNoSortPosition`; plane-back side inverted,
+node step moved before the near child, leaf facing test broken → both `SurfaceOrderConformanceTests`
+each time. Output level: `OverlayRenderListsMapTests` on cp_process_final draws every fragment on a
+reached face exactly once and reorders when the walk reverses.
+
+**Still ours, named:** *interpolated* — the material sort ID is the surface's MATERIAL (the engine's
+also splits by lightmap page, which a single atlas does not have); displacement surfaces are reached
+after the walk, by their own box, because the engine's displacement-in-leaf path was not read;
+overlay fragments are one per face, the engine's one per face TRIANGLE (`0x1801117c0`), which only
+matters within one overlay on one face and so never changes the order between overlays. *Not read:*
+node-surface flag 0x20000, which the node test ORs with the plane-back match, and the leaf test's
+NOCULL bit. A face the build dropped (tool, brush entity, outside the play area) carries no span
+and its fragments are no longer drawn — they were drawn before, statically. **Sibling still open:
+B458.**
+
+---
+
+## B458 — overlays on translucent surfaces are drawn in the overlay pass; the engine draws them with the surface — OPEN
+
+**Read, engine.dll x64:** `R_DrawSurface` (`0x1800dfbb0`) puts a TRANS (0x20) surface on the
+translucent list, which `0x1800da3a0` never walks. `DrawTranslucentSurfaces` (`0x1800e4fd0`) draws
+each such surface and, per surface, calls `AddFragmentListToRenderList` (+0x30),
+`RenderOverlays` (+0x38) and the list clear (+0x20) — so a translucent surface's overlays are drawn
+right after that surface, inside the translucent pass, back to front. `OverlayRenderLists` queues
+them after the opaque walk and draws them in the opaque overlay pass (B457, *interpolated* there so
+they do not vanish). Fixing it means handing each translucent leaf run its surfaces' fragments.

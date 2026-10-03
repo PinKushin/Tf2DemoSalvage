@@ -30,7 +30,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// So within a render order, materials draw in the reverse of the order the frame first queued them, and a
 /// material's fragments in the reverse of the order they were queued.
 /// </remarks>
-public sealed class OverlayQueueConformanceTests
+public sealed class OverlayRenderListsConformanceTests
 {
     /// <summary>One span per face, three corners each, in the order given.</summary>
     private static WorldFaceSpan[] Spans(params (int Face, int Material)[] faces) =>
@@ -48,7 +48,7 @@ public sealed class OverlayQueueConformanceTests
     [Test]
     public void Order_TwoMaterialsReached_DrawsTheLastReachedFirst()
     {
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [Fragment(face: 0, material: 20, first: 100), Fragment(face: 1, material: 21, first: 106)],
             Spans((0, 10), (1, 11)));
 
@@ -61,7 +61,7 @@ public sealed class OverlayQueueConformanceTests
     {
         // Faces 0 and 2 share surface material 10, so 0x1800da3a0 queues 0, 2, then 1 — draw 1, 2, 0.
         // Queued in walk order instead, it would draw 2, 1, 0.
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [
                 Fragment(face: 0, material: 20, first: 100),
                 Fragment(face: 1, material: 21, first: 106),
@@ -76,7 +76,7 @@ public sealed class OverlayQueueConformanceTests
     public void Order_TwoOverlaysOnOneSurface_DrawInLumpOrder()
     {
         // Built A then B, listed B then A, queued B then A, drawn A then B.
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [Fragment(face: 0, material: 20, first: 100), Fragment(face: 0, material: 21, first: 106)],
             Spans((0, 10)));
 
@@ -89,7 +89,7 @@ public sealed class OverlayQueueConformanceTests
         // A would claim material 20's bucket first; unqueued, C claims it after B, so 20 draws first.
         OverlayFade gone = new(100f, 0f, 0f, -1f, 1f);
 
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [
                 Fragment(face: 0, material: 20, first: 100, gone),
                 Fragment(face: 1, material: 21, first: 106),
@@ -106,7 +106,7 @@ public sealed class OverlayQueueConformanceTests
     public void Order_ASurfaceOfATranslucentMaterial_TakesNoSortPosition()
     {
         // Face 0 is translucent, so R_DrawSurface puts it on the other list and B is queued first.
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [Fragment(face: 0, material: 20, first: 100), Fragment(face: 1, material: 21, first: 106)],
             Spans((0, 10), (1, 11)));
 
@@ -116,7 +116,7 @@ public sealed class OverlayQueueConformanceTests
     [Test]
     public void Order_WithNoWalk_QueuesEveryFaceInBufferOrder()
     {
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [Fragment(face: 0, material: 20, first: 100), Fragment(face: 1, material: 21, first: 106)],
             Spans((1, 11), (0, 10)));
 
@@ -127,7 +127,7 @@ public sealed class OverlayQueueConformanceTests
     public void Order_AdjacentFragmentsOfOneMaterial_MergeIntoOneDraw()
     {
         // Listed 106 then 100, queued so, drawn 100 then 106: one run of twelve.
-        OverlayQueue queue = new(
+        OverlayRenderLists queue = new(
             [Fragment(face: 0, material: 20, first: 100), Fragment(face: 0, material: 20, first: 106)],
             Spans((0, 10)));
 
@@ -136,5 +136,5 @@ public sealed class OverlayQueueConformanceTests
 
     [Test]
     public void Constructor_ForNullFragments_Throws() =>
-        Should.Throw<ArgumentNullException>(() => new OverlayQueue(null!, []));
+        Should.Throw<ArgumentNullException>(() => new OverlayRenderLists(null!, []));
 }

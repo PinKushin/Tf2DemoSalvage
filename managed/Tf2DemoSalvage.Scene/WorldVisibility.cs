@@ -75,6 +75,12 @@ public sealed class WorldVisibility
     /// </remarks>
     public ReadOnlySpan<bool> VisibleByLeaf => _visibleByLeaf;
 
+    private readonly List<WorldWalkStep> _walk = [];
+
+    /// <summary>The last <see cref="Leaves"/> call's walk: each accepted leaf, and each node between its children.</summary>
+    /// <remarks>The order the engine reaches surfaces in, which the overlay queue is built from (B457).</remarks>
+    public IReadOnlyList<WorldWalkStep> Walk => _walk;
+
     /// <summary>Builds a visibility query over one map.</summary>
     /// <param name="tree">The map's nodes, planes and leaves.</param>
     /// <param name="visibility">The PVS, or <see cref="BspVisibility.None"/> for a map without one.</param>
@@ -106,6 +112,7 @@ public sealed class WorldVisibility
     public IReadOnlyList<int> Leaves(float x, float y, float z, ViewFrustum frustum)
     {
         _leaves.Clear();
+        _walk.Clear();
         Array.Clear(_visibleByLeaf);
 
         if (_tree.IsEmpty)
@@ -177,6 +184,11 @@ public sealed class WorldVisibility
             : (split.Front, split.Back);
 
         Descend(children.Near, from, x, y, z, frustum, depth + 1);
+
+        // **The node's own surfaces between its children** — `R_RecursiveWorldNode`, engine.dll 0x1800e0600 (B457).
+        // Its side is the engine's own test, `dot − dist < 0`, which puts a point ON the plane in front.
+        _walk.Add(new WorldWalkStep(node, IsNode: true, EyeBehind: side - split.Distance < 0f));
+
         Descend(children.Far, from, x, y, z, frustum, depth + 1);
     }
 
@@ -216,6 +228,7 @@ public sealed class WorldVisibility
         }
 
         _leaves.Add(leaf);
+        _walk.Add(new WorldWalkStep(leaf, IsNode: false, EyeBehind: false));
 
         // **Both shapes filled at the one place a leaf is accepted**, so they cannot disagree about
         // what is visible. Two separate walks would be two chances to answer differently, and the
@@ -228,3 +241,9 @@ public sealed class WorldVisibility
         _visibleByLeaf[leaf] = true;
     }
 }
+
+/// <summary>One step of the world walk: a leaf it accepted, or a node it passed between its children.</summary>
+/// <param name="Index">The leaf or node index.</param>
+/// <param name="IsNode">Whether this is a node.</param>
+/// <param name="EyeBehind">For a node, whether the eye is behind its plane — the side its surfaces must face.</param>
+public readonly record struct WorldWalkStep(int Index, bool IsNode, bool EyeBehind);
