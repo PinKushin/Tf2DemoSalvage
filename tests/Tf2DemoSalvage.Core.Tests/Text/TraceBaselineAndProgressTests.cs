@@ -89,6 +89,30 @@ public sealed class TraceBaselineAndProgressTests
     }
 
     [Test]
+    public void Trace_ABaselineTheStringTablesBlockOmits_IsGoneFromTheEnteringEntity()
+    {
+        // **The block replaces the table, it does not merge** (`DeleteAllStrings` first, engine.dll
+        // `0x1801e82f0`): a class baseline the signon created and the block leaves out is gone.
+        DemoSchema schema = SyntheticPlayer.Schema();
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        string trace = Trace(SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                SyntheticDemo.StringTable(
+                    BaselineBuilder.TableName,
+                    [(ClassKey, Payload(decoder, (BaselineOnly, 7)))],
+                    maxEntries: 64)),
+            SyntheticDemo.DataTables(schema),
+            new DemoCommand(DemoCommandType.StringTables, 0, Net.DemoStringTablesTests.Block((BaselineBuilder.TableName, Array.Empty<(string, byte[]?)>()))),
+            Snapshot(decoder)));
+
+        trace.ShouldNotContain(BaselineOnly);
+    }
+
+    [Test]
     public void Trace_WithoutABaseline_OmitsTheUnsentProperty()
     {
         // **The control.** Without it, an assertion that a property appears cannot distinguish

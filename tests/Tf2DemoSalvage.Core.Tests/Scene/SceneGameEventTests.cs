@@ -88,6 +88,24 @@ public sealed class SceneGameEventTests
     }
 
     [Test]
+    public void GameEvents_ASlotTheBlockNoLongerHolds_IsGoneFromTheRoster()
+    {
+        // **The block REPLACES the table** (`DeleteAllStrings` first, engine.dll `0x1801e82f0`): Bob,
+        // named by the signon in entry 1 and absent from the block, holds no slot afterwards.
+        byte[] demo = SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                0,
+                SyntheticDemo.StringTable("userinfo", [("0", Record("Alice", 7)), ("1", Record("Bob", 9))])),
+            SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+            BlockedRoster("Alice", 7),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, Declaration, Death(7, 0)));
+
+        DemoTimeline.Build(demo).GameEvents.ShouldHaveSingleItem().Roster.Keys.ShouldBe([1]);
+    }
+
+    [Test]
     public void Roster_WithoutTheBlock_IsEmpty()
     {
         // The control: the name above can only have come from the block.
