@@ -329,6 +329,7 @@ public sealed class PlayerGestureFeed
     /// <param name="firingHeavy">A heavy under `TF_COND_AIMING`, for whom the function returns first.</param>
     /// <param name="seconds">Demo time now, which a landing starts at.</param>
     /// <param name="script">The player's class script: `bValidAirWalkClass` and `bNewJump`.</param>
+    /// <param name="modelCrouchWalks">`SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) &gt;= 0`.</param>
     /// <returns>
     /// The activity it leaves in `idealActivity` when it returns true, or null when it returns false and
     /// `CalcMainActivity` goes on to the duck, the swim and the run.
@@ -348,7 +349,7 @@ public sealed class PlayerGestureFeed
     /// never latches, and one who latched and then crouches keeps it — and stands, because the return is true with
     /// `idealActivity` untouched. **The jump's bookkeeping is the block's `else`**, so while the block runs the jump
     /// is neither timed out nor landed, and the step the latch ends with a jump still in force stands too (B437).
-    /// `bInDuck` is the raw flag; the engine also drops it when the model has no crouch-walk for the held weapon.
+    /// `bInDuck` is the flag, dropped when the model has no sequence for the translated crouch walk (`:1429-1433`).
     ///
     /// **Not ported:** `ACT_MP_FALLING_STOMP` (`:1464-1467`), which needs the local-only `m_flFallVelocity`.
     /// </remarks>
@@ -360,7 +361,8 @@ public sealed class PlayerGestureFeed
         bool grappling,
         bool firingHeavy,
         double seconds,
-        ClassAnimationScript script)
+        ClassAnimationScript script,
+        bool modelCrouchWalks = true)
     {
         if (firingHeavy)
         {
@@ -368,11 +370,12 @@ public sealed class PlayerGestureFeed
         }
 
         bool onGround = (flags & PlayerActivityState.OnGround) != 0;
+        bool inDuck = (flags & PlayerActivityState.Ducking) != 0 && modelCrouchWalks;
         PlayerActivity ideal = PlayerActivity.StandIdle;
 
         if (!script.DontDoAirwalk &&
             (risingSpeed > PlayerActivityState.AirwalkRiseSpeed || InAirWalk(entityIndex) || grappling) &&
-            (flags & PlayerActivityState.Ducking) == 0)
+            !inDuck)
         {
             // The landing (:1449-1453) and the water (:1455-1458) both clear, and both are asked before the air.
             if (onGround && _inAirWalk.Remove(entityIndex))

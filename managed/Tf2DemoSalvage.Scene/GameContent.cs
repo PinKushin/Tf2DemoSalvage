@@ -63,6 +63,15 @@ public sealed class GameContent
     /// </remarks>
     public PlayerClassModels? Classes { get; }
 
+    /// <summary>
+    /// What the decode's anim state reads of the install: the class scripts, and each class model's crouch walk through
+    /// the held weapon's role and item (B437) — or null without class scripts.
+    /// </summary>
+    public ClassAnimation? ClassAnimation =>
+        Classes is { } classes ? _classAnimation ??= new ClassAnimation(classes, Weapons.Items, Archives.Read) : null;
+
+    private ClassAnimation? _classAnimation;
+
     /// <summary>What model is in a player's hands, from <c>items_game.txt</c>.</summary>
     /// <remarks>A real resolver that answers nothing when there is no install, never null (D83).</remarks>
     public WeaponModels Weapons { get; }

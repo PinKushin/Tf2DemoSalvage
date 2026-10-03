@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -194,7 +195,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase(null, 1, "ACT_MP_RELOAD_STAND")]
     public void Build_AGrappledPlayerRisingSlowly_AirWalksOnlyWhileHooked(int? target, int serial, string expected)
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Soldier,
@@ -219,7 +220,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase(SceneTeams.Red, "ACT_MP_DOUBLEJUMP")]
     public void Build_ADoubleJumpDuringHumiliation_IsTheLosersOnlyOnTheLosingTeam(int winningTeam, string expected)
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Scout,
@@ -239,7 +240,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase(LadderMatchGroup, "ACT_MP_DOUBLEJUMP")]
     public void Build_ADoubleJumpDuringACompetitiveHumiliation_IsTheOrdinaryOne(int matchGroup, string expected)
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Scout,
@@ -279,7 +280,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase(false, "ACT_MP_DOUBLEJUMP")]
     public void Build_ADoubleJumpUnderTfAlwaysLoser_IsTheLosers(bool alwaysLoser, string expected)
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Scout,
@@ -300,7 +301,7 @@ public sealed class SyntheticGesturePostureTests
     [TestCase(SceneTeams.Red, PlayerActivityOverride.None)]
     public void Build_DuringHumiliation_TheLosingTeamTakesTheLoserTable(int winningTeam, PlayerActivityOverride expected)
     {
-        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        DemoTimeline timeline = Decode(SyntheticPlayer.DemoOfGestures(
             Interval,
             SceneTeams.Red,
             Scout,
@@ -393,21 +394,198 @@ public sealed class SyntheticGesturePostureTests
             .ShouldBe(PlayerActivity.Airwalk, "the control: another class's script is not this player's");
     }
 
+    /// <remarks>
+    /// **The model's crouch walk decides the duck as much as the flag does** (B437). `DoAnimationEvent` drops `bInDuck`
+    /// when `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) &lt; 0` (`tf_playeranimstate.cpp:971-975`),
+    /// and during humiliation the loser's table rewrites that to `ACT_MP_CROUCHWALK_LOSERSTATE`, which no shipped class
+    /// model declares — so a loser's reload stands even ducked. The winner's row is the control on the TABLE: the same
+    /// model asked about a player whose table does not rewrite the crouch walk answers yes.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, false, "ACT_MP_RELOAD_STAND")]
+    [TestCase(SceneTeams.Blu, true, "ACT_MP_RELOAD_CROUCH")]
+    [TestCase(SceneTeams.Red, false, "ACT_MP_RELOAD_CROUCH")]
+    public void Build_ADuckedReloadDuringHumiliation_CrouchesOnlyIfTheModelHasTheLosersCrouchWalk(
+        int winningTeam, bool modelHasIt, string expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                (TeamWin, winningTeam, NoMatchGroup),
+                alwaysLoser: false,
+                At(100, 0f, OnGround | Ducking),
+                At(101, 0f, OnGround | Ducking) with { Events = [PlayerAnimEvent.Reload] }),
+            new LoserCrouchWalk(modelHasIt));
+
+        Reload(timeline, 101).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **`HandleJumping` asks the same duck** (`:1429-1433`): a latched loser who ducks without the model's crouch walk
+    /// is not ducking, so the air-walk block keeps running and he air-walks, where one whose model has it stands (B437).
+    /// </remarks>
+    [TestCase(false, PlayerActivity.Airwalk)]
+    [TestCase(true, PlayerActivity.StandIdle)]
+    public void Build_ALatchedLoserWhoDucks_AirWalksUnlessTheModelHasTheLosersCrouchWalk(bool modelHasIt, PlayerActivity expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                (TeamWin, SceneTeams.Blu, NoMatchGroup),
+                alwaysLoser: false,
+                At(100, 0f, OnGround),
+                At(101, 6f, InAir),
+                At(102, 7f, InAir | Ducking)),
+            new LoserCrouchWalk(modelHasIt));
+
+        timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **An event fires an interpolation window after it arrives, and reads the posture THEN** (B437). `CL_QueueEvent`
+    /// delays a temp entity by `GetClientInterpAmount()` during playback (B415), and `DoAnimationEvent` reads
+    /// `GetFlags()` when it fires. A tenth of a second at 0.015 s a tick is six ticks: a reload arriving standing at 101
+    /// fires at 107, by which time the player has crouched. With no window it fires on arrival and stands — the control.
+    /// </remarks>
+    [Test]
+    public void Build_AReloadThatFiresAfterACrouch_TakesTheCrouchingReloadAtTheFireTick()
+    {
+        SyntheticPlayer.GestureSnapshot[] snapshots =
+        [
+            At(100, 0f, OnGround),
+            At(101, 0f, OnGround) with { Events = [PlayerAnimEvent.Reload] },
+            .. Enumerable.Range(102, 7).Select(tick => At(tick, 0f, OnGround | Ducking)),
+        ];
+        byte[] demo = SyntheticPlayer.DemoOfGestures(
+            Interval, SceneTeams.Red, Soldier, rules: null, alwaysLoser: false, snapshots);
+
+        DemoTimeline windowed = DemoTimeline.Build(demo);
+
+        windowed.Frames.Single(frame => frame.Tick == 106).Players.Single().Gestures?
+            .Any(gesture => gesture.Slot == GestureSlot.AttackAndReload).ShouldNotBe(true, "it has not fired yet");
+        SceneGesture fired = Reload(windowed, 107);
+        fired.ActivityName.ShouldBe("ACT_MP_RELOAD_CROUCH");
+        fired.StartedSeconds.ShouldBe(107 * (double)Interval, 1e-9);
+
+        Reload(Decode(demo), 101).ActivityName.ShouldBe("ACT_MP_RELOAD_STAND", "no window: it fires on arrival");
+    }
+
+    /// <remarks>
+    /// **An event due between two packets fires against the EARLIER one** — the client fires it on the frame its time
+    /// passes, holding whatever it last received. Due at 107 with packets at 104 (standing) and 110 (ducked), the reload
+    /// stands; reading the packet it is first seen after would crouch it.
+    /// </remarks>
+    [Test]
+    public void Build_AnEventDueBetweenPackets_ReadsTheEarlierPacketsPosture()
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+            Interval,
+            SceneTeams.Red,
+            Soldier,
+            rules: null,
+            alwaysLoser: false,
+            At(100, 0f, OnGround),
+            At(101, 0f, OnGround) with { Events = [PlayerAnimEvent.Reload] },
+            At(104, 1f, OnGround),
+            At(110, 0f, OnGround | Ducking)));
+
+        SceneGesture fired = Reload(timeline, 110);
+        fired.ActivityName.ShouldBe("ACT_MP_RELOAD_STAND");
+        fired.StartedSeconds.ShouldBe(107 * (double)Interval, 1e-9);
+    }
+
+    /// <remarks>
+    /// **The weapon in hand is asked too** (B437): `TranslateActivity( ACT_MP_CROUCHWALK )` runs the weapon role's
+    /// table and the item's `animation_replacement`, so the check needs the weapon's class, its item and the player's
+    /// team. The model here lacks the crouch walk only for item 18 in a red soldier's rocket launcher; the other rows are
+    /// the controls on each of the three.
+    /// </remarks>
+    [TestCase(18, SceneTeams.Red, "ACT_MP_RELOAD_STAND")]
+    [TestCase(19, SceneTeams.Red, "ACT_MP_RELOAD_CROUCH")]
+    [TestCase(18, SceneTeams.Blu, "ACT_MP_RELOAD_CROUCH")]
+    [TestCase(null, SceneTeams.Red, "ACT_MP_RELOAD_CROUCH")]
+    public void Build_ADuckedReload_AsksTheModelAboutTheHeldWeaponsCrouchWalk(int? item, int team, string expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                team,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                At(100, 0f, OnGround | Ducking) with { WeaponItem = item },
+                At(101, 0f, OnGround | Ducking) with { WeaponItem = item, Events = [PlayerAnimEvent.Reload] }),
+            new WeaponCrouchWalk());
+
+        Reload(timeline, 101).ActivityName.ShouldBe(expected);
+    }
+
+    /// <remarks>`HandleJumping` asks the same weapon (`:1429-1433`): a latched red soldier holding item 18 keeps air-walking.</remarks>
+    [TestCase(18, PlayerActivity.Airwalk)]
+    [TestCase(19, PlayerActivity.StandIdle)]
+    public void Build_ALatchedPlayerWhoDucks_AsksTheModelAboutTheHeldWeaponsCrouchWalk(int item, PlayerActivity expected)
+    {
+        DemoTimeline timeline = Decode(
+            SyntheticPlayer.DemoOfGestures(
+                Interval,
+                SceneTeams.Red,
+                Soldier,
+                rules: null,
+                alwaysLoser: false,
+                At(100, 0f, OnGround) with { WeaponItem = item },
+                At(101, 6f, InAir) with { WeaponItem = item },
+                At(102, 7f, InAir | Ducking) with { WeaponItem = item }),
+            new WeaponCrouchWalk());
+
+        timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity.ShouldBe(expected);
+    }
+
+    /// <summary>A model lacking the crouch walk only for item 18 in a red soldier's <see cref="SyntheticPlayer.GestureWeaponClass"/>.</summary>
+    private sealed class WeaponCrouchWalk : IClassAnimationScripts
+    {
+        public ClassAnimationScript ScriptOf(int? playerClass) => default;
+
+        public bool HasCrouchWalk(
+            int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team) =>
+            !(playerClass == Soldier && weaponClass == SyntheticPlayer.GestureWeaponClass && weaponItem == 18 &&
+              team == SceneTeams.Red);
+    }
+
     /// <summary>A class-script source that sets one class's flags.</summary>
     private sealed class Scripts(int scripted, ClassAnimationScript script) : IClassAnimationScripts
     {
         public ClassAnimationScript ScriptOf(int? playerClass) => playerClass == scripted ? script : default;
     }
 
+    /// <summary>A model that has, or lacks, the loser's crouch walk, and has every other.</summary>
+    private sealed class LoserCrouchWalk(bool has) : IClassAnimationScripts
+    {
+        public ClassAnimationScript ScriptOf(int? playerClass) => default;
+
+        public bool HasCrouchWalk(
+            int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team) =>
+            has || table != PlayerActivityOverride.LoserState;
+    }
+
     private static SyntheticPlayer.GestureSnapshot At(int tick, float z, int flags) => new(tick, z, flags);
 
+    /// <summary>`cl_interp 0`, `cl_interp_ratio 0`: no window, so an event fires on the tick it arrives.</summary>
+    private static readonly ClientInterp NoWindow = new(0f, 0f, 66f);
+
+    /// <summary>Decodes with no interpolation window, which every test here but the fire-time ones assumes.</summary>
+    private static DemoTimeline Decode(byte[] demo, IClassAnimationScripts? classes = null) =>
+        DemoTimeline.Build(demo, client: NoWindow, classes: classes);
+
     private static DemoTimeline Build(int playerClass, IClassAnimationScripts classes, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
-        DemoTimeline.Build(
+        Decode(
             SyntheticPlayer.DemoOfGestures(Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false, snapshots),
-            classes: classes);
+            classes);
 
     private static DemoTimeline Build(int playerClass, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
-        DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+        Decode(SyntheticPlayer.DemoOfGestures(
             Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false, snapshots));
 
     private static SceneGesture Reload(DemoTimeline timeline, int tick) =>

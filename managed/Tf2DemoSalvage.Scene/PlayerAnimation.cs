@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -84,6 +85,7 @@ internal static class PlayerAnimation
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
     /// <param name="table">The player's own activity table, walked before the weapon's (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
+    /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -107,7 +109,8 @@ internal static class PlayerAnimation
         PlayerActivity? jumping = null,
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
-        int? competitiveWinnerClass = null)
+        int? competitiveWinnerClass = null,
+        IReadOnlyDictionary<string, string>? item = null)
     {
         ArgumentNullException.ThrowIfNull(model);
 
@@ -122,7 +125,7 @@ internal static class PlayerAnimation
 
         PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping);
 
-        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass));
+        int wanted = model.ForActivity(Translate(activity, slot, table, competitiveWinnerClass, item));
 
         if (wanted >= 0)
         {
@@ -134,7 +137,7 @@ internal static class PlayerAnimation
         // that is nearer to what the player is doing than a different activity would be. Only after
         // both fail does the activity itself change, below.
         if (!string.Equals(slot, "PRIMARY", StringComparison.Ordinal) &&
-            model.ForActivity(Translate(activity, "PRIMARY", table, competitiveWinnerClass)) is var primary and >= 0)
+            model.ForActivity(Translate(activity, "PRIMARY", table, competitiveWinnerClass, item)) is var primary and >= 0)
         {
             return primary;
         }
@@ -142,8 +145,8 @@ internal static class PlayerAnimation
         // The two the engine starts from, in order: whatever the player is doing, standing or
         // running is closer to it than the reference pose.
         int fallback = speed > MovingMinimumSpeed
-            ? model.ForActivity(Translate(PlayerActivity.Run, slot, table, competitiveWinnerClass))
-            : model.ForActivity(Translate(PlayerActivity.StandIdle, slot, table, competitiveWinnerClass));
+            ? model.ForActivity(Translate(PlayerActivity.Run, slot, table, competitiveWinnerClass, item))
+            : model.ForActivity(Translate(PlayerActivity.StandIdle, slot, table, competitiveWinnerClass, item));
 
         return fallback >= 0 ? fallback : model.Find("Stand_PRIMARY");
     }
@@ -153,6 +156,7 @@ internal static class PlayerAnimation
     /// <param name="role">The held weapon's table, as <c>WeaponRoles</c> names it.</param>
     /// <param name="table">The player's own table, walked first (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null.</param>
+    /// <param name="item">The held item's `animation_replacement` rows, or null.</param>
     /// <returns>The name the model is asked for.</returns>
     /// <remarks>
     /// **`CTFPlayerAnimState::TranslateActivity`** (`tf_playeranimstate.cpp:124-153`), by
@@ -163,6 +167,7 @@ internal static class PlayerAnimation
         PlayerActivity activity,
         string role,
         PlayerActivityOverride table = PlayerActivityOverride.None,
-        int? competitiveWinnerClass = null) =>
-        PlayerActivityTable.Translate(PlayerActivityState.IdealName(activity), role, table, competitiveWinnerClass);
+        int? competitiveWinnerClass = null,
+        IReadOnlyDictionary<string, string>? item = null) =>
+        PlayerActivityTable.Translate(PlayerActivityState.IdealName(activity), role, table, competitiveWinnerClass, item);
 }
