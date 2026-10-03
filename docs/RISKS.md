@@ -3073,7 +3073,10 @@ names, the matrices, the packed vertices and the batch ranges were all correct, 
 after all of that. The thing that found it was reading the shader's own comment, which stated the
 assumption it depended on.
 
-## B51 — entity models draw unlit and blown out — OPEN, and it is the reason they look wrong
+## B51 — entity models draw unlit and blown out — FIXED (heading closed 2026-10-02)
+
+**Closed late; checked against the code 2026-10-02.** Models are lit from the leaf ambient cube (`LevelLighting.LightingAt`,
+`cbuffer Model.ambientCube`) since B53 was filed "immediately on fixing B51"; the text below is the record of why.
 
 **Filed 2026-08-13.** Entity models render at the right places with the right materials, and look
 like white blobs. Static props do not, and the difference is lighting.
@@ -3131,7 +3134,11 @@ first-person view needs the same question answered every frame.
 ceiling seen from below — and only an overhead camera has a problem with it. Here the surface is
 never visible at all, and drawing it is wrong from every angle.
 
-## B53 — models take ambient light only; direct lights are not applied — OPEN, named remainder
+## B53 — models take ambient light only; direct lights are not applied — FIXED (heading closed 2026-10-02)
+
+**Closed late; checked against the code 2026-10-02.** The sun reaches models with its sky trace (`LevelLighting.SunAt`,
+`sunColour`/`sunDirection`) and up to four local lights shade per pixel with phong and rim (`localLight*[4]`, B170,
+`436a1346`, `4709ee30`). What the four leave out is B453. The text below is the record of why.
 
 **Filed 2026-08-13**, immediately on fixing B51. Entity models are now lit from their leaf's ambient
 cube and look plausible indoors, while an outdoor model stays noticeably dimmer than the same object
@@ -8139,6 +8146,47 @@ id-41 messages (39 CEVO, 120 ESEA) decode as `CheapBreakModel` with fields, and 
 
 ---
 
+### B453 — a model's lights past four were dropped, and the four were ranked by the brightest channel — FIXED 2026-10-02 for dynamic models; static-prop paths still drop
+
+**Read from `engine.dll` (TF2 x64), `FUN_1801b60a0`**, the lightcache's add-one-light: strength is Rec.601 luminance
+(`0.299, 0.587, 0.114` at `0x18047be38`) times the falloff; a light whose luminance strength is under `r_worldlightmin`
+takes no slot (`JC 0x1801b64f5`) unless it is `emit_surface`; with the slots full (`r_worldlights`, capped by the
+hardware's count) `FUN_1801b89a0` picks the weakest slot strictly weaker than the newcomer; the loser — the evicted
+light, or the newcomer — goes to `FUN_1801b5db0`, which adds `max(0, n·d) · ratio · intensity` to each cube face.
+`FUN_1801b8e20` separately drops, before any of that, a light whose BRIGHTEST channel times falloff is under the minimum.
+
+**Ours** ranked by the brightest channel and dropped every light past four (`LocalLights.Strongest`; the drop was named
+under B424 as "an evicted light is dropped, not folded into the cube"). **Visible:** on a model in a room of more than
+four lamps, the fifth and later lamps added nothing; and a saturated lamp (a blue or red one) could take a slot from a
+brighter-looking one. Evidence: disassembly, read. **Fixed:** `LocalLights.Split`, used by `LevelLighting.LightingAt`
+and the dynamic-light re-rank. Tests: `LocalLightFoldTests` (three, exact), `LevelLightingTests.LightingAt_FiveLamps…`.
+Sabotage: max-channel ranking reddened two fold tests; `Strongest` in `LightingAt` reddened the wiring test.
+
+**Not established / open:** the fold's angular factor is our `Cone` where the engine multiplies by `FUN_1800efbf0`'s
+return — read as the spot cone, not disassembled (interpolated). An evicted SKY light folds with a zero direction in the
+engine (adds nothing); ours never ranks the sun here. The static-prop handle paths (`StaticPropLightingAt`,
+`StaticPlusDynamicLights`) still drop their losers, and the engine gives a dlight eviction precedence (100000) there. The
+per-light visibility trace in `FUN_1801b8e20` (for point lights, gated by a cvar at `DAT_18075b318 + 0x58` and the
+192-unit shadow cache) is not ported: a lamp behind a wall still lights a model.
+
+---
+
+### B452 — a point-of-view recording carries no `m_PlayerFog.m_hCtrl` and no `m_skybox3d` on its player — OPEN, decode
+
+**Measured, 2026-10-02:** traces of `movement-test-pov-cp_process` and `tf2-2013-build1729296-pov-cp_badlands` never
+send `DT_Local.m_PlayerFog.m_hCtrl` or any `DT_Local.m_skybox3d.*`; the SourceTV recording of the same session sends
+both (`m_hCtrl 2042050` → slot 194, the controller). The `baseline` probe says `CTFPlayer` has no instancebaseline
+entry in the 2013 badlands POV, so the values cannot be riding a baseline this decoder reads. The server sets every
+player's handle (`CBasePlayer::InitFogController`, player.cpp:8948) and the client needs `m_skybox3d` to draw the 3D sky,
+so the values must reach a live client somehow — the `dem_stringtables` block, which nothing here decodes for
+baselines, is the first suspect (interpolated, unread).
+
+**What it costs:** with no handle, `ViewFog.From` falls back to the server's `GetMasterFogController` rule (first
+controller, fogcontroller.cpp:363-383) — exact for a map with one controller — and a POV demo draws NO 3D-sky fog.
+**Next:** decode `dem_stringtables`' instancebaseline and see whether `CTFPlayer` is there.
+
+---
+
 ### B451 — the census's messages stage re-encoded the later protocol-15 demos at five-bit type fields: the instrument, not the writer — FIXED 2026-10-01
 
 **Found by the decode census (2026-10-01).** The two later-build protocol-15 SourceTV demos (B440) failed only
@@ -10856,7 +10904,20 @@ exactly this and it had never been run on the overlay lump.
 
 ---
 
-## B139 — the conformance suite counted fog as parity; nothing renders it — OPEN
+## B139 — the conformance suite counted fog as parity; nothing renders it — FIXED 2026-10-02
+
+> **Fixed on `fix/parity-model-lighting-fog`.** The world shader ends with Valve's `CalcRangeFog` on projected z and
+> `BlendPixelFog`'s squared lerp, or `CalcRadialFog_NonFixedFunction` when `m_fog.radial` is set (modern TF2 forces it
+> on for official maps, fogcontroller.cpp:375). `FogConstants` packs `g_LinearFogColor` (gamma colour through
+> `pow(x, 2.2)` — the shader API is closed, so the curve is interpolated) and `fogParams`. Additive materials fog to
+> black (interpolated: `DefaultFog`'s body is closed; every additive pass the SDK shows does); modulating decals take
+> none where Valve fogs them to grey (`decalmodulate_dx9.cpp:80`) — named ceiling. The view's fog is the controller the
+> local player's `m_PlayerFog.m_hCtrl` names (`ViewFog`, `UpdateFogController`); the 3D skybox draws through the
+> player's `m_skybox3d.fog` with its distances over the sky scale (`Enable3dSkyboxFog`). POV demos lack the handle —
+> B452. Not done: the `lerptime` transition, `blend`'s two-colour view-angle mix, `fog_override` and its cvars, fog on
+> detail sprites, particles and the 2D sky (`$nofog`, already off there), and `$nofog` on world/model materials.
+> Captures: `fog-before-long.png` / `fog-after-long.png` (f12, tick 20000, camera `-3000 -1280 900 8 0`): the far
+> building at (450,150) goes (102,104,117) → (102,105,119); process's fog is 100–11000, so it is faint, as in TF2.
 
 > **Reframed 2026-08-21, same day, after the owner corrected the premise:**
 >

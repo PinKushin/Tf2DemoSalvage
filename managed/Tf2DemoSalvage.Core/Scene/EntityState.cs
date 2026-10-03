@@ -110,6 +110,7 @@ public sealed class EntityState
     internal const string FogEndProperty = "m_fog.end";
     internal const string FogColourProperty = "m_fog.colorPrimary";
     internal const string FogMaxDensityProperty = "m_fog.maxdensity";
+    internal const string FogRadialProperty = "m_fog.radial";
 
     private const string LocalOriginTable = "DT_TFLocalPlayerExclusive";
 
@@ -456,12 +457,36 @@ public sealed class EntityState
     /// The colour is packed as one 32-bit value, RGBA in the low bytes upward, because
     /// <c>colorPrimary</c> is a <c>color32</c> sent as <c>SendPropInt( …, 32, SPROP_UNSIGNED )</c>.
     /// </remarks>
-    public SceneFog? Fog()
+    public SceneFog? Fog() => FogAt(FogControllerTable, "m_fog");
+
+    /// <summary>The local player's 3D skybox fog, <c>m_skybox3d.fog</c>, or null when off or absent.</summary>
+    /// <remarks>
+    /// Sent in <c>DT_Local</c> (c_baseplayer.cpp:190–198), so only the recording's own player carries
+    /// it; <c>CSkyboxView::Enable3dSkyboxFog</c> reads it (viewrender.cpp:4806). The same
+    /// <c>fogparams_t</c> as a controller's, under a different path.
+    /// </remarks>
+    public SceneFog? SkyboxFog() => FogAt(LocalTable, "m_skybox3d.fog");
+
+    /// <summary>The handle of the fog controller this player views through, <c>m_PlayerFog.m_hCtrl</c>.</summary>
+    /// <remarks>DT_Local (c_baseplayer.cpp:201); null on every entity but the recording's own player.</remarks>
+    public int? FogControllerHandle() => Integer($"{LocalTable}.m_PlayerFog.m_hCtrl");
+
+    /// <summary><c>DT_Local</c>, the local player's private table.</summary>
+    private const string LocalTable = "DT_Local";
+
+    /// <summary>One <c>fogparams_t</c> as sent under <paramref name="table"/>.<paramref name="path"/>.</summary>
+    /// <remarks>
+    /// The field names are the controller's own, checked against <c>fogcontroller.cpp</c> by
+    /// FogControllerConformanceTests, with its <c>m_fog</c> swapped for <paramref name="path"/>.
+    /// </remarks>
+    private SceneFog? FogAt(string table, string path)
     {
-        if (Integer($"{FogControllerTable}.{FogEnableProperty}") is not 1 ||
-            Number($"{FogControllerTable}.{FogStartProperty}") is not { } start ||
-            Number($"{FogControllerTable}.{FogEndProperty}") is not { } end ||
-            Integer($"{FogControllerTable}.{FogColourProperty}") is not { } packed)
+        string Key(string controllerName) => $"{table}.{path}{controllerName["m_fog".Length..]}";
+
+        if (Integer(Key(FogEnableProperty)) is not 1 ||
+            Number(Key(FogStartProperty)) is not { } start ||
+            Number(Key(FogEndProperty)) is not { } end ||
+            Integer(Key(FogColourProperty)) is not { } packed)
         {
             return null;
         }
@@ -484,7 +509,11 @@ public sealed class EntityState
             // **Absent means 1, not 0.** maxdensity caps the fog; a controller that does not send
             // it wants no cap, and defaulting to zero would switch fog off entirely while
             // reporting that it is on.
-            Number($"{FogControllerTable}.{FogMaxDensityProperty}") ?? 1f);
+            Number(Key(FogMaxDensityProperty)) ?? 1f,
+
+            // Absent before the field existed — the 2007 table has no `m_fog.radial` — and absent
+            // means the range fog every era before it drew.
+            Integer(Key(FogRadialProperty)) is 1);
     }
 
     /// <summary>Every property this entity has ever been sent, keyed <c>Table.Name</c>.</summary>

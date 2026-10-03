@@ -154,6 +154,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="translucent">
     /// Draw the translucent world now; false leaves it for <see cref="DrawTranslucentWorld"/> after a model.
     /// </param>
+    /// <param name="fog">The world fog in force, or null for none (B139).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The renderer's own shader, not a copy of it.** Everything this project invents rather than
@@ -177,7 +178,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         Fullbright fullbright = Fullbright.Off,
         bool drawWorld = true,
         DebugModes debug = default,
-        bool translucent = true)
+        bool translucent = true,
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -197,7 +199,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _world.UploadGeometry(_device, vertices, batches, decals);
         _world.SetCamera(
             _device, _context, matrix, surfaceColours, specular: true, fullbright,
-            debug);
+            debug, fog: fog);
 
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
 

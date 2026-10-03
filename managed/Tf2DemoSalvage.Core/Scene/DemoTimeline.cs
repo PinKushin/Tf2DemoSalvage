@@ -1510,8 +1510,14 @@ public sealed class DemoTimeline
     /// Recorded on change rather than per tick: a fog controller sends its state on entry and then
     /// rarely, so a per-tick list would be tens of thousands of identical entries for a handful of
     /// distinct values.
+    ///
+    /// **The VIEW's fog, world and sky together, null included** (B139): a player whose handle moves
+    /// to no controller loses fog, and a change-only list of non-null values could not say so.
     /// </remarks>
-    private readonly List<(int Tick, SceneFog Fog)> _fog = [];
+    private readonly List<(int Tick, ViewFog Fog)> _fog = [];
+
+    /// <summary>The world fog samples that are not "none", for <see cref="FogSamples"/>.</summary>
+    private readonly List<(int Tick, SceneFog Fog)> _worldFogSamples = [];
 
     private readonly List<SceneSound> _sounds = [];
 
@@ -1533,7 +1539,7 @@ public sealed class DemoTimeline
         List<ScenePropTrack>? playerTracks = null,
         List<DemoViewCommand>? viewCommands = null,
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null,
-        List<(int Tick, SceneFog Fog)>? fog = null,
+        List<(int Tick, ViewFog Fog)>? fog = null,
         List<SceneSound>? sounds = null,
         List<(int Tick, SceneSoundscape Soundscape)>? soundscapes = null,
         List<(int Tick, DirectorShot Shot)>? director = null)
@@ -1554,6 +1560,15 @@ public sealed class DemoTimeline
 
         _viewmodels = viewmodels ?? [];
         _fog = fog ?? [];
+
+        foreach ((int tick, ViewFog view) in _fog)
+        {
+            if (view.World is { } world)
+            {
+                _worldFogSamples.Add((tick, world));
+            }
+        }
+
         _sounds = sounds ?? [];
 
         _viewmodelsNameOwners =
@@ -1790,7 +1805,7 @@ public sealed class DemoTimeline
     /// that can only ask the second cannot tell "no fog was recorded" from "fog was recorded after
     /// the tick I asked about". That distinction cost a diagnosis here.
     /// </remarks>
-    public IReadOnlyList<(int Tick, SceneFog Fog)> FogSamples => _fog;
+    public IReadOnlyList<(int Tick, SceneFog Fog)> FogSamples => _worldFogSamples;
 
     /// <summary>Every soundscape change the recording carries, in tick order.</summary>
     /// <remarks>
@@ -1848,11 +1863,18 @@ public sealed class DemoTimeline
     /// partway through a demo did not exist before then. Drawing the eventual value from tick zero
     /// would be inventing atmosphere the recording does not have.
     /// </remarks>
-    public SceneFog? FogAt(int tick)
-    {
-        SceneFog? found = null;
+    public SceneFog? FogAt(int tick) => ViewFogAt(tick).World;
 
-        foreach ((int at, SceneFog fog) in _fog)
+    /// <summary>The 3D skybox's fog at a tick, <c>m_skybox3d.fog</c>, or null for none (B139).</summary>
+    /// <param name="tick">The tick being drawn.</param>
+    /// <returns>The sky fog in force, or null.</returns>
+    public SceneFog? SkyFogAt(int tick) => ViewFogAt(tick).Sky;
+
+    private ViewFog ViewFogAt(int tick)
+    {
+        ViewFog found = default;
+
+        foreach ((int at, ViewFog fog) in _fog)
         {
             if (at > tick)
             {
@@ -2577,7 +2599,7 @@ public sealed class DemoTimeline
         ServerConVars serverConVars = new();
         List<(int Tick, ServerConVars ConVars)> conVarHistory = [];
         List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
-        List<(int Tick, SceneFog Fog)> fogSamples = [];
+        List<(int Tick, ViewFog Fog)> fogSamples = [];
         int fogControllersSeen = 0;
         int fogProperties = 0;
 
@@ -3068,19 +3090,19 @@ public sealed class DemoTimeline
                     }
                 }
 
-                // Stryker disable once : a mutant that empties the guard body leaves 'fog'
-                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-                if (entity.Fog() is not { } fog)
-                {
-                    continue;
-                }
+                // **The fog used to be read here, from the first enabled controller, with a `break`
+                // after it** — which also stopped this walk before any entity after the controller
+                // was asked for its soundscape. The view's fog is chosen by the local player's
+                // handle instead, below (B139).
+            }
 
-                if (fogSamples.Count == 0 || fogSamples[^1].Fog != fog)
-                {
-                    fogSamples.Add((command.Tick, fog));
-                }
+            // **The view's fog, as `UpdateFogController` chooses it** (B139), recorded on change —
+            // null included, because a player whose handle leaves every controller loses fog.
+            ViewFog viewFog = ViewFog.From(entities);
 
-                break;
+            if (fogSamples.Count == 0 ? viewFog != default : fogSamples[^1].Fog != viewFog)
+            {
+                fogSamples.Add((command.Tick, viewFog));
             }
 
             // **Every scene entity, on every tick, and recorded only on the TRANSITION to playing.**

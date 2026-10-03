@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.4
+# Tf2DemoSalvage 0.1.0-beta.5
 
-## Changes since 0.1.0-beta.3
+## Changes since 0.1.0-beta.4
+
+- **Fog:** maps now draw their fog, using the fog controller the game picks for the recording player, with radial
+  fog where the server enables it and the 3D skybox's own fog.
+- **Model lighting:** a model lit by more than four lights keeps the rest as ambient light, as the game does, instead
+  of dropping them; lights are ranked by brightness the way the engine ranks them.
+
+## Changes in 0.1.0-beta.4
 
 - **Landings:** players play the landing animation after a jump, as the game does — demoman, heavy, pyro, engineer,
   sniper and spy after any jump, and every class after a rocket or sticky jump. A player crouching through the end of

@@ -734,7 +734,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _specular,
             _fullbright,
             _debug,
-            _phong);
+            _phong,
+            // The world's fog: the viewmodel pass runs inside the main view, after EnableWorldFog.
+            WorldFog);
         _context.OMSetDepthStencilState(_depthOn, 0);
 
         // **No depth clear, which is the engine's arrangement.** Source compresses the viewmodel
@@ -1006,7 +1008,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _specular,
             _fullbright,
             _debug,
-            _phong);
+            _phong,
+            WorldFog);
     }
 
     /// <summary>Clears, draws the map and the players, and presents.</summary>
@@ -1123,7 +1126,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         _specular,
                         _fullbright,
                         _debug,
-                        _phong);
+                        _phong,
+                        SkyFog,
+                        SkyFogDistanceScale);
 
                     _world.DrawSky(_context);
 
@@ -1673,6 +1678,57 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _skyRoom = skyCamera;
     }
+
+    /// <summary>The fog the main view and the viewmodels draw through, or null for none (B139).</summary>
+    /// <remarks>
+    /// `CRendering3dView::EnableWorldFog` (viewrender.cpp:4708): the local player's fog. A change
+    /// re-sends the world camera, because that constant is uploaded on a view change rather than per
+    /// frame and a paused view would otherwise keep the old fog.
+    /// </remarks>
+    public Tf2DemoSalvage.Core.Scene.SceneFog? WorldFog
+    {
+        get => _worldFog;
+        set
+        {
+            if (_worldFog == value)
+            {
+                return;
+            }
+
+            _worldFog = value;
+
+            // A transition, so it is logged once per change rather than per frame.
+            _render.LogInformation("{Message}", $"world fog: {value?.ToString() ?? "none"}");
+
+            ReapplyCamera();
+        }
+    }
+
+    private Tf2DemoSalvage.Core.Scene.SceneFog? _worldFog;
+
+    /// <summary>The 3D skybox's own fog, <c>m_skybox3d.fog</c>, or null for none (B139).</summary>
+    /// <remarks>
+    /// `CSkyboxView::Enable3dSkyboxFog` (viewrender.cpp:4806), its distances divided by the sky
+    /// camera's scale there.
+    /// </remarks>
+    public Tf2DemoSalvage.Core.Scene.SceneFog? SkyFog
+    {
+        get => _skyFog;
+        set
+        {
+            if (_skyFog != value)
+            {
+                _render.LogInformation("{Message}", $"sky fog: {value?.ToString() ?? "none"}");
+            }
+
+            _skyFog = value;
+        }
+    }
+
+    private Tf2DemoSalvage.Core.Scene.SceneFog? _skyFog;
+
+    /// <summary>`1 / m_skybox3d.scale`, or one when the scale is not positive (viewrender.cpp:4821).</summary>
+    private float SkyFogDistanceScale => _skyRoom is { Scale: > 0f } room ? 1f / room.Scale : 1f;
 
     /// <summary>The 2D skybox, drawn around the eye.</summary>
     private SkyboxRenderer? _skybox;
@@ -2359,7 +2415,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _world.DrawWorld = _drawWorld;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong);
+            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, WorldFog);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the

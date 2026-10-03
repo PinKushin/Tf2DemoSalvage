@@ -292,25 +292,99 @@ public static class LocalLights
                 continue;
             }
 
-            float falloff = Falloff(light, x, y, z, style);
-
-            if (falloff <= 0f)
+            if (!Admitted(light, x, y, z, style, out float falloff))
             {
                 continue;
             }
 
-            // Ranked by the light it would cast at its brightest channel, so a dim lamp close by
-            // does not displace a floodlight just beyond it.
-            float strength = falloff * Math.Max(
-                light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue));
+            // **Ranked by luminance times falloff** (B453): `engine.dll` `FUN_1801b60a0` weighs the
+            // intensity by Rec.601's 0.299, 0.587, 0.114 (`0x18047be38`) — not by its brightest
+            // channel, which ranked a saturated blue lamp above a brighter-looking green one.
+            float strength = falloff * Luminance(light);
 
-            // `r_worldlightmin`: the lightcache drops a light this faint before ranking it (`engine.dll` `0x1801b8e20`).
+            // And `r_worldlightmin` again, by that luminance: a light below it takes no slot and is
+            // folded into the cube instead (`JC 0x1801b64f5`). See Split.
             if (strength < WorldLightMinimum)
             {
                 continue;
             }
 
             Insert(chosen, strengths, ref count, index, strength);
+        }
+
+        return count;
+    }
+
+    /// <summary>Whether a light reaches a point at all: a local kind, positive falloff, and the trace function's `r_worldlightmin`.</summary>
+    /// <remarks>
+    /// `engine.dll` `FUN_1801b8e20` returns before anything is added when the BRIGHTEST channel times the falloff is below
+    /// `r_worldlightmin` — a different test from the ranking's luminance one, and the only one that drops a light outright.
+    /// </remarks>
+    private static bool Admitted(BspWorldLight light, float x, float y, float z, Func<int, float> style, out float falloff)
+    {
+        falloff = IsLocal(light.Kind) ? Falloff(light, x, y, z, style) : 0f;
+
+        return falloff > 0f &&
+            falloff * Math.Max(light.Intensity.Red, Math.Max(light.Intensity.Green, light.Intensity.Blue)) >= WorldLightMinimum;
+    }
+
+    /// <summary>Rec.601 luminance, the lightcache's ranking weight (`engine.dll` `0x18047be38`).</summary>
+    private static float Luminance(BspWorldLight light) =>
+        (0.299f * light.Intensity.Red) + (0.587f * light.Intensity.Green) + (0.114f * light.Intensity.Blue);
+
+    /// <summary>
+    /// The strongest four as local lights, and every other light reaching the point folded into <paramref name="cube"/>.
+    /// </summary>
+    /// <param name="lights">Every world light the map carries.</param>
+    /// <param name="x">World position being lit.</param>
+    /// <param name="y">World position being lit.</param>
+    /// <param name="z">World position being lit.</param>
+    /// <param name="into">The local lights; at most <see cref="MaximumLocalLights"/> are written.</param>
+    /// <param name="cube">The bounce cube, which the lights that take no slot are added to.</param>
+    /// <param name="styleScale">Each light style's value over 264; one for every style when null.</param>
+    /// <returns>How many local lights were written.</returns>
+    /// <remarks>
+    /// `engine.dll` `FUN_1801b60a0` (B453): a light that loses its slot, or never wins one, is not dropped — it goes to
+    /// `FUN_1801b5db0`, which adds `max(0, n·d) · falloff · intensity` to each face. `istudiorender.h` names the cube
+    /// "ambient, and lights that aren't in locallight[]". Every light admitted and not chosen is folded, which is the
+    /// same set the engine's evict-the-weakest order arrives at.
+    /// </remarks>
+    public static int Split(
+        IReadOnlyList<BspWorldLight> lights, float x, float y, float z, Span<LocalLight> into, ref AmbientCube cube,
+        Func<int, float>? styleScale = null)
+    {
+        Func<int, float> style = styleScale ?? Steady;
+
+        int count = Strongest(lights, x, y, z, into, style);
+
+        Span<int> chosen = stackalloc int[MaximumLocalLights];
+        Span<float> strengths = stackalloc float[MaximumLocalLights];
+
+        Choose(lights, x, y, z, chosen, strengths, style);
+
+        List<int> rest = [];
+
+        for (int index = 0; index < lights.Count; index++)
+        {
+            if (chosen[..count].Contains(index) || !Admitted(lights[index], x, y, z, style, out _))
+            {
+                continue;
+            }
+
+            rest.Add(index);
+        }
+
+        if (rest.Count > 0)
+        {
+            ReadOnlySpan<int> folded = [.. rest];
+
+            cube = new AmbientCube(
+                Face(cube.PositiveX, lights, folded, folded.Length, x, y, z, 1f, 0f, 0f, style),
+                Face(cube.NegativeX, lights, folded, folded.Length, x, y, z, -1f, 0f, 0f, style),
+                Face(cube.PositiveY, lights, folded, folded.Length, x, y, z, 0f, 1f, 0f, style),
+                Face(cube.NegativeY, lights, folded, folded.Length, x, y, z, 0f, -1f, 0f, style),
+                Face(cube.PositiveZ, lights, folded, folded.Length, x, y, z, 0f, 0f, 1f, style),
+                Face(cube.NegativeZ, lights, folded, folded.Length, x, y, z, 0f, 0f, -1f, style));
         }
 
         return count;

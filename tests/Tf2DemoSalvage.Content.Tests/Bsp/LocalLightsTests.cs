@@ -71,8 +71,11 @@ public sealed class LocalLightsTests
         LocalLights.Strongest([Dim(0.0001f)], 0f, 0f, 0f, into).ShouldBe(0);
         LocalLights.Strongest([Dim(0.0003f)], 0f, 0f, 0f, into).ShouldBe(1);
 
-        static BspWorldLight Dim(float red) =>
-            new((0f, 0f, 100f), (red, 0f, 0f), (0f, 0f, -1f), WorldLightKind.Point, 1f);
+        // Grey, so the brightest channel and the luminance agree: a red-only 0.0003 passes the trace function's
+        // max-channel test and fails the ranking's luminance one, and is then folded rather than chosen (B453,
+        // LocalLightFoldTests).
+        static BspWorldLight Dim(float level) =>
+            new((0f, 0f, 100f), (level, level, level), (0f, 0f, -1f), WorldLightKind.Point, 1f);
     }
 
     /// <summary>A point light carries no cone.</summary>

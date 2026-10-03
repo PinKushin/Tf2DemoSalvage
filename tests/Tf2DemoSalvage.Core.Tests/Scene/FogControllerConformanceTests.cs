@@ -86,6 +86,7 @@ public sealed class FogControllerConformanceTests
             EntityState.FogEndProperty,
             EntityState.FogColourProperty,
             EntityState.FogMaxDensityProperty,
+            EntityState.FogRadialProperty,
         })
         {
             sent.ShouldContain(

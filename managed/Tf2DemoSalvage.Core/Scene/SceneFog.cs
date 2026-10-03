@@ -10,6 +10,12 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// The most fog any distance may reach, 0 to 1. **One means no cap**, which is also what an absent
 /// value means — a controller that does not send it is not asking for clear air.
 /// </param>
+/// <param name="Radial">
+/// <c>m_fog.radial</c>: fog by straight-line distance from the eye rather than by projected depth
+/// (<c>CalcRadialFog_NonFixedFunction</c>, common_fxc.h:334). Modern TF2's server forces it on for
+/// official maps (<c>CFogSystem::LevelInitPostEntity</c>, fogcontroller.cpp:375), and the demo
+/// carries whatever the server sent.
+/// </param>
 /// <remarks>
 /// **Fog is the first thing this project draws whose inputs come from the DEMO rather than from the
 /// map.** <c>CFogController</c> networks these per tick (<c>fogcontroller.cpp:78</c>), so fog that
@@ -32,4 +38,5 @@ public readonly record struct SceneFog(
     float Red,
     float Green,
     float Blue,
-    float MaxDensity);
+    float MaxDensity,
+    bool Radial = false);
