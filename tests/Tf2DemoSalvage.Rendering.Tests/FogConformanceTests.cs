@@ -1,20 +1,23 @@
 using System;
 
-using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
-/// Valve's fog arithmetic, and the fact that this renderer does not yet apply any of it.
+/// Valve's fog arithmetic and where the view takes its inputs from.
 /// </summary>
 /// <remarks>
+/// **Implemented 2026-10-02 (B139 closed).** The history below is kept because it is why the
+/// equations are held as citations: the parity of OUR arithmetic is FogConstantsTests (exact
+/// constants) and FogRenderTests (pixels through the real shader).
+///
 /// **The conformance sweep turned this file into a gap report, which is what it always was.**
 /// Its four tests quoted <c>common_fxc.h</c> and <c>fogcontroller.cpp</c> and asserted the
 /// arithmetic in local helper functions — arithmetic written in the test, transcribed from Valve,
 /// compared against itself. Nothing in <c>Tf2DemoSalvage.Viewer3D</c> was ever involved.
 ///
-/// **It is not involved because there is nothing to involve.** <see cref="SceneFog"/> is decoded per
+/// **It is not involved because there is nothing to involve.** <c>SceneFog</c> is decoded per
 /// tick, retained on the timeline, and read by no production code anywhere — the only consumers of
 /// <c>DemoTimeline.FogSamples</c> and <c>FogAt</c> in the entire repository are tests. Filed as
 /// **B139**.
@@ -82,91 +85,67 @@ public sealed class FogConformanceTests
         source.ShouldContain("#define g_FogEndOverRange", Case.Sensitive);
     }
 
+    // **`Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139` stood here** — the gap marker that
+    // was to redden the moment SceneFog reached the renderer and be replaced by parity checks. It
+    // reddened (2026-10-02, B139 closed); the checks that replace it are below and, for our pixels,
+    // in FogRenderTests and FogConstantsTests.
+
     [Test]
-    public void Fog_NothingInThisRendererReadsTheDecodedFog_WhichIsB139()
+    public void EnableWorldFog_TheMainView_TakesLinearFogFromTheLocalPlayersParams()
     {
-        // **The gap, measured rather than described.** SceneFog carries six floats decoded from
-        // DT_FogController; if the renderer applied them there would be a consumer. There is not
-        // one, so this asserts the absence in a form that FAILS when fog is implemented — at which
-        // point this test is replaced by a parity check against the equations above.
+        // **What the main view hands the material system** (viewrender.cpp:4708). Each line is a
+        // value FogConstants must reproduce:
         //
-        // Measured by type reference rather than by grepping source: the Viewer3D assembly is the
-        // thing that would have to mention SceneFog to use it, and an assembly cannot be out of
-        // date with itself the way a text search can.
-        bool referenced = false;
+        //   GetFogEnable  — `pFogParams->enable != false`; no params means no fog at all.
+        //   GetFogColor   — colorPrimary in 0..255, then `VectorScale( pColor, 1.0f / 255.0f )`:
+        //                   GAMMA space ("FIXME: convert to linear colorspace"), so the shader API's
+        //                   `g_LinearFogColor` (common_ps_fxc.h:45) is a conversion of it.
+        //   FogStart/End  — the distances themselves; the shader API turns them into the
+        //                   start/(end-start) and 1/(end-start) the pixel shader reads.
+        //   FogMaxDensity — straight through.
+        string view = Sdk("src/game/client/viewrender.cpp");
 
-        foreach (Type type in typeof(WorldRenderer).Assembly.GetTypes())
-        {
-            foreach (System.Reflection.FieldInfo field in type.GetFields(
-                System.Reflection.BindingFlags.Public
-                | System.Reflection.BindingFlags.NonPublic
-                | System.Reflection.BindingFlags.Instance
-                | System.Reflection.BindingFlags.Static))
-            {
-                referenced |= Mentions(field.FieldType);
-            }
+        view.ShouldContain("pFogParams = pbp->GetFogParams();", Case.Sensitive);
+        view.ShouldContain("return pFogParams->enable != false;", Case.Sensitive);
+        view.ShouldContain("VectorScale( pColor, 1.0f / 255.0f, pColor );", Case.Sensitive);
+        view.ShouldContain("pRenderContext->FogMode( MATERIAL_FOG_LINEAR );", Case.Sensitive);
+        view.ShouldContain("pRenderContext->FogMaxDensity( GetFogMaxDensity( pFogParams ) );", Case.Sensitive);
 
-            foreach (System.Reflection.MethodInfo method in type.GetMethods(
-                System.Reflection.BindingFlags.Public
-                | System.Reflection.BindingFlags.NonPublic
-                | System.Reflection.BindingFlags.Instance
-                | System.Reflection.BindingFlags.Static
-                | System.Reflection.BindingFlags.DeclaredOnly))
-            {
-                referenced |= Mentions(method.ReturnType);
+        // The fog parameter layout the pixel shader unpacks: x start-over-range, z max density,
+        // w one over the range (common_ps_fxc.h:250, CalcRangeFog( flProjPosZ, fogParams.x,
+        // fogParams.z, fogParams.w )).
+        Sdk("src/materialsystem/stdshaders/common_ps_fxc.h").ShouldContain(
+            "retVal = CalcRangeFog( flProjPosZ, fogParams.x, fogParams.z, fogParams.w );", Case.Sensitive);
+    }
 
-                foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
-                {
-                    referenced |= Mentions(parameter.ParameterType);
-                }
-            }
-        }
+    [Test]
+    public void Enable3dSkyboxFog_TheSkyView_ScalesItsDistancesByOneOverTheSkyboxScale()
+    {
+        // **The 3D skybox has fog of its own, and it is the PLAYER's, not a controller's**
+        // (viewrender.cpp:4806): `m_skybox3d.fog` in `DT_Local`, with start and end divided by
+        // `m_skybox3d.scale` because the sky room is drawn at its own miniature size. Drawing the
+        // room through the world's fog — or none — is the seam the pairing note in
+        // UnimplementedEffectConformanceTests warned of.
+        string view = Sdk("src/game/client/viewrender.cpp");
 
-        referenced.ShouldBeFalse(
-            "SceneFog now appears in the renderer's surface — so fog is being implemented, and "
-            + "this gap marker should be replaced by a parity test against the equations in "
-            + "Fog_TheEquations_AreRecordedForAnImplementationThatDoesNotExistYet (B139, D45)");
+        view.ShouldContain("scale = 1.0f / local->m_skybox3d.scale;", Case.Sensitive);
+        view.ShouldContain("pRenderContext->FogStart( GetSkyboxFogStart() * scale );", Case.Sensitive);
+        view.ShouldContain("pRenderContext->FogEnd( GetSkyboxFogEnd() * scale );", Case.Sensitive);
+        view.ShouldContain("return !!local->m_skybox3d.fog.enable;", Case.Sensitive);
+    }
 
-        // **The control, and it is the assertion that makes the one above mean anything.** A
-        // reflection sweep that found no types at all, or one looking in the wrong assembly, would
-        // also report "not referenced". A type the renderer demonstrably DOES use must be found by
-        // the same sweep.
-        bool findsAKnownConsumer = false;
+    [Test]
+    public void UpdateFogController_TheLocalPlayersHandle_ChoosesTheController()
+    {
+        // **The view's fog is the controller the local player's `m_PlayerFog.m_hCtrl` names**
+        // (c_baseplayer.cpp:2802), sent in DT_Local (c_baseplayer.cpp:201) — not "the first
+        // controller in the entity list". A player with no handle gets `enable = false`: no fog,
+        // however many controllers the map has.
+        string player = Sdk("src/game/client/c_baseplayer.cpp");
 
-        foreach (Type type in typeof(WorldRenderer).Assembly.GetTypes())
-        {
-            foreach (System.Reflection.MethodInfo method in type.GetMethods(
-                System.Reflection.BindingFlags.Public
-                | System.Reflection.BindingFlags.NonPublic
-                | System.Reflection.BindingFlags.Instance
-                | System.Reflection.BindingFlags.Static
-                | System.Reflection.BindingFlags.DeclaredOnly))
-            {
-                foreach (System.Reflection.ParameterInfo parameter in method.GetParameters())
-                {
-                    // **The control's subject changed with the split (D61) and that is why it is a
-                    // control.** It named DemoTimeline, which the FORM consumes; when the renderer
-                    // moved to its own assembly the sweep followed WorldRenderer correctly and the
-                    // control went red, because no method in the render layer takes a timeline. The
-                    // claim above was still true, so without this the suite would have gone on
-                    // asserting an unfalsifiable "not referenced".
-                    //
-                    // MapAssets is the replacement: WorldRenderer.UploadTextures takes one, so it
-                    // is a scene type the renderer demonstrably does use.
-                    findsAKnownConsumer |= parameter.ParameterType == typeof(MapAssets)
-                        || parameter.ParameterType.Name.Contains("ModelInstance", StringComparison.Ordinal);
-                }
-            }
-        }
-
-        findsAKnownConsumer.ShouldBeTrue(
-            "the sweep must be able to find a scene type the renderer really uses, or its failure "
-            + "to find SceneFog says nothing");
-
-        static bool Mentions(Type type) =>
-            type == typeof(SceneFog)
-            || type == typeof(SceneFog?)
-            || (type.IsGenericType && Array.Exists(type.GetGenericArguments(), Mentions));
+        player.ShouldContain("RecvPropEHandle( RECVINFO( m_PlayerFog.m_hCtrl ) ),", Case.Sensitive);
+        player.ShouldContain("m_CurrentFog = *pFogParams;", Case.Sensitive);
+        player.ShouldContain("m_CurrentFog.enable = false;", Case.Sensitive);
     }
 
     /// <summary>Reads an SDK file, or fails loudly.</summary>
