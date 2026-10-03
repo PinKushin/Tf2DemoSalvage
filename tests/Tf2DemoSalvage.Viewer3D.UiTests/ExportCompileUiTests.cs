@@ -48,6 +48,14 @@ public sealed class ExportCompileUiTests
         if (Dialog() is { } dialog)
         {
             TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it\n" + DescribeWindows());
+            // A box the dialog raised (CI: "File not found") disables it, so Cancel cannot be invoked
+            // until that box is dismissed first.
+            if (dialog.FindFirstChild(search => search.ByClassName("#32770")) is { } box)
+            {
+                box.FindFirstDescendant(search => search.ByControlType(ControlType.Button))?.AsButton().Invoke();
+                Retry.WhileFalse(() => dialog.Properties.IsEnabled.ValueOrDefault, DialogTimeout, throwOnTimeout: true);
+            }
+
             dialog.FindFirstChild(search => search.ByAutomationId("2"))?.AsButton().Invoke();
             Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
         }
@@ -69,6 +77,7 @@ public sealed class ExportCompileUiTests
         Press("Export assembly");
         FillDialog(text);
         WaitForStatus("Exported");
+        _viewer.StatusText().ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
 
         Press("Compile assembly");
         FillDialog(text);
@@ -131,9 +140,11 @@ public sealed class ExportCompileUiTests
         name.ShouldNotBeNull("the file dialog's name box never became enabled:\n" + DescribeWindows());
         name.Patterns.Value.Pattern.SetValue(path);
 
+        string typed = name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
 
-        Retry.WhileFalse(() => Dialog() is null, DialogTimeout);
+        Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success.ShouldBeTrue(
+            $"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
     }
 
     /// <summary>
