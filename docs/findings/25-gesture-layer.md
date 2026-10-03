@@ -246,8 +246,29 @@ ported where `TranslateActivity` runs, body and gestures; `items_game.txt` names
 activity, so on stock content it never touches the duck. Evidence: read from published source; the
 counts measured on the installed game.
 
+## The activity list, sequence 0, and a ladder that was ours (B437, 2026-10-03)
+
+**A voice gesture's number was always nameable.** It had been filed as needing "the era's activity
+list". `ActivityList_RegisterSharedActivities` registers each shared name at its enum value and asserts
+each is the last plus one, so the shared list IS `ai_activity.h`'s enum, 1,947 names from `ACT_RESET` at
+0 — the enum and the registrations agree name for name, measured. And the enum is append-only (above),
+so an older demo's index names the same activity. Only a private activity — past the shared list,
+numbered by load order on the server — cannot be named, and stays a number.
+
+**The same list decides an item replacement.** `GetActivityOverride` keeps a replacement only if
+`ActivityList_IndexForName` finds it. Six of the 350 shipped rows name activities outside the shared
+list, all viewmodel ones; whether the engine accepts them depends on which models were loaded before
+the first lookup cached the index — genuinely load-order dependent in Valve's code.
+
+**Sequence 0, and the fallback ladder it replaced.** `ComputeMainSequence` plays sequence 0 when the
+translated activity has no sequence. This project had a four-level ladder instead — the primary form,
+then run or stand, then the label `Stand_PRIMARY` — written to keep a player from lying on his back.
+None of it is the engine's. What it was really covering for is `HandleDucking`'s own check: a ducking
+player whose model has no crouch walk for what he holds is not ducking, unless he is a loser, and a
+ducking loser crouch-idles. Porting that and dropping the ladder is the engine's shape; the
+deployed and air-dash crouch branches of the same function are still not ported.
+
 ## Open
 
-Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What remains of B437:
-the engine's sequence-0 answer for an activity the model lacks, and voice gestures named by activity
-number.
+Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). B437 is closed;
+`HandleDucking`'s deployed and air-dash crouch remain, with private activity numbers.

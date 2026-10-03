@@ -1845,7 +1845,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             if (gesture.Slot == GestureSlot.AttackAndReload)
             {
                 int resolved = gesture.ActivityName is { Length: > 0 } asked
-                    ? skinned.ForActivity(TranslateGesture(prop, asked))
+                    ? skinned.ForActivity(TranslateGesture(prop, skinned, asked))
                     : 0;
 
                 if (!gesture.OnlyIfSlotIdle ||
@@ -1922,7 +1922,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
             // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
             // voice gestures are the `_BUILDING` ones.
-            string activity = TranslateGesture(prop, named);
+            string activity = TranslateGesture(prop, skinned, named);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -1978,13 +1978,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
     }
 
     /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the item's, the winner's (B437).</summary>
-    private static string TranslateGesture(SceneProp prop, string activity) =>
+    private static string TranslateGesture(SceneProp prop, PropModels.SkinnedModel skinned, string activity) =>
         PlayerActivityTable.Translate(
             activity,
             prop.Pose.Slot ?? "PRIMARY",
             prop.Pose.ActivityOverride,
             prop.Pose.CompetitiveWinnerClass,
-            prop.Pose.ItemActivities);
+            prop.Pose.ItemActivities,
+            name => skinned.ForActivity(name) >= 0);
 
     /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
     /// <remarks>

@@ -221,7 +221,7 @@ public readonly record struct GestureContext(
 /// The raw activity ordinal from <c>m_nData</c>, for the two events that carry one
 /// (<see cref="PlayerAnimEvent.CustomGesture"/>, <see cref="PlayerAnimEvent.VoiceCommandGesture"/>),
 /// or <see langword="null"/> otherwise. Exactly one of this and <paramref name="ActivityName"/> is
-/// set. Resolving an ordinal to a name needs the era's activity list and is left to the caller.
+/// set: a shared ordinal is named through <see cref="SharedActivities"/>, so only a private one stays a number.
 /// </param>
 /// <param name="AutoKill">Whether the gesture removes itself at the end rather than holding.</param>
 public readonly record struct GestureTrigger(
@@ -383,6 +383,9 @@ public static class PlayerGestureEvent
     private static GestureTrigger Named(GestureSlot slot, string activity, bool autoKill = true) =>
         new(slot, activity, ActivityNumber: null, autoKill);
 
+    /// <summary>`(Activity)nData`: a shared index by its name, a private one as the number it is (B437).</summary>
     private static GestureTrigger Numbered(GestureSlot slot, int nData, bool autoKill = true) =>
-        new(slot, ActivityName: null, nData, autoKill);
+        SharedActivities.NameOf(nData) is { } name
+            ? new(slot, name, ActivityNumber: null, autoKill)
+            : new(slot, ActivityName: null, nData, autoKill);
 }

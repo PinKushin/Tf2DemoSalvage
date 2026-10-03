@@ -45,7 +45,8 @@ public sealed class ClassAnimation(PlayerClassModels classes, ItemSchema? items,
             weaponClass is null ? NoRole : RoleOf(weaponClass, playerClass, weaponItem),
             table,
             competitiveWinnerClass: null,
-            itemOverride);
+            itemOverride,
+            name => classes.DeclaresActivity(playerClass, name));
 
         return classes.DeclaresActivity(playerClass, crouchWalk);
     }

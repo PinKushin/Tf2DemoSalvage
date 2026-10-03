@@ -98,6 +98,10 @@ public static class PlayerActivityTable
     /// <param name="item">
     /// The held item's `animation_replacement` rows for the team (<see cref="ItemSchema.ActivityReplacements"/>), or null.
     /// </param>
+    /// <param name="declared">
+    /// Whether the model being animated declares an activity, which registers it privately when it loads; null for no
+    /// model. Consulted only for a replacement outside the shared list.
+    /// </param>
     /// <returns>The name the model is asked for.</returns>
     /// <remarks>
     /// **The player's table, then the weapon's, then the item's `animation_replacement`, then the winner's stand**,
@@ -108,7 +112,8 @@ public static class PlayerActivityTable
         string role,
         PlayerActivityOverride table,
         int? competitiveWinnerClass,
-        IReadOnlyDictionary<string, string>? item = null)
+        IReadOnlyDictionary<string, string>? item = null,
+        Func<string, bool>? declared = null)
     {
         ArgumentNullException.ThrowIfNull(activity);
 
@@ -116,7 +121,10 @@ public static class PlayerActivityTable
 
         translated = WeaponActivityTable.Override(role, translated);
 
-        if (item is not null && item.TryGetValue(translated, out string? replaced))
+        // `if ( pData->iReplacement > 0 )`: only a REGISTERED replacement — shared, or private to a loaded model, of
+        // which the model being animated is one (econ_item_schema.cpp:3582-3590).
+        if (item is not null && item.TryGetValue(translated, out string? replaced) &&
+            (SharedActivities.IsShared(replaced) || declared?.Invoke(replaced) == true))
         {
             translated = replaced;
         }
