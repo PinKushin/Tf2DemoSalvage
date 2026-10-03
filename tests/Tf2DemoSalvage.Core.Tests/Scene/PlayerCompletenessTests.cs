@@ -121,6 +121,10 @@ public sealed class PlayerCompletenessTests
         // HandleJumping's answer, not null and not the push-off, so losing it reads as falling through to the run.
         JumpActivity: PlayerActivity.LegacyJump,
 
+        // The player's own activity table and the competitive winner's stand (B437), neither at its default.
+        ActivityOverride: PlayerActivityOverride.BuildingDeployed,
+        CompetitiveWinner: true,
+
         // **A disguise that is BOTH up and enemy-facing**, because both halves gate every branch of
         // `C_TFPlayer::ValidateModelIndex` and `GetSkin`. A fixture with the condition and no
         // `IsEnemy` measures a disguise nobody is fooled by, which is the default behaviour again.

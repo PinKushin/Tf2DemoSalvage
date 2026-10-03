@@ -183,6 +183,8 @@ public sealed class PlayerPoseWiringCompletenessTests
             MoveY = -0.75f,
             Flags = 1,
             JumpActivity = PlayerActivity.JumpStart,
+            ActivityOverride = PlayerActivityOverride.KartState,
+            CompetitiveWinner = true,
             EyePitch = 11f,
             EyeYaw = 22f,
             AimYaw = 33f,

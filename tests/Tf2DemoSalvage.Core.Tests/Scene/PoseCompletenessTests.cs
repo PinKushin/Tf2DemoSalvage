@@ -312,6 +312,10 @@ public sealed class PoseCompletenessTests
         // HandleJumping's answer, and not null — a pose that dropped it would draw a rocket jump as a run.
         JumpActivity = PlayerActivity.Airwalk,
 
+        // Neither at its default, so a pose that dropped either draws the winner's ordinary body (B437).
+        ActivityOverride = PlayerActivityOverride.LoserState,
+        CompetitiveWinner = true,
+
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,
 

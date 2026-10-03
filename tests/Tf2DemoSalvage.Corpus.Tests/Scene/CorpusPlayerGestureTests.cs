@@ -278,6 +278,33 @@ public sealed class CorpusPlayerGestureTests
         control.Legacy.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **The player's activity table reaches the output on a real match** (B437): z1800 ends rounds, so the losing
+    /// team spends humiliation in `s_acttableLoserState`, and its engineers move buildings, which is
+    /// `s_acttableBuildingDeployed`. Counted in what the timeline hands the scene.
+    /// </remarks>
+    [Test]
+    public void Build_OnARealMatch_TakesTheLoserAndCarryingTables()
+    {
+        if (Corpus.Demo("z1800") is not { } path)
+        {
+            Assert.Ignore("z1800.dem is not available");
+            return;
+        }
+
+        Dictionary<PlayerActivityOverride, int> counts = TimelineCache.For(path).Frames
+            .SelectMany(frame => frame.Players)
+            .GroupBy(player => player.ActivityOverride)
+            .ToDictionary(group => group.Key, group => group.Count());
+
+        TestContext.Out.WriteLine(string.Join(", ", counts.Select(pair => $"{pair.Key} {pair.Value}")));
+
+        counts.GetValueOrDefault(PlayerActivityOverride.LoserState).ShouldBeGreaterThan(0);
+        counts.GetValueOrDefault(PlayerActivityOverride.BuildingDeployed).ShouldBeGreaterThan(0);
+        counts.GetValueOrDefault(PlayerActivityOverride.None).ShouldBeGreaterThan(
+            counts.GetValueOrDefault(PlayerActivityOverride.LoserState), "the control: most of a match is no one's loss");
+    }
+
     /// <summary>The two flags as the shipped class scripts set them, measured in <c>ClassAirwalkTests</c>.</summary>
     private sealed class StockScripts : IClassAnimationScripts
     {
