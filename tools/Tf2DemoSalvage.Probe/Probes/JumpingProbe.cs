@@ -51,7 +51,7 @@ public sealed class JumpingProbe : IProbe
                     continue;
                 }
 
-                if (player.AirborneSeconds is not null)
+                if (player.JumpActivity is PlayerActivity.JumpStart or PlayerActivity.Jump or PlayerActivity.LegacyJump)
                 {
                     jumping++;
                 }

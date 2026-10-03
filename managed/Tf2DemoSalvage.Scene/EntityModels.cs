@@ -4426,11 +4426,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 // what the engine falls back to as well.
                 slot: prop.Pose.Slot ?? "PRIMARY",
 
-                // Splits the jump into its push-off and its float.
-                airborneSeconds: prop.Pose.AirborneSeconds,
-
-                // Supersedes the jump for a fast-rising player.
-                airwalking: prop.Pose.Airwalking,
+                // HandleJumping's answer, which outranks everything below it (B437).
+                jumping: prop.Pose.JumpActivity,
 
                 // Waist deep turns a jump into a swim.
                 waterLevel: prop.Pose.WaterLevel);
@@ -4507,8 +4504,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </param>
     /// <param name="alive">Whether the player is alive.</param>
     /// <param name="slot">The table the held weapon drives, such as <c>SECONDARY</c>.</param>
-    /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
-    /// <param name="airwalking">Whether they are air-walking, which supersedes the jump.</param>
+    /// <param name="jumping">HandleJumping's answer, or null when it returned false (B437).</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
@@ -4521,13 +4517,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
         int? flags = null,
         bool alive = true,
         string slot = "PRIMARY",
-        float? airborneSeconds = null,
-        bool airwalking = false,
+        PlayerActivity? jumping = null,
         int? waterLevel = null) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
-            ? PlayerAnimation.For(
-                skinned, speed, flags, alive, slot, airborneSeconds, airwalking, waterLevel)
+            ? PlayerAnimation.For(skinned, speed, flags, alive, slot, jumping, waterLevel)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>

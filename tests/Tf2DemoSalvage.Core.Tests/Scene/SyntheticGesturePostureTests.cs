@@ -345,17 +345,17 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <summary>A class-script source that sets one class's flags.</summary>
-    private sealed class Scripts(int playerClass, ClassAnimationScript script) : IClassAnimationScripts
+    private sealed class Scripts(int scripted, ClassAnimationScript script) : IClassAnimationScripts
     {
-        public ClassAnimationScript Of(int? asked) => asked == playerClass ? script : default;
+        public ClassAnimationScript ScriptOf(int? playerClass) => playerClass == scripted ? script : default;
     }
+
+    private static SyntheticPlayer.GestureSnapshot At(int tick, float z, int flags) => new(tick, z, flags);
 
     private static DemoTimeline Build(int playerClass, IClassAnimationScripts classes, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
         DemoTimeline.Build(
             SyntheticPlayer.DemoOfGestures(Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false, snapshots),
             classes: classes);
-
-    private static SyntheticPlayer.GestureSnapshot At(int tick, float z, int flags) => new(tick, z, flags);
 
     private static DemoTimeline Build(int playerClass, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
         DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(

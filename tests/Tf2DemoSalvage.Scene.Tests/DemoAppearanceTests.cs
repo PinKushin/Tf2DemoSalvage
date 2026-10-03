@@ -61,20 +61,6 @@ public sealed class DemoAppearanceTests
     }
 
     [Test]
-    public void None_AskedWhetherAClassAirwalks_AnswersTrue()
-    {
-        // **Not a null answer, and this is the one place "knows nothing" is not "says no".** Every
-        // class air-walks except the medic, so a `false` default would stop every class air-walking
-        // on a machine with no TF2 installed — a silent BEHAVIOUR change wearing the appearance of
-        // a missing asset. `GameAppearance` gives the same answer when the install cannot say.
-        //
-        // Asserted separately from the three above precisely because it breaks their pattern: a
-        // reader who assumes the null object answers null to everything is wrong here, and a test
-        // that lumped it in would let someone "tidy" it to false.
-        DemoAppearance.None.Airwalks(3).ShouldBeTrue();
-    }
-
-    [Test]
     public void None_AskedTwice_IsTheSameInstance()
     {
         // It is used as a sentinel by `Ensure` and by `MomentScene`'s "no player appearance"

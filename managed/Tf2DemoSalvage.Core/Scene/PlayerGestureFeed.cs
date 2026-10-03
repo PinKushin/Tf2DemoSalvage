@@ -45,19 +45,6 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// scene containing a `LOOP` (<c>c_tf_player.cpp:9505</c>), deliberately, so that a running taunt
 /// plays out — so the decision needs the resolved plan and cannot be made here.
 /// </param>
-/// <param name="ActivityWithoutAirwalk">
-/// The activity the event would have started had the player not been air-walking, or null when the air-walk
-/// changed nothing (B112). **Half of the choice belongs to the class script**: <c>bValidAirWalkClass</c> gates
-/// the latch itself (<c>tf_playeranimstate.cpp:1444-1446</c>), so a class whose script sets
-/// <c>DontDoAirwalk</c> never air-walks and its reload is the base class's. The timeline cannot read the
-/// script, so it carries both and the layer with the installed game picks — the same split the body's
-/// air-walk has.
-/// </param>
-/// <param name="FromAirwalk">
-/// Whether this is the landing the air-walk latch's end makes (`tf_playeranimstate.cpp:1449-1453`) rather than the
-/// jump's (`:1505-1508`). The two have different class gates — the jump's is `bNewJump`, the air-walk's is only that
-/// the class air-walks at all — and both are in the class script, so the scene applies them (B437).
-/// </param>
 public readonly record struct SceneGesture(
     GestureSlot Slot,
     string? ActivityName,
@@ -66,9 +53,7 @@ public readonly record struct SceneGesture(
     double StartedSeconds,
     string? SceneName = null,
     SceneTaunt? Taunt = null,
-    double? StoppedSeconds = null,
-    string? ActivityWithoutAirwalk = null,
-    bool FromAirwalk = false);
+    double? StoppedSeconds = null);
 
 /// <summary>One animation layer an entity sends on the wire.</summary>
 /// <param name="Order">
@@ -280,23 +265,10 @@ public sealed class PlayerGestureFeed
             trigger.ActivityName,
             trigger.ActivityNumber,
             trigger.AutoKill,
-            seconds,
-            ActivityWithoutAirwalk: WithoutAirwalk((PlayerAnimEvent)which, posture, trigger));
+            seconds);
 
         return true;
     }
-
-    /// <summary>The activity an event starts with the latch off, when the latch changed it; else null.</summary>
-    /// <remarks>
-    /// **For the class script's half of the air-walk** — see <see cref="SceneGesture.ActivityWithoutAirwalk"/>. Asked of
-    /// the same mapping with the one input changed, so the two answers cannot drift apart.
-    /// </remarks>
-    private static string? WithoutAirwalk(PlayerAnimEvent anEvent, GestureContext posture, GestureTrigger trigger) =>
-        posture.InAirWalk &&
-        PlayerGestureEvent.Map(anEvent, posture with { InAirWalk = false }) is { ActivityName: { } without } &&
-        !string.Equals(without, trigger.ActivityName, StringComparison.Ordinal)
-            ? without
-            : null;
 
     /// <summary>Each player's `m_bInAirWalk` (`tf_playeranimstate.h`), the latch `HandleJumping` keeps (B112).</summary>
     private readonly HashSet<int> _inAirWalk = [];
@@ -307,15 +279,11 @@ public sealed class PlayerGestureFeed
     /// <remarks>
     /// **One latch, read by the body and by the reload**, which is how the engine has it: `HandleJumping` sets it and
     /// returns the air-walking body activity from the same test, and `DoAnimationEvent` reads it for the three reload
-    /// cases. It says nothing about the CLASS — a class whose script sets `DontDoAirwalk` never reaches the block in
-    /// the engine, and the layer holding the installed game applies that half.
+    /// cases. A class whose script sets `DontDoAirwalk` never reaches the block, so its latch is never set.
     /// </remarks>
     public bool InAirWalk(int entityIndex) => _inAirWalk.Contains(entityIndex);
 
-    /// <summary>
-    /// `CTFPlayerAnimState::HandleJumping`'s air-walk half: steps `m_bInAirWalk` once, as the engine steps it once a
-    /// frame (`tf_playeranimstate.cpp:1427-1473`).
-    /// </summary>
+    /// <summary>`CTFPlayerAnimState::HandleJumping`, once a frame (`tf_playeranimstate.cpp:1427-1537`).</summary>
     /// <param name="entityIndex">The player.</param>
     /// <param name="risingSpeed">
     /// `vecVelocity.z` — on the client `GetOuterAbsVelocity` is `EstimateAbsVelocity`, from position history — or null
@@ -325,104 +293,89 @@ public sealed class PlayerGestureFeed
     /// <param name="waistDeep">`GetWaterLevel() &gt;= WL_Waist`.</param>
     /// <param name="grappling">`GetGrapplingHookTarget() != NULL`.</param>
     /// <param name="firingHeavy">A heavy under `TF_COND_AIMING`, for whom the function returns first.</param>
-    /// <returns>The latch after the step.</returns>
-    /// <remarks>
-    /// <code>
-    /// if ( heavy &amp;&amp; InCond( TF_COND_AIMING ) ) return false;                                      // :1439-1440
-    /// if ( bValidAirWalkClass &amp;&amp; ( vecVelocity.z &gt; 300.0f || m_bInAirWalk || grapple ) &amp;&amp; !bInDuck )  // :1446
-    ///     if ( onGround &amp;&amp; m_bInAirWalk )  m_bInAirWalk = false;                                    // :1449-1451
-    ///     else if ( waist deep )           m_bInAirWalk = false;                                    // :1455-1458
-    ///     else if ( !onGround )            m_bInAirWalk = true;                                     // :1461-1472
-    /// </code>
-    ///
-    /// **The duck shuts the whole block out, so it neither sets nor clears.** A player who crouches through a rocket
-    /// jump never latches, and one who latched and then crouches keeps it — in the air and after a crouched landing —
-    /// until he stands on the ground. `bInDuck` is the raw flag here: the engine also treats a player as standing
-    /// when the model has no crouch-walk for the held weapon, which needs the model, and every other duck test in
-    /// this layer makes the same reading (<see cref="GestureContext.InDuck"/>).
-    ///
-    /// **`bValidAirWalkClass` is not applied** — it is the class script's, and the scene applies it
-    /// (<see cref="SceneGesture.ActivityWithoutAirwalk"/>, and the body's own air-walk beside it). A class that never
-    /// air-walks never reaches the block in the engine, so the latch here is the engine's for every class that does.
-    ///
-    /// **The landing restarts the jump slot as `ACT_MP_JUMP_LAND`** (`:1453`), marked
-    /// <see cref="SceneGesture.FromAirwalk"/> because no `bNewJump` gates it (B437). The water's clear makes none.
-    /// </remarks>
     /// <param name="seconds">Demo time now, which a landing starts at.</param>
-    public bool AirWalk(
-        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy, double seconds)
-    {
-        if (!firingHeavy && AirWalkBlockRuns(entityIndex, risingSpeed, flags, grappling))
-        {
-            StepAirWalk(entityIndex, flags, waistDeep, seconds);
-        }
-
-        return InAirWalk(entityIndex);
-    }
-
-    /// <summary>`CTFPlayerAnimState::HandleJumping`, both halves, once a frame (`tf_playeranimstate.cpp:1427-1537`).</summary>
-    /// <param name="entityIndex">The player.</param>
-    /// <param name="risingSpeed">As <see cref="AirWalk"/> takes it.</param>
-    /// <param name="flags">`m_fFlags`.</param>
-    /// <param name="waistDeep">`GetWaterLevel() &gt;= WL_Waist`.</param>
-    /// <param name="grappling">`GetGrapplingHookTarget() != NULL`.</param>
-    /// <param name="firingHeavy">A heavy under `TF_COND_AIMING`.</param>
-    /// <param name="seconds">Demo time now.</param>
+    /// <param name="script">The player's class script: `bValidAirWalkClass` and `bNewJump`.</param>
     /// <returns>
-    /// Seconds since the jump while `m_bJumping` holds, else null — and null for a firing heavy, for whom the function
-    /// returns false before touching either.
+    /// The activity it leaves in `idealActivity` when it returns true, or null when it returns false and
+    /// `CalcMainActivity` goes on to the duck, the swim and the run.
     /// </returns>
     /// <remarks>
-    /// **The jump's bookkeeping is the `else` of the air-walk block** (`:1446`, `:1476`), so while the block runs the
-    /// jump is neither timed out nor landed (B437). `bValidAirWalkClass` is not applied, as in <see cref="AirWalk"/>:
-    /// for a medic lifted past 300 u/s this suspends a jump the engine would have let clear — the known ceiling of
-    /// keeping the class script out of Core.
+    /// <code>
+    /// if ( heavy &amp;&amp; InCond( TF_COND_AIMING ) ) return false;                                          // :1439-1440
+    /// if ( bValidAirWalkClass &amp;&amp; ( vecVelocity.z &gt; 300.0f || m_bInAirWalk || grapple ) &amp;&amp; !bInDuck )      // :1446
+    ///     if ( onGround &amp;&amp; m_bInAirWalk ) { m_bInAirWalk = false; RestartGesture( JUMP, ACT_MP_JUMP_LAND ); } // :1449-1453
+    ///     else if ( waist deep )           m_bInAirWalk = false;                                        // :1455-1458
+    ///     else if ( !onGround )          { idealActivity = ACT_MP_AIRWALK; m_bInAirWalk = true; }       // :1461-1472
+    /// else if ( m_bJumping ) …                                                                          // :1476-1530
+    /// return m_bJumping || m_bInAirWalk;                                                                // :1534
+    /// </code>
+    ///
+    /// **The duck shuts the block out, so it neither sets nor clears.** A player who crouches through a rocket jump
+    /// never latches, and one who latched and then crouches keeps it — and stands, because the return is true with
+    /// `idealActivity` untouched. **The jump's bookkeeping is the block's `else`**, so while the block runs the jump
+    /// is neither timed out nor landed, and the step the latch ends with a jump still in force stands too (B437).
+    /// `bInDuck` is the raw flag; the engine also drops it when the model has no crouch-walk for the held weapon.
+    ///
+    /// **Not ported:** `ACT_MP_FALLING_STOMP` (`:1464-1467`), which needs the local-only `m_flFallVelocity`.
     /// </remarks>
-    public double? HandleJumping(
-        int entityIndex, float? risingSpeed, int flags, bool waistDeep, bool grappling, bool firingHeavy, double seconds)
+    public PlayerActivity? HandleJumping(
+        int entityIndex,
+        float? risingSpeed,
+        int flags,
+        bool waistDeep,
+        bool grappling,
+        bool firingHeavy,
+        double seconds,
+        ClassAnimationScript script)
     {
         if (firingHeavy)
         {
             return null;
         }
 
-        if (AirWalkBlockRuns(entityIndex, risingSpeed, flags, grappling))
-        {
-            StepAirWalk(entityIndex, flags, waistDeep, seconds);
+        bool onGround = (flags & PlayerActivityState.OnGround) != 0;
+        PlayerActivity ideal = PlayerActivity.StandIdle;
 
-            return _jumpStarted.TryGetValue(entityIndex, out double started) ? Math.Max(0d, seconds - started) : null;
+        if (!script.DontDoAirwalk &&
+            (risingSpeed > PlayerActivityState.AirwalkRiseSpeed || InAirWalk(entityIndex) || grappling) &&
+            (flags & PlayerActivityState.Ducking) == 0)
+        {
+            // The landing (:1449-1453) and the water (:1455-1458) both clear, and both are asked before the air.
+            if (onGround && _inAirWalk.Remove(entityIndex))
+            {
+                Land(entityIndex, seconds);
+            }
+            else if (waistDeep)
+            {
+                _inAirWalk.Remove(entityIndex);
+            }
+            else if (!onGround)
+            {
+                ideal = PlayerActivity.Airwalk;
+                _inAirWalk.Add(entityIndex);
+            }
+        }
+        else if (Jumping(entityIndex, seconds, onGround, waistDeep, script) is { } jumping)
+        {
+            ideal = PhaseOf(jumping, script);
         }
 
-        return Jumping(entityIndex, seconds, (flags & PlayerActivityState.OnGround) != 0, waistDeep);
+        return _jumpStarted.ContainsKey(entityIndex) || InAirWalk(entityIndex) ? ideal : null;
     }
 
-    /// <summary>`( vecVelocity.z &gt; 300.0f || m_bInAirWalk || grapple ) &amp;&amp; !bInDuck` (`:1446`).</summary>
-    private bool AirWalkBlockRuns(int entityIndex, float? risingSpeed, int flags, bool grappling) =>
-        (risingSpeed > PlayerActivityState.AirwalkRiseSpeed || InAirWalk(entityIndex) || grappling) &&
-        (flags & PlayerActivityState.Ducking) == 0;
-
-    /// <summary>The air-walk block's body (`:1448-1473`).</summary>
-    private void StepAirWalk(int entityIndex, int flags, bool waistDeep, double seconds)
+    /// <summary>The jump's activity while `m_bJumping` holds (`:1511-1528`).</summary>
+    private static PlayerActivity PhaseOf(double jumping, ClassAnimationScript script)
     {
-        bool onGround = (flags & PlayerActivityState.OnGround) != 0;
+        if (script.DontDoNewJump)
+        {
+            return PlayerActivity.LegacyJump;
+        }
 
-        // The landing (:1449-1453) and the water (:1455-1458) both clear, and both are asked before the air.
-        if (onGround && _inAirWalk.Remove(entityIndex))
-        {
-            Land(entityIndex, seconds, fromAirwalk: true);
-        }
-        else if (waistDeep)
-        {
-            _inAirWalk.Remove(entityIndex);
-        }
-        else if (!onGround)
-        {
-            _inAirWalk.Add(entityIndex);
-        }
+        return jumping > PlayerActivityState.JumpStartSeconds ? PlayerActivity.Jump : PlayerActivity.JumpStart;
     }
 
     /// <summary>`RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )`, whatever the slot held.</summary>
-    private void Land(int entityIndex, double seconds, bool fromAirwalk)
+    private void Land(int entityIndex, double seconds)
     {
         if (!_byPlayer.TryGetValue(entityIndex, out SceneGesture?[]? slots))
         {
@@ -430,8 +383,7 @@ public sealed class PlayerGestureFeed
             _byPlayer[entityIndex] = slots;
         }
 
-        slots[(int)GestureSlot.Jump] = new SceneGesture(
-            GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds, FromAirwalk: fromAirwalk);
+        slots[(int)GestureSlot.Jump] = new SceneGesture(GestureSlot.Jump, LandActivity, null, AutoKill: true, seconds);
     }
 
     /// <summary>`ClearAnimationState`, for everything this feed holds of one player.</summary>
@@ -464,8 +416,10 @@ public sealed class PlayerGestureFeed
     /// <param name="seconds">Demo time now.</param>
     /// <param name="onGround">`FL_ONGROUND`.</param>
     /// <param name="waistDeep">`GetWaterLevel() >= WL_Waist`.</param>
+    /// <param name="script">The class script, whose `bNewJump` gates the landing gesture; the engine's default when omitted.</param>
     /// <returns>Seconds since the jump event, or null.</returns>
-    public double? Jumping(int entityIndex, double seconds, bool onGround, bool waistDeep)
+    public double? Jumping(
+        int entityIndex, double seconds, bool onGround, bool waistDeep, ClassAnimationScript script = default)
     {
         if (!_jumpStarted.TryGetValue(entityIndex, out double started))
         {
@@ -480,12 +434,16 @@ public sealed class PlayerGestureFeed
 
         // **The landing is made HERE, by the clear, whatever the slot held** (`:1501-1508`, B437). An ordinary jump
         // plays no gesture of its own, so a landing that replaced the slot's double jump never followed one. Without
-        // it `ACT_MP_DOUBLEJUMP` — a full-body animation — also goes on playing after the landing (B284). `bNewJump`
-        // is the class script's, applied by the scene.
+        // it `ACT_MP_DOUBLEJUMP` — a full-body animation — also goes on playing after the landing (B284).
         if (onGround && seconds - started > GroundBelievedAfterSeconds)
         {
             _jumpStarted.Remove(entityIndex);
-            Land(entityIndex, seconds, fromAirwalk: false);
+
+            if (!script.DontDoNewJump)
+            {
+                Land(entityIndex, seconds);
+            }
+
             return null;
         }
 

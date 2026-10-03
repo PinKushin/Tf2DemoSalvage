@@ -80,15 +80,8 @@ internal static class PlayerAnimation
     /// so on, as <c>WeaponRoles</c> reads it from the weapon's script and its item. Defaulted rather
     /// than required, because the engine defaults it the same way.
     /// </param>
-    /// <param name="airborneSeconds">
-    /// How long since the player left the ground, or null when it cannot be told — which splits a
-    /// jump into <c>ACT_MP_JUMP_START</c> and <c>ACT_MP_JUMP_FLOAT</c>.
-    /// </param>
+    /// <param name="jumping">HandleJumping's answer, or null when it returned false (B437).</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
-    /// <param name="airwalking">
-    /// Whether they are rising fast enough to air-walk and their class allows it, which supersedes
-    /// the jump entirely.
-    /// </param>
     /// <returns>A merged sequence number, or −1 when the model offers nothing suitable.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="model"/> is null.</exception>
     /// <remarks>
@@ -109,8 +102,7 @@ internal static class PlayerAnimation
         int? flags,
         bool alive,
         string slot = "PRIMARY",
-        float? airborneSeconds = null,
-        bool airwalking = false,
+        PlayerActivity? jumping = null,
         int? waterLevel = null)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -124,8 +116,7 @@ internal static class PlayerAnimation
         // water level was decoded, so nobody in any recording ever swam.
         bool waistDeep = waterLevel >= PlayerActivityState.WaistDeepWaterLevel;
 
-        PlayerActivity activity = PlayerActivityState.For(
-            state, speed, waistDeep, alive, airborneSeconds, airwalking);
+        PlayerActivity activity = PlayerActivityState.For(state, speed, waistDeep, alive, jumping);
 
         int wanted = model.ForActivity(Translate(activity, slot));
 

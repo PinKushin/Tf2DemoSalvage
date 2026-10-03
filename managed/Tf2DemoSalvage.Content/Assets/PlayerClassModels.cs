@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -21,7 +23,7 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// The class order is the engine's, from <c>tf_shareddefs.h</c>, and it is deliberately not the
 /// order the class-selection menu uses.
 /// </remarks>
-public sealed class PlayerClassModels
+public sealed class PlayerClassModels : IClassAnimationScripts
 {
     /// <summary>The first class a player can actually be.</summary>
     /// <remarks><c>TF_FIRST_NORMAL_CLASS</c>; zero is <c>TF_CLASS_UNDEFINED</c>.</remarks>
@@ -166,28 +168,15 @@ public sealed class PlayerClassModels
     public string? Model(int playerClass) =>
         _models.TryGetValue(playerClass, out string? model) ? model : null;
 
-    /// <summary>Whether a class plays the air-walk animation while rising.</summary>
-    /// <param name="playerClass">The class number, as the demo reports it.</param>
-    /// <returns>True unless the class script sets <c>DontDoAirwalk</c>.</returns>
+    /// <inheritdoc/>
     /// <remarks>
-    /// **True by default, which is the engine's default and not an optimistic guess.**
-    /// <c>bValidAirWalkClass</c> is <c>pData &amp;&amp; pData->m_bDontDoAirwalk == false</c>, and
-    /// <c>GetInt( "DontDoAirwalk", 0 )</c> means a script that omits the key describes a class that
-    /// does air-walk. A class whose script is missing entirely therefore answers true here, which
-    /// matches what the engine would draw if it somehow loaded one.
+    /// **The default for a class with no script is the engine's** — `GetInt( "DontDoAirwalk", 0 )` and
+    /// `GetInt( "DontDoNewJump", 0 )` (`tf_classdata.cpp:187-188`) — so an absent script answers both false.
     /// </remarks>
-    public bool Airwalks(int playerClass) => !_noAirwalk.Contains(playerClass);
-
-    /// <summary>Whether landing plays a gesture for this class.</summary>
-    /// <param name="playerClass">The class number, as the demo reports it.</param>
-    /// <returns>True unless the class script sets <c>DontDoNewJump</c>.</returns>
-    /// <remarks>
-    /// **`bNewJump` in `CTFPlayerAnimState::HandleJumping`** (`tf_playeranimstate.cpp:1482`), which
-    /// gates `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )`. True by default for the same
-    /// reason as air-walk: `GetInt`'s default is zero, so a script that omits the key describes a
-    /// class that does land.
-    /// </remarks>
-    public bool Lands(int playerClass) => !_noLandGesture.Contains(playerClass);
+    public ClassAnimationScript ScriptOf(int? playerClass) =>
+        playerClass is { } known
+            ? new ClassAnimationScript(_noAirwalk.Contains(known), _noLandGesture.Contains(known))
+            : default;
 
     /// <summary>The class number of the demoman, from <c>tf_shareddefs.h</c>'s order.</summary>
     /// <remarks>

@@ -385,20 +385,12 @@ public readonly record struct ScenePose
     /// </remarks>
     public string? Slot { get; init; }
 
-    /// <summary>How long the player has been off the ground, for splitting a jump.</summary>
+    /// <summary><c>HandleJumping</c>'s answer, or null when it returned false (B437).</summary>
     /// <remarks>
-    /// Travels with the flags, like <see cref="Slot"/>. Discrete in the same sense: it is a clock
-    /// reading rather than a position, and interpolating between two keyframes' readings would
-    /// invent a moment neither recorded.
+    /// Travels with the flags, like <see cref="Slot"/>, and is discrete in the same sense: interpolating between two
+    /// keyframes' answers would invent one neither gave.
     /// </remarks>
-    public float? AirborneSeconds { get; init; }
-
-    /// <summary>Whether the player is air-walking: rising fast, and their class allows it.</summary>
-    /// <remarks>
-    /// Both halves are resolved before this is set — the rise in the timeline, the class in the
-    /// viewer, which is the only layer that can open a class script.
-    /// </remarks>
-    public bool Airwalking { get; init; }
+    public PlayerActivity? JumpActivity { get; init; }
 
     /// <summary>How far up or down the player is looking, in degrees.</summary>
     /// <remarks>
@@ -2290,8 +2282,7 @@ public sealed class ScenePropTrack
             ResetEventsParity = from.ResetEventsParity,
 
             Slot = from.Slot,
-            AirborneSeconds = from.AirborneSeconds,
-            Airwalking = from.Airwalking,
+            JumpActivity = from.JumpActivity,
             EyePitch = from.EyePitch,
             EyeYaw = from.EyeYaw,
             AimYaw = from.AimYaw,

@@ -46,17 +46,22 @@ public enum PlayerActivity
     /// <c>CTFPlayerAnimState::HandleJumping</c> splits a jump in two:
     /// <c>if ( gpGlobals->curtime - m_flJumpStartTime > 0.5 ) idealActivity = ACT_MP_JUMP_FLOAT;
     /// else idealActivity = ACT_MP_JUMP_START;</c>. Both are real animations in every class model,
-    /// and playing float throughout skips the launch entirely.
-    ///
-    /// **Not gated on <c>m_bDontDoNewJump</c>, which the engine checks first.** That flag comes from
-    /// a class script and every shipped class has it false — the branch it guards sets the old
-    /// single <c>ACT_MP_JUMP</c>, and the comment beside it reads "Remove me once all classes are
-    /// doing the new jump". Reading it would be reproducing a migration that finished.
+    /// and playing float throughout skips the launch entirely. Only for a class whose script does not
+    /// set <c>DontDoNewJump</c>; see <see cref="LegacyJump"/>.
     /// </remarks>
     JumpStart,
 
     /// <summary>Airborne, after the push-off.</summary>
     Jump,
+
+    /// <summary>The single old jump, <c>ACT_MP_JUMP</c>, for a class whose script sets <c>DontDoNewJump</c>.</summary>
+    /// <remarks>
+    /// **This was written off as a finished migration, and it is not** (B437). The branch's comment reads "Remove me
+    /// once all classes are doing the new jump", and an earlier note here said every shipped class had the flag
+    /// false — but the shipped scripts were measured since (<c>ClassAirwalkTests</c>): the soldier and the medic set
+    /// it, so every soldier's jump is this one activity, not the push-off and float.
+    /// </remarks>
+    LegacyJump,
 
     /// <summary>In water at least waist deep and still.</summary>
     SwimIdle,
@@ -162,70 +167,22 @@ public static class PlayerActivityState
     /// <param name="speed">Horizontal speed in units a second.</param>
     /// <param name="waistDeep">Whether the water is at least waist deep.</param>
     /// <param name="alive">Whether the player is alive.</param>
-    /// <returns>The activity the engine would choose.</returns>
-    public static PlayerActivity For(int flags, float speed, bool waistDeep, bool alive) =>
-        For(flags, speed, waistDeep, alive, airborneSeconds: null);
-
-    /// <summary>The same, knowing how long the player has been off the ground.</summary>
-    /// <param name="flags">The player's <c>m_fFlags</c>.</param>
-    /// <param name="speed">Horizontal speed in units a second.</param>
-    /// <param name="waistDeep">Whether the water reaches the waist.</param>
-    /// <param name="alive">Whether the player is alive.</param>
-    /// <param name="airborneSeconds">
-    /// How long since they left the ground, or null when it cannot be told. The engine measures
-    /// this from <c>m_flJumpStartTime</c>, set when the jump event arrives; a demo carries no such
-    /// event, so a caller derives it from when the ground flag cleared.
+    /// <param name="jumping">
+    /// <c>HandleJumping</c>'s answer — the activity it left when it returned true, or null when it returned false —
+    /// from <see cref="PlayerGestureFeed.HandleJumping"/>, which holds the state it steps (B437).
     /// </param>
     /// <returns>The activity the engine would choose.</returns>
-    public static PlayerActivity For(
-        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds) =>
-        For(flags, speed, waistDeep, alive, airborneSeconds, airwalking: false);
-
-    /// <summary>The same, knowing whether the player is air-walking.</summary>
-    /// <param name="flags">The player's <c>m_fFlags</c>.</param>
-    /// <param name="speed">Horizontal speed in units a second.</param>
-    /// <param name="waistDeep">Whether the water reaches the waist.</param>
-    /// <param name="alive">Whether the player is alive.</param>
-    /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
-    /// <param name="airwalking">
-    /// Whether they are rising fast enough to air-walk AND their class allows it. Both halves are
-    /// the caller's to establish: the speed comes from the track and
-    /// <c>DontDoAirwalk</c> from the class script, and only the medic sets it.
-    /// </param>
-    /// <returns>The activity the engine would choose.</returns>
-    public static PlayerActivity For(
-        int flags, float speed, bool waistDeep, bool alive, float? airborneSeconds, bool airwalking)
+    public static PlayerActivity For(int flags, float speed, bool waistDeep, bool alive, PlayerActivity? jumping = null)
     {
         bool moving = speed > MovingMinimumSpeed;
 
         // **HandleJumping first, and it outranks everything** — but it answers only for an air-walk or for
         // `m_bJumping`, which PLAYERANIMEVENT_JUMP sets (`multiplayer_animstate.cpp:288`). Being off the ground is not a
-        // jump: a rocket jump or a step off a ledge falls through to HandleDucking or HandleMoving below.
-        if (!waistDeep && alive)
+        // jump: a rocket jump or a step off a ledge falls through to HandleDucking or HandleMoving below. The dead are
+        // cleared before they are asked, so an answer never reaches them.
+        if (alive && jumping is { } answered)
         {
-            // **Air-walking outranks the jump**, and the engine checks it first inside
-            // HandleJumping — a fast-rising player runs in the air rather than tucking. Ducking
-            // cancels it there and so here: `( ... ) && !bInDuck`.
-            if ((flags & OnGround) == 0 && airwalking && (flags & Ducking) == 0)
-            {
-                return PlayerActivity.Airwalk;
-            }
-
-            // **The push-off and the float are different animations**, split at half a second since the jump event.
-            // Null means no jump is in force.
-            if (airborneSeconds is { } jumping)
-            {
-                return jumping <= JumpStartSeconds ? PlayerActivity.JumpStart : PlayerActivity.Jump;
-            }
-        }
-
-        // **A latched player the duck kept out of the block still stops HandleJumping** (B437):
-        // `if ( m_bJumping || m_bInAirWalk ) return true;` (`tf_playeranimstate.cpp:1534`) leaves `idealActivity` at
-        // the ACT_MP_STAND_IDLE it started as, so he stands — in the air, after a crouched landing and in water.
-        // Not ducking, the latch only survives the step in the air, which the air-walk above has answered.
-        if (airwalking && alive)
-        {
-            return PlayerActivity.StandIdle;
+            return answered;
         }
 
         // Then crouching, so a crouching player who is also moving crouch-walks rather than runs.
@@ -282,6 +239,7 @@ public static class PlayerActivityState
             PlayerActivity.Airwalk => "ACT_MP_AIRWALK",
             PlayerActivity.JumpStart => "ACT_MP_JUMP_START",
             PlayerActivity.Jump => "ACT_MP_JUMP_FLOAT",
+            PlayerActivity.LegacyJump => "ACT_MP_JUMP",
             PlayerActivity.SwimIdle or PlayerActivity.Swim => "ACT_MP_SWIM",
             PlayerActivity.Die => "ACT_DIESIMPLE",
             _ => throw new ArgumentOutOfRangeException(nameof(activity)),

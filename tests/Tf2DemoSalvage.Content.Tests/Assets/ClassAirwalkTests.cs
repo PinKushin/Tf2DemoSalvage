@@ -42,7 +42,7 @@ public sealed class ClassAirwalkTests
             ", ",
             Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => $"{playerClass}:{(classes.Of(playerClass).DontDoAirwalk ? "no" : "yes")}"));
+                .Select(playerClass => $"{playerClass}:{(classes.ScriptOf(playerClass).DontDoAirwalk ? "no" : "yes")}"));
 
         TestContext.Out.WriteLine($"AIRWALK {reported}");
 
@@ -52,7 +52,7 @@ public sealed class ClassAirwalkTests
         [
             .. Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => !classes.Of(playerClass).DontDoAirwalk),
+                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoAirwalk),
         ];
 
         answers.ShouldContain(true, "some classes air-walk");
@@ -93,7 +93,7 @@ public sealed class ClassAirwalkTests
         [
             .. Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => !classes.Of(playerClass).DontDoNewJump),
+                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoNewJump),
         ];
 
         TestContext.Out.WriteLine(

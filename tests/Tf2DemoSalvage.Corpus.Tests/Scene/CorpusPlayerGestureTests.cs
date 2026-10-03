@@ -281,7 +281,7 @@ public sealed class CorpusPlayerGestureTests
     /// <summary>The two flags as the shipped class scripts set them, measured in <c>ClassAirwalkTests</c>.</summary>
     private sealed class StockScripts : IClassAnimationScripts
     {
-        public ClassAnimationScript Of(int? playerClass) => playerClass switch
+        public ClassAnimationScript ScriptOf(int? playerClass) => playerClass switch
         {
             SoldierClass => new(DontDoAirwalk: false, DontDoNewJump: true),
             MedicClass => new(DontDoAirwalk: true, DontDoNewJump: true),

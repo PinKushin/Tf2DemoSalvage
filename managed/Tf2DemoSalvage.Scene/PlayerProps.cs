@@ -27,21 +27,6 @@ public interface IPlayerAppearance
     /// </param>
     public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem);
 
-    /// <summary>Whether a class air-walks at all. Only the medic opts out.</summary>
-    public bool Airwalks(int playerClass);
-
-    /// <summary>Whether landing plays a gesture for this class.</summary>
-    /// <param name="playerClass">The class being drawn.</param>
-    /// <returns>True unless the class script sets <c>DontDoNewJump</c>.</returns>
-    /// <remarks>
-    /// **`bNewJump`, which gates the landing gesture and nothing else**
-    /// (`tf_playeranimstate.cpp:1482`). A class that sets `DontDoNewJump` still jumps; it just
-    /// never plays `ACT_MP_JUMP_LAND` on the way down. Asked here for the same reason
-    /// <see cref="Airwalks"/> is: the timeline knows the player landed and only the installed game
-    /// knows whether that class shows it.
-    /// </remarks>
-    public bool Lands(int playerClass);
-
     /// <summary>The arms a class shows in first person, or null when the install cannot say.</summary>
     /// <param name="playerClass">The class being drawn.</param>
     /// <returns>The <c>c_&lt;class&gt;_arms</c> model, or null.</returns>
@@ -218,22 +203,6 @@ public sealed record GameAppearance(
             weaponItem is { } item && Items is { } items ? items.AnimSlot(item) : -1);
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// **True when the install cannot say**, because air-walking is the general case and only the
-    /// medic opts out. Defaulting to false would stop every class air-walking on a machine with no
-    /// TF2, which is a silent behaviour change rather than a missing asset.
-    /// </remarks>
-    public bool Airwalks(int playerClass) => Classes?.Airwalks(playerClass) != false;
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// **True when the install cannot say**, for the same reason as <see cref="Airwalks"/>: landing
-    /// is the general case and `GetInt( "DontDoNewJump", 0 )` means an unmentioned key describes a
-    /// class that lands.
-    /// </remarks>
-    public bool Lands(int playerClass) => Classes?.Lands(playerClass) != false;
-
-    /// <inheritdoc/>
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
 
     /// <inheritdoc/>
@@ -367,11 +336,9 @@ public static class PlayerProps
             // A missing class or model means the install cannot say what they look like, and a prop
             // with no model draws as a missing asset — which reads as a loading fault rather than
             // as a player we could not name.
-            // Stryker disable all : a mutant that empties the guard body leaves 'model' and
-            // 'playerClass' unassigned below (CS0165), and Safe Mode then drops every mutation
-            // in this method — B410.
-            if (ModelFor(player, appearance) is not { } model ||
-                player.PlayerClass is not { } playerClass)
+            // Stryker disable all : a mutant that empties the guard body leaves 'model' unassigned below
+            // (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            if (ModelFor(player, appearance) is not { } model || player.PlayerClass is null)
             {
                 continue;
             }
@@ -416,16 +383,11 @@ public static class PlayerProps
                     // **With the item, whose `anim_slot` outranks the script** (B105) — the demoman's launchers are
                     // each the other's table without it.
                     Slot = appearance.WeaponSuffix(player.WeaponClass, player.PlayerClass, player.WeaponItem),
-                    AirborneSeconds = player.AirborneSeconds,
+                    JumpActivity = player.JumpActivity,
                     EyePitch = player.EyePitch,
                     EyeYaw = player.EyeYaw,
                     AimYaw = player.AimYaw,
                     WaterLevel = player.WaterLevel,
-
-                    // **Both halves of the air-walk meet here.** The timeline says the player rose
-                    // fast enough to start one; the class script says whether their class does it
-                    // at all, and only the medic opts out. Neither layer can answer both.
-                    Airwalking = player.Airwalking && appearance.Airwalks(playerClass),
 
                     // **Which way the legs run.** A movement sequence is a blend grid and these are
                     // its coordinates; without them the grid's corner is taken, which is one fixed
@@ -481,24 +443,11 @@ public static class PlayerProps
                     // table, so the reload and the flinch arrive as `CTEPlayerAnimEvent` temp
                     // entities and the timeline turns them into slots.
                     //
-                    // **`bNewJump` is applied here**, because it is the other half of the same
-                    // pattern as air-walk: the timeline knows the player landed and only the
-                    // installed game knows whether that class shows it
-                    // (`tf_playeranimstate.cpp:1482`). A class that sets `DontDoNewJump` loses the
-                    // JUMP slot and keeps every other gesture.
-                    //
-                    // **And the taunt's scene is resolved here** for the same reason again: the
-                    // wire names a compiled scene and only the installed game holds the sequence
-                    // name inside it (B351).
-                    //
-                    // **So is the air-walking reload's class half** (B112), the gesture twin of
-                    // `Airwalking` above: a class that sets `DontDoAirwalk` never latches, and its
-                    // reload is the one the timeline carried beside the air-walking form.
-                    Gestures = Choreographed(
-                        Landing(
-                            Airwalk(player.Gestures, appearance.Airwalks(playerClass)),
-                            appearance.Lands(playerClass)),
-                        appearance),
+                    // **The taunt's scene is resolved here**: the wire names a compiled scene and only the installed
+                    // game holds the sequence name inside it (B351). The class script's `bNewJump` and
+                    // `bValidAirWalkClass` are the timeline's now — carried into it (B437) — so nothing here
+                    // second-guesses a landing or a reload.
+                    Gestures = Choreographed(player.Gestures, appearance),
                 },
                 ClientSideAnimated: player.ClientSideAnimated));
         }
@@ -581,103 +530,6 @@ public static class PlayerProps
         }
 
         return resolved.Count > 0 ? resolved : null;
-    }
-
-    /// <summary>Takes the reload without the air-walk for a class that never air-walks (B112).</summary>
-    /// <param name="gestures">What the timeline collected, or null.</param>
-    /// <param name="airwalks">Whether this class air-walks — its script does not set <c>DontDoAirwalk</c>.</param>
-    /// <returns>The gestures to draw.</returns>
-    /// <remarks>
-    /// **The engine never sets the latch for such a class** — <c>bValidAirWalkClass</c> gates the whole block that
-    /// sets it (<c>tf_playeranimstate.cpp:1444-1446</c>) — so its reload is always the base class's stand, crouch or
-    /// swim choice, which the timeline carries as <see cref="SceneGesture.ActivityWithoutAirwalk"/> because it cannot
-    /// read the script. Only the medic sets it, measured (<c>ClassAirwalkTests</c>); a Quick-Fix medic lifted by his
-    /// patient's rocket jump is the case this is for.
-    ///
-    /// **The common case allocates nothing**: an air-walking class, or no gesture the air-walk changed, hands the
-    /// timeline's list straight back.
-    /// </remarks>
-    private static IReadOnlyList<SceneGesture>? Airwalk(IReadOnlyList<SceneGesture>? gestures, bool airwalks)
-    {
-        if (airwalks || gestures is not { Count: > 0 })
-        {
-            return gestures;
-        }
-
-        List<SceneGesture>? restored = null;
-
-        for (int index = 0; index < gestures.Count; index++)
-        {
-            SceneGesture gesture = gestures[index];
-
-            // Copied once, at the first gesture to change; order and every other gesture kept.
-            if (restored is null && (gesture.FromAirwalk || gesture.ActivityWithoutAirwalk is not null))
-            {
-                restored = [];
-
-                for (int before = 0; before < index; before++)
-                {
-                    restored.Add(gestures[before]);
-                }
-            }
-
-            // **The air-walk's landing never happens for such a class** (B437) — no latch, nothing to end.
-            if (gesture.FromAirwalk)
-            {
-                continue;
-            }
-
-            restored?.Add(gesture.ActivityWithoutAirwalk is { } without
-                ? gesture with { ActivityName = without, ActivityWithoutAirwalk = null }
-                : gesture);
-        }
-
-        if (restored is null)
-        {
-            return gestures;
-        }
-
-        return restored.Count > 0 ? restored : null;
-    }
-
-    /// <summary>Drops the landing gesture for a class that does not play one.</summary>
-    /// <param name="gestures">What the timeline collected, or null.</param>
-    /// <param name="lands">Whether this class plays a landing gesture.</param>
-    /// <returns>The gestures to draw, or null when there are none.</returns>
-    /// <remarks>
-    /// **The engine never creates it for such a class** — `if ( bNewJump ) RestartGesture( … )`
-    /// (`tf_playeranimstate.cpp:1507`) — and the timeline cannot know, because `DontDoNewJump` is
-    /// in the class script rather than on the wire. Filtering here reaches the same drawn result
-    /// from the only layer that has the answer.
-    ///
-    /// **Only the JUMP slot, and only the landing.** The slot also carries the double jump, which
-    /// the demo really does send and which `bNewJump` does not gate.
-    /// </remarks>
-    private static IReadOnlyList<SceneGesture>? Landing(
-        IReadOnlyList<SceneGesture>? gestures, bool lands)
-    {
-        if (lands || gestures is not { Count: > 0 })
-        {
-            return gestures;
-        }
-
-        List<SceneGesture> kept = [];
-
-        foreach (SceneGesture gesture in gestures)
-        {
-            // The air-walk's landing has no bNewJump gate (`:1449-1453`, B437); `Airwalk` gates it instead.
-            if (gesture.Slot != GestureSlot.Jump ||
-                gesture.FromAirwalk ||
-                !string.Equals(
-                    gesture.ActivityName,
-                    PlayerGestureFeed.LandActivity,
-                    StringComparison.Ordinal))
-            {
-                kept.Add(gesture);
-            }
-        }
-
-        return kept.Count > 0 ? kept : null;
     }
 
     /// <summary>The body number a player's equipment leaves them with.</summary>
