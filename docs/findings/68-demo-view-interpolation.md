@@ -57,7 +57,15 @@ all flags 0, and agree with `cvarlist.log`.
 
 `ResetDemoInterpolation` (`0x180073990`) sets the flag. Nothing in `engine.dll` calls it, and the published client
 does not either: a text search over source-sdk-2013 finds only its `IVEngineClient` declaration (`cdll_int.h:522`),
-the control being that the search found that. The live TF2 client binary is unread. `SkipToTick` (`0x180073b10`) does not set it:
+the control being that the search found that. **The live TF2 client does not call it either** (read 2026-10-03,
+x64). `CEngineClient::ResetDemoInterpolation` is `engine.dll` `0x180070cb0` — through the demo player global
+`0x180522e30`, it asks vtable +0x20 and +0x30 and tail-jumps to +0xa0, the flag setter — and it sits at slot 124
+(+0x3e0) of the `IVEngineClient` vtable at `0x180367058`, which is `cdll_int.h`'s 125th virtual: binary and header
+agree. `client.dll` holds 13 call sites through any +0x3e0 slot, and every one passes an argument in `edx`/`r8`, so
+none is a `void` call; the no-argument shape `mov rcx,[rip+g]; mov rax,[rcx]; call [rax+N]` occurs 57 times at
+`IsPlayingDemo`'s +0x260 (the control) and never at +0x3e0. Nothing resets demo interpolation in the shipped game;
+the port leaving the method uncalled is Valve's behavior. *Disassembly and a byte search of the shipped binaries.*
+`SkipToTick` (`0x180073b10`) does not set it:
 a backward skip reloads the demo through `StartPlayback`, which does not clear the list or the flag.
 **Departure from the brief**, which asked seeks to reset: the port treats a backward move as a restart and leaves
 the flag alone. What remains is B450.
@@ -79,8 +87,10 @@ was that it does not: a demo has no server to predict against. The bytes say oth
 demo player is skipping or seeking (its vtable +0x48, B56). Playback hands the client each `dem_usercmd`, and
 `CPrediction::_Update` stops only for `cl_predict 0` (`prediction.cpp:1742-1799`) before `PerformPrediction`
 re-runs those commands (`:1570-1698`). So the recorder's velocity in the game is prediction's, re-simulated by
-`CGameMovement` — which the port does not have, so it keeps the networked `m_vecVelocity` and files the gap (B450).
-*Disassembly plus published source.*
+`CGameMovement` — which the port did not have, so it kept the networked `m_vecVelocity` and filed the gap (B450).
+*Disassembly plus published source.* D205 ported the movement; the last piece (2026-10-03) was that prediction's
+velocity fed the anim state only. `GetAbsVelocity()` is one value, and `InvisibilityThink`'s motion cloak reads it
+too (`tf_player_shared.cpp:8020`), so the recorder's drawn `Velocity` is now prediction's for every reader.
 
 ## What the predicted player meets, and two things the client cannot know
 

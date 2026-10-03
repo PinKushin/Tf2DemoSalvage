@@ -103,6 +103,40 @@ public sealed class CorpusRecorderPredictionTests
         Median(predictedError).ShouldBe(0f, report);
     }
 
+    [Test]
+    public void PlayersAt_ThroughTheMomentSource_DrawsTheRecorderWithPredictionsVelocity()
+    {
+        // B450, the output: the body TimelineMoments hands the scene carries prediction's velocity as its Velocity —
+        // the one GetAbsVelocity() every reader asks, motion cloak included — wherever it differs from the networked.
+        string game = SdkReference.GameInstall.Require();
+        MapLevel level = MapLevel.Read(File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp")), NullLogger.Instance);
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
+        int recorder = timeline.RecorderEntityIndex.ShouldNotBeNull();
+        RecorderPrediction prediction = new(timeline, () => level);
+        TimelineMoments moments = new(timeline) { Player = new DemoPlayer(timeline), Prediction = prediction };
+
+        int compared = 0;
+
+        for (int tick = timeline.FirstTick; tick < timeline.LastTick && compared < 50; tick++)
+        {
+            if (Velocity(timeline, recorder, tick) is not { } networked ||
+                new RecorderPrediction(timeline, () => level).VelocityAt(tick) is not { } predicted ||
+                Horizontal(predicted, networked) < 1f)
+            {
+                continue;
+            }
+
+            List<ScenePlayer> players = [];
+            moments.PlayersAt(tick, players);
+
+            players.Single(player => player.EntityIndex == recorder).Velocity.ShouldBe(predicted);
+            compared++;
+        }
+
+        // The control: ticks where the two differ exist, or the assertion above never ran.
+        compared.ShouldBe(50);
+    }
+
     private static (float X, float Y, float Z)? Velocity(DemoTimeline timeline, int recorder, int tick)
     {
         foreach (ScenePlayer player in timeline.PlayersAt(tick))

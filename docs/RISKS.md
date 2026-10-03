@@ -8272,7 +8272,27 @@ probe itself and reads its CSV row).
 
 ---
 
-### B450 — the POV recorder after B56's port: prediction's velocity, a per-tick feet yaw, and two unread reset paths — OPEN 2026-09-30
+### B450 — the POV recorder after B56's port: prediction's velocity, a per-tick feet yaw, and two unread reset paths — CLOSED 2026-10-03 (opened 2026-09-30)
+
+**Closed 2026-10-03 (`fix/b450-remainder`).** Every item below is fixed, matches the engine, or is a decline for state
+no demo carries — named in its item, not guessed at in code.
+
+- **Prediction's velocity reached only the anim state** — **FIXED 2026-10-03.** `GetAbsVelocity()` is one value; besides
+  `CMultiPlayerAnimState`, `InvisibilityThink`'s motion cloak reads it (`tf_player_shared.cpp:8020`), and
+  `PlayerInvisibility.Percent` read the networked `ScenePlayer.Velocity`. `LocalPlayer` now sets `Velocity` to
+  prediction's. `PlayersAt_WithAPredictedVelocity_IsTheRecordersVelocityForEveryReader` (red first) and, at the output,
+  `CorpusRecorderPredictionTests.PlayersAt_ThroughTheMomentSource_DrawsTheRecorderWithPredictionsVelocity` (50 ticks of
+  the 2009 POV badlands where the two differ by ≥ 1 u/s; sabotaged — the networked value reddened it). *Published source
+  plus synthetic and corpus tests.*
+- **`ResetDemoInterpolation` in the live client** — **CLOSED, matches the engine.** `client.dll` (x64) never calls it:
+  slot +0x3e0 of `IVEngineClient` (binary vtable `0x180367058` agrees with `cdll_int.h`), no no-argument call at that
+  slot, 57 at `IsPlayingDemo`'s as the control. Full read: `docs/findings/68-demo-view-interpolation.md`, "A seek is not a
+  reset". *Disassembly and a byte search of the shipped binaries.*
+- **The declines and defaults under D205** — **CLOSED as not on the wire.** Each named below is state no demo carries
+  (`m_flWaterJumpTime`, a projectile hook's position, `m_flLastMovementStunChange`, a loadout-slot taunt's GC item,
+  game-rule and ConVar-free attributes); there is no Valve route to read them, only to re-run what produced them.
+- **Reverse playback restarting the reader** — **CLOSED, matches the engine** (`StartPlayback` re-reads from the start).
+  Its cost is a performance note, not a divergence.
 
 What `InterpolateViewpoint`'s port (B56, B442) leaves different from the engine. Each item is small; none is
 guessed at in code.
