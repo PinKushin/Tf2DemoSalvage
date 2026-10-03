@@ -75,13 +75,13 @@ public sealed class ExportCompileUiTests
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
         Press("Export assembly");
-        FillDialog(text);
+        FillDialog(text, "z1800.txt");
         WaitForStatus("Exported");
         _viewer.StatusText().ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
 
         Press("Compile assembly");
-        FillDialog(text);
-        FillDialog(rebuilt);
+        FillDialog(text, string.Empty);
+        FillDialog(rebuilt, "z1800.dem");
         WaitForStatus("Compiled");
 
         File.ReadAllBytes(rebuilt).AsSpan().SequenceEqual(File.ReadAllBytes(ViewerSession.DemoPath))
@@ -115,7 +115,9 @@ public sealed class ExportCompileUiTests
     }
 
     /// <summary>Types a path into the viewer's open file dialog and confirms it.</summary>
-    private static void FillDialog(string path)
+    /// <param name="path">The full path to type.</param>
+    /// <param name="defaultName">The name the viewer pre-fills, or empty when it sets none.</param>
+    private static void FillDialog(string path, string defaultName)
     {
         AutomationElement? dialog = Retry.WhileNull(Dialog, DialogTimeout).Result;
         dialog.ShouldNotBeNull(
@@ -128,19 +130,25 @@ public sealed class ExportCompileUiTests
                 _viewer.Window.FindAllChildren(),
                 child => $"{child.Properties.ClassName.ValueOrDefault}/{child.Properties.Name.ValueOrDefault}")));
 
-        // Enabled, not merely present: on CI the edit exists before the dialog finishes initialising,
-        // and SetValue then threw ElementNotEnabledException and left the dialog open over every later
-        // test (Test workflow red from c3b05a7b).
+        // Holding the viewer's own default name, not merely enabled: the dialog writes that default
+        // into the box on its own schedule, and on CI it landed AFTER the typed path and replaced it —
+        // the export went to Documents\z1800.txt and Compile's open dialog then sat under "File not
+        // found" (Test workflow red from c3b05a7b; run 37131359285). The extension is not compared
+        // because Explorer hides a known one in that box.
+        string stem = Path.GetFileNameWithoutExtension(defaultName);
         AutomationElement? name = Retry.WhileNull(
             () => dialog.FindFirstDescendant(search => search
                 .ByControlType(ControlType.Edit).And(search.ByName("File name:"))) is { IsEnabled: true } edit
+                && (edit.Patterns.Value.Pattern.Value.ValueOrDefault ?? string.Empty)
+                    .StartsWith(stem, StringComparison.OrdinalIgnoreCase)
                 ? edit
                 : null,
             DialogTimeout).Result;
-        name.ShouldNotBeNull("the file dialog's name box never became enabled:\n" + DescribeWindows());
+        name.ShouldNotBeNull($"the file dialog's name box never became enabled holding '{stem}':\n" + DescribeWindows());
         name.Patterns.Value.Pattern.SetValue(path);
 
         string typed = name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
+        typed.ShouldBe(path, "the name box did not keep the typed path");
         dialog.FindFirstChild(search => search.ByAutomationId("1"))!.AsButton().Invoke();
 
         Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success.ShouldBeTrue(
