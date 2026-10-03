@@ -210,6 +210,76 @@ public sealed class GestureLayerWiringTests
             1, "a scene that folds its own clock back re-stages its gesture for ever");
     }
 
+    /// <remarks>
+    /// **A voice command does not cancel a reload that is still playing** (B437). `DoAnimationEvent` restarts the
+    /// attack-and-reload slot for `PLAYERANIMEVENT_VOICE_COMMAND_GESTURE` only `if ( !IsGestureSlotActive(
+    /// GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`tf_playeranimstate.cpp:1053-1058`), and an auto-kill gesture stays active
+    /// until its cycle passes one (`UpdateGestureLayer`). The fixture's sequences run one second: half a second in,
+    /// the reload is still active and keeps the slot; a second and a half in, it has gone and the voice takes it.
+    /// </remarks>
+    [TestCase(0.5d, ReloadSequence)]
+    [TestCase(1.5d, StandSequence)]
+    public void Instances_AVoiceCommandOverAReload_TakesTheSlotOnlyOnceTheReloadHasEnded(double voiceAt, int expected)
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn =
+        [
+            Reloading(startedSeconds: 0d) with
+            {
+                Pose = Reloading(0d).Pose with
+                {
+                    Gestures =
+                    [
+                        Reloading(0d).Pose.Gestures![0],
+                        new SceneGesture(
+                            GestureSlot.AttackAndReload, "ACT_MP_STAND_IDLE", null, AutoKill: true, voiceAt,
+                            OnlyIfSlotIdle: true),
+                    ],
+                },
+            },
+        ];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: voiceAt + 0.1d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldHaveSingleItem().Sequence.ShouldBe(expected);
+    }
+
+    [Test]
+    public void Instances_AVoiceCommandOverAHoldingGesture_NeverTakesTheSlot()
+    {
+        // A gesture that does not auto-kill stays active until something replaces it, so a voice command never does.
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn =
+        [
+            Reloading(startedSeconds: 0d) with
+            {
+                Pose = Reloading(0d).Pose with
+                {
+                    Gestures =
+                    [
+                        Reloading(0d).Pose.Gestures![0] with { AutoKill = false },
+                        new SceneGesture(
+                            GestureSlot.AttackAndReload, "ACT_MP_STAND_IDLE", null, AutoKill: true, 5d,
+                            OnlyIfSlotIdle: true),
+                    ],
+                },
+            },
+        ];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 5.1d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldHaveSingleItem().Sequence.ShouldBe(ReloadSequence);
+    }
+
+    /// <summary>Where <see cref="Frames"/> puts the reload, and the stand a test borrows as a stand-in voice gesture.</summary>
+    private const int ReloadSequence = 1;
+
+    private const int StandSequence = 2;
+
     /// <summary>A player prop playing one taunt out of a compiled scene.</summary>
     private static SceneProp Taunting(double startedSeconds, bool autoKill, bool loops = false) =>
         Reloading(startedSeconds) with

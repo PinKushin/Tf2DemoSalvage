@@ -30,11 +30,19 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// recording did not say. Declared in <c>DT_LocalPlayerExclusive</c>, so a POV demo carries it for
 /// the recorder alone while a SourceTV recording carries it for every player.
 /// </param>
-/// <param name="AirborneSeconds">
-/// How long since this player left the ground, or <c>null</c> when they are on it or the recording
-/// did not say. Splits a jump into its push-off and its float, which the engine does from
-/// <c>m_flJumpStartTime</c> — a moment no demo records, so this is derived from when
-/// <c>FL_ONGROUND</c> cleared.
+/// <param name="JumpActivity">
+/// <c>CTFPlayerAnimState::HandleJumping</c>'s answer at this tick: the activity it leaves when it returns true —
+/// the air-walk, a jump phase, or <c>ACT_MP_STAND_IDLE</c> untouched — or <c>null</c> when it returns false (B437).
+/// Stepped by <see cref="PlayerGestureFeed.HandleJumping"/>, which keeps the latch, the jump clock from the
+/// `PLAYERANIMEVENT_JUMP` event and the class script.
+/// </param>
+/// <param name="ActivityOverride">
+/// Which of the player's own activity tables `CTFPlayerAnimState::ActivityOverride` walks before the weapon's —
+/// kart, competitive loser, loser or carrying a building (B437).
+/// </param>
+/// <param name="CompetitiveWinner">
+/// `TF_COND_COMPETITIVE_WINNER`, which turns certain stands into `ACT_MP_COMPETITIVE_WINNERSTATE` after the weapon's
+/// table (`tf_playeranimstate.cpp:142-151`).
 /// </param>
 /// <param name="DiscontinuitySeconds">
 /// When this player last JUMPED — a teleport or a respawn — so a sequence change at that moment
@@ -62,12 +70,6 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <param name="IsEnemy">
 /// Whether this player is an enemy of the RECORDER, which is what <c>IsEnemyPlayer</c> asks of the
 /// local player (<c>c_tf_player.cpp:5384</c>). A disguise only fools the other team.
-/// </param>
-/// <param name="Airwalking">
-/// Whether this player has risen fast enough to air-walk since leaving the ground. The engine's
-/// test is <c>vecVelocity.z &gt; 300.0f || m_bInAirWalk</c>, so it latches until they land — this
-/// is that latch. It says nothing about whether the CLASS air-walks, which is the class script's
-/// answer and the caller's to apply.
 /// </param>
 /// <param name="EyePitch">
 /// How far up or down the player is looking, in degrees, or <c>null</c> when the recording did not
@@ -180,8 +182,9 @@ public readonly record struct ScenePlayer(
     float MoveY = 0f,
     int? Flags = null,
     bool Drawn = true,
-    float? AirborneSeconds = null,
-    bool Airwalking = false,
+    PlayerActivity? JumpActivity = null,
+    PlayerActivityOverride ActivityOverride = PlayerActivityOverride.None,
+    bool CompetitiveWinner = false,
     double DiscontinuitySeconds = 0d,
 
     // **The spy disguise, and the side we are on.** `C_TFPlayer::ValidateModelIndex` and `GetSkin`
@@ -2340,6 +2343,10 @@ public sealed class DemoTimeline
     /// or null for no reports. For the viewer's loading screen: an 80-second decode is otherwise 80 seconds of nothing.
     /// </param>
     /// <param name="client">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
+    /// <param name="classes">
+    /// The installed game's class scripts, whose `DontDoAirwalk` and `DontDoNewJump` the anim state reads (B437); null
+    /// for the engine's default, which is a class that air-walks and jumps the new way.
+    /// </param>
     /// <returns>The timeline, empty when the demo carries no schema or no entities.</returns>
     /// <exception cref="ArgumentException">The file is too short to hold a header.</exception>
     /// <remarks>
@@ -2348,14 +2355,18 @@ public sealed class DemoTimeline
     /// the salvage cases this project exists for.
     /// </remarks>
     public static DemoTimeline Build(
-        ReadOnlyMemory<byte> file, Action<double>? progress = null, ClientInterp? client = null)
+        ReadOnlyMemory<byte> file,
+        Action<double>? progress = null,
+        ClientInterp? client = null,
+        IClassAnimationScripts? classes = null)
     {
-        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp());
+        DemoTimeline built = BuildTimeline(file, progress, client ?? new ClientInterp(), classes);
         progress?.Invoke(1d);
         return built;
     }
 
-    private static DemoTimeline BuildTimeline(ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client)
+    private static DemoTimeline BuildTimeline(
+        ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client, IClassAnimationScripts? classes)
     {
         long buildFrom = Stopwatch.GetTimestamp();
         long commandTicks;
@@ -3196,6 +3207,10 @@ public sealed class DemoTimeline
                         ?? First(recorder, TeamProperties)
                     : null;
 
+            // Asked once a frame rather than per player: the round state and the ConVar are the frame's.
+            EntityState? rulesNow = entities.OfClass(GameRulesClass).FirstOrDefault();
+            bool alwaysLoserNow = (int)serverConVars.Number(LoserState.AlwaysLoserConVar) != 0;
+
             foreach (EntityState player in entities.OfClass(PlayerClass))
             {
                 // **Remembered before the visibility guard, because a dying player fails it.**
@@ -3226,10 +3241,8 @@ public sealed class DemoTimeline
                 // The resource's arrays are keyed by entity index, zero padded to three digits.
                 string slot = player.EntityIndex.ToString("D3", CultureInfo.InvariantCulture);
 
-                // **The jump clock, kept here because only this loop sees the ticks in order.**
-                // Recorded on the transition rather than every airborne tick, so the elapsed time
-                // is measured from the moment the flag cleared.
-                float? airborne = null;
+                // **HandleJumping's answer, stepped here because only this loop sees the ticks in order** (B437).
+                PlayerActivity? jumpActivity = null;
 
                 // **The burn clock, on the same reasoning and in the same loop** (B336). Null when
                 // the player is not alight, which is what `m_flBurnEffectStartTime == 0` means to
@@ -3331,17 +3344,19 @@ public sealed class DemoTimeline
                     // landing gesture themselves, because a demo carries no event for it. The rise is the differenced
                     // height above, the client's own `EstimateAbsVelocity`; a heavy spinning his minigun returns before
                     // either (`tf_playeranimstate.cpp:1439-1440`); a grappling hook whose handle resolves keeps the
-                    // block alive with no rise at all (`:1446`). Null while the interval is unknown, as before.
-                    double? jumping = gestures.HandleJumping(
+                    // block alive with no rise at all (`:1446`). The class script is the installed game's, carried in;
+                    // without it the engine's default. Null while the interval is unknown, as before.
+                    PlayerActivity? answered = gestures.HandleJumping(
                         player.EntityIndex,
                         rising,
                         stateFlags,
                         waistDeep: player.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
                         grappling: entities.Resolve(player.GrapplingHookTarget()) is not null,
                         firingHeavy: firingHeavy,
-                        seconds: command.Tick * interval);
+                        seconds: command.Tick * interval,
+                        classes?.ScriptOf(player.PlayerClass()) ?? default);
 
-                    airborne = interval > 0f && jumping is { } since ? (float)since : null;
+                    jumpActivity = interval > 0f ? answered : null;
                 }
 
                 // **The yaw has to be carried here too, and was not.** Every argument below is
@@ -3460,9 +3475,15 @@ public sealed class DemoTimeline
                     // handle is only an entity slot; what the animation needs is which weapon it
                     // is, and only this loop can see both. Resolved rather than carried as a bare
                     // index so no consumer has to keep the entity table alive to make sense of it.
-                    AirborneSeconds: airborne,
-                    // A firing heavy's HandleJumping returns false before the latch is asked (`:1439-1440`).
-                    Airwalking: !firingHeavy && gestures.InAirWalk(player.EntityIndex),
+                    JumpActivity: jumpActivity,
+
+                    // **The player's own activity table, chosen every frame `TranslateActivity` runs** (B437), from the
+                    // same `IsLoser` the gestures ask and the carry flag the HUD reads.
+                    ActivityOverride: PlayerActivityOverrides.For(
+                        player.Conditions(),
+                        IsLoser(player, rulesNow, alwaysLoserNow),
+                        player.Integer(CarryingObjectProperty) is > 0),
+                    CompetitiveWinner: player.Conditions().Has(PlayerConditions.CompetitiveWinner),
 
                     // **In seconds, like every other clock on this record**, so the consumer
                     // compares stamps rather than converting ticks itself (B346).
@@ -3545,7 +3566,7 @@ public sealed class DemoTimeline
                     DisguiseTarget = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseTarget")),
                     DisguiseHealth = player.Integer("DT_TFPlayerShared.m_iDisguiseHealth"),
                     PlayerState = player.Integer("DT_TFPlayerShared.m_nPlayerState"),
-                    CarryingObject = player.Integer("DT_TFPlayerShared.m_bCarryingObject") is > 0,
+                    CarryingObject = player.Integer(CarryingObjectProperty) is > 0,
                     StunFlags = player.StunFlags(),
                     StunIndex = player.StunIndex(),
                     IsMiniBoss = player.Integer("DT_TFPlayer.m_bIsMiniBoss") is > 0,
@@ -4012,27 +4033,37 @@ public sealed class DemoTimeline
                 ? carried.ClassName
                 : null;
 
-        EntityState? rules = entities.OfClass(GameRulesClass).FirstOrDefault();
-
         return new GestureContext(
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0,
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
-            IsLoser: LoserState.IsLoser(
-                alwaysLoser,
-                SceneGameRules.MatchTypeCompetitive(rules?.Integer(MatchGroupProperty) ?? -1),
-                rules?.Integer(RoundStateProperty),
-                rules?.Integer(WinningTeamProperty),
-                First(state, TeamProperties),
-                state.PlayerClass(),
-                state.Conditions(),
-                state.DisguiseTeam(),
-                state.StunIndex(),
-                state.StunFlags()),
+            IsLoser: IsLoser(state, entities.OfClass(GameRulesClass).FirstOrDefault(), alwaysLoser),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
                 state.Conditions().Has(PlayerConditions.Zoomed));
     }
+
+    /// <summary>`m_Shared.IsLoser()` of one player against the game rules, by <see cref="LoserState.IsLoser"/>.</summary>
+    /// <param name="state">The player.</param>
+    /// <param name="rules">The game rules entity, or null.</param>
+    /// <param name="alwaysLoser">`tf_always_loser.GetBool()`.</param>
+    /// <returns>Whether the player is a loser.</returns>
+    /// <remarks>One place, asked by the gesture context and by the activity table alike (B437).</remarks>
+    private static bool IsLoser(EntityState state, EntityState? rules, bool alwaysLoser) =>
+        LoserState.IsLoser(
+            alwaysLoser,
+            SceneGameRules.MatchTypeCompetitive(rules?.Integer(MatchGroupProperty) ?? -1),
+            rules?.Integer(RoundStateProperty),
+            rules?.Integer(WinningTeamProperty),
+            First(state, TeamProperties),
+            state.PlayerClass(),
+            state.Conditions(),
+            state.DisguiseTeam(),
+            state.StunIndex(),
+            state.StunFlags());
+
+    /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
+    private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";
 
     /// <summary>The server class of the weapon <c>bIsMinigun</c> tests for.</summary>
     private const string MinigunClass = "CTFMinigun";

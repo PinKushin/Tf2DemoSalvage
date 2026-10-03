@@ -28,6 +28,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// <param name="demo">Where the decode reports what it found.</param>
     /// <param name="progress">Told the fraction of the timeline decoded, for a loading screen; null for none.</param>
     /// <param name="interp">The viewer's `cl_interp` settings; null for TF2's defaults.</param>
+    /// <param name="classes">The installed game's class scripts, which the anim state reads (B437); null for none.</param>
     /// <returns>The header, and the timeline when one could be built.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -38,7 +39,11 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
     /// what to say about it.
     /// </remarks>
     public static DecodedDemo Read(
-        string path, ILogger demo, Action<double>? progress = null, ClientInterp? interp = null)
+        string path,
+        ILogger demo,
+        Action<double>? progress = null,
+        ClientInterp? interp = null,
+        IClassAnimationScripts? classes = null)
     {
         ArgumentNullException.ThrowIfNull(path);
         ArgumentNullException.ThrowIfNull(demo);
@@ -63,7 +68,7 @@ public sealed record DecodedDemo(LoadedDemo Demo, DemoTimeline? Timeline)
 
             using (demo.Time("building the position timeline"))
             {
-                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress, interp);
+                timeline = DemoTimeline.Build(File.ReadAllBytes(path), progress, interp, classes);
             }
 
             TimeSpan gcPaused = GC.GetTotalPauseDuration() - gcBefore;

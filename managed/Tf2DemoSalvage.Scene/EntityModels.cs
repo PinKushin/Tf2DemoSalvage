@@ -1835,8 +1835,34 @@ public sealed class EntityModelSet : Hud.IMdlCache
             return layers;
         }
 
+        // **The attack-and-reload slot's holder, decided before it is drawn** (B437): a voice command waiting behind it
+        // takes the slot only if the holder is no longer active when the command arrives. Drawn when the walk moves past
+        // the slot, so the layer keeps its place in slot order.
+        (SceneGesture Gesture, int Sequence)? holder = null;
+
         foreach (SceneGesture gesture in gestures)
         {
+            if (gesture.Slot == GestureSlot.AttackAndReload)
+            {
+                int resolved = gesture.ActivityName is { Length: > 0 } asked
+                    ? skinned.ForActivity(TranslateGesture(prop, asked))
+                    : 0;
+
+                if (!gesture.OnlyIfSlotIdle ||
+                    holder is not { } held ||
+                    !ActiveAt(skinned, held.Sequence, held.Gesture, gesture.StartedSeconds))
+                {
+                    holder = (gesture, resolved);
+                }
+
+                continue;
+            }
+
+            if (holder is { } playing)
+            {
+                Layer(layers, skinned, playing.Sequence, playing.Gesture, seconds);
+                holder = null;
+            }
 
             // **A VCD gesture names a SEQUENCE, not an activity**, and so takes neither the weapon
             // rewrite nor the activity search below (B351). `C_TFPlayer::StartGestureSceneEvent` does
@@ -1892,7 +1918,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // and landings and wrong for every attack: `ACT_MP_ATTACK_STAND_PRIMARYFIRE` maps to
             // `ACT_MP_ATTACK_STAND_PRIMARY`, a rename rather than a suffix, and
             // `ACT_MP_CROUCH_DEPLOYED` maps to `ACT_MP_CROUCHWALK_DEPLOYED`.
-            string activity = WeaponActivityTable.Override(prop.Pose.Slot ?? "PRIMARY", named);
+            //
+            // **The player's own table comes first** (B437): `TranslateActivity` asks `ActivityOverride` before the
+            // weapon, so a humiliated loser's landing is `ACT_MP_JUMP_LAND_LOSERSTATE` and a carrying engineer's
+            // voice gestures are the `_BUILDING` ones.
+            string activity = TranslateGesture(prop, named);
 
             // **`ForActivity`, not `Find`, and the difference is the whole mechanism.** `Find`
             // matches a sequence LABEL the way `Studio_LookupSequence` does; the engine resolves a
@@ -1939,7 +1969,35 @@ public sealed class EntityModelSet : Hud.IMdlCache
             Layer(layers, skinned, sequence, gesture, seconds);
         }
 
+        if (holder is { } last)
+        {
+            Layer(layers, skinned, last.Sequence, last.Gesture, seconds);
+        }
+
         return layers;
+    }
+
+    /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the winner's (B437).</summary>
+    private static string TranslateGesture(SceneProp prop, string activity) =>
+        PlayerActivityTable.Translate(
+            activity, prop.Pose.Slot ?? "PRIMARY", prop.Pose.ActivityOverride, prop.Pose.CompetitiveWinnerClass);
+
+    /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
+    /// <remarks>
+    /// `m_bActive` is set when `AddToGestureSlot` finds a sequence and cleared only when an auto-kill gesture's cycle
+    /// passes one (`UpdateGestureLayer`'s `ResetGestureSlot`); one that does not auto-kill holds until replaced. A
+    /// gesture whose activity resolved to nothing never became active.
+    /// </remarks>
+    private static bool ActiveAt(PropModels.SkinnedModel skinned, int sequence, SceneGesture gesture, double seconds)
+    {
+        if (sequence <= 0)
+        {
+            return false;
+        }
+
+        float rate = skinned.CyclesPerSecond(sequence);
+
+        return !gesture.AutoKill || (rate > 0f ? (seconds - gesture.StartedSeconds) * rate : 0d) <= 1d;
     }
 
     /// <summary>Turns one resolved gesture sequence into a pose layer, or into nothing.</summary>
@@ -4426,14 +4484,15 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 // what the engine falls back to as well.
                 slot: prop.Pose.Slot ?? "PRIMARY",
 
-                // Splits the jump into its push-off and its float.
-                airborneSeconds: prop.Pose.AirborneSeconds,
-
-                // Supersedes the jump for a fast-rising player.
-                airwalking: prop.Pose.Airwalking,
+                // HandleJumping's answer, which outranks everything below it (B437).
+                jumping: prop.Pose.JumpActivity,
 
                 // Waist deep turns a jump into a swim.
-                waterLevel: prop.Pose.WaterLevel);
+                waterLevel: prop.Pose.WaterLevel,
+
+                // The player's own table before the weapon's, and the winner's stand after it (B437).
+                table: prop.Pose.ActivityOverride,
+                competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass);
 
             // **A negative answer is left alone rather than written.** -1 means "this model has no
             // such sequence", and storing it would replace a working sequence with one that decodes
@@ -4507,9 +4566,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </param>
     /// <param name="alive">Whether the player is alive.</param>
     /// <param name="slot">The table the held weapon drives, such as <c>SECONDARY</c>.</param>
-    /// <param name="airborneSeconds">How long since they left the ground, or null.</param>
-    /// <param name="airwalking">Whether they are air-walking, which supersedes the jump.</param>
+    /// <param name="jumping">HandleJumping's answer, or null when it returned false (B437).</param>
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
+    /// <param name="table">The player's own activity table (B437).</param>
+    /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
@@ -4521,13 +4581,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
         int? flags = null,
         bool alive = true,
         string slot = "PRIMARY",
-        float? airborneSeconds = null,
-        bool airwalking = false,
-        int? waterLevel = null) =>
+        PlayerActivity? jumping = null,
+        int? waterLevel = null,
+        PlayerActivityOverride table = PlayerActivityOverride.None,
+        int? competitiveWinnerClass = null) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
             ? PlayerAnimation.For(
-                skinned, speed, flags, alive, slot, airborneSeconds, airwalking, waterLevel)
+                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>

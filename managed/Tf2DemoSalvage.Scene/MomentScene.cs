@@ -1638,31 +1638,14 @@ internal sealed class NoAppearance : IPlayerAppearance
     /// <inheritdoc/>
     public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem) => null;
 
-    /// <inheritdoc/>
-    /// <remarks>
-    /// **True, matching <see cref="GameAppearance"/>'s answer when the install cannot say.**
-    /// Air-walking is the general case and only the medic opts out, so defaulting to false would
-    /// stop every class air-walking on a machine with no TF2 — a visible difference produced by an
-    /// absent install rather than by the demo.
-    /// </remarks>
-    public bool Airwalks(int playerClass) => true;
-
-    /// <inheritdoc/>
-    /// <remarks>
-    /// True for the same reason as <see cref="Airwalks"/>: landing is the general case, and
-    /// `GetInt( "DontDoNewJump", 0 )` means a script that omits the key describes a class that
-    /// plays the gesture.
-    /// </remarks>
-    public bool Lands(int playerClass) => true;
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => null;
 
     /// <inheritdoc/>
     /// <remarks>
-    /// **Null, unlike <see cref="Airwalks"/>, and the difference is deliberate.** Air-walking has a
-    /// general case to fall back on; a sequence name does not — it is a string inside a file this
-    /// machine does not have. Answering anything but null would name a sequence no model declares.
+    /// **Null, and deliberately.** A sequence name has no general case to fall back on — it is a string inside a
+    /// file this machine does not have. Answering anything but null would name a sequence no model declares.
     /// </remarks>
     public SceneTaunt? TauntForScene(string scene) => null;
 

@@ -56,24 +56,10 @@ $ErrorActionPreference = 'Stop'
 # at least fails loudly rather than reporting someone else's numbers as ours.
 [string] $owner = 'tf2demosalvage'
 
-# Booked slots, in box-local time. The boxes are set to America/New_York, so their crontabs ARE
-# local and there is no conversion to do — a UTC crontab cannot express "9am local" across
-# daylight saving, which is why the timezone was moved rather than the entries.
-#
-# **These strings are documentation, not the source of truth.** `crontab -l` on the box is, which
-# is why -Review prints it rather than trusting this table.
-[hashtable[]] $boxes = @(
-    @{
-        Alias = 'mutation-box'
-        Slots = '9:00 core, 13:00 cli, 15:00 content, 15:20 audio - daily'
-        Modes = @('core', 'cli', 'content', 'audio')
-    },
-    @{
-        Alias = 'fuzz-box'
-        Slots = '16:00 fuzz - daily'
-        Modes = @('fuzz')
-    }
-)
+# **The booked slots and modes are read from each box's crontab, never listed here.** This table once
+# listed 4 of 7 jobs at old times and checked only those (2026-10-02); `crontab -l` is the authority,
+# so the check asks it. The boxes are set to America/New_York, so crontab times ARE local.
+[string[]] $boxes = @('mutation-box', 'fuzz-box')
 
 Write-Host ''
 Write-Host '================================================' -ForegroundColor Cyan
@@ -88,13 +74,9 @@ Write-Host '================================================' -ForegroundColor C
 # here that asks for work.
 [bool] $anyFinding = $false
 
-foreach ($box in $boxes) {
-    [string] $alias = $box.Alias
-    [string[]] $modes = $box.Modes
-
+foreach ($alias in $boxes) {
     Write-Host ''
     Write-Host "=== $alias  [Tf2DemoSalvage]" -ForegroundColor Cyan
-    Write-Host "    booked: $($box.Slots) (box local time)" -ForegroundColor DarkGray
 
     # One ssh per box, so a box that is gone fails attributably to that box rather than as a
     # parse error further down. BatchMode so a missing key fails now instead of hanging on a
@@ -106,7 +88,8 @@ foreach ($box in $boxes) {
 echo "tz:    `$(timedatectl show -p Timezone --value) - now `$(date '+%a %H:%M %Z')"
 echo "disk:  `$(df -h / | awk 'NR==2 {print `$4" free of "`$2}')"
 echo "cron:  `$(crontab -l 2>/dev/null | grep -c 'tf2-measurements') Tf2DemoSalvage entries of `$(crontab -l 2>/dev/null | grep -c -- '-measurements') total"
-for mode in $($modes -join ' '); do
+crontab -l 2>/dev/null | grep 'tf2-measurements' | awk '{printf "booked: %02d:%02d %s\n", `$2, `$1, `$8}' | sort
+for mode in `$(crontab -l 2>/dev/null | grep 'tf2-measurements' | awk '{print `$8}'); do
   newest=''
   for d in `$(ls -1dt ~/measurements/*/ 2>/dev/null); do
     [ -f "`${d}.owner" ] || continue
@@ -262,9 +245,7 @@ if (-not $Review) {
     exit 0
 }
 
-foreach ($box in $boxes) {
-    [string] $alias = $box.Alias
-
+foreach ($alias in $boxes) {
     Write-Host ''
     Write-Host "=== WEEKLY REVIEW: $alias  [Tf2DemoSalvage]" -ForegroundColor Yellow
 

@@ -309,13 +309,12 @@ public sealed class PoseCompletenessTests
         // that dropped it would still animate plausibly and this test would not notice.
         Slot = "SECONDARY",
 
-        // Inside the push-off window, so a lost value reads as the float and the difference is
-        // visible. Zero would be indistinguishable from the default.
-        AirborneSeconds = 0.25f,
+        // HandleJumping's answer, and not null — a pose that dropped it would draw a rocket jump as a run.
+        JumpActivity = PlayerActivity.Airwalk,
 
-        // True, because false is the default and the air-walk supersedes the jump — a pose that
-        // dropped this would draw a rocket jump as an ordinary one.
-        Airwalking = true,
+        // Neither at its default, so a pose that dropped either draws the winner's ordinary body (B437).
+        ActivityOverride = PlayerActivityOverride.LoserState,
+        CompetitiveWinnerClass = 8,
 
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,

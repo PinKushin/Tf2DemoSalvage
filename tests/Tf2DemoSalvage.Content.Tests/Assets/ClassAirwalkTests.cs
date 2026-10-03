@@ -42,7 +42,7 @@ public sealed class ClassAirwalkTests
             ", ",
             Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => $"{playerClass}:{(classes.Airwalks(playerClass) ? "yes" : "no")}"));
+                .Select(playerClass => $"{playerClass}:{(classes.ScriptOf(playerClass).DontDoAirwalk ? "no" : "yes")}"));
 
         TestContext.Out.WriteLine($"AIRWALK {reported}");
 
@@ -52,7 +52,7 @@ public sealed class ClassAirwalkTests
         [
             .. Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(classes.Airwalks),
+                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoAirwalk),
         ];
 
         answers.ShouldContain(true, "some classes air-walk");
@@ -93,7 +93,7 @@ public sealed class ClassAirwalkTests
         [
             .. Enumerable
                 .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(classes.Lands),
+                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoNewJump),
         ];
 
         TestContext.Out.WriteLine(
@@ -106,7 +106,7 @@ public sealed class ClassAirwalkTests
         answers.Count(one => !one).ShouldBe(
             2,
             "the soldier and the medic set DontDoNewJump — if this count moves, TF2 has changed " +
-            "and the gate in PlayerProps.Landing now applies to a different set of classes");
+            "and the timeline's bNewJump gate now applies to a different set of classes");
     }
 
     /// <summary>Reads a file out of the installed game, or null when it is absent.</summary>

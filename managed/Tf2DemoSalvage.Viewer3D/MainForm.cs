@@ -2866,7 +2866,8 @@ internal class MainForm : Form, IFrameSteps
 
         try
         {
-            return Apply(DecodedDemo.Read(path, _demoLog, interp: _settings.Interp));
+            return Apply(DecodedDemo.Read(
+                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).Classes));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -2927,8 +2928,14 @@ internal class MainForm : Form, IFrameSteps
             // part-way — a decode and a map read are one operation each — but the token means a
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
+            // **The install is opened first, because the decode reads its class scripts** (B437): `DontDoAirwalk` and
+            // `DontDoNewJump` are anim-state inputs the demo does not carry. `Install` opens once and answers the same
+            // content every time after, so the map read below gets this same one.
             DecodedDemo decoded = await Task
-                .Run(() => DecodedDemo.Read(path, demoLog, progress.Report, interp), _shutdown.Token)
+                .Run(
+                    () => DecodedDemo.Read(
+                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).Classes),
+                    _shutdown.Token)
                 .ConfigureAwait(false);
 
             if (!_loads.IsCurrent(ticket))

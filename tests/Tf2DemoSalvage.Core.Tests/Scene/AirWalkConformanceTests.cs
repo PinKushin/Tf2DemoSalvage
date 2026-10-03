@@ -171,13 +171,34 @@ public sealed class AirWalkConformanceTests
 
         if (latchedBefore)
         {
-            feed.AirWalk(Player, 400f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d)
-                .ShouldBeTrue("the precondition: one rising step in the air sets the latch");
+            feed.HandleJumping(Player, 400f, InAir, waistDeep: false, grappling: false, firingHeavy: false, seconds: 0d, default);
+            feed.InAirWalk(Player).ShouldBeTrue("the precondition: one rising step in the air sets the latch");
         }
 
-        feed.AirWalk(Player, risingSpeed, flags, waistDeep, grappling, firingHeavy, seconds: 1d).ShouldBe(expected);
-        feed.InAirWalk(Player).ShouldBe(expected, "the step's answer is the latch the feed now holds");
+        feed.HandleJumping(Player, risingSpeed, flags, waistDeep, grappling, firingHeavy, seconds: 1d, default);
+        feed.InAirWalk(Player).ShouldBe(expected);
     }
+
+    [Test]
+    public void ClassData_TheTwoAnimationFlags_DefaultToZeroWhenTheScriptOmitsThem()
+    {
+        // tf_classdata.cpp:187-188 — what ClassAnimationScript's default stands for (B437).
+        Text(ClassData).ShouldMatch(
+            @"m_bDontDoAirwalk\s*=\s*\(\s*pKeyValuesData->GetInt\(\s*""DontDoAirwalk""\s*,\s*0\s*\)\s*>\s*0\s*\);\s*" +
+            @"m_bDontDoNewJump\s*=\s*\(\s*pKeyValuesData->GetInt\(\s*""DontDoNewJump""\s*,\s*0\s*\)\s*>\s*0\s*\);");
+    }
+
+    [Test]
+    public void HandleJumping_TheOldJump_IsOneActivityAndTheNewOneSplitsAtHalfASecond()
+    {
+        // :1511-1528 — bNewJump picks ACT_MP_JUMP_START / ACT_MP_JUMP_FLOAT at 0.5 s, else the single ACT_MP_JUMP.
+        Text(TfAnimState).ShouldMatch(
+            @"(?s)if\s*\(\s*m_bJumping\s*\)\s*\{\s*if\s*\(\s*bNewJump\s*\)\s*\{\s*if\s*\(\s*gpGlobals->curtime\s*-\s*m_flJumpStartTime\s*>\s*0\.5\s*\)" +
+            @"\s*\{\s*idealActivity\s*=\s*ACT_MP_JUMP_FLOAT;\s*\}\s*else\s*\{\s*idealActivity\s*=\s*ACT_MP_JUMP_START;\s*\}\s*\}\s*" +
+            @"else\s*\{\s*idealActivity\s*=\s*ACT_MP_JUMP;");
+    }
+
+    private const string ClassData = "src/game/shared/tf/tf_classdata.cpp";
 
     private static string Text(string path)
     {

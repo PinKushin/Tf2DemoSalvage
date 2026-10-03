@@ -9061,7 +9061,7 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — PARTLY FIXED 2026-10-02 (landings, the suspended jump, the latched duck; voice command, loser tables and the model's crouch OPEN)
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-02 (the model's crouch-walk check and the event-time posture OPEN)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
@@ -9078,6 +9078,48 @@ the scene gates it by `DontDoAirwalk` rather than `DontDoNewJump`. `PlayerActivi
 ducking player. **Measured in the output on z1800** (`CorpusPlayerGestureTests`, sampled every 200 ticks): 2,738
 non-scout jump landings and 161 air-walk landings, against 0 non-scout landings under the old rule (sabotaged and
 watched fail). Items 1-3 below are closed by that; the respawn item was wrong (below).
+
+**Fixed 2026-10-02, second pass (`fix/parity-animstate-2`).**
+
+- **The class scripts reach the timeline**, which closes the medic ceiling the first pass left and a divergence the
+  first pass did not see. Red 619e7960, green 3ce37691. `DemoTimeline.Build` takes `IClassAnimationScripts`, which
+  `PlayerClassModels` implements from `scripts/playerclasses/*` the way the client reads them (`tf_classdata.cpp:187-188`),
+  and the viewer opens the install before the decode. `PlayerGestureFeed.HandleJumping` now answers the ACTIVITY
+  `HandleJumping` leaves (`ScenePlayer.JumpActivity`) and applies `bValidAirWalkClass` and `bNewJump` itself. The
+  scene's class filters (`PlayerProps.Airwalk`, `Landing`, `SceneGesture.ActivityWithoutAirwalk`, `FromAirwalk`) are
+  deleted — one place. **The divergence nobody had filed:** `PlayerActivity`'s own comment said every shipped class had
+  `DontDoNewJump` false, so the old single `ACT_MP_JUMP` was a finished migration; `ClassAirwalkTests` had measured the
+  soldier and medic setting it. Every soldier and medic jump was the split push-off/float; now `ACT_MP_JUMP`
+  (`PlayerActivity.LegacyJump`). **z1800, every frame:** with the scripts 5,615 soldier jump-frames are `ACT_MP_JUMP`
+  and 0 are split; without them 0 and 5,615; medic air-walk frames go from 761 to 0.
+- **The step the latch ends on with a jump still in force stands** (`ACT_MP_STAND_IDLE` untouched, `:1534`) — the
+  frame edge, now exact because the feed answers the activity.
+- **A voice command no longer cancels an active reload or attack.** Red 637f2528 and e19a6e51, green f6ea0a49. The
+  feed keeps the slot's holder and queues the voice gesture behind it (`SceneGesture.OnlyIfSlotIdle`); `LayersFor` lets
+  it take the slot only if the holder was inactive when it arrived (`ActiveAt`: resolved, and an auto-kill cycle not
+  past one). z1800: 14,107 player-frames carry a voice command queued behind a holder that used to be replaced. The
+  voice gesture itself still draws nothing — it names an activity by NUMBER and nothing resolves those (below).
+- **The player's own activity tables**: humiliation, carrying a building, the kart and the competitive loser, plus the
+  competitive winner's stand after the weapon. Red b029014d, green b85a0b70. `PlayerActivityOverrides.For` picks the
+  table per player per frame (`:223-258`); `PlayerActivityTable.Translate` runs player, weapon, winner for the body and
+  every gesture (`:124-153`), compared row for row with the SDK both ways. z1800: 6,513 loser and 610 carrying
+  player-frames.
+
+**Still open, with what blocks each:**
+
+- **The model's crouch-walk check** (below) — **now measured, and it does fire on stock content**:
+  `ACT_MP_CROUCHWALK_LOSERSTATE` is declared by none of the nine class animation models (`game-file` over each
+  `*_animations.mdl`, 2026-10-02), so every humiliated loser's `bInDuck` is false in `HandleJumping` and
+  `DoAnimationEvent`. Implementing it needs the model's declared activities and the weapon's role at DECODE time, and
+  both are scene state built after the decode (`GameAppearance`); the class-script carry-in is the pattern, but the
+  role needs `items_game` and the weapon scripts too. Small on screen: a loser cannot attack or reload, so only the
+  air-walk block is affected.
+- **A main sequence that resolves to nothing** draws sequence 0 in the engine (`ComputeMainSequence`:
+  `if ( animDesired < 0 ) animDesired = 0;`); `PlayerAnimation.For` falls back to the primary table and then the run or
+  stand. A loser crouch-walking reaches this (no `CROUCHWALK_LOSERSTATE`). Filed, not changed: what sequence 0 looks
+  like on a merged class model has not been looked at.
+- **A voice gesture's activity number** is the server's `ActivityList` index, and nothing here maps it to a name.
+- **The item's own `GetActivityOverride`** (items_game `animation_replacement`), between the weapon and the winner.
 
 - **A rocket jumper lands with no landing gesture.** FIXED 2026-10-02, above. When the air-walk ends on the ground `HandleJumping` restarts the
   main sequence and plays `ACT_MP_JUMP_LAND` in the jump slot (`:1449-1453`) — with no `bNewJump` gate, unlike the
@@ -9097,7 +9139,7 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
 - **The duck both functions ask is the model's as well as the flag's.** `DoAnimationEvent` and `HandleJumping` each
   drop `bInDuck` when the model has no sequence for the translated crouch walk (`:971-975`, `:1429-1433`). The gesture
   context's `InDuck` and the latch's duck test read `FL_DUCKING` alone, because the sequence list is the scene's.
-  Whether any stock class model and weapon lacks that sequence has not been measured.
+  OPEN; measured 2026-10-02 — see the second pass above.
 - **WITHDRAWN 2026-10-02 — a respawn does not re-seat the feet in TF2 either.** `ClearAnimationState` clears
   `m_bCurrentFeetYawInitialized` (`multiplayer_animstate.cpp:141`), but nothing in `multiplayer_animstate.cpp` or
   `tf_playeranimstate.cpp` ever READS it — it is written at `:58` and `:141` only. The feet re-seat on
@@ -9105,7 +9147,7 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
   that from one console path (`server/client.cpp:1393`). So the claim rested on a vestigial field. What does remain:
   `SNAP_YAW` is not honoured here (rare: a cheat-command path), and `m_nSpecificMainSequence` is held by nothing because
   `PLAYERANIMEVENT_CUSTOM` main sequences are not ported.
-- **A voice command cancels a reload.** `VOICE_COMMAND_GESTURE` restarts the attack-and-reload slot only
+- FIXED 2026-10-02, second pass. **A voice command cancels a reload.** `VOICE_COMMAND_GESTURE` restarts the attack-and-reload slot only
   `if ( !IsGestureSlotActive( GESTURE_SLOT_ATTACK_AND_RELOAD ) )` (`:1053-1058`). `PlayerGestureEvent.Map` returns it
   unconditionally, so the feed replaces a playing reload or attack with a numbered gesture that is then skipped at
   draw. Whether the slot is active depends on the gesture's cycle, which needs the model, so the rule belongs where
@@ -9115,7 +9157,7 @@ watched fail). Items 1-3 below are closed by that; the respawn item was wrong (b
   GetGesturePlaybackRate()`; a non-auto-kill gesture stays active until replaced. So the feed must keep the displaced
   attack/reload beside the voice gesture rather than overwrite it, and the scene picks by whether that one's cycle had
   passed 1 at the voice event's start.
-- **The loser's other animations.** `IsLoser` also selects `s_acttableLoserState` in `ActivityOverride`
+- FIXED 2026-10-02, second pass. **The loser's other animations.** `IsLoser` also selects `s_acttableLoserState` in `ActivityOverride`
   (`:223-269`, table `:170-184`), which rewrites the main sequence's stand, run, crouch, air-walk, jump and swim and the
   landing gesture `ACT_MP_JUMP_LAND` to their `_LOSERSTATE` forms — the body of humiliation. Only the weapon's
   own table is ported (`WeaponActivityTable`); the competitive-loser and kart tables are the same mechanism. B61 names

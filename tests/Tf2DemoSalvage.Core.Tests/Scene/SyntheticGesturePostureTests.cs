@@ -292,6 +292,55 @@ public sealed class SyntheticGesturePostureTests
     }
 
     /// <remarks>
+    /// **The player's activity table is chosen every tick from the same `IsLoser` the gestures ask** (B437) —
+    /// `CTFPlayerAnimState::ActivityOverride` (`tf_playeranimstate.cpp:223-269`) — so the losing team's body runs
+    /// and stands as the loser during humiliation, and the winning team's does not.
+    /// </remarks>
+    [TestCase(SceneTeams.Blu, PlayerActivityOverride.LoserState)]
+    [TestCase(SceneTeams.Red, PlayerActivityOverride.None)]
+    public void Build_DuringHumiliation_TheLosingTeamTakesTheLoserTable(int winningTeam, PlayerActivityOverride expected)
+    {
+        DemoTimeline timeline = DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
+            Interval,
+            SceneTeams.Red,
+            Scout,
+            (TeamWin, winningTeam, NoMatchGroup),
+            alwaysLoser: false,
+            At(100, 0f, OnGround),
+            At(101, 0f, OnGround)));
+
+        timeline.Frames.Single(frame => frame.Tick == 101).Players.Single().ActivityOverride.ShouldBe(expected);
+    }
+
+    [Test]
+    public void ActivityOverrides_TheEnginesOrder_KartThenCompetitiveLoserThenLoserThenCarrying()
+    {
+        // :232-258, in order, each ahead of the next.
+        PlayerConditions none = default;
+
+        PlayerActivityOverrides.For(Conditions(PlayerConditions.HalloweenKart, PlayerConditions.CompetitiveLoser), isLoser: true, carrying: true)
+            .ShouldBe(PlayerActivityOverride.KartState);
+        PlayerActivityOverrides.For(Conditions(PlayerConditions.CompetitiveLoser), isLoser: true, carrying: true)
+            .ShouldBe(PlayerActivityOverride.CompetitiveLoserState);
+        PlayerActivityOverrides.For(none, isLoser: true, carrying: true).ShouldBe(PlayerActivityOverride.LoserState);
+        PlayerActivityOverrides.For(none, isLoser: false, carrying: true).ShouldBe(PlayerActivityOverride.BuildingDeployed);
+        PlayerActivityOverrides.For(none, isLoser: false, carrying: false).ShouldBe(PlayerActivityOverride.None);
+    }
+
+    /// <summary>`m_nPlayerCond` and its extensions with the named conditions set.</summary>
+    private static PlayerConditions Conditions(params int[] set)
+    {
+        int[] words = new int[5];
+
+        foreach (int condition in set)
+        {
+            words[condition / 32] |= 1 << (condition % 32);
+        }
+
+        return new PlayerConditions(words[0], words[1], words[2], words[3], words[4]);
+    }
+
+    /// <remarks>
     /// **The body and the reload read ONE latch**, which is how the engine has it: `HandleJumping` sets
     /// `m_bInAirWalk` and returns the air-walking body activity from the same test. So the body holds through a
     /// ducked landing exactly as the reload does, and clears when the player stands on the ground — a separate
@@ -308,13 +357,54 @@ public sealed class SyntheticGesturePostureTests
             At(103, 0f, OnGround | Ducking),
             At(104, 0f, OnGround));
 
-        IEnumerable<bool> airwalking = new[] { 100, 101, 102, 103, 104 }
-            .Select(tick => timeline.Frames.Single(frame => frame.Tick == tick).Players.Single().Airwalking);
+        // Ducked while latched, HandleJumping returns true having set nothing: ACT_MP_STAND_IDLE (B437).
+        IEnumerable<PlayerActivity?> answered = new[] { 100, 101, 102, 103, 104 }
+            .Select(tick => timeline.Frames.Single(frame => frame.Tick == tick).Players.Single().JumpActivity);
 
-        airwalking.ShouldBe([false, true, true, true, false]);
+        answered.ShouldBe([null, PlayerActivity.Airwalk, PlayerActivity.StandIdle, PlayerActivity.StandIdle, null]);
+    }
+
+    /// <remarks>
+    /// **The class script reaches the timeline** (B437). `DemoTimeline.Build` takes the scripts the client reads —
+    /// `scripts/playerclasses/*.txt` — so a class that sets `DontDoAirwalk` never latches, and one that sets
+    /// `DontDoNewJump` jumps as the single `ACT_MP_JUMP`. Without them the engine's own default holds: every class
+    /// air-walks and jumps the new way.
+    /// </remarks>
+    [Test]
+    public void Build_TheClassScripts_DecideTheAirWalkAndTheJump()
+    {
+        SyntheticPlayer.GestureSnapshot[] rocketJump =
+        [
+            At(100, 0f, OnGround),
+            At(101, 6f, InAir) with { Events = [PlayerAnimEvent.Jump] },
+            At(102, 12f, InAir),
+        ];
+
+        PlayerActivity? Answer(DemoTimeline timeline) =>
+            timeline.Frames.Single(frame => frame.Tick == 102).Players.Single().JumpActivity;
+
+        Answer(Build(Soldier, rocketJump)).ShouldBe(PlayerActivity.Airwalk, "no scripts: the engine's defaults");
+
+        Answer(Build(Soldier, new Scripts(Soldier, new(DontDoAirwalk: true, DontDoNewJump: true)), rocketJump))
+            .ShouldBe(PlayerActivity.LegacyJump);
+        Answer(Build(Soldier, new Scripts(Soldier, new(DontDoAirwalk: true, DontDoNewJump: false)), rocketJump))
+            .ShouldBe(PlayerActivity.JumpStart);
+        Answer(Build(Soldier, new Scripts(Scout, new(DontDoAirwalk: true, DontDoNewJump: true)), rocketJump))
+            .ShouldBe(PlayerActivity.Airwalk, "the control: another class's script is not this player's");
+    }
+
+    /// <summary>A class-script source that sets one class's flags.</summary>
+    private sealed class Scripts(int scripted, ClassAnimationScript script) : IClassAnimationScripts
+    {
+        public ClassAnimationScript ScriptOf(int? playerClass) => playerClass == scripted ? script : default;
     }
 
     private static SyntheticPlayer.GestureSnapshot At(int tick, float z, int flags) => new(tick, z, flags);
+
+    private static DemoTimeline Build(int playerClass, IClassAnimationScripts classes, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
+        DemoTimeline.Build(
+            SyntheticPlayer.DemoOfGestures(Interval, SceneTeams.Red, playerClass, rules: null, alwaysLoser: false, snapshots),
+            classes: classes);
 
     private static DemoTimeline Build(int playerClass, params SyntheticPlayer.GestureSnapshot[] snapshots) =>
         DemoTimeline.Build(SyntheticPlayer.DemoOfGestures(
