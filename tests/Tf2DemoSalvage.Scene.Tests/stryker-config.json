@@ -3,7 +3,8 @@
   "stryker-config": {
     "project": "Tf2DemoSalvage.Scene.csproj",
     "test-projects": [
-      "Tf2DemoSalvage.Scene.Tests.csproj"
+      "Tf2DemoSalvage.Scene.Tests.csproj",
+      "../Tf2DemoSalvage.Rendering.Tests/Tf2DemoSalvage.Rendering.Tests.csproj"
     ],
     "reporters": [
       "progress",
