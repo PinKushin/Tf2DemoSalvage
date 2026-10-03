@@ -137,6 +137,12 @@ internal static class BspLumpIndex
     /// <summary>Authored decals — the stripes and signage painted onto the world.</summary>
     public const int Overlays = 45;
 
+    /// <summary><c>dleafwaterdata_t</c>: each water volume's surface height, floor and surface texinfo.</summary>
+    public const int LeafWaterData = 36;
+
+    /// <summary>One <c>unsigned short</c> per leaf, its distance to the nearest water (<c>LUMP_LEAFMINDISTTOWATER</c>).</summary>
+    public const int LeafMinDistToWater = 46;
+
     /// <summary>One <c>doverlayfade_t</c> per overlay, parallel to <see cref="Overlays"/>.</summary>
     public const int OverlayFades = 60;
 
