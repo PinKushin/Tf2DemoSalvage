@@ -151,7 +151,37 @@ so every event decoded nine bits out, as "no class", and the timeline silently d
 the census first reported 2004 reloads, then 1985: its key included the player's class, and the old
 timeline carried a stale reload across a respawn into another class, so one gesture counted twice.
 
+## The landing is made by state, not by the slot (B437, 2026-10-02)
+
+**What was believed:** landing is a REPLACEMENT — when a jumping player is back on the ground, swap the
+jump slot's gesture for `ACT_MP_JUMP_LAND`. That was built for B284, where a scout's full-body
+`ACT_MP_DOUBLEJUMP` kept playing after he landed, and it fixed that case.
+
+**What killed it:** reading `HandleJumping` to the closing brace (read from published source,
+`tf_playeranimstate.cpp:1427-1537`). `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` appears
+twice, at the two places a STATE clears — the air-walk latch ending on the ground, and `m_bJumping`
+ending on the ground under `bNewJump` — and neither looks at the slot. An ordinary jump,
+`PLAYERANIMEVENT_JUMP`, plays no gesture at all: it only sets `m_bJumping`. So the replacement rule had
+nothing to replace for every jump but a double jump. **Measured in the timeline's output on z1800**,
+sampled every 200 ticks: 0 landings on any non-scout under the old rule, 2,738 after (differential, by
+sabotage); 161 air-walk landings.
+
+**Two engine facts worth keeping.** The two landings have different class gates — the jump's is
+`bNewJump` (the soldier and medic set `DontDoNewJump`), the air-walk's has none and is reached only by a
+class that air-walks — so a soldier lands a rocket jump with the gesture and a plain jump without it. And
+the jump's bookkeeping is the `else` of the air-walk block: while a player is latched his jump is neither
+timed out nor landed, and a latched player who ducks falls out of both branches into
+`return m_bJumping || m_bInAirWalk`, which leaves `idealActivity` at `ACT_MP_STAND_IDLE` — TF2 draws him
+standing, not crouching.
+
+**A vestigial field, and a wrong filing it caused.** B437 said a respawn should re-seat the feet because
+`ClearAnimationState` clears `m_bCurrentFeetYawInitialized`. Nothing in either anim-state file ever reads
+that field (written at `multiplayer_animstate.cpp:58` and `:141` only). The feet re-seat on
+`m_flLastAimTurnTime <= 0`, which only `PLAYERANIMEVENT_SNAP_YAW` zeroes, raised from one console path
+(`server/client.cpp:1393`). A cleared flag is not a behaviour until something reads it.
+
 ## Open
 
 Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What the same engine
-functions do besides is B437.
+functions do besides is B437: the voice command's slot rule, the loser state's main-sequence table, and
+the model's own crouch-walk check on `bInDuck`.

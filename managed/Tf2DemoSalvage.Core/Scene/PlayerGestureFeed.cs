@@ -443,8 +443,8 @@ public sealed class PlayerGestureFeed
     /// animations (`tf_playeranimstate.cpp:340-366`), `EF_NODRAW`, a dormant player and a dead one
     /// (`multiplayer_animstate.cpp:1381-1395`).
     ///
-    /// Not held here and so not cleared here: the feet yaw's re-initialisation and the specific main sequence, which
-    /// the base also resets (B437).
+    /// Not held here and so not cleared here: the specific main sequence, which the base also resets. The base's
+    /// `m_bCurrentFeetYawInitialized = false` is vestigial — nothing reads it — so it moves no feet (B437).
     /// </remarks>
     public void ClearAnimationState(int entityIndex)
     {
