@@ -228,9 +228,26 @@ in between, holding the earlier packet), and after it, those due on it — both 
 `HandleJumping`. The independent latch walk in `CorpusPlayerGestureTests` was moved to the same clock
 and agrees on all 1,981 z1800 reloads (26 air-walking); sabotaged back to arrival, it fails.
 
+**Then the weapon and the item, and the check stopped looking defensive.** Routing the held weapon,
+its item and the team into the check let it run `TranslateActivity` whole. Measured on the shipped
+models, 49 of the 117 class-and-role pairs have no sequence for the role's crouch walk — the PDA and
+building tables exist only on the engineer, `_PRIMARY` is absent from the spy, `_ITEM1` from the soldier
+and medic. The pairs real loadouts produce were all found to have it, which is how Valve ships the
+models; the check matters for whatever a server hands a class it was never animated for, and for a
+player holding nothing, whose bare `ACT_MP_CROUCHWALK` no model names at all.
+
+**A wrong turn, killed by reading one more header.** `GetActivityOverride( iTeam, … )` loops
+`GetNumAnimations( iTeam )`, and `m_PerTeamVisuals[2]` is null for any item without a `visuals_red`
+block — which is nearly all of them, since 36 of the shipped `animation_replacement` blocks sit in the
+base `visuals`. That read as "every item replacement is dead in `TranslateActivity`". It is not:
+`GetNumAnimations` and `GetAnimationData` both route through `GetBestVisualTeamData`
+(`econ_item_schema.h:1831-1854`, `:2240-2253`), which falls back to the base block. The item step is now
+ported where `TranslateActivity` runs, body and gestures; `items_game.txt` names no `CROUCHWALK`
+activity, so on stock content it never touches the duck. Evidence: read from published source; the
+counts measured on the installed game.
+
 ## Open
 
 Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). What remains of B437:
-the crouch-walk check for a table that does not rewrite the crouch walk, which is the weapon role's to
-translate and is taken as present; the engine's sequence-0 answer for an activity the model lacks;
-voice gestures named by activity number; and the item's own activity override.
+the engine's sequence-0 answer for an activity the model lacks, and voice gestures named by activity
+number.

@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -44,4 +46,11 @@ internal sealed class StubAppearance : IPlayerAppearance
     /// stub answering with a hat would change what every other pose test observes.
     /// </remarks>
     public ItemBodygroups BodygroupsOf(int itemDefinitionIndex, int team) => ItemBodygroups.None;
+
+    /// <summary>The replacement rows answered for item 18 on the red team, or null for none (B437).</summary>
+    public IReadOnlyDictionary<string, string>? Replacements { get; init; }
+
+    /// <inheritdoc/>
+    public IReadOnlyDictionary<string, string>? ItemActivities(int? weaponItem, int team) =>
+        weaponItem == 18 && team == SceneTeams.Red ? Replacements : null;
 }

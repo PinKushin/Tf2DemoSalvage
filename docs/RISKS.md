@@ -9119,7 +9119,7 @@ failed, 14 skipped of 144, and all five fail identically on 1eff3478's productio
 
 ---
 
-### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-03 (crouch-walk check and event-time posture fixed; sequence 0, voice numbers, item override OPEN)
+### B437 — the rest of `HandleJumping`, `ClearAnimationState` and the gesture slot rules — MOSTLY FIXED 2026-10-03 (crouch-walk check, event-time posture and item override fixed; sequence 0 and voice numbers OPEN)
 
 **Found while porting B112's residual, and filed here rather than left implied.** Porting `m_bInAirWalk` meant
 reading every function that writes it (`tf_playeranimstate.cpp`), and each does more than the latch. What was ported is
@@ -9172,9 +9172,23 @@ facts measured on the installed game.
   weapon role was NOT needed for the case that fires: the loser's and carrier's tables rewrite the crouch walk to names
   no weapon table rewrites again. Measured (`ClassAirwalkTests`): all nine models lack `CROUCHWALK_LOSERSTATE`, the
   engineer has `CROUCHWALK_BUILDING_DEPLOYED`. z1800 carries 10 ducking-loser player-frames and none latched, so
-  nothing on it draws differently. **Residual:** with no player-table rewrite the weapon role decides, which decode
-  does not know, and the answer is "has it" (the flag stands) — unmeasured whether any class model lacks a role's
-  crouch walk. The item's `animation_replacement` is not applied here either (below).
+  nothing on it draws differently.
+- **Fourth pass, same branch: the weapon role and the item.** The decode now hands `HasCrouchWalk` the held weapon
+  (`m_hActiveWeapon` resolved through its serial), its item and the player's team, and `ClassAnimation` (Content) runs
+  `TranslateActivity( ACT_MP_CROUCHWALK )` whole — player table, the role from the weapon script and the item's
+  `anim_slot` (`WeaponRoles`), the item's `animation_replacement` — before asking the model. No weapon is no role and
+  no item, as `if ( pWeapon )` has it, and then the bare `ACT_MP_CROUCHWALK`, which no class model names: a player
+  holding nothing never ducks to the anim state. **Measured on the install** (`ClassAirwalkTests`): 49 of 117
+  class/role pairs lack the role's crouch walk (every class but the engineer lacks `_PDA` and `_BUILDING`, the spy
+  `_PRIMARY`, the soldier and medic `_ITEM1`); the shipped pairs checked — a rocket launcher in a soldier's hands, the
+  Gunslinger's `item2` in an engineer's — have it, and a spy given the stickybomb launcher, whose `anim_slot` primary
+  outranks its secondary script, does not. `items_game.txt` names no `CROUCHWALK` activity at all, so on stock
+  content the item step never changes the crouch walk.
+- **The item's own `GetActivityOverride`, everywhere `TranslateActivity` runs.** `ItemSchema.ActivityReplacements`
+  reads `animation_replacement` from the best visuals block for the team (`GetNumAnimations` → `GetBestVisualTeamData`,
+  `econ_item_schema.h:1831-1854`), nearest prefab first; `PlayerActivityTable.Translate` applies it between the weapon
+  and the winner; the pose carries it (`ScenePose.ItemActivities`), so the body and every gesture take it. Not
+  checked: `ActivityList_IndexForName( replacement ) > 0`, which drops a replacement naming an unregistered activity.
 - **The event-time posture.** Gesture events queue with their `CL_QueueEvent` fire tick and fire before and after
   each packet (`DemoTimeline.FireGestures`), reading flags, the latch and `IsLoser` then and starting the gesture at
   the fire tick. Synthetic: a reload arriving standing fires six ticks later crouched; an event due between packets
@@ -9186,7 +9200,7 @@ facts measured on the installed game.
   stand. A loser crouch-walking reaches this (no `CROUCHWALK_LOSERSTATE`). Filed, not changed: what sequence 0 looks
   like on a merged class model has not been looked at.
 - **A voice gesture's activity number** is the server's `ActivityList` index, and nothing here maps it to a name.
-- **The item's own `GetActivityOverride`** (items_game `animation_replacement`), between the weapon and the winner.
+- FIXED 2026-10-03, fourth pass. **The item's own `GetActivityOverride`** (items_game `animation_replacement`), between the weapon and the winner.
 
 - **A rocket jumper lands with no landing gesture.** FIXED 2026-10-02, above. When the air-walk ends on the ground `HandleJumping` restarts the
   main sequence and plays `ACT_MP_JUMP_LAND` in the jump slot (`:1449-1453`) — with no `bNewJump` gate, unlike the

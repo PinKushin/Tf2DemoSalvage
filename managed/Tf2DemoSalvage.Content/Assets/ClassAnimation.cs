@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -35,8 +36,8 @@ public sealed class ClassAnimation(PlayerClassModels classes, ItemSchema? items,
     public bool HasCrouchWalk(
         int? playerClass, PlayerActivityOverride table, string? weaponClass, int? weaponItem, int team)
     {
-        Func<string, string>? itemOverride = weaponClass is not null && weaponItem is { } item && items is { } schema
-            ? activity => schema.ActivityOverride(item, team, activity)
+        IReadOnlyDictionary<string, string>? itemOverride = weaponClass is not null && weaponItem is { } item
+            ? items?.ActivityReplacements(item, team)
             : null;
 
         string crouchWalk = PlayerActivityTable.Translate(

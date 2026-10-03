@@ -161,10 +161,16 @@ public sealed class ClassAirwalkTests
         const int Engineer = 9;
         const int RocketLauncher = 18;
         const int Gunslinger = 142;
+        const int StickybombLauncher = 20;
 
         classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, "CTFRocketLauncher", RocketLauncher, 2).ShouldBeFalse();
         classes.HasCrouchWalk(Soldier, PlayerActivityOverride.None, "CTFRocketLauncher", RocketLauncher, 2).ShouldBeTrue();
         classes.HasCrouchWalk(Engineer, PlayerActivityOverride.None, "CTFRobotArm", Gunslinger, 2).ShouldBeTrue();
+
+        // The item outranks the script: the stickybomb launcher's script says secondary, which the spy's model has,
+        // and its `anim_slot` says primary, which it does not. Without the item the answer would be yes.
+        classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, "CTFPipebombLauncher", StickybombLauncher, 2).ShouldBeFalse();
+        classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, "CTFPipebombLauncher", null, 2).ShouldBeTrue();
         classes.HasCrouchWalk(Spy, PlayerActivityOverride.None, null, null, 2)
             .ShouldBeFalse("no weapon: ACT_MP_CROUCHWALK itself, which no class model names");
     }

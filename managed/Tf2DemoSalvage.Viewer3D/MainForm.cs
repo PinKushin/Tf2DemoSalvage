@@ -2867,7 +2867,7 @@ internal class MainForm : Form, IFrameSteps
         try
         {
             return Apply(DecodedDemo.Read(
-                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).Classes));
+                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation));
         }
         catch (Exception failure) when (failure is IOException or InvalidDataException)
         {
@@ -2934,7 +2934,7 @@ internal class MainForm : Form, IFrameSteps
             DecodedDemo decoded = await Task
                 .Run(
                     () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).Classes),
+                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation),
                     _shutdown.Token)
                 .ConfigureAwait(false);
 

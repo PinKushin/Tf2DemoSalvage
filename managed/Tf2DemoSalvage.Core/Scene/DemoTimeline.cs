@@ -3378,7 +3378,7 @@ public sealed class DemoTimeline
                         firingHeavy: firingHeavy,
                         seconds: command.Tick * interval,
                         classes?.ScriptOf(player.PlayerClass()) ?? default,
-                        ModelCrouchWalks(player, classes, activityTable));
+                        ModelCrouchWalks(player, entities, classes, activityTable));
 
                     jumpActivity = interval > 0f ? answered : null;
                 }
@@ -4103,7 +4103,7 @@ public sealed class DemoTimeline
             // `bInDuck`, dropped when the model lacks the translated crouch walk (`tf_playeranimstate.cpp:971-975`).
             InDuck: state.Flags() is { } flags &&
                 (flags & PlayerActivityState.Ducking) != 0 &&
-                ModelCrouchWalks(state, classes, ActivityTableOf(state, rules, alwaysLoser)),
+                ModelCrouchWalks(state, entities, classes, ActivityTableOf(state, rules, alwaysLoser)),
             InSwim: state.WaterLevel() >= PlayerActivityState.WaistDeepWaterLevel,
             IsLoser: IsLoser(state, rules, alwaysLoser),
             IsMinigun: string.Equals(weapon, MinigunClass, StringComparison.Ordinal),
@@ -4141,8 +4141,26 @@ public sealed class DemoTimeline
     /// `SelectWeightedSequence( TranslateActivity( ACT_MP_CROUCHWALK ) ) &gt;= 0` — the half of `bInDuck` that is the
     /// model's (B437). True without the install, which leaves the flag alone.
     /// </summary>
-    private static bool ModelCrouchWalks(EntityState player, IClassAnimationScripts? classes, PlayerActivityOverride table) =>
-        classes?.HasCrouchWalk(player.PlayerClass(), table, null, null, 0) ?? true;
+    /// <remarks>
+    /// The weapon is `GetActiveWeapon()` — the handle resolved through its serial — and its item and the player's
+    /// team are what `TranslateActivity` hands the weapon's table and the item's `GetActivityOverride` (`:130-139`).
+    /// </remarks>
+    private static bool ModelCrouchWalks(
+        EntityState player, EntityStateTable entities, IClassAnimationScripts? classes, PlayerActivityOverride table)
+    {
+        if (classes is null)
+        {
+            return true;
+        }
+
+        EntityState? weapon = entities.Resolve(player.ActiveWeaponHandle()) is { } held &&
+            entities.TryGet(held, out EntityState? holding)
+                ? holding
+                : null;
+
+        return classes.HasCrouchWalk(
+            player.PlayerClass(), table, weapon?.ClassName, weapon?.ItemDefinitionIndex(), First(player, TeamProperties) ?? 0);
+    }
 
     /// <summary>`m_Shared.m_bCarryingObject`, which the HUD and the activity table both read.</summary>
     private const string CarryingObjectProperty = "DT_TFPlayerShared.m_bCarryingObject";

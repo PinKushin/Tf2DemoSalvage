@@ -93,14 +93,12 @@ public sealed class PlayerActivityTableConformanceTests
     [Test]
     public void Translate_AnItemReplacement_AppliesToTheWeaponsAnswerBeforeTheWinner()
     {
-        Dictionary<string, string> rows = new(StringComparer.OrdinalIgnoreCase)
+        Dictionary<string, string> item = new(StringComparer.OrdinalIgnoreCase)
         {
             ["ACT_MP_RELOAD_STAND_PRIMARY"] = "ACT_MP_RELOAD_STAND_PRIMARY3",
             ["ACT_MP_RELOAD_STAND"] = "ACT_MP_RELOAD_STAND_SECONDARY2",
             ["ACT_MP_STAND_PRIMARY"] = "ACT_MP_STAND_SECONDARY",
         };
-        string Item(string activity) => rows.GetValueOrDefault(activity, activity);
-        Func<string, string> item = Item;
 
         PlayerActivityTable.Translate("ACT_MP_RELOAD_STAND", "PRIMARY", PlayerActivityOverride.None, null, item)
             .ShouldBe("ACT_MP_RELOAD_STAND_PRIMARY3");

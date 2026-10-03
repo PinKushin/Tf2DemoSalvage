@@ -1,3 +1,7 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -21,6 +25,35 @@ public sealed class PlayerAnimationWeaponTableTests
 {
     /// <summary>Faster than the standing threshold, so the state machine chooses running.</summary>
     private const float Running = 200f;
+
+    /// <remarks>
+    /// **The item's `animation_replacement` follows the weapon's table** (`tf_playeranimstate.cpp:135-139`, B437): the
+    /// row is keyed on the weapon's answer, and the body runs with its replacement.
+    /// </remarks>
+    [Test]
+    public void For_AnItemReplacement_RunsWithTheReplacement()
+    {
+        PropModels.SkinnedModel model = SyntheticSkinnedModel.With("ACT_MP_RUN_PRIMARY", "ACT_MP_RUN_SECONDARY");
+        Dictionary<string, string> item = new(StringComparer.OrdinalIgnoreCase) { ["ACT_MP_RUN_PRIMARY"] = "ACT_MP_RUN_SECONDARY" };
+
+        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "PRIMARY", item: item).ShouldBe(1);
+        PlayerAnimation.For(model, Running, flags: null, alive: true, slot: "PRIMARY").ShouldBe(0, "the control: no item");
+    }
+
+    /// <remarks>`PlayerProps.Add` hands the pose the held item's rows for the player's team, and none without a weapon.</remarks>
+    [Test]
+    public void Add_APlayerHoldingAnItem_CarriesItsReplacementsToThePose()
+    {
+        Dictionary<string, string> rows = new(StringComparer.OrdinalIgnoreCase) { ["ACT_MP_RUN_PRIMARY"] = "ACT_MP_RUN_SECONDARY" };
+        StubAppearance appearance = new() { Replacements = rows };
+        ScenePlayer holding = new(2, 0f, 0f, 0f, SceneTeams.Red, 125, 1) { WeaponClass = "CTFScatterGun", WeaponItem = 18 };
+
+        List<SceneProp> drawn = [];
+        PlayerProps.Add([holding, holding with { EntityIndex = 3, WeaponClass = null }], drawn, appearance, NoBodygroups.Instance);
+
+        drawn.Single(prop => prop.EntityIndex == 2).Pose.ItemActivities.ShouldBeSameAs(rows);
+        drawn.Single(prop => prop.EntityIndex == 3).Pose.ItemActivities.ShouldBeNull("no weapon, no item step");
+    }
 
     [Test]
     public void For_TheAllClassMeleeTable_RunsWithItsOwnActivity()

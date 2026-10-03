@@ -316,6 +316,9 @@ public sealed class PoseCompletenessTests
         ActivityOverride = PlayerActivityOverride.LoserState,
         CompetitiveWinnerClass = 8,
 
+        // Non-null, so a pose that dropped it draws the item's stock reload (B437).
+        ItemActivities = new Dictionary<string, string> { ["ACT_MP_RELOAD_STAND_PRIMARY"] = "ACT_MP_RELOAD_STAND_PRIMARY3" },
+
         // Non-zero, so a dropped value reads as looking level rather than as the default.
         EyePitch = 21f,
 

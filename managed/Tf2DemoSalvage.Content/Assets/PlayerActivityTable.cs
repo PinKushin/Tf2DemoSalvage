@@ -96,7 +96,7 @@ public static class PlayerActivityTable
     /// <param name="table">The player's own table.</param>
     /// <param name="competitiveWinnerClass">The class of a player under `TF_COND_COMPETITIVE_WINNER`, else null.</param>
     /// <param name="item">
-    /// The held item's `GetActivityOverride( team, … )` (<see cref="ItemSchema.ActivityOverride"/>), or null for none.
+    /// The held item's `animation_replacement` rows for the team (<see cref="ItemSchema.ActivityReplacements"/>), or null.
     /// </param>
     /// <returns>The name the model is asked for.</returns>
     /// <remarks>
@@ -108,13 +108,18 @@ public static class PlayerActivityTable
         string role,
         PlayerActivityOverride table,
         int? competitiveWinnerClass,
-        Func<string, string>? item = null)
+        IReadOnlyDictionary<string, string>? item = null)
     {
         ArgumentNullException.ThrowIfNull(activity);
 
         string translated = For(table).TryGetValue(activity, out string? player) ? player : activity;
 
         translated = WeaponActivityTable.Override(role, translated);
+
+        if (item is not null && item.TryGetValue(translated, out string? replaced))
+        {
+            translated = replaced;
+        }
 
         return competitiveWinnerClass is { } winner && IsWinnerStand(winner, translated) ? WinnerState : translated;
     }

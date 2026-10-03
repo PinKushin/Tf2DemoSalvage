@@ -2020,20 +2020,36 @@ public sealed class ItemSchema
     /// read. Not checked: `ActivityList_IndexForName( pszReplacement ) &gt; 0`, which drops a replacement naming an
     /// activity the game never registered; none of the shipped replacements was found to need it.
     /// </remarks>
-    public string ActivityOverride(int definitionIndex, int team, string activity)
+    public string ActivityOverride(int definitionIndex, int team, string activity) =>
+        ActivityReplacements(definitionIndex, team) is { } rows && rows.TryGetValue(activity, out string? replacement)
+            ? replacement
+            : activity;
+
+    /// <summary>Every `animation_replacement` row <see cref="ActivityOverride"/> answers from, or null for none.</summary>
+    /// <param name="definitionIndex">The item.</param>
+    /// <param name="team">The holder's team.</param>
+    /// <returns>Activity to replacement, the nearest declaration in the prefab chain winning; null when empty.</returns>
+    public IReadOnlyDictionary<string, string>? ActivityReplacements(int definitionIndex, int team)
     {
         if (!_items.TryGetValue(definitionIndex, out Entry? item) || BestVisualSection(item, team) is not { } section)
         {
-            return activity;
+            return null;
         }
 
-        return Search(
-            item,
-            entry => entry.ActivityReplacements.TryGetValue(section, out Dictionary<string, string>? rows) &&
-                rows.TryGetValue(activity, out string? replacement)
-                    ? replacement
-                    : null,
-            LongestChain) ?? activity;
+        Dictionary<string, string> found = new(StringComparer.OrdinalIgnoreCase);
+
+        Walk(item, LongestChain, entry =>
+        {
+            if (entry.ActivityReplacements.TryGetValue(section, out Dictionary<string, string>? rows))
+            {
+                foreach ((string from, string to) in rows)
+                {
+                    _ = found.TryAdd(from, to);
+                }
+            }
+        });
+
+        return found.Count > 0 ? found : null;
     }
 
     /// <summary>One block's `animation_replacement` rows, created on first use.</summary>

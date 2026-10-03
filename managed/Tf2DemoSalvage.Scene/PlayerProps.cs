@@ -27,6 +27,12 @@ public interface IPlayerAppearance
     /// </param>
     public string? WeaponSuffix(string? weaponClass, int? playerClass, int? weaponItem);
 
+    /// <summary>The held item's `animation_replacement` rows for a team, or null for none (B437).</summary>
+    /// <param name="weaponItem">The weapon's <c>m_iItemDefinitionIndex</c>, or null.</param>
+    /// <param name="team">The holder's team.</param>
+    /// <returns>Activity to replacement, as `GetActivityOverride( iTeam, … )` reads them.</returns>
+    public IReadOnlyDictionary<string, string>? ItemActivities(int? weaponItem, int team) => null;
+
     /// <summary>The arms a class shows in first person, or null when the install cannot say.</summary>
     /// <param name="playerClass">The class being drawn.</param>
     /// <returns>The <c>c_&lt;class&gt;_arms</c> model, or null.</returns>
@@ -201,6 +207,10 @@ public sealed record GameAppearance(
             weaponClass,
             playerClass,
             weaponItem is { } item && Items is { } items ? items.AnimSlot(item) : -1);
+
+    /// <inheritdoc/>
+    public IReadOnlyDictionary<string, string>? ItemActivities(int? weaponItem, int team) =>
+        weaponItem is { } item ? Items?.ActivityReplacements(item, team) : null;
 
     /// <inheritdoc/>
     public string? Hands(int playerClass) => Classes?.Hands(playerClass);
@@ -386,6 +396,11 @@ public static class PlayerProps
                     JumpActivity = player.JumpActivity,
                     ActivityOverride = player.ActivityOverride,
                     CompetitiveWinnerClass = player.CompetitiveWinner ? player.PlayerClass : null,
+
+                    // The item's own replacements, after the weapon's table (B437) — only while a weapon is held.
+                    ItemActivities = player.WeaponClass is null
+                        ? null
+                        : appearance.ItemActivities(player.WeaponItem, player.Team ?? 0),
                     EyePitch = player.EyePitch,
                     EyeYaw = player.EyeYaw,
                     AimYaw = player.AimYaw,

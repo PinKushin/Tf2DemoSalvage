@@ -1977,10 +1977,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return layers;
     }
 
-    /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the winner's (B437).</summary>
+    /// <summary>`TranslateActivity` for a gesture of this player: their own table, the weapon's, the item's, the winner's (B437).</summary>
     private static string TranslateGesture(SceneProp prop, string activity) =>
         PlayerActivityTable.Translate(
-            activity, prop.Pose.Slot ?? "PRIMARY", prop.Pose.ActivityOverride, prop.Pose.CompetitiveWinnerClass);
+            activity,
+            prop.Pose.Slot ?? "PRIMARY",
+            prop.Pose.ActivityOverride,
+            prop.Pose.CompetitiveWinnerClass,
+            prop.Pose.ItemActivities);
 
     /// <summary>`IsGestureSlotActive`: whether a gesture still holds its slot at a moment (B437).</summary>
     /// <remarks>
@@ -4492,7 +4496,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
                 // The player's own table before the weapon's, and the winner's stand after it (B437).
                 table: prop.Pose.ActivityOverride,
-                competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass);
+                competitiveWinnerClass: prop.Pose.CompetitiveWinnerClass,
+
+                // The held item's own replacements, between the weapon and the winner (B437).
+                item: prop.Pose.ItemActivities);
 
             // **A negative answer is left alone rather than written.** -1 means "this model has no
             // such sequence", and storing it would replace a working sequence with one that decodes
@@ -4570,6 +4577,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// <param name="waterLevel">How deep in water they are; 2 or more is waist deep.</param>
     /// <param name="table">The player's own activity table (B437).</param>
     /// <param name="competitiveWinnerClass">The class of a competitive winner, else null (B437).</param>
+    /// <param name="item">The held item's `animation_replacement` rows, or null (B437).</param>
     /// <returns>A merged sequence number, or −1 when the model is not skinned or has neither.</returns>
     /// <remarks>
     /// Asked of the set rather than of the model directly, because only the set knows whether a
@@ -4584,11 +4592,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
         PlayerActivity? jumping = null,
         int? waterLevel = null,
         PlayerActivityOverride table = PlayerActivityOverride.None,
-        int? competitiveWinnerClass = null) =>
+        int? competitiveWinnerClass = null,
+        IReadOnlyDictionary<string, string>? item = null) =>
         _frames.TryGetValue(modelPath, out PropModels.ModelFrames? frames) &&
         frames.Skinned is { } skinned
             ? PlayerAnimation.For(
-                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass)
+                skinned, speed, flags, alive, slot, jumping, waterLevel, table, competitiveWinnerClass, item)
             : -1;
 
     /// <summary>The pieces a model breaks into, empty when it declares none (B371).</summary>

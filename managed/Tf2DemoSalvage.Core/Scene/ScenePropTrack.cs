@@ -401,6 +401,12 @@ public readonly record struct ScenePose
     /// </summary>
     public int? CompetitiveWinnerClass { get; init; }
 
+    /// <summary>
+    /// The held item's `animation_replacement` rows for the holder's team — `GetActivityOverride( GetTeamNumber(), … )`,
+    /// asked after the weapon's table (`tf_playeranimstate.cpp:135-139`, B437) — or null for none.
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? ItemActivities { get; init; }
+
     /// <summary>How far up or down the player is looking, in degrees.</summary>
     /// <remarks>
     /// **Not <see cref="Pitch"/>, and the two must not be confused.** That one rotates the whole
@@ -2294,6 +2300,7 @@ public sealed class ScenePropTrack
             JumpActivity = from.JumpActivity,
             ActivityOverride = from.ActivityOverride,
             CompetitiveWinnerClass = from.CompetitiveWinnerClass,
+            ItemActivities = from.ItemActivities,
             EyePitch = from.EyePitch,
             EyeYaw = from.EyeYaw,
             AimYaw = from.AimYaw,
