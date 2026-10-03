@@ -30,9 +30,18 @@ however many controllers the map holds. The 3D skybox's fog is not a controller'
 74. The offscreen target is UNORM, not sRGB, so the shader's linear output is what it stores — the prediction had
 re-encoded it. The arithmetic was right; the instrument's format was not what was assumed.
 
-**Measured, and not yet explained (B452):** every point-of-view recording read here lacks both the handle and
-`m_skybox3d` on its player, while the SourceTV recording of the same session carries them. With nothing to choose by,
-the server's own master rule — the first controller found (fogcontroller.cpp:363-383) — stands in.
+**Measured, then explained (B452):** every point-of-view recording read here seemed to lack both the handle and
+`m_skybox3d` on its player, while the SourceTV recording of the same session carried them, and for a day the server's
+master rule — the first controller found (fogcontroller.cpp:363-383) — stood in. **The values were in the file all
+along, in the one block nothing read.** A recording started mid-match misses every string table update before it, so
+the demo writes each table whole into `dem_stringtables`; the signon's `instancebaseline` predates `CTFPlayer`'s
+baseline, which lives only in that block. Without it the player's first full update deltas against nothing, and every
+field equal to the baseline — the fog handle, `m_skybox3d`, even `m_flStepSize 18` — never arrives. Read, the
+movement-test POV's player carries `m_hCtrl 2042050`, the same handle its SourceTV twin sends, and `m_skybox3d.area 8`.
+*Measured on the corpus; the block's layout cross-checked with demostf/parser (the engine's reader is closed).* The
+stand-in went: with the handle present, no handle means no fog, as `UpdateFogController` has it. The wrong turn worth
+keeping is the order of suspicion — the probe that said "no baseline" read only the signon's tables, an absence with
+no control.
 
 ## A model's lights
 

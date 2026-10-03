@@ -37,25 +37,8 @@ public readonly record struct ViewFog(SceneFog? World, SceneFog? Sky)
             return new ViewFog(world, entity.SkyboxFog());
         }
 
-        // **No entity carries the handle at all**, which is every point-of-view recording in the
-        // corpus (B452): the player's DT_Local fog and skybox fields never reach the decoded state.
-        // The server gives every player `GetMasterFogController()` — with none flagged master,
-        // "the first fog controller found" (fogcontroller.cpp:363-383) — so that rule stands in.
-        // ponytail: lowest index for FindEntityByClassname's order; a master-flagged later
-        // controller (the flag is not networked) would differ. The sky fog stays unknown: none.
-        EntityState? first = null;
-
-        foreach (EntityState controller in entities.OfClass(ControllerClass))
-        {
-            if (first is null || controller.EntityIndex < first.EntityIndex)
-            {
-                first = controller;
-            }
-        }
-
-        return new ViewFog(first?.Fog(), null);
+        // **No handle, no fog** — `UpdateFogController` disables it. A point-of-view recording
+        // carries the handle in `dem_stringtables`' player baseline (B452).
+        return default;
     }
-
-    /// <summary>The fog controller's networked class.</summary>
-    private const string ControllerClass = "CFogController";
 }

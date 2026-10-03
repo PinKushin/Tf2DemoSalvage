@@ -173,6 +173,13 @@ public static class DemoTraceWriter
                 return;
             }
 
+            // The tables as they stood when recording began: a baseline only this block carries
+            // still decides what an entering entity holds (B452). Printed as the bare block below.
+            if (command.Type == DemoCommandType.StringTables && entities is not null)
+            {
+                BaselineBuilder.ApplyBlock(command.Payload.Span, entities);
+            }
+
             if (command.Type == DemoCommandType.ConsoleCmd && !command.Payload.IsEmpty)
             {
                 WriteConsoleCommand(writer, kind, command);

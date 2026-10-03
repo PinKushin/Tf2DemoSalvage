@@ -2655,6 +2655,14 @@ public sealed class DemoTimeline
                 packetAcknowledgements.Add((command.Tick, acknowledged));
             }
 
+            // **The tables as they stood when recording began** (B452): a point-of-view demo's
+            // player baseline arrives only here, and without it DT_Local's fog handle and 3D sky
+            // never reach the player.
+            if (command.Type == DemoCommandType.StringTables)
+            {
+                BaselineBuilder.ApplyBlock(command.Payload.Span, decoder);
+            }
+
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {
                 continue;

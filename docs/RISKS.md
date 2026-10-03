@@ -8171,7 +8171,25 @@ per-light visibility trace in `FUN_1801b8e20` (for point lights, gated by a cvar
 
 ---
 
-### B452 — a point-of-view recording carries no `m_PlayerFog.m_hCtrl` and no `m_skybox3d` on its player — OPEN, decode
+### B452 — a point-of-view recording carries no `m_PlayerFog.m_hCtrl` and no `m_skybox3d` on its player — FIXED 2026-10-03
+
+**Cause: the `dem_stringtables` block was never read.** A recording started mid-match carries every string table as
+it stood at the start in that block; a POV demo's `CTFPlayer` instancebaseline exists only there (the signon's create
+predates it), so the player's first full update decoded against no baseline and lost every field equal to it —
+`m_PlayerFog.m_hCtrl`, all of `m_skybox3d`, `m_flStepSize`, `m_bDrawViewmodel`. *Measured:* read, the movement-test
+POV's player carries `m_hCtrl 2042050` (its STV twin's value) and `m_skybox3d.area 8`; every gcor POV now carries the
+handle (2007/2008 have no block and already did). Layout cross-checked with demostf/parser; the engine's reader is
+closed.
+
+**Fixed:** `DemoStringTables.Read` parses the block; `BaselineBuilder.ApplyBlock` routes its `instancebaseline` into
+the decoder from both `DemoTimeline` and the trace. `ViewFog`'s first-controller stand-in is deleted — no handle is no
+fog, as `UpdateFogController` has it. Tests: `DemoStringTablesTests`,
+`Trace_ABaselineOnlyTheStringTablesBlockCarries_AppearsOnTheEnteringEntity`, `From_NoEntityCarriesAHandle_IsNoFog`,
+and the output-level `PovSkyFogCorpusTests` (2013 badlands POV has sky fog). **Not done:** the block's other tables
+(`modelprecache`, `userinfo`, ...) are not applied; the engine rebuilds them too, and a precache or roster entry
+added before recording began would be missing from a POV demo — unmeasured.
+
+The original filing, kept:
 
 **Measured, 2026-10-02:** traces of `movement-test-pov-cp_process` and `tf2-2013-build1729296-pov-cp_badlands` never
 send `DT_Local.m_PlayerFog.m_hCtrl` or any `DT_Local.m_skybox3d.*`; the SourceTV recording of the same session sends
@@ -10955,8 +10973,8 @@ exactly this and it had never been run on the overlay lump.
 > black (interpolated: `DefaultFog`'s body is closed; every additive pass the SDK shows does); modulating decals take
 > none where Valve fogs them to grey (`decalmodulate_dx9.cpp:80`) — named ceiling. The view's fog is the controller the
 > local player's `m_PlayerFog.m_hCtrl` names (`ViewFog`, `UpdateFogController`); the 3D skybox draws through the
-> player's `m_skybox3d.fog` with its distances over the sky scale (`Enable3dSkyboxFog`). POV demos lack the handle —
-> B452. Not done: the `lerptime` transition, `blend`'s two-colour view-angle mix, `fog_override` and its cvars, fog on
+> player's `m_skybox3d.fog` with its distances over the sky scale (`Enable3dSkyboxFog`). POV demos carry the handle in
+> `dem_stringtables` — B452, fixed. Not done: the `lerptime` transition, `blend`'s two-colour view-angle mix, `fog_override` and its cvars, fog on
 > detail sprites, particles and the 2D sky (`$nofog`, already off there), and `$nofog` on world/model materials.
 > Captures: `fog-before-long.png` / `fog-after-long.png` (f12, tick 20000, camera `-3000 -1280 900 8 0`): the far
 > building at (450,150) goes (102,104,117) → (102,105,119); process's fog is 100–11000, so it is faint, as in TF2.
