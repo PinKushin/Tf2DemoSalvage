@@ -2366,7 +2366,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 walked ? _culling?.Surfaces : null,
                 walked ? _culling?.Displacements : null,
                 overlayEye,
-                _world.IsBlendedMaterial) ?? [];
+                _world.IsBlendedMaterial,
+                _culling is { } groups ? groups.SortGroup : null) ?? [];
 
             // **The sky view is its OWN view, with its own eye, frustum and visibility.** Valve
             // builds it as a separate `CSkyboxView` and calls `ViewSetupVis` at the sky camera's

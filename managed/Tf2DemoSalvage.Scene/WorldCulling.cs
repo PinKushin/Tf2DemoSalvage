@@ -264,8 +264,6 @@ public sealed class WorldCulling
             }
         }
 
-        _lastFrustum = frustum;
-
         int drawn = 0;
 
         for (int at = 0; at < runs.Count; at++)
@@ -294,7 +292,6 @@ public sealed class WorldCulling
 
     private readonly List<int> _placed = [];
     private readonly int[] _positionByLeaf;
-    private ViewFrustum _lastFrustum;
 
     /// <summary>The last view's translucent and additive world runs, by leaf place — the engine's per-leaf alpha lists.</summary>
     /// <param name="blended">Whether a material index is translucent or additive.</param>
@@ -303,7 +300,12 @@ public sealed class WorldCulling
     /// <remarks>See <see cref="VisibleWorld.BlendedByLeaf"/> (B426).</remarks>
     /// <param name="separate">Whether a face carries overlays, so its run is its own (B457); null for none.</param>
     public TranslucentLeafRuns? BlendedRuns(Func<int, bool> blended, Func<int, bool>? separate = null) =>
-        CanCull ? _surfaces.BlendedByLeaf(_mainLeaves, _lastFrustum, blended, _positionByLeaf, separate) : null;
+        CanCull ? _surfaces.BlendedByLeaf(blended, separate) : null;
+
+    /// <summary>A face's water sort group — see <see cref="VisibleWorld.SortGroup"/>.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>0 to 3.</returns>
+    public int SortGroup(int face) => _surfaces.SortGroup(face);
 
     /// <summary>The place in the last view's leaf list of the nearest leaf a box touches, or −1.</summary>
     /// <param name="minX">The box, in world space.</param>

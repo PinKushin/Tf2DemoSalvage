@@ -62,6 +62,24 @@ public sealed class OverlayRenderListsConformanceTests
         Materials(queue.Order([1, 0], [], null, Opaque)).ShouldBe([20, 21]);
     }
 
+    /// <remarks>
+    /// **Each sort group is its own queue and render, groups 3 down to 0** (<c>0x1800e5e10</c>: the counter starts at 3,
+    /// <c>0x1800e5f38</c>, and indexes the group table <c>0x18038ea98</c> = {0, 1, 2, 3} from its end, <c>0x1800e5f31</c>
+    /// / <c>0x1800e6109</c>; per group the displacement chain <c>0x1800e3a90</c>, the brush chains, <c>0x1800da3a0</c>'s
+    /// queue and <c>RenderOverlays</c>). Face 0 is group 2, face 1 group 0, reached 0 then 1: one queue would draw 1
+    /// first (the last reached); by group, 0's overlays render in their own batch before group 0's.
+    /// </remarks>
+    [Test]
+    public void Order_SurfacesInTwoSortGroups_RenderTheHigherGroupFirst()
+    {
+        OverlayRenderLists queue = new(
+            [Fragment(face: 0, material: 20, first: 100), Fragment(face: 1, material: 21, first: 106)],
+            Spans((0, 10), (1, 11)));
+
+        Materials(queue.Order([0, 1], [], null, Opaque, face => face == 0 ? 2 : 0)).ShouldBe([20, 21]);
+        Materials(queue.Order([0, 1], [], null, Opaque)).ShouldBe([21, 20]);
+    }
+
     [Test]
     public void Order_SurfacesOfOneMaterialApart_AreQueuedTogetherByMaterialSort()
     {
@@ -218,6 +236,25 @@ public sealed class OverlayRenderListsConformanceTests
         IReadOnlyList<IReadOnlyList<WorldBatch>> after = queue.ForTranslucentLeaves(runs, null);
 
         after.Select(Materials).ShouldBe([[20], [], [40]]);
+    }
+
+    [Test]
+    public void ForTranslucentLeaves_DisplacementsOfTwoSortGroups_DrawTheirOverlaysAfterEachGroup()
+    {
+        // 0x1800e4fd0 calls 0x1800c61f0 once per sort group (0x1800e54b6, inside the group loop), so displacements
+        // 30 (group 0) and 31 (group 1) in one leaf each get their overlays straight after them, not together.
+        OverlayRenderLists queue = new(
+            [Fragment(face: 30, material: 40, first: 100), Fragment(face: 31, material: 41, first: 106)],
+            Spans((30, 10), (31, 11)));
+
+        TranslucentLeafRuns runs = new(
+            [new WorldBatch(10, 0, 3), new WorldBatch(11, 3, 3)],
+            [0, 2],
+            [30, 31],
+            [true, true],
+            [0, 1]);
+
+        queue.ForTranslucentLeaves(runs, null).Select(Materials).ShouldBe([[40], [41]]);
     }
 
     [Test]

@@ -306,8 +306,8 @@ public sealed class VisibleWorldTests
 
     /// <summary>That a blended face goes with the nearest visible leaf naming it, and opaque faces with none.</summary>
     /// <remarks>
-    /// Face 10 is named by both leaves; leaf 1 is first in the front-to-back list, so it is drawn with
-    /// position 0 and not again with position 1 (B426). Face 11 is opaque and joins no leaf's translucent runs.
+    /// Face 10 is named by both leaves; the walk reaches leaf 1 first, which marks it, so it is drawn with
+    /// position 0 and not again with position 1 (B426, B261). Face 11 is opaque and joins no leaf's translucent runs.
     /// </remarks>
     [Test]
     public void BlendedByLeaf_AFaceInTwoLeaves_JoinsTheNearerOneOnly()
@@ -317,7 +317,9 @@ public sealed class VisibleWorldTests
             Leaves((0, 2), (2, 2)),
             FaceList(10, 11, 12, 10));
 
-        TranslucentLeafRuns runs = world.BlendedByLeaf([1, 2], default, static material => material == 5, default);
+        world.Surfaces([new WorldWalkStep(1, false, false), new WorldWalkStep(2, false, false)], 0f, 0f, 0f);
+
+        TranslucentLeafRuns runs = world.BlendedByLeaf(static material => material == 5);
 
         runs.LeafCount.ShouldBe(2);
         Faces(runs, 0).ShouldBe([0]);
@@ -338,7 +340,9 @@ public sealed class VisibleWorldTests
             Leaves((0, 2)),
             FaceList(20, 21));
 
-        TranslucentLeafRuns runs = world.BlendedByLeaf([1], default, static material => material == 5, default);
+        world.Surfaces([new WorldWalkStep(1, false, false)], 0f, 0f, 0f);
+
+        TranslucentLeafRuns runs = world.BlendedByLeaf(static material => material == 5);
 
         Faces(runs, 0).ShouldBe([3, 0]);
     }

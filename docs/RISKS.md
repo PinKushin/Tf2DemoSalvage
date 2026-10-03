@@ -9830,9 +9830,9 @@ entity after, and the leaves left over after the loop (`:4695`). Ported as `Tran
   front-to-back main-leaf list the opaque cull draws, rebuilt on the same view change. A translucent or additive
   face goes with the NEAREST visible leaf naming it; within a leaf, last face first, then displacements —
   `engine.dll` `0x1800e4fd0` (the `DrawTranslucentSurfaces` slot of `VEngineRenderView014`) walks a leaf's
-  surface list from its end and draws its displacements after. *Interpolated:* the engine's per-leaf list is
-  filled in its world-walk order, which the port does not have; the leaf's LEAFFACES order stands in. A
-  displacement goes to the nearest listed leaf its box touches.
+  surface list from its end and draws its displacements after. *Interpolated then:* the leaf's LEAFFACES order
+  stood in for the engine's walk order, and a displacement went to the nearest listed leaf its box touches —
+  both replaced by the walk itself under B261 (2026-10-03).
 - **Entity leaf**: `WorldCulling.PositionOf` → `BspLeafTree.NearestRank`, the nearest listed leaf the model's
   box touches (`ComputeTranslucentRenderLeaf`, `clientleafsystem.cpp:1400`). Entities are sorted by leaf place,
   then along the view within a leaf (`BuildRenderablesList`, `:1822-1834`) — `TranslucentOrder.Sort`.
@@ -9843,8 +9843,8 @@ the 3D-sky room's glass at literal size in the main view). Tests: `TranslucentIn
 `VisibleWorldTests.BlendedByLeaf_…`, `BspLeafTreeTests.NearestRank_…`, `TranslucentOrderTests.Sort_ANearer…`,
 `ScenePassOrderConformanceTests.DrawTranslucentRenderables_TheLeafInterleave_…`, and
 `TranslucentWorldOrderRenderTests.DrawTranslucentLeaf_…` (a translucent model behind world glass is covered, one
-in the glass's leaf is not). **Not done:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
-TF2 maps without water use group 0 only. (Translucent detail sprites in this walk were not done here either —
+in the glass's leaf is not). **Not done here:** the engine's four water sort groups (`0x1800e4fd0`'s outer loop) —
+ported later under B261. (Translucent detail sprites in this walk were not done here either —
 the grass was then drawn before the opaque models; B434 moved it into this walk.)
 
 **Not built.** The lighting point is the model path's `illumposition` point, not the lump's
@@ -19576,7 +19576,30 @@ negative share of a total containing it. The two loops touch memory differently 
 warm, so it measured the benchmark. It has been removed. What survives is what does not move between
 runs — the size of the record, and how many tracks are constant.
 
-## B261 — translucent world surfaces and translucent entities are not interleaved — OPEN
+## B261 — translucent world surfaces and translucent entities are not interleaved — FIXED 2026-10-03
+
+**Closed in two halves.** The interleave itself was built under B426 (2026-09-29, "The per-leaf interleave"):
+`TranslucentInterleave.Plan` from `Device3D`'s translucent pass, pinned by
+`TranslucentWorldOrderRenderTests.DrawTranslucentLeaf_…`, which draws a translucent model behind world glass and
+in its leaf. This entry was never closed. What B426 left *interpolated* — which leaf a translucent surface joins
+and its order there — is now read and ported: `R_DrawLeaf` (`0x1800df9d0`) appends its leaf to the world list
+first (`0x1800e8820`, +0x538/+0x548), and `R_DrawSurface` (`0x1800dfbb0`, `0x1800dfbe7`..`0x1800dfbfb`) and
+`0x1800db7b0` (`0x1800db8a0`) file a TRANS surface or displacement under entry `count − 1`. So a node surface goes
+with the last leaf of the near subtree, and a surface the walk does not draw (facing away, already marked) is
+never filed. `VisibleWorld.Surfaces` records each reached surface's and displacement's leaf place;
+`BlendedByLeaf` reads them (surfaces last first, then displacements in order, `0x1800e4fd0`), replacing the
+LEAFFACES-order filing and the displacements' `NearestRank`. Red c2cea438, green in the commit after; output
+level `TranslucentLeafRunsMapTests` on cp_process. Account: `docs/findings/70-…`.
+
+**The water sort groups, ported the same day** (`0x180104530` assigns, `0x180100b60` marks; overlays drawn group
+3 down to 0 by `0x1800e5e10`, a leaf's translucent surfaces group 0 up to 3 by `0x1800e4fd0`):
+`VisibleWorld.SortGroup`, `OverlayRenderLists.Order(…, sortGroup)`, `TranslucentLeafRuns.RunGroup`. Red 8002be29
+(compile failure), green in the commit after. The map test now files from an eye chosen so place 0 and a node
+face both hold glass (cp_process, in front of face 127: 19 filed, 1 at place 0, 15 on nodes) — the two sabotages
+that left it green before (place 0 dropped, node faces filed a leaf late) now redden it. Still ours, named in
+findings 70: the water views, world decals and opaque surfaces are not split by group.
+
+Original filing:
 
 Filed while fixing the outside audit's finding 2. The engine draws its translucent frame as ONE
 back-to-front walk: `DrawTranslucentRenderables` traverses the leaf list backwards and, per leaf,
@@ -34354,8 +34377,7 @@ displacement); fragments are one per face, the engine's one per face TRIANGLE (`
 never changes the order between overlays. A face with SURF_TRANS but an opaque material leaves the
 opaque overlay pass (engine) but is not in this renderer's translucent runs, which are chosen by
 material — its overlays would not draw; vbsp derives SURF_TRANS from the material, so this needs a
-material changed after compile. Sort groups (water-relative, `>>22 & 3`) are not modelled: every
-surface is group 0.
+material changed after compile. Sort groups (water-relative, `>>22 & 3`): ported 2026-10-03, see B261.
 
 ---
 

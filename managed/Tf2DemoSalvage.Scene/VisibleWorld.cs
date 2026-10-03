@@ -148,8 +148,6 @@ public sealed class VisibleWorld
             _faceSpans[_faceStart[face] + filled[face]++] = at;
         }
 
-        _claimed = new int[highest + 1];
-
         // **The engine's water bit** (0x180100b60): every surface of a leaf with a water data ID, except
         // displacements and warp faces (0x10800).
         _underwater = new bool[highest + 1];
@@ -200,49 +198,96 @@ public sealed class VisibleWorld
         }
 
         _leafDisplacements = [.. byLeaf.Where(list => list is not null).SelectMany(list => list)];
+
+        // **The water sort group** (0x180104530, at load). 0x180100b60 walks the tree, skips a leaf whose contents are
+        // exactly CONTENTS_SOLID, and ORs 0x20000 (a water leaf) or 0x40000 into every surface it lists other than a
+        // displacement or a water surface (0x10800), then into every displacement on its displacement list.
+        const int Wet = 1, Dry = 2;
+        byte[] water = new byte[highest + 1];
+
+        for (int leaf = 0; leaf < tree.LeafCount; leaf++)
+        {
+            if (tree.Contents(leaf) == SolidOnly)
+            {
+                continue;
+            }
+
+            byte bit = tree.WaterDataId(leaf) == -1 ? (byte)Dry : (byte)Wet;
+            (int first, int count) = tree.LeafFaces(leaf);
+
+            for (int entry = 0; entry < count; entry++)
+            {
+                int face = leafFaces.Face(first + entry);
+
+                if (Span(face) is { } span && span.Displacement < 0 && (span.Flags & SurfaceProperties.Warp) == 0)
+                {
+                    water[face] |= bit;
+                }
+            }
+
+            foreach (int at in byLeaf[leaf] ?? [])
+            {
+                water[spans[at].Face] |= bit;
+            }
+        }
+
+        // Then the group: a water surface 3, both bits 2, under water alone 1, anything else 0.
+        _sortGroup = new byte[highest + 1];
+
+        for (int at = 0; at < spans.Count; at++)
+        {
+            int face = spans[at].Face;
+
+            _sortGroup[face] = (spans[at].Flags & SurfaceProperties.Warp) != 0
+                ? (byte)3
+                : water[face] switch
+                {
+                    Wet | Dry => (byte)2,
+                    Wet => (byte)1,
+                    _ => (byte)0,
+                };
+        }
     }
+
+    /// <summary>A leaf's contents when it is solid and nothing else — the value <c>0x180100b60</c> skips.</summary>
+    private const int SolidOnly = 1;
+
+    private readonly byte[] _sortGroup;
+
+    /// <summary>A face's water sort group (<c>MAT_SORT_GROUP_*</c>, <c>ivrenderview.h:50</c>), as <c>0x180104530</c> assigns it.</summary>
+    /// <param name="face">The face.</param>
+    /// <returns>0 above water, 1 under water, 2 intersecting the water's surface, 3 the water surface; 0 for a face the
+    /// build dropped.</returns>
+    public int SortGroup(int face) => face >= 0 && face < _sortGroup.Length ? _sortGroup[face] : 0;
 
     private readonly int[] _faceStart;
     private readonly int[] _faceSpans;
 
-    /// <summary>Which blended gather last gave each face to a leaf — a frame number, as <see cref="_stamped"/> is.</summary>
-    private readonly int[] _claimed;
-
-    private int _claimFrame;
-
     private readonly List<WorldBatch> _blendedRuns = [];
     private readonly List<int> _blendedStarts = [];
-    private readonly List<(int Position, int Span)> _placedUnreachable = [];
 
-    /// <summary>The blended runs for one set of visible leaves, grouped by each leaf's place in that list.</summary>
-    /// <param name="leaves">Visible leaf indices, front to back, as <see cref="WorldVisibility.Leaves"/> returns.</param>
-    /// <param name="frustum">The view volume, for the surfaces no leaf names.</param>
+    /// <summary>The last <see cref="Surfaces"/> walk's translucent and additive runs, grouped by leaf place (B261).</summary>
     /// <param name="blended">Whether a material index is translucent or additive.</param>
-    /// <param name="positionByLeaf">Each leaf's place in <paramref name="leaves"/>, −1 when absent; for placing the surfaces no leaf names.</param>
-    /// <returns>The runs, valid until the next call.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="leaves"/> or <paramref name="blended"/> is null.</exception>
+    /// <param name="separate">Whether a face carries overlays, which <c>0x1800e4fd0</c> draws straight after that face
+    /// (B457), so its run is its own and names it; null for none.</param>
+    /// <returns>The runs, one group per leaf the walk reached, valid until the next call.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="blended"/> is null.</exception>
     /// <remarks>
     /// **Per leaf because the engine draws them per leaf** (<c>DrawTranslucentWorldAndDetailPropsInLeaves</c>,
     /// <c>viewrender.cpp:4313</c>), between the translucent entities (B426).
     ///
-    /// **A face goes with the NEAREST visible leaf naming it**, once. *Interpolated:* the engine adds a translucent
-    /// surface to a leaf's list while its world walk visits it, which this port does not reproduce; both put it on the
-    /// camera's side of the surface. **Within a leaf, the last face first**: <c>engine.dll</c> <c>0x1800e4fd0</c>
-    /// (<c>DrawTranslucentSurfaces</c>) draws a leaf's brush surfaces from the end of its list down, and its
-    /// displacements after them. The list here is the leaf's LEAFFACES order, not the engine's walk order —
-    /// *interpolated*. A displacement is placed in the nearest listed leaf its box touches, or the nearest leaf of
-    /// all when it touches none.
+    /// **A surface joins the leaf the walk is in when it reaches it** (B261). <c>R_DrawLeaf</c> (<c>0x1800df9d0</c>)
+    /// appends its leaf to the world list first (<c>0x1800e8820</c>), and <c>R_DrawSurface</c> (<c>0x1800dfbb0</c>)
+    /// appends a TRANS surface to the chain of list entry <c>count − 1</c> — as <c>0x1800db7b0</c> does a translucent
+    /// displacement. So a node surface goes with the last leaf of the near subtree, and a surface the walk does not
+    /// draw — facing away, already marked — joins no leaf. **Within a leaf, sort group by group, 0 to 3, and in each the
+    /// last surface first**, then the group's displacements in the order reached: <c>0x1800e4fd0</c>
+    /// (<c>DrawTranslucentSurfaces</c>), its outer loop over the group table <c>0x18038ea98</c>.
+    ///
+    /// A displacement whose box is out of view is left out, where the engine draws it; it is off screen either way.
     /// </remarks>
-    /// <param name="separate">Whether a face carries overlays, which <c>0x1800e4fd0</c> draws straight after that face
-    /// (B457), so its run is its own and names it; null for none.</param>
-    public TranslucentLeafRuns BlendedByLeaf(
-        IReadOnlyList<int> leaves,
-        ViewFrustum frustum,
-        Func<int, bool> blended,
-        ReadOnlySpan<int> positionByLeaf,
-        Func<int, bool>? separate = null)
+    public TranslucentLeafRuns BlendedByLeaf(Func<int, bool> blended, Func<int, bool>? separate = null)
     {
-        ArgumentNullException.ThrowIfNull(leaves);
         ArgumentNullException.ThrowIfNull(blended);
 
         _separate = separate;
@@ -250,61 +295,66 @@ public sealed class VisibleWorld
         _blendedStarts.Clear();
         _runFaces.Clear();
         _runDisplacement.Clear();
-        _placedUnreachable.Clear();
-        _claimFrame++;
+        _runGroup.Clear();
 
-        for (int at = 0; at < _unreachable.Length; at++)
-        {
-            WorldFaceSpan span = _spans[_unreachable[at]];
+        int surface = 0;
+        int displacement = 0;
 
-            if (!blended(span.MaterialIndex) ||
-                frustum.Cull(span.Min.X, span.Min.Y, span.Min.Z, span.Max.X, span.Max.Y, span.Max.Z))
-            {
-                continue;
-            }
-
-            int position = _tree.NearestRank(
-                span.Min.X, span.Min.Y, span.Min.Z, span.Max.X, span.Max.Y, span.Max.Z, positionByLeaf);
-
-            _placedUnreachable.Add((Math.Max(position, 0), _unreachable[at]));
-        }
-
-        _placedUnreachable.Sort();
-
-        int placed = 0;
-
-        for (int position = 0; position < leaves.Count; position++)
+        for (int place = 0; place < _walkLeaves; place++)
         {
             _blendedStarts.Add(_blendedRuns.Count);
 
-            (int first, int count) = _tree.LeafFaces(leaves[position]);
+            int first = surface;
+            int firstDisplacement = displacement;
 
-            for (int entry = count - 1; entry >= 0; entry--)
+            while (surface < _surfaces.Count && _surfacePlace[surface] == place)
             {
-                int face = _leafFaces.Face(first + entry);
-
-                if (face < 0 || face >= _claimed.Length || _claimed[face] == _claimFrame)
-                {
-                    continue;
-                }
-
-                _claimed[face] = _claimFrame;
-
-                for (int at = _faceStart[face]; at < _faceStart[face + 1]; at++)
-                {
-                    AddBlended(_faceSpans[at], blended, displacement: false);
-                }
+                surface++;
             }
 
-            for (; placed < _placedUnreachable.Count && _placedUnreachable[placed].Position == position; placed++)
+            while (displacement < _displacements.Count && _displacementPlace[displacement] == place)
             {
-                AddBlended(_placedUnreachable[placed].Span, blended, displacement: true);
+                displacement++;
+            }
+
+            // Group by group, 0 to 3 (0x1800e4fd0 walks the table 0x18038ea98 forwards).
+            for (int group = 0; group < SortGroups; group++)
+            {
+                for (int at = surface - 1; at >= first; at--)
+                {
+                    if (SortGroup(_surfaces[at]) == group)
+                    {
+                        AddFace(_surfaces[at], blended, isDisplacement: false);
+                    }
+                }
+
+                for (int at = firstDisplacement; at < displacement; at++)
+                {
+                    if (_displacements[at].InView && SortGroup(_displacements[at].Face) == group)
+                    {
+                        AddFace(_displacements[at].Face, blended, isDisplacement: true);
+                    }
+                }
             }
         }
 
         _blendedStarts.Add(_blendedRuns.Count);
 
-        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts, _runFaces, _runDisplacement);
+        return new TranslucentLeafRuns(_blendedRuns, _blendedStarts, _runFaces, _runDisplacement, _runGroup);
+    }
+
+    /// <summary>How many water sort groups there are — <c>MAX_MAT_SORT_GROUPS</c>, <c>ivrenderview.h:57</c>.</summary>
+    public const int SortGroups = 4;
+
+    private readonly List<int> _runGroup = [];
+
+    /// <summary>Appends every span of one face.</summary>
+    private void AddFace(int face, Func<int, bool> blended, bool isDisplacement)
+    {
+        for (int at = _faceStart[face]; at < _faceStart[face + 1]; at++)
+        {
+            AddBlended(_faceSpans[at], blended, isDisplacement);
+        }
     }
 
     private Func<int, bool>? _separate;
@@ -328,6 +378,8 @@ public sealed class VisibleWorld
         if (!own &&
             last >= _blendedStarts[^1] &&
             _runFaces[last] < 0 &&
+            _runGroup[last] == SortGroup(span.Face) &&
+            _runDisplacement[last] == displacement &&
             run.MaterialIndex == span.MaterialIndex &&
             run.Category == span.Category &&
             run.FirstVertex + run.VertexCount == span.FirstVertex)
@@ -340,6 +392,7 @@ public sealed class VisibleWorld
             span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category));
         _runFaces.Add(own ? span.Face : -1);
         _runDisplacement.Add(displacement);
+        _runGroup.Add(SortGroup(span.Face));
     }
 
     private readonly List<int> _surfaces = [];
@@ -388,6 +441,9 @@ public sealed class VisibleWorld
         _markFrame++;
         _surfaces.Clear();
         _displacements.Clear();
+        _surfacePlace.Clear();
+        _displacementPlace.Clear();
+        _walkLeaves = 0;
 
         foreach (WorldWalkStep step in walk)
         {
@@ -404,11 +460,15 @@ public sealed class VisibleWorld
                         (_underwater[face] || span.PlaneBack == step.EyeBehind))
                     {
                         _surfaces.Add(face);
+                        _surfacePlace.Add(_walkLeaves - 1);
                     }
                 }
 
                 continue;
             }
+
+            // The leaf joins the world list before anything it reaches (0x1800e8820, called first by R_DrawLeaf).
+            _walkLeaves++;
 
             for (int at = _leafDisplacementStart[step.Index]; at < _leafDisplacementStart[step.Index + 1]; at++)
             {
@@ -423,6 +483,7 @@ public sealed class VisibleWorld
                 _displacements.Add(new ReachedDisplacement(
                     terrain.Face,
                     !frustum.Cull(terrain.Min.X, terrain.Min.Y, terrain.Min.Z, terrain.Max.X, terrain.Max.Y, terrain.Max.Z)));
+                _displacementPlace.Add(_walkLeaves - 1);
             }
 
             (int first, int count) = _tree.LeafFaces(step.Index);
@@ -443,12 +504,22 @@ public sealed class VisibleWorld
                      (span.Plane.X * x) + (span.Plane.Y * y) + (span.Plane.Z * z) - span.Plane.Distance >= -0.01f))
                 {
                     _surfaces.Add(face);
+                    _surfacePlace.Add(_walkLeaves - 1);
                 }
             }
         }
 
         return _surfaces;
     }
+
+    /// <summary>Per reached surface, the place of the leaf the walk was in — its world-list entry (B261).</summary>
+    private readonly List<int> _surfacePlace = [];
+
+    /// <summary>Per reached displacement, the place of the leaf that reached it (B261).</summary>
+    private readonly List<int> _displacementPlace = [];
+
+    /// <summary>How many leaves the last walk drew — the engine's world-list count.</summary>
+    private int _walkLeaves;
 
     /// <summary>Per face, whether it lies in a water leaf — the engine's 0x20000 (<c>0x180100b60</c>).</summary>
     private readonly bool[] _underwater;

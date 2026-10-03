@@ -31,7 +31,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class SurfaceOrderConformanceTests
 {
-    private static WorldCulling Culling(int[]? leaf0Faces = null, bool leaf0Water = false, bool displacements = false)
+    private static WorldCulling Culling(
+        int[]? leaf0Faces = null, bool leaf0Water = false, bool displacements = false, bool leaf1Solid = false, int warp = -1)
     {
         byte[] node = new byte[32];
 
@@ -58,6 +59,7 @@ public sealed class SurfaceOrderConformanceTests
         BitConverter.TryWriteBytes(leaves.AsSpan(20), (ushort)0);
         BitConverter.TryWriteBytes(leaves.AsSpan(22), (ushort)first.Length);
         BitConverter.TryWriteBytes(leaves.AsSpan(28), (short)(leaf0Water ? 0 : -1));
+        BitConverter.TryWriteBytes(leaves.AsSpan(32), leaf1Solid ? 1 : 0);
         BitConverter.TryWriteBytes(leaves.AsSpan(32 + 20), (ushort)first.Length);
         BitConverter.TryWriteBytes(leaves.AsSpan(32 + 22), (ushort)3);
         BitConverter.TryWriteBytes(leaves.AsSpan(32 + 28), (short)-1);
@@ -70,7 +72,8 @@ public sealed class SurfaceOrderConformanceTests
         }
 
         WorldFaceSpan Span(int face, (float X, float Y, float Z, float Distance) plane, bool back, bool onNode) =>
-            new(face, face * 3, 3, face, SurfaceCategory.Brush, Plane: plane, PlaneBack: back, OnNode: onNode);
+            new(face, face * 3, 3, face, SurfaceCategory.Brush, Plane: plane, PlaneBack: back, OnNode: onNode,
+                Flags: face == warp ? SurfaceProperties.Warp : SurfaceProperties.None);
 
         WorldFaceSpan Displacement(int face, int index, float low, float high) =>
             new(face, face * 3, 3, face, SurfaceCategory.Terrain, (low, low, low), (high, high, high), Displacement: index);
@@ -133,8 +136,95 @@ public sealed class SurfaceOrderConformanceTests
 
         TranslucentLeafRuns runs = culling.BlendedRuns(_ => true, face => face == 7).ShouldNotBeNull();
 
-        // Leaf 1 first, its faces last-listed first (9, 7, 5); then leaf 0 (8, 6).
-        runs.RunFaces.ShouldBe([-1, 7, -1, -1, -1]);
+        // Leaf 1 first: 7, then node face 5, drawn last first (5, 7); then leaf 0: 8 (B261).
+        runs.RunFaces.ShouldBe([-1, 7, -1]);
+    }
+
+    /// <remarks>
+    /// **A translucent surface joins the leaf the walk is in when it reaches it** (B261). <c>R_DrawLeaf</c>
+    /// (<c>0x1800df9d0</c>) first appends the leaf to the world list (<c>0x1800e8820</c>: list at +0x538, count +0x548);
+    /// <c>R_DrawSurface</c> (<c>0x1800dfbb0</c>) appends a TRANS (0x20) surface to the translucent chain of list entry
+    /// <c>count − 1</c> (<c>0x1800dfbe7</c>..<c>0x1800dfbfb</c>), and <c>0x1800db7b0</c> does the same for a translucent
+    /// displacement (<c>0x1800db8a0</c>, chain +0x330). So a node surface, drawn between the node's children, goes with
+    /// the last leaf of the NEAR subtree; a face facing away is never reached; a face named by two leaves goes with
+    /// the first reached. <c>0x1800e4fd0</c> draws a leaf's surfaces from the end of its chain down
+    /// (<c>0x1800e5154</c>..<c>0x1800e52b1</c>), then its displacements in chain order (<c>0x1800e5328</c>..,
+    /// <c>0x1800c61f0</c>).
+    ///
+    /// From +x: leaf 1 (place 0) reaches displacements 21 then 20 and face 7 (9 faces away; 5 is a node face, only
+    /// marked); node face 5 joins place 0; leaf 0 (place 1) reaches 8 (6, a node face, was passed). The LEAFFACES
+    /// order would give place 0 faces 9, 7, 5 and place 1 faces 6, 8.
+    /// </remarks>
+    [Test]
+    public void BlendedRuns_FromTheFrontSide_AreTheWalksSurfacesInTheLeafReachingThem()
+    {
+        WorldCulling culling = Culling(displacements: true);
+
+        culling.Batches(1000f, 0f, 0f, default);
+
+        TranslucentLeafRuns runs = culling.BlendedRuns(_ => true).ShouldNotBeNull();
+
+        runs.LeafCount.ShouldBe(2);
+        First(runs, 0).ShouldBe([5 * 3, 7 * 3, 21 * 3, 20 * 3]);
+        First(runs, 1).ShouldBe([8 * 3]);
+        runs.RunDisplacement.ShouldBe([false, false, true, true, false]);
+    }
+
+    /// <remarks>
+    /// **The sort group** (<c>0x180104530</c>, at load): a water surface (0x10000) is group 3 (MAT_SORT_GROUP_WATERSURFACE,
+    /// <c>ivrenderview.h:55</c>); one carrying both 0x20000 and 0x40000 is 2 (INTERSECTS_WATER_SURFACE); 0x20000 alone is
+    /// 1 (STRICTLY_UNDERWATER); otherwise 0. <c>0x180100b60</c> walks the tree, skips a leaf whose contents are exactly 1
+    /// (CONTENTS_SOLID), and ORs 0x20000 (leaf water data ID not −1) or 0x40000 into each of the leaf's surfaces except
+    /// 0x10800 (displacement, water) — and into each displacement on the leaf's displacement list.
+    ///
+    /// Leaf 0 wet, listing 6, 8 and 5; leaf 1 dry, listing 5, 7, 9. Displacement 20 straddles both, 21 is in leaf 1.
+    /// </remarks>
+    [Test]
+    public void SortGroup_ByTheLeavesAFaceIsIn_IsAboveUnderOrIntersectingWater()
+    {
+        WorldCulling culling = Culling(leaf0Faces: [6, 8, 5], leaf0Water: true, displacements: true, warp: 9);
+
+        culling.SortGroup(7).ShouldBe(0);
+        culling.SortGroup(6).ShouldBe(1);
+        culling.SortGroup(5).ShouldBe(2);
+        culling.SortGroup(9).ShouldBe(3);
+        culling.SortGroup(20).ShouldBe(2);
+        culling.SortGroup(21).ShouldBe(0);
+    }
+
+    [Test]
+    public void SortGroup_ALeafWhoseContentsAreSolid_MarksNothing()
+    {
+        WorldCulling culling = Culling(leaf0Faces: [6, 8, 5], leaf0Water: true, leaf1Solid: true);
+
+        culling.SortGroup(5).ShouldBe(1);
+        culling.SortGroup(7).ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **A leaf's translucent surfaces draw group by group, 0 to 3** (<c>0x1800e4fd0</c>: the group table
+    /// <c>0x18038ea98</c> = {0, 1, 2, 3} walked forwards, <c>0x1800e5064</c>..<c>0x1800e54e7</c>), each group's surfaces
+    /// last first, then its displacements. From +x: place 0 reaches 7 (group 0), then node face 5 (group 2, drawn either
+    /// side being in a water leaf) — so 7 before 5, where the walk's reverse alone would draw 5 first.
+    /// </remarks>
+    [Test]
+    public void BlendedRuns_SurfacesOfTwoSortGroupsInOneLeaf_DrawTheLowerGroupFirst()
+    {
+        WorldCulling culling = Culling(leaf0Faces: [6, 8, 5], leaf0Water: true);
+
+        culling.Batches(1000f, 0f, 0f, default);
+
+        TranslucentLeafRuns runs = culling.BlendedRuns(_ => true).ShouldNotBeNull();
+
+        First(runs, 0).ShouldBe([7 * 3, 5 * 3]);
+        runs.RunGroup.ShouldBe([0, 2, 1]);
+    }
+
+    private static int[] First(TranslucentLeafRuns runs, int position)
+    {
+        (int first, int count) = runs.Leaf(position);
+
+        return [.. Enumerable.Range(first, count).Select(at => runs.Runs[at].FirstVertex)];
     }
 
     [Test]
