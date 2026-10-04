@@ -54,7 +54,7 @@ public sealed class TransportUiTests
         _viewer.Find(TransportBar.FasterButtonId).AsButton().Invoke();
 
         Retry.WhileFalse(
-            () => _viewer.Find(TransportBar.SpeedLabelId).Name == TransportBar.SpeedDescription(2),
+            () => speed.Name == TransportBar.SpeedDescription(2),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "The speed readout did not follow the faster button.");
@@ -73,14 +73,13 @@ public sealed class TransportUiTests
         // from one that ran to the end of the ladder — and it is why the off-by-one above sat in
         // the comment unnoticed.
         Retry.WhileFalse(
-            () => _viewer.Find(TransportBar.SpeedLabelId).Name ==
-                TransportBar.SpeedDescription(-0.5),
+            () => speed.Name == TransportBar.SpeedDescription(-0.5),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "The shuttle never reached −0.5x, five steps down from 2x.");
 
         TestContext.Out.WriteLine(
-            $"TRANSPORT speed reads '{_viewer.Find(TransportBar.SpeedLabelId).Name}'");
+            $"TRANSPORT speed reads '{speed.Name}'");
     }
 
     [Test]
@@ -171,7 +170,17 @@ public sealed class TransportUiTests
         // −4 −2 −1 −0.5 −0.25 0.25 0.5 1 2 4 8). So it proves two things at once: the slider spans
         // into reverse, and it reaches past the ladder. A speed the buttons could also produce would
         // pass whether or not the slider did anything.
-        string Readout() => _viewer.Find(TransportBar.SpeedLabelId).Name;
+        //
+        // **The label is found ONCE and its name polled, never re-found inside a poll.** This read
+        // `_viewer.Find(...).Name` on every poll, and `Find` walks the window's whole UIA tree — one
+        // cross-process round trip per element, each answered only between frames by the render
+        // loop. At CI's 14 frames a second that made each read take seconds (the test ran 27 s on a
+        // 5 s wait), and a single 3.3 s frame (`SLOW FRAME 3288 ms`, the only frame over a second in
+        // the run's 17 minutes) landed under one of those walks and failed it past UIA's 2 s
+        // connection timeout: `COMException 0x80131505` (UIA_E_TIMEOUT), run 37171375856. A cached
+        // element's name is one round trip.
+        AutomationElement label = _viewer.Find(TransportBar.SpeedLabelId);
+        string Readout() => label.Name;
 
         _viewer.Find(TransportBar.SpeedBarId).Focus();
         _viewer.PressKey(VirtualKeyShort.HOME);
@@ -188,7 +197,7 @@ public sealed class TransportUiTests
                 $"Home on the focused speed slider did not reach {TimeScale.From(-TimeScale.Fastest).Label()}; "
                 + $"the readout says '{Readout()}'.");
 
-        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+        Readout().ShouldBe(
             TimeScale.From(-TimeScale.Fastest).Description(),
             "the left end runs backwards at a speed no button offers");
 
@@ -197,13 +206,12 @@ public sealed class TransportUiTests
         _viewer.PressKey(VirtualKeyShort.END);
 
         Retry.WhileFalse(
-            () => _viewer.Find(TransportBar.SpeedLabelId).Name
-                == TimeScale.From(TimeScale.Fastest).Description(),
+            () => Readout() == TimeScale.From(TimeScale.Fastest).Description(),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage: "The slider's right end did not reach the fastest forward speed.");
 
-        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+        Readout().ShouldBe(
             TimeScale.From(TimeScale.Fastest).Description(),
             "and the right end runs forwards");
 
@@ -226,7 +234,9 @@ public sealed class TransportUiTests
         // `StepTo` can reach it without touching the slider.
         StepTo(4d);
 
-        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+        // Found once and polled, as the slider test above says why.
+        AutomationElement speed = _viewer.Find(TransportBar.SpeedLabelId);
+        speed.Name.ShouldBe(
             TimeScale.From(4d).Description(), "the precondition must differ from the assertion");
 
         // **Focus somewhere that is NOT the speed slider**, which keeps `HOME` for itself and is
@@ -237,14 +247,14 @@ public sealed class TransportUiTests
         _viewer.PressKey(VirtualKeyShort.HOME);
 
         Retry.WhileFalse(
-            () => _viewer.Find(TransportBar.SpeedLabelId).Name == TimeScale.From(1d).Description(),
+            () => speed.Name == TimeScale.From(1d).Description(),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage:
                 "Home did not return playback to normal speed; the readout says "
-                + $"'{_viewer.Find(TransportBar.SpeedLabelId).Name}'.");
+                + $"'{speed.Name}'.");
 
-        _viewer.Find(TransportBar.SpeedLabelId).Name.ShouldBe(
+        speed.Name.ShouldBe(
             TimeScale.From(1d).Description(),
             "normal is 1x, not the slider's minimum, which is 8x in reverse");
 
@@ -263,24 +273,28 @@ public sealed class TransportUiTests
     /// </remarks>
     private static void StepTo(double speed)
     {
+        // Each control found once, not once per press or poll (see the slider test).
+        Button slower = _viewer.Find(TransportBar.SlowerButtonId).AsButton();
+        Button faster = _viewer.Find(TransportBar.FasterButtonId).AsButton();
+        AutomationElement readout = _viewer.Find(TransportBar.SpeedLabelId);
+
         for (int press = 0; press < TimeScale.ShuttleStops.Length; press++)
         {
-            _viewer.Find(TransportBar.SlowerButtonId).AsButton().Invoke();
+            slower.Invoke();
         }
 
         for (int press = 0; press < Array.IndexOf(TimeScale.ShuttleStops, speed); press++)
         {
-            _viewer.Find(TransportBar.FasterButtonId).AsButton().Invoke();
+            faster.Invoke();
         }
 
         Retry.WhileFalse(
-            () => _viewer.Find(TransportBar.SpeedLabelId).Name
-                == TimeScale.From(speed).Description(),
+            () => readout.Name == TimeScale.From(speed).Description(),
             TimeSpan.FromSeconds(5),
             throwOnTimeout: true,
             timeoutMessage:
                 $"Could not step the shuttle to {TimeScale.From(speed).Label()}; the readout says "
-                + $"'{_viewer.Find(TransportBar.SpeedLabelId).Name}'.");
+                + $"'{readout.Name}'.");
     }
 
     /// <summary>Whether a tick readout says playback has reached the last tick.</summary>
