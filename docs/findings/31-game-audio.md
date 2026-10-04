@@ -988,3 +988,8 @@ is empty, so a proxy that follows a proxy copies whatever that proxy holds *at t
 if it activated first, or -1 and its own position keys if not. Which comes first is decided by an unstable-in-principle
 `qsort` over keys that do not separate soundscapes; lump order is the reading taken (B481). A proxy that finds no
 master is not discarded either: it stays in the contest at -1, and winning it means the client starts nothing.
+
+**Where an entity stands is the server's reading of its key, not ours.** An `origin` goes through
+`UTIL_StringToVector` — `atof` per field, missing fields zero — and an entity without one is at the world origin;
+a position target is the first entity of its name, wherever that is. This parsed three floats or nothing and skipped
+the rest (B482). No installed map exercises it; it is listed for the same reason as B480.
