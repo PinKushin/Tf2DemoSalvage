@@ -35171,6 +35171,28 @@ CarryTheTriggerablesSoundscape`, which reads each triggerable's `soundscape` key
 restored by the inverse edit: masters restricted to `env_soundscape`; a second activation pass (order ignored);
 masterless proxies skipped; triggerables placed — each reddened its tests.
 
+## B482 — an entity with no `origin` was skipped, a malformed one dropped, and a target was the first of its name WITH an origin — FIXED 2026-10-04
+
+**Read, published source.** `CBaseEntity::KeyValue` reads `origin` through `UTIL_StringToVector`
+(`baseentity_shared.cpp:427-430`): `atof` of each whitespace-separated field, a missing field zero
+(`util_shared.cpp:919-954`). An entity with no key stays at the world origin. `WriteAudioParamsTo` places a slot at
+`FindEntityByName( NULL, name, this, this )->GetAbsOrigin()` (`soundscape.cpp:222-226`) — the first entity of the name,
+wherever it is.
+
+`SoundscapePlacements` parsed an origin with `float.TryParse` on exactly three space-separated fields and treated
+anything else as absent: a soundscape without one, or with `"1 2"`, was not placed, and a position target took the
+first holder of the name that HAD an origin. Census, `soundscape-entities` probe: no installed map has a target or a
+soundscape entity without an origin, so this is the rule a third-party map meets.
+
+**Fix:** `Origin` is `UTIL_StringToVector` or the world origin; `Targets` takes the first entity of the name from the
+same first-by-name table the proxies use. Tests `From_APositionTargetWithNoOrigin_IsAtTheWorldOriginAndTheFirstOfIts
+NameWins` and `From_AnEntityWithNoOrMalformedOrigin_StandsWhereTheServerPutsIt`; sabotage — a target without an origin
+left unset, and a short origin dropped whole — reddened each, restored by the inverse edit.
+
+**Not changed, found here:** `m_flRadius` is a `FIELD_FLOAT` keyfield, `atof`'d (`saverestore_gamedll.cpp:56-58`), and
+`CEnvSoundscape`'s constructor never sets it; `Radius` reads a missing or unparseable key as -1, unlimited. What the
+engine's allocation leaves there was not read. The census found no soundscape entity without the key.
+
 ## B483 — an `env_soundscape_triggerable` contends by radius like any soundscape, and is never placed — OPEN 2026-10-04
 
 **Read, published source.** The triggerable is a `CEnvSoundscape` (`soundscape.h:93`), so its constructor lists it in

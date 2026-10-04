@@ -168,13 +168,12 @@ public sealed class SoundscapePlacements
             // `m_positionNames[i]` from it (`soundscape.cpp:52-54`), so the proxy's own never reach the player (B464).
             //
             // The triggerable is held, as a master, and not placed: its own place in the radius contest is B483.
-            //
-            // Stryker disable once : a mutant that empties the guard body leaves 'origin's fields
-            // unassigned (CS0170), and Safe Mode then drops every mutation in this method — B410.
-            if (!held.TryGetValue(entity, out Held soundscape) || IsTriggerable(entity) || Origin(entity) is not { } origin)
+            if (!held.TryGetValue(entity, out Held soundscape) || IsTriggerable(entity))
             {
                 continue;
             }
+
+            (float X, float Y, float Z) origin = Origin(entity);
 
             placements.Add(new SoundscapePlacement(
                 placements.Count,
@@ -184,7 +183,7 @@ public sealed class SoundscapePlacements
                 origin.Y,
                 origin.Z,
                 Radius(entity),
-                Targets(soundscape.PositionsFrom, entities),
+                Targets(soundscape.PositionsFrom, byTargetName),
 
                 // **The entity's own cluster, resolved once here.** The engine does the same at map
                 // load rather than per frame (`LevelInitPostEntity`), and there is no reason to
@@ -380,9 +379,13 @@ public sealed class SoundscapePlacements
     private static bool IsTriggerable(BspEntity entity) =>
         entity.ClassName.Equals("env_soundscape_triggerable", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>An entity's origin, or null when it declares none.</summary>
-    private static (float X, float Y, float Z)? Origin(BspEntity entity) =>
-        entity.TryGetValue("origin", out string origin) ? Vector(origin) : null;
+    /// <summary>Where the server puts an entity: its <c>origin</c> key through <see cref="StringToVector"/>, or the world origin.</summary>
+    /// <remarks>
+    /// `CBaseEntity::KeyValue` is the only thing that moves a map entity at spawn (`baseentity_shared.cpp:427-430`), so one
+    /// with no key stays where it was made — the origin — and is still an entity, still found by name and still placed.
+    /// </remarks>
+    private static (float X, float Y, float Z) Origin(BspEntity entity) =>
+        entity.TryGetValue("origin", out string origin) ? StringToVector(origin) : default;
 
     /// <summary>An entity's radius; -1, meaning unlimited, when it declares none.</summary>
     private static float Radius(BspEntity entity) =>
@@ -398,9 +401,10 @@ public sealed class SoundscapePlacements
     /// `"position" "3"` then plays at whatever entity `position3` named, which is how one soundscape
     /// scatters its loops across a whole map.
     ///
-    /// Resolved here against the same entity list, since the targets are ordinary map entities with
-    /// an origin. A name that resolves to nothing is skipped rather than defaulted: a sound placed
-    /// at the world origin would be audible from the wrong side of the map.
+    /// **The FIRST entity of the name, wherever it stands.** `FindEntityByName( NULL, m_positionNames[i], this, this )`
+    /// then `GetAbsOrigin()` (`soundscape.cpp:222-226`): a name nothing holds leaves the bit clear, and one held by an
+    /// entity with no `origin` key is at the world origin (B482). This took the first holder WITH an origin, and skipped
+    /// one without — no installed map names such a target, so it is the rule a third-party map meets.
     ///
     /// **Slot N stays at index N.** `audio.localBits |= 1&lt;&lt;i; audio.localSound.Set( i, ... )`
     /// (`soundscape.cpp:225-226`) — an unset or unresolved slot is a clear bit, not a removed entry. This appended only
@@ -408,44 +412,56 @@ public sealed class SoundscapePlacements
     /// them a loop played at another loop's target or not at all (B464).
     /// </remarks>
     private static (float X, float Y, float Z)?[] Targets(
-        BspEntity entity, IReadOnlyList<BspEntity> entities)
+        BspEntity entity, Dictionary<string, BspEntity> byTargetName)
     {
         (float X, float Y, float Z)?[] targets = new (float X, float Y, float Z)?[LocalSounds];
 
         for (int slot = 0; slot < LocalSounds; slot++)
         {
-            if (!entity.TryGetValue(
-                    $"position{slot.ToString(CultureInfo.InvariantCulture)}", out string named) ||
-                named.Length == 0)
+            if (entity.TryGetValue($"position{slot.ToString(CultureInfo.InvariantCulture)}", out string named) &&
+                named.Length > 0 &&
+                byTargetName.TryGetValue(named, out BspEntity? target))
             {
-                continue;
-            }
-
-            foreach (BspEntity candidate in entities)
-            {
-                if (candidate.TryGetValue("targetname", out string target) &&
-                    target.Equals(named, StringComparison.OrdinalIgnoreCase) &&
-                    Origin(candidate) is { } origin)
-                {
-                    targets[slot] = origin;
-                    break;
-                }
+                targets[slot] = Origin(target);
             }
         }
 
         return targets;
     }
 
-    /// <summary>Reads a Valve "x y z" triple.</summary>
-    private static (float X, float Y, float Z)? Vector(string text)
+    /// <summary><c>UTIL_StringToVector</c>: <c>atof</c> of each whitespace-separated field, a missing field zero.</summary>
+    /// <remarks>
+    /// <c>UTIL_StringToFloatArray( pVector, 3, ... )</c> (<c>util_shared.cpp:919-954</c>): fields are split at any byte up
+    /// to a space, each is <c>atof</c>'d into a float, and the loop stops at the end of the text, zeroing the rest.
+    /// *Not reproduced:* the copy into a 128-byte buffer first, which cuts a value past 127 characters.
+    /// </remarks>
+    private static (float X, float Y, float Z) StringToVector(string text)
     {
-        string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        Span<float> fields = stackalloc float[3];
+        int at = 0;
 
-        return parts.Length >= 3 &&
-            float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
-            float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
-            float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z)
-                ? (x, y, z)
-                : null;
+        for (int field = 0; field < fields.Length; field++)
+        {
+            while (at < text.Length && text[at] <= ' ')
+            {
+                at++;
+            }
+
+            int start = at;
+
+            while (at < text.Length && text[at] > ' ')
+            {
+                at++;
+            }
+
+            if (at == start)
+            {
+                break;
+            }
+
+            fields[field] = (float)CStdlib.Atof(text.AsSpan(start, at - start));
+        }
+
+        return (fields[0], fields[1], fields[2]);
     }
 }
