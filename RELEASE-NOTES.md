@@ -1,6 +1,14 @@
-# Tf2DemoSalvage 0.1.0-beta.17
+# Tf2DemoSalvage 0.1.0-beta.18
 
-## Changes since 0.1.0-beta.16
+## Changes since 0.1.0-beta.17
+
+- **Beams, ropes and sprite trails now draw:** spotlight shafts and other beams, the ropes and cables hung in maps
+  (sagging and swaying as in TF2), and projectile sprite trails as the ribbon the game draws rather than a single
+  sprite.
+- **`--measure` works with the frame-rate meter off:** the frame-rate log no longer goes silent when `cl_showfps`
+  is 0.
+
+## Changes in 0.1.0-beta.17
 
 - **No more footsteps while paused:** a paused demo, or moving the camera while paused, kept replaying the players'
   last footsteps every frame. Each footstep now plays once, when the animation reaches it, as in TF2.
@@ -200,6 +208,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Maps that ship their own ambience script play no ambience**, koth_lazarus among them (B465).
+- **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
 - **The 3D skybox is drawn without its scale transform** (B152).
