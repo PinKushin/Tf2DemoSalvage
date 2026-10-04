@@ -9496,3 +9496,18 @@ quotes the Source SDK 2013 in its comments and disassembles the shipped binaries
 the parity rule (D89) requires. The phrase was the owner's own early wording, carried into the README and ROADMAP.
 Owner: *"yea fix the readme wording"* — the README now says what the sources actually are: the published SDK, the
 game's shipped data and disassembly of the shipped binaries, never leaked source, and no Valve assets distributed (D9).
+
+---
+
+## D208 — an online viewer is on the roadmap, built from this codebase, after viewer parity (2026-10-03)
+
+Prompted by a dribble.tf user asking how this compares. The owner first said *"its a roadmap item after i get full
+valve parity in the 3d viewer, and maybe even after video editing and export capability, but idk"*, then, asked
+whether that was a decision: *"write it in, is is a roadmap item, i wanted to match rusts capabilities and hopefully be
+faster and better because rust is simply put not the right language for this type project, it requires a lot of
+workarounds for mutability and wrong base assumptions built into the language design."*
+
+So: an online viewer matching what dribble.tf does on demos.tf's Rust parser is a roadmap item (`ROADMAP.md` §3),
+ordered after full Valve parity in the 3D viewer and possibly after video editing and export. It is built on this
+project's C# decoder, never by adopting the Rust parser; the standing no-Rust constraint (CLAUDE.md) now carries the
+owner's reason above.
