@@ -304,19 +304,21 @@ public sealed class SoundscapeEntityConformanceTests
     /// here rather than through the placement. Both maps leave gaps — ctf_well sets 1, 2 and 4, mvm_mannworks 1 and 2 —
     /// and compacted, a loop at `position 1` played at `position2`'s target and the last one was suppressed.
     ///
-    /// Not koth_lazarus, the census's other example: its soundscapes live in the map's own pakfile script, which the
-    /// viewer does not load at all (B465), so every placement there is index -1.
+    /// koth_lazarus, the census's other example, keeps its soundscapes in the map's own pakfile script, so its catalog is
+    /// the one the level loads — through the pakfile first (B465).
     /// </remarks>
     /// <param name="map">The installed map.</param>
     [TestCase("ctf_well")]
     [TestCase("mvm_mannworks")]
+    [TestCase("koth_lazarus")]
     public void MoveTo_AShippedMapsPositionedSoundscapes_PlayEachLoopAtTheTargetItsSlotNames(string map)
     {
-        string bsp = Tf2DemoSalvage.SdkReference.GameInstall.RequireFile($"maps/{map}.bsp");
-        SoundscapeCatalog catalog = SoundscapeCatalog.Load(
+        byte[] bytes = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile($"maps/{map}.bsp"));
+        SoundscapeCatalog catalog = SoundscapeCatalog.ForLevel(
+            Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bytes),
             Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
             map);
-        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(System.IO.File.ReadAllBytes(bsp));
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bytes);
         SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
 
         int heardAtTheirSlots = 0;
@@ -386,18 +388,70 @@ public sealed class SoundscapeEntityConformanceTests
     }
 
     /// <remarks>
+    /// **The output-level check for B465, on the map the census found it on.** <c>C_SoundscapeSystem::LevelInitPreEntity</c>
+    /// re-runs <c>Init</c> for every level (<c>c_soundscape.cpp:99-102</c>), and <c>Init</c> appends
+    /// <c>scripts/soundscapes_&lt;map&gt;.txt</c> after the manifest's files when the manifest did not name it
+    /// (<c>:306-336</c>), read through the filesystem — where the map's own pakfile is mounted ahead of the game's
+    /// archives. koth_lazarus ships its soundscapes only there, so through the install alone every placement naming one
+    /// is index -1 (the control), and through the level's reader each names the entry of its own name, after every stock
+    /// one, and starts that entry's loops.
+    /// </remarks>
+    [Test]
+    public void ForLevel_KothLazarus_ResolvesItsOwnSoundscapesFromItsPakfile()
+    {
+        byte[] bsp = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/koth_lazarus.bsp"));
+        System.Func<string, byte[]?> install =
+            Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read;
+        Tf2DemoSalvage.Content.Assets.PakFile pak = Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bsp);
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bsp);
+
+        pak.Contains("scripts/soundscapes_koth_lazarus.txt").ShouldBeTrue("the census: the map ships its own script");
+        install("scripts/soundscapes_koth_lazarus.txt").ShouldBeNull("and the install does not");
+
+        SoundscapeCatalog stock = SoundscapeCatalog.Load(install, "koth_lazarus");
+        SoundscapeCatalog level = SoundscapeCatalog.ForLevel(pak, install, "koth_lazarus");
+
+        List<SoundscapePlacement> own = [.. SoundscapePlacements.From(entities, stock).Placements
+            .Where(placement => placement.Name.StartsWith("Lazarus.", System.StringComparison.OrdinalIgnoreCase))];
+
+        own.ShouldNotBeEmpty("the control: koth_lazarus places soundscapes of its own");
+        own.ShouldAllBe(placement => placement.Index == -1, "through the install alone none of them resolves");
+
+        int checkedPlacements = 0;
+
+        foreach (SoundscapePlacement placement in SoundscapePlacements.From(entities, level).Placements
+                     .Where(placement => placement.Name.StartsWith("Lazarus.", System.StringComparison.OrdinalIgnoreCase)))
+        {
+            Soundscape script = level.At(placement.Index).ShouldNotBeNull($"{placement.Name} resolves");
+
+            script.Name.ShouldBe(placement.Name, System.StringComparer.OrdinalIgnoreCase);
+            placement.Index.ShouldBeGreaterThanOrEqualTo(stock.Count, "the map's file is appended after the manifest's");
+
+            SoundscapeMixer mixer = new();
+            mixer.MoveTo(placement, script);
+            mixer.Advance(0f).ShouldNotBeEmpty($"{placement.Name} starts its loops");
+
+            checkedPlacements++;
+        }
+
+        checkedPlacements.ShouldBe(own.Count);
+    }
+
+    /// <remarks>
     /// **The output-level check for a triggerable master, on the map that has the most**: pl_venice's 39 proxies of an
     /// `env_soundscape_triggerable` were dropped, so a listener near one heard whatever the last ordinary soundscape left.
-    /// Each must now carry its triggerable's soundscape — read straight from the lump here, not through the placement.
+    /// Each must now carry its triggerable's soundscape — read straight from the lump here, not through the placement —
+    /// and, the map's own script read through its pakfile as the level loads it (B465), start that soundscape's loops.
     /// </remarks>
     [Test]
     public void From_PlVenicesProxiesOfATriggerable_CarryTheTriggerablesSoundscape()
     {
-        string bsp = Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/pl_venice.bsp");
-        SoundscapeCatalog catalog = SoundscapeCatalog.Load(
+        byte[] bytes = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/pl_venice.bsp"));
+        SoundscapeCatalog catalog = SoundscapeCatalog.ForLevel(
+            Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bytes),
             Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
             "pl_venice");
-        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(System.IO.File.ReadAllBytes(bsp));
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bytes);
         SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
 
         int checkedProxies = 0;
@@ -420,6 +474,11 @@ public sealed class SoundscapeEntityConformanceTests
                 .Single(placement => (placement.X, placement.Y, placement.Z) == at);
 
             placed.Name.ShouldBe(soundscape, $"the proxy at {at} names {master}");
+            catalog.At(placed.Index).ShouldNotBeNull().Name.ShouldBe(soundscape, System.StringComparer.OrdinalIgnoreCase);
+
+            SoundscapeMixer mixer = new();
+            mixer.MoveTo(placed, catalog.At(placed.Index));
+            mixer.Advance(0f).ShouldNotBeEmpty($"{soundscape} starts its loops");
 
             checkedProxies++;
         }
