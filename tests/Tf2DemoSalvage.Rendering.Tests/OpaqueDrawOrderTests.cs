@@ -43,24 +43,66 @@ public sealed class OpaqueDrawOrderTests
     private static ModelInstance Sized(string name, float side) =>
         new(name, Identity(), null, null, WorldBounds: Cube(side));
 
-    /// <summary>That the buffered form, reused across frames, keeps nothing from the frame before.</summary>
+    /// <summary>A scene collated as the device collates a map that cannot be culled: every renderable in one leaf.</summary>
     /// <remarks>
-    /// **The device reuses one pair of lists every frame**, so a missing clear would draw last
-    /// frame's models again. The second scene is smaller and in a different order, so a leftover
-    /// entry or a leftover key both change the answer.
+    /// **`OpaqueBuckets.InDrawOrder` is gone** (B262) — the buckets arrive filled from
+    /// <see cref="ClientLeafSystem.BuildRenderablesList"/>. These assertions are the old ones, unchanged, asked of
+    /// the collation that replaced the sort.
+    /// </remarks>
+    private static List<ModelInstance> InDrawOrder(
+        IReadOnlyList<ModelInstance> scene, ViewFrustum frustum = default, ClientLeafSystem? system = null)
+    {
+        system ??= OneLeaf();
+        Dictionary<int, ModelInstance> byHandle = [];
+
+        foreach (ModelInstance instance in scene)
+        {
+            byHandle[system.AddRenderable(instance.WorldBounds)] = instance;
+        }
+
+        system.PreRender();
+
+        CollatedRenderables collated = new();
+        system.BuildRenderablesList([0], frustum, static _ => LeafRenderGroup.Opaque, collated);
+
+        return
+        [
+            .. Enumerable.Range(0, ClientLeafSystem.BucketCount)
+                .SelectMany(collated.Opaque)
+                .Select(entry => byHandle[entry.Handle]),
+        ];
+    }
+
+    private static ClientLeafSystem OneLeaf() => new(1, static (_, _, into) => into.Add(0));
+
+    /// <summary>That one collated list, reused across frames, keeps nothing from the frame before.</summary>
+    /// <remarks>
+    /// **The device reuses one <see cref="CollatedRenderables"/> every frame**, so a missing clear would draw last
+    /// frame's models again; and it removes what the scene no longer holds, so a leaf left holding one would too.
     /// </remarks>
     [Test]
-    public void InDrawOrder_WithBuffersReusedForASecondScene_HoldsOnlyTheSecondScene()
+    public void BuildRenderablesList_ReusedAfterTheFirstSceneIsRemoved_HoldsOnlyTheSecondScene()
     {
-        List<(int Bucket, int Order, ModelInstance Instance)> keyed = [];
-        List<ModelInstance> ordered = [];
+        ClientLeafSystem system = OneLeaf();
+        CollatedRenderables collated = new();
+        int[] first = [system.AddRenderable(Cube(10f)), system.AddRenderable(Cube(50f)), system.AddRenderable(Cube(400f))];
+        system.PreRender();
+        system.BuildRenderablesList([0], default, static _ => LeafRenderGroup.Opaque, collated);
 
-        OpaqueBuckets.InDrawOrder(
-            [Sized("tiny", 10f), Sized("crate", 50f), Sized("tree", 400f)], default, keyed, ordered);
+        foreach (int handle in first)
+        {
+            system.RemoveRenderable(handle);
+        }
 
-        OpaqueBuckets.InDrawOrder([Sized("small", 10f), Sized("big", 100f)], default, keyed, ordered);
+        int small = system.AddRenderable(Cube(10f));
+        int big = system.AddRenderable(Cube(100f));
+        system.PreRender();
+        system.BuildRenderablesList([0], default, static _ => LeafRenderGroup.Opaque, collated);
 
-        ordered.Select(instance => instance.ModelPath).ShouldBe(["big", "small"]);
+        Enumerable.Range(0, ClientLeafSystem.BucketCount)
+            .SelectMany(collated.Opaque)
+            .Select(entry => entry.Handle)
+            .ShouldBe([big, small]);
     }
 
     /// <summary>That the biggest bucket is drawn first and the smallest last.</summary>
@@ -73,7 +115,7 @@ public sealed class OpaqueDrawOrderTests
     /// everything-below, with no value near 200, 80 or 30.
     /// </remarks>
     [Test]
-    public void InDrawOrder_WithAModelInEveryBucket_DrawsTheBiggestFirst()
+    public void BuildRenderablesList_WithAModelInEveryBucket_DrawsTheBiggestFirst()
     {
         ModelInstance[] scene =
         [
@@ -83,7 +125,7 @@ public sealed class OpaqueDrawOrderTests
             Sized("tree", 400f),
         ];
 
-        OpaqueBuckets.InDrawOrder(scene)
+        InDrawOrder(scene)
             .Select(instance => instance.ModelPath)
             .ShouldBe(["tree", "player", "crate", "tiny"]);
     }
@@ -106,13 +148,13 @@ public sealed class OpaqueDrawOrderTests
     /// tiebreak removed, this fails.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForModelsSharingABucket_KeepsTheOrderTheSceneGave()
+    public void BuildRenderablesList_ForModelsSharingABucket_KeepsTheOrderTheSceneGave()
     {
         string[] names = [.. Enumerable.Range(0, 24).Select(at => $"model{at:00}")];
 
         ModelInstance[] scene = [.. names.Select(name => Sized(name, 100f))];
 
-        OpaqueBuckets.InDrawOrder(scene)
+        InDrawOrder(scene)
             .Select(instance => instance.ModelPath)
             .ShouldBe(names);
     }
@@ -128,7 +170,7 @@ public sealed class OpaqueDrawOrderTests
     /// a tree, so it is "player" (bucket 1) and is drawn first.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForOneModelAtTwoSizes_BucketsThemApart()
+    public void BuildRenderablesList_ForOneModelAtTwoSizes_BucketsThemApart()
     {
         ModelInstance[] scene =
         [
@@ -136,7 +178,7 @@ public sealed class OpaqueDrawOrderTests
             new("crate", Identity(), null, null, WorldBounds: Cube(180f)),
         ];
 
-        OpaqueBuckets.InDrawOrder(scene)
+        InDrawOrder(scene)
             .Select(instance => instance.WorldBounds.MaxX)
             .ShouldBe([90f, 30f]);
     }
@@ -150,7 +192,7 @@ public sealed class OpaqueDrawOrderTests
     /// <see cref="ModelBoundsWiringTests"/> asserts on a model loaded the way the viewer loads one.
     /// </remarks>
     [Test]
-    public void InDrawOrder_WhenNoBoundsWereSet_LeavesTheOrderAlone()
+    public void BuildRenderablesList_WhenNoBoundsWereSet_LeavesTheOrderAlone()
     {
         ModelInstance[] scene =
         [
@@ -159,7 +201,7 @@ public sealed class OpaqueDrawOrderTests
             new("third", Identity(), null, null),
         ];
 
-        OpaqueBuckets.InDrawOrder(scene)
+        InDrawOrder(scene)
             .Select(instance => instance.ModelPath)
             .ShouldBe(["first", "second", "third"]);
     }
@@ -175,7 +217,7 @@ public sealed class OpaqueDrawOrderTests
     /// The frustum looks down +X from the origin; the two models sit 200 units ahead and behind.
     /// </remarks>
     [Test]
-    public void InDrawOrder_WithAModelBehindTheCamera_DropsIt()
+    public void BuildRenderablesList_WithAModelBehindTheCamera_DropsIt()
     {
         ModelInstance[] scene =
         [
@@ -183,7 +225,7 @@ public sealed class OpaqueDrawOrderTests
             Placed("behind", -200f),
         ];
 
-        OpaqueBuckets.InDrawOrder(scene, Looking())
+        InDrawOrder(scene, Looking())
             .Select(instance => instance.ModelPath)
             .ShouldBe(["ahead"]);
     }
@@ -201,11 +243,11 @@ public sealed class OpaqueDrawOrderTests
     /// point-tested it is culled, and it must not be.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForAModelWithNoBounds_DrawsItRatherThanPointTestingIt()
+    public void BuildRenderablesList_ForAModelWithNoBounds_DrawsItRatherThanPointTestingIt()
     {
         ModelInstance[] scene = [new("boundless", Identity(), null, null)];
 
-        OpaqueBuckets.InDrawOrder(scene, LookingAwayFromTheOrigin())
+        InDrawOrder(scene, LookingAwayFromTheOrigin())
             .Select(instance => instance.ModelPath)
             .ShouldBe(["boundless"]);
     }
@@ -216,11 +258,11 @@ public sealed class OpaqueDrawOrderTests
     /// anything at the origin at all.
     /// </remarks>
     [Test]
-    public void InDrawOrder_ForAModelWithBoundsBehindTheCamera_StillDropsIt()
+    public void BuildRenderablesList_ForAModelWithBoundsBehindTheCamera_StillDropsIt()
     {
         ModelInstance[] scene = [new("solid", Identity(), null, null, WorldBounds: Cube(50f))];
 
-        OpaqueBuckets.InDrawOrder(scene, LookingAwayFromTheOrigin()).ShouldBeEmpty();
+        InDrawOrder(scene, LookingAwayFromTheOrigin()).ShouldBeEmpty();
     }
 
     /// <summary>A camera 200 units along +X looking further along it, so the origin is behind.</summary>
@@ -241,7 +283,7 @@ public sealed class OpaqueDrawOrderTests
     /// "the cull works" and "the list was emptied for some other reason" look identical.
     /// </remarks>
     [Test]
-    public void InDrawOrder_WithNoFrustum_KeepsWhatIsBehindTheCamera()
+    public void BuildRenderablesList_WithNoFrustum_KeepsWhatIsBehindTheCamera()
     {
         ModelInstance[] scene =
         [
@@ -249,7 +291,7 @@ public sealed class OpaqueDrawOrderTests
             Placed("behind", -200f),
         ];
 
-        OpaqueBuckets.InDrawOrder(scene).Count.ShouldBe(2);
+        InDrawOrder(scene).Count.ShouldBe(2);
     }
 
     /// <summary>A camera at the origin looking down +X.</summary>
@@ -269,8 +311,9 @@ public sealed class OpaqueDrawOrderTests
         new(name, Identity(), null, null, WorldBounds: Cube(50f, x));
 
     [Test]
-    public void InDrawOrder_ForNull_Throws()
+    public void BuildRenderablesList_ForNullLeaves_Throws()
     {
-        Should.Throw<ArgumentNullException>(() => OpaqueBuckets.InDrawOrder(null!));
+        Should.Throw<ArgumentNullException>(
+            () => OneLeaf().BuildRenderablesList(null!, default, static _ => LeafRenderGroup.Opaque, new CollatedRenderables()));
     }
 }

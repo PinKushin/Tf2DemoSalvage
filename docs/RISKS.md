@@ -19657,7 +19657,44 @@ in front of it draw in the same order either way. Noticing the difference needs 
 translucent brush surface overlapping on screen, which is why it has not been seen yet — the fix is
 per-leaf grouping of the translucent draw, which is the leaf-walk structure D131 already names.
 
-## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — OPEN
+## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — DRAW SIDE FIXED 2026-10-04, SCENE SIDE OPEN
+
+**The draw side is now `CClientLeafSystem`'s shape.** `ClientLeafSystem` (Scene) keeps renderables in the leaves
+their box touches across frames and re-links only what moved (`PreRender`, `clientleafsystem.cpp:528`, with the
+backwards insert at `:557` and the head insert at `utlbidirectionalset.h:205-208`). It collates the view's
+`WorldCulling.MainLeaves` in order (`BuildRenderablesList`, `:1813`), culls once and asks the render group once per
+renderable (`:1607-1694`), and fills the size buckets and the translucent list as it goes. Device3D draws the
+buckets and no longer sorts. Gone: `OpaqueBuckets.InDrawOrder` (the second cull, measured inert at 152 of 152, and
+the comparison sort), the translucent pass's own `Culled` and `Classify` loop, and `TranslucentLeaf`'s per-frame
+`PositionOf`. Boxes are linked by `BspLeafTree.EnumerateLeavesInBox`, a port of `bsplib.cpp:3461`. Conformance:
+`ClientLeafSystemConformanceTests` (red e65beec3). Output level: `ClientLeafSystemMapTests` on cp_process, which
+matches the old walk's reached set and translucent places exactly when no box face lies on a node plane. Account:
+`docs/findings/72-…`.
+
+**Where it now differs from the old walk, deliberately (the engine's structure says so):**
+
+- Within a bucket, models are in collation order (leaves front to back, then each leaf's link order), not scene
+  order.
+- A two-pass model's solid half is in the last bucket (`RENDER_GROUP_OPAQUE_ENTITY`, `:1710-1713`), not its size's.
+- A box touching a node plane is in both sides' leaves (`TEST_EPSILON`, `bsplib.cpp:3403`).
+- A translucent model whose box reaches no listed main leaf is not drawn. Before, it went to place 0.
+- A model visible only through sky-room leaves is not drawn in the main view. Before, `EntityModels`' visibility
+  test counted sky leaves as visible and the main view drew it at its literal size. Whether the sky pass should draw
+  entities is unexamined.
+
+**Still not established:**
+
+- **The scene side.** `EntityModels.Culls` still walks every prop each frame against the frustum and the visible
+  leaves before posing (B254/B258 pin it). The engine has one cull, at collation. Registration should move upstream
+  of posing, so that only collated renderables are posed. That is D131's remaining half.
+- **Interpolated:** that the engine's closed `ISpatialQuery::EnumerateLeavesInBox` uses the tools copy's 1/32 rule.
+  It has not been disassembled.
+- The render group is asked every frame rather than cached on the handle and changed by `ComputeFxBlend`. The
+  answer is the same; the cost is not the engine's.
+- Before any view walk has listed leaves, every leaf is listed. A walk that genuinely lists none, such as a camera
+  in solid, is treated the same way.
+
+Original filing:
 
 The outside audit's findings 4, 5 and 7, filed together because they are one divergence: Valve
 builds its render buckets DURING leaf collation and the draw consumes them

@@ -1326,38 +1326,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     drawn = _allModels;
                 }
 
-                OpaqueBuckets.InDrawOrder(drawn, _frustum, _opaqueKeys, _opaqueOrder);
+                // **Collated, not filtered** (B262): `BuildRenderablesList` over the view's leaves hands back
+                // the opaque buckets already filled, culled once and classified once. See ClientLeafSystem.
+                CollateRenderables(drawn);
 
-                List<ModelInstance> opaque = _opaqueOrder;
+                ReportDrawOrder(models, _collatedInstances);
 
-                ReportDrawOrder(models, opaque);
-
-                foreach (ModelInstance instance in opaque)
+                // Biggest bucket first, each in collation order (`viewrender.cpp:4188`).
+                for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
                 {
-                    // **Which lists this model joins, and whether it is split** — Valve's
-                    // GetRenderGroup and CollateRenderablesInLeaf, in RenderGroups. A model with no
-                    // blended material joins this list alone and draws WHOLE; one with blended
-                    // materials joins this list only if it declared $mostlyopaque, and then only its
-                    // solid half is drawn here.
-                    (bool joinsOpaque, _, bool twoPass) = Classify(instance);
-
-                    if (!joinsOpaque)
+                    foreach ((int handle, int _) in _collated.Opaque(bucket))
                     {
-                        continue;
-                    }
-
-                    ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
-
-                    DrawInstance(instance, twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel);
-
-                    // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
-                    // model's decal meshes after its own (B415).
-                    if (instance.EntityIndex > 0 &&
-                        ModelDecals?.For(instance.EntityIndex) is { } decals)
-                    {
-                        _world.DrawModelDecals(
-                            _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0);
-                        _context.OMSetDepthStencilState(_depthOn, 0);
+                        DrawOpaqueRenderable(handle);
                     }
                 }
 
@@ -1403,33 +1383,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // survivors, sorts them the same way, and walks them the same way.
                 _translucentDraw.Clear();
 
-                // **`drawn`, not `models`** — a detail model mid-fade is a translucent renderable
-                // (`IsTransparent()` is `(m_Alpha < 255) || …`), so the same concatenated list has
-                // to reach this pass or a fading one would simply vanish (B363).
-                foreach (ModelInstance instance in drawn)
+                // **The collated translucent group** (B262): culled and classified once with the opaque
+                // buckets, each at its nearest listed leaf (`ComputeTranslucentRenderLeaf`). Detail models
+                // are in it too — a detail model mid-fade is translucent (B363).
+                foreach ((int handle, int place, bool _) in _collated.Translucent)
                 {
-                    // Culled with the same frustum as the opaque pass: the engine culls in the
-                    // leaf system before it splits opaque from translucent, so both passes see
-                    // the same visible set.
-                    if (Culled(instance))
-                    {
-                        continue;
-                    }
-
-                    // **The other half of the same decision.** A model with no blended material is
-                    // absent from this pass entirely — it was drawn whole above — where before every
-                    // model was walked here and filtered batch by batch to nothing.
-                    (_, bool joinsTranslucent, bool twoPass) = Classify(instance);
-
-                    if (!joinsTranslucent)
-                    {
-                        continue;
-                    }
+                    ModelInstance instance = _byHandle[handle];
 
                     _translucentDraw.Add((
-                        worldLeaves is null ? 0 : TranslucentLeaf(instance),
+                        worldLeaves is null ? 0 : place,
                         TranslucentOrder.Along(instance, _translucentEye, _translucentForward),
-                        (instance, twoPass)));
+                        (instance, _classOf[handle].TwoPass)));
                 }
 
                 // Sorted within each leaf, leaves in list order; with no leaves every model is in place 0.
@@ -2448,6 +2412,21 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _culling = culling;
         _reportedWorldCull = false;
 
+        // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
+        _handleOf.Clear();
+
+        if (culling is { CanCull: true })
+        {
+            BspLeafTree tree = culling.Tree;
+            _leafSystem = new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox);
+            _everyLeaf = [.. System.Linq.Enumerable.Range(0, tree.LeafCount)];
+        }
+        else
+        {
+            _leafSystem = OneLeaf();
+            _everyLeaf = [];
+        }
+
         if (_world is not null)
         {
             _world.VisibleBatches = null;
@@ -2921,11 +2900,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Models already reported on, so the log carries one line each.</summary>
     private readonly HashSet<(string Model, int Body, int Frame)> _reportedBodies = [];
 
-    /// <summary>The opaque pass's sort keys, reused across frames.</summary>
-    private readonly List<(int Bucket, int Order, ModelInstance Instance)> _opaqueKeys = [];
-
-    /// <summary>The opaque pass's draw order, reused across frames.</summary>
-    private readonly List<ModelInstance> _opaqueOrder = [];
 
     /// <summary>Whether the repeated-model census has been written.</summary>
     private bool _reportedRepeats;
@@ -3061,26 +3035,6 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         // The sprite pass owns its state; the models' depth state goes back after it, as after a world leaf.
         _context.OMSetDepthStencilState(_depthReadOnly, 0);
-    }
-
-    /// <summary>A translucent model's leaf place — <c>m_iWorldListInfoLeaf</c>, the nearest listed leaf it touches.</summary>
-    /// <param name="instance">The model.</param>
-    /// <returns>Its place, or 0 (drawn after every leaf's surfaces) when it has no box or touches no listed leaf.</returns>
-    /// <remarks>
-    /// <c>ComputeTranslucentRenderLeaf</c> (<c>clientleafsystem.cpp:1400</c>). The engine's list only ever holds an
-    /// entity in a visible leaf; a model this port keeps without one — no bounds, which is never culled — goes with
-    /// the nearest leaf, where every translucent model went before the interleave (B426).
-    /// </remarks>
-    private int TranslucentLeaf(ModelInstance instance)
-    {
-        if (_culling is not { } culling || !WorldSpaceBounds.IsPlaced(instance.WorldBounds))
-        {
-            return 0;
-        }
-
-        (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = instance.WorldBounds;
-
-        return Math.Max(culling.PositionOf(minX, minY, minZ, maxX, maxY, maxZ), 0);
     }
 
     /// <summary>The view the current visible set was computed for, so a still camera pays nothing.</summary>
@@ -3233,28 +3187,154 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
     }
 
-    /// <summary>Whether this instance lies entirely outside the view.</summary>
-    /// <param name="instance">The model about to be drawn.</param>
-    /// <returns>True when nothing of it can be seen.</returns>
+    /// <summary>The leaf system for the current map, or one leaf holding everything when it cannot be culled.</summary>
+    private ClientLeafSystem _leafSystem = OneLeaf();
+
+    /// <summary>Every leaf of a tree, for a frame collated before any view walk has listed leaves.</summary>
+    private int[] _everyLeaf = [];
+
+    private static readonly int[] PlaceZero = [0];
+
+    private static ClientLeafSystem OneLeaf() => new(1, static (_, _, into) => into.Add(0));
+
+    /// <summary>Each renderable's handle, by entity, model and occurrence in the frame's list.</summary>
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), int> _handleOf = [];
+
+    private readonly Dictionary<(int Entity, string Model), int> _occurrences = [];
+    private readonly List<(int Entity, string Model, int Occurrence)> _stale = [];
+    private readonly List<int> _seenAt = [];
+    private int _collateFrame;
+
+    /// <summary>This frame's instance per handle.</summary>
+    private readonly List<ModelInstance> _byHandle = [];
+
+    /// <summary>This frame's classification per handle, asked once at collation.</summary>
+    private readonly List<(bool Opaque, bool Translucent, bool TwoPass)> _classOf = [];
+
+    private readonly CollatedRenderables _collated = new();
+    private readonly List<ModelInstance> _collatedInstances = [];
+    private Func<int, LeafRenderGroup>? _groupOf;
+
+    /// <summary>Registers the frame's renderables and collates the view's leaves — <c>BuildRenderablesList</c> (B262).</summary>
+    /// <param name="drawn">The frame's model instances.</param>
     /// <remarks>
-    /// **The same box the size bucket uses**, because the engine computes one box and does both
-    /// with it. The opaque path gets this inside <see cref="OpaqueBuckets.InDrawOrder(IReadOnlyList{ModelInstance}, ViewFrustum)"/>, which
-    /// culls and buckets in one pass; the translucent path has no sort to hang it on and calls it
-    /// directly.
+    /// **The scene hands a fresh list each frame, so registration is reconciled against it**: an instance keeps its
+    /// handle while its entity, model and occurrence persist, is re-linked only when its box moved
+    /// (<c>RenderableChanged</c>), and is removed when it is gone. A seek is therefore just a frame in which many boxes
+    /// moved — the index cannot outlive the frame that contradicts it (D131's hazard).
     /// </remarks>
-    private bool Culled(ModelInstance instance)
+    private void CollateRenderables(IReadOnlyList<ModelInstance> drawn)
     {
-        // A model with no bounds is drawn rather than point-tested — see
-        // WorldSpaceBounds.IsPlaced for what that cost.
-        if (!_frustum.IsBuilt || !WorldSpaceBounds.IsPlaced(instance.WorldBounds))
+        _collateFrame++;
+        _occurrences.Clear();
+
+        foreach (ModelInstance instance in drawn)
         {
-            return false;
+            (int, string) identity = (instance.EntityIndex, instance.ModelPath);
+            int occurrence = _occurrences.GetValueOrDefault(identity);
+            _occurrences[identity] = occurrence + 1;
+
+            if (_handleOf.TryGetValue((instance.EntityIndex, instance.ModelPath, occurrence), out int handle))
+            {
+                _leafSystem.RenderableChanged(handle, instance.WorldBounds);
+            }
+            else
+            {
+                handle = _leafSystem.AddRenderable(instance.WorldBounds);
+                _handleOf[(instance.EntityIndex, instance.ModelPath, occurrence)] = handle;
+            }
+
+            while (_byHandle.Count <= handle)
+            {
+                _byHandle.Add(default);
+                _classOf.Add(default);
+                _seenAt.Add(0);
+            }
+
+            _byHandle[handle] = instance;
+            _seenAt[handle] = _collateFrame;
         }
 
-        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-            instance.WorldBounds;
+        _stale.Clear();
 
-        return _frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ);
+        foreach (KeyValuePair<(int Entity, string Model, int Occurrence), int> entry in _handleOf)
+        {
+            if (_seenAt[entry.Value] != _collateFrame)
+            {
+                _stale.Add(entry.Key);
+            }
+        }
+
+        foreach ((int Entity, string Model, int Occurrence) key in _stale)
+        {
+            _leafSystem.RemoveRenderable(_handleOf[key]);
+            _handleOf.Remove(key);
+        }
+
+        _leafSystem.PreRender();
+
+        // **The view's leaf list**; before any walk has listed leaves, every leaf, so nothing is lost to a frame drawn
+        // ahead of its camera. A map that cannot be culled has the one leaf.
+        IReadOnlyList<int> leaves = PlaceZero;
+
+        if (_everyLeaf.Length > 0)
+        {
+            leaves = _culling is { MainLeaves.Count: > 0 } culling ? culling.MainLeaves : _everyLeaf;
+        }
+
+        _leafSystem.BuildRenderablesList(leaves, _frustum, _groupOf ??= GroupOf, _collated);
+
+        _collatedInstances.Clear();
+
+        foreach (int handle in _collated.Collated)
+        {
+            _collatedInstances.Add(_byHandle[handle]);
+        }
+    }
+
+    /// <summary>Draws one collated opaque renderable, then its decals.</summary>
+    /// <param name="handle">The renderable.</param>
+    private void DrawOpaqueRenderable(int handle)
+    {
+        if (_world is null)
+        {
+            return;
+        }
+
+        ModelInstance instance = _byHandle[handle];
+
+        // **Which pass, and whether it is split** — classified once at collation (RenderGroups).
+        bool twoPass = _classOf[handle].TwoPass;
+
+        ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
+
+        DrawInstance(instance, twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel);
+
+        // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
+        // model's decal meshes after its own (B415).
+        if (instance.EntityIndex > 0 &&
+            ModelDecals?.For(instance.EntityIndex) is { } decals)
+        {
+            _world.DrawModelDecals(
+                _device, _context, decals.Vertices, decals.Batches, instance.Bones?.Count ?? 0);
+            _context.OMSetDepthStencilState(_depthOn, 0);
+        }
+    }
+
+    /// <summary>The render group collation asks for — <see cref="Classify"/>, once per collated renderable.</summary>
+    private LeafRenderGroup GroupOf(int handle)
+    {
+        (bool opaque, bool translucent, bool twoPass) classified = Classify(_byHandle[handle]);
+
+        _classOf[handle] = classified;
+
+        return classified switch
+        {
+            (true, true, _) => LeafRenderGroup.TwoPass,
+            (_, true, _) => LeafRenderGroup.Translucent,
+            (true, _, _) => LeafRenderGroup.Opaque,
+            _ => LeafRenderGroup.None,
+        };
     }
 
     /// <summary>Which render lists a model joins, and whether it is drawn in halves.</summary>
@@ -3613,7 +3693,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <remarks>
     /// **Because neither the sort nor the cull is visible in the picture, and an invisible step is
     /// one that can quietly stop happening.** Measured before this line existed: removing
-    /// <see cref="OpaqueBuckets.InDrawOrder(IReadOnlyList{ModelInstance}, ViewFrustum)"/> from the draw loop left all 566 rendering tests
+    /// the opaque sort (then `OpaqueBuckets.InDrawOrder`, now <see cref="ClientLeafSystem.BuildRenderablesList"/>) from the draw loop left all 566 rendering tests
     /// green. Both steps change a frame rate rather than an image, so nothing that looks at the
     /// output can see them either.
     ///

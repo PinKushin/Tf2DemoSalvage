@@ -1,0 +1,54 @@
+# 72 — A renderable lives in the leaves it touches
+
+B262 filed the draw side as re-culling, re-classifying and comparison-sorting a flat list the engine never builds.
+This is the port of the structure that list stood in for, `CClientLeafSystem`, and what reading it turned up.
+
+## What the engine keeps (read from published source)
+
+`src/game/client/clientleafsystem.cpp`, source-sdk-2013:
+
+- **Renderables are linked into every leaf their world box touches, and stay there across frames.** `AddRenderable`
+  (`:708`) puts a new handle on the dirty list; `RenderableChanged` (`:1274`) puts a moved one there, once.
+  `PreRender` (`:528`) unlinks every dirty renderable, then re-inserts walking the dirty list **backwards**
+  (`:557`). Each insert goes to the **head** of the leaf's list (`CBidirectionalSet::AddElementToBucket`,
+  `utlbidirectionalset.h:205-208`). The two reversals cancel: a leaf holds renderables added in one frame in the
+  order they were added, and one that moves later goes to the front.
+- **Collation walks the view's leaf list in order** (`BuildRenderablesList`, `:1813`), and within a leaf its list
+  head first (`CollateRenderablesInLeaf`, `:1574`). An opaque renderable is taken at the first listed leaf it is met
+  in (`m_RenderFrame2`, `:1607-1613`). A translucent one is taken only at its render leaf (`:1620`), which
+  `ComputeTranslucentRenderLeaf` set to its first encounter in the same list (`:1444-1455`). Without
+  `RENDER_FLAGS_ALTERNATE_SORTING` (`:1457`) those are one rule, so the port keeps one stamp. *Arithmetic*; the
+  falsifier is that flag, which nothing here sets.
+- **Then the frustum test, then the bucket, at collation.** `CullBox` (`:1647`), then for an opaque renderable
+  `DetectBucketedRenderGroup` on the world box's longest axis (`:1683-1694`). The draw side walks buckets that are
+  already filled (`viewrender.cpp:4188`) and does no sort.
+- **A two-pass translucent renderable joins `RENDER_GROUP_OPAQUE_ENTITY` too** (`:1710-1713`). That is the
+  unbucketed group, so it is the smallest bucket whatever the model's size. The per-frame sort had bucketed it by
+  size, which draws a large two-pass model's solid half earlier than the engine does.
+
+## The wrong turn: which box walk files a renderable
+
+The first version linked boxes with `BspLeafTree.LeavesTouchingBox`, the port of the engine's displacement-to-leaf
+walk (B457). A differential on cp_process came back with 3,882 boxes expected and 3,863 reached, plus wrong places.
+The old per-frame walk (`TouchesAny`/`NearestRank`) and this one break a tie at a node plane differently. The test
+boxes were leaf centres ±20, and those sit on the map grid, so they lay on node planes all the time.
+
+**Neither of the two was the leaf system's walk.** The published copy of `EnumerateLeavesInBox_R`
+(`utils/common/bsplib.cpp:3461-3499`) takes both children whenever the box is within `TEST_EPSILON` (1/32, `:3403`)
+of the plane. A box touching a plane goes in the leaves on both sides. It is now
+`BspLeafTree.EnumerateLeavesInBox`. The engine's own `ISpatialQuery` implementation is closed and has not been
+disassembled, so treating the tools copy as the engine's is **interpolated**.
+
+With the test boxes moved 0.1 unit off the grid, the leaf system and the old walk reach exactly the same set at
+exactly the same translucent places (*differential*, `ClientLeafSystemMapTests`). The contact case is pinned on its
+own, at a real cp_process node plane, against the old rule as a control.
+
+## What is ours
+
+- **The scene hands a fresh list each frame.** Device3D reconciles registration against that list: an instance keeps
+  its handle while (entity, model, occurrence) persists, is re-linked only when its box moved, and is removed when
+  it is gone. A seek is a frame where many boxes moved, so the index cannot outlive a frame that contradicts it.
+  That answers D131's hazard by construction, not by an invalidation hook.
+- **A box with no extent is never linked and never culled**, and it is collated at place 0. An empty box says nothing
+  about where its model is.
+- **A map that cannot be culled is one leaf.** Before any view walk has listed leaves, every leaf is listed.

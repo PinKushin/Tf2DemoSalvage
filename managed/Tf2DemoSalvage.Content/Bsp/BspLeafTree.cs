@@ -648,6 +648,84 @@ public sealed class BspLeafTree
         }
     }
 
+    /// <summary>The leaves a box is filed in for the client leaf system — <c>EnumerateLeavesInBox_R</c>.</summary>
+    /// <param name="min">The box's low corner.</param>
+    /// <param name="max">The box's high corner.</param>
+    /// <param name="into">Where the leaves are appended, front child first.</param>
+    /// <remarks>
+    /// **source-sdk-2013 <c>utils/common/bsplib.cpp:3461-3499</c>**: the box's corners along the plane normal; back
+    /// alone when the far corner is at least <c>TEST_EPSILON</c> (<c>:3403</c>, 1/32) behind, front alone when the
+    /// near corner is that far in front, otherwise both — so a box touching a plane is in the leaves on BOTH sides.
+    /// That is the published copy of <c>ISpatialQuery::EnumerateLeavesInBox</c>; the engine's own is closed and has not
+    /// been disassembled, so its equality with this is INTERPOLATED (B262).
+    /// </remarks>
+    public void EnumerateLeavesInBox(
+        (float X, float Y, float Z) min, (float X, float Y, float Z) max, ICollection<int> into)
+    {
+        const float TestEpsilon = 0.03125f;
+
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (IsEmpty)
+        {
+            return;
+        }
+
+        ReadOnlySpan<byte> nodes = _nodes.Span;
+        ReadOnlySpan<byte> planes = _planes.Span;
+        Stack<int> pending = new();
+        int budget = NodeCount + LeafCount + 1;
+
+        pending.Push(0);
+
+        while (pending.Count > 0 && budget-- > 0)
+        {
+            int node = pending.Pop();
+
+            if (node < 0)
+            {
+                into.Add(-node - 1);
+                continue;
+            }
+
+            int at = node * NodeStride;
+            int planeAt = at + NodeStride <= nodes.Length
+                ? BinaryPrimitives.ReadInt32LittleEndian(nodes[at..]) * PlaneStride
+                : -1;
+
+            if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+            {
+                continue;
+            }
+
+            float nx = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
+            float ny = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
+            float nz = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
+            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+
+            // `normal[i] >= 0` puts mins in cornermin (:3474), so the near corner is the min side for a zero normal.
+            float cornerMin = (nx * (nx >= 0 ? min.X : max.X)) + (ny * (ny >= 0 ? min.Y : max.Y)) + (nz * (nz >= 0 ? min.Z : max.Z));
+            float cornerMax = (nx * (nx >= 0 ? max.X : min.X)) + (ny * (ny >= 0 ? max.Y : min.Y)) + (nz * (nz >= 0 ? max.Z : min.Z));
+
+            int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 4)..]);
+            int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 8)..]);
+
+            if (cornerMax - distance <= -TestEpsilon)
+            {
+                pending.Push(back);
+            }
+            else if (cornerMin - distance >= TestEpsilon)
+            {
+                pending.Push(front);
+            }
+            else
+            {
+                pending.Push(back);
+                pending.Push(front);
+            }
+        }
+    }
+
     /// <summary>How far a box may travel between two points before it meets something solid.</summary>
     /// <param name="fromX">Where the sweep starts, in world units.</param>
     /// <param name="fromY">Where the sweep starts.</param>
