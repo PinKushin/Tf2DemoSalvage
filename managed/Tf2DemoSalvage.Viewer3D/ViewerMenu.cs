@@ -73,8 +73,52 @@ internal readonly record struct ViewerMenuActions(
 /// </remarks>
 internal sealed class ViewerMenu : IDisposable
 {
+    /// <summary>The menu strip, able to leave keyboard menu mode it was left in.</summary>
+    /// <remarks>
+    /// **Expanding a menu through UI Automation, as a screen reader does, strands the strip in
+    /// keyboard menu mode after a dialog.** Expand is `ShowDropDown`; invoking Export opens a modal
+    /// dialog, and when it closes WinForms resumes menu mode with this strip as the active tool strip
+    /// and holding focus — measured, `ModalMenuFilter.InMenuMode` true and the active strip
+    /// `MainMenu` after the dialog. Its filter then routes every key to the strip, so SPACE, Escape
+    /// and every binding stopped reaching the viewport. WinForms 10 has no exit for it; `main`
+    /// added one on `WM_KILLFOCUS` (dotnet/winforms `ToolStrip.WndProc`), which 10.0 lacks.
+    ///
+    /// **Escape is the strip's own exit, and it takes TWO.** `ToolStrip.ProcessDialogKey(Escape)`
+    /// calls `RestoreFocusInternal`, which hands focus back and exits menu mode — what Escape on the
+    /// bar does for a sighted user. Measured with a temporary probe on `InMenuMode`: after one
+    /// Escape the strip had given up focus and menu mode was STILL on; the second cleared it, and
+    /// SPACE reached the viewport again. Keyboard activation is cleared only once the strip no longer
+    /// holds focus, which is what the second press finds.
+    ///
+    /// **Called after a dialog returns, not on activation.** An `Activated` hook was tried first: the
+    /// form also activates when the screen reader expands File, and leaving menu mode there would
+    /// shut the menu it had just opened.
+    /// </remarks>
+    internal sealed class ViewerMenuStrip : MenuStrip
+    {
+        /// <summary>Leaves keyboard menu mode when no menu is open but the strip still holds focus.</summary>
+        public void LeaveStrandedMenuMode()
+        {
+            if (!Focused)
+            {
+                return;
+            }
+
+            foreach (ToolStripItem item in Items)
+            {
+                if (item is ToolStripDropDownItem { DropDown.Visible: true })
+                {
+                    return;
+                }
+            }
+
+            _ = ProcessDialogKey(Keys.Escape);
+            _ = ProcessDialogKey(Keys.Escape);
+        }
+    }
+
     /// <summary>The strip to dock on the form.</summary>
-    public MenuStrip Strip { get; }
+    public ViewerMenuStrip Strip { get; }
 
     /// <summary>Whether the viewport fills the screen. Checked state is read by the form.</summary>
     public ToolStripMenuItem FullScreen { get; }
@@ -152,7 +196,7 @@ internal sealed class ViewerMenu : IDisposable
 
         TextureQualityItems = textureQualityItems;
 
-        Strip = new MenuStrip { Name = "MainMenu", AccessibleName = "Main menu" };
+        Strip = new ViewerMenuStrip { Name = "MainMenu", AccessibleName = "Main menu" };
 
         ToolStripMenuItem file = new("&File")
         {

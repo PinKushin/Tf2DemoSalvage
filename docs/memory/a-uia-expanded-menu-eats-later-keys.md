@@ -20,6 +20,14 @@ shared-viewer session that failed ten key-press and full-screen tests after `Exp
   focused and the viewer in the foreground, and SPACE still did nothing (run 37155302709).
 - Collapsing the menu afterwards did not help either.
 
+**Fixed in the viewer (2026-10-04), for file dialogs.** Probe: after the dialog,
+`ModalMenuFilter.InMenuMode` true, active strip `MainMenu`, strip focused. WinForms 10 has no exit
+(main's `WM_KILLFOCUS` fix is not in 10.0). `MainForm.ShowModal` runs every file dialog and then
+`ViewerMenuStrip.LeaveStrandedMenuMode`, which sends the strip Escape TWICE — one left menu mode on.
+An `Activated` hook was wrong: activation also follows the UIA Expand and would close the menu.
+Regression test: `FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking`.
+A NEW modal (not through `ShowModal`) would bring the bug back.
+
 **How to apply:**
 - Open dialogs with `ViewerApplication.Click(buttonId)`. It is a real click that takes and verifies the
   foreground, and it enters no menu mode. Do not use UIA `Invoke` on the button, because the click

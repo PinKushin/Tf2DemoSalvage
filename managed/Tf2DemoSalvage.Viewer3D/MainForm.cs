@@ -4249,6 +4249,21 @@ internal class MainForm : Form, IFrameSteps
     // Shift is pressed into it like any other bound key and asking WinForms separately would be a
     // second source of truth for the same fact.
 
+    /// <summary>Shows a file dialog over the viewer, then gives the keyboard back to it.</summary>
+    /// <param name="dialog">The dialog.</param>
+    /// <returns>What the dialog returned.</returns>
+    /// <remarks>
+    /// **Every file dialog goes through here** because one opened from a File menu that a screen
+    /// reader expanded returns with WinForms back in keyboard menu mode, and every key then goes to
+    /// the menu bar — see <see cref="ViewerMenu.ViewerMenuStrip"/>.
+    /// </remarks>
+    private DialogResult ShowModal(CommonDialog dialog)
+    {
+        DialogResult result = dialog.ShowDialog(this);
+        _menu.Strip.LeaveStrandedMenuMode();
+        return result;
+    }
+
     /// <inheritdoc />
     protected override void OnDeactivate(EventArgs e)
     {
@@ -8569,7 +8584,7 @@ internal class MainForm : Form, IFrameSteps
             UseDescriptionForTitle = true,
         };
 
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        if (ShowModal(dialog) == DialogResult.OK)
         {
             AddToLibrary(dialog.SelectedPath);
         }
@@ -8657,7 +8672,7 @@ internal class MainForm : Form, IFrameSteps
             FileName = Path.GetFileNameWithoutExtension(demoPath) + ".txt",
         };
 
-        return dialog.ShowDialog(this) == DialogResult.OK
+        return ShowModal(dialog) == DialogResult.OK
             ? RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", dialog.FileName, output =>
                 $"Exported {DemoAssembly.Export(demoPath, output):N0} commands to {output}")
             : FileWork;
@@ -8674,7 +8689,7 @@ internal class MainForm : Form, IFrameSteps
             Title = "Compile demo assembly",
         })
         {
-            if (open.ShowDialog(this) != DialogResult.OK)
+            if (ShowModal(open) != DialogResult.OK)
             {
                 return FileWork;
             }
@@ -8689,7 +8704,7 @@ internal class MainForm : Form, IFrameSteps
             FileName = Path.GetFileNameWithoutExtension(source) + ".dem",
         };
 
-        return save.ShowDialog(this) == DialogResult.OK
+        return ShowModal(save) == DialogResult.OK
             ? RunFileWork($"Compiling {Path.GetFileName(source)}...", save.FileName, output =>
             {
                 (int commands, int bytes) = DemoAssembly.Compile(source, output);
@@ -8734,7 +8749,7 @@ internal class MainForm : Form, IFrameSteps
             Multiselect = true,
         };
 
-        if (dialog.ShowDialog(this) == DialogResult.OK)
+        if (ShowModal(dialog) == DialogResult.OK)
         {
             AddToLibrary(dialog.FileNames);
         }
