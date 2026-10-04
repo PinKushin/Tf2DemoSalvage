@@ -91,7 +91,11 @@
   <ItemGroup Label="Testing">
     <!-- NUnit by the global standard, and never a deprecated package - xUnit v2 is deprecated and
          NuGet reports that as a build warning, which Zero Warnings turns into a failure. -->
-    <PackageVersion Include="NUnit" Version="4.6.1" />
+    <!-- 4.6.1 -> 5.0.0 on 2026-10-03; the analyzers (4.15.0) and adapter (6.3.0) were already the
+         newest stable on the flat container. No source change was needed: nothing here used
+         [Order], the async Assert.*Async family, the delegate types, the legacy asserts, or a
+         NET/DotNET [Platform] - only "Win", whose meaning NUnit 5 did not change. -->
+    <PackageVersion Include="NUnit" Version="5.0.0" />
     <PackageVersion Include="NUnit.Analyzers" Version="4.15.0" />
     <!-- 6.2.0 -> 6.3.0 on 2026-08-24. Looked up against the NuGet flat container rather than
          written from memory; NUnit itself, the analyzers, Shouldly, the test SDK and coverlet were
