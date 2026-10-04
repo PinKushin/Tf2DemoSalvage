@@ -311,10 +311,6 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>A full-screen triangle sampling t0 — <c>CopyRenderTargetToTextureEx</c>'s stretch, as a pass.</summary>
     private const string BlitShaderText = """
-        #ifndef BLIT_SCALE
-        #define BLIT_SCALE 1.0f
-        #endif
-
         Texture2D source : register(t0);
         SamplerState linearClamp : register(s0);
 
@@ -330,19 +326,9 @@ internal sealed unsafe partial class WorldRenderer
 
         float4 PsBlit(BlitOut input) : SV_TARGET
         {
-            float4 texel = source.Sample(linearClamp, input.uv);
-
-            return float4(texel.rgb * BLIT_SCALE, texel.a);
+            return source.Sample(linearClamp, input.uv);
         }
         """;
-
-    /// <summary>The blit that writes the reflection at the integer-HDR view's tone-map scale.</summary>
-    private ComPtr<ID3D11PixelShader> _scaledBlitPixel;
-
-    /// <summary>The float target the reflection view draws into under <c>HDR_TYPE_INTEGER</c>, before its scaled store.</summary>
-    private ComPtr<ID3D11Texture2D> _reflectionScratchTexture;
-    private ComPtr<ID3D11RenderTargetView> _reflectionScratchTarget;
-    private ComPtr<ID3D11ShaderResourceView> _reflectionScratchView;
 
     /// <summary>The HDR type the map runs under, which the <c>Water</c> shader and the reflection view branch on (B62).</summary>
     public HdrType HdrType { get; set; }
@@ -442,10 +428,6 @@ internal sealed unsafe partial class WorldRenderer
         _frameCopy.Dispose();
         _blitVertex.Dispose();
         _blitPixel.Dispose();
-        _scaledBlitPixel.Dispose();
-        _reflectionScratchView.Dispose();
-        _reflectionScratchTarget.Dispose();
-        _reflectionScratchTexture.Dispose();
     }
 
     /// <summary>Whether a material is a <c>Water</c> material.</summary>
@@ -731,15 +713,13 @@ internal sealed unsafe partial class WorldRenderer
             }
 
             // **Under HDR_TYPE_INTEGER the reflection view draws at a quarter of the tone-map scale** (PushView's
-            // SetLightmapScaleForWater, viewrender.cpp:5351 and :2726-2736), so light up to 4 survives the 8-bit
-            // target. Every shader's output is linear in that scale and so are blending and fog, so drawing unscaled
-            // into a float target and storing it ×0.25 is the same picture without a scale in every shader.
-            bool scaled = reflection && HdrType == HdrType.IntegerHdr;
+            // SetLightmapScaleForWater, viewrender.cpp:5351 and :2726-2736), straight into the 8-bit target through every
+            // shader's FinalOutput, so light up to 4 survives it; PopView puts the scale back (:5399-5403).
+            float savedScale = LinearLightScale;
 
-            if (scaled)
+            if (reflection)
             {
-                EnsureReflectionScratch();
-                into = _reflectionScratchTarget;
+                LinearLightScale = savedScale * BspHdr.WaterScales(HdrType).ReflectionViewScale;
             }
             ComPtr<ID3D11DepthStencilView> depth = viaFrame ? frame.Frame!.Value.Depth : _waterDepth;
             Viewport viewport = viaFrame
@@ -763,9 +743,11 @@ internal sealed unsafe partial class WorldRenderer
 
             if (view.ClearToFogColor && WaterViews.VolumeFogFor(Water(frame.Surface), frame.WaterHeight, true) is { } clearFog)
             {
-                colour[0] = Linear(clearFog.Color.Red);
-                colour[1] = Linear(clearFog.Color.Green);
-                colour[2] = Linear(clearFog.Color.Blue);
+                // SetClearColorToFogColor (viewrender.cpp:759-766): under HDR_TYPE_INTEGER the gamma bytes times
+                // LinearToGammaFullRange( scale ), which is the linear colour times the scale.
+                colour[0] = Linear(clearFog.Color.Red) * LinearLightScale;
+                colour[1] = Linear(clearFog.Color.Green) * LinearLightScale;
+                colour[2] = Linear(clearFog.Color.Blue) * LinearLightScale;
             }
 
             if ((view.Clear & ViewClears.Color) != 0)
@@ -793,10 +775,7 @@ internal sealed unsafe partial class WorldRenderer
                 StretchFrameToRefraction(context, frame.Frame!.Value);
             }
 
-            if (scaled)
-            {
-                Blit(context, _reflectionScratchView, _reflectionTarget, scaled: true);
-            }
+            LinearLightScale = savedScale;
         }
 
         if (main is { } chosen)
@@ -885,7 +864,7 @@ internal sealed unsafe partial class WorldRenderer
         context.CopyResource(_frameCopy, source);
         source.Dispose();
 
-        Blit(context, _frameCopyView, _refractionTarget, scaled: false);
+        Blit(context, _frameCopyView, _refractionTarget);
 
         Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
 
@@ -893,21 +872,23 @@ internal sealed unsafe partial class WorldRenderer
         context.RSSetViewports(1, in frameViewport);
     }
 
-    /// <summary>Draws <paramref name="source"/> over a whole water target, scaled by the integer-HDR reflection view's scale or not.</summary>
+    /// <summary>Draws <paramref name="source"/> over a whole water target — <c>CopyRenderTargetToTextureEx</c>'s stretch.</summary>
     /// <remarks>Leaves the world's pipeline bound and <paramref name="target"/> as the output; the caller rebinds its own.</remarks>
     private void Blit(
-        ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11ShaderResourceView> source, ComPtr<ID3D11RenderTargetView> target, bool scaled)
+        ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11ShaderResourceView> source, ComPtr<ID3D11RenderTargetView> target)
     {
         if (_blitPixel.Handle is null)
         {
             using D3DCompiler compiler = D3DCompiler.GetApi();
             ComPtr<ID3D10Blob> vertex = CompileSource(compiler, BlitShaderText, "VsBlit", "vs_5_0");
+            ComPtr<ID3D10Blob> pixel = CompileSource(compiler, BlitShaderText, "PsBlit", "ps_5_0");
 
             SilkMarshal.ThrowHResult(_device.CreateVertexShader(
                 vertex.GetBufferPointer(), vertex.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitVertex));
+            SilkMarshal.ThrowHResult(_device.CreatePixelShader(
+                pixel.GetBufferPointer(), pixel.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitPixel));
             vertex.Dispose();
-            _blitPixel = BlitPixel(compiler, 1f);
-            _scaledBlitPixel = BlitPixel(compiler, BspHdr.WaterScales(HdrType.IntegerHdr).ReflectionViewScale);
+            pixel.Dispose();
         }
 
         Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
@@ -918,7 +899,7 @@ internal sealed unsafe partial class WorldRenderer
         context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
         context.VSSetShader(_blitVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetShader(scaled ? _scaledBlitPixel : _blitPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(_blitPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShaderResources(0, 1, ref source);
         context.PSSetSamplers(0, 1, ref _clampSampler);
         ResetBlend(context);
@@ -929,46 +910,6 @@ internal sealed unsafe partial class WorldRenderer
 
         context.PSSetShaderResources(0, 1, ref none);
         BindPipeline(context);
-    }
-
-    private ComPtr<ID3D11PixelShader> BlitPixel(D3DCompiler compiler, float scale)
-    {
-        string text = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"#define BLIT_SCALE {scale:0.0#####}\n{BlitShaderText}");
-        ComPtr<ID3D10Blob> pixel = CompileSource(compiler, text, "PsBlit", "ps_5_0");
-        ComPtr<ID3D11PixelShader> shader = default;
-
-        SilkMarshal.ThrowHResult(_device.CreatePixelShader(
-            pixel.GetBufferPointer(), pixel.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref shader));
-        pixel.Dispose();
-
-        return shader;
-    }
-
-    /// <summary>The reflection's float target, RGBA16F so the unscaled view keeps light above one until it is stored.</summary>
-    private void EnsureReflectionScratch()
-    {
-        if (_reflectionScratchTarget.Handle is not null)
-        {
-            return;
-        }
-
-        Texture2DDesc description = new()
-        {
-            Width = WaterTargetSize,
-            Height = WaterTargetSize,
-            MipLevels = 1,
-            ArraySize = 1,
-            Format = Silk.NET.DXGI.Format.FormatR16G16B16A16Float,
-            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
-            Usage = Usage.Default,
-            BindFlags = (uint)(BindFlag.RenderTarget | BindFlag.ShaderResource),
-        };
-
-        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, ref Unsafe.NullRef<SubresourceData>(), ref _reflectionScratchTexture));
-        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(
-            _reflectionScratchTexture, ref Unsafe.NullRef<RenderTargetViewDesc>(), ref _reflectionScratchTarget));
-        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(
-            _reflectionScratchTexture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref _reflectionScratchView));
     }
 
     private void EnsureFrameCopy(int width, int height, Silk.NET.DXGI.Format viewFormat)
