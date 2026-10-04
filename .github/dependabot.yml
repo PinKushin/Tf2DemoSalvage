@@ -1,0 +1,26 @@
+# Keeps GitHub Actions and NuGet packages current (D191). Actions are pinned to commit SHAs with the version
+# in a trailing comment; Dependabot updates both the SHA and the comment, so a SHA pin costs nothing to keep
+# current (owner, 2026-10-03). Updates exist for security, so an update must not cost security: Dependabot only
+# opens PRs (never auto-merged), and a 7-day cooldown keeps a brand-new, possibly compromised release out until
+# it has had time to be caught and pulled.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      nuget:
+        patterns: ["*"]
