@@ -35271,3 +35271,14 @@ Tests in `CStdlibConformanceTests`; vphysics' binary-measured surface test now r
 restored by the inverse edit: .NET's NaN (reddened both the CStdlib test and the binary-measured vphysics test, so the
 vphysics path is proved to route through it), a wrapping cast, .NET white space, and the collision pair's second
 `atoi` given the comma — each reddened its tests.
+
+## B487 — a soundscript's volume, pitch and numeric soundlevel are read as ordered numbers with fallbacks, not as `ReadInterval` — OPEN 2026-10-04
+
+**Read, published source, while fixing B480** (`SoundParametersInternal.cpp:498-550`). `VolumeFromString`,
+`PitchFromString` and `SoundLevelFromString` take the named constant, else `FromInterval( ReadInterval( sz ) )` —
+`atof` of comma tokens, start and range, unordered, drawn at play. `SoundScript.Range` sorts the pair into
+`Math.Min`/`Math.Max` and falls back to the default when `float.TryParse` refuses either half; a numeric soundlevel
+is `int.TryParse` with a fallback to 75, never a range; and `PITCH_LOW`/`PITCH_HIGH` (`:523-531`) are not names it
+knows. The same family as B462 for soundscapes, on the emitter's side: a pitch of `"90,110x"` reads 100 where the
+engine draws 90–110, and a soundlevel of `"80, 90"` reads 75 where the engine draws 80–90. Not counted on the
+shipped scripts.
