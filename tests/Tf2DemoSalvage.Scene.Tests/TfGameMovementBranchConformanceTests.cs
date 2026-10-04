@@ -594,7 +594,260 @@ public sealed class TfGameMovementBranchConformanceTests
         player.Velocity.Z.ShouldBe(z, 1e-3f);
     }
 
+    [TestCase(false, false, 0f, 0f, 750f - 12f)]
+    [TestCase(true, false, 0f, 1f, (750f * 0.8f) - 12f)]
+    [TestCase(true, false, 0f, 3f, (750f * 0.65f) - 12f)]
+    [TestCase(true, true, 90f, 3f, (750f * 0.5f) - 12f)]
+    [TestCase(true, true, 90f, 1f, (750f * 0.65f) - 12f)]
+    [TestCase(true, true, 97f, 3f, (750f * 0.65f) - 12f)]
+    [TestCase(false, false, 0f, 6f, (750f * 0.7f) - 12f)]
+    [TestCase(true, false, 0f, 6f, (750f * 0.65f) - 12f)]
+    public void ProcessMovement_PulledByAGrapplingHook_FliesAtTheClassAndFlagSpeed(
+        bool hasTheFlag, bool rune, float runeCondition, float playerClass, float z)
+    {
+        // GrapplingHookMove (tf_gamemovement.cpp:385-420): 750, · 0.7 for a heavy without the flag; with it, a scout · 0.8
+        // (0.65 with a heavy rune) and anyone else · 0.65 (0.5 with a heavy rune) — the agility rune counts as light.
+        PredictedPlayer player = Hooked(new Vector3(0f, 0f, 2000f)) with
+        {
+            HasTheFlag = hasTheFlag,
+            PlayerClass = (int)playerClass,
+            Conditions = rune ? Cond((int)runeCondition) : new PlayerConditions(0, 0, 0, 0, 0),
+        };
+
+        Run(ref player, Move());
+
+        player.Velocity.Z.ShouldBe(z, 1e-2f);
+    }
+
+    [Test]
+    public void ProcessMovement_APyroHookedToAPlayer_IsPulledAtSeventyPercent()
+    {
+        // :421-424: a pyro under TF_COND_GRAPPLINGHOOK_LATCHED (grappled to a player) is pulled at 750 · 0.7.
+        PredictedPlayer player = Hooked(new Vector3(0f, 0f, 2000f)) with { PlayerClass = 7, Conditions = Cond(120) };
+
+        Run(ref player, Move());
+
+        player.Velocity.Z.ShouldBe((750f * 0.7f) - 12f, 1e-2f);
+    }
+
+    [Test]
+    public void ProcessMovement_HookedToAPlayer_StopsTheFollowDistanceShort()
+    {
+        // :366-372: hooked to a player, the target is pulled back 64 along the hook's line: 70 − 64 = 6, under 750 · 0.015,
+        // so the velocity is 6 / 0.015 = 400 up.
+        PredictedPlayer player = InTheAir() with
+        {
+            GrapplingHook = new GrapplingTarget(new Vector3(0f, 0f, 611f), new Vector3(0f, 0f, 5000f), IsPlayer: true),
+        };
+
+        Run(ref player, Move());
+
+        player.Velocity.Z.ShouldBe(400f - 12f, 1e-2f);
+    }
+
+    [Test]
+    public void ProcessMovement_HookedToAGrapplingPlayer_StopsShortAlongHisHookDirection()
+    {
+        // :366-369: a grappling target's own hook direction (1, 0, 0) moves the aim to (−64, 0, 70), 94.85 away, so the pull
+        // is 750 along it: x −506.08, z 553.52, less two half-ticks of gravity.
+        PredictedPlayer player = InTheAir() with
+        {
+            GrapplingHook = new GrapplingTarget(new Vector3(0f, 0f, 611f), new Vector3(0f, 0f, 5000f), IsPlayer: true, new Vector3(1f, 0f, 0f)),
+        };
+
+        Run(ref player, Move());
+
+        player.Velocity.X.ShouldBe(-506.08f, 1e-1f);
+        player.Velocity.Z.ShouldBe(553.52f - 12f, 1e-1f);
+    }
+
+    [Test]
+    public void ProcessMovement_HookedWithinAHundredUnitsOfTheTarget_SlowsByTheRemainingDistance()
+    {
+        // :447-452: 90 from the hook's origin, RemapValClamped(8100, 6400, 10000, 0, 750) = 354.17.
+        PredictedPlayer player = InTheAir() with
+        {
+            GrapplingHook = new GrapplingTarget(new Vector3(0f, 0f, 2000f), new Vector3(0f, 0f, 590f), IsPlayer: false),
+        };
+
+        Run(ref player, Move());
+
+        player.Velocity.Z.ShouldBe(354.1667f - 12f, 1e-2f);
+    }
+
+    // ---- CheckWater's points -------------------------------------------------------------------------------------
+
+    [Test]
+    public void ProcessMovement_InAColumnOfWaterOnlyAtHisCentre_IsEyesDeep()
+    {
+        // CTFGameMovement::CheckWater (tf_gamemovement.cpp:1452-1500): every point is at the hull's centre in x and y.
+        PredictedPlayer player = InTheAir() with { Origin = new Vector3(10f, 0f, 500f) };
+
+        Run(ref player, Move(), contents: p => MathF.Abs(p.X - 10f) < 1f && MathF.Abs(p.Y) < 1f && p.Z < 1000f ? ContentsWater : 0);
+
+        player.WaterLevel.ShouldBe(3);
+    }
+
+    [Test]
+    public void ProcessMovement_WaterHalfAUnitDeep_DoesNotReachTheFeetPoint()
+    {
+        // :1460: the feet point is the origin's z + mins.z + 1, so water to 0.5 above the feet is not WL_Feet.
+        PredictedPlayer player = InTheAir();
+
+        Run(ref player, Move(), contents: Water(500.5f));
+
+        player.WaterLevel.ShouldBe(0);
+    }
+
+    [Test]
+    public void ProcessMovement_WaterToFiftyUnits_IsBelowTheWaistPoint()
+    {
+        // :1478-1484: the waist point is the hull's mid-height + 12, 53 above the origin; water to 50 is WL_Feet only.
+        PredictedPlayer player = InTheAir();
+
+        Run(ref player, Move(), contents: Water(550f));
+
+        player.WaterLevel.ShouldBe(1);
+    }
+
+    [Test]
+    public void ProcessMovement_SwimmingForwardAndUpPastTheMaxSpeed_ScalesBothEqually()
+    {
+        // CheckParameters scales (450, 0, 450) to 300 together, (212.13, 0, 212.13); WaterMove wishes it at 0.8 and adds
+        // 10 · 240 · 0.015 = 36 along the diagonal.
+        PredictedPlayer player = Swimming();
+
+        Run(ref player, new UserCommand(1, 1, 0f, 0f, 0f, 450f, 0f, 450f, 0, 0, 0, 0, 0, 0, 0), contents: Water(1000f));
+
+        player.Velocity.X.ShouldBe(25.456f, 1e-2f);
+        player.Velocity.Z.ShouldBe(25.456f, 1e-2f);
+    }
+
+    // ---- The sub-boxes -------------------------------------------------------------------------------------------
+
+    [Test]
+    public void ProcessMovement_StraddlingASteepSlopeAndAFloorUnderOneQuadrant_StandsOnTheFloor()
+    {
+        // TracePlayerBBoxForGround (gamemovement.cpp:3660-3720): the full hull meets the slope (normal z 0.6) first, but the
+        // +x +y quadrant alone reaches the floor beneath it, whose normal is standable, so he is on the ground.
+        PlayerTraceRay slope = Through(HalfSpace(0.8f, 0f, 0.6f, -18.9f));
+        PlayerTraceRay floor = BoxWorld.Of((new Vector3(0f, 0f, -1000f), new Vector3(1e4f, 1e4f, 0f)));
+        PredictedPlayer player = InTheAir() with { Origin = new Vector3(0f, 0f, 0.6f) };
+
+        Run(ref player, Move(), trace: (start, end, mins, maxs, mask) =>
+        {
+            Content.Bsp.BspTrace? a = slope(start, end, mins, maxs, mask);
+            Content.Bsp.BspTrace? b = floor(start, end, mins, maxs, mask);
+
+            if (a is not { } x || b is not { } y)
+            {
+                return null;
+            }
+
+            return x.StartSolid || x.Fraction <= y.Fraction ? x : y;
+        });
+
+        player.OnGround.ShouldBeTrue();
+        player.Velocity.Z.ShouldBe(0f);
+    }
+
+    // ---- Taunts and the kart -------------------------------------------------------------------------------------
+
+    [TestCase(-450f, -30f)]
+    [TestCase(225f, 15f)]
+    public void ProcessMovement_InAMovingTaunt_DrivesInTheInputsDirectionAndProportion(float forward, float x)
+    {
+        // TauntMove (tf_gamemovement.cpp:660-676): the direction is forwardmove over cl_forwardspeed or cl_backspeed, so
+        // −450 drives back at 200 and 225 at 100: 10 · 0.015 · ±200 or 100.
+        PredictedPlayer player = Taunting(new TauntMovement(false, 200f, 0f));
+
+        Run(ref player, Move(forward));
+
+        player.Velocity.X.ShouldBe(x, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_InATauntThatForcesForward_DrivesWithoutInput()
+    {
+        // :657-660: "taunt force move forward" fixes the direction at 1.
+        PredictedPlayer player = Taunting(new TauntMovement(true, 200f, 0f));
+
+        Run(ref player, Move());
+
+        player.Velocity.X.ShouldBe(30f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_InAnAcceleratingTauntWithNoInput_SlowsDown()
+    {
+        // :678-686: no direction makes the sign −1: 100 − 0.015 / 0.5 · 200 = 94.
+        PredictedPlayer player = Taunting(new TauntMovement(false, 200f, 0.5f)) with { CurrentTauntMoveSpeed = 100f };
+
+        Run(ref player, Move());
+
+        player.CurrentTauntMoveSpeed.ShouldBe(94f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_InAnAcceleratingTauntPartWay_DrivesAtTheSplinedSpeed()
+    {
+        // :687-693: 100 + 6 = 106 of 200, SimpleSpline(0.53) = 0.544946, so forwardmove 108.99 and 10 · 0.015 · 108.99.
+        PredictedPlayer player = Taunting(new TauntMovement(false, 200f, 0.5f)) with { CurrentTauntMoveSpeed = 100f };
+
+        Run(ref player, Move(450f));
+
+        player.Velocity.X.ShouldBe(16.348f, 1e-2f);
+    }
+
+    [TestCase(100f, 0f, 95.5f)]
+    [TestCase(0f, 225f, 3.75f)]
+    [TestCase(400f, 450f, 404.5f)]
+    [TestCase(300f, 450f, 304.5f)]
+    [TestCase(300f, -900f, 292.5f)]
+    [TestCase(-20f, -450f, -27.5f)]
+    [TestCase(-20f, 225f, -12.5f)]
+    public void ProcessMovement_AKart_ApproachesItsTargetSpeed(float current, float forward, float expected)
+    {
+        // VehicleMove (tf_gamemovement.cpp:738-830): coasting at 300 toward 0; half throttle at 500 · 0.5 from below
+        // tf_halloween_kart_slow_moving_threshold 300 and 300 from it up; a back input past full counts as full; reversing
+        // further at the brake rate; and crossing zero always at the brake rate 500.
+        PredictedPlayer player = Kart(current);
+
+        Run(ref player, Move(forward));
+
+        player.CurrentTauntMoveSpeed.ShouldBe(expected, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_AKartAtRestHoldingBackPastTheStall_Reverses()
+    {
+        // :787: the stall over (m_flVehicleReverseTime before now), it reverses: −7.5.
+        PredictedPlayer player = Kart(0f) with { OldForwardMove = -450f, CurTime = 2f, VehicleReverseTime = 1f };
+
+        Run(ref player, Move(-450f));
+
+        player.CurrentTauntMoveSpeed.ShouldBe(-7.5f, 1e-3f);
+    }
+
+    [Test]
+    public void ProcessMovement_AKartMovingForward_ClearsTheReverseTime()
+    {
+        // :802-805: moving forward, m_flVehicleReverseTime = FLT_MAX.
+        PredictedPlayer player = Kart(100f) with { VehicleReverseTime = 5f };
+
+        Run(ref player, Move());
+
+        player.VehicleReverseTime.ShouldBe(float.MaxValue);
+    }
+
     // ---- Fixtures ------------------------------------------------------------------------------------------------
+
+    private static PredictedPlayer Taunting(TauntMovement movement) => Standing() with
+    {
+        Conditions = Cond(7),
+        AllowMoveDuringTaunt = true,
+        TauntMovement = movement,
+    };
 
     private static PredictedPlayer InTheAir() => Standing() with { Origin = new Vector3(0f, 0f, 500f), OnGround = false, ViewOffsetZ = 68f };
 
