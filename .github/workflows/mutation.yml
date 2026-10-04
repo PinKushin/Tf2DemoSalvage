@@ -32,6 +32,14 @@ on:
         description: 'Only mutate code changed since main (much faster)'
         type: boolean
         default: false
+      project:
+        description: 'Run only this test project (e.g. Tf2DemoSalvage.Scene.Tests); empty = the scheduled set'
+        type: string
+        default: ''
+      mutate:
+        description: 'Stryker --mutate pattern for the project run (e.g. **/EntityModels.cs); empty = whole project'
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -42,6 +50,7 @@ env:
 jobs:
   core:
     name: Core (synthetic)
+    if: inputs.project == ''
     runs-on: ubuntu-latest
     # 33m05s measured on the Oracle box; this runner's speed relative to that is not yet known,
     # so the ceiling is set well clear of it rather than tuned. A job killed at the timeout uploads
@@ -90,6 +99,7 @@ jobs:
     # about stranger-authored workflow code reaching the Oracle boxes through a `pull_request`
     # trigger; a GitHub-hosted runner is ephemeral and isolated, and this workflow has no
     # `pull_request` trigger in any case.
+    if: inputs.project == ''
     runs-on: windows-latest
     # 2731 mutants after coverage capture, measured locally 2026-08-19 before the run was stopped.
     # That is ~1.5x Core's 1879, and this runner's speed relative to the Oracle box is not known,
@@ -122,6 +132,7 @@ jobs:
 
   cli:
     name: CLI
+    if: inputs.project == ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -173,7 +184,7 @@ jobs:
     name: Corpus
     # Weekly only, or on demand. This is the hours-long one: its tests walk 305 MB of real demos,
     # and every mutant re-runs them.
-    if: github.event.schedule == '0 7 * * 0' || github.event_name == 'workflow_dispatch'
+    if: inputs.project == '' && (github.event.schedule == '0 7 * * 0' || github.event_name == 'workflow_dispatch')
     # After `cli`, so the LFS cache is already populated. Run in parallel they would both miss it
     # and pull 305 MB each.
     needs: cli
@@ -242,4 +253,43 @@ jobs:
           path: tests/Tf2DemoSalvage.Corpus.Tests/StrykerOutput/*/reports/
           # Not a warning. An upload that finds nothing is how a workflow keeps a green tick
           # while having stopped producing anything - see the CI annotations rule.
+          if-no-files-found: error
+
+  adhoc:
+    name: Ad hoc (one project)
+    # Dispatch-only: `project` is set. No LFS, so a project that reads corpus demos (Cli, Corpus)
+    # degrades to no-op tests here - use their own jobs for those. Viewer3D is Windows-only.
+    if: inputs.project != ''
+    runs-on: ${{ contains(inputs.project, 'Viewer3D') && 'windows-latest' || 'ubuntu-latest' }}
+    # The ceiling is the largest project's (the viewer job above), since any project may be named.
+    # measured healthy: ~1 min (Logging.Tests estimate, first run pending - not yet measured)
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+
+      - run: dotnet tool restore
+
+      - name: Stryker (one project)
+        working-directory: tests/${{ inputs.project }}
+        shell: bash
+        # Inputs go through env, never interpolated into the script (injection).
+        env:
+          MUTATE: ${{ inputs.mutate }}
+          SINCE: ${{ inputs.since }}
+        run: |
+          args=()
+          [ -n "$MUTATE" ] && args+=(--mutate "$MUTATE")
+          [ "$SINCE" = "true" ] && args+=(--since:main)
+          dotnet stryker "${args[@]}"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: mutation-report-adhoc
+          path: tests/${{ inputs.project }}/StrykerOutput/*/reports/
           if-no-files-found: error
