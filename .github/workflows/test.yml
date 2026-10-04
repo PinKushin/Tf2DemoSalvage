@@ -36,12 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # No demo blobs are read by either project here, so this job costs no LFS bandwidth.
           lfs: false
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -466,7 +466,7 @@ jobs:
       # .trx.** The notes above say twice to "confirm against the next green run's .trx and tighten
       # if it disagrees" — and until 2026-09-09 no green run uploaded one, so every floor here that
       # was not read off a FAILED run stayed arithmetic and drifted. A .trx is a few hundred KB.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: always()
         with:
           name: unit-trx
@@ -479,20 +479,20 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # Deliberately NOT lfs: true. Checking out with LFS enabled fetches the blobs on every
           # run and bills every one of them. The cache step below fetches them once per change
           # to the corpus instead, and the pointer files checked out here are what keys it.
           lfs: false
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
       - name: Cache the demo blobs
         id: lfs-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .git/lfs
           # Keyed on the pointer files themselves. An LFS pointer's content IS the object's oid,
@@ -520,7 +520,7 @@ jobs:
 
       - name: Cache the native codecs
         id: native-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             tools/native-audio/celt.dll
@@ -697,7 +697,7 @@ jobs:
 
       # `always()` for the same reason as the unit job's copy above: the floors in this step are
       # only checkable against a green run's .trx, and a green run used to upload none.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: always()
         with:
           name: corpus-trx
@@ -713,7 +713,7 @@ jobs:
       # `if: failure()` and `if-no-files-found: ignore` deliberately: a green run needs no forensics,
       # and a job that fails BEFORE the viewer ever launches has no log to gather — which must not
       # turn into a second, misleading failure on top of the first.
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         if: failure()
         with:
           name: viewer-logs
