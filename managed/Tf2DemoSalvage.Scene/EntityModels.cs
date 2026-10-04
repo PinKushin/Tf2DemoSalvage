@@ -2124,7 +2124,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// not is abandoned rather than reconciled.
     /// </remarks>
 
-    private static void IkFor(
+    internal static void IkFor(
         PropModels.SkinnedModel skinned,
         int sequence,
         float cycle,
