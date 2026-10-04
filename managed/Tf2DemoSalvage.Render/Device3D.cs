@@ -1742,7 +1742,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             {
                 if (DrawSkybox && _skybox is { HasSky: true } sky)
                 {
-                    sky.Draw(_device, _context, _eye, through, SkyReach);
+                    sky.Draw(_device, _context, _eye, through, SkyReach, _world?.LinearLightScale ?? 1f);
                 }
             },
             DrawWaterViewEntities)
@@ -1993,15 +1993,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
 
         _skybox ??= SkyboxRenderer.Create(_device);
-
-        foreach (MapTexture? face in faces)
-        {
-            _skyTextures.Add(WorldRenderer.UploadTexture(_device, _context, face));
-        }
-
-        _skybox.SetFaces(
-            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_skyTextures),
-            [.. faces.Select(static face => face?.BaseTransform)]);
+        _skybox.UploadFaces(_device, _context, faces, _skyTextures);
     }
 
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _skyTextures = [];

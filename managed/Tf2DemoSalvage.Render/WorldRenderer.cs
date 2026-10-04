@@ -1755,6 +1755,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="device">The device.</param>
     /// <param name="context">The device context.</param>
     /// <param name="texture">The image, or null for no texture.</param>
+    /// <param name="srgb">Whether it is read through the sRGB curve — not for a sky's RGBS face (B461).</param>
     /// <returns>A view, or a default handle when there was nothing to upload.</returns>
     /// <remarks>
     /// **Exposed for the 2D skybox, whose materials are not in the map's table at all** — sky
@@ -1762,8 +1763,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// (B303). Sharing this rather than copying it keeps one answer to what a VTF becomes.
     /// </remarks>
     internal static ComPtr<ID3D11ShaderResourceView> UploadTexture(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture) =>
-        Upload(device, context, texture);
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture, bool srgb = true) =>
+        Upload(device, context, texture, srgb);
 
     private static ComPtr<ID3D11ShaderResourceView> Upload(
         ComPtr<ID3D11Device> device,

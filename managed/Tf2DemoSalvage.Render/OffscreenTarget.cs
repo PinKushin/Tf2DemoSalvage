@@ -221,6 +221,40 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>Draws a map's 2D skybox around the camera, as the viewer's sky pass does (B461).</summary>
+    /// <param name="assets">The map, whose <c>SkyFaces</c> are drawn.</param>
+    /// <param name="camera">The view.</param>
+    /// <param name="linearLightScale"><c>LINEAR_LIGHT_SCALE</c>.</param>
+    /// <returns>False when the map's sky did not load.</returns>
+    internal bool DrawSky(MapAssets assets, FreeCamera camera, float linearLightScale = 1f)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+        ArgumentNullException.ThrowIfNull(camera);
+
+        if (assets.SkyFaces.Count != SkyboxGeometry.Faces)
+        {
+            return false;
+        }
+
+        using SkyboxRenderer sky = SkyboxRenderer.Create(_device);
+        List<ComPtr<ID3D11ShaderResourceView>> held = [];
+
+        sky.UploadFaces(_device, _context, assets.SkyFaces, held);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        sky.Draw(_device, _context, camera.Origin, camera.ToMatrix(), 1000f, linearLightScale);
+
+        foreach (ComPtr<ID3D11ShaderResourceView> view in held)
+        {
+            view.Dispose();
+        }
+
+        return true;
+    }
+
     /// <summary>The world renderer's tone-map scale as it stands, one before anything has drawn.</summary>
     internal float LinearLightScale => _world?.LinearLightScale ?? 1f;
 
