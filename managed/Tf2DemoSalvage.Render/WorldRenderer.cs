@@ -7821,10 +7821,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// of the first word, which reads like a broken shader rather than a broken encoding.
     /// </remarks>
     private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string entry, string profile) =>
-        Compile(compiler, ShaderSource, entry, profile);
+        CompileSource(compiler, ShaderSource, entry, profile);
 
     /// <summary>Compiles one entry point of a given source.</summary>
-    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string shaderText, string entry, string profile)
+    /// <remarks>A different name, not an overload: a test finds <c>Compile</c> by reflection, by name alone.</remarks>
+    private static ComPtr<ID3D10Blob> CompileSource(D3DCompiler compiler, string shaderText, string entry, string profile)
     {
         ComPtr<ID3D10Blob> bytecode = default;
         ComPtr<ID3D10Blob> errors = default;

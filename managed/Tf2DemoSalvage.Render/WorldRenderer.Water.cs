@@ -840,8 +840,8 @@ internal sealed unsafe partial class WorldRenderer
         {
             using D3DCompiler compiler = D3DCompiler.GetApi();
 
-            ComPtr<ID3D10Blob> vertex = Compile(compiler, BlitShaderText, "VsBlit", "vs_5_0");
-            ComPtr<ID3D10Blob> pixel = Compile(compiler, BlitShaderText, "PsBlit", "ps_5_0");
+            ComPtr<ID3D10Blob> vertex = CompileSource(compiler, BlitShaderText, "VsBlit", "vs_5_0");
+            ComPtr<ID3D10Blob> pixel = CompileSource(compiler, BlitShaderText, "PsBlit", "ps_5_0");
 
             SilkMarshal.ThrowHResult(_device.CreateVertexShader(
                 vertex.GetBufferPointer(), vertex.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitVertex));
