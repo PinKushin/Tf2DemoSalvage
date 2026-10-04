@@ -14592,7 +14592,10 @@ eye height comes from the class), or a spectator/SourceTV entity being followed 
 player. The first thing to measure is which players it fails for and what those have in common —
 `docs/memory/ask-whether-the-data-arrived.md`, before anything about cameras.
 
-### B172 — footsteps and landing sounds are absent from every demo — OPEN, and may be unfixable as such
+### B172 — footsteps and landing sounds are absent from every demo — footsteps FIXED 2026-09-23 (`4bb16c37`, animation event 7001, `Footsteps`); landing sounds OPEN
+
+**Heading corrected 2026-10-04:** it still read "OPEN, and may be unfixable" eleven days after footsteps shipped, and
+the release notes' known gaps repeated it. Landing sounds (`CheckFalling` → `PlayerRoughLandingEffects`) are not built.
 
 The owner, after the audio wiring: *"footsteps still are not played either, and neither are landing
 sounds, except for maybe voice lines if it had fall damage"*.
