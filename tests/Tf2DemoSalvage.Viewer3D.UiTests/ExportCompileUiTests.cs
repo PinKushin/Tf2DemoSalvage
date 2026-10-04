@@ -117,6 +117,65 @@ public sealed class ExportCompileUiTests
             .ShouldBeTrue("the compiled demo is not the opened demo byte for byte");
     }
 
+    [Test]
+    public void FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking()
+    {
+        // **What a screen reader does**: expand File through UI Automation, invoke Export, cancel.
+        // WinForms resumes keyboard menu mode on the menu strip after the modal dialog, and every
+        // later key then went to the menu whatever had focus — SPACE, Escape, every binding
+        // (docs/memory/a-uia-expanded-menu-eats-later-keys.md). SPACE is checked before as the
+        // control: without it a key that never worked would read as one the menu ate.
+        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE did not switch the camera before the menu either");
+
+        AutomationElement menu = Retry.WhileNull(
+                () => _viewer.Window.FindFirstDescendant(search => search.ByName("File menu")),
+                DialogTimeout).Result ?? throw new InvalidOperationException("no File menu");
+        menu.Patterns.ExpandCollapse.Pattern.Expand();
+
+        // Shown, not merely present: the item exists before its drop-down is on screen.
+        Retry.WhileNull(
+                () => menu.FindFirstDescendant(search => search.ByName("Export assembly")) is { IsOffscreen: false } item
+                    ? item
+                    : null,
+                DialogTimeout)
+            .Result!.Patterns.Invoke.Pattern.Invoke();
+
+        AutomationElement dialog = Retry.WhileNull(Dialog, DialogTimeout).Result
+            ?? throw new InvalidOperationException("no file dialog opened");
+        Retry.WhileNull(
+                () => dialog.FindFirstChild(search => search.ByAutomationId("2")) is { IsEnabled: true } cancel ? cancel : null,
+                DialogTimeout)
+            .Result!.AsButton().Invoke();
+        Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
+
+        SpaceSwitchesTheCamera().ShouldBeTrue("SPACE stopped switching the camera after the dialog: " + Focused());
+    }
+
+    /// <summary>Presses the camera-mode key, then returns the camera to the free view it started in.</summary>
+    private static bool SpaceSwitchesTheCamera()
+    {
+        int before = CameraModeChanges();
+        ViewerSession.PressSwitchCameraMode();
+        bool changed = Retry.WhileFalse(() => CameraModeChanges() > before, DialogTimeout).Success;
+
+        // Back to free, as FirstPersonUiTests' own setup does: the session is shared.
+        int free = _viewer.Count(BackToTheFreeCamera);
+        for (int press = 0; changed && press < 2 && _viewer.Count(BackToTheFreeCamera) == free; press++)
+        {
+            int was = CameraModeChanges();
+            ViewerSession.PressSwitchCameraMode();
+            Retry.WhileFalse(() => CameraModeChanges() > was, DialogTimeout, throwOnTimeout: true);
+        }
+
+        return changed;
+    }
+
+    private const string BackToTheFreeCamera = "back to the free camera";
+
+    private static int CameraModeChanges() =>
+        _viewer.Count(ViewerSession.FirstPersonOn) + _viewer.Count("third person on,") + _viewer.Count(BackToTheFreeCamera);
+
     /// <summary>Types a path into the viewer's open file dialog and confirms it.</summary>
     /// <param name="path">The full path to type.</param>
     /// <param name="defaultName">The name the viewer pre-fills, or empty when it sets none.</param>
