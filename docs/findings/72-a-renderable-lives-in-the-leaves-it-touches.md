@@ -59,6 +59,19 @@ Running that against cp_process turned up a third thing: **this project's view l
 engine's world walk does not. The old per-frame walk had been reaching solid leaves through on-plane contact, and
 had been ranking translucent models against them. The world walk fix is filed under B262.
 
+That was fixed in the world walk once it had been read: `0x1800e0600` returns on contents 1, so no solid leaf is
+ever listed. Its marking pass `0x1801c8cb0` also answered the eye-in-solid question. A view cluster of −1 marks
+every leaf and node visible, the same as `r_novis`, which is the rule this project already had, now confirmed by
+reading rather than assumed.
+
+## Translucency belongs to the model, not the entity
+
+An entity's group is recomputed every frame (`ComputeFxBlend` → `SetRenderGroup( GetRenderGroup() )`), but the
+material half of it is one bit on the model. `IsTranslucent` (`0x1801cabf0`) is `[model + 0x24] & 2`, and nothing
+but `Mod_RecomputeTranslucency` (`0x1801046f0`) writes it. The SDK client calls that for detail models alone. So
+an entity's skin or body never re-asks it. The second pass here had guessed that they did; the guess was replaced
+by this reading.
+
 ## The sky room has its own entities
 
 `CSkyboxView::DrawInternal` (`viewrender.cpp:4920-4932`) builds the sky view's world lists and renderable lists,

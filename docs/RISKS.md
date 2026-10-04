@@ -19659,6 +19659,25 @@ per-leaf grouping of the translucent draw, which is the leaf-walk structure D131
 
 ## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — FIXED 2026-10-04
 
+**Third pass, same day: three of the second pass's interpolations replaced by reads.**
+
+- **The view lists no solid leaf.** engine.dll's world walk `0x1800e0600` returns on contents 1 at entry
+  (`0x1800e060f`) and stops before a solid far child (`0x1800e079c`), so `R_DrawLeaf` never lists one.
+  `WorldVisibility.Collect` now skips them. Red 43191031, green 8cbeca57. The translucent and overlay order tests
+  (B261/B457/B458) are green.
+- **An eye in solid, read.** The mark-leaves function `0x1801c8cb0` flags a view cluster of −1 (`0x1801c8dc1`) and
+  then marks every leaf and node of the world (`0x1801c9113`-`0x1801c918a`), the same path as `r_novis`. This
+  project already did the same thing; it is now pinned as `Batches_ForAnEyeInSolid_ListsEveryNonSolidLeaf`. The
+  test was first written expecting every non-solid leaf in the lump. That was wrong, because brush-model trees
+  are never walked, and its expectation was corrected to the world tree's leaves before it passed.
+- **Translucency is the model's flag.** `IsTranslucent` (`0x1801cabf0`) reads bit 2 at `model + 0x24`, and only
+  `Mod_RecomputeTranslucency` (`0x1801046f0`) writes it. The SDK client calls that for detail models alone
+  (`detailobjectsystem.cpp:2809`). `TranslucencyCache` is now keyed by model and asked once, at the default skin
+  and body; the second pass's skin and body trigger was wrong. The group is still recomputed every frame from that
+  flag, the alpha and the render mode (`ComputeFxBlend` → `SetRenderGroup`, `c_baseentity.cpp:3545`). Red
+  b6d7ec44. *Still interpolated:* that the flag is first computed with skin 0 and body 0; the engine's load-time
+  call was not found.
+
 **Second pass, same day: the five items left open below are closed.**
 
 - **Scene side.** `EntityModels` registers props in its own `ClientLeafSystem` and collates the views' leaf lists

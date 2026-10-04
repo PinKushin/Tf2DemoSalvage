@@ -3560,20 +3560,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             return (true, false, false);
         }
 
-        // **Kept on the renderable, asked again only when its materials may have changed** (B262) — see
-        // TranslucencyCache. The alpha below is still applied every frame, as ComputeFxBlend is.
+        // **The model's flag, asked once at its default skin and body** (B262) — see TranslucencyCache. The alpha
+        // and render mode below are applied every frame, as ComputeFxBlend → GetRenderGroup does.
         WorldRenderer world = _world;
         bool translucent = _translucency.For(
-            (instance.EntityIndex, instance.ModelPath),
-            instance.Frame,
-            instance.SkinSwap,
-            instance.BodyParts,
-            instance.Body,
+            instance.ModelPath,
             () => world.IsTranslucent(
                 world.ModelBatches(instance.ModelPath, instance.Frame),
-                instance.SkinSwap,
+                null,
                 instance.BodyParts,
-                instance.Body));
+                0));
 
         // **The alpha and the render mode are real now** (B221). These were `FullyOpaque` and
         // `Normal` from every caller because nothing decoded `m_clrRender`, `m_nRenderFX` or

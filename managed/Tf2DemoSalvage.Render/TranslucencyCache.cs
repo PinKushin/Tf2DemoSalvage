@@ -3,64 +3,43 @@ using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Render;
 
-/// <summary>Whether a renderable's materials are translucent, kept on the renderable (B262).</summary>
+/// <summary>Whether a model's materials are translucent — a flag on the MODEL, asked once (B262).</summary>
 /// <remarks>
-/// **The engine asks once and stores the answer on the handle**: <c>CreateRenderableHandle</c> calls
-/// <c>IsTransparent()</c> (<c>clientleafsystem.cpp:651</c>), <c>NewRenderable</c> stores the group (<c>:631</c>), and
-/// collation reads the stored group (<c>:1607</c>, <c>:1678</c>). What changes per frame is the alpha
-/// (<c>ComputeFxBlend</c>), which <c>RenderGroups</c> still applies every frame on top of this.
+/// **Read from engine.dll, not inferred.** <c>C_BaseEntity::IsTransparent</c> asks <c>modelinfo->IsTranslucent(model)</c>
+/// (<c>c_baseentity.cpp:1825</c>); <c>CModelInfoClient</c>'s implementation (vtable <c>0x1803af8b8</c> slot 12,
+/// <c>0x1801cabf0</c>) is a single bit on the model, <c>[model + 0x24] &amp; 2</c>. Only <c>Mod_RecomputeTranslucency</c>
+/// (<c>0x1801046f0</c>) writes it — from the materials of one skin and body — and the SDK's client calls that for
+/// detail models alone (<c>detailobjectsystem.cpp:2809</c>). So an entity's skin or body never re-asks it; what the
+/// engine recomputes every frame is the GROUP, from this flag, the alpha and the render mode
+/// (<c>ComputeFxBlend</c> → <c>SetRenderGroup( GetRenderGroup() )</c>, <c>:3545</c>, <c>:5661-5701</c>), which
+/// <c>RenderGroups</c> does here per frame on top of this.
 ///
-/// **Asked again when what selects the materials changes** — the frame's batches, the skin, the body groups. The
-/// engine re-registers an entity whose model changes; that trigger is INTERPOLATED to include skin and body, which
-/// choose materials here without a model change. Keyed per renderable (entity and model), not per model, as the
-/// engine keys it per handle.
+/// **Interpolated:** the skin and body the flag is first computed with. The engine's load-time call was not located;
+/// the default skin and body (0, 0) are what <c>Device3D.Classify</c> passes.
 /// </remarks>
 public sealed class TranslucencyCache
 {
-    private readonly Dictionary<(int Entity, string Model), Entry> _entries = [];
+    private readonly Dictionary<string, bool> _byModel = new(StringComparer.Ordinal);
 
-    private readonly record struct Entry(
-        int Frame,
-        IReadOnlyDictionary<int, int>? SkinSwap,
-        IReadOnlyList<(int Base, int Count)>? BodyParts,
-        int Body,
-        bool Translucent);
-
-    /// <summary>The renderable's translucency, asked only when it is new or its materials may have changed.</summary>
-    /// <param name="renderable">Its entity and model.</param>
-    /// <param name="frame">The frame whose batches it draws.</param>
-    /// <param name="skinSwap">Its skin's material swaps.</param>
-    /// <param name="bodyParts">Its body-part table.</param>
-    /// <param name="body">Its body-group value.</param>
-    /// <param name="ask">Asks the materials.</param>
+    /// <summary>The model's translucency flag, asked once.</summary>
+    /// <param name="model">The model path.</param>
+    /// <param name="ask">Asks its materials.</param>
     /// <returns>Whether it has a translucent material.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="ask"/> is null.</exception>
-    public bool For(
-        (int Entity, string Model) renderable,
-        int frame,
-        IReadOnlyDictionary<int, int>? skinSwap,
-        IReadOnlyList<(int Base, int Count)>? bodyParts,
-        int body,
-        Func<bool> ask)
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public bool For(string model, Func<bool> ask)
     {
+        ArgumentNullException.ThrowIfNull(model);
         ArgumentNullException.ThrowIfNull(ask);
 
-        if (_entries.TryGetValue(renderable, out Entry kept) &&
-            kept.Frame == frame &&
-            ReferenceEquals(kept.SkinSwap, skinSwap) &&
-            ReferenceEquals(kept.BodyParts, bodyParts) &&
-            kept.Body == body)
+        if (!_byModel.TryGetValue(model, out bool translucent))
         {
-            return kept.Translucent;
+            translucent = ask();
+            _byModel[model] = translucent;
         }
-
-        bool translucent = ask();
-
-        _entries[renderable] = new Entry(frame, skinSwap, bodyParts, body, translucent);
 
         return translucent;
     }
 
-    /// <summary>Forgets every renderable — a new map.</summary>
-    public void Clear() => _entries.Clear();
+    /// <summary>Forgets every model — a new map.</summary>
+    public void Clear() => _byModel.Clear();
 }
