@@ -106,7 +106,7 @@
 - [A measure needs focus](a-measure-needs-focus.md) — no unasked fps comparisons; [a reference count can depend on fps](a-reference-count-can-depend-on-fps.md).
 - [Mutation box gets maps, never demos](mutation-box-gets-maps-never-demos.md).
 - [SourceTV has a local player](sourcetv-has-a-local-player.md) — STV lacks a recorded VIEW; [a POV demo follows the recorder](a-pov-demo-follows-the-recorder-in-everything.md) (D188).
-- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — B418; [driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON.
+- [Play fast to find lifecycle bugs](play-fast-to-find-lifecycle-bugs.md) — B418; [an event is taken, not read](an-event-is-taken-not-read.md) — pause finds replays (B473); [driving TF2 demo playback](driving-tf2-demo-playback.md) — no rewind; pause kills RCON.
 - [Interp is the watcher's setting](interp-is-the-watchers-setting.md) — D190.
 - [lcor is not in a worktree](lcor-is-not-in-a-worktree.md) — junction it for a superset; [a worktree's lcor is a junction](a-worktree-lcor-is-a-junction.md) — `rm` there deletes the original (f12 08-07 lost); [$TEMP is shared](temp-is-shared-across-worktrees.md).
 - [clangd on the SDK](clangd-on-the-sdk.md) — never grep; open a file first.

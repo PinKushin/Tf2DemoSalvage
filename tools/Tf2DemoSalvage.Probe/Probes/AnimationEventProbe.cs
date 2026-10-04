@@ -179,7 +179,10 @@ public sealed class AnimationEventProbe : IProbe
                 highestCycle = Math.Max(highestCycle, prop.Pose.Cycle);
             }
 
-            foreach (StudioEvent one in models.FiredEvents.Select(fired => fired.Event))
+            List<FiredAnimationEvent> taken = [];
+            models.TakeFiredEvents(taken);
+
+            foreach (StudioEvent one in taken.Select(fired => fired.Event))
             {
                 byId[one.Id] = byId.GetValueOrDefault(one.Id) + 1;
 
