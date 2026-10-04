@@ -180,16 +180,14 @@ public sealed class ExportCompileUiTests
             : name.Patterns.Value.Pattern.Value.ValueOrDefault ?? "<no value>";
         Mark($"typed; reads back '{typed}'");
         typed.ShouldBe(path, "the name box did not end up holding the typed path");
-        AutomationElement[] oks = dialog.FindAllDescendants(search => search.ByAutomationId("1"));
-        Mark("buttons with id 1: " + string.Join("; ", Array.ConvertAll(oks, ok =>
-            $"{ok.Properties.ControlType.ValueOrDefault} '{ok.Properties.Name.ValueOrDefault}' "
-            + $"offscreen={ok.Properties.IsOffscreen.ValueOrDefault} enabled={ok.Properties.IsEnabled.ValueOrDefault} "
-            + $"parent={ok.Parent?.Properties.ClassName.ValueOrDefault}")));
-        AutomationElement confirm = Array.Find(oks, ok => ok.Properties.ControlType.ValueOrDefault == ControlType.Button
-            && !ok.Properties.IsOffscreen.ValueOrDefault) ?? throw new InvalidOperationException("no visible OK button");
-        Mark($"before OK: value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
-        confirm.AsButton().Invoke();
-        Mark($"'{confirm.Properties.Name.ValueOrDefault}' invoked");
+        // A direct child with id 1: the folder view's list items carry index ids too, so "1" is also
+        // its second file, one level down. Save is a Button and Open a SplitButton; both invoke.
+        AutomationElement confirm = dialog.FindFirstChild(search => search.ByAutomationId("1"))
+            ?? throw new InvalidOperationException("the dialog has no OK button:\n" + DescribeWindows());
+        Mark($"before {confirm.Properties.ControlType.ValueOrDefault} '{confirm.Properties.Name.ValueOrDefault}': "
+            + $"value='{name.Patterns.Value.Pattern.Value.ValueOrDefault}'; {Address(dialog)}");
+        confirm.Patterns.Invoke.Pattern.Invoke();
+        Mark("OK invoked");
 
         bool closed = Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success;
         Mark("closed: " + closed);
