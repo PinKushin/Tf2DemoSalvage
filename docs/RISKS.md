@@ -17257,11 +17257,20 @@ only a fully opaque draw writes the fog factor to alpha (`lightmappedgeneric_dx9
 
 **Still interpolated, flagged:**
 
-1. **The HDR type.** `Water` multiplies the reflection by 4 and the view renders it at ×0.25 only under
-   `HDR_TYPE_INTEGER`. Which type TF2 runs is decided in `shaderapidx9.dll`'s hardware config; that binary is in the
-   Ghidra project but its strings and references are not analysed (no xref reaches its `MaterialSystemHardwareConfig`
-   interface string at `0x180079788`), so the read did not land. The non-integer branch is drawn, matching this
-   renderer's lack of a tone map.
+1. ~~**The HDR type.**~~ **Closed 2026-10-04, read in disassembly: TF2 runs `HDR_TYPE_INTEGER` on an HDR map**, and
+   `HDR_TYPE_NONE` on a map without HDR lumps. `shaderapidx9.dll` (analysed this pass): caps `+0x560`/`+0x5c4` are set
+   at `0x1800293eb-0x180029448` — float only when `mat_hdr_level` is 3, whose default is "2" (`0x18007e700`), else
+   integer on any device with the caps; there is no `-floathdr`. `GetHDRType` (`0x180004810`) returns it when
+   `m_bHDREnabled` (`+0x8a8`) and DX level ≥ 90. `engine.dll` `Map_CheckForHDR` (`0x1800ffa10`) enables HDR only when
+   lumps 53, 54 and (version ≥ 20) 55 are non-empty and `mat_hdr_level` ≥ 2. Ported as `BspHdr`
+   (`HdrTypeConformanceTests`, 15); `MapAssets.Hdr` carries it, and the water now draws the integer branch: reflect tint
+   and c7.z ×4, the reflection view at a quarter of the tone-map scale (`DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter`,
+   `…_DrawsAtAQuarterToneMapScale`). **ctf_2fort's own water names no `$reflecttexture`**, so on 2fort the change draws
+   nothing different; it shows on water that reflects. The scale is Valve's path: `LINEAR_LIGHT_SCALE` in every
+   shader's FinalOutput (`PixelFog`, and the sky's), set between PushView and PopView, drawn straight into the 8-bit
+   target so each blend rounds as the engine's does. A first version drew into an RGBA16F target and stored ×0.25 —
+   equal in arithmetic, not in rounding — and was replaced on review. **Interpolated:** the fog colour is taken at the
+   same scale, from `SetClearColorToFogColor` (`viewrender.cpp:759-766`); shaderapi's `g_LinearFogColor` was not read.
 2. `CalcWaterFogAlpha`'s one-over-range register is packed as the range fog's is (FogConstants, B139); shaderapi's
    `SetPixelShaderFogParams` is the closed half.
 3. The tangent frame from screen derivatives (T as increasing v); a target no view has drawn reads black, alpha one.
@@ -34607,3 +34616,32 @@ sequence zero played the chest flinch where the engine plays nothing.
 
 **Fix:** the guard is `sequence == -1`. `FlinchFallbackConformanceTests.Instances_ForAFlinchTheModelHasAtSequenceZero_IsAbandonedRatherThanSubstituted`
 was red against the old guard (a chest layer at sequence 1) and is green with the fix.
+
+## B461 — the 2D sky ignored the HDR type: one shader for every map, and none of Sky_HDR_DX9's branches but one — FIXED 2026-10-04
+
+**Filed as "TF2 draws `sky_hdr_dx9` with the `_hdr` sky textures; we draw the LDR sky". Half of that was wrong, and
+it was this project's own earlier finding** (B62's closing note, 2026-10-04): the sky already took
+`$hdrcompressedtexture` when a material named one, decoded RGBS on the CPU and let the sampler filter — equal to
+Valve's shader to within the filter. What was actually divergent, read in `sky_hdr_dx9.cpp` and `sky_dx9.cpp`:
+
+1. **No HDR gate.** `Sky` falls back to `Sky_HDR_DX9` (`:21`), which falls back to `Sky_DX9` under `HDR_TYPE_NONE`
+   (`:33-40`). A map without HDR lumps (`Map_CheckForHDR`, B62) draws `$basetexture`; this drew the compressed HDR face.
+2. **`$hdrbasetexture` was never read** — 90 of the 324 shipped sky materials name it instead of a compressed texture,
+   17 of those in half floats, which take `$color` ×16 under integer HDR (`:268-279`).
+3. **`$hdrcompressedtexture0`** (method B, `:154-172`) had no path. Its published pixel shader returns red; no shipped
+   material names it (`vmt-param`, 0). Ported as published.
+4. **`$color` was ignored** — `c0` is `$color`, ×8 for RGBS (`:208-229`).
+5. **No `LINEAR_LIGHT_SCALE`**, so a water reflection's sky did not take the reflection view's quarter (B62).
+6. **Five shipped faces would not load**: `sky_halloween`'s VPK faces are `IMAGE_FORMAT_RGB888_BLUESCREEN` (9), which
+   the VTF reader refused (`sky-hdr` probe). koth_harvest_event packs its own readable copy, so its sky drew anyway;
+   which installed map, if any, reaches the VPK faces is not measured.
+
+**Fix:** `SkySurface.Choose`/`Shading`/`TexelInfo` (`SkySurfaceConformanceTests`, 11), the sky shader ported from
+`sky_vs20.fxc`, `sky_ps2x.fxc` and `sky_hdr_compressed_rgbs_ps2x.fxc` (four raw taps, `rgb *= a`, the hand lerp), the
+blue-screen formats (`VtfBlueScreenTests`). **Output-level:** `SkyRenderTests` draws 2fort's RGBS face and
+koth_harvest_event's plain face and reads back exactly the value the SDK's arithmetic gives from the face's own texels
+(87,124,156 and 50,28,37), and a quarter of it at `LINEAR_LIGHT_SCALE` 0.25. Sabotaged: dropping the premultiply
+(255,255,255), the scale (unchanged at a quarter), and reading RGBS through the sRGB curve (41,89,150) each reddened it.
+
+**Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
+does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.

@@ -46,6 +46,8 @@ public sealed class ImageFormatConformanceTests
             ("IMAGE_FORMAT_RGBA8888", VtfFormat.Rgba8888),
             ("IMAGE_FORMAT_RGB888", VtfFormat.Rgb888),
             ("IMAGE_FORMAT_BGR888", VtfFormat.Bgr888),
+            ("IMAGE_FORMAT_RGB888_BLUESCREEN", VtfFormat.Rgb888BlueScreen),
+            ("IMAGE_FORMAT_BGR888_BLUESCREEN", VtfFormat.Bgr888BlueScreen),
             ("IMAGE_FORMAT_BGRA8888", VtfFormat.Bgra8888),
             ("IMAGE_FORMAT_DXT1", VtfFormat.Dxt1),
             ("IMAGE_FORMAT_DXT3", VtfFormat.Dxt3),
@@ -90,7 +92,8 @@ public sealed class ImageFormatConformanceTests
     [Test]
     public void ImageFormats_TheUndecodedOnes_AreTheMajority()
     {
-        // **A coverage statement, and an honest one.** Nine of forty — RGBA16161616F joined for the HDR cubemap bakes — is what this reader handles,
+        // **A coverage statement, and an honest one.** Eleven of forty — RGBA16161616F joined for the HDR cubemap bakes, the two
+        // blue-screen formats for five TF2 sky faces (B461) — is what this reader handles,
         // and the gap is deliberate: TF2's own content is overwhelmingly DXT1 and DXT5, so the rest
         // are unimplemented rather than missing. Naming the count keeps that a decision.
         //
@@ -102,7 +105,7 @@ public sealed class ImageFormatConformanceTests
 
         int declared = Declared().Values.Count(value => value >= 0);
 
-        handled.ShouldBe(9);
+        handled.ShouldBe(11);
         declared.ShouldBeGreaterThan(30);
     }
 

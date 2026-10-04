@@ -28,6 +28,12 @@ public enum VtfFormat
     /// <summary>24-bit BGR.</summary>
     Bgr888 = 3,
 
+    /// <summary>24-bit RGB with pure blue as a transparency key — five of TF2's sky faces (B461).</summary>
+    Rgb888BlueScreen = 9,
+
+    /// <summary>24-bit BGR with pure blue as a transparency key.</summary>
+    Bgr888BlueScreen = 10,
+
     /// <summary>32-bit BGRA.</summary>
     Bgra8888 = 12,
 
@@ -749,7 +755,7 @@ public sealed class VtfTexture
         VtfFormat.Dxt3 or VtfFormat.Dxt5 => BlockCount(width, height) * 16,
         VtfFormat.Rgba16161616F => width * height * 8,
         VtfFormat.Rgba8888 or VtfFormat.Bgra8888 => width * height * 4,
-        VtfFormat.Rgb888 or VtfFormat.Bgr888 => width * height * 3,
+        VtfFormat.Rgb888 or VtfFormat.Bgr888 or VtfFormat.Rgb888BlueScreen or VtfFormat.Bgr888BlueScreen => width * height * 3,
         _ => throw new InvalidDataException($"VTF format {format} has no known size."),
     };
 
@@ -791,17 +797,26 @@ public sealed class VtfTexture
 
             case VtfFormat.Rgb888:
             case VtfFormat.Bgr888:
-                bool swap = format == VtfFormat.Bgr888;
+            case VtfFormat.Rgb888BlueScreen:
+            case VtfFormat.Bgr888BlueScreen:
+                bool swap = format is VtfFormat.Bgr888 or VtfFormat.Bgr888BlueScreen;
+                bool keyed = format is VtfFormat.Rgb888BlueScreen or VtfFormat.Bgr888BlueScreen;
 
                 for (int index = 0; index < width * height; index++)
                 {
                     byte first = source[(index * 3) + 0];
                     byte third = source[(index * 3) + 2];
+                    byte red = swap ? third : first;
+                    byte green = source[(index * 3) + 1];
+                    byte blue = swap ? first : third;
 
-                    pixels[(index * 4) + 0] = swap ? third : first;
-                    pixels[(index * 4) + 1] = source[(index * 3) + 1];
-                    pixels[(index * 4) + 2] = swap ? first : third;
-                    pixels[(index * 4) + 3] = 255;
+                    pixels[(index * 4) + 0] = red;
+                    pixels[(index * 4) + 1] = green;
+                    pixels[(index * 4) + 2] = blue;
+
+                    // The blue screen: pure blue is the transparency key; its colour after the closed bitmap library's
+                    // conversion is not known here and is left as stored.
+                    pixels[(index * 4) + 3] = keyed && red == 0 && green == 0 && blue == 255 ? (byte)0 : (byte)255;
                 }
 
                 break;
@@ -997,6 +1012,8 @@ public sealed class VtfTexture
         0 => VtfFormat.Rgba8888,
         2 => VtfFormat.Rgb888,
         3 => VtfFormat.Bgr888,
+        (int)VtfFormat.Rgb888BlueScreen => VtfFormat.Rgb888BlueScreen,
+        (int)VtfFormat.Bgr888BlueScreen => VtfFormat.Bgr888BlueScreen,
         12 => VtfFormat.Bgra8888,
         13 => VtfFormat.Dxt1,
         14 => VtfFormat.Dxt3,

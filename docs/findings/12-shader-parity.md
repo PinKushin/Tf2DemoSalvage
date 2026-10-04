@@ -708,3 +708,42 @@ drawn by the viewer's sprite renderer, adds over an occluder in front of it at m
 by the same occluder at mode 5; a mode 0 sprite hides a quad drawn behind it afterwards and a mode 1
 sprite does not. The texture falls off steeply — red 29 one texel outside a 6-texel occluder and 6
 four texels further — which decided where the control reads. *Measured.*
+
+## Which HDR type TF2 runs — integer, and float is unreachable at the defaults (B62, 2026-10-04)
+
+Every `GetHDRType() == HDR_TYPE_INTEGER` branch in the SDK's shaders was a coin this project had not
+called. The SDK publishes the branches but not the decision; that lives in `shaderapidx9.dll`, which
+had sat in the Ghidra project unanalysed, so an earlier pass found no reference to anything and
+stopped. Running analysis fixed that, and the caps dump (`0x18002bb50`) then named the field by
+printing it beside `"m_HDRType: HDR_TYPE_INTEGER"` — a debug print is a free field map.
+
+*Read in disassembly:* the caps code (`0x1800293eb-0x180029448`) makes the type float only when
+`mat_hdr_level` is exactly 3. The convar's default is "2". There is no `-floathdr` string in the
+binary, the parameter the type was once believed to hang on. So on any current PC, DXVK included,
+TF2 runs `HDR_TYPE_INTEGER` — when HDR is enabled at all, which `Map_CheckForHDR` (`engine.dll
+0x1800ffa10`) decides per map from lumps 53, 54 and 55. A map compiled without HDR runs
+`HDR_TYPE_NONE`, and `mat_hdr_level`'s own help text says as much: *"2 for full HDR on HDR maps."*
+
+**The wrong turn worth keeping:** the water had been drawn with the non-integer branch "matching this
+renderer's lack of a tone map". That conflated two things. The tone map is the main view's
+exposure; the water's ×0.25/×4 is a range trick for an 8-bit target, and it is exact without any
+tone map — the reflection keeps light up to 4 instead of clipping at 1.
+
+**And the measured anticlimax:** ctf_2fort's own water names no `$reflecttexture`, so on the map
+the question was filed against, the branch changes nothing drawn.
+
+*Other shaders that branch on the type*, checked against what this project draws: `sky_dx9` /
+`sky_hdr_dx9` multiply an `RGBA16161616F` sky by 16 under integer (`sky_dx9.cpp:93-102`).
+**The first write-up of this said "this project reads the LDR sky, so the branch is not reached",
+and that was wrong**: the loader already took `$hdrcompressedtexture`, and a reading of the loader
+rather than a memory of it would have said so. What it lacked was the rest of `Sky_HDR_DX9` —
+the HDR gate, `$hdrbasetexture` and its ×16, `$color`, and the tone-map scale (B461).
+`SetClearColorToFogColor` (`viewrender.cpp:759`) scales the clear colour by the tone-map scale, and
+the reflection view's clear now does. `lightmappedreflective` and `core_dx9` are not implemented.
+The main view's `SetToneMappingScaleLinear` (`:2211`) is the auto-exposure D192 queues.
+
+**The reflection's ×0.25 was first ported as an equivalent and then as Valve's path.** Drawing the
+view unscaled into a float target and storing it at a quarter is the same arithmetic, because every
+output, blend and fog is linear in the scale — but not the same rounding: the engine writes each
+blend at a quarter into 8 bits. Reviewed and replaced the same day; the scale is now
+`LINEAR_LIGHT_SCALE` in every shader's FinalOutput, as `common_ps_fxc.h:345-350` applies it.
