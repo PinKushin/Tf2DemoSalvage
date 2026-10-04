@@ -1950,7 +1950,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // substitution needs the model, and only this layer has it; the layer produced is the
             // same either way because nothing between the two moments can change which sequences a
             // model declares.
-            if (sequence <= 0 &&
+            //
+            // **`== -1`, not "no answer"** (B460): a flinch found at sequence ZERO is not substituted — the engine restarts
+            // it as asked and `AddToGestureSlot`'s `<= 0` below abandons it.
+            if (sequence == -1 &&
                 gesture.Slot == GestureSlot.Flinch &&
                 !string.Equals(activity, FlinchChestActivity, StringComparison.Ordinal))
             {
@@ -2121,7 +2124,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// not is abandoned rather than reconciled.
     /// </remarks>
 
-    private static void IkFor(
+    internal static void IkFor(
         PropModels.SkinnedModel skinned,
         int sequence,
         float cycle,
