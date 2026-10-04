@@ -32768,7 +32768,23 @@ scans down exactly as the engine does, capped at 32 keyframes either side.
 after, with the arrival-pair selection temporarily restored to take the before-figures through the same
 instrument.*
 
-### B376 OPEN 2026-09-09: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
+### B376 FIXED 2026-10-04: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
+
+**FIXED: the cause is Valve's writer wrapping a ramp count, not a flex field.** `CCurveData::SaveToBuffer`
+(`choreoevent.cpp:4362`) writes its count with `PutUnsignedChar`, then every sample. The expression's
+ramp has 259 samples under a count byte of 3, so the reader skipped 1,280 bytes too few, and the
+garbage strides that followed happened to end 2 bytes short. **The live game misreads these two
+scenes**: `RestoreFromBuffer` takes the 3 at its word. Per the owner's standing ruling (Valve's way,
+always: the target is what TF2 shows), the reader is now a read-for-read port of the engine's restore
+through `CUtlBuffer`'s get semantics (`EngineBuffer`). A read that does not fit yields 0 and does not
+advance, and the overflow is sticky. No restore fails on that, so every declared event is kept. On
+these scenes the engine reads 10 and 9 events, overflows, and stops 3 bytes short. A walk counts as
+complete only when it lands exactly on the end without overflowing. The census is 9,943 of 9,945,
+and `SceneImageTests.SequenceAt_EverySceneTheGameShips_LandsExactlyExceptTheTwoTheEngineDesyncs` pins
+the two desyncs by crc. An earlier commit on this branch recovered the wrapped count instead; that
+departed from the engine and was replaced. Full account:
+`docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md#b376-valves-own-writer-wraps-a-ramp-count-and-the-two-bytes-was-a-coincidence`.
+The original entry follows, kept with its wrong localisation.
 
 **Found by censusing the scene reader over the WHOLE archive instead of over the taunts** — B351's
 first measurement was 730 of 730 taunt paths, which is 7.3% of the population and would pass a stride
