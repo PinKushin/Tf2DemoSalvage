@@ -1019,6 +1019,9 @@ public sealed class MapAssets
     /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
     public BspWater Water { get; private init; } = new([], []);
 
+    /// <summary>The view's cheap-water distances on this map — <see cref="BspEntities.WaterLod"/>.</summary>
+    public (float Start, float End) WaterLod { get; private init; } = (0f, 0.1f);
+
     /// <summary>The frames of every animated detail texture, keyed by path (B342).</summary>
     /// <remarks>
     /// **One entry per FILE, not per material**, which is the engine's own arrangement: TF2 loads
@@ -1750,6 +1753,7 @@ public sealed class MapAssets
             DetailAnimations = table.DetailAnimations,
             Waters = table.Waters,
             Water = BspWater.Read(map),
+            WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 

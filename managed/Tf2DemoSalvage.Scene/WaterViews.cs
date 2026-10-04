@@ -454,6 +454,51 @@ public static class WaterViews
         return views;
     }
 
+    /// <summary>The material the visible fog volume is drawn with: <c>m_pFogVolumeMaterial</c>.</summary>
+    /// <param name="fog">The visible volume.</param>
+    /// <param name="volumes">The map's water volumes.</param>
+    /// <param name="waters">The map's water materials, by material index.</param>
+    /// <param name="names">The map's material names, by the same index.</param>
+    /// <returns>The material index, or −1 for none.</returns>
+    /// <remarks>
+    /// The surface's texinfo material; from inside the volume, that material's <c>$bottommaterial</c>
+    /// (engine.dll <c>0x1800dffd0</c> with its second argument set, from <c>0x1800e01bc</c>). The engine finds the
+    /// bottom material by name through the material system; here it is found by name in the map's table, so a
+    /// bottom material no face uses is not found and the surface's is kept — a divergence, not the engine's.
+    /// </remarks>
+    public static int FogVolumeMaterial(
+        FogVolumeInfo fog, IReadOnlyList<Content.Bsp.BspWaterVolume> volumes, IReadOnlyList<MapWater?> waters,
+        IReadOnlyList<string> names)
+    {
+        ArgumentNullException.ThrowIfNull(volumes);
+        ArgumentNullException.ThrowIfNull(waters);
+        ArgumentNullException.ThrowIfNull(names);
+
+        if (fog.Volume < 0 || fog.Volume >= volumes.Count)
+        {
+            return -1;
+        }
+
+        int surface = volumes[fog.Volume].SurfaceTexdata;
+
+        if (!fog.EyeInFogVolume || surface < 0 || surface >= waters.Count || waters[surface]?.BottomMaterial is not { } bottom)
+        {
+            return surface;
+        }
+
+        string wanted = bottom.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ? bottom[..^4] : bottom;
+
+        for (int index = 0; index < names.Count; index++)
+        {
+            if (string.Equals(names[index].Replace('\\', '/'), wanted.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return surface;
+    }
+
     /// <summary><c>CBaseWorldView::PushView</c>'s height clip, <c>viewrender.cpp:5297-5318</c>.</summary>
     private static HeightClip Clip(ViewDraws draw, float waterHeight, bool matClipZ)
     {

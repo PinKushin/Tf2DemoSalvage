@@ -39,7 +39,7 @@ namespace Tf2DemoSalvage.Render;
 /// them is the caller's job and is tested as ordinary arithmetic rather than through a GPU. That
 /// caller was `TopDownCamera` until D98 removed it; the view matrix now comes from `ViewCamera`.
 /// </remarks>
-internal sealed unsafe class WorldRenderer : IDisposable
+internal sealed unsafe partial class WorldRenderer : IDisposable
 {
     /// <summary>Bytes per vertex: position, texture, lightmap, blend, colour, step and normal.</summary>
     /// <remarks>
@@ -73,7 +73,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
     /// </remarks>
     private const float DefaultAlphaTestReference = 0.5f;
 
-    private static readonly string ShaderSource = ShaderText.Replace(
+    private static readonly string ShaderSource = (ShaderText + WaterShaderText).Replace(
         "MaxBones", MaxBones.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal);
 
     private const string ShaderText = """
@@ -147,6 +147,34 @@ internal sealed unsafe class WorldRenderer : IDisposable
             // **The colour mesh, kept apart from the vertex colour** (B424): it multiplies the light where no cube is
             // supplied, and is ADDED to the cube and lamps in the static-plus-dynamic mode (ambientCube[1].w).
             float3 baked : TEXCOORD7;
+
+            // **The water views' height clip** — `PushView`'s `SetHeightClipZ`/`SetHeightClipMode`
+            // (viewrender.cpp:5307-5326) as a user clip plane: kept where the distance is not negative. The
+            // resting plane is zero, which keeps everything.
+            float clip : SV_ClipDistance0;
+        };
+
+        // **The water view and the water material** (B62). The first three rows are the VIEW's — its
+        // height clip and, for a refraction view, the volume's height fog — and the rest the material's,
+        // rewritten per water batch. See WorldRenderer.Water.cs.
+        cbuffer WaterView : register(b4)
+        {
+            float4 clipPlane;
+            float4 heightFog;       // x on, y water z, w 1 / (fogend - fogstart)
+            float4 heightFogColour; // rgb linear
+            float4 refractTint;
+            float4 reflectTint;
+            float4 reflectRefractScale;
+            float4 waterFogColour;
+            float4 waterFogParams;  // x start, y end - start, z reflect overbright
+            float4 waterFlags;      // x REFLECT, y REFRACT, z ABOVEWATER, w MULTITEXTURE
+            float4 waterFlags2;     // x BLURRY_REFRACT, y FRESNEL, z BLEND, w REFRACTALPHA
+            float4 cheapParams;     // start, end, 1 / (end - start), start / (end - start)
+            float4 bumpTransform0;
+            float4 bumpTransform1;
+            float4 texOffsets;      // time * $scroll1.xy, time * $scroll2.xy
+            float4 cheapReflectTint; // rgb $reflecttint, w $reflectblendfactor
+            float4 cheapFogColour;  // rgb $fogcolor, as the cheap shader's HDRTYPE 0 reads it
         };
 
         cbuffer Camera : register(b0)
@@ -675,6 +703,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
             float4 world = mul(float4(posed, 1.0f), model);
             output.pos = mul(world, viewProjection);
             output.wpos = world.xyz;
+            output.clip = dot(float4(world.xyz, 1.0f), clipPlane);
 
             // **Valve's own shape, transcribed from `cloak_vs20.fxc:105`:**
             //
@@ -842,6 +871,39 @@ internal sealed unsafe class WorldRenderer : IDisposable
             {
                 rimLighting += pow(lDotR, rimControl.x) * facing * colour;
             }
+        }
+
+        // **Valve's FinalOutput fog, last of everything** (common_ps_fxc.h:366): CalcRangeFog on the PROJECTED
+        // z — `saturate( min( maxdensity, z * OORange - startOverRange ) )` — then BlendPixelFog's lerp by the
+        // factor SQUARED. Our projection is D3D's, as Source's is, so clip z is the same `flProjPosZ` the
+        // engine's vertex shader writes. fogColour.w 2 is RANGE_RADIAL: CalcRadialFog_NonFixedFunction
+        // (common_fxc.h:334) takes the straight-line distance from the eye instead. `mode` is the material's
+        // fog mode — 0 toward the fog colour, 1 toward black, 2 none.
+        float3 PixelFog(float3 lit, float3 wpos, float mode)
+        {
+            if (fogColour.w > 0.5f && mode < 1.5f)
+            {
+                float projZ = fogColour.w > 1.5f
+                    ? distance(eyePosition.xyz, wpos)
+                    : mul(float4(wpos, 1.0f), viewProjection).z;
+                float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
+                float3 toward = mode > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb;
+                lit = lerp(lit, toward, fogFactor * fogFactor);
+            }
+
+            return lit;
+        }
+
+        // `CalcWaterFogAlpha`, common_ps_fxc.h:213, verbatim: how much of the eye-to-point distance is under
+        // the water, times the projected z over the fog range.
+        float WaterFogAlpha(float3 wpos)
+        {
+            float depthFromWater = heightFog.y - wpos.z;
+            float depthFromEye = eyePosition.z - wpos.z;
+            float f = saturate(depthFromWater * (1.0f / depthFromEye));
+            float projZ = mul(float4(wpos, 1.0f), viewProjection).z;
+
+            return saturate(f * projZ * heightFog.w);
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -1632,25 +1694,19 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 }
             }
 
-            // **Valve's FinalOutput fog, last of everything** (common_ps_fxc.h:366): CalcRangeFog on
-            // the PROJECTED z — `saturate( min( maxdensity, z * OORange - startOverRange ) )` — then
-            // BlendPixelFog's lerp by the factor SQUARED. Our projection is D3D's, as Source's is, so
-            // clip z is the same `flProjPosZ` the engine's vertex shader writes.
-            //
-            // fogColour.w 2 is RANGE_RADIAL: CalcRadialFog_NonFixedFunction (common_fxc.h:334) takes
-            // the straight-line distance from the eye instead, `min( maxdensity, saturate( ... ) )`,
-            // which is the same value for any max density in 0..1.
-            if (fogColour.w > 0.5f && tintControl.z < 1.5f)
+            // The world's fog, last of everything — PixelFog, above. **Under a water volume's height fog instead, in a refraction view** (B62): PIXEL_FOG_TYPE_HEIGHT,
+            // `CalcWaterFogAlpha` (common_ps_fxc.h:213) blended unsquared (:297), and the factor written to
+            // alpha — `WRITEWATERFOGTODESTALPHA` (lightmappedgeneric_ps2_3_x.h:575), which is the depth the
+            // water shader reads back out of `_rt_WaterRefraction`.
+            if (heightFog.x > 0.5f && tintControl.z < 1.5f)
             {
-                float projZ = fogColour.w > 1.5f
-                    ? distance(eyePosition.xyz, input.wpos)
-                    : mul(float4(input.wpos, 1.0f), viewProjection).z;
-                float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
-                float3 toward = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb;
-                lit = lerp(lit, toward, fogFactor * fogFactor);
+                float waterFog = WaterFogAlpha(input.wpos);
+                float3 under = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : heightFogColour.rgb;
+
+                return float4(lerp(lit, under, waterFog), waterFog);
             }
 
-            return float4(lit, albedo.a);
+            return float4(PixelFog(lit, input.wpos, tintControl.z), albedo.a);
         }
         """;
 
@@ -3386,6 +3442,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 "{SelfIllum} materials light themselves",
                 assets.Textures.Count(texture => texture is { SelfIllum: not null }));
         }
+
+        UploadWaters(device, context, assets);
     }
 
     /// <summary>Uploads a map's projected triangles, replacing anything already there.</summary>
@@ -3499,6 +3557,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         context.PSSetShaderResources(7, 1, ref grid);
 
         EnsureMaterialBuffer(context);
+        BindWaterView(context);
     }
 
     /// <summary>Draws the uploaded map.</summary>
@@ -3690,6 +3749,13 @@ internal sealed unsafe class WorldRenderer : IDisposable
                 continue;
             }
 
+            // **A water surface draws with the Water shader, and only in a view that draws water** (B62) —
+            // DF_RENDER_WATER, `MAT_SORT_GROUP_WATERSURFACE`. Its Plain fallback falls through to the white below.
+            if (WaterBatch(context, batch))
+            {
+                continue;
+            }
+
             // **The fallback is the chequer for a MISSING texture and plain white for a shader that
             // wants none** (B62). Those look identical from here — both are "the handle is null" —
             // and telling them apart is the whole fix: water drew Valve's broken-content marker on
@@ -3831,6 +3897,8 @@ internal sealed unsafe class WorldRenderer : IDisposable
         {
             throw new ArgumentException("A camera matrix is sixteen floats.", nameof(matrix));
         }
+
+        _cameraSwitches = (surfaceColours, specular, fullbright, debug, phong);
 
         if (_camera.Handle is null)
         {
@@ -6136,6 +6204,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _layout.Dispose();
         _pixelShader.Dispose();
         _vertexShader.Dispose();
+        DisposeWater();
     }
 
     private void ReleaseMap()
@@ -6191,6 +6260,7 @@ internal sealed unsafe class WorldRenderer : IDisposable
         _detailParameters.Clear();
         _additive.Clear();
         _translucent.Clear();
+        ReleaseWaters();
 
         // Gathered against the material kinds just cleared; Device3D gathers again on its next camera (B426).
         TranslucentLeaves = null;

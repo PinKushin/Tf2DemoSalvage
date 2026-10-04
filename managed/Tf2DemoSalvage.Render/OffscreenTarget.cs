@@ -221,6 +221,57 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
+    /// <param name="vertices">Triangle corners in world coordinates.</param>
+    /// <param name="batches">Material runs.</param>
+    /// <param name="camera">The main view.</param>
+    /// <param name="assets">The map's materials.</param>
+    /// <param name="frame">The views; its matrices are filled from <paramref name="camera"/> here.</param>
+    /// <returns>How many water batches drew each pass.</returns>
+    public (int Expensive, int Cheap, int Plain) DrawWaterWorld(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        FreeCamera camera,
+        MapAssets assets,
+        WaterDraw frame)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        ArgumentNullException.ThrowIfNull(frame);
+
+        float[] matrix = camera.ToMatrix();
+        ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
+            WaterViews.Reflect(camera.Origin, camera.Angles, frame.WaterHeight);
+        FreeCamera reflected = new()
+        {
+            Origin = origin,
+            Angles = angles,
+            FieldOfView = camera.FieldOfView,
+            NearZ = camera.NearZ,
+            FarZ = camera.FarZ,
+            Aspect = camera.Aspect,
+        };
+
+        DrawWorld(vertices, batches, matrix, assets, translucent: false);
+
+        WorldRenderer world = _world!;
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        world.DrawWaterViews(
+            _context,
+            frame with { Camera = matrix, ReflectedCamera = reflected.ToMatrix() },
+            () =>
+            {
+                _context.RSSetViewports(1, in viewport);
+                _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+                world.SetCamera(_device, _context, matrix);
+            });
+
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        world.Draw(_context);
+
+        return world.WaterDraws;
+    }
+
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
 

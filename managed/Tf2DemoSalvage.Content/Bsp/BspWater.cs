@@ -8,7 +8,8 @@ namespace Tf2DemoSalvage.Content.Bsp;
 /// <param name="SurfaceZ">The water's surface height.</param>
 /// <param name="MinZ">The volume's floor.</param>
 /// <param name="SurfaceTexinfo">The texinfo of the surface, whose material is the water's.</param>
-public readonly record struct BspWaterVolume(float SurfaceZ, float MinZ, int SurfaceTexinfo);
+/// <param name="SurfaceTexdata">That texinfo's texdata — the material's index in the map's material table — or −1.</param>
+public readonly record struct BspWaterVolume(float SurfaceZ, float MinZ, int SurfaceTexinfo, int SurfaceTexdata = -1);
 
 /// <summary>The map's water volumes and each leaf's distance to the nearest of them.</summary>
 /// <param name="Volumes">Indexed by a leaf's <c>leafWaterDataID</c>.</param>
@@ -37,13 +38,17 @@ public sealed record BspWater(IReadOnlyList<BspWaterVolume> Volumes, IReadOnlyLi
         ReadOnlySpan<byte> distances = BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafMinDistToWater)).Span;
 
         List<BspWaterVolume> read = new(volumes.Length / Stride);
+        IReadOnlyList<BspTexinfo> texinfo = volumes.IsEmpty ? [] : BspMaterials.ReadTexinfo(file);
 
         for (int at = 0; at + Stride <= volumes.Length; at += Stride)
         {
+            int surface = BinaryPrimitives.ReadInt16LittleEndian(volumes[(at + 8)..]);
+
             read.Add(new(
                 BinaryPrimitives.ReadSingleLittleEndian(volumes[at..]),
                 BinaryPrimitives.ReadSingleLittleEndian(volumes[(at + 4)..]),
-                BinaryPrimitives.ReadInt16LittleEndian(volumes[(at + 8)..])));
+                surface,
+                surface >= 0 && surface < texinfo.Count ? texinfo[surface].Texdata : -1));
         }
 
         ushort[] perLeaf = new ushort[distances.Length / 2];
