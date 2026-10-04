@@ -39,11 +39,11 @@ internal static partial class MessageQueue
     /// it is a queue that is never empty, and the id says who is filling it.
     ///
     /// **Null for empty, because `WM_NULL` is 0.** This returned 0 for both, and the note here said
-    /// nothing posts WM_NULL and the loop checked emptiness through <see cref="HasWork"/> — neither
-    /// was true. COM and the shell post WM_NULL to wake a thread, and the render loop drew while
-    /// this said 0; the peek leaves the message at the head of the queue, so after one WM_NULL the
-    /// loop never yielded again and the viewer drew on handling no input. On CI that followed the
-    /// Export test's file dialog and failed the ten UI tests after it.
+    /// the loop checked emptiness through <see cref="HasWork"/> — it did not: the render loop drew
+    /// while this said 0. The peek leaves a message at the head of the queue, so one posted WM_NULL
+    /// (COM and the shell post them to wake a thread) would have kept the loop drawing and the
+    /// window handling no input. Found while chasing a CI failure it turned out NOT to cause (that
+    /// was WinForms menu mode — `ExportCompileUiTests`); fixed because the hang is real either way.
     /// </remarks>
     public static uint? Waiting() =>
         PeekMessage(out NativeMessage message, IntPtr.Zero, 0, 0, PeekNoRemove) ? message.Message : null;

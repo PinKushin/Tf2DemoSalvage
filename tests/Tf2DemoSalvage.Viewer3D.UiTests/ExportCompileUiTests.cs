@@ -132,10 +132,8 @@ public sealed class ExportCompileUiTests
                 child => $"{child.Properties.ClassName.ValueOrDefault}/{child.Properties.Name.ValueOrDefault}")));
 
         // Holding the viewer's own default name, not merely enabled: the dialog writes that default
-        // into the box on its own schedule, and on CI it landed AFTER the typed path and replaced it —
-        // the export went to Documents\z1800.txt and Compile's open dialog then sat under "File not
-        // found" (Test workflow red from c3b05a7b; run 37131359285). The extension is not compared
-        // because Explorer hides a known one in that box.
+        // into the box on its own schedule, so it is the sign the box is ready to be typed into. The
+        // extension is not compared because Explorer hides a known one there (it does on CI).
         System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         void Mark(string what) => Timeline.Enqueue($"{clock.ElapsedMilliseconds,6} ms  {what}");
         Mark($"dialog '{dialog.Properties.Name.ValueOrDefault}' found");

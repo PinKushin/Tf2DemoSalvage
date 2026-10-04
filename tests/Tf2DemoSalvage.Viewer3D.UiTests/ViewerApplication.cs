@@ -884,8 +884,8 @@ internal sealed partial class ViewerApplication : IDisposable
     /// **Which process owns the foreground window answers it; which element UIA reports as focused
     /// is a second route to it.** A synthesized key goes to the foreground window's thread, so that
     /// is what this compares — the same Win32 question the comment in <c>Ready</c> already described.
-    /// Changed while chasing the CI failures after the Export test, which turned out to be the
-    /// viewer's render loop (see <c>MessageQueue.Waiting</c>), not focus; kept because it is the
+    /// Changed while chasing the CI failures after the Export test, which turned out to be WinForms
+    /// keyboard menu mode (see <c>ExportCompileUiTests</c>), not focus; kept because it is the
     /// direct answer.
     /// </remarks>
     public bool HasFocus() => ForegroundProcessId() == (uint)_application.ProcessId;

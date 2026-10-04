@@ -4104,7 +4104,7 @@ internal class MainForm : Form, IFrameSteps
             // viewer drops to twenty frames a second after a demo switch, and because this loop
             // runs only while the queue is empty, that is a statement about who is posting messages
             // rather than about how long a frame takes.
-            // Null, not zero: a WM_NULL is a message to yield to (see MessageQueue.Waiting).
+            // Null, not zero: a WM_NULL is a message to yield to, see MessageQueue.Waiting.
             waiting = MessageQueue.Waiting();
         }
         while (waiting is null);

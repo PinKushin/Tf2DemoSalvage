@@ -10,10 +10,9 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 /// </summary>
 /// <remarks>
 /// **WM_NULL is a message whose id is zero, and zero used to mean "the queue is empty".** The render
-/// loop drew while <c>Waiting()</c> said zero, so a WM_NULL at the head of the queue — which COM and
-/// the shell post to wake a thread — read as nothing waiting, and since the peek does not remove it,
-/// the loop never yielded again: the viewer drew on and handled no input. On CI that was ten UI
-/// tests failing after the Export test's file dialog.
+/// loop draws while <c>Waiting()</c> says nothing is waiting, so a WM_NULL at the head of the queue —
+/// which COM and the shell post to wake a thread — would read as nothing, and since the peek does not
+/// remove it, the loop would never yield again: the viewer drawing on and handling no input.
 /// </remarks>
 [TestFixture]
 public sealed partial class MessageQueueTests
