@@ -328,6 +328,16 @@ count, the eight written events, the census and the desynced reads; arithmetic f
 
 - **What the engine renders for those two expressions.** We know its reader desyncs. We have not
   measured what a desynced restore produces on screen.
-- **The string pool on a garbage index.** Ours returns an empty name for an out-of-range pool
-  index. The engine's `CSceneImage` string lookup on such an index has not been read, so the names
-  of the garbage events are not established.
+
+**The string pool on a garbage index — settled in disassembly.** `CChoreoStringPool::GetString`
+(`c_sceneentity.cpp:738`) asks `scenefilecache->GetSceneString`. That function lives only in the
+closed `scenefilecache.dll`. In TF2's x64 build it is slot 9 of `CSceneFileCache`'s vtable
+(0x18001f3a8 → 0x180001db0), and its eleven instructions are `SceneImageHeader_t::String` from
+`SceneImageFile.h` exactly. With no image loaded, a negative index, or an index at or past
+`nNumStrings` (`[image + 0xC]`), it returns NULL. Otherwise it returns the image base plus
+`table[index]`, with the table at `+0x14`. `GetString` copies NULL as "", and copies a found string
+with `V_strncpy` into the caller's buffer, which is `char params[ 2048 ]` for a parameter. So a
+garbage event's parameter is "" whenever its index is out of range, and any parameter is cut to
+2,047 bytes. Ours now does both. Its only addition is a bound on the string's OFFSET: a corrupt table
+would make the engine read arbitrary memory, which no port can reproduce. *Evidence class:
+disassembly for the lookup, read from source for the copy.*

@@ -71,6 +71,9 @@ public sealed class SceneImage
     /// <summary><c>CChoreoEvent::LOOP</c>, which writes its count after its flex tracks.</summary>
     private const byte Loop = 12;
 
+    /// <summary><c>char params[ 2048 ]</c>, the buffer <c>RestoreFromBuffer</c> copies a parameter into.</summary>
+    private const int ParametersBuffer = 2048;
+
     /// <summary><c>NUM_ABS_TAG_TYPES</c> — <c>PLAYBACK</c> and <c>ORIGINAL</c>.</summary>
     private const int AbsoluteTagTypes = 2;
 
@@ -438,8 +441,20 @@ public sealed class SceneImage
             : ValveLzma.Decode(raw.Span.Slice(12, 5), raw.Span[17..], actual);
     }
 
-    /// <summary>The pooled string an index names.</summary>
-    private string Pooled(int index)
+    /// <summary>
+    /// What <c>CChoreoStringPool::GetString</c> (<c>c_sceneentity.cpp:738</c>) leaves in a buffer of
+    /// <paramref name="buffer"/> bytes for a pool index.
+    /// </summary>
+    /// <remarks>
+    /// **The lookup is `SceneImageHeader_t::String`, confirmed in TF2's own binary** —
+    /// `GetSceneString` is vtable slot 9 of `CSceneFileCache` in x64 `scenefilecache.dll`
+    /// (0x180001db0, read in disassembly): no image, a negative index or one at or past
+    /// `nNumStrings` gives NULL, which `GetString` copies as "". A found string goes through
+    /// `V_strncpy` into the caller's buffer, so at most <c>buffer - 1</c> bytes survive. The bound on
+    /// the OFFSET is this reader's own: the engine would read whatever memory a corrupt table points
+    /// at, which no port can reproduce.
+    /// </remarks>
+    private string Pooled(int index, int buffer)
     {
         if (index < 0 || index >= _strings.Length)
         {
@@ -456,7 +471,12 @@ public sealed class SceneImage
         ReadOnlySpan<byte> from = _file.Span[at..];
         int end = from.IndexOf((byte)0);
 
-        return Encoding.UTF8.GetString(end < 0 ? from : from[..end]);
+        if (end < 0)
+        {
+            end = from.Length;
+        }
+
+        return Encoding.UTF8.GetString(from[..Math.Min(end, buffer - 1)]);
     }
 
     /// <summary>Walks a compiled VCD and returns the first gesture's sequence.</summary>
@@ -619,7 +639,7 @@ public sealed class SceneImage
                 buffer.Byte();
             }
 
-            string named = Pooled(parameters);
+            string named = Pooled(parameters, ParametersBuffer);
 
             into?.Add(new SceneEvent(type, start, end, named, began));
 
