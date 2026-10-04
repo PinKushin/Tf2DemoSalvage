@@ -405,6 +405,7 @@ public readonly record struct MapPlacedCubemap(
 /// frames per material would decode 121 images thousands of times — the engine loads it once and
 /// points every material at the same <c>ITexture</c>.
 /// </param>
+/// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -425,7 +426,8 @@ public readonly record struct ResolvedMaterial(
     MapTexture? PhongExponentMap = null,
     IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null,
     IReadOnlyList<MapTexture>? AnimationFrames = null,
-    string? DetailAnimation = null);
+    string? DetailAnimation = null,
+    MapWater? Water = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -1011,6 +1013,15 @@ public sealed class MapAssets
     /// <summary>Which animated detail texture each material uses, by path (B342).</summary>
     public IReadOnlyList<string?> DetailAnimations { get; private init; } = [];
 
+    /// <summary>Each <c>Water</c> material's parameters, null for every other material (B62).</summary>
+    public IReadOnlyList<MapWater?> Waters { get; private init; } = [];
+
+    /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
+    public BspWater Water { get; private init; } = new([], []);
+
+    /// <summary>This map's <c>water_lod_control</c> distances, or null — <see cref="BspEntities.WaterLod"/>.</summary>
+    public (float Start, float End)? WaterLod { get; private init; }
+
     /// <summary>The frames of every animated detail texture, keyed by path (B342).</summary>
     /// <remarks>
     /// **One entry per FILE, not per material**, which is the engine's own arrangement: TF2 loads
@@ -1251,6 +1262,27 @@ public sealed class MapAssets
                         string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
         }
         ReportCensus("brushwork", found);
+
+        // **Each water's `$bottommaterial`, loaded by name as the material system does** (B62): engine.dll
+        // 0x1800dffd0 finds it with `FindMaterial` whether or not any face wears it, and from inside the volume it is
+        // the material the view decides with and the fog comes from. Appended after the brushwork, so no face's
+        // index moves.
+        HashSet<string> named = new(materials.Select(material => material.Name.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase);
+
+        foreach (string bottom in found
+                     .Select(material => material.Water?.BottomMaterial)
+                     .OfType<string>()
+                     .Select(name => (name.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name).Replace('\\', '/'))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .ToList())
+        {
+            if (named.Add(bottom))
+            {
+                table.Add(
+                    new BspMaterial(bottom, (1f, 1f, 1f), 0, 0),
+                    Resolve(assets, bottom, pak, archives, maximumTextureSize, report: true, animatedDetails));
+            }
+        }
 
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
@@ -1740,6 +1772,9 @@ public sealed class MapAssets
             Variables = table.Variables,
             AnimationFrames = table.AnimationFrames,
             DetailAnimations = table.DetailAnimations,
+            Waters = table.Waters,
+            Water = BspWater.Read(map),
+            WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
 
@@ -2623,7 +2658,39 @@ public sealed class MapAssets
             // dictionary per material across a whole map is a real cost for a table nobody opens.
             material.Proxies.Count > 0 ? material.NumericValues() : null,
             ResolveAnimationFrames(),
-            ResolveDetailAnimation());
+            ResolveDetailAnimation(),
+            ResolveWater());
+
+        MapWater? ResolveWater()
+        {
+            // **`Water` and the names its fallback chain answers to** (water.cpp: Water → Water_DX9_HDR → Water_DX90).
+            if (!material.Shader.StartsWith("Water", StringComparison.OrdinalIgnoreCase) ||
+                material.Shader.StartsWith("WaterCheap", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            string normal = material.Value("$normalmap") ?? MapWater.DefaultNormalMap;
+            VtfTexture? decoded = Load(normal);
+
+            if (decoded is null)
+            {
+                assets.LogWarning(
+                    "{Message}", $"water normal map {normal}, named by materials/{materialName}.vmt, could not be read");
+
+                return MapWater.From(material, []);
+            }
+
+            // Every frame: an AnimatedTexture on $normalmap picks one per bind (water.cpp binds NORMALMAP at BUMPFRAME).
+            List<MapTexture> normalFrames = [MapTexture.Of(decoded)];
+
+            for (int frame = 1; frame < decoded.FrameCount && LoadFrame(normal, frame) is { } next; frame++)
+            {
+                normalFrames.Add(MapTexture.Of(next));
+            }
+
+            return MapWater.From(material, normalFrames);
+        }
 
         string? ResolveDetailAnimation()
         {

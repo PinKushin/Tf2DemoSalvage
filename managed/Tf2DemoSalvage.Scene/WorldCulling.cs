@@ -78,6 +78,9 @@ public sealed class WorldCulling
 
     private readonly int _worldCorners;
 
+    /// <summary>The map's tree, for the fog volume walk (B62).</summary>
+    public BspLeafTree Tree => _tree;
+
     /// <summary>Whether this map carried what culling needs.</summary>
     public bool CanCull => _surfaces.CanCull;
 

@@ -221,6 +221,79 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
+    /// <param name="vertices">Triangle corners in world coordinates.</param>
+    /// <param name="batches">Material runs.</param>
+    /// <param name="camera">The main view.</param>
+    /// <param name="assets">The map's materials.</param>
+    /// <param name="frame">The views; its matrices are filled from <paramref name="camera"/> here.</param>
+    /// <returns>How many water batches drew each pass.</returns>
+    public (int Expensive, int Cheap, int Plain) DrawWaterWorld(
+        IReadOnlyList<WorldVertex> vertices,
+        IReadOnlyList<WorldBatch> batches,
+        FreeCamera camera,
+        MapAssets assets,
+        WaterDraw frame)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        ArgumentNullException.ThrowIfNull(frame);
+
+        float[] matrix = camera.ToMatrix();
+        ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
+            WaterViews.Reflect(camera.Origin, camera.Angles, frame.WaterHeight);
+        FreeCamera reflected = new()
+        {
+            Origin = origin,
+            Angles = angles,
+            FieldOfView = camera.FieldOfView,
+            NearZ = camera.NearZ,
+            FarZ = camera.FarZ,
+            Aspect = camera.Aspect,
+        };
+
+        WorldRenderer world = _world ??= WorldRenderer.Create(_device, _loggers);
+
+        world.Seconds = Seconds;
+        world.UploadTextures(_device, _context, assets);
+        _uploaded = assets;
+        world.UploadGeometry(_device, vertices, batches);
+        world.Overlays = [];
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        WaterDraw draw = frame with
+        {
+            Camera = matrix,
+            ReflectedCamera = reflected.ToMatrix(),
+            Frame = new WaterFrameTarget(_view, _depthView, _width, _height),
+        };
+
+        world.DrawWaterViews(
+            _context,
+            draw,
+            () =>
+            {
+                _context.RSSetViewports(1, in viewport);
+                _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+                world.SetCamera(_device, _context, matrix);
+            });
+
+        // The main view clears depth only (VIEW_CLEAR_DEPTH), so what it does not draw keeps the frame's colour.
+        _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
+        world.Draw(_context);
+        world.DrawTranslucentWorld(_context);
+        world.DrawWaterIntersection(_context, draw);
+
+        return world.WaterDraws;
+    }
+
+    /// <summary>A pixel of the water reflection or refraction target, as stored.</summary>
+    /// <param name="refraction">The refraction target, else the reflection.</param>
+    /// <param name="x">Column.</param>
+    /// <param name="y">Row.</param>
+    /// <returns>Red, green and blue.</returns>
+    public (int Red, int Green, int Blue) WaterTargetPixel(bool refraction, int x, int y) =>
+        (_world ??= WorldRenderer.Create(_device, _loggers)).WaterTargetPixel(_context, refraction, x, y);
+
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
 

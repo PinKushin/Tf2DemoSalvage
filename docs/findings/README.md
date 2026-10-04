@@ -228,6 +228,10 @@ in any public writeup found:
   under the world list's newest entry, so a node's glass goes with the last leaf of the near subtree and glass facing
   away is never filed at all — which the LEAFFACES stand-in submitted
   ([70](70-a-translucent-surface-joins-the-leaf-the-walk-is-in.md)).
+- **Water is up to four views, and the shader's LOD lives in a material proxy.** The client decides per frame which
+  water views run from one material's parameters; the engine picks the visible volume by walking the tree from the
+  eye; the `WaterLOD` proxy hands the view's cheap-water distances to every water material it binds, so the cheap
+  pass covers the expensive one as the distance runs out ([71](71-the-water-views.md)).
 
 ## Conventions used throughout
 

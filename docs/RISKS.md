@@ -17226,6 +17226,50 @@ answer is the `Water` shader with refraction and reflection render targets, whic
 rather than a fallback, so this is one of D121's narrow "really cannot do it yet" cases and is the
 owner's call rather than something to substitute quietly.
 
+### 2026-10-03: the water views are ported — what is Valve's, what is interpolated, what is still ours
+
+**Ported, read from published source, conformance-tested:** `DetermineWaterRenderInfo`
+(`viewrender.cpp:2488`, PC branches) as `WaterRenderInfo.Determine`; `DrawWorldAndEntities` and every water
+view's draw/clear flags, fog and target (`:2652`, `:5705-6249`) as `WaterViews.Plan`; `PushView`'s height clip
+(`:5295`, ±2 spread, `mat_clipz`); `AdjustView`'s mirrored eye (`:5282`); the world-list flag per sort group
+(`:696`, `ivrenderview.h:36-58`); `water.cpp`'s parameter defaults (`$forceexpensive` is **1** on the PC when
+undeclared) and both shader passes, `water_ps2x.fxc`/`DrawWater` and `WaterCheap_ps2x.fxc`. Tests:
+`WaterViewsConformanceTests` (35), `MapWaterConformanceTests` (3).
+
+**Read in disassembly** (`docs/findings/71-the-water-views.md`): `R_GetVisibleFogVolume` (engine.dll
+`0x1800e0080`) and its walk (`0x1800e0f70`), as `VisibleFogVolume.Find` (`VisibleFogVolumeConformanceTests`, 6);
+the bottom material from inside (`0x1800dffd0`); the 1024² targets (`0x1800f6cd5`).
+
+**Output-level:** `WaterViewRenderTests` draws ctf_2fort's own water over a red and a green floor 5 units
+down — (205,0,0) and (0,107,0) — and both (0,0,0) with no refraction view.
+
+**The six divergences first filed here are closed (second pass, 2026-10-03)**, each with a red test first and a
+sabotage after: the sub-views draw entities and the translucent world (`DrawExecute`, `:5524-5553`); opaque and
+translucent world runs carry their sort group and every view draws only its DF_ groups; `DoesViewPlaneIntersectWater`
+runs through `DoesBoxIntersectWaterVolume` (IVRenderView slot 34, engine.dll `0x18012ea20`) and the intersection
+view draws after the main one; the under-water refraction renders into the frame and is stretched into the target
+by a full-screen pass (the engine's `CopyRenderTargetToTextureEx` stretches; a D3D11 copy cannot, so the pass is
+what the copy effectively does); `$bumptransform` comes from the material's own Sine/Equals/TextureTransform chain
+and `$normalmap` animates; the bottom material is loaded by name; the view's LOD persists for the viewer session
+(`WaterLodSession`). `SetFogVolumeState` is read (engine.dll `0x1800e0cd0`, IVRenderView slot 30): surface material
+for height fog, bottom otherwise, `$fogenable` and `fog_enable_water_fog` (default 1) gate it, max density 1 — and
+only a fully opaque draw writes the fog factor to alpha (`lightmappedgeneric_dx9_helper.cpp:907-918`).
+
+**Still interpolated, flagged:**
+
+1. **The HDR type.** `Water` multiplies the reflection by 4 and the view renders it at ×0.25 only under
+   `HDR_TYPE_INTEGER`. Which type TF2 runs is decided in `shaderapidx9.dll`'s hardware config; that binary is in the
+   Ghidra project but its strings and references are not analysed (no xref reaches its `MaterialSystemHardwareConfig`
+   interface string at `0x180079788`), so the read did not land. The non-integer branch is drawn, matching this
+   renderer's lack of a tone map.
+2. `CalcWaterFogAlpha`'s one-over-range register is packed as the range fog's is (FogConstants, B139); shaderapi's
+   `SetPixelShaderFogParams` is the closed half.
+3. The tangent frame from screen derivatives (T as increasing v); a target no view has drawn reads black, alpha one.
+4. `DoesBoxIntersectWaterVolume` enumerates leaves through the spatial query; `BspLeafTree.LeavesTouchingBox` is
+   taken as the same walk.
+5. A water view's translucent models sort by its own axis without the main view's leaf interleave, and draw the
+   whole translucent world rather than its own leaves'.
+
 ## B229 — 19,274 triangles draw as the missing-material chequer, because skin family zero was privileged — CLOSED 2026-08-29
 
 **Found by the owner looking at `cp_fulgur`**, a map the real game renders with no chequer anywhere:

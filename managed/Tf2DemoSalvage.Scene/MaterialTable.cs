@@ -51,7 +51,11 @@ public sealed class MaterialTable
     private readonly List<IReadOnlyList<MapTexture>?> _animationFrames = [];
 
     private readonly List<string?> _detailAnimations = [];
+    private readonly List<MapWater?> _waters = [];
     private readonly List<IReadOnlyList<MaterialProxy>> _proxies = [];
+
+    /// <summary>Each <c>Water</c> material's shading parameters, null for every other shader (B62).</summary>
+    public IReadOnlyList<MapWater?> Waters => _waters;
 
     /// <summary>How many materials the table holds.</summary>
     public int Count => _materials.Count;
@@ -159,6 +163,7 @@ public sealed class MaterialTable
         _variables.Add(resolved.Variables);
         _animationFrames.Add(resolved.AnimationFrames);
         _detailAnimations.Add(resolved.DetailAnimation);
+        _waters.Add(resolved.Water);
         _proxies.Add(resolved.Proxies ?? []);
 
         // **The shader name, kept because "no base texture" is only a fault for SOME shaders**

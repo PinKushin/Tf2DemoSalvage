@@ -63,6 +63,7 @@ public readonly record struct WorldVertex(
 /// <param name="Category">What this run of triangles is, for the category view (B219).</param>
 /// <param name="MaterialSlot">The mesh skinref this run came from, for the skin lookup (B229).</param>
 /// <param name="Fade">The one overlay's distance fade, when this run holds a single fading overlay.</param>
+/// <param name="SortGroup">The water sort group its faces share, −1 for none (B62).</param>
 /// <remarks>
 /// **A batch never spans two body parts**, which is what makes the choice possible at draw time. The
 /// grouping key is the material AND the part and alternative it came from, so a run can be skipped
@@ -93,7 +94,11 @@ public readonly record struct WorldBatch(
 
     // **One overlay's distance fade, for a batch holding exactly that overlay** (lump 60). The
     // engine fades per overlay, so a fading overlay cannot share a run with any other.
-    OverlayFade? Fade = null);
+    OverlayFade? Fade = null,
+
+    // **The water sort group every face in the run shares** (B62), `VisibleWorld.SortGroup` — −1 when nobody
+    // grouped it (a run built at load, or a model's), which every view draws.
+    int SortGroup = -1);
 
 /// <summary>An overlay's distance fade, as engine.dll applies it with <c>r_overlayfadeenable 0</c>.</summary>
 /// <param name="X">The overlay's origin, which the distance is measured to.</param>

@@ -119,3 +119,4 @@
 - [A flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) — class scripts carried into the decode (B437).
 - [Full corpus at most once a day](full-corpus-at-most-once-a-day.md) — recheck a failure with --filter, never a rerun.
 - [TF2 is a shared fixture](tf2-is-a-shared-fixture.md) — reuse the running client; never quit/relaunch.
+- [Water LOD lives in a material proxy](water-lod-lives-in-a-material-proxy.md) — WaterLOD; `$forceexpensive` defaults 1 on PC.

@@ -313,6 +313,37 @@ public static class BspEntities
         return DefaultSkyName;
     }
 
+    /// <summary>The cheap-water distances a map's <c>water_lod_control</c> hands the view, or null with none.</summary>
+    /// <param name="entities">Entities from <see cref="Parse"/>.</param>
+    /// <returns>Start and end, in units; null when the map places no such entity.</returns>
+    /// <remarks>
+    /// The entity networks its two keyfields to <c>C_WaterLODControl</c>, which hands them to the view
+    /// (<c>C_WaterLODControl.cpp:49-50</c>); a missing key keeps the server constructor's 1000 and 2000
+    /// (<c>WaterLODControl.cpp:66-67</c>). With no entity nothing is handed over and the view keeps what it had —
+    /// <c>Scene.WaterLodSession</c>.
+    /// </remarks>
+    public static (float Start, float End)? WaterLod(IReadOnlyList<BspEntity> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+
+        static float Read(BspEntity entity, string key, float fallback) =>
+            entity.TryGetValue(key, out string? text) &&
+            float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float value)
+                ? value
+                : fallback;
+
+        foreach (BspEntity entity in entities)
+        {
+            if (entity.TryGetValue("classname", out string? classname) &&
+                string.Equals(classname, "water_lod_control", StringComparison.OrdinalIgnoreCase))
+            {
+                return (Read(entity, "cheapwaterstartdistance", 1000f), Read(entity, "cheapwaterenddistance", 2000f));
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>`sv_skyname`'s default — <c>movevars_shared.cpp:105</c>.</summary>
     public const string DefaultSkyName = "sky_urb01";
 
