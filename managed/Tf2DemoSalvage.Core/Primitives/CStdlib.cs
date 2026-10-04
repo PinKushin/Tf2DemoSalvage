@@ -35,23 +35,29 @@ public static class CStdlib
 
     /// <summary>C's <c>atof</c>: the longest prefix that reads as a decimal number, else zero.</summary>
     /// <param name="text">The text.</param>
-    /// <returns>The value, or zero when no prefix is a number.</returns>
-    public static float Atof(ReadOnlySpan<char> text)
+    /// <returns>The value as a DOUBLE, or zero when no prefix is a number.</returns>
+    /// <remarks>
+    /// **A double, as C declares it** (<c>double atof( const char * )</c>), and the caller narrows where the engine
+    /// assigns. Read straight to float, a value just past a float midpoint rounds once where the engine rounds twice —
+    /// `"1.0000000596046447755"` is 1.00000012 one way and 1.0 the other — and arithmetic the engine does on the double
+    /// before narrowing (<c>atof( token ) - tmp.start</c>, <c>interval.cpp:38</c>) comes out a float apart.
+    /// </remarks>
+    public static double Atof(ReadOnlySpan<char> text)
     {
         text = text.TrimStart();
 
         for (int length = text.Length; length > 0; length--)
         {
-            if (float.TryParse(
+            if (double.TryParse(
                     text[..length],
                     NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
                     CultureInfo.InvariantCulture,
-                    out float value))
+                    out double value))
             {
                 return value;
             }
         }
 
-        return 0f;
+        return 0d;
     }
 }

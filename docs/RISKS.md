@@ -35109,3 +35109,20 @@ The rope port leaves five things out, each stated here so its absence is not mis
 
 **Interpolated:** the gusts draw from a stream seeded by the entity index, not the client's global stream. Their
 timing and direction are a valid draw, not TF2's.
+
+## B479 — `atof` was read straight to float; C returns a double, and `ReadInterval` subtracts in it — FIXED 2026-10-04
+
+**Read, published source and the C standard.** `double atof( const char * )` (C11 7.22.1.2); `ReadInterval` narrows
+only on assignment — `tmp.start = atof( token )` — and computes `tmp.range = atof( token ) - tmp.start` in double, the
+float start promoted (`interval.cpp:34,38`). `CStdlib.Atof` parsed straight to float, so:
+
+1. **A value just past a float midpoint rounded once where the engine rounds twice.** `"1.0000000596046447755"` is
+   1.00000012 read to float; read to double it is exactly the midpoint 1 + 2⁻²⁴, and narrowing ties to even, 1.0.
+2. **Every soundscape range was a float subtraction.** `".2, .3"` — `Halloween.Outside`'s shipped wind volume — has
+   range 0.099999994f in the engine and was 0.10000001f here, one float apart. The B462 test asserted the float
+   subtraction.
+
+**Fix:** `CStdlib.Atof` returns `double`; `Interval.Read` narrows the start and the difference where the engine does;
+`PanelLayout.Atof` narrows for its float callers. Tests in `CStdlibConformanceTests` (the midpoint, with the direct
+float parse as the control) and `IntervalConformanceTests`; sabotage — a float parse inside `Atof`, and a float
+subtraction in `Read` — reddened them, restored by the inverse edit.

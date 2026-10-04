@@ -967,3 +967,11 @@ computer_tape belongs and computer_tape where computer_working does. Comparing (
 **Not yet fixed, found on the way (B465):** the map's own `scripts/soundscapes_<map>.txt` is never loaded — the
 engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes are all
 index −1 here.
+
+## The follow-ups: what C itself does to a number (B479–)
+
+*Read, published source and the C standard, 2026-10-04.* **`atof` returns a double**, and that is not pedantry here:
+`ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so
+`Halloween.Outside`'s `".2, .3"` has a range of 0.099999994f in the engine and had 0.10000001f here. One float is not
+audible; it is listed because the earlier test asserted the float subtraction, which is how a reading of the code gets
+locked in by a test that agrees with it (B479).
