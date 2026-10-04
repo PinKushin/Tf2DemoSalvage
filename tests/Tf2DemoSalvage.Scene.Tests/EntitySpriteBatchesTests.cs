@@ -157,8 +157,7 @@ public sealed class EntitySpriteBatchesTests
     /// <c>SetSpriteCommonShadowState( 0 )</c> under <c>case kRenderNormal</c> (`sprite_dx9.cpp:229`) — so
     /// the vertex format carries no color and the pixel shader never multiplies by one: neither
     /// `m_clrRender` nor the brightness reaches it. A tinted, half-bright normal sprite therefore comes
-    /// out white and opaque. Its blend remains B391's named divergence — translucent here, none in the
-    /// engine.
+    /// out white and opaque.
     /// </remarks>
     [Test]
     public void Build_ANormalModeSprite_DrawsTheTextureAlone()
@@ -174,6 +173,121 @@ public sealed class EntitySpriteBatchesTests
             corner.Green.ShouldBe(1f);
             corner.Blue.ShouldBe(1f);
             corner.Alpha.ShouldBe(1f);
+        }
+    }
+
+    /// <remarks>
+    /// **`kRenderNormal` is opaque and writes depth** (B391): its branch enables no blending and
+    /// touches no depth state (`sprite_dx9.cpp:229-241`), so it is drawn as the initial shadow state
+    /// leaves it. Drawn translucent and unwritten until now.
+    /// </remarks>
+    [Test]
+    public void Build_ANormalModeSprite_IsOpaqueAndWritesDepth()
+    {
+        EntitySpriteBatches sprites = new();
+
+        ParticleMaterial material = Seen(sprites, RenderModes.Normal)[0].Material;
+
+        material.Blend.ShouldBe(SpriteBlend.Opaque);
+        material.Depth.ShouldBe(SpriteDepth.TestAndWrite);
+    }
+
+    /// <remarks>
+    /// **The glow modes turn the depth test off** — <c>EnableDepthTest( false )</c>
+    /// (`sprite_dx9.cpp:265`) — which is safe only because `GlowBlend`'s visibility gate has already
+    /// refused a glow whose centre is hidden. The gate is here (`GlowSight`, B378), so the test can go.
+    /// </remarks>
+    [Test]
+    public void Build_AWorldGlow_IsNotDepthTested()
+    {
+        EntitySpriteBatches sprites = new();
+
+        Seen(sprites, RenderModes.WorldGlow)[0].Material.Depth.ShouldBe(SpriteDepth.Off);
+    }
+
+    /// <remarks>
+    /// **The control: an additive sprite that is NOT a glow keeps the test.** `kRenderTransAdd` shares
+    /// the glow's blend and not its depth state (`sprite_dx9.cpp:341-343`), so a pass that turned the
+    /// test off for every additive sprite passes the test above and fails this one.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAddSprite_IsDepthTested()
+    {
+        EntitySpriteBatches sprites = new();
+
+        Seen(sprites, RenderModes.TransAdd)[0].Material.Depth.ShouldBe(SpriteDepth.TestNoWrite);
+    }
+
+    /// <remarks>
+    /// **`kRenderTransAlphaAdd` is two draws of the same corners**, translucent and then
+    /// <c>ONE_MINUS_SRC_ALPHA, ONE</c> (`sprite_dx9.cpp:297-330`), in that order.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAlphaAddSprite_DrawsBothPassesInTheShadersOrder()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(sprites, RenderModes.TransAlphaAdd);
+
+        batches.Count.ShouldBe(2);
+        batches[0].Material.Blend.ShouldBe(SpriteBlend.Translucent);
+        batches[1].Material.Blend.ShouldBe(SpriteBlend.InverseAlphaAdd);
+        batches[1].Corners.ShouldBe(batches[0].Corners);
+        sprites.Drawn.ShouldBe(1, "one sprite, drawn twice");
+    }
+
+    /// <remarks>
+    /// **`kRenderTransAddFrameBlend` takes neither the entity's color nor the material's `$color`.**
+    /// Its constant is <c>color[0] = color[1] = color[2] = flFade * frameBlendAlpha; color[3] = 1.0f;</c>
+    /// with <c>flFade = params[ALPHA]</c> (`sprite_dx9.cpp:359`, `:409-415`). The two frame draws weigh
+    /// <c>1 - frac</c> and <c>frac</c>, which sum to one — so for a sprite whose frames are not
+    /// carried, one draw of grey <c>$alpha</c> at alpha one. The vertex color is off by default, as for
+    /// mode 5.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAddFrameBlendSprite_IsTheMaterialsAlphaAsGrey()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            sprites,
+            RenderModes.TransAddFrameBlend,
+            color: (255, 128, 0),
+            brightness: 128,
+            constant: (0.5f, 0.25f, 1f, 0.75f));
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            corner.Red.ShouldBe(0.75f, 0.0001f);
+            corner.Green.ShouldBe(0.75f, 0.0001f);
+            corner.Blue.ShouldBe(0.75f, 0.0001f);
+            corner.Alpha.ShouldBe(1f, 0.0001f);
+        }
+    }
+
+    /// <remarks>
+    /// **With <c>$ignorevertexcolors 0</c> the entity's color and brightness multiply the grey**
+    /// (`sprite_dx9.cpp:361-364`), and the constant's alpha of one leaves the brightness as the alpha.
+    /// </remarks>
+    [Test]
+    public void Build_ATransAddFrameBlendSpriteThatKeepsVertexColors_MultipliesTheGrey()
+    {
+        EntitySpriteBatches sprites = new();
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            sprites,
+            RenderModes.TransAddFrameBlend,
+            color: (255, 128, 0),
+            brightness: 128,
+            constant: (0.5f, 0.25f, 1f, 0.75f),
+            ignoresVertexColors: false);
+
+        foreach (DetailSpriteVertex corner in batches[0].Corners)
+        {
+            corner.Red.ShouldBe(0.75f, 0.0001f);
+            corner.Green.ShouldBe(0.75f * 128f / 255f, 0.0001f);
+            corner.Blue.ShouldBe(0f, 0.0001f);
+            corner.Alpha.ShouldBe(128f / 255f, 0.0001f);
         }
     }
 
