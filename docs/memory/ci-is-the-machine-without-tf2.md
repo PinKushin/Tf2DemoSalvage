@@ -22,6 +22,11 @@ locally and failing CI usually asserts on the developer's machine, so gate it") 
 the PRODUCTION code assumed the developer's machine, so the CI failure is the correct signal and must
 NOT be gated away.
 
+**CI also lacks the owner's saved settings** (`%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`). 2026-10-04:
+`PlaybackUiTests` red on CI every push from beta.12 to beta.17, "0 samples" — the frame-rate log borrowed the
+on-screen meter's reading, null while `cl_showfps` is 0; this machine saves `cl_showfps 2`. Fix: test pins
+`+cl_showfps 0`; log owns its meter. A UI test inherits nothing from the runner's profile — pin it on the command line.
+
 **How to apply:** touching `MapProvider.GameFolder`/`GameContent`/archives/map search? Read the CI
 run, the local suite can't tell you. Never add a `RequireTheGame()` gate to silence a no-install
 failure — that deletes the only instrument for the case the program exists to serve.
