@@ -124,6 +124,44 @@ public sealed partial class EntityState
     /// <summary><c>CSpriteTrail</c>'s own table.</summary>
     private const string SpriteTrailTable = "DT_SpriteTrail";
 
+    /// <summary>A rope's own fields, or null for anything that is not a <c>CRopeKeyframe</c>.</summary>
+    /// <returns>The rope as <c>C_RopeKeyframe</c> holds it after receive.</returns>
+    /// <remarks>
+    /// **The segment count identifies the class**: only <c>DT_RopeKeyframe</c> sends <c>m_nSegments</c>
+    /// (`rope.cpp:41`). **Each fallback is the client constructor's** (`c_rope.cpp:1040-1066`): <c>m_Subdiv</c> 255,
+    /// <c>m_TextureScale</c> 4, the rest zeroed — the server's own defaults arrive in the baseline.
+    /// </remarks>
+    public SceneRope? Rope()
+    {
+        if (Integer($"{RopeTable}.m_nSegments") is not { } segments)
+        {
+            return null;
+        }
+
+        return new SceneRope(
+            Integer($"{RopeTable}.m_hStartPoint") ?? InvalidHandle,
+            Integer($"{RopeTable}.m_hEndPoint") ?? InvalidHandle,
+            Integer($"{RopeTable}.m_iStartAttachment") ?? 0,
+            Integer($"{RopeTable}.m_iEndAttachment") ?? 0,
+            Integer($"{RopeTable}.m_Slack") ?? 0,
+            Integer($"{RopeTable}.m_RopeLength") ?? 0,
+            Integer($"{RopeTable}.m_fLockedPoints") ?? 0,
+            Integer($"{RopeTable}.m_RopeFlags") ?? 0,
+            segments,
+            (Integer($"{RopeTable}.m_bConstrainBetweenEndpoints") ?? 0) != 0,
+            Integer($"{RopeTable}.m_Subdiv") ?? 255,
+            Number($"{RopeTable}.m_TextureScale") ?? 4f,
+            Number($"{RopeTable}.m_Width") ?? 0f,
+            Number($"{RopeTable}.m_flScrollSpeed") ?? 0f);
+    }
+
+    /// <summary>
+    /// The rope's material as a <c>modelprecache</c> index — <c>m_iRopeMaterialModelIndex</c>, which
+    /// <c>C_RopeKeyframe::OnDataChanged</c> turns into the material it draws (`c_rope.cpp:1294-1309`).
+    /// </summary>
+    /// <returns>The index, or null for anything that is not a rope.</returns>
+    public int? RopeMaterialIndex() => Integer($"{RopeTable}.m_iRopeMaterialModelIndex");
+
     /// <summary><c>RecvProxy_Beam_ScrollSpeed</c>'s <c>val *= 0.1</c> (`beam_shared.cpp:90`).</summary>
     /// <remarks>A double, as the literal is: a float times <c>0.1</c> is promoted, multiplied and narrowed back.</remarks>
     internal const double ScrollSpeedReceived = 0.1;

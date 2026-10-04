@@ -2464,7 +2464,7 @@ public sealed class MapAssets
             sprites[path] = EngineSprite.Init(
                 texture,
                 frames,
-                how,
+                vmt?.MaterialBlending ?? how,
                 vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
                 vmt?.SpriteOrigin,
                 vmt?.SpriteConstantColor ?? (1f, 1f, 1f, 1f),

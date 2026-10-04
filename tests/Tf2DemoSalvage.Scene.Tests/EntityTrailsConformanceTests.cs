@@ -7,7 +7,7 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
 
-/// <summary><c>CSpriteTrail</c>'s <c>UpdateTrail</c> and <c>DrawModel</c>, as `SpriteTrail.cpp:379-531` writes them (B474).</summary>
+/// <summary><c>CSpriteTrail</c>'s <c>UpdateTrail</c> and <c>DrawModel</c>, as `SpriteTrail.cpp:379-531` writes them (B475).</summary>
 /// <remarks>
 /// **One geometry throughout, chosen so every answer is a round number.** The head moves along +X on the ground and
 /// the camera looks down from (50, 0, 500), so each strip's side vector is exactly −Y and a segment's corners sit at
@@ -233,7 +233,7 @@ public sealed class EntityTrailsConformanceTests
 
     /// <remarks>
     /// **`kRenderNone` draws nothing** — <c>DrawModel</c> returns at <c>!IsVisible()</c> (`:431`) — and a
-    /// <c>Refract</c> material, which needs the frame behind it, is one this pass cannot draw (B475). Both are counted.
+    /// <c>Refract</c> material, which needs the frame behind it, is one this pass cannot draw (B476). Both are counted.
     /// </remarks>
     [TestCase(RenderModes.None, "UnlitGeneric")]
     [TestCase(RenderModes.TransAlpha, "Refract")]

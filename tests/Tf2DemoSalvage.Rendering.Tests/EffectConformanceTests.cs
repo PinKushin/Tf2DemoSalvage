@@ -53,7 +53,7 @@ public sealed class EffectConformanceTests
         Assert.Ignore("Sprites classified but undrawn; no glows or flares.");
     }
 
-    // **`Beams_AreNotDrawn` stood here** until entity beams drew (B473, 2026-10-04): EntityBeamRenderTests, and
+    // **`Beams_AreNotDrawn` stood here** until entity beams drew (B474, 2026-10-04): EntityBeamRenderTests, and
     // EntityBeamsConformanceTests in Scene.Tests. It named the wrong subject twice. The medigun's link is a particle
     // system, not a beam, and no demo in either corpus carries a C_TEBaseBeam at all (`entity-census`,
     // docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md). The beams TF2 maps do carry are CBeam

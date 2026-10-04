@@ -340,6 +340,12 @@ public static class DemoModels
                 {
                     paths.Add(halo);
                 }
+
+                // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`).
+                if (pose.Rope is not null)
+                {
+                    paths.Add(EntityRopes.BackMaterialPath(track.ModelPath));
+                }
             }
         }
 

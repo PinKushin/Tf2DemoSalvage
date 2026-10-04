@@ -7167,18 +7167,116 @@ internal class MainForm : Form, IFrameSteps
             TrailOrigin,
             seconds);
 
+        IReadOnlyList<ParticleBatch> ropes = _ropes.Build(
+            _moment.Drawn,
+            new RopeView(view.Origin, forward, Math.Max(1, _viewport.ClientSize.Width)),
+            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
+            RopeEnd,
+            RopeLight,
+            RopeCollide,
+            elapsed);
+
         // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
         // refused" read differently in the log.
         if (_renderLog.IsEnabled(LogLevel.Debug) &&
-            (_beams.Drawn > 0 || _beams.Skipped > 0 || _trails.Drawn > 0 || _trails.Skipped > 0))
+            (_beams.Drawn + _beams.Skipped + _trails.Drawn + _trails.Skipped + _ropes.Drawn + _ropes.Skipped > 0))
         {
             _renderLog.LogDebug(
                 "{Message}",
                 $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped; " +
-                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped");
+                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped; " +
+                $"ropes: {_ropes.Drawn} drawn in {ropes.Count} batches, {_ropes.Skipped} skipped");
         }
 
-        return trails.Count == 0 ? beams : [.. beams, .. trails];
+        // Ropes first: the rope manager draws its cache with the opaque renderables, before anything translucent.
+        return [.. ropes, .. beams, .. trails];
+    }
+
+    /// <summary>
+    /// <c>CalculateEndPointAttachment</c> (`c_rope.cpp:1923-1967`): with <c>ROPE_PLAYER_WPN_ATTACH</c> a player's weapon's
+    /// <c>buff_attach</c>; else an attachment above zero; else the entity's <c>WorldSpaceCenter</c> — a rope keyframe's
+    /// origin, a player's hull centre, anything else's origin.
+    /// </summary>
+    /// <remarks>
+    /// **Two answers are approximate, and neither is reached by the corpus**: the angles are the entity's own even for an
+    /// attachment, which only a direction lock reads, and a non-rope, non-player entity answers its origin where the
+    /// engine answers the centre of its collision box. Every corpus rope ends on another rope keyframe.
+    /// </remarks>
+    private RopeEndPoint? RopeEnd(int handle, int attachment, bool playerWeapon)
+    {
+        if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
+        {
+            return null;
+        }
+
+        ScenePose placed = AbsolutePose(prop);
+        Vector3 forward = AngleForward(placed.Pitch, placed.Yaw);
+        bool player = string.Equals(track.ClassName, PlayerClassName, StringComparison.Ordinal);
+
+        if (playerWeapon && player)
+        {
+            return _drawnByEntity.Values.FirstOrDefault(weapon => weapon.OwnedBy == prop.EntityIndex && weapon.WeaponState == 2)
+                    is { } weapon && _models.AttachmentPosition(weapon.EntityIndex, "buff_attach") is { } buff
+                ? new RopeEndPoint(new Vector3(buff.X, buff.Y, buff.Z), forward)
+                : null;
+        }
+
+        if (attachment > 0 && _models.AttachmentPosition(prop.EntityIndex, attachment) is { } at)
+        {
+            return new RopeEndPoint(new Vector3(at.X, at.Y, at.Z), forward);
+        }
+
+        return new RopeEndPoint(
+            player
+                ? new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags))
+                : new Vector3(placed.X, placed.Y, placed.Z),
+            forward);
+    }
+
+    /// <summary>The forward of a pitch and yaw, in degrees — <c>AngleVectors</c>' first output.</summary>
+    private static Vector3 AngleForward(float pitch, float yaw)
+    {
+        (float sinPitch, float cosPitch) = MathF.SinCos(float.DegreesToRadians(pitch));
+        (float sinYaw, float cosYaw) = MathF.SinCos(float.DegreesToRadians(yaw));
+
+        return new Vector3(cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
+    }
+
+    /// <summary>
+    /// <c>engine-&gt;ComputeLighting( pos, NULL, true, … )</c> with <c>rope_averagelight</c> 1: the six faces of the light
+    /// cube averaged, each channel clamped to one.
+    /// </summary>
+    private Vector3 RopeLight(Vector3 at)
+    {
+        if (_loaded?.Lighting is not { } lighting)
+        {
+            return Vector3.One;
+        }
+
+        AmbientCube cube = lighting.ComputeLighting(at.X, at.Y, at.Z);
+        Vector3 sum = Face(cube.PositiveX) + Face(cube.NegativeX) + Face(cube.PositiveY) +
+            Face(cube.NegativeY) + Face(cube.PositiveZ) + Face(cube.NegativeZ);
+
+        return Vector3.Min(sum / 6f, Vector3.One);
+
+        static Vector3 Face((float Red, float Green, float Blue) face) => new(face.Red, face.Green, face.Blue);
+    }
+
+    /// <summary>A rope node's ±2 hull sweep, world brushes only — <c>MASK_SOLID_BRUSHONLY</c>.</summary>
+    private RopeHit RopeCollide(Vector3 from, Vector3 to)
+    {
+        if (_loaded?.Level is not { } level)
+        {
+            return new RopeHit(1f, Vector3.Zero, 0f, false);
+        }
+
+        BspTrace trace = level.TraceBrushOnly((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 2f);
+
+        return new RopeHit(
+            trace.Fraction,
+            new Vector3(trace.Normal.X, trace.Normal.Y, trace.Normal.Z),
+            trace.Distance,
+            trace.AllSolid || trace.StartSolid);
     }
 
     /// <summary>
@@ -7307,8 +7405,11 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every <c>CBeam</c> in the moment, as strips.</summary>
     private readonly EntityBeams _beams = new();
 
-    /// <summary>Every <c>CSpriteTrail</c>, sampled frame by frame as the client samples it (B474).</summary>
+    /// <summary>Every <c>CSpriteTrail</c>, sampled frame by frame as the client samples it (B475).</summary>
     private readonly EntityTrails _trails = new();
+
+    /// <summary>Every <c>C_RopeKeyframe</c>, simulated frame by frame as the client simulates it (B477).</summary>
+    private readonly EntityRopes _ropes = new();
 
     /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
     private IReadOnlyList<ParticleBatch> _lastParticles = [];

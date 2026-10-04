@@ -112,28 +112,9 @@ public sealed class UnimplementedEffectConformanceTests
     // world and 3D skybox both (B139, 2026-10-02): Rendering.Tests' FogConformanceTests and
     // FogRenderTests, and ViewFogTests beside this file.
 
-    [Test]
-    public void Effects_RopesAndSprites_AreEntitiesWithTheirOwnDrawing()
-    {
-        // c_rope.cpp and c_sprite.cpp: a rope is a simulated catenary between keyframe entities and
-        // a sprite is a camera-facing quad, often additive. TF2 maps use ropes for cables and
-        // sprites for the glows on lights and control points.
-        //
-        // Neither is drawn. A cable is simply missing; a glow is missing in a way that makes lights
-        // look off rather than absent, which is the harder one to notice.
-        List<string> sources =
-        [
-            .. new[] { "c_rope.cpp", "c_sprite.cpp" }
-                .Where(name =>
-                    SourceSdk.Text($"src/game/client/{name}") is not null),
-        ];
-
-        sources.Count.ShouldBe(2, "both entity sources should be present in the SDK");
-
-        Assert.Ignore(
-            "ropes and sprites are not drawn. Cables are absent outright; light glows are absent " +
-            "in a way that makes the lighting look wrong rather than incomplete.");
-    }
+    // **`Effects_RopesAndSprites_AreEntitiesWithTheirOwnDrawing` stood here** until both drew: entity sprites since
+    // B378, and ropes since B477 — `EntityRopes` simulates `C_RopeKeyframe` as the client does, and
+    // EntityRopesConformanceTests and EntityRopeRenderTests hold it.
 
     [Test]
     public void Effects_TwoServerMessages_AreNotDecodedAtAll()

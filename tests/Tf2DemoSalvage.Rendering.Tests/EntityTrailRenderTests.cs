@@ -10,7 +10,7 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real <c>CSpriteTrail</c>, sampled tick by tick out of a real demo and drawn by the real renderer (B474).</summary>
+/// <summary>A real <c>CSpriteTrail</c>, sampled tick by tick out of a real demo and drawn by the real renderer (B475).</summary>
 /// <remarks>
 /// **The output-level half of `EntityTrailsConformanceTests`**, through the chain the viewer runs:
 /// <see cref="DemoTimeline.PropsAt"/> each tick, <see cref="EntityTrails.Build"/> each tick so the ring fills as it does in
@@ -101,7 +101,7 @@ public sealed class EntityTrailRenderTests
             .Select(row => target.PixelAt(Size / 2, row))
             .Max(pixel => pixel.Red + pixel.Green + pixel.Blue);
 
-        // Measured 142 on 2026-10-04 (B474); half of it is the floor.
+        // Measured 142 on 2026-10-04 (B475); half of it is the floor.
         brightest.ShouldBeGreaterThan(71, "the ribbon crosses the centre column");
 
         foreach ((int x, int y) in (ReadOnlySpan<(int, int)>)[(1, 1), (Size - 2, 1), (1, Size - 2), (Size - 2, Size - 2)])

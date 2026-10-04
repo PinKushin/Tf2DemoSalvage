@@ -4450,7 +4450,12 @@ public sealed class DemoTimeline
         // Preferred rather than exclusive: an entity that is not a weapon does not declare the
         // table at all, and a weapon that somehow sent no world model still has its base index to
         // fall back on, which is no worse than what it had before.
-        int? index = state.WorldModelIndex() ?? state.ModelIndex();
+        //
+        // **A rope has no model, and its renderable is its material** (B477): `DT_RopeKeyframe` sends no
+        // `m_nModelIndex`, and `C_RopeKeyframe::OnDataChanged` draws the material `m_iRopeMaterialModelIndex` names
+        // (`c_rope.cpp:1294-1309`). Carried as the track's model path, it is what admits the rope and what loads the
+        // material it is drawn with.
+        int? index = state.WorldModelIndex() ?? state.ModelIndex() ?? state.RopeMaterialIndex();
 
         // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
         // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
@@ -5402,9 +5407,12 @@ public sealed class DemoTimeline
                     ? beam with { HaloPath = precache.Path(ModelPrecache.Unpack(beam.HaloIndex, protocol)) }
                     : null,
 
-                // **`DT_SpriteTrail`, whose sampling parameters nothing read until B474** — the trail drew as a plain
+                // **`DT_SpriteTrail`, whose sampling parameters nothing read until B475** — the trail drew as a plain
                 // sprite quad of its own material.
                 SpriteTrail = state.SpriteTrail(),
+
+                // **`DT_RopeKeyframe`, a NOBASE table nothing read until B477** — no rope ever reached a track.
+                Rope = state.Rope(),
 
                 // **An areaportal window's three, which travel together or not at all** (B358).
                 // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what

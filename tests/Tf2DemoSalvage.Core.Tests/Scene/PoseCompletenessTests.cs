@@ -302,16 +302,22 @@ public sealed class PoseCompletenessTests
             ScaleIsWorldSpace: true),
 
         // Non-null, because null is "not a beam" — a rebuild that dropped it would turn a spotlight back into
-        // nothing at every tick between two updates (B473).
+        // nothing at every tick between two updates (B474).
         Beam = new SceneBeam(
             Type: 0, Flags: 0x280, EntityCount: 0, Ends: [], HaloIndex: 12, HaloScale: 60f, Width: 100f,
             EndWidth: 30f, FadeLength: 190f, Amplitude: 0f, StartFrame: 0f, Speed: 0f, FrameRate: 0f,
             HdrColourScale: 1f, Frame: 0f, EndPosition: (32f, -1f, -197f), MinDxLevel: 0),
 
-        // Non-null for the same reason: null is "not a trail" (B474).
+        // Non-null for the same reason: null is "not a trail" (B475).
         SpriteTrail = new SceneSpriteTrail(
             LifeTime: 0.4f, StartWidth: 9f, EndWidth: -1f, StartWidthVariance: 0f, TextureRes: 0.01f,
             MinFadeLength: 0f, SkyboxOrigin: (0f, 0f, 0f), SkyboxScale: 1f, AttachedTo: 1234, Attachment: 0),
+
+        // And null is "not a rope" (B477). Viaduct's cable, as `entity-census` reads it.
+        Rope = new SceneRope(
+            StartPoint: 4321, StartAttachment: 0, EndPoint: 4322, EndAttachment: 0, Slack: 120, Length: 300,
+            LockedPoints: 3, Flags: 104, Segments: 10, ConstrainBetweenEndpoints: false, Subdiv: 2, TextureScale: 1f,
+            Width: 2f, ScrollSpeed: 0f),
 
         // Non-null and non-zero, because null is the "nothing said" case and zero would mean
         // airborne — neither is distinctive enough for this test to measure the field being lost.

@@ -26,7 +26,7 @@ namespace Tf2DemoSalvage.Scene;
 ///
 /// **A material the particle pass cannot draw is skipped, counted, and still sampled.** <c>effects/beam001_*</c> — the
 /// most common trail in real matches — is a <c>Refract</c> material, which needs the frame behind it; this pass draws
-/// <c>Sprite</c> and <c>UnlitGeneric</c> materials (B475).
+/// <c>Sprite</c> and <c>UnlitGeneric</c> materials (B476).
 /// </remarks>
 public sealed class EntityTrails
 {

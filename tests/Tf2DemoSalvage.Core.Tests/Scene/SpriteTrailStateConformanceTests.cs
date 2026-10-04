@@ -3,7 +3,7 @@ using Tf2DemoSalvage.Core.Schema;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
 
-/// <summary><c>DT_SpriteTrail</c>, and the two <c>DT_Sprite</c> fields a trail's render origin reads (B474).</summary>
+/// <summary><c>DT_SpriteTrail</c>, and the two <c>DT_Sprite</c> fields a trail's render origin reads (B475).</summary>
 /// <remarks>
 /// **The send table, `SpriteTrail.cpp:88-108`**: eight <c>SPROP_NOSCALE</c> floats and a vector — lifetime, start
 /// width, end width, width variance, texture resolution, minimum fade length, skybox origin and skybox scale. The

@@ -539,6 +539,9 @@ public readonly record struct ScenePose
     /// <summary>What a sprite trail says about itself, or null for everything that is not a <c>CSpriteTrail</c>.</summary>
     public SceneSpriteTrail? SpriteTrail { get; init; }
 
+    /// <summary>What a rope says about itself, or null for everything that is not a <c>CRopeKeyframe</c>.</summary>
+    public SceneRope? Rope { get; init; }
+
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
     {
@@ -2192,12 +2195,15 @@ public sealed class ScenePropTrack
             Sprite = from.Sprite,
 
             // A beam's fields, held for the same reason: `C_Beam` registers none of them with the
-            // interpolator, and its origin does not interpolate either (B473) — the timeline snaps a beam's
+            // interpolator, and its origin does not interpolate either (B474) — the timeline snaps a beam's
             // pose before it reaches here, so this is the general rebuild keeping what it was handed.
             Beam = from.Beam,
 
             // A trail's sampling parameters, held for the same reason: `C_SpriteTrail` registers none of them.
             SpriteTrail = from.SpriteTrail,
+
+            // And a rope's: `C_RopeKeyframe` interpolates none of its own fields either.
+            Rope = from.Rope,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended — half
             // of "spinning" is not a state (B347).

@@ -34955,7 +34955,7 @@ private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which
 
 **Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
 
-## B473 — no `CBeam` ever drew: `DT_Beam` is a NOBASE table, so the admission gate dropped every beam — FIXED 2026-10-04
+## B474 — no `CBeam` ever drew: `DT_Beam` is a NOBASE table, so the admission gate dropped every beam — FIXED 2026-10-04
 
 **Found by a parity audit, then counted on the wire.** `point_spotlight` shafts are `CBeam` entities. Every committed
 era carries them: 102 in the 2011 viaduct STV demo, 378 in the 2013 foundry STV demo and 228 in z1800. Not one
@@ -34987,7 +34987,7 @@ draw types only they reach (tesla, disk, cylinder, ring, follow) are unreachable
 occlusion is the line-of-sight trace, not the engine's pixel-visibility query, and a beam draws its sprite's first
 frame. Both are B378's open half.
 
-## B474 — a sprite trail drew as a quad at its projectile: `CSpriteTrail::DrawModel`'s ribbon was never built — FIXED 2026-10-04
+## B475 — a sprite trail drew as a quad at its projectile: `CSpriteTrail::DrawModel`'s ribbon was never built — FIXED 2026-10-04
 
 **Found by a parity audit, then counted on the wire.** `DT_SpriteTrail` inherits `DT_Sprite`, so a trail was admitted
 and handed to the sprite pass, which drew one quad of `effects/repair_claw_trail_blue` at the bolt. The engine draws a
@@ -35025,7 +35025,7 @@ crossing of the centre column, with black corners. Sabotage reddened each target
 `random`, whose state cannot be reproduced. Every corpus trail sends a variance of 0. A trail in the 3D skybox
 (`m_flSkyboxScale` ≠ 1) is drawn in the main view; none in the corpus is.
 
-## B475 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — OPEN 2026-10-04
+## B476 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — OPEN 2026-10-04
 
 `effects/beam001_white`, `_red` and `_blu` are `Refract` materials (`$normalmap effects/beam001_normal`,
 `$refractamount .2`, `$forcerefract 1`). They are the most common trail on several real matches, attached to players
@@ -35035,3 +35035,53 @@ counted in `Skipped`. It does not draw the normal map as a texture.
 
 **What closes it:** a pass after the opaque world that copies the frame and draws the strip through the `Refract`
 shader's offset, as the water views already do for the world. The strip geometry is already built.
+
+## B477 — no rope ever drew: `DT_RopeKeyframe` is NOBASE with no model index, and nothing hung one — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** Every committed era carries `CRopeKeyframe`: 30 on granary,
+35 on viaduct, 188 on the 2013 foundry STV demo, and 34 of the 50 local demos (`entity-census`). The table is NOBASE
+(`c_rope.cpp:42-64`) and sends no `m_nModelIndex`, so the admission gate dropped every one. A rope's shape is not on
+the wire either: the client hangs a Verlet chain between the two end entities and simulates it every frame.
+
+**Fix:** `EntityState.Rope()` decodes the table, and the timeline admits a rope by its material
+(`m_iRopeMaterialModelIndex`). `RopePhysics` ports `CSimplePhysics` and `CBaseRopePhysics`. `EntityRopes` ports
+`InitRopePhysics` (the five-second hang and the light sample), `ClientThink`, `DetectRestingState`, the gusts, the
+delegate's forces and constraints (collision, end locks, direction locks), `ConstrainNodesBetweenEndpoints`,
+`BuildRope` (the Catmull-Rom subdivision, texture increment and fake anti-aliasing), and the manager's back and solid
+passes. The viewer resolves the ends as `CalculateEndPointAttachment` does. A non-Sprite, non-SpriteCard material now
+blends by its own flags (`VmtMaterial.MaterialBlending`), which makes `cable/cable` opaque and depth-writing. The
+`Cable` shader takes vertex colour and alpha unconditionally (`cable_ps2x.fxc:49-50`). Full account:
+`docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** `RopeStateConformanceTests` (3), `RopePhysicsConformanceTests` (5), `EntityRopesConformanceTests` (12),
+`PoseCompletenessTests` carrying the record, and the `DT_RopeKeyframe` names in `SendPropConformanceTests`.
+**Output level:** `EntityRopeRenderTests` hangs viaduct's entity 95 and reads 0 at the cable against a grey of 381,
+with grey corners. Sabotage reddened each target, restored by the inverse edit:
+
+- Unlocking the end point moved the end 175 units, and the missing-end rope's end 49.
+- With the fake anti-aliasing enlargement at 1.0, the solid width was 1.9 instead of 1.86.
+- Without the `ROPE_SIMULATE` gate, a last keyframe drew.
+- With both passes' widths zeroed, the render test read 381.
+
+## B478 — what of the rope is not ported: impulse, `ShakeRopes`, holiday lights, the cable's bump term, dormant ends — OPEN 2026-10-04
+
+The rope port leaves five things out, each stated here so its absence is not mistaken for the engine's:
+
+1. **The instantaneous impulse** a rope's entity message carries (`C_RopeKeyframe::ReceiveMessage`, `c_rope.cpp:
+   2082-2095`). Its force term is ported, but the impulse is always zero. Whether any demo carries the message is
+   not measured.
+2. **The `ShakeRopes` client effect** (`c_rope.cpp:856-871`). Only HL2's strider dispatches it in the published
+   server code.
+3. **Holiday lights** (`TF_HolidayLight` dispatched per strip point under `IsHolidayLightMode`) and the `pure_white`
+   material under Pyro vision.
+4. **The `Cable` shader's bump term.** The pixel is `blue( normal map )² · base · vertex colour`
+   (`cable_ps2x.fxc:42-49`; half-Lambert of the normal against +Z). The particle pass multiplies the base by the vertex
+   colour without it, so the translucent back pass is flat across the strip instead of shaded like a cylinder. The
+   solid pass is black either way.
+5. **`DrawModel`'s dormant-ends refusal** (`c_rope.cpp:1462-1467`): both ends dormant and both with a model. Every
+   corpus rope ends on another rope keyframe, which has no model, so the branch is unreachable there. The viewer
+   cannot tell dormant from deleted. A rope end on a non-rope, non-player entity takes its origin, where the engine
+   takes the centre of its collision box.
+
+**Interpolated:** the gusts draw from a stream seeded by the entity index, not the client's global stream. Their
+timing and direction are a valid draw, not TF2's.

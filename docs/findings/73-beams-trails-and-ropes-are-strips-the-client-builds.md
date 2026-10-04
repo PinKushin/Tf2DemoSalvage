@@ -139,7 +139,7 @@ Tallied on z1800, badwater and sanctum (`entity-census`), the trails are Sandman
 `effects/beam001_*`. All are `kRenderTransAlpha` with no width variance and a skybox scale of 1. The first three are
 `UnlitGeneric` with `$vertexcolor` and `$vertexalpha`, which the particle pass draws.
 `beam001_*` is `Refract`, which needs the frame behind it, and it is the most common trail on several real matches.
-It is sampled and not drawn (B475).
+It is sampled and not drawn (B476).
 
 ## Evidence that trails draw
 
@@ -150,3 +150,48 @@ It is sampled and not drawn (B475).
   the production chain. It then draws the ribbon from a camera placed beside its last eight ticks of flight. The
   brightest pixel of the centre column measured 142 and every corner stayed black. With the segment alpha sabotaged
   to zero it measured 0.
+
+## A rope is hung by the client, and only its ends are on the wire (read from published source)
+
+`DT_RopeKeyframe` is NOBASE like `DT_Beam`, and it has no model index at all: the material arrives as
+`m_iRopeMaterialModelIndex`. So a rope failed the same admission gate, and it now enters the timeline with its
+material as its model path. Everything else is client state, built from `c_rope.cpp`, `rope_physics.cpp` and
+`simple_physics.cpp`:
+
+- **The nodes are a Verlet chain at a fixed fiftieth of a second.** The step's `dt² / 2` is a float and the
+  accumulated time a double. The damping is 0.98, and three spring passes run per step. A spring only pulls: a slack
+  rope hangs, and a stretched one is pulled in half the excess at each end.
+- **The spring length is `( length + slack − 100 ) / ( nodes − 1 )` in integers.** `ROPESLACK_FUDGEFACTOR` is −100
+  "so when a level designer enters a slack of zero … it doesn't dangle so low". A short rope with no slack comes out
+  negative, which `ResetSpringLength` clamps to zero, and the rope is pulled taut. Viaduct's 26-unit pole drop
+  (entity 94) is one of these.
+- **A new rope is hung by simulating five seconds of gravity** (`ROPE_INITIAL_HANG`), and its light is sampled at
+  each node then, once. Its ends are locked to their entities every spring pass. The rope rests when nothing moved
+  more than √0.03 and no end moved a tenth. While the camera is within 1000 units, random gusts keep it swaying unless
+  `ROPE_NO_WIND` is set.
+- **`GetEndPointPos` always answers true.** A missing end entity leaves the cached position, zero until one has been
+  seen. "Must have both entities to work" therefore cannot refuse, and such a rope hangs to the world origin. That is
+  the engine's behaviour, kept.
+- **`BuildRope` splines the nodes**: a Catmull-Rom with `rope_subdiv` points between each pair, from a precomputed
+  `( t, t², t³ )` table. Texture V advances by an increment counted over `( nodes − 1 ) · subdiv + 1` points while the
+  strip has `nodes + ( nodes − 1 ) · subdiv`, so the texture runs past its end. That is Valve's arithmetic, kept.
+- **Without MSAA, the rope is drawn twice for fake anti-aliasing.** A translucent `_back` rope at least 0.3 pixels
+  wide goes underneath, at alpha 0.2 to 0.5. A solid rope 1.4 pixels narrower goes on top. Far away, only the back
+  pass draws. This renderer has no MSAA, so it takes this branch.
+- **TF2's cable is black.** `cable/cable` is the `Cable` shader over a one-texel black texture, so the solid pass
+  is black whatever the light. The light reaches only the translucent back pass. Read through `SpriteBlending`, the
+  SpriteCard rule, the opaque cable was drawn as translucent. It now blends by its own flags.
+
+**Measured on the corpus:** no demo carries an `env_wind` (`entity-census`), so only the gust branch of the wind is
+reachable. No corpus rope sets `ROPE_COLLIDE`, a direction lock or `ROPE_PLAYER_WPN_ATTACH`. Those branches are
+ported and reached only by the unit suite.
+
+## Evidence that ropes draw
+
+- **Unit level:** `RopeStateConformanceTests` (the decode), `RopePhysicsConformanceTests` (the step, damping and
+  springs), and `EntityRopesConformanceTests` (the locked ends and sag, subdivision counts, texture increment,
+  `ROPE_SIMULATE`, the fake anti-aliasing near and far, light as gamma, the missing end, and the sprite pass leaving
+  ropes alone).
+- **Output level:** `EntityRopeRenderTests` hangs viaduct's entity 95, a 320-unit span, through the production chain.
+  It draws the rope over grey from 20 units to the side. The darkest pixel of the centre column measured 0 against a
+  grey of 381, and every corner stayed grey. With both passes' widths sabotaged to zero it measured 381.

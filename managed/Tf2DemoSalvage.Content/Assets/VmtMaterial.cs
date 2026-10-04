@@ -318,6 +318,31 @@ public sealed class VmtMaterial
         }
     }
 
+    /// <summary>How an entity's sprite, beam, trail or rope material blends, by the shader it names.</summary>
+    /// <remarks>
+    /// **<c>Sprite</c> and <c>SpriteCard</c> take <see cref="SpriteBlending"/>**; every other shader blends by its own
+    /// flags — <c>$additive</c>, then <c>$translucent</c>, else opaque — as <c>UnlitGeneric</c> and <c>Cable</c> do
+    /// (`cable_dx9.cpp:55-60`: blending only under <c>MATERIAL_VAR_TRANSLUCENT</c>). Read through
+    /// <see cref="SpriteBlending"/>, a rope's black <c>cable/cable</c> was drawn as a translucent strip (B477).
+    /// </remarks>
+    public SpriteBlend MaterialBlending
+    {
+        get
+        {
+            if (IsSpriteShader || Shader.Equals("SpriteCard", StringComparison.OrdinalIgnoreCase))
+            {
+                return SpriteBlending;
+            }
+
+            if (Truthy("$additive"))
+            {
+                return SpriteBlend.Additive;
+            }
+
+            return Truthy("$translucent") ? SpriteBlend.Translucent : SpriteBlend.Opaque;
+        }
+    }
+
     /// <summary>
     /// The <c>Sprite</c> shader's constant color, <c>$color</c> and <c>$alpha</c>, which
     /// <c>kRenderTransAdd</c> multiplies the texture by (B391).
@@ -499,17 +524,25 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool TakesVertexAlpha =>
         Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ? Flag("$vertexcolor")
-        : Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexalpha");
+        : IsCable || (Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexalpha"));
 
-    /// <summary>Whether an <c>UnlitGeneric</c> material multiplies its texture by the vertex colour.</summary>
+    /// <summary>Whether an <c>UnlitGeneric</c> or <c>Cable</c> material multiplies its texture by the vertex colour.</summary>
     /// <remarks>
     /// The <c>VERTEXCOLOR</c> combo, from <c>$vertexcolor</c>: an unlit material has no diffuse lighting, so
     /// <c>if( bDiffuseLighting || bVertexColor ) diffuseLighting = i.color.rgb;</c> makes the vertex colour the whole of
     /// its "lighting" (`vertexlit_and_unlit_generic_ps2x.fxc:345-348`), multiplied into the albedo at `:421`. Without it
     /// <c>diffuseLighting</c> stays one. A sprite trail's ribbon is coloured only through this.
+    ///
+    /// **The <c>Cable</c> shader takes both unconditionally**: <c>resultColor.xyz = … textureColor.rgb *
+    /// i.directionalLightColor.rgb</c> and <c>resultColor.a = textureColor.a * i.directionalLightColor.a</c>
+    /// (`cable_ps2x.fxc:49-50`), whatever the material's flags say — a rope's light values and its anti-aliasing alpha
+    /// reach the screen only through the vertex (B477).
     /// </remarks>
     public bool TakesVertexColour =>
-        Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexcolor");
+        IsCable || (Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexcolor"));
+
+    /// <summary>Whether this is a rope's <c>Cable</c> shader, or one of its per-level fallbacks.</summary>
+    private bool IsCable => Shader.StartsWith("Cable", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");

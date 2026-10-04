@@ -194,10 +194,15 @@ public static class EntitySprites
     /// **The render mode reaches only the Sprite shader.** <c>CEngineSprite::Init</c> copies the material once per mode
     /// and sets <c>$spriteRenderMode</c> on each copy (`spritemodel.cpp:287-290`); a shader that never reads the variable
     /// — a sprite trail's <c>UnlitGeneric</c> — draws every copy the same way, by its own <c>$translucent</c> or
-    /// <c>$additive</c>, tested and unwritten as a blended material is.
+    /// <c>$additive</c>, tested and unwritten as a blended material is. An opaque one — a rope's <c>Cable</c> — writes depth
+    /// as well, since only <c>MATERIAL_VAR_TRANSLUCENT</c> turns the writes off (`cable_dx9.cpp:55-60`).
     /// </remarks>
     public static IReadOnlyList<SpritePass> PassesFor(EngineSprite sprite, int renderMode) =>
-        sprite.IsSpriteShader ? PassesFor(renderMode) : [new SpritePass(sprite.Material.Blend, SpriteDepth.TestNoWrite)];
+        sprite.IsSpriteShader ? PassesFor(renderMode) : [OwnPass(sprite.Material.Blend)];
+
+    /// <summary>A non-Sprite material's single pass: its own blend, writing depth only when opaque.</summary>
+    private static SpritePass OwnPass(SpriteBlend blend) =>
+        new(blend, blend == SpriteBlend.Opaque ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite);
 
     /// <summary>What the shader multiplies the texture by, given the colour and alpha a vertex carries (B391).</summary>
     /// <param name="sprite">The material, as loaded.</param>
