@@ -103,10 +103,16 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     private ComPtr<ID3D11BlendState> _blend;
     private ComPtr<ID3D11BlendState> _additiveBlend;
     private ComPtr<ID3D11BlendState> _addOverBlend;
+    private ComPtr<ID3D11BlendState> _inverseAlphaAddBlend;
 
-    /// <summary>Which of the three blends this pass draws with.</summary>
+    /// <summary>Which blend this pass draws with.</summary>
     private SpriteBlend _mode = SpriteBlend.Translucent;
+
+    /// <summary>Which depth state this pass draws with.</summary>
+    private SpriteDepth _depth = SpriteDepth.TestNoWrite;
     private ComPtr<ID3D11DepthStencilState> _testNoWrite;
+    private ComPtr<ID3D11DepthStencilState> _testAndWrite;
+    private ComPtr<ID3D11DepthStencilState> _depthOff;
     private ComPtr<ID3D11RasterizerState> _noCull;
 
     private ComPtr<ID3D11ShaderResourceView> _sheet;
@@ -136,6 +142,23 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         SilkMarshal.ThrowHResult(device.CreateBlendState(in description, ref blend));
 
         return blend;
+    }
+
+    /// <summary>One depth state; the three differ in whether the test runs and whether depth is written.</summary>
+    private static ComPtr<ID3D11DepthStencilState> MakeDepth(
+        ComPtr<ID3D11Device> device, bool enable, DepthWriteMask write)
+    {
+        DepthStencilDesc description = new()
+        {
+            DepthEnable = enable,
+            DepthWriteMask = write,
+            DepthFunc = ComparisonFunc.Less,
+        };
+
+        ComPtr<ID3D11DepthStencilState> depth = default;
+        SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in description, ref depth));
+
+        return depth;
     }
 
     private DetailSpriteRenderer(
@@ -269,6 +292,10 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     /// `detailsprites` is: the pass is shared, the material's choice is not.
     /// </remarks>
     public void SetBlend(SpriteBlend mode) => _mode = mode;
+
+    /// <summary>Which depth state this pass draws with — an entity sprite's render mode's (B391).</summary>
+    /// <param name="depth">The depth state; particles and detail sprites keep the default, tested and unwritten.</param>
+    public void SetDepth(SpriteDepth depth) => _depth = depth;
 
     /// <summary>Whether there is anything to draw.</summary>
     public bool HasSprites => _sheet.Handle is not null && _corners > 0;
@@ -409,14 +436,30 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             {
                 SpriteBlend.Additive => _additiveBlend,
                 SpriteBlend.AddOver => _addOverBlend,
+                SpriteBlend.InverseAlphaAdd => _inverseAlphaAddBlend,
+
+                // **`kRenderNormal` enables no blending at all** (`sprite_dx9.cpp:229-241`, B391).
+                SpriteBlend.Opaque => default,
                 _ => _blend,
             },
             factor,
             0xFFFFFFFF);
-        context.OMSetDepthStencilState(_testNoWrite, 0);
+        context.OMSetDepthStencilState(
+            _depth switch
+            {
+                SpriteDepth.TestAndWrite => _testAndWrite,
+                SpriteDepth.Off => _depthOff,
+                _ => _testNoWrite,
+            },
+            0);
         context.RSSetState(_noCull);
 
         context.Draw((uint)cornerCount, (uint)firstCorner);
+
+        // **The depth state goes back to what every pass before B391 left**, for the same reason the
+        // blend is turned off below: a pass that follows may inherit it, and a glow's depth-off state
+        // inherited by the next pass would draw it through the world.
+        context.OMSetDepthStencilState(_testNoWrite, 0);
 
         // **Blending is turned back OFF here, and this is not tidiness.** The model pass that
         // follows binds its own shaders, layout and camera through `BindPipeline` — but it does
@@ -440,7 +483,10 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         _blend.Dispose();
         _additiveBlend.Dispose();
         _addOverBlend.Dispose();
+        _inverseAlphaAddBlend.Dispose();
         _testNoWrite.Dispose();
+        _testAndWrite.Dispose();
+        _depthOff.Dispose();
         _noCull.Dispose();
         _layout.Dispose();
         _pixelShader.Dispose();
@@ -530,19 +576,24 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             _addOverBlend = MakeBlend(device, Blend.One, Blend.InvSrcAlpha);
         }
 
+        if (_inverseAlphaAddBlend.Handle is null)
+        {
+            _inverseAlphaAddBlend = MakeBlend(device, Blend.InvSrcAlpha, Blend.One);
+        }
+
         if (_testNoWrite.Handle is null)
         {
-            DepthStencilDesc description = new()
-            {
-                DepthEnable = 1,
-                DepthWriteMask = DepthWriteMask.Zero,
-                DepthFunc = ComparisonFunc.Less,
-            };
+            _testNoWrite = MakeDepth(device, enable: true, DepthWriteMask.Zero);
+        }
 
-            ComPtr<ID3D11DepthStencilState> depth = default;
-            SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in description, ref depth));
+        if (_testAndWrite.Handle is null)
+        {
+            _testAndWrite = MakeDepth(device, enable: true, DepthWriteMask.All);
+        }
 
-            _testNoWrite = depth;
+        if (_depthOff.Handle is null)
+        {
+            _depthOff = MakeDepth(device, enable: false, DepthWriteMask.Zero);
         }
 
         if (_noCull.Handle is null)

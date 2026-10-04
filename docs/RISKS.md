@@ -33666,6 +33666,79 @@ were replaced before any result was read.
 
 *Evidence class: read from source for every engine fact above; differential for the five sabotages.*
 
+### B391 FIXED 2026-10-04: every render mode's draws — the glow's depth test is off, mode 0 is opaque, mode 8 draws twice, mode 7 is `$alpha` grey
+
+**The three open items of the two entries above, closed from `sprite_dx9.cpp:227-484`.** The full
+mode table and what was believed first are in `docs/findings/12-shader-parity.md` ("The `Sprite`
+shader: a render mode is a blend AND a depth state").
+
+**The glow depth test was no longer blocked.** The OPEN entry held it back because, with no occlusion
+query, a depth-off glow would draw through every wall. B378's line-of-sight gate (`GlowSight`, Valve's
+own `PixelVisibility_FractionVisible` fallback, `c_pixel_visibility.cpp:825`) now refuses a glow whose
+centre is hidden before it is built, which is the engine's arrangement exactly. So a wall-mounted
+lamp's quad is no longer cut where it passes into the wall.
+
+**What was done.**
+
+- **`EntitySprites.PassesFor(renderMode)`** replaces `BlendFor`: the mode's draws in order, each a
+  `SpritePass` of blend and `SpriteDepth`. Modes 3 and 9 are additive with the depth test off; 5 and 7
+  additive, tested; 1, 2 and 4 translucent, tested; 0 opaque, tested and written; 8 translucent then
+  `ONE_MINUS_SRC_ALPHA, ONE`, both tested; 6 and 10 none.
+- **`SpriteBlend` gains `Opaque` and `InverseAlphaAdd`**, and **`ParticleMaterial` gains `Depth`**,
+  defaulting to tested-unwritten so no particle or detail sprite changes.
+- **`EntitySpriteBatches`** batches by path and pass and emits one set of corners per draw.
+  **`FrameBlend`** is mode 7's color: grey `$alpha` with alpha one, times the entity's color and
+  brightness only when `$ignorevertexcolors` is 0. The shader's two frame-weighted draws sum to this
+  over one texture, which is all this project samples.
+- **`DetailSpriteRenderer.SetDepth`** and three depth states; `Opaque` binds no blend state. The pass
+  puts the old tested-unwritten state back after drawing, so a glow's depth-off state cannot leak into
+  whatever inherits it.
+
+**Proved by manipulation.** Red first: a compile failure, the tests naming `PassesFor`, `SpriteDepth`
+and `OffscreenTarget.DrawSprites` before they existed (`91147aea`). Then three rounds, each prediction
+disjoint within its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the renderer swaps the write state for depth-off and depth-off for the write state | `Render_AWorldGlowBehindAnOccluder_AddsOverIt` (centre red 0 against > 64), `Render_ASpriteThenAQuadBehindIt_…(0,False)` |
+| `NormalPass` translucent | `PassesFor_EachSinglePassMode_…(0,…)`, `Build_ANormalModeSprite_IsOpaqueAndWritesDepth` |
+| `GlowPass` depth-tested | `PassesFor_EachSinglePassMode_…(3,…)` and `(9,…)`, `Build_AWorldGlow_IsNotDepthTested` |
+| mode 8's second pass dropped | `PassesFor_TransAlphaAdd_IsTranslucentThenInverseAlphaAdded`, `Build_ATransAlphaAddSprite_DrawsBothPassesInTheShadersOrder` |
+| mode 7's arm moved to mode 4 | both `Build_ATransAddFrameBlendSprite…` tests |
+| `FrameBlend` keeps vertex color but drops the brightness | `Build_ATransAddFrameBlendSpriteThatKeepsVertexColors_MultipliesTheGrey` |
+
+The four Scene breaks in the middle ran together and reddened nine, the predicted nine. Each was
+restored with its inverse edit and the diff searched for the residue. Two first attempts did not
+compile — identical switch arms (S3923) and an unused parameter (S1172) — and were replaced before any
+result was read.
+
+**The output-level assertion** is `EntitySpriteDepthRenderTests`, on `cp_process_f12`'s real
+`light_glow03` through the production builder and the viewer's renderer: mode 9 adds over an occluder,
+mode 5 is hidden by it and draws beside it, mode 0 hides a quad drawn behind it afterwards and mode 1
+does not. The first run of the last pair passed mode 0 for the wrong reason — nothing had bound the
+render target, so nothing drew at all — and its control, mode 1, caught it at `(0, 0)`. A world draw
+now binds the target first.
+
+**Still open.**
+
+- **The sprite's own frame.** `SetSpriteCommonDynamicState` binds the base texture at `FRAME` for
+  every mode (`sprite_dx9.cpp:171`); `SceneSprite.Frame` carries `m_flFrame` and nothing draws it.
+  Every animated `env_sprite` shows its first frame, and mode 7's cross-fade needs it too.
+- **`render->GetBlend()`** is still taken as one.
+- **`HDRCOLORSCALE`** (`m_flHDRColorScale` is carried) and the fog — `FogToBlack` for 3, 5, 7, 9 and
+  8's second pass, `FogToFogColor` for the rest — are not applied.
+- **The constant color's gamma.** With `$nosrgb` 0, the default, modes 5 and 7 load their constant
+  through `SetPixelShaderConstantGammaToLinear` (`sprite_dx9.cpp:204`, `:411`); this project passes
+  `$color` and `$alpha` as written. Whether that differs on screen depends on this renderer's own
+  color space, which is not established here.
+- **A glow is now drawn over models in front of it** whose centre the trace does not hit, since the
+  trace sees brushes and static props only (B378's residual). The engine's query sees models.
+- **Unobserved on screen.** The census found only mode 9; mode 9's change is the depth test, so a
+  lamp quad that met a wall now draws whole. Nobody has looked.
+
+*Evidence class: read from source for every engine fact; arithmetic for mode 7's collapse; differential
+for the sabotages; measured for the glow's falloff on the real texture.*
+
 ### B383 FIXED 2026-09-10: the cycle history resets on the parity counter — fixed on 2026-09-09 and never closed here
 
 **This is paperwork, not a fix.** The work landed with B382 in `0c0727cc`, whose message states it, and

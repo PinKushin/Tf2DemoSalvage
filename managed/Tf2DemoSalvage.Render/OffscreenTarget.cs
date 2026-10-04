@@ -341,6 +341,36 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _detail.Draw(_device, _context, camera, firstQuad * DetailSprites.CornersPerQuad, quads * DetailSprites.CornersPerQuad);
     }
 
+    private DetailSpriteRenderer? _sprites;
+    private ComPtr<ID3D11ShaderResourceView> _spriteSheet;
+
+    /// <summary>Draws one particle or entity sprite batch with its blend and depth state, as the viewer's particle pass does (B391).</summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="camera">The view-projection matrix.</param>
+    /// <exception cref="ArgumentNullException">The camera is null.</exception>
+    /// <exception cref="ArgumentException">The batch has no sheet.</exception>
+    public void DrawSprites(ParticleBatch batch, float[] camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+
+        if (batch.Material.Sheet is not { } sheet)
+        {
+            throw new ArgumentException("A sprite batch without a sheet draws nothing.", nameof(batch));
+        }
+
+        _sprites ??= DetailSpriteRenderer.Create(_device);
+
+        // Uploaded afresh each call; a test draws a handful.
+        _spriteSheet.Dispose();
+        _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+
+        _sprites.SetSheet(_spriteSheet);
+        _sprites.SetBlend(batch.Material.Blend);
+        _sprites.SetDepth(batch.Material.Depth);
+        _sprites.Upload(_device, _context, batch.Corners);
+        _sprites.Draw(_device, _context, camera);
+    }
+
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
     /// <param name="batches">Its runs over those vertices.</param>
@@ -610,6 +640,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();
+        _sprites?.Dispose();
+        _spriteSheet.Dispose();
         _world?.Dispose();
         _view.Dispose();
         _depthView.Dispose();

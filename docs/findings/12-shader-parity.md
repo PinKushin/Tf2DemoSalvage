@@ -666,3 +666,45 @@ both because the pixel shader cannot do both (`skin_dx9_helper.cpp:269`).
 Measured on a load with three cosmetics: **3 of 432 materials tint by base alpha, all three carrying
 a colour, and none of the map's own brushwork** — which is the control, since a reader answering
 true by default would change how every surface in the game draws.
+
+## The `Sprite` shader: a render mode is a blend AND a depth state (B391)
+
+**What was believed first.** B391's first fix read `sprite_dx9.cpp`'s switch for the BLEND and filed
+the rest as blocked: the glow modes' `EnableDepthTest( false )` "until the occlusion query exists",
+`kRenderNormal` and `kRenderTransAlphaAdd` as "no opaque sprite state and no second pass". The
+blocking premise had expired by the time it was re-read: B378's line-of-sight gate (`GlowSight`,
+Valve's own fallback in `PixelVisibility_FractionVisible`, `c_pixel_visibility.cpp:825`) had landed,
+and that gate is exactly what makes a depth-off glow safe — a glow whose centre is hidden is refused
+before it is drawn. Nothing else was missing.
+
+**What the shader says, every branch** (read from published source, `sprite_dx9.cpp:227-484`):
+
+| mode | draws | blend | depth |
+|---|---|---|---|
+| `kRenderNormal` 0 | 1 | none | tested, written — nothing is changed from the initial shadow state |
+| `kRenderTransColor` 1, `kRenderTransTexture` 2, `kRenderTransAlpha` 4 | 1 | `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` | tested, not written |
+| `kRenderGlow` 3, `kRenderWorldGlow` 9 | 1 | `SRC_ALPHA, ONE` | **not tested**, not written |
+| `kRenderTransAdd` 5 | 1 | `SRC_ALPHA, ONE` | tested, not written |
+| `kRenderTransAddFrameBlend` 7 | 2 | `SRC_ALPHA, ONE` | tested, not written |
+| `kRenderTransAlphaAdd` 8 | 2 | first `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`, then `ONE_MINUS_SRC_ALPHA, ONE` | tested, not written |
+
+So a render mode is a list of draws, each a blend and a depth state — which is what this project now
+carries (`EntitySprites.PassesFor`). Batching by blend alone could not express it: a world glow and a
+`kRenderTransAdd` sprite share a blend and not a depth test.
+
+**Mode 7's two draws collapse to one here, and the collapse is exact, not an approximation, for what
+this project draws.** Each draw's constant is grey `$alpha × weight` with alpha one — `$color` is
+never read — and the weights are `1 − frac($frame)` and `frac($frame)` on frames `(int)$frame` and
+the next. Over a single texture the two sum to one draw at `$alpha`. Arithmetic; it stops being exact
+the moment a sprite's own animation frames are carried, which they are not for ANY mode yet (see
+below).
+
+**Found while reading, not yet implemented:** `SetSpriteCommonDynamicState` binds the base texture at
+`FRAME` for every mode (`:171`), and `CSprite` networks `m_flFrame`. `SceneSprite.Frame` carries it
+and nothing on the sprite draw path reads it. Filed in B391's FIXED entry rather than here.
+
+**Proved on pixels.** A real `light_glow03` from `cp_process_f12`, built by the production pass and
+drawn by the viewer's sprite renderer, adds over an occluder in front of it at mode 9 and is hidden
+by the same occluder at mode 5; a mode 0 sprite hides a quad drawn behind it afterwards and a mode 1
+sprite does not. The texture falls off steeply — red 29 one texel outside a 6-texel occluder and 6
+four texels further — which decided where the control reads. *Measured.*
