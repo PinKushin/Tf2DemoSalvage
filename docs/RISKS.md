@@ -34954,3 +34954,27 @@ each was red and each reddened again when its own test was sabotaged. `TF_COND_H
 private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
 
 **Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
+
+## B473 — a paused demo played the same footsteps on every frame — FIXED 2026-10-04
+
+**Measured, in the UI suite's own logs:** the shared session sits paused at tick 20000, and one session's viewer log held
+27,882 `player/footsteps/` starts at that tick, two players' steps about once a frame for the whole run. Found while
+reading a different test's failure dump, whose log tail was nothing but footsteps.
+
+**Cause:** `EntityModels.FiredEvents` was a list read by `MainForm.StepAnimationSounds` on every camera upload, and the
+list was cleared only when the demo time moved. A paused demo, or a camera moved while paused, handed the sound pass
+the same frame's events again and again. **Read, published source:** `C_BaseAnimating::DoAnimationEvents`
+(`c_baseanimating.cpp:3550`) fires each event once, on the frame its cycle is crossed, and returns when the cycle
+has not moved (`:3638`, *"stalled?"*). The walk here was already right; the consumer was not.
+
+**Fix:** `TakeFiredEvents` moves the events out and empties the list, and the sound pass takes them before any early
+return, so an event it does not sound is dropped rather than sounded later. The probe that counted events takes them
+the same way. Test: `PausedSoundUiTests.Footsteps_WhilePaused_AreNotPlayedAgain`, on the real demo. Its control is the
+opening frame's footsteps, which must have sounded. It was red (544 starts grew to 1184 over two paused seconds), and
+it went red again (884 to 2092) with the clear in `TakeFiredEvents` removed.
+
+**A divergence suspected here and killed by reading, kept so it is not re-filed.** A restart fires only the cycle-0
+events (`flEventCycle = 0.0f; m_flPrevEventCycle = -0.01`, `:3633-3634`); everything from 0 to the current cycle
+waits for the next walk. A paused viewer does not rebuild, so here those wait for unpause, and that looked like a
+divergence from an engine that walks every frame. It is not: `C_BaseAnimating::Simulate` walks only
+`if ( gpGlobals->frametime != 0.0f )` (`:5162`), so a paused engine waits for unpause too.

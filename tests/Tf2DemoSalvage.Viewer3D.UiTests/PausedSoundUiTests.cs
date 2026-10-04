@@ -14,9 +14,8 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// the shared session — paused at the opening tick — played two players' footsteps about once a frame for the whole
 /// run: 27,882 footstep starts at tick 20000 in one UI session's log.
 ///
-/// **The control is the first frame's footsteps.** On the opening frame the walk starts each player's sequence from
-/// <c>-0.01</c> (*"back up to get 0'th frame animations"*), so footsteps up to the current cycle sound once. Without
-/// that, "no new footsteps" would also hold for a viewer that plays none at all.
+/// **The control is that footsteps sounded while the demo opened.** Without it, "no new footsteps" would also hold for
+/// a viewer that plays none at all, which is every run without a TF2 install.
 /// </remarks>
 public sealed class PausedSoundUiTests
 {

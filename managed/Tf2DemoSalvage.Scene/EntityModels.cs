@@ -1752,18 +1752,26 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// <summary>The bits of the demo time <see cref="_fired"/> belongs to; NaN's before the first frame.</summary>
     private long _firedFrame = BitConverter.DoubleToInt64Bits(double.NaN);
 
-    /// <summary>Every client animation event this frame crossed.</summary>
+    /// <summary>Moves every client animation event crossed since the last take into <paramref name="into"/>.</summary>
+    /// <param name="into">Receives the events, in the order the engine fires them.</param>
     /// <remarks>
-    /// **Rebuilt per frame, in the order the engine fires them** — which on a loop is the tail of
-    /// the old lap before the head of the new one. A consumer reads it after `Instances` and
-    /// before the next frame; nothing retains it.
-    ///
-    /// **The first consumer is a probe, and the intended one is sound.** Event 5004 is
-    /// `AE_CL_PLAYSOUND` and names a sound script outright — `Taunt.Soldier01HeelClick` and its
-    /// like — so a viewer can honour it with what the audio layer already has. Event 7001 is TF2's
-    /// footstep and needs the ground surface under the foot, which is B172.
+    /// **Taken, not read: `DoAnimationEvents` fires an event ONCE**, on the frame its cycle is crossed
+    /// (<c>c_baseanimating.cpp:3550</c>). This was a property read every frame, and the list was only cleared when the
+    /// demo time moved, so a paused demo handed the sound pass the same footsteps on every frame — 27,882 starts at one
+    /// tick in a UI session's log. Order is the engine's, which on a loop is the old lap's tail before the new head.
     /// </remarks>
-    public IReadOnlyList<FiredAnimationEvent> FiredEvents => _fired;
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    public void TakeFiredEvents(ICollection<FiredAnimationEvent> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        foreach (FiredAnimationEvent fired in _fired)
+        {
+            into.Add(fired);
+        }
+
+        _fired.Clear();
+    }
 
     /// <summary>Resolves an entity's gestures into layers this model can actually play.</summary>
     /// <param name="prop">The entity.</param>

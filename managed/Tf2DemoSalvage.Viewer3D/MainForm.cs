@@ -6678,6 +6678,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Players at the shown moment, for the events that name one; reused.</summary>
     private readonly List<ScenePlayer> _eventPlayers = [];
 
+    /// <summary>The animation events taken this frame; reused.</summary>
+    private readonly List<FiredAnimationEvent> _firedEvents = [];
+
     /// <summary>The sounds this frame's animation events make: `C_BaseAnimating::FireEvent` and TF2's footstep (B172).</summary>
     /// <remarks>
     /// `AE_CL_PLAYSOUND` (`c_baseanimating.cpp:3988`) emits its options from attachment 1, or the origin when the model
@@ -6688,7 +6691,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepAnimationSounds(int tick, Vector3 eye)
     {
-        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.FiredEvents.Count == 0)
+        // Taken before any early return: an event is crossed once, so one this frame does not sound is dropped, never
+        // sounded later — and this runs on every camera upload, paused or not.
+        _firedEvents.Clear();
+        _models.TakeFiredEvents(_firedEvents);
+
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _firedEvents.Count == 0)
         {
             return;
         }
@@ -6696,7 +6704,7 @@ internal class MainForm : Form, IFrameSteps
         // Filled on the first event that names a player, once per frame.
         _eventPlayers.Clear();
 
-        foreach (FiredAnimationEvent fired in _models.FiredEvents)
+        foreach (FiredAnimationEvent fired in _firedEvents)
         {
             if (_renderLog.IsEnabled(LogLevel.Debug))
             {
