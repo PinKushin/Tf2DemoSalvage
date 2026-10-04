@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.12
+# Tf2DemoSalvage 0.1.0-beta.13
 
-## Changes since 0.1.0-beta.11
+## Changes since 0.1.0-beta.12
+
+- **Overlay fading:** only overlays whose material reads vertex alpha fade out with distance, as in TF2; the rest
+  stay solid and disappear at their maximum distance (848 overlays across the stock maps).
+- **Scenes:** every compiled scene is read exactly as TF2's loader reads it, including the two engineer
+  jackhammer-rodeo scenes the game itself misreads.
+
+## Changes in 0.1.0-beta.12
 
 - **Sprites:** every sprite render mode draws the way the game draws it — glows ignore depth, normal mode is opaque,
   additive-fractional-frame sprites draw twice, and the alpha-as-grey mode uses the texture's alpha.
