@@ -162,16 +162,18 @@ run() {
 
     # No --no-build, ever: without a compile step a compile error does not stop the run, and the
     # runner tests whatever DLL was last written.
-    dotnet test "tests/$project" --logger "trx;LogFileName=$name.trx" > "/tmp/gate-$name.log" 2>&1 || {
+    dotnet test "tests/$project" --logger "trx;LogFileName=$name.trx" > "$logs/gate-$name.log" 2>&1 || {
         echo "$name: the run itself failed; last lines follow" >&2
-        tail -25 "/tmp/gate-$name.log" >&2
+        tail -25 "$logs/gate-$name.log" >&2
         exit 1
     }
 
     "$here/assert-test-count.sh" "**/$name.trx" "$floor" "$name"
 }
 
-rm -f /tmp/gate-*.log
+# One log directory per run: a shared /tmp/gate-*.log let two worktrees' gates overwrite and
+# delete each other's logs mid-run, and one agent read another's audio failure as its own (2026-10-03).
+logs=$(mktemp -d)
 
 # **Leave nothing running, and clean up on FAILURE too — hence the trap rather than a last line.**
 # MSBuild's node reuse and the Roslyn `VBCSCompiler` both outlive the build that spawned them, on
