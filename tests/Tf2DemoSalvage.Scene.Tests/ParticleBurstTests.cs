@@ -274,6 +274,43 @@ public sealed class ParticleBurstTests
             tick,
             StopTick: stop);
 
+    /// <remarks>
+    /// **A seekable effect is the engine's SEEDED collection** (B469, D136): its seed is fixed by its identity — a burst's
+    /// key — so a replay after a seek draws the same numbers, and two bursts of one system do not draw the same ones.
+    /// </remarks>
+    [Test]
+    public void Bursts_ANewBurst_IsSeededFromItsKey()
+    {
+        ParticleEffects effects = new();
+
+        effects.Bursts([Burst(key: 1, tick: 100), Burst(key: 2, tick: 100)], Interval, null, tick: 100);
+
+        (effects.BurstEffect(1)!.Particles.Seed, effects.BurstEffect(2)!.Particles.Seed)
+            .ShouldBe((ParticleEffects.SeedFor(1), ParticleEffects.SeedFor(2)));
+    }
+
+    /// <remarks>A trail's identity is its entity and the tick its track began, since entity indices are reused.</remarks>
+    [Test]
+    public void Update_ANewTrail_IsSeededFromItsEntityAndSpawnTick()
+    {
+        ParticleEffects effects = new();
+        ParticleControlPoint here = new(Vector3.Zero, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+        effects.Update([(7, here, here, 3)], LongLived, Interval, tick: 10);
+
+        effects.TrailEffect(7)!.Particles.Seed.ShouldBe(ParticleEffects.SeedFor((7L << 32) | 7L));
+    }
+
+    /// <remarks>
+    /// The identity's Fibonacci hash — the upper 32 bits of it times <c>0x9E3779B97F4A7C15</c>, so neighbouring keys land
+    /// far apart in the 4,096-entry table — and never 0, which is the engine's "unseeded".
+    /// </remarks>
+    [TestCase(0L, 1)]
+    [TestCase(1L, unchecked((int)0x9E3779B9))]
+    [TestCase(2L, 0x3C6EF372)]
+    public void SeedFor_AnIdentity_IsItsFibonacciHashAndNeverZero(long identity, int expected) =>
+        ParticleEffects.SeedFor(identity).ShouldBe(expected);
+
     private static ParticleBurst Burst(long key, int tick, float x = 0f) =>
         new(
             key,

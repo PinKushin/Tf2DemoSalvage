@@ -277,6 +277,43 @@ public sealed class ParticleEffectsTests
         }
     }
 
+    /// <remarks>
+    /// **The quads the renderer is handed, for a rocket that moved 66 units in a tick at two puffs a tick** (B470): the
+    /// emitter dates them half a step and a whole step into the tick, and each is placed where the rocket was then — 33
+    /// and 66 — where every puff of a step used to sit on the rocket's newest position. The first tick has no earlier
+    /// position, so both of its puffs are at 0.
+    /// </remarks>
+    [Test]
+    public void Update_ARocketMovingBetweenTicks_DrawsEachTicksPuffsAlongItsPath()
+    {
+        ParticleEffects effects = new();
+
+        effects.Update([Rocket(0f)], Trail(perSecond: 132d), 1f / 66f, null, 1);
+        effects.Update([Rocket(66f)], Trail(perSecond: 132d), 1f / 66f, null, 2);
+
+        List<DetailSpriteVertex> corners = Corners(effects);
+        List<float> centres = [];
+
+        for (int first = 0; first < corners.Count; first += ParticleSprites.CornersPerParticle)
+        {
+            float sum = 0f;
+
+            for (int corner = first; corner < first + ParticleSprites.CornersPerParticle; corner++)
+            {
+                sum += corners[corner].X;
+            }
+
+            centres.Add(sum / ParticleSprites.CornersPerParticle);
+        }
+
+        centres.Sort();
+        centres.Count.ShouldBe(4);
+        centres[0].ShouldBe(0f, 1e-3f);
+        centres[1].ShouldBe(0f, 1e-3f);
+        centres[2].ShouldBe(33f, 1e-3f);
+        centres[3].ShouldBe(66f, 1e-3f);
+    }
+
     /// <summary>How many particles all the running effects hold.</summary>
     private static int Count(ParticleEffects effects)
     {
@@ -329,7 +366,7 @@ public sealed class ParticleEffectsTests
     private static (int, ParticleControlPoint, ParticleControlPoint?, int) Rocket(float x) =>
         (7, At(x), null, 0);
 
-    private static ParticleSystem Trail()
+    private static ParticleSystem Trail(double perSecond = 66d)
     {
         Dictionary<string, DmxValue> none = new(StringComparer.Ordinal);
 
@@ -339,7 +376,7 @@ public sealed class ParticleEffectsTests
                 new ParticleFunction("emit_continuously", "emit",
                     new Dictionary<string, DmxValue>(StringComparer.Ordinal)
                     {
-                        ["emission_rate"] = new DmxValue(DmxAttributeType.Real, 66d),
+                        ["emission_rate"] = new DmxValue(DmxAttributeType.Real, perSecond),
                     }),
             ],
             [

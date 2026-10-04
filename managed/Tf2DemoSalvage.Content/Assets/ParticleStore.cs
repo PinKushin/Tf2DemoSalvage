@@ -148,6 +148,9 @@ public sealed class ParticleStore
     /// <summary>How many particles are alive.</summary>
     public int Count { get; private set; }
 
+    /// <summary>The collection's <c>m_nRandomSeed</c>, which every draw's index starts from (B469).</summary>
+    public int Seed { get; init; }
+
     /// <summary>How long the system has been running, in seconds.</summary>
     public float Age { get; private set; }
 
@@ -248,13 +251,17 @@ public sealed class ParticleStore
     /// <summary>Adds one particle, with defaults an initializer then overwrites.</summary>
     /// <param name="at">Where it is born.</param>
     /// <param name="lives">How long it lives, in seconds.</param>
+    /// <param name="born">
+    /// Its <c>CREATION_TIME</c>, which the EMITTER decides (B470), or null for now. A continuous emitter spreads its
+    /// particles across the step and a burst dates them all to its start time, so "now" is right only for the last.
+    /// </param>
     /// <returns>Its index.</returns>
     /// <remarks>
     /// **Born with <c>Previous</c> equal to <c>Position</c>, which is zero velocity under Verlet.**
     /// An initializer that gives a particle speed does it by moving <c>Previous</c> backwards,
     /// which is the only way to express a velocity in a scheme that stores none.
     /// </remarks>
-    public int Add(Vector3 at, float lives)
+    public int Add(Vector3 at, float lives, float? born = null)
     {
         if (Count == Position.Length)
         {
@@ -264,7 +271,7 @@ public sealed class ParticleStore
         Position[Count] = at;
         Previous[Count] = at;
         Lifetime[Count] = lives;
-        Born[Count] = Age;
+        Born[Count] = born ?? Age;
         Radius[Count] = 1f;
         RadiusAtBirth[Count] = 1f;
         Tint[Count] = new Vector3(255f, 255f, 255f);

@@ -163,6 +163,11 @@ public static class ParticleSystems
     /// unset point is the origin, as a collection's are before anything sets them.
     /// </param>
     /// <param name="sheet">The sheet the system's material carries — the collection's `m_Sheet` — or null for none.</param>
+    /// <param name="born">
+    /// Its <c>CREATION_TIME</c>, as the emitter dated it, or null for the store's present (B470). <paramref name="point"/>
+    /// and <paramref name="points"/> are the control points AT that time — `GetControlPointAtTime( cp, CREATION_TIME )`,
+    /// which every initializer here that reads a point's position uses — so the caller lerps them, not this.
+    /// </param>
     /// <returns>Its index, or -1 when the system is already at <c>max_particles</c>.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
@@ -187,19 +192,19 @@ public static class ParticleSystems
         float lives,
         float seconds,
         IReadOnlyList<ParticleControlPoint>? points = null,
-        IReadOnlyList<SheetSequence>? sheet = null)
+        IReadOnlyList<SheetSequence>? sheet = null,
+        float? born = null)
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(into);
 
-        int cap = (int)Number(system, "max_particles", int.MaxValue);
-
-        if (into.Count >= cap)
+        if (into.Count >= MaxParticles(system))
         {
             return -1;
         }
 
-        int index = into.Add(point.At, lives);
+        int index = into.Add(point.At, lives, born);
+        int seed = into.Seed;
 
         into.Resize(index, (float)Number(system, "radius", 1d));
 
@@ -213,6 +218,7 @@ public static class ParticleSystems
             {
                 case "Sequence Random":
                     into.Sequence[index] = ParticleRandom.Whole(
+                        seed,
                         into.Id[index],
                         SequenceDraw,
                         (int)one.Number("sequence_min", 0d),
@@ -230,6 +236,7 @@ public static class ParticleSystems
                     float least = (float)one.Number("lifetime_min", lives);
 
                     into.Lifetime[index] = ParticleRandom.Between(
+                        seed,
                         into.Id[index],
                         LifetimeDraw,
                         least,
@@ -252,7 +259,7 @@ public static class ParticleSystems
                     Vector4 from = one.Vector("color1", new Vector4(255f, 255f, 255f, 255f));
                     Vector4 to = one.Vector("color2", from);
 
-                    float along = ParticleRandom.Sample(into.Id[index], ColourDraw);
+                    float along = ParticleRandom.Sample(seed, into.Id[index], ColourDraw);
 
                     into.Tint[index] = new Vector3(
                         from.X + ((to.X - from.X) * along),
@@ -270,6 +277,7 @@ public static class ParticleSystems
                     float dimmest = (float)one.Number("alpha_min", 255d);
 
                     into.Alpha[index] = ParticleRandom.Between(
+                        seed,
                         into.Id[index],
                         AlphaDraw,
                         dimmest,
@@ -288,6 +296,7 @@ public static class ParticleSystems
                     float smallest = (float)one.Number("radius_min", 1d);
 
                     into.Resize(index, ParticleRandom.Between(
+                        seed,
                         into.Id[index],
                         RadiusDraw,
                         smallest,
@@ -316,6 +325,7 @@ public static class ParticleSystems
 
                     into.Rotation[index] = float.DegreesToRadians(
                         initial + ParticleRandom.Between(
+                            seed,
                             into.Id[index],
                             RotationDraw,
                             turnedLeast,
@@ -342,7 +352,7 @@ public static class ParticleSystems
                     float exponent = (float)one.Number("length_random_exponent", 1d);
 
                     into.TrailLength[index] =
-                        (MathF.Pow(ParticleRandom.Sample(into.Id[index], TrailLengthDraw), exponent) *
+                        (MathF.Pow(ParticleRandom.Sample(seed, into.Id[index], TrailLengthDraw), exponent) *
                          (longest - shortest)) + shortest;
 
                     break;
@@ -490,7 +500,7 @@ public static class ParticleSystems
         ParticleControlPoint point,
         float seconds)
     {
-        (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Id[index], PositionDraw);
+        (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Seed, into.Id[index], PositionDraw);
 
         Vector4 bias = one.Vector("distance_bias", new Vector4(1f, 1f, 1f, 0f));
 
@@ -514,14 +524,14 @@ public static class ParticleSystems
         float speed = speedMost > 0f
             ? ((speedMost - speedLeast) *
                MathF.Pow(
-                   ParticleRandom.Sample(into.Id[index], SpeedDraw),
+                   ParticleRandom.Sample(into.Seed, into.Id[index], SpeedDraw),
                    (float)one.Number("speed_random_exponent", 1d))) + speedLeast
             : 0f;
 
         Vector4 localLeast = one.Vector("speed_in_local_coordinate_system_min", default);
         Vector4 localMost = one.Vector("speed_in_local_coordinate_system_max", localLeast);
 
-        float along = ParticleRandom.Sample(into.Id[index], LocalSpeedDraw);
+        float along = ParticleRandom.Sample(into.Seed, into.Id[index], LocalSpeedDraw);
 
         Vector3 local = new(
             localLeast.X + ((localMost.X - localLeast.X) * along),
@@ -553,8 +563,9 @@ public static class ParticleSystems
     /// local +Y is LEFT here — where <see cref="Place"/>, which multiplies by <c>m_RightVector</c> directly, has it
     /// right. Two of Valve's initializers disagree, and each is reproduced as it is.
     ///
-    /// Both positions move, so the particle is displaced, not launched. The control point is taken as it is now rather
-    /// than at the particle's creation time, which is the same thing for a spawn.
+    /// Both positions move, so the particle is displaced, not launched. The point is the one at the particle's creation
+    /// time, its position lerped and its basis current, as `GetControlPointTransformAtTime` builds it (B470); before
+    /// B470 it was the step's end for every particle born in the step.
     /// </remarks>
     private static void Offset(ParticleFunction one, ParticleStore into, int index, ParticleControlPoint point)
     {
@@ -570,11 +581,12 @@ public static class ParticleSystems
         }
 
         int id = into.Id[index];
+        int seed = into.Seed;
 
         Vector3 offset = new(
-            ((most.X - least.X) * ParticleRandom.Sample(id, OffsetDraw)) + least.X,
-            ((most.Y - least.Y) * ParticleRandom.Sample(id, OffsetDraw + 1)) + least.Y,
-            ((most.Z - least.Z) * ParticleRandom.Sample(id, OffsetDraw + 2)) + least.Z);
+            ((most.X - least.X) * ParticleRandom.Sample(seed, id, OffsetDraw)) + least.X,
+            ((most.Y - least.Y) * ParticleRandom.Sample(seed, id, OffsetDraw + 1)) + least.Y,
+            ((most.Z - least.Z) * ParticleRandom.Sample(seed, id, OffsetDraw + 2)) + least.Z);
 
         if (one.Number("offset in local space 0/1", 0d) != 0d)
         {
@@ -618,7 +630,7 @@ public static class ParticleSystems
 
         if (spread > 0f)
         {
-            target += ParticleRandom.InUnitSphere(id, SpreadDraw).Point * spread;
+            target += ParticleRandom.InUnitSphere(into.Seed, id, SpreadDraw).Point * spread;
         }
 
         Vector3 start = into.Position[index];
@@ -636,7 +648,7 @@ public static class ParticleSystems
         }
 
         float least = (float)one.Number("minimum speed", 1d);
-        float speed = (((float)one.Number("maximum speed", 1d) - least) * ParticleRandom.Sample(id, MoveSpeedDraw)) + least;
+        float speed = (((float)one.Number("maximum speed", 1d) - least) * ParticleRandom.Sample(into.Seed, id, MoveSpeedDraw)) + least;
 
         into.Lifetime[index] = distance / (speed + Epsilon);
         into.Previous[index] = into.Position[index] - (delta * (speed / distance) * seconds);
@@ -658,18 +670,19 @@ public static class ParticleSystems
     private static void AlongPath(
         ParticleFunction one, ParticleStore into, int index, IReadOnlyList<ParticleControlPoint> points)
     {
-        (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(one, points);
+        int seed = into.Seed;
+        (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(one, points, seed);
 
         int id = into.Id[index];
-        float t = ParticleRandom.Sample(id, AlongPathDraw);
+        float t = ParticleRandom.Sample(seed, id, AlongPathDraw);
         float spread = (float)one.Number("maximum distance", 0d);
 
         Vector3 a = start + ((mid - start) * t);
         Vector3 b = mid + ((end - mid) * t);
         Vector3 jitter = new(
-            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 1)) - spread,
-            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 2)) - spread,
-            (2f * spread * ParticleRandom.Sample(id, AlongPathDraw + 3)) - spread);
+            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 1)) - spread,
+            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 2)) - spread,
+            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 3)) - spread);
 
         into.Position[index] = a + ((b - a) * t) + jitter;
         into.Previous[index] = into.Position[index];
@@ -749,10 +762,15 @@ public static class ParticleSystems
     /// <c>+0x1fe8</c> — where the other initializers here are keyed by <c>PARTICLE_ID</c> as `ParticleRandom`
     /// describes. It is keyed by particle here too, because the table's CONTENTS are this project's own rather than
     /// Valve's (`ParticleRandom`'s remarks), so no per-particle value could match whichever index were used; the
-    /// distribution is what can be matched, and particle keying keeps a seek reproducible. *Not established:* whether
-    /// <c>m_nRandomSeed</c> is fixed or varies per effect instance. Recorded in `docs/findings/58`.
+    /// distribution is what can be matched, and particle keying keeps a seek reproducible. <c>m_nRandomSeed</c> varies per
+    /// instance — <c>(int)this + Plat_MSTime()</c> for an unseeded collection — and is in this index too (B469).
     /// </remarks>
     public const int TrailLengthDraw = 768;
+
+    /// <summary>`max_particles`, the collection's size — what an emitter's room is measured against.</summary>
+    /// <param name="system">The definition.</param>
+    /// <returns>The cap, unbounded when undeclared.</returns>
+    internal static int MaxParticles(ParticleSystem system) => (int)Number(system, "max_particles", int.MaxValue);
 
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>

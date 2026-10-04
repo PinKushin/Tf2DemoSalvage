@@ -34821,3 +34821,133 @@ Measured while writing B464's output-level test: koth_lazarus's six position-key
 `.Jungle`, `.Cave`) all resolve to -1, and its pakfile carries `SCRIPTS/SOUNDSCAPES_KOTH_LAZARUS.TXT` (`pak` probe,
 one of 6,293 entries). `SoundscapeCatalog.Load` already takes the map name; the level load needs to
 pass it and a reader that tries the pakfile first. How many installed maps ship one is not yet counted.
+
+## B469 — every particle collection drew the same random numbers: the seed was missing from every table index — FIXED 2026-10-04
+
+**Read, published source and disassembly:** every `RandomInt`/`RandomFloat`/`RandomVector` indexes
+`s_pRandomFloats[ ( m_nRandomSeed + nRandomSampleId ) & RANDOM_FLOAT_MASK ]` (`particles.h:1782`, `:1791`, `:1800`), and
+the four-wide one adds the seed into its offset. `CParticleCollection::Init( pDef, flDelay, nRandomSeed )`, in the SDK's
+`particles.lib` (`particles.obj`, symbols intact), keeps a non-zero seed and makes a zero one `(int)this + Plat_MSTime()`.
+Its child loop gives entry k of `children` the seed plus 129 × k, or 0 for an unseeded parent
+(`lea eax,[r15+0x81]; test r15d,r15d; cmovz eax,r15d; mov r15d,eax`). `ParticleRandom` had no seed term, so two
+rockets' trails, a rocket's children, and two explosions of one system drew identical numbers for particle n.
+`CalculatePathValues`'s random bulge reads the same field at `+0x2744`.
+
+**Fix:** every draw takes the collection's seed (`ParticleStore.Seed`); `ParticleEffect` takes `seed` and gives its
+children the engine's sequence. **D136's adaptation**: the TF2 client creates every effect unseeded, so its input is a
+pointer and a clock that no demo carries. `ParticleEffects` therefore creates trails and bursts on the engine's own seeded
+path, with a seed fixed by identity: `SeedFor`, the Fibonacci hash of a burst's key or of a trail's entity and spawn tick,
+never 0. Tests: `ParticleRandomConformanceTests.Sample_ASeed_ShiftsTheIndexAsTheParticleAndOffsetDo`,
+`ParticleEffectConformanceTests.Constructor_ASeed_GivesEachChildTheSeedPlus129PerEntry`, `…Constructor_NoSeed_GivesEveryChildZero`,
+`…Step_ASeededEffect_DrawsAtTheSeededIndex`, `PathConstraintConformanceTests.PathValues_ARandomBulge_ReadsTheEntriesTheSeedPicks`,
+and `ParticleBurstTests` (`…IsSeededFromItsKey`, `…IsSeededFromItsEntityAndSpawnTick`, `SeedFor_…`). Sabotaged: the
+seed term, the store's seed, the cumulative and the zero-guarded child seed, the `SeedFor` zero guard, and both call
+sites each reddened their tests.
+
+**Not changed:** an effect created without a seed (a HUD particle panel, a model panel, a test) keeps 0 rather than
+becoming a pointer and a clock. Its children are therefore unseeded alike. Those panels run on wall-clock time and
+were never reproducible.
+
+## B470 — a particle was born at the end of its step, on its control point's newest position — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_OP_ContinuousEmitter::Emit` spreads a step's particles across it. With
+start = curtime − dt and end = curtime, clamped to the window when the duration is non-zero, it adds
+`total += ( end − start ) · rate`, emits `n = floor( total ) − emitted`, and dates the k-th
+`CREATION_TIME = min( start + k · ( end − start ) / n, end )`, where `n` has already been capped by the room left.
+`C_OP_InstantaneousEmitter::Emit` dates every particle to its start time. `GetControlPointAtTime( cp, t )` lerps
+`m_PrevPosition` to `m_Position` by `max( 0, ( m_flDt − ( curtime − t ) ) / m_flDt )`. `Simulate` copies the previous
+positions on the first frame, simulates nothing below a 1e−22 step, simulates the children after the parent, and ends
+with `UpdatePrevControlPoints`. `C_INIT_CreateWithinSphere` places at the point at `CREATION_TIME` (read here); the
+offset, move-between and along-path initializers do the same per B415's notes. This port dated every particle to the
+step's end and handed every initializer the newest position. The spawn-time sphere, offset, tracer and path positions
+were therefore all at the step's end; the offset's own remark called it "the same thing for a spawn".
+
+**Fix, a replacement of the structure:** `ParticleEffect` keeps each control point's previous position, `Step` sets
+control point 0 and runs one `Simulate` (which `Fade` shares with emission off), and both emitters date their particles
+the engine's way and spawn them on the points lerped to that date. `ParticleStore.Add` and `ParticleSystems.Spawn` take
+the date. `ParticleCreationTimeConformanceTests` (12) cover every clause above. The scene-level assertion is
+`ParticleEffectsTests.Update_ARocketMovingBetweenTicks_DrawsEachTicksPuffsAlongItsPath`, on the quads the renderer
+receives: 0, 0, 33, 66. It reddened when sabotaged back to the step's end, and every clause's own sabotage reddened its
+test. `Step_AConstrainedSystem_HoldsItsParticleOnThePathAfterMoving` encoded the old dating and was changed from two
+half-second steps to two quarter-second ones, so that "half-way" still holds.
+
+**Behaviour that moved with it, by the same reading:** a fading effect now runs its constraints and movement lock as the
+engine's stopped collection does, and a paused step no longer emits. A windowed emitter now emits for the part of a step
+inside its window, where it used to emit whole steps or none.
+
+**Not built, and not established:** `initial_particles` (`SimulateFirstFrame`); the sub-steps a step longer than the
+definition's maximum sim tick is split into; and the burst at `max_particles`, where the engine drops only the refused
+part of a step's share and this stops owing at all. The sphere initializer converts velocity to `PREV_XYZ` with
+`m_flPreviousDt` (0.05 on the first frame), and this uses the step. The sphere initializer draws from the collection's
+running query stream (`m_nRandomSeed + m_nRandomQueryCount++`), and this keys by particle id, as `Trail Length Random`
+already did by choice (findings 58).
+
+## B471 — a control point took any orientation; the engine refuses one that is not a frame — FIXED 2026-10-04
+
+**Read, published source:** `SetControlPointOrientation` applies forward, right and up, and passes them to its children,
+only when `|forward·up|`, `|forward·right|` and `|right·up|` are each at most 0.1. Otherwise it warns and keeps the old
+orientation (`particles.h:1616-1640`). Position is a separate call that always lands (`:1595-1604`). `ParticleEffect.SetControlPoint`
+stored any basis.
+
+**Fix:** the position always lands and the basis only when it is a frame, in every child; control point 0 through
+`Step` is the same call. Tests: one per pair (`SetControlPoint_ForwardAlongUp_…`, `…ForwardAlongRight_…`, `…RightAlongUp_…`),
+the boundary (`…ForwardDotRightNearATenth_IsAcceptedUpToIt`, 0.1 accepted and 0.11 refused), the child and `Step`. Each
+clause and the `<=` were sabotaged and reddened. **Not reproduced:** the warning. **Unchanged, seen in passing:** an
+unset point's axes are the identity here (`ParticleControlPoint.Unoriented`, a stated fallback), where
+`CParticleControlPoint`'s constructor leaves them zero.
+
+## B472 — `RandomInt` returned the minimum for an inverted range; the engine computes the draw — FIXED 2026-10-04
+
+**Read, published source:** `RandomInt` is `(int)( r · ( nMax + 1 − nMin ) ) + nMin`, with no early return and no clamp
+(`particles.h:1779-1786`). `ParticleRandom.Whole` returned the minimum for max below min and clamped. Its sibling, the
+burst count, is `C_OP_InstantaneousEmitter::InitializeContextData` in `builtin_particle_emitters.obj`. It draws for any
+minimum of 0 or more, while ours took `num_to_emit` whenever the minimum was at or above it. No shipped `.pcf` is known
+to declare either; every reader of a drawn sequence already wraps it into its sheet.
+
+**Fix:** both as the engine computes them. `ParticleRandomConformanceTests.Whole_AnUpperBoundBelowTheLower_ComputesTheEnginesDraw`
+(5 and 2 give 5 below a half and 4 above; this test asserted 5 for both before) and
+`ParticleEffectConformanceTests.Step_ABurstMinimumAboveItsCount_EmitsTheEnginesDraw` (3 and 5 give 5). Both reddened
+when sabotaged back.
+
+## B466 — the round timer floated two `+m:ss` deltas where the engine floats ten — FIXED 2026-10-04
+
+**Read, published source:** `#define NUM_TIMER_DELTA_ITEMS 10` (`tf_time_panel.h:57`), the ring `m_TimerDeltaItems`
+(`:124`), `SetTimeAdded` wrapping its head with that constant (`tf_time_panel.cpp:399-402`) and `Paint` walking all ten
+(`:843-885`). `TfHudTimeStatus` declared 2, so a third `teamplay_timer_time_added` inside the 2-second `delta_lifetime`
+overwrote a delta still floating. Found by the 2026-10-04 parity audit; no reason for 2 was recorded anywhere.
+
+**Fix:** the constant is 10. `TfHudTimeStatusConformanceTests.Paint_TenDeltasWithinTheirLifetime_DrawsAllTen` and
+`…Paint_AnEleventhDelta_ReplacesTheOldest` (the eleventh takes slot 0) were red at 2 and are green; sabotaged back to 2,
+both reddened.
+
+## B467 — setting the round timer panel's timer never ran `SetExtraTimePanels` — FIXED 2026-10-04
+
+**Read, published source:** `SetTimerIndex( int index ){ m_iTimerIndex = ( index >= 0 ) ? index : 0; SetExtraTimePanels(); }`
+(`tf_time_panel.h:77`). The match status calls it whenever its panel's timer is no longer valid
+(`tf_hud_match_status.cpp:497`), and KOTH calls it only when a timer's entity index differs from the panel's
+(`tf_time_panel.cpp:1063`, `:1080`). `TfHudTimeStatus.TimerIndex` was a settable property, so the setup, waiting,
+overtime and sudden-death labels stayed as they were until the next `teamplay_update_timer`, and a negative index was
+kept. **A test asserted the divergence**: `…InSetupBeforeTheTimersUpdate_LeavesTheSetupLabelHidden`, written from the
+port. It is replaced by `SetTimerIndex_InSetup_ShowsTheSetupLabelWithoutAnUpdate`.
+
+**Fix:** `SetTimerIndex` clamps and runs `SetExtraTimePanels`; the property is private-set, written directly only by
+`ApplySchemeSettings` as the engine's `m_iTimerIndex = 0` is (`:664`). KOTH sets only on a change. Tests:
+`SetTimerIndex_Negative_IsZero`, `TfHudKothTimeStatusConformanceTests.Think_InSetup_ShowsEachPanelsSetupLabelWithoutAnUpdate`
+and `…Think_TheSameTimer_DoesNotRunSetExtraTimePanelsAgain` (setup ends, the index is unchanged, so the label stays up).
+Sabotaged: dropping the call, the clamp, and each of KOTH's two change guards reddened the matching test.
+
+**Kept:** the seek path's `RefreshExtraTimePanels` (`VguiHud`), which stands in for the `teamplay_update_timer` a seek
+skips and is a different question.
+
+## B468 — the ammo count drew for a Halloween ghost, in a minigame and under the match summary — FIXED 2026-10-04
+
+**Read, published source:** `CTFHudWeaponAmmo::ShouldDraw` returns false for `TF_COND_HALLOWEEN_GHOST_MODE`, an active
+minigame and `ShowMatchSummary()` before `CHudElement::ShouldDraw` (`tf_hud_ammostatus.cpp:153-160`). `TfHudWeaponAmmo`
+tested only the weapon's own refusals, while `TfHudPlayerStatus` beside it tested all three.
+
+**Fix:** the three tests, in the engine's order. `TfHudWeaponAmmoConformanceTests.ShouldDraw_AsAHalloweenGhost_IsHidden`,
+`…InAnActiveMinigame_IsHidden` and `…UnderTheMatchSummary_IsHidden`, against the control `…AUsableWeapon_IsDrawn`;
+each was red and each reddened again when its own test was sabotaged. `TF_COND_HALLOWEEN_GHOST_MODE` was declared as a
+private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
+
+**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.

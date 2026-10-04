@@ -333,7 +333,7 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
                 int active = state.Rules.TimerToShowInHud;
 
                 display = active != 0 && state.RoundTimer(active) is not null;
-                TimePanel.TimerIndex = active;
+                TimePanel.SetTimerIndex(active);
             }
         }
 
@@ -539,7 +539,8 @@ public sealed class TfHudMatchStatus : VguiEditablePanel, IHudElement
 /// </remarks>
 public sealed class TfHudTimeStatus : VguiEditablePanel
 {
-    private const int NumTimerDeltaItems = 2;
+    /// <summary>`NUM_TIMER_DELTA_ITEMS` (tf_time_panel.h:57): how many `+m:ss` items float at once (B466).</summary>
+    private const int NumTimerDeltaItems = 10;
     private const int TeamRed = 2;
 
     private readonly (float DieTime, int Amount)[] _deltas = new (float, int)[NumTimerDeltaItems];
@@ -588,8 +589,20 @@ public sealed class TfHudTimeStatus : VguiEditablePanel
     /// <inheritdoc/>
     public override string ClassName => "CTFHudTimeStatus";
 
-    /// <summary>`m_iTimerIndex`: the timer shown, 0 for none.</summary>
-    public int TimerIndex { get; set; }
+    /// <summary>`m_iTimerIndex`: the timer shown, 0 for none. Written by <see cref="SetTimerIndex"/>, and directly only by `ApplySchemeSettings`.</summary>
+    public int TimerIndex { get; private set; }
+
+    /// <summary>`SetTimerIndex` (tf_time_panel.h:77): the index, negative clamped to 0, then `SetExtraTimePanels` (B467).</summary>
+    /// <param name="index">The timer's entity index.</param>
+    /// <remarks>
+    /// **Every caller's assignment re-runs `SetExtraTimePanels`**, so a panel pointed at a timer in setup shows the setup
+    /// label that think rather than at the next `teamplay_update_timer`. This was a plain property, and the labels waited.
+    /// </remarks>
+    public void SetTimerIndex(int index)
+    {
+        TimerIndex = index >= 0 ? index : 0;
+        SetExtraTimePanels(HudViewport.Of(this)?.State ?? default);
+    }
 
     /// <summary>`ShouldUseMatchHUD()`, as the parent decided it.</summary>
     public bool UseMatchHud { get; set; } = true;

@@ -90,15 +90,25 @@ public sealed class TfHudKothTimeStatus : VguiEditablePanel, IHudElement
         HudState state = viewport.State;
         int activeTeam = TeamUnassigned;
 
+        // `if ( pTimer->entindex() != m_pBluePanel->GetTimerIndex() )` (:1063, :1080): set only on a change, because setting
+        // runs `SetExtraTimePanels` (B467).
         if (state.Rules.BlueKothTimer is { } blue && state.RoundTimer(blue) is { } blueTimer)
         {
-            BluePanel.TimerIndex = blue;
+            if (blue != BluePanel.TimerIndex)
+            {
+                BluePanel.SetTimerIndex(blue);
+            }
+
             activeTeam = blueTimer.Paused ? activeTeam : TeamBlue;
         }
 
         if (state.Rules.RedKothTimer is { } red && state.RoundTimer(red) is { } redTimer)
         {
-            RedPanel.TimerIndex = red;
+            if (red != RedPanel.TimerIndex)
+            {
+                RedPanel.SetTimerIndex(red);
+            }
+
             activeTeam = redTimer.Paused ? activeTeam : TeamRed;
         }
 

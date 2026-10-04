@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CHudTFCrosshair` over `CHudCrosshair` (game/client/tf/tf_hud_crosshair.cpp, game/client/hud_crosshair.cpp).</summary>
@@ -16,7 +18,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 public sealed class TfHudCrosshair : VguiPanel, IHudElement
 {
     private const int ConditionTaunting = 7;
-    private const int ConditionGhostMode = 77;
+    private const int ConditionGhostMode = PlayerConditions.HalloweenGhostMode;
     private const int ConditionZoomed = 1;
     private const int ClassSniper = 2;
     private const int CustomCrosshairSize = 32;

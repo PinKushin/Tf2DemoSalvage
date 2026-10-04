@@ -433,7 +433,7 @@ public class TfHudItemEffectMeter : VguiEditablePanel, IHudElement
     }
 
     /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE` (tf_shareddefs.h).</summary>
-    protected const int ConditionHalloweenGhostMode = 77;
+    protected const int ConditionHalloweenGhostMode = PlayerConditions.HalloweenGhostMode;
 
     /// <summary>`Update` (:500): the count, the beep, each bar's fill and color, and a layout when the state changes.</summary>
     /// <param name="player">The local player.</param>
