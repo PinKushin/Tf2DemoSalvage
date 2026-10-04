@@ -18895,7 +18895,17 @@ The owner flagged this before the first run: *"the background fps clamp is going
 testing this"*. He was right, and the first attempt had been backgrounded. **Take the focused
 population, or run it in front of you.**
 
-## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — OPEN
+## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — FIXED
+
+**Closed 2026-10-04 by reading the code, not by new code.** `EntityModelSet.Culls` rejects a prop
+before its pose when the frustum or the visible-leaf set does (`BspLeafTree.TouchesAny` over the
+world cull's `VisibleByLeaf`), and both arrive from the same `Device3D` in `MainForm.ProjectWorld`.
+The frustum half was pinned (`Instances_WithAPropBehindTheCamera_DoesNotPoseItAtAll`); the PVS half
+was not, so `Instances_WithAPropInFrontButInNoVisibleLeaf_DoesNotPoseIt` and its control
+`…InAVisibleLeaf_PosesIt` were added — a prop inside the view cone but in a rejected leaf is not
+drawn. Sabotage: negating the `TouchesAny` test reddens both. Remaining SHAPE difference (per-leaf
+lists kept across frames) is B262/D131, not this entry. Re-measurement: "B254 re-measured
+2026-09-03" below.
 
 **The divergence B253 went looking for.** Measured, `tf2-2026-pub-pov-clean` at tick 14000, uncapped,
 10,700 rebuilds, focused window:
@@ -18950,7 +18960,14 @@ count, without changing what is drawn.
 
 Filed separately from B253, which is the measurement and the instruments; this is the cause it found.
 
-## B255 — we pose before the view is computed; the engine computes the view first — OPEN
+## B255 — we pose before the view is computed; the engine computes the view first — FIXED
+
+**Closed 2026-10-04, already true in the code.** `FrameSequence.Run` runs `Simulate` (sample and
+select only — `MomentPresenter.Show` ends at `Build`), then `PlaceCamera`, whose
+`Device3D.SetCamera` builds this frame's frustum and world visible set, then `ProjectWorld`, which
+calls `PoseNow` with that same device's frustum and `VisibleByLeaf`. View, visibility, bones — the
+`SetUpView` / `BuildWorldLists` / `BuildRenderablesList` order. The stage order is pinned by
+`FrameSequenceTests`; see "B255 re-measured 2026-09-03" below.
 
 **Found while fixing B254, and it is why B254's fix is not yet wired.** The cull itself is built and
 tested (`EntityModelSet.Instances(..., frustum)`, `Culls`, `DrawTally.Culled`), and it is inert until
@@ -19134,7 +19151,15 @@ moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
 every track every frame, where the engine interpolates entities as it meets them in the visible set.
 That is the next thing worth reading, and it is a decode-side question rather than a rendering one.
 
-## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — OPEN
+## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — FIXED
+
+**Closed 2026-10-04: both of the engine's rules are ported, under B259.** Rule one, the
+`ShouldInterpolate` visibility gate on the previous frame's posed set, is B259 fix 2; rule two, leaving
+the list on `bNoMoreChanges`, is B259 stage C (the wake queue and lerp list, joining at the latch as
+`OnLatchInterpolatedVariables` does). Every `ShouldInterpolate` branch — visible, view entity,
+parent of a drawn child, no model — is pinned in `InterpolationListTests`; leaving the list in
+`DemoTimelineSampleOrderTests.PropsAt_PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList`;
+the stepped-against-fresh differential in `PersistentSampleTests`.
 
 **Where the frame time now is.** After B254 and B255, first person on `tf2-2026-pub-pov-clean`:
 
