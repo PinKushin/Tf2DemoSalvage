@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
@@ -131,6 +132,73 @@ public sealed class AttachmentQueryTests
     {
         Posed().HitboxGap(Entity, box, Vector3.Zero).ShouldBeNull();
     }
+
+    /// <summary>
+    /// An item sharing no bone with its wearer hangs from the wearer's attachment — `m_iParentAttachment`, one-based — so
+    /// its root bone is the attachment's world matrix: at (100, 201, 300), turned as the wearer is (B82).
+    /// </summary>
+    [Test]
+    public void Instances_AnItemHungFromAWearersAttachment_IsPlacedAtIt()
+    {
+        float[] root = ItemRoot(point: 1);
+
+        root[3].ShouldBe(100f, 1e-3f);
+        root[7].ShouldBe(201f, 1e-3f);
+        root[11].ShouldBe(300f, 1e-3f);
+
+        // Column 0, the item's forward, is the wearer's: +Y.
+        root[0].ShouldBe(0f, 1e-3f);
+        root[4].ShouldBe(1f, 1e-3f);
+    }
+
+    /// <summary>
+    /// Point 2 is in the wearer's table, but on a bone the wearer does not have, so nothing is resolved for it and the item
+    /// keeps the placement `CalcAbsolutePosition` gave it — its wearer's origin.
+    /// </summary>
+    [Test]
+    public void Instances_AnItemHungFromAnUnresolvedAttachment_KeepsItsWearersOrigin()
+    {
+        float[] root = ItemRoot(point: 2);
+
+        root[3].ShouldBe(100f, 1e-3f);
+        root[7].ShouldBe(200f, 1e-3f);
+        root[11].ShouldBe(300f, 1e-3f);
+    }
+
+    /// <summary>Poses the subject wearing an item hung from one of its attachments; returns the item's root bone.</summary>
+    private static float[] ItemRoot(int point)
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+
+        const string Item = "models/items/spellbook.mdl";
+
+        SceneProp[] props =
+        [
+            new(
+                Entity,
+                "models/props_gameplay/resupply_locker.mdl",
+                ScenePropTrack.Classify("models/props_gameplay/resupply_locker.mdl"),
+                new ScenePose { X = 100f, Y = 200f, Z = 300f, Yaw = 90f },
+                null),
+            new(
+                Entity + 2,
+                Item,
+                ScenePropTrack.Classify(Item),
+                new ScenePose(),
+                AttachedTo: Entity,
+                AttachmentPoint: point),
+        ];
+
+        models.Add(props, path => path == Item ? ItemModel() : Model());
+        models.Instances(props, instances, seconds: 0d);
+
+        return instances.Single(instance => instance.EntityIndex == Entity + 2).Bones.ShouldNotBeNull()[0];
+    }
+
+    /// <summary>A one-bone item whose bone the wearer does not have, so nothing merges.</summary>
+    private static PropModels.ModelFrames ItemModel() =>
+        Model() with { Skinned = SyntheticSkinnedModel.WithBones("mvm"), Attachments = null, Hitboxes = null };
 
     private static void Near(Vector3 actual, Vector3 expected)
     {
