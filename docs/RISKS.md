@@ -24991,7 +24991,18 @@ numbers now come from the code the ragdoll work will use.
 **Still not readable, and still the open question:** the `IVPS` hulls, which are what a falling body
 contacts the world with. `"volume"` is given per solid, which is not a shape.
 
-### B329 OPEN 2026-09-09: `$vertexcolor` reaches FIFTEEN drawn faces, and they are overlays
+### B329 CLOSED 2026-10-04: `$vertexcolor` reaches FIFTEEN drawn faces, and they are overlays
+
+**Closed in disassembly; the full account is `docs/findings/28-vertex-colour.md` § "Settled in
+disassembly".** A brush face's vertex colour is the constant `0xFFFFFFFF` (`engine.dll` `0x1800f4d40`),
+so the fifteen `dust_gradient` faces were never divergent. An overlay vertex is white with the lump-60
+fade in alpha (`0x180110630`), which exposed the real divergence: the renderer faded EVERY fading
+overlay, where the engine's ramp shows only when the shader reads vertex alpha (LightmappedGeneric
+`$vertexcolor`, UnlitGeneric `$vertexalpha`). Fixed by `OverlayFade.DrawnAlpha` and
+`VmtMaterial.TakesVertexAlpha`; tests in `OverlayFadeConformanceTests` (one on `cp_process_final`) and
+`VmtParameterTests`. **Owner-visible:** an overlay without either flag now draws opaque up to its fade
+maximum and then vanishes, instead of fading out — which is what TF2 does. **Not ported:** the
+`0x00FFFFFF` a WorldTwoTextureBlend material gets on a non-displacement brush face.
 
 **2026-09-09 — the question is now bounded, and the owner reframed it before it was measured.** This
 entry asked whether the flag is inert and could not settle it, because the engine's world mesh builder

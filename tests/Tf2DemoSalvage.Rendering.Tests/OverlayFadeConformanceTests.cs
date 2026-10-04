@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+
+using Tf2DemoSalvage.SdkReference;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -52,6 +55,26 @@ public sealed class OverlayFadeConformanceTests
     [Test]
     public void DrawnAlpha_AtTheMaximum_WithoutVertexAlpha_IsNotDrawn() =>
         Fade.DrawnAlpha(0f, 1000f, 0f, takesVertexAlpha: false).ShouldBeNull();
+
+    [Test]
+    public void TakesVertexAlpha_OnCpProcess_CarriesDustGradientsAndNotTheRest()
+    {
+        // **On the real map, through the production load** (B329). `overlays/dust_gradient01` is
+        // UnlitGeneric with `$vertexalpha 1`, so it is the one kind whose fade ramp shows. The control
+        // is every other loaded material: if the flag reached all of them, the gate would be a no-op.
+        if (GameInstall.Root is not { } tf || !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_final is not installed.");
+            return;
+        }
+
+        MapAssets assets = MapCache.Load();
+        int dust = Enumerable.Range(0, assets.Materials.Count).Single(index =>
+            assets.Materials[index].Name.Equals("overlays/dust_gradient01", StringComparison.OrdinalIgnoreCase));
+
+        assets.Textures[dust].ShouldNotBeNull().TakesVertexAlpha.ShouldBeTrue();
+        assets.Textures.Count(texture => texture is { TakesVertexAlpha: false }).ShouldBeGreaterThan(100);
+    }
 
     [Test]
     public void Alpha_AtTheMaximum_IsNotDrawn() =>

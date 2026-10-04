@@ -185,3 +185,35 @@ which really was doing nothing at all.
 **The general point, which has now come up three times in this project:** a census reports what a map
 asked for. Whether the asking matters is a separate question, and answering it is cheap — one probe
 here, against an implementation of unknown size.
+
+## Settled in disassembly: what `v.vColor` holds (2026-10-04, B329)
+
+The question this file left open — where the colour stream comes from — has two answers, one per
+mesh builder, both read in `engine.dll` x64 (live TF2). *Evidence class: disassembly.*
+
+**A brush face: white, opaque.** `0x1800f4d40` writes each world-surface vertex into the static
+"World Verts" mesh that `WorldStaticMeshCreate` (`0x1800f87d0`) builds, and its colour store is the
+constant `0xFFFFFFFF`. The single exception is a material with `$basetexture2` (WorldTwoTextureBlend)
+on a non-displacement face, which gets `0x00FFFFFF` and the warning *"WorldTwoTextureBlend found on a
+non-displacement surface"*. So the fifteen `dust_gradient` brush faces B329 counted on `cp_process_f12`
+multiply by one in colour and in alpha: `$vertexcolor` is inert on brushwork, and this project's white
+already matched.
+
+**An overlay: white, with the distance fade in alpha.** `COverlayMgr::RenderOverlays` (`0x180110630`,
+with `r_renderoverlayfragment` at its default `1`) packs every fragment vertex as
+`(int)(fade · 255 + 2^23) << 24 | 0xFFFFFF` — the 2²³ add is the float-to-int rounding trick, so the
+alpha is `round(fade · 255)`. The fade is the lump-60 ramp `0x18010a580` writes into each vertex at
+offset `0x30`, and the fragment builder `0x1801117c0` initialises that field to `1.0`.
+
+**So an overlay's fade ramp reaches the screen only through vertex alpha, and the SHADER decides
+whether vertex alpha is read.** LightmappedGeneric reads it under `$vertexcolor` alone
+(`lightmappedgeneric_vs20.fxc:213-232`, combo at `lightmappedgeneric_dx9_helper.cpp:539`); UnlitGeneric
+under `$vertexalpha` alone (`vertexlitgeneric_dx9_helper.cpp:1472` →
+`vertexlit_and_unlit_generic_ps2x.fxc:419`); a lit VertexLitGeneric under neither (`:454-455`). An
+overlay whose material reads it fades; every other overlay draws fully opaque until `0x18010a580`
+stops queueing it at its maximum distance — a pop, not a fade.
+
+**The wrong turn this corrects is ours, not the question's.** The renderer had multiplied every
+fading overlay's ramp into its modulation alpha, which is right for exactly the materials this file
+was worried about and wrong for all the others. The flag that looked like a missing feature turned out
+to be the gate on a feature already implemented too broadly.

@@ -59,6 +59,10 @@ namespace Tf2DemoSalvage.Scene;
 /// when the material names none.
 /// </param>
 /// <param name="SecondTransform"><c>$texture2transform</c>, the same for the second texture.</param>
+/// <param name="TakesVertexAlpha">
+/// Whether the shader reads vertex alpha — the only route an overlay's distance fade has to the
+/// screen (B329, <see cref="VmtMaterial.TakesVertexAlpha"/>).
+/// </param>
 /// <param name="IsDecal">
 /// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
 /// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
@@ -142,7 +146,8 @@ public readonly record struct MapTexture(
     // the two apart. A scrolling proxy overwrites these rows per frame; a material that only states
     // a static transform has no proxy and would otherwise draw untransformed.
     TextureTransform? BaseTransform = null,
-    TextureTransform? SecondTransform = null)
+    TextureTransform? SecondTransform = null,
+    bool TakesVertexAlpha = false)
 {
     /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
     /// <param name="decoded">The texture as read.</param>
@@ -3249,7 +3254,8 @@ public sealed class MapAssets
                     // **Composed here rather than carried as a string** (B332), so the renderer is
                     // handed the two rows a shader takes and nothing downstream has to parse.
                     Transform(material.BaseTextureTransform),
-                    Transform(material.SecondTextureTransform));
+                    Transform(material.SecondTextureTransform),
+                    material.TakesVertexAlpha);
             }
             catch (InvalidDataException failure)
             {
