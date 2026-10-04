@@ -227,13 +227,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="camera">The main view.</param>
     /// <param name="assets">The map's materials.</param>
     /// <param name="frame">The views; its matrices are filled from <paramref name="camera"/> here.</param>
-    /// <returns>How many water batches drew each pass.</returns>
+    /// <param name="hdr">The HDR type to draw under in place of the map's own, or null for the map's.</param>    /// <returns>How many water batches drew each pass.</returns>
     public (int Expensive, int Cheap, int Plain) DrawWaterWorld(
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
         FreeCamera camera,
         MapAssets assets,
-        WaterDraw frame)
+        WaterDraw frame,
+        Content.Bsp.HdrType? hdr = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
         ArgumentNullException.ThrowIfNull(frame);
@@ -256,6 +257,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.Seconds = Seconds;
         world.UploadTextures(_device, _context, assets);
         _uploaded = assets;
+        world.HdrType = hdr ?? assets.Hdr;
         world.UploadGeometry(_device, vertices, batches);
         world.Overlays = [];
 

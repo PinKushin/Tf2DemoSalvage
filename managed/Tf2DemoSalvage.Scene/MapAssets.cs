@@ -1021,6 +1021,9 @@ public sealed class MapAssets
     /// <summary>Each <c>Water</c> material's parameters, null for every other material (B62).</summary>
     public IReadOnlyList<MapWater?> Waters { get; private init; } = [];
 
+    /// <summary>The HDR type TF2 runs on this map — <c>HDR_TYPE_INTEGER</c> on an HDR map, else none (B62).</summary>
+    public Content.Bsp.HdrType Hdr { get; private init; }
+
     /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
     public BspWater Water { get; private init; } = new([], []);
 
@@ -1778,7 +1781,8 @@ public sealed class MapAssets
             AnimationFrames = table.AnimationFrames,
             DetailAnimations = table.DetailAnimations,
             Waters = table.Waters,
-            Water = BspWater.Read(map),
+            Hdr = Content.Bsp.BspHdr.ForTf2(map.Span),
+            Water =BspWater.Read(map),
             WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -190,6 +191,74 @@ public sealed class WaterViewRenderTests
         // Faint, because the glass blends by its own low alpha into a target cleared to the fog colour — but in the
         // floor's direction, which nothing else in the scene can supply.
         (red.R - green.R).ShouldBeGreaterThan(1, "a translucent surface under the water never reached the refraction");
+    }
+
+    [Test]
+    public void Hdr_Ctf2fort_IsIntegerHdr()
+    {
+        // Map_CheckForHDR (engine.dll 0x1800ffa10) finds 2fort's HDR lumps, and shaderapidx9's caps make the type
+        // integer at mat_hdr_level 2 (HdrTypeConformanceTests) — so its water runs the ×0.25 / ×4 branch.
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("TF2 is not installed, so ctf_2fort cannot be read");
+            return;
+        }
+
+        assets.Hdr.ShouldBe(HdrType.IntegerHdr);
+    }
+
+    [Test]
+    public void DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter()
+    {
+        // PushView's SetLightmapScaleForWater (viewrender.cpp:5351, :2726-2736): under HDR_TYPE_INTEGER the reflection
+        // view renders at a quarter of the tone-map scale, and water.cpp:296-312 multiplies it back by 4. The control is
+        // the same draw under HDR_TYPE_NONE, which stores the reflection as drawn.
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int water, int floor) = Materials(assets);
+        WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: true, ReflectEntities: false, DrawWaterSurface: true, OpaqueWater: false);
+        IReadOnlyList<WaterView> plan = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
+
+        plan.Select(view => view.Kind).ShouldContain(WaterViewKind.Reflection);
+
+        // **2fort's own water names no $reflecttexture**, so neither TF2 nor this renderer draws its reflection view or
+        // reads one — the plan here forces the view on so the storage can be measured at all.
+        assets.Waters[water]!.View.ReflectTexture.ShouldBeFalse();
+
+        // A dim ceiling above the main camera, which only the mirrored camera looks at; dim so neither run clips.
+        double Stored(HdrType hdr)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(
+                [.. Quad(300f, (0.5f, 0.5f, 0.5f)), .. Quad(0f, (1f, 1f, 1f))],
+                [new(floor, 0, 6), new(water, 6, 6)],
+                Camera, assets, new WaterDraw(plan, water, 0f, [], [], null, null), hdr);
+
+            (int red, int green, int blue) = target.WaterTargetPixel(refraction: false, 512, 512);
+
+            return Linear(red) + Linear(green) + Linear(blue);
+        }
+
+        double none = Stored(HdrType.None);
+        double integer = Stored(HdrType.IntegerHdr);
+
+        TestContext.Out.WriteLine($"REFLECTION STORED NONE {none:F4} INTEGER {integer:F4}");
+
+        none.ShouldBeGreaterThan(0.05, "the reflection view drew nothing, so no scale could show");
+        (integer / none).ShouldBe(0.25, 0.02);
+    }
+
+    private static double Linear(int srgb)
+    {
+        double c = srgb / 255.0;
+
+        return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
     }
 
     private static (int Water, int Floor) Materials(MapAssets assets) =>

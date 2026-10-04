@@ -8,6 +8,7 @@ using Silk.NET.Direct3D.Compilers;
 using Silk.NET.Direct3D11;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Render;
 
@@ -310,6 +311,10 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>A full-screen triangle sampling t0 — <c>CopyRenderTargetToTextureEx</c>'s stretch, as a pass.</summary>
     private const string BlitShaderText = """
+        #ifndef BLIT_SCALE
+        #define BLIT_SCALE 1.0f
+        #endif
+
         Texture2D source : register(t0);
         SamplerState linearClamp : register(s0);
 
@@ -325,9 +330,22 @@ internal sealed unsafe partial class WorldRenderer
 
         float4 PsBlit(BlitOut input) : SV_TARGET
         {
-            return source.Sample(linearClamp, input.uv);
+            float4 texel = source.Sample(linearClamp, input.uv);
+
+            return float4(texel.rgb * BLIT_SCALE, texel.a);
         }
         """;
+
+    /// <summary>The blit that writes the reflection at the integer-HDR view's tone-map scale.</summary>
+    private ComPtr<ID3D11PixelShader> _scaledBlitPixel;
+
+    /// <summary>The float target the reflection view draws into under <c>HDR_TYPE_INTEGER</c>, before its scaled store.</summary>
+    private ComPtr<ID3D11Texture2D> _reflectionScratchTexture;
+    private ComPtr<ID3D11RenderTargetView> _reflectionScratchTarget;
+    private ComPtr<ID3D11ShaderResourceView> _reflectionScratchView;
+
+    /// <summary>The HDR type the map runs under, which the <c>Water</c> shader and the reflection view branch on (B62).</summary>
+    public HdrType HdrType { get; set; }
 
     /// <summary>Every side of the water and its surface: a view that draws the whole world.</summary>
     public static ViewDraws AllWaterDraws => ViewDraws.RenderAboveWater | ViewDraws.RenderUnderWater | ViewDraws.RenderWater;
@@ -360,6 +378,7 @@ internal sealed unsafe partial class WorldRenderer
     {
         ReleaseWaters();
         _waters = assets.Waters;
+        HdrType = assets.Hdr;
 
         for (int index = 0; index < _waters.Count; index++)
         {
@@ -420,6 +439,10 @@ internal sealed unsafe partial class WorldRenderer
         _frameCopy.Dispose();
         _blitVertex.Dispose();
         _blitPixel.Dispose();
+        _scaledBlitPixel.Dispose();
+        _reflectionScratchView.Dispose();
+        _reflectionScratchTarget.Dispose();
+        _reflectionScratchTexture.Dispose();
     }
 
     /// <summary>Whether a material is a <c>Water</c> material.</summary>
@@ -514,12 +537,18 @@ internal sealed unsafe partial class WorldRenderer
         if (water is not null)
         {
             // SetPixelShaderConstantGammaToLinear( 1, REFRACTTINT ) and ( 4, REFLECTTINT ); c5 the amounts; c6 the fog
-            // colour, linear; c7 start, end − start and the reflect overbright, 1 off HDR_TYPE_INTEGER (water.cpp:300-350).
+            // colour, linear; c7 start, end − start and the reflect overbright. Under HDR_TYPE_INTEGER the reflect tint
+            // AND the overbright are 4, undoing the reflection view's ×0.25 (water.cpp:296-312, :351-355) — so the
+            // BLURRY_REFRACT path, which applies both, carries 16.
+            (float reflectScale, float overbright, _) = BspHdr.WaterScales(HdrType);
+
             Put(c, 12, Linear(water.RefractTint.Red), Linear(water.RefractTint.Green), Linear(water.RefractTint.Blue), 1f);
-            Put(c, 16, Linear(water.ReflectTint.Red), Linear(water.ReflectTint.Green), Linear(water.ReflectTint.Blue), 1f);
+            Put(
+                c, 16, Linear(water.ReflectTint.Red) * reflectScale, Linear(water.ReflectTint.Green) * reflectScale,
+                Linear(water.ReflectTint.Blue) * reflectScale, 1f);
             Put(c, 20, water.ReflectAmount, water.ReflectAmount, water.RefractAmount, water.RefractAmount);
             Put(c, 24, Linear(water.FogColor.Red), Linear(water.FogColor.Green), Linear(water.FogColor.Blue), 1f);
-            Put(c, 28, water.FogStart, water.FogEnd - water.FogStart, 1f, 0f);
+            Put(c, 28, water.FogStart, water.FogEnd - water.FogStart, overbright, 0f);
 
             (bool reflection, bool refraction, bool forceCheap) = Combos(water);
 
@@ -697,6 +726,18 @@ internal sealed unsafe partial class WorldRenderer
             {
                 into = frame.Frame!.Value.Target;
             }
+
+            // **Under HDR_TYPE_INTEGER the reflection view draws at a quarter of the tone-map scale** (PushView's
+            // SetLightmapScaleForWater, viewrender.cpp:5351 and :2726-2736), so light up to 4 survives the 8-bit
+            // target. Every shader's output is linear in that scale and so are blending and fog, so drawing unscaled
+            // into a float target and storing it ×0.25 is the same picture without a scale in every shader.
+            bool scaled = reflection && HdrType == HdrType.IntegerHdr;
+
+            if (scaled)
+            {
+                EnsureReflectionScratch();
+                into = _reflectionScratchTarget;
+            }
             ComPtr<ID3D11DepthStencilView> depth = viaFrame ? frame.Frame!.Value.Depth : _waterDepth;
             Viewport viewport = viaFrame
                 ? new(0f, 0f, frame.Frame!.Value.Width, frame.Frame.Value.Height, 0f, 1f)
@@ -747,6 +788,11 @@ internal sealed unsafe partial class WorldRenderer
             if (viaFrame)
             {
                 StretchFrameToRefraction(context, frame.Frame!.Value);
+            }
+
+            if (scaled)
+            {
+                Blit(context, _reflectionScratchView, _reflectionTarget, scaled: true);
             }
         }
 
@@ -836,45 +882,90 @@ internal sealed unsafe partial class WorldRenderer
         context.CopyResource(_frameCopy, source);
         source.Dispose();
 
-        if (_blitPixel.Handle is null)
-        {
-            using D3DCompiler compiler = D3DCompiler.GetApi();
-
-            ComPtr<ID3D10Blob> vertex = CompileSource(compiler, BlitShaderText, "VsBlit", "vs_5_0");
-            ComPtr<ID3D10Blob> pixel = CompileSource(compiler, BlitShaderText, "PsBlit", "ps_5_0");
-
-            SilkMarshal.ThrowHResult(_device.CreateVertexShader(
-                vertex.GetBufferPointer(), vertex.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitVertex));
-            SilkMarshal.ThrowHResult(_device.CreatePixelShader(
-                pixel.GetBufferPointer(), pixel.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitPixel));
-            vertex.Dispose();
-            pixel.Dispose();
-        }
-
-        Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
-        ComPtr<ID3D11DepthStencilView> noDepth = default;
-
-        context.OMSetRenderTargets(1u, _refractionTarget.GetAddressOf(), noDepth);
-        context.RSSetViewports(1, in viewport);
-        context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
-        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
-        context.VSSetShader(_blitVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetShader(_blitPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.PSSetShaderResources(0, 1, ref _frameCopyView);
-        context.PSSetSamplers(0, 1, ref _clampSampler);
-        ResetBlend(context);
-        context.Draw(3, 0);
-
-        // The world's pipeline back: its shaders, samplers and the frame target.
-        ComPtr<ID3D11ShaderResourceView> none = default;
-
-        context.PSSetShaderResources(0, 1, ref none);
-        BindPipeline(context);
+        Blit(context, _frameCopyView, _refractionTarget, scaled: false);
 
         Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
 
         context.OMSetRenderTargets(1u, frame.Target.GetAddressOf(), frame.Depth);
         context.RSSetViewports(1, in frameViewport);
+    }
+
+    /// <summary>Draws <paramref name="source"/> over a whole water target, scaled by the integer-HDR reflection view's scale or not.</summary>
+    /// <remarks>Leaves the world's pipeline bound and <paramref name="target"/> as the output; the caller rebinds its own.</remarks>
+    private void Blit(
+        ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11ShaderResourceView> source, ComPtr<ID3D11RenderTargetView> target, bool scaled)
+    {
+        if (_blitPixel.Handle is null)
+        {
+            using D3DCompiler compiler = D3DCompiler.GetApi();
+            ComPtr<ID3D10Blob> vertex = CompileSource(compiler, BlitShaderText, "VsBlit", "vs_5_0");
+
+            SilkMarshal.ThrowHResult(_device.CreateVertexShader(
+                vertex.GetBufferPointer(), vertex.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitVertex));
+            vertex.Dispose();
+            _blitPixel = BlitPixel(compiler, 1f);
+            _scaledBlitPixel = BlitPixel(compiler, BspHdr.WaterScales(HdrType.IntegerHdr).ReflectionViewScale);
+        }
+
+        Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
+        ComPtr<ID3D11DepthStencilView> noDepth = default;
+
+        context.OMSetRenderTargets(1u, target.GetAddressOf(), noDepth);
+        context.RSSetViewports(1, in viewport);
+        context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
+        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.VSSetShader(_blitVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(scaled ? _scaledBlitPixel : _blitPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShaderResources(0, 1, ref source);
+        context.PSSetSamplers(0, 1, ref _clampSampler);
+        ResetBlend(context);
+        context.Draw(3, 0);
+
+        // The world's pipeline back: its shaders and samplers.
+        ComPtr<ID3D11ShaderResourceView> none = default;
+
+        context.PSSetShaderResources(0, 1, ref none);
+        BindPipeline(context);
+    }
+
+    private ComPtr<ID3D11PixelShader> BlitPixel(D3DCompiler compiler, float scale)
+    {
+        string text = string.Create(System.Globalization.CultureInfo.InvariantCulture, $"#define BLIT_SCALE {scale:0.0#####}\n{BlitShaderText}");
+        ComPtr<ID3D10Blob> pixel = CompileSource(compiler, text, "PsBlit", "ps_5_0");
+        ComPtr<ID3D11PixelShader> shader = default;
+
+        SilkMarshal.ThrowHResult(_device.CreatePixelShader(
+            pixel.GetBufferPointer(), pixel.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref shader));
+        pixel.Dispose();
+
+        return shader;
+    }
+
+    /// <summary>The reflection's float target, RGBA16F so the unscaled view keeps light above one until it is stored.</summary>
+    private void EnsureReflectionScratch()
+    {
+        if (_reflectionScratchTarget.Handle is not null)
+        {
+            return;
+        }
+
+        Texture2DDesc description = new()
+        {
+            Width = WaterTargetSize,
+            Height = WaterTargetSize,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Silk.NET.DXGI.Format.FormatR16G16B16A16Float,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Default,
+            BindFlags = (uint)(BindFlag.RenderTarget | BindFlag.ShaderResource),
+        };
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, ref Unsafe.NullRef<SubresourceData>(), ref _reflectionScratchTexture));
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(
+            _reflectionScratchTexture, ref Unsafe.NullRef<RenderTargetViewDesc>(), ref _reflectionScratchTarget));
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(
+            _reflectionScratchTexture, ref Unsafe.NullRef<ShaderResourceViewDesc>(), ref _reflectionScratchView));
     }
 
     private void EnsureFrameCopy(int width, int height, Silk.NET.DXGI.Format viewFormat)
