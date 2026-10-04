@@ -46,6 +46,8 @@ public sealed class ImageFormatConformanceTests
             ("IMAGE_FORMAT_RGBA8888", VtfFormat.Rgba8888),
             ("IMAGE_FORMAT_RGB888", VtfFormat.Rgb888),
             ("IMAGE_FORMAT_BGR888", VtfFormat.Bgr888),
+            ("IMAGE_FORMAT_RGB888_BLUESCREEN", VtfFormat.Rgb888BlueScreen),
+            ("IMAGE_FORMAT_BGR888_BLUESCREEN", VtfFormat.Bgr888BlueScreen),
             ("IMAGE_FORMAT_BGRA8888", VtfFormat.Bgra8888),
             ("IMAGE_FORMAT_DXT1", VtfFormat.Dxt1),
             ("IMAGE_FORMAT_DXT3", VtfFormat.Dxt3),
