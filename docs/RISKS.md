@@ -34397,3 +34397,17 @@ after its last run; `WorldRenderer.DrawTranslucentLeaf` draws them with the over
 the translucent state back. The opaque pass no longer queues translucent surfaces at all. A map that
 cannot be culled has no translucent leaf pass, so there (only) they stay queued after the opaque
 brush overlays. Red 67354d94, green in the commit after.
+
+## B459 — a flinch found at sequence zero was substituted with the chest flinch; the engine abandons it — FIXED 2026-10-04
+
+**Read, published source:** `CMultiPlayerAnimState::PlayFlinchGesture` (`multiplayer_animstate.cpp:376`) substitutes
+`ACT_MP_GESTURE_FLINCH_CHEST` only when `SelectWeightedSequence( iActivity ) == -1`. Any other answer restarts the
+gesture with the activity as asked, and `AddToGestureSlot`'s `if ( iGestureSequence <= 0 ) return;` then abandons a
+sequence of zero. `EntityModelSet.LayersFor` substituted on `sequence <= 0`, so a non-chest flinch a model declares at
+sequence zero played the chest flinch where the engine plays nothing.
+
+**Reach:** synthetic only, as far as measured — TF2's class models put no flinch at sequence zero. Found by a surviving
+`<=` → `<` mutant on the guard while raising `EntityModels.cs`'s mutation score.
+
+**Fix:** the guard is `sequence == -1`. `FlinchFallbackConformanceTests.Instances_ForAFlinchTheModelHasAtSequenceZero_IsAbandonedRatherThanSubstituted`
+was red against the old guard (a chest layer at sequence 1) and is green with the fix.
