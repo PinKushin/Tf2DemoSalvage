@@ -301,6 +301,13 @@ public sealed class PoseCompletenessTests
             HdrColourScale: 2f,
             ScaleIsWorldSpace: true),
 
+        // Non-null, because null is "not a beam" — a rebuild that dropped it would turn a spotlight back into
+        // nothing at every tick between two updates (B473).
+        Beam = new SceneBeam(
+            Type: 0, Flags: 0x280, EntityCount: 0, Ends: [], HaloIndex: 12, HaloScale: 60f, Width: 100f,
+            EndWidth: 30f, FadeLength: 190f, Amplitude: 0f, StartFrame: 0f, Speed: 0f, FrameRate: 0f,
+            HdrColourScale: 1f, Frame: 0f, EndPosition: (32f, -1f, -197f), MinDxLevel: 0),
+
         // Non-null and non-zero, because null is the "nothing said" case and zero would mean
         // airborne — neither is distinctive enough for this test to measure the field being lost.
         Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,

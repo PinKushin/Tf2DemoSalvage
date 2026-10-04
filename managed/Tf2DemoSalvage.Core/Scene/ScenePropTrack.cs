@@ -2188,6 +2188,11 @@ public sealed class ScenePropTrack
             // never held — and a frame index especially, where half of frame three is not a frame.
             Sprite = from.Sprite,
 
+            // A beam's fields, held for the same reason: `C_Beam` registers none of them with the
+            // interpolator, and its origin does not interpolate either (B473) — the timeline snaps a beam's
+            // pose before it reaches here, so this is the general rebuild keeping what it was handed.
+            Beam = from.Beam,
+
             // Discrete, so it takes the earlier keyframe's value rather than being blended — half
             // of "spinning" is not a state (B347).
             MinigunState = from.MinigunState,
