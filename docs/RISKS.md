@@ -19657,7 +19657,41 @@ in front of it draw in the same order either way. Noticing the difference needs 
 translucent brush surface overlapping on screen, which is why it has not been seen yet — the fix is
 per-leaf grouping of the translucent draw, which is the leaf-walk structure D131 already names.
 
-## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — DRAW SIDE FIXED 2026-10-04, SCENE SIDE OPEN
+## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — FIXED 2026-10-04
+
+**Second pass, same day: the five items left open below are closed.**
+
+- **Scene side.** `EntityModels` registers props in its own `ClientLeafSystem` and collates the views' leaf lists
+  (`RenderableViews`, from `Device3D.Views`) before posing. Only collated props are posed, in collation order,
+  and each carries its place, its size bucket and its view on the `ModelInstance`. `Culls` is gone. `Culled` and
+  `CulledByVisibility` are now carried from the collation's own counts. The device files the scene's instances into
+  groups without a cull. It collates only the detail models itself (the engine keeps those per leaf too,
+  `:1720`) and merges them in by place. Red b232ecf7, green d6ade0bb. B254's cull tests are unchanged and green.
+- **Sky regression.** The skybox view collates the sky leaves with the sky frustum, and `DrawSkyRenderables` draws
+  them through the sky camera after the room (`CSkyboxView::DrawInternal`, `viewrender.cpp:4920-4932`). Water
+  views skip them.
+- **Classification cached.** `TranslucencyCache` keeps material translucency per renderable and asks again only
+  when the frame, skin or body changes (`CreateRenderableHandle` asks once, `:651`). The alpha is still applied
+  every frame. *Interpolated:* that a skin or body change is a re-ask trigger; the engine re-registers on a model
+  change. Red 9f380d69.
+- **`EnumerateLeavesInBox` read from engine.dll.** CEngineBSPTree's vtable (`0x18038e768`, via RTTI) points slot 2
+  at `0x1800d96a0`, and that walks `0x1800dd690`:
+  - **no** plane epsilon: back only when `far <= dist`, front only when `near >= dist`;
+  - each node's and leaf's own box is tested first (`0x180172540`; touching counts);
+  - contents-1 (solid) leaves are never filed.
+
+  The tools copy (1/32 epsilon) was wrong for the client. Red 3db1f0fd, green 8ae36c50.
+- **Empty and missing lists.** A view list that is empty collates nothing, as the engine's loop over zero leaves
+  does. Only a missing list (no view walk yet, or a map that cannot be culled) collates every leaf. *Interpolated,
+  not disassembled:* a camera in solid. `WorldVisibility` passes every cluster when the eye's cluster is −1, which is
+  the Quake `R_MarkLeaves` rule; the engine's equivalent has not been read.
+
+**New divergence found by the differential, not fixed here:** `WorldVisibility` lists SOLID leaves (cluster −1
+passes its PVS test), and the engine's world walk does not. Entities are unaffected, because the engine walk never
+files a renderable in a solid leaf. The translucent-world interleave and anything else that counts places do see
+the extra entries. `ClientLeafSystemMapTests` compares over the non-solid listed leaves for this reason.
+
+First pass:
 
 **The draw side is now `CClientLeafSystem`'s shape.** `ClientLeafSystem` (Scene) keeps renderables in the leaves
 their box touches across frames and re-links only what moved (`PreRender`, `clientleafsystem.cpp:528`, with the

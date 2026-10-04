@@ -43,6 +43,29 @@ With the test boxes moved 0.1 unit off the grid, the leaf system and the old wal
 exactly the same translucent places (*differential*, `ClientLeafSystemMapTests`). The contact case is pinned on its
 own, at a real cp_process node plane, against the old rule as a control.
 
+## The second wrong turn: the tools copy is not the client's
+
+The 1/32 band came from the published `utils/common/bsplib.cpp`, which is what the map compiler links. Asked
+directly, engine.dll says otherwise (*disassembly*). Its `CEngineBSPTree` vtable (`0x18038e768`, found from the
+RTTI string `.?AVCEngineBSPTree@@`) puts `EnumerateLeavesInBox` at `0x1800d96a0`. That function converts the box to
+a centre and half extents and walks `0x1800dd690`, which does three things neither earlier walk here did:
+
+- it has **no epsilon**: back only when the far corner is at or behind the plane, front only when the near corner
+  is at or in front of it;
+- it **tests every node's and leaf's own box first** (`0x180172540`, rejected only when `|c1 − c2| > e1 + e2`);
+- it **never files a renderable in a solid leaf** (contents 1).
+
+Running that against cp_process turned up a third thing: **this project's view lists solid leaves**, where the
+engine's world walk does not. The old per-frame walk had been reaching solid leaves through on-plane contact, and
+had been ranking translucent models against them. The world walk fix is filed under B262.
+
+## The sky room has its own entities
+
+`CSkyboxView::DrawInternal` (`viewrender.cpp:4920-4932`) builds the sky view's world lists and renderable lists,
+then draws opaque and translucent renderables, all through the sky camera. The sky room's props are that view's,
+collated over the sky leaves with the sky frustum. Before this port, the main view's visibility test admitted
+them, and they were drawn at full size in the main view or not at all.
+
 ## What is ours
 
 - **The scene hands a fresh list each frame.** Device3D reconciles registration against that list: an instance keeps

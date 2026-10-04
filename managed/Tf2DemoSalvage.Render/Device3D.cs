@@ -2423,6 +2423,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
         _handleOf.Clear();
+        _translucency.Clear();
 
         if (culling is { CanCull: true })
         {
@@ -3344,6 +3345,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
     }
 
+    private readonly TranslucencyCache _translucency = new();
+
     private readonly List<ModelInstance> _sceneMain = [];
     private readonly List<ModelInstance> _sceneSky = [];
 
@@ -3557,11 +3560,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             return (true, false, false);
         }
 
-        bool translucent = _world.IsTranslucent(
-            _world.ModelBatches(instance.ModelPath, instance.Frame),
+        // **Kept on the renderable, asked again only when its materials may have changed** (B262) — see
+        // TranslucencyCache. The alpha below is still applied every frame, as ComputeFxBlend is.
+        WorldRenderer world = _world;
+        bool translucent = _translucency.For(
+            (instance.EntityIndex, instance.ModelPath),
+            instance.Frame,
             instance.SkinSwap,
             instance.BodyParts,
-            instance.Body);
+            instance.Body,
+            () => world.IsTranslucent(
+                world.ModelBatches(instance.ModelPath, instance.Frame),
+                instance.SkinSwap,
+                instance.BodyParts,
+                instance.Body));
 
         // **The alpha and the render mode are real now** (B221). These were `FullyOpaque` and
         // `Normal` from every caller because nothing decoded `m_clrRender`, `m_nRenderFX` or
