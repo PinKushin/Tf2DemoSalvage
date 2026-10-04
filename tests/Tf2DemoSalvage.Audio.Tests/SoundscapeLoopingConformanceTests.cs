@@ -135,7 +135,8 @@ public sealed class SoundscapeLoopingConformanceTests
 
         float target = mixer.Advance(0f).ShouldHaveSingleItem().Volume;
 
-        target.ShouldBe(0.2f + control.RandomFloat(0f, 0.3f - 0.2f));
+        // The range is `atof( " .3" ) - tmp.start` in double, narrowed once (`interval.cpp:38`, B479).
+        target.ShouldBe(0.2f + control.RandomFloat(0f, (float)(0.3d - 0.2f)));
         target.ShouldBeInRange(0.2f, 0.3f);
         target.ShouldNotBe(0.2f, "a draw that happened to be zero could not tell drawing from not");
     }
