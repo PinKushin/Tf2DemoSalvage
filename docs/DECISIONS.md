@@ -9518,8 +9518,8 @@ owner's reason above.
 
 ## D209 — a Linux front end is planned: Dear ImGui for WinForms, Vulkan for D3D11 (2026-10-03)
 
-**Reverses D34's "this project is Windows-only regardless."** That line was the stated reason OpenGL's portability
-bought nothing; it was never the plan, only incompletely written down. Owner: *"i think the earlier linux
+**Corrects D34's "this project is Windows-only regardless."** Linux was the plan from the start; D34's line
+recorded it wrongly. Owner: *"i think the earlier linux
 possiblilities just were not copmpletely documented right. I specifically required the true thin view so that we
 could replace winforms with dear imgui, later, and replace D3d with vulken, since the vulcan change is actually just a
 change in the silk framework."*
@@ -9530,3 +9530,10 @@ named as the frontend. What changes is its status: a Linux front end is a roadma
 hypothetical test of the split. Its parts: Dear ImGui in place of WinForms, Vulkan in place of D3D11 through the same
 Silk.NET family, and FreeType in place of the GDI rasteriser (D90). D34's choice of D3D11 over OpenGL is unchanged —
 the portable backend is Vulkan, not OpenGL. The same portable renderer is what the online viewer (D208) needs.
+
+**Why Direct3D first, knowing Linux was coming** (owner): *"it was initially the plan, or i would have wwent with
+vulkan only, probably, but d3d is better for windows and more native tf2 expesically in old clients, so having the
+true or at least the modern true renderer that tf2 was built for as first priority still makes since, the easrly
+decision just costs a little extra time in the linux port, and web port."* So D3D is first because it is the API
+TF2 itself renders through, which matters most for parity on old clients; the cost is a little extra time on the
+Linux and web ports, accepted knowingly.
