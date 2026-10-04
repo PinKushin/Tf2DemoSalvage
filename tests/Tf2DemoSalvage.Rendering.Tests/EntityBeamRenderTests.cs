@@ -40,7 +40,7 @@ public sealed class EntityBeamRenderTests
     [Test]
     public void Render_ASpotlightBeamFromARealDemo_LightsItsShaftAndNotTheCorners()
     {
-        string demo = Skip.Unless(DemoPath(), $"the committed corpus demo {DemoName} is not checked out");
+        string demo = CommittedDemo.Require(DemoName);
         string tf = GameInstall.Require();
         byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_viaduct.bsp"));
 
@@ -69,15 +69,7 @@ public sealed class EntityBeamRenderTests
 
         drawn.ShouldBe(1, "the beam must be built for the picture to mean anything");
 
-        float[] matrix = camera.ToMatrix();
-
-        target.Clear(0f, 0f, 0f);
-        BindTarget(target, matrix, assets);
-
-        foreach (ParticleBatch batch in batches)
-        {
-            target.DrawSprites(batch, matrix);
-        }
+        StripPicture.Draw(target, camera.ToMatrix(), assets, batches);
 
         (int red, int green, int blue) = target.PixelAt(Size / 2, Size / 2);
 
@@ -119,39 +111,5 @@ public sealed class EntityBeamRenderTests
         drawn = beams.Drawn;
 
         return batches;
-    }
-
-    /// <summary>
-    /// Binds the target and clears its depth — <see cref="OffscreenTarget.DrawWorld"/> is what does that, so it is asked
-    /// to draw one degenerate triangle with the world switched off.
-    /// </summary>
-    private static void BindTarget(OffscreenTarget target, float[] matrix, MapAssets assets)
-    {
-        List<WorldVertex> nothing =
-        [
-            new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
-            new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
-            new(0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 0f),
-        ];
-
-        target.DrawWorld(
-            nothing, [new WorldBatch(0, 0, nothing.Count)], matrix, assets, surfaceColours: true, drawWorld: false,
-            translucent: false);
-    }
-
-    /// <summary>The committed corpus demo, found by walking up from the test binary to the repository.</summary>
-    private static string? DemoPath()
-    {
-        for (DirectoryInfo? folder = new(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
-        {
-            string candidate = Path.Combine(folder.FullName, "tools", "corpus", "demos", DemoName);
-
-            if (File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return null;
     }
 }

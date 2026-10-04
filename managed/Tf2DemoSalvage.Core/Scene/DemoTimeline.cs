@@ -5402,6 +5402,10 @@ public sealed class DemoTimeline
                     ? beam with { HaloPath = precache.Path(ModelPrecache.Unpack(beam.HaloIndex, protocol)) }
                     : null,
 
+                // **`DT_SpriteTrail`, whose sampling parameters nothing read until B474** — the trail drew as a plain
+                // sprite quad of its own material.
+                SpriteTrail = state.SpriteTrail(),
+
                 // **An areaportal window's three, which travel together or not at all** (B358).
                 // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what
                 // identifies the class — and the tuple stays null for every other entity, which is

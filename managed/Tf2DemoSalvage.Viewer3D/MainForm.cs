@@ -7160,16 +7160,96 @@ internal class MainForm : Form, IFrameSteps
             seconds,
             elapsed);
 
-        // The values the builder USED, carried rather than recounted (B243), so "no beams here" and "every beam
+        IReadOnlyList<ParticleBatch> trails = _trails.Build(
+            _moment.Drawn,
+            view.Origin,
+            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
+            TrailOrigin,
+            seconds);
+
+        // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
         // refused" read differently in the log.
-        if (_renderLog.IsEnabled(LogLevel.Debug) && (_beams.Drawn > 0 || _beams.Skipped > 0))
+        if (_renderLog.IsEnabled(LogLevel.Debug) &&
+            (_beams.Drawn > 0 || _beams.Skipped > 0 || _trails.Drawn > 0 || _trails.Skipped > 0))
         {
             _renderLog.LogDebug(
                 "{Message}",
-                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped");
+                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped; " +
+                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped");
         }
 
-        return beams;
+        return trails.Count == 0 ? beams : [.. beams, .. trails];
+    }
+
+    /// <summary>
+    /// <c>CSpriteTrail::GetRenderOrigin</c> (`SpriteTrail.cpp:537-553`): the attached entity's attachment — or, for an
+    /// attachment that does not exist, that entity's origin, as <c>C_BaseAnimating::GetAttachment</c> answers
+    /// (`c_baseanimating.cpp:2129-2134`) — and the trail's own place when it is attached to nothing.
+    /// </summary>
+    /// <returns>
+    /// The head, or null when the entity the trail hangs from is not in this moment. Measured on z1800: 34 of its 41
+    /// trails outlive their projectile's track while still naming it (`trails` probe), and the client still holds that
+    /// entity — dormant, or unlinked from its children at its last place — so the head stops there. Placed through the
+    /// missing parent instead, the trail's local zero is the world origin.
+    /// </returns>
+    private Vector3? TrailOrigin(SceneProp prop)
+    {
+        const int InvalidHandle = (1 << 21) - 1;
+
+        if (prop.Pose.SpriteTrail is { AttachedTo: not InvalidHandle } trail)
+        {
+            if (Dereference(trail.AttachedTo) is not { } attached)
+            {
+                return null;
+            }
+
+            if (_models.AttachmentPosition(attached.EntityIndex, trail.Attachment) is { } at)
+            {
+                return new Vector3(at.X, at.Y, at.Z);
+            }
+
+            ScenePose entity = AbsolutePose(attached);
+
+            return new Vector3(entity.X, entity.Y, entity.Z);
+        }
+
+        if (prop.AttachedTo is { } parent && !_drawnByEntity.ContainsKey(parent))
+        {
+            return null;
+        }
+
+        ScenePose own = AbsolutePose(prop);
+
+        return new Vector3(own.X, own.Y, own.Z);
+    }
+
+    /// <summary>
+    /// The drawn prop an <c>EHANDLE</c> names this tick, or null — <c>CBaseHandle::Get</c>, whose serial must match the
+    /// slot's occupant now (B231).
+    /// </summary>
+    private SceneProp? Dereference(int handle) => Dereference(handle, out _);
+
+    /// <inheritdoc cref="Dereference(int)"/>
+    private SceneProp? Dereference(int handle, out ScenePropTrack? track)
+    {
+        const int InvalidHandle = (1 << 21) - 1;
+        const int SlotMask = (1 << 11) - 1;
+
+        track = null;
+
+        if (handle == InvalidHandle || _timeline is null)
+        {
+            return null;
+        }
+
+        int slot = handle & SlotMask;
+
+        track = _timeline.TrackFor(slot, _transport.CurrentTick);
+
+        return track is not null && track.Continues(handle >> 11) &&
+            _drawnByEntity.TryGetValue(slot, out SceneProp? prop)
+            ? prop
+            : null;
     }
 
     /// <summary>A drawn prop's place in the world, through its move parents — <c>GetAbsOrigin()</c>.</summary>
@@ -7185,23 +7265,12 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private Vector3? BeamEnd(int handle, int attachment, bool hitboxes)
     {
-        const int InvalidHandle = (1 << 21) - 1;
-        const int SlotMask = (1 << 11) - 1;
-
-        if (handle == InvalidHandle || _timeline is null)
+        if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
         {
             return null;
         }
 
-        int slot = handle & SlotMask;
-        int serial = handle >> 11;
-        double tick = _transport.CurrentTick;
-
-        if (_timeline.TrackFor(slot, tick) is not { } track || !track.Continues(serial) ||
-            !_drawnByEntity.TryGetValue(slot, out SceneProp? prop))
-        {
-            return null;
-        }
+        int slot = prop.EntityIndex;
 
         if (!hitboxes)
         {
@@ -7237,6 +7306,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Every <c>CBeam</c> in the moment, as strips.</summary>
     private readonly EntityBeams _beams = new();
+
+    /// <summary>Every <c>CSpriteTrail</c>, sampled frame by frame as the client samples it (B474).</summary>
+    private readonly EntityTrails _trails = new();
 
     /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
     private IReadOnlyList<ParticleBatch> _lastParticles = [];

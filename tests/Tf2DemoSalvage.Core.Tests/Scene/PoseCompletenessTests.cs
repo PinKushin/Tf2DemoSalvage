@@ -308,6 +308,11 @@ public sealed class PoseCompletenessTests
             EndWidth: 30f, FadeLength: 190f, Amplitude: 0f, StartFrame: 0f, Speed: 0f, FrameRate: 0f,
             HdrColourScale: 1f, Frame: 0f, EndPosition: (32f, -1f, -197f), MinDxLevel: 0),
 
+        // Non-null for the same reason: null is "not a trail" (B474).
+        SpriteTrail = new SceneSpriteTrail(
+            LifeTime: 0.4f, StartWidth: 9f, EndWidth: -1f, StartWidthVariance: 0f, TextureRes: 0.01f,
+            MinFadeLength: 0f, SkyboxOrigin: (0f, 0f, 0f), SkyboxScale: 1f, AttachedTo: 1234, Attachment: 0),
+
         // Non-null and non-zero, because null is the "nothing said" case and zero would mean
         // airborne — neither is distinctive enough for this test to measure the field being lost.
         Flags = PlayerActivityState.OnGround | PlayerActivityState.Ducking,

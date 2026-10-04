@@ -126,8 +126,7 @@ public sealed class EntityBeams
 
     private readonly List<BeamSegment> _segments = [];
     private readonly List<DetailSpriteVertex> _corners = [];
-    private readonly Dictionary<(string Path, SpritePass Pass), List<DetailSpriteVertex>> _byMaterial = [];
-    private readonly List<ParticleBatch> _batches = [];
+    private readonly SpriteStripBatches _strips = new();
 
     /// <summary>How many beams the last build drew.</summary>
     public int Drawn { get; private set; }
@@ -162,12 +161,7 @@ public sealed class EntityBeams
         ArgumentNullException.ThrowIfNull(entityPosition);
         ArgumentNullException.ThrowIfNull(visible);
 
-        foreach (List<DetailSpriteVertex> corners in _byMaterial.Values)
-        {
-            corners.Clear();
-        }
-
-        _batches.Clear();
+        _strips.Clear();
         Drawn = 0;
         Skipped = 0;
 
@@ -188,16 +182,7 @@ public sealed class EntityBeams
             }
         }
 
-        foreach (((string path, SpritePass pass), List<DetailSpriteVertex> corners) in _byMaterial)
-        {
-            if (corners.Count > 0 && sprites.TryGetValue(path, out EngineSprite sprite))
-            {
-                _batches.Add(new ParticleBatch(
-                    corners, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
-            }
-        }
-
-        return _batches;
+        return _strips.Batches(sprites);
     }
 
     /// <summary>One beam: <c>C_Beam::DrawModel</c>, <c>DrawBeam( C_Beam* )</c>, <c>UpdateBeam</c> and <c>DrawBeam( Beam_t* )</c>.</summary>
@@ -245,11 +230,11 @@ public sealed class EntityBeams
         // beam whose end entity vanished draws with whatever the early return left behind.
         Update(ref frame, entityPosition, currentTime, frameTime);
 
-        int before = CornerCount();
+        int before = _strips.Corners;
 
         DrawBeam(frame, prop.ModelPath, sprite, beam.HaloPath, sprites, view, visible);
 
-        return CornerCount() > before;
+        return _strips.Corners > before;
     }
 
     /// <summary>
@@ -711,7 +696,7 @@ public sealed class EntityBeams
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), view.Origin, _corners);
 
-        Add(modelPath, sprite, renderMode, _corners);
+        _strips.Add(modelPath, sprite, renderMode, _corners);
     }
 
     /// <summary><c>BeamDrawHalo</c>: the pending halo, with the halo sprite drawn at <c>kRenderGlow</c>.</summary>
@@ -727,40 +712,7 @@ public sealed class EntityBeams
 
         BeamDraw.DrawHalo(pending.At, pending.Scale, pending.Colour, view, _corners);
 
-        Add(halo.Path, halo.Sprite, RenderModes.Glow, _corners);
-    }
-
-    /// <summary>Corners into each of the material's passes, coloured as its shader would take them.</summary>
-    private void Add(string path, EngineSprite sprite, int renderMode, List<DetailSpriteVertex> corners)
-    {
-        foreach (SpritePass pass in EntitySprites.PassesFor(sprite, renderMode))
-        {
-            if (!_byMaterial.TryGetValue((path, pass), out List<DetailSpriteVertex>? into))
-            {
-                into = [];
-                _byMaterial[(path, pass)] = into;
-            }
-
-            foreach (DetailSpriteVertex corner in corners)
-            {
-                (Vector3 colour, float alpha) = EntitySprites.ShaderInput(
-                    sprite, renderMode, new Vector3(corner.Red, corner.Green, corner.Blue), corner.Alpha);
-
-                into.Add(corner with { Red = colour.X, Green = colour.Y, Blue = colour.Z, Alpha = alpha });
-            }
-        }
-    }
-
-    private int CornerCount()
-    {
-        int count = 0;
-
-        foreach (List<DetailSpriteVertex> corners in _byMaterial.Values)
-        {
-            count += corners.Count;
-        }
-
-        return count;
+        _strips.Add(halo.Path, halo.Sprite, RenderModes.Glow, _corners);
     }
 
     /// <summary>

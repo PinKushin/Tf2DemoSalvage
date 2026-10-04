@@ -34986,3 +34986,52 @@ tests red, and each was restored by the inverse edit:
 draw types only they reach (tesla, disk, cylinder, ring, follow) are unreachable from an entity beam. The halo's
 occlusion is the line-of-sight trace, not the engine's pixel-visibility query, and a beam draws its sprite's first
 frame. Both are B378's open half.
+
+## B474 — a sprite trail drew as a quad at its projectile: `CSpriteTrail::DrawModel`'s ribbon was never built — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** `DT_SpriteTrail` inherits `DT_Sprite`, so a trail was admitted
+and handed to the sprite pass, which drew one quad of `effects/repair_claw_trail_blue` at the bolt. The engine draws a
+ribbon instead: `UpdateTrail` samples the render origin every frame into a 256-point ring, and `DrawModel` strings the
+ring and the head through `CBeamSegDraw` (`SpriteTrail.cpp:379-531`). 35 of the 50 local demos and z1800 carry
+trails (`entity-census`). Nothing read `DT_SpriteTrail`, and nothing read `DT_Sprite`'s `m_hAttachedToEntity` and
+`m_nAttachment`, which place the head.
+
+**Fix:** `EntityState.SpriteTrail()` decodes the table and the attachment, with the constructor's defaults
+(`SpriteTrail.cpp:119-131`). `EntityTrails` ports `UpdateTrail` and `DrawModel` branch for branch: the two-unit step,
+the `lifetime / 256` interval, the ring's steal, life and tail fade, the width lerp and variance, texture coordinates,
+and the dead point drawn once at zero and removed. The sprite pass leaves a trail alone. The viewer's `TrailOrigin` is
+`GetRenderOrigin`, with attachment 0 answering the entity's origin (`c_baseanimating.cpp:2129-2134`). Two rules are the
+viewer's own because it seeks: a trail not offered is forgotten, and a clock that ran backwards or jumped past the
+lifetime empties the ring.
+
+**Found on the way:** 34 of z1800's 41 trails outlive their projectile's track while still naming it. Placed
+through the missing parent, the head went to the world origin. It is now held where it was, as the client's dormant
+or unlinked entity holds it. Full account: `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** `SpriteTrailStateConformanceTests` (3), `EntityTrailsConformanceTests` (17), `PoseCompletenessTests`
+carrying the record, and the three new `DT_SpriteTrail`/`DT_Sprite` names in `SendPropConformanceTests`.
+**Output level:** `EntityTrailRenderTests` samples z1800's entity 806 tick by tick and reads 142 at the ribbon's
+crossing of the centre column, with black corners. Sabotage reddened each target, restored by the inverse edit:
+
+- Without the ring's steal, 1,806 corners instead of 1,536.
+- With `>=` for the two-unit step, the two-unit case drew a point.
+- Without the sprite pass's skip, the trail drew as a quad.
+- With the end width and the start width swapped, ±2 instead of ±4.
+- With `<` for death, the dead point survived a frame.
+- With a misspelled attachment key, the attachment read 0; with a misspelled table name, the SendProp test reddened.
+- With the segment alpha zeroed, the render test read 0.
+
+**Interpolated:** the width variance draws from this pass's own `CUniformRandomStream`, not the engine's global
+`random`, whose state cannot be reproduced. Every corpus trail sends a variance of 0. A trail in the 3D skybox
+(`m_flSkyboxScale` ≠ 1) is drawn in the main view; none in the corpus is.
+
+## B475 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — OPEN 2026-10-04
+
+`effects/beam001_white`, `_red` and `_blu` are `Refract` materials (`$normalmap effects/beam001_normal`,
+`$refractamount .2`, `$forcerefract 1`). They are the most common trail on several real matches, attached to players
+at attachments 3 to 8: 49 + 36 + 13 of `pass_sanctum_a2a`'s 261 trails are `beam001_white` alone. The particle pass
+draws a texture over the frame and cannot sample the frame. So `EntityTrails` samples these trails and skips them,
+counted in `Skipped`. It does not draw the normal map as a texture.
+
+**What closes it:** a pass after the opaque world that copies the frame and draws the strip through the `Refract`
+shader's offset, as the water views already do for the world. The strip geometry is already built.

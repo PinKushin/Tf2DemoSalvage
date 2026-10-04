@@ -91,6 +91,39 @@ public sealed partial class EntityState
             Integer($"{BeamTable}.m_nMinDXLevel") ?? 0);
     }
 
+    /// <summary>A sprite trail's own fields, or null for anything that is not a <c>CSpriteTrail</c>.</summary>
+    /// <returns>The trail's sampling parameters and the sprite attachment its render origin reads.</returns>
+    /// <remarks>
+    /// **The lifetime identifies the class**: only <c>DT_SpriteTrail</c> sends <c>m_flLifeTime</c>
+    /// (`SpriteTrail.cpp:90`). **Each fallback is the constructor's** (`SpriteTrail.cpp:119-131`): end width −1,
+    /// variance 0, skybox scale 1 and origin zero; the rest are zero, and every corpus trail sends them anyway.
+    /// </remarks>
+    public SceneSpriteTrail? SpriteTrail()
+    {
+        if (Number($"{SpriteTrailTable}.m_flLifeTime") is not { } lifeTime)
+        {
+            return null;
+        }
+
+        return new SceneSpriteTrail(
+            lifeTime,
+            Number($"{SpriteTrailTable}.m_flStartWidth") ?? 0f,
+            Number($"{SpriteTrailTable}.m_flEndWidth") ?? -1f,
+            Number($"{SpriteTrailTable}.m_flStartWidthVariance") ?? 0f,
+            Number($"{SpriteTrailTable}.m_flTextureRes") ?? 0f,
+            Number($"{SpriteTrailTable}.m_flMinFadeLength") ?? 0f,
+            _properties.TryGetValue($"{SpriteTrailTable}.m_vecSkyboxOrigin", out Schema.PropertyValue origin) &&
+                origin.Kind == Schema.PropertyValueKind.Vector
+                ? origin.AsVector
+                : (0f, 0f, 0f),
+            Number($"{SpriteTrailTable}.m_flSkyboxScale") ?? 1f,
+            Integer($"{SpriteTable}.m_hAttachedToEntity") ?? InvalidHandle,
+            Integer($"{SpriteTable}.m_nAttachment") ?? 0);
+    }
+
+    /// <summary><c>CSpriteTrail</c>'s own table.</summary>
+    private const string SpriteTrailTable = "DT_SpriteTrail";
+
     /// <summary><c>RecvProxy_Beam_ScrollSpeed</c>'s <c>val *= 0.1</c> (`beam_shared.cpp:90`).</summary>
     /// <remarks>A double, as the literal is: a float times <c>0.1</c> is promoted, multiplied and narrowed back.</remarks>
     internal const double ScrollSpeedReceived = 0.1;

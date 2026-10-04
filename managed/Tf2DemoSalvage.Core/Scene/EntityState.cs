@@ -90,6 +90,22 @@ public sealed partial class EntityState
                 FogEnableProperty, FogStartProperty, FogEndProperty,
                 FogColourProperty, FogMaxDensityProperty,
             ],
+
+            // **The effect entities' own tables** (B473, B474), every scalar `EntityState.Effects` asks for. The beam's
+            // two attach arrays arrive as `m_hAttachEntity.000` upward, which `entity-census` shows on viaduct.
+            ["DT_Beam"] =
+            [
+                "m_nBeamType", "m_nBeamFlags", "m_nNumBeamEnts", "m_nHaloIndex", "m_fHaloScale", "m_fWidth",
+                "m_fEndWidth", "m_fFadeLength", "m_fAmplitude", "m_fStartFrame", "m_fSpeed", "m_flFrameRate",
+                "m_flHDRColorScale", "m_flFrame", "m_vecEndPos", "m_nMinDXLevel", ModelIndexProperty,
+                OriginProperty, ParentProperty,
+            ],
+            ["DT_SpriteTrail"] =
+            [
+                "m_flLifeTime", "m_flStartWidth", "m_flEndWidth", "m_flStartWidthVariance", "m_flTextureRes",
+                "m_flMinFadeLength", "m_vecSkyboxOrigin", "m_flSkyboxScale",
+            ],
+            ["DT_Sprite"] = ["m_hAttachedToEntity", "m_nAttachment"],
         };
 
     /// <summary>The atmosphere, networked per tick by <c>CFogController</c>.</summary>

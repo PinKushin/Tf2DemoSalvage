@@ -40,7 +40,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// **Measured on 49 lcor and 10 gcor demos, every one of 18,942 beams is the same thing**: a
 /// <c>point_spotlight</c>'s shaft — <c>BEAM_POINTS</c>, <c>FBEAM_SHADEOUT | FBEAM_NOTILE</c>, model
 /// <c>sprites/glow_test02.vmt</c>, halo <c>sprites/light_glow03.vmt</c>, no noise, no scroll, no move parent
-/// (`entity-census`, docs/findings/72). The other types are ported anyway; the census is what says which
+/// (`entity-census`, docs/findings/73). The other types are ported anyway; the census is what says which
 /// branch the corpus exercises.
 /// </remarks>
 public sealed record SceneBeam(

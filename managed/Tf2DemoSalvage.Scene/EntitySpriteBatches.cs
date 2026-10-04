@@ -103,7 +103,9 @@ public sealed class EntitySpriteBatches
             // **A beam's model IS a sprite, and its class draws it as a beam.** `C_Beam::DrawModel` hands the
             // entity to `beams->DrawBeam` (`beam_shared.cpp:1000`) and never reaches `CSprite::DrawModel`, so a
             // beam drawn here as well would put a glow quad at every spotlight's lamp — `EntityBeams` is its pass.
-            if (prop.Pose.Beam is not null)
+            // **A trail's model is a sprite too, and `CSpriteTrail::DrawModel` overrides the sprite's** (`SpriteTrail.cpp:422`):
+            // it draws a ribbon through the points it sampled, never a quad at its head — `EntityTrails` is its pass (B474).
+            if (prop.Pose.Beam is not null || prop.Pose.SpriteTrail is not null)
             {
                 continue;
             }

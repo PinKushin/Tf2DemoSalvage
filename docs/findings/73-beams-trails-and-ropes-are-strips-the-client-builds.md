@@ -88,7 +88,7 @@ linked statically into `client.dll`. `beamsegdraw.obj` was extracted from the SD
 
 Every beam, trail and rope goes through this one function (`BeamSegDraw`).
 
-## Evidence that it draws
+## Evidence that beams draw
 
 - **Unit level:** `BeamStateConformanceTests` and `BeamTimelineTests` (the decode and the snap),
   `BeamSegDrawConformanceTests`, `BeamDrawConformanceTests` and `EntityBeamsConformanceTests` (the strip, shade,
@@ -102,3 +102,51 @@ Every beam, trail and rope goes through this one function (`BeamSegDraw`).
 **Interpolated:** the halo's occlusion uses the line-of-sight trace the entity sprites use, not the engine's GPU
 pixel-visibility query. The halo pops where TF2 fades it, the same open half as B378. A sprite animation frame on a
 beam is not drawn either, also B378.
+
+## A trail is points the client samples, not anything on the wire (read from published source)
+
+`DT_SpriteTrail` inherits `DT_Sprite`, so unlike a beam a trail was always admitted. The sprite pass then drew it as a
+plain quad of its own material at the projectile. `CSpriteTrail::DrawModel` (`SpriteTrail.cpp:422-531`) overrides the
+sprite's and draws something else entirely:
+
+- **`UpdateTrail` runs from `ClientThink` every frame**, whether or not the trail draws (`:279-284`, `:379-416`). It
+  appends the render origin when the head has moved more than two units (`DistToSqr > 4`), at most once per
+  `lifetime / 256` seconds. The ring holds 256 points and steals the oldest past that.
+- **`DrawModel` strings the points and the current head through `CBeamSegDraw`.** A point's alpha is
+  `brightness / 255` times the smaller of its remaining life and the tail fade over `m_flMinFadeLength`. Its width is
+  the start width, or the lerp to `m_flEndWidth` by remaining life when that is not negative, plus the point's own
+  variance. Its V coordinate is distance travelled times `m_flTextureRes`.
+- **A dead point is drawn once more, at zero alpha, and then removed** (`:516-523`). The engine's loop decrements its
+  own counter to stay on the next point.
+- **The head is `GetRenderOrigin`** (`:537-553`): the attached entity's attachment. For attachment 0,
+  `C_BaseAnimating::GetAttachment` refuses and answers the entity's own origin (`c_baseanimating.cpp:2129-2134`).
+
+The trail's shape therefore depends on the frames it was sampled at, as in TF2. `EntityTrails` keeps a ring per trail
+across frames and resets it on a seek, which the engine's forward-only demo player never needs.
+
+### The head outlives its projectile (measured on the corpus)
+
+On z1800, 34 of the 41 trails outlive their projectile's track by up to 117 ticks while still naming it as parent
+and attachment (`trails` probe). Placed through the missing parent, the trail's local origin is the world origin, so
+the first version drew a ribbon to (0, 0, 0). The client still holds the entity: dormant, or unlinked from its
+children at its last place. So the viewer now holds the head where it was, and the ring fades out behind it.
+**Interpolated:** which of the two the client does at each of those ticks was not measured. Both give the same head.
+
+### What the corpus trails are (measured on the corpus)
+
+Tallied on z1800, badwater and sanctum (`entity-census`), the trails are Sandman balls
+(`effects/baseballtrail_*`), Rescue Ranger bolts (`effects/repair_claw_trail_*`), the passtime ball, and
+`effects/beam001_*`. All are `kRenderTransAlpha` with no width variance and a skybox scale of 1. The first three are
+`UnlitGeneric` with `$vertexcolor` and `$vertexalpha`, which the particle pass draws.
+`beam001_*` is `Refract`, which needs the frame behind it, and it is the most common trail on several real matches.
+It is sampled and not drawn (B475).
+
+## Evidence that trails draw
+
+- **Unit level:** `SpriteTrailStateConformanceTests` (the decode) and `EntityTrailsConformanceTests` (sampling, the
+  ring, life and tail fade, width lerp, texture coordinates, death and removal, the held head, and the sprite pass
+  leaving trails alone).
+- **Output level:** `EntityTrailRenderTests` samples z1800's entity 806, a Rescue Ranger bolt, tick by tick through
+  the production chain. It then draws the ribbon from a camera placed beside its last eight ticks of flight. The
+  brightest pixel of the centre column measured 142 and every corner stayed black. With the segment alpha sabotaged
+  to zero it measured 0.
