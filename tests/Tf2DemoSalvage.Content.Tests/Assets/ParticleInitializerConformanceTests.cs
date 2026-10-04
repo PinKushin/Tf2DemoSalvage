@@ -20,7 +20,7 @@ public sealed class ParticleInitializerConformanceTests
     {
         for (int particle = 0; particle < 512; particle++)
         {
-            (Vector3 point, float radius) = ParticleRandom.InUnitSphere(particle, offset: 0);
+            (Vector3 point, float radius) = ParticleRandom.InUnitSphere(seed: 0, particle, offset: 0);
 
             radius.ShouldBeLessThanOrEqualTo(1f);
             point.Length().ShouldBeLessThanOrEqualTo(1.0001f);
@@ -43,7 +43,7 @@ public sealed class ParticleInitializerConformanceTests
 
         for (int particle = 0; particle < 4096; particle++)
         {
-            if (ParticleRandom.InUnitSphere(particle, offset: 0).Radius > 0.7937f)
+            if (ParticleRandom.InUnitSphere(seed: 0, particle, offset: 0).Radius > 0.7937f)
             {
                 beyond++;
             }

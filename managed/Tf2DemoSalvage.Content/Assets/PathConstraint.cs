@@ -32,7 +32,8 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </code>
 ///
 /// **Only `XYZ` is written**, never `PREV_XYZ` (`GetWrittenAttributes` is 1): the integrator carries the correction as
-/// velocity next step. The collection's random seed is this project's own zero, not the engine's per-collection draw.
+/// velocity next step. A random bulge reads the table at the collection's seed and the two entries after it
+/// (`CalculatePathValues`, read in `particles.obj`; B462).
 /// </remarks>
 public static class PathConstraint
 {
@@ -48,9 +49,10 @@ public static class PathConstraint
     /// <summary>`CalculatePathValues`: the path's start, middle and end at this moment.</summary>
     /// <param name="parameters">The constraint (or initializer) declaring the path.</param>
     /// <param name="points">The effect's control points by number; a missing one is the origin.</param>
+    /// <param name="seed">The collection's <c>m_nRandomSeed</c>, where a random bulge's three draws start.</param>
     /// <returns>The three points.</returns>
     public static (Vector3 Start, Vector3 Mid, Vector3 End) PathValues(
-        ParticleFunction parameters, IReadOnlyList<ParticleControlPoint> points)
+        ParticleFunction parameters, IReadOnlyList<ParticleControlPoint> points, int seed)
     {
         ArgumentNullException.ThrowIfNull(parameters);
         ArgumentNullException.ThrowIfNull(points);
@@ -69,9 +71,9 @@ public static class PathConstraint
         if (bulgeControl == 0)
         {
             mid += new Vector3(
-                (2f * bulge * ParticleRandom.Sample(0, 0)) - bulge,
-                (2f * bulge * ParticleRandom.Sample(0, 1)) - bulge,
-                (2f * bulge * ParticleRandom.Sample(0, 2)) - bulge);
+                (2f * bulge * ParticleRandom.Sample(seed, 0, 0)) - bulge,
+                (2f * bulge * ParticleRandom.Sample(seed, 0, 1)) - bulge,
+                (2f * bulge * ParticleRandom.Sample(seed, 0, 2)) - bulge);
         }
         else
         {
@@ -99,7 +101,7 @@ public static class PathConstraint
         ArgumentNullException.ThrowIfNull(particles);
         ArgumentNullException.ThrowIfNull(parameters);
 
-        (Vector3 start, Vector3 mid, Vector3 end) = PathValues(parameters, points);
+        (Vector3 start, Vector3 mid, Vector3 end) = PathValues(parameters, points, particles.Seed);
 
         float minimum = (float)parameters.Number("minimum distance", 0d);
         float maximum = (float)parameters.Number("maximum distance", 100d);
