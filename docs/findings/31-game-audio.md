@@ -916,17 +916,20 @@ against a three-second fade, so the outdoor wind and birds never rose above abou
 volume — while the log showed the correct soundscape being chosen the entire time. Measured on the
 running viewer: 90 changes in 3m49s, with pairs alternating at the 250 ms selection interval.
 
-Two faults fed it, and only one is fixed:
+Two faults fed it, and both are fixed — the second later the same day:
 
 - **The hysteresis was dead.** `Choose` reassigned its running `chosen` during the walk, so the
   branch testing "is this the current one" compared against a contender instead, and the current
   placement's own range was never established. Selection degenerated to bare nearest-visible with
   nothing resisting a flip. The engine measures the current FIRST and then skips it in the loop
   (`soundscape_system.cpp:339-362`), seeding `currentDistance = 0` and `bInRange = false`.
-- **The PVS restriction is still missing.** Only soundscapes in the listener's own visibility
-  cluster contend in the engine (`m_soundscapesInCluster`). This project reads no visibility lump —
-  `BspLumpIndex.Visibility` is defined and unused — so all 44 contend and a placement across the map
-  can win on a long clear traceline.
+- **The PVS restriction was missing.** Only soundscapes in the listener's own visibility cluster
+  contend in the engine (`m_soundscapesInCluster`, built at `LevelInitPostEntity`), and this project
+  then read no visibility lump, so all 44 contended and a placement across the map could win on a
+  long clear traceline. **Closed by B177:** `BspVisibility` reads the lump, and `Choose` considers a
+  placement only when its cluster is visible from the listener's — the transpose of Valve's
+  per-soundscape list, equal because `vvis` computes mutual visibility. From cp_process's far spawn,
+  6 of the 44 are reachable.
 
 **Valve hit the same wall in the same order**, and left the evidence in a comment four lines below
 the reuse check: fading one positional sound out while fading another in sends alternating commands
