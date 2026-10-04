@@ -40,7 +40,29 @@ public sealed class SceneImageTests
     private const string Sequence = "taunt_hi5_start";
 
     /// <summary>The strings the fixture pools, index 0 empty as the compiler's pool starts.</summary>
-    private static string[] Pool => ["", "loop_event", "hi5", Sequence];
+    private static string[] Pool => ["", "loop_event", "hi5", Sequence, new string('p', 3000)];
+
+    /// <summary>Pool slot of a parameter longer than the engine's 2,048-byte buffer.</summary>
+    private const short LongSlot = 4;
+
+    [TestCase(LongSlot, 2047)]
+    [TestCase(SequenceSlot, 15)]
+    [TestCase((short)5, 0)]
+    [TestCase((short)-1, 0)]
+    public void EventsAt_APooledParameter_IsWhatTheEnginesStringPoolCopies(short slot, int length)
+    {
+        // **`CChoreoStringPool::GetString`** (`c_sceneentity.cpp:738`) asks
+        // `scenefilecache->GetSceneString`, which in TF2's x64 `scenefilecache.dll` (vtable slot 9,
+        // 0x180001db0, disassembly) is `SceneImageHeader_t::String` exactly: no image, a negative
+        // index or one at or past `nNumStrings` gives NULL, and NULL copies as "". A found string
+        // is `V_strncpy`'d into `char params[ 2048 ]` (`choreoevent.cpp:4256`), so at most 2,047
+        // bytes survive.
+        byte[] image = Image(TauntCrc, Scene(
+            loose: [],
+            channelled: [Gesture(name: 2, parameters: slot)]));
+
+        SceneImage.Read(image).ShouldNotBeNull().EventsAt(0)[0].Parameters.Length.ShouldBe(length);
+    }
 
     [Test]
     public void SequenceFor_AGestureUnderAnActor_IsFoundPastTheActorlessEvents()
