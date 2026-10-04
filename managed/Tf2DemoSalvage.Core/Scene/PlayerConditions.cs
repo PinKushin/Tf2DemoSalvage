@@ -50,6 +50,9 @@ public readonly record struct PlayerConditions(int Cond, int Ex, int Ex2, int Ex
     /// <summary>`TF_COND_HALLOWEEN_KART` (`tf_shareddefs.h:772`).</summary>
     public const int HalloweenKart = 82;
 
+    /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE` (`tf_shareddefs.h:767`).</summary>
+    public const int HalloweenGhostMode = 77;
+
     /// <summary>`TF_COND_COMPETITIVE_WINNER` (`tf_shareddefs.h:806`).</summary>
     public const int CompetitiveWinner = 116;
 

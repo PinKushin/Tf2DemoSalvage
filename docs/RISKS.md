@@ -14592,7 +14592,10 @@ eye height comes from the class), or a spectator/SourceTV entity being followed 
 player. The first thing to measure is which players it fails for and what those have in common —
 `docs/memory/ask-whether-the-data-arrived.md`, before anything about cameras.
 
-### B172 — footsteps and landing sounds are absent from every demo — OPEN, and may be unfixable as such
+### B172 — footsteps and landing sounds are absent from every demo — footsteps FIXED 2026-09-23 (`4bb16c37`, animation event 7001, `Footsteps`); landing sounds OPEN
+
+**Heading corrected 2026-10-04:** it still read "OPEN, and may be unfixable" eleven days after footsteps shipped, and
+the release notes' known gaps repeated it. Landing sounds (`CheckFalling` → `PlayerRoughLandingEffects`) are not built.
 
 The owner, after the audio wiring: *"footsteps still are not played either, and neither are landing
 sounds, except for maybe voice lines if it had fall damage"*.
@@ -19691,7 +19694,97 @@ in front of it draw in the same order either way. Noticing the difference needs 
 translucent brush surface overlapping on screen, which is why it has not been seen yet — the fix is
 per-leaf grouping of the translucent draw, which is the leaf-walk structure D131 already names.
 
-## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — OPEN
+## B262 — the draw side re-culls, re-classifies and comparison-sorts what collation could have handed it — FIXED 2026-10-04
+
+**Third pass, same day: three of the second pass's interpolations replaced by reads.**
+
+- **The view lists no solid leaf.** engine.dll's world walk `0x1800e0600` returns on contents 1 at entry
+  (`0x1800e060f`) and stops before a solid far child (`0x1800e079c`), so `R_DrawLeaf` never lists one.
+  `WorldVisibility.Collect` now skips them. Red 43191031, green 8cbeca57. The translucent and overlay order tests
+  (B261/B457/B458) are green.
+- **An eye in solid, read.** The mark-leaves function `0x1801c8cb0` flags a view cluster of −1 (`0x1801c8dc1`) and
+  then marks every leaf and node of the world (`0x1801c9113`-`0x1801c918a`), the same path as `r_novis`. This
+  project already did the same thing; it is now pinned as `Batches_ForAnEyeInSolid_ListsEveryNonSolidLeaf`. The
+  test was first written expecting every non-solid leaf in the lump. That was wrong, because brush-model trees
+  are never walked, and its expectation was corrected to the world tree's leaves before it passed.
+- **Translucency is the model's flag.** `IsTranslucent` (`0x1801cabf0`) reads bit 2 at `model + 0x24`, and only
+  `Mod_RecomputeTranslucency` (`0x1801046f0`) writes it. The SDK client calls that for detail models alone
+  (`detailobjectsystem.cpp:2809`). `TranslucencyCache` is now keyed by model and asked once, at the default skin
+  and body; the second pass's skin and body trigger was wrong. The group is still recomputed every frame from that
+  flag, the alpha and the render mode (`ComputeFxBlend` → `SetRenderGroup`, `c_baseentity.cpp:3545`). Red
+  b6d7ec44. *Still interpolated:* that the flag is first computed with skin 0 and body 0; the engine's load-time
+  call was not found.
+
+**Second pass, same day: the five items left open below are closed.**
+
+- **Scene side.** `EntityModels` registers props in its own `ClientLeafSystem` and collates the views' leaf lists
+  (`RenderableViews`, from `Device3D.Views`) before posing. Only collated props are posed, in collation order,
+  and each carries its place, its size bucket and its view on the `ModelInstance`. `Culls` is gone. `Culled` and
+  `CulledByVisibility` are now carried from the collation's own counts. The device files the scene's instances into
+  groups without a cull. It collates only the detail models itself (the engine keeps those per leaf too,
+  `:1720`) and merges them in by place. Red b232ecf7, green d6ade0bb. B254's cull tests are unchanged and green.
+- **Sky regression.** The skybox view collates the sky leaves with the sky frustum, and `DrawSkyRenderables` draws
+  them through the sky camera after the room (`CSkyboxView::DrawInternal`, `viewrender.cpp:4920-4932`). Water
+  views skip them.
+- **Classification cached.** `TranslucencyCache` keeps material translucency per renderable and asks again only
+  when the frame, skin or body changes (`CreateRenderableHandle` asks once, `:651`). The alpha is still applied
+  every frame. *Interpolated:* that a skin or body change is a re-ask trigger; the engine re-registers on a model
+  change. Red 9f380d69.
+- **`EnumerateLeavesInBox` read from engine.dll.** CEngineBSPTree's vtable (`0x18038e768`, via RTTI) points slot 2
+  at `0x1800d96a0`, and that walks `0x1800dd690`:
+  - **no** plane epsilon: back only when `far <= dist`, front only when `near >= dist`;
+  - each node's and leaf's own box is tested first (`0x180172540`; touching counts);
+  - contents-1 (solid) leaves are never filed.
+
+  The tools copy (1/32 epsilon) was wrong for the client. Red 3db1f0fd, green 8ae36c50.
+- **Empty and missing lists.** A view list that is empty collates nothing, as the engine's loop over zero leaves
+  does. Only a missing list (no view walk yet, or a map that cannot be culled) collates every leaf. *Interpolated,
+  not disassembled:* a camera in solid. `WorldVisibility` passes every cluster when the eye's cluster is −1, which is
+  the Quake `R_MarkLeaves` rule; the engine's equivalent has not been read.
+
+**New divergence found by the differential, not fixed here:** `WorldVisibility` lists SOLID leaves (cluster −1
+passes its PVS test), and the engine's world walk does not. Entities are unaffected, because the engine walk never
+files a renderable in a solid leaf. The translucent-world interleave and anything else that counts places do see
+the extra entries. `ClientLeafSystemMapTests` compares over the non-solid listed leaves for this reason.
+
+First pass:
+
+**The draw side is now `CClientLeafSystem`'s shape.** `ClientLeafSystem` (Scene) keeps renderables in the leaves
+their box touches across frames and re-links only what moved (`PreRender`, `clientleafsystem.cpp:528`, with the
+backwards insert at `:557` and the head insert at `utlbidirectionalset.h:205-208`). It collates the view's
+`WorldCulling.MainLeaves` in order (`BuildRenderablesList`, `:1813`), culls once and asks the render group once per
+renderable (`:1607-1694`), and fills the size buckets and the translucent list as it goes. Device3D draws the
+buckets and no longer sorts. Gone: `OpaqueBuckets.InDrawOrder` (the second cull, measured inert at 152 of 152, and
+the comparison sort), the translucent pass's own `Culled` and `Classify` loop, and `TranslucentLeaf`'s per-frame
+`PositionOf`. Boxes are linked by `BspLeafTree.EnumerateLeavesInBox`, a port of `bsplib.cpp:3461`. Conformance:
+`ClientLeafSystemConformanceTests` (red e65beec3). Output level: `ClientLeafSystemMapTests` on cp_process, which
+matches the old walk's reached set and translucent places exactly when no box face lies on a node plane. Account:
+`docs/findings/72-…`.
+
+**Where it now differs from the old walk, deliberately (the engine's structure says so):**
+
+- Within a bucket, models are in collation order (leaves front to back, then each leaf's link order), not scene
+  order.
+- A two-pass model's solid half is in the last bucket (`RENDER_GROUP_OPAQUE_ENTITY`, `:1710-1713`), not its size's.
+- A box touching a node plane is in both sides' leaves (`TEST_EPSILON`, `bsplib.cpp:3403`).
+- A translucent model whose box reaches no listed main leaf is not drawn. Before, it went to place 0.
+- A model visible only through sky-room leaves is not drawn in the main view. Before, `EntityModels`' visibility
+  test counted sky leaves as visible and the main view drew it at its literal size. Whether the sky pass should draw
+  entities is unexamined.
+
+**Still not established:**
+
+- **The scene side.** `EntityModels.Culls` still walks every prop each frame against the frustum and the visible
+  leaves before posing (B254/B258 pin it). The engine has one cull, at collation. Registration should move upstream
+  of posing, so that only collated renderables are posed. That is D131's remaining half.
+- **Interpolated:** that the engine's closed `ISpatialQuery::EnumerateLeavesInBox` uses the tools copy's 1/32 rule.
+  It has not been disassembled.
+- The render group is asked every frame rather than cached on the handle and changed by `ComputeFxBlend`. The
+  answer is the same; the cost is not the engine's.
+- Before any view walk has listed leaves, every leaf is listed. A walk that genuinely lists none, such as a camera
+  in solid, is treated the same way.
+
+Original filing:
 
 The outside audit's findings 4, 5 and 7, filed together because they are one divergence: Valve
 builds its render buckets DURING leaf collation and the draw consumes them
@@ -34645,6 +34738,222 @@ koth_harvest_event's plain face and reads back exactly the value the SDK's arith
 
 **Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
 does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.
+
+## B462 — a playlooping rule was parsed as numbers, not as ProcessPlayLooping reads it: pitch dropped, ranges lost, a missing volume played at full, positioned loops unattenuated — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:722-807`, `interval.cpp:21-59`), found by a parity audit and re-read
+branch by branch:
+
+1. **Pitch was parsed and dropped.** `AddLoopingAmbient( name, volume, pitch )` and `ep.m_nPitch` (`:1161,1171`); every
+   loop played at rate 1. Census of the 40 shipped scripts: 8 of 543 loops are not at 100 (both Halloween sets at 50
+   and 75, `Halloween.Underworld` 110, `underground_soho` 80 and 115).
+2. **Ranges fell back to defaults.** Volume, pitch, attenuation and a numeric soundlevel are
+   `RandomInterval( ReadInterval( ... ) )` (`:735,739,751,761`); `int.TryParse`/`float.TryParse` rejected `".2, .3"`
+   and gave 1.0 and 100. Two shipped loops are ranged (`Halloween.Outside`, `Halloween_sf14.Outside`, both wind).
+3. **A loop with no `volume` played at full.** `float volume = 0` (`:724`), started only `if ( volume != 0 )` (`:790`).
+   No shipped loop omits it.
+4. **A positioned loop with no attenuation had no falloff, and `soundlevel` was not read.** The default is
+   `ATTN_TO_SNDLVL(ATTN_NORM)` = 75 (`:725`); `soundlevel` is `TextToSoundLevel` or a truncated interval (`:753-763`),
+   the later of it and `attenuation` winning. A missing attenuation became level 0 — no falloff — so the **79 shipped
+   positioned loops that name a soundlevel and no attenuation played at full volume at any distance**.
+5. **A negative `position` plays as an ambient loop** (`:769-772,792`), not a suppressed one.
+
+**Fix:** `Interval` (`ReadInterval`/`RandomInterval`) and `CStdlib` (`atoi`/`atof`, moved out of `PanelLayout`) in
+`Core.Primitives`; `SoundscapeSound` keeps intervals and `SoundscapeLevel`, drawn by the mixer at each start as the
+engine draws at `StartNewSoundscape`; `SoundScript.Rate` is the one pitch-to-rate conversion (SoundPresenter's two
+copies route through it). Tests: `IntervalConformanceTests` (8), `CStdlibConformanceTests` (4),
+`SoundscapeLoopingConformanceTests` (load and draw cases), each sabotaged with the inverse edit and reddened.
+**Interpolated:** the draws — the engine's come from its global stream; ours are Valve's generator seeded by the
+placement, so a seek redraws the same values.
+
+## B463 — a loop was reused only within one soundscape index; AddLoopingSound reuses across soundscapes, scans backwards, and restarts a moved positional loop at once — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:497-528,555-576,1103-1197`). `AddLoopingSound` matches any slot of an
+earlier generation on wave and pitch, whatever soundscape owned it. The mixer's shortcut kept loops only when the
+index was the same AND the whole resolved list equal, so **a wave two soundscapes share played twice across every
+threshold between them**, one copy fading out under another fading in from silence. Also wrong, each now ported:
+
+1. **A moved positional loop is stopped and its slot restarted immediately at the volume it had** (`StopLoopingSound`,
+   `bForceSoundUpdate`, `:1130-1144`) — not crossfaded, whatever the comment above it says. The old test asserted the
+   crossfade; it now asserts the restart.
+2. **The scan runs from the end** (`:1106`) while loops are added in script order, so two loops of one wave at
+   targets that did not move are crossed over and both restart. `FastRemove` (`:519`) moves the last slot into a
+   removed one, which decides the next scan's order.
+3. **New positioned loops start at 0.05** (`:1167-1178`); ambients at 0.
+4. **A slot cancelled before it rose stays**: the removal sits inside `if ( volumeCurrent != volumeTarget )` (`:512`),
+   so a 0/0 slot is kept and can be reclaimed.
+5. **An index the client has no soundscape for starts nothing** (`:562-575`): the loops already sounding carry on.
+   The mixer faded them out.
+
+**Fix:** `SoundscapeMixer` holds `m_loopingSounds` as an ordered list of `loopingsound_t`, transcribed. Tests in
+`SoundscapeLoopingConformanceTests`; every branch sabotaged (ambient reuse, pitch match, generation guard,
+case-insensitive wave, restart, tolerance `<=`, backward scan, `FastRemove`, the 0.05 start, the `:512` guard, the
+unknown-index return) and each reddened its test.
+
+## B464 — position slots were compacted, a proxy took its own position keys, and StartDisabled was ignored — FIXED 2026-10-04
+
+**Read, published source** (`game/server/soundscape.cpp`). Census of the 239 installed maps, `soundscape-entities`
+probe: 4,781 `env_soundscape`, 6,616 proxies, 71 triggerables.
+
+1. **Slot N stays at index N.** `WriteAudioParamsTo` sets bit `i` and `localSound[i]` (`:217-229`); the client gates on
+   bit N (`c_soundscape.cpp:797`). `Targets` appended only resolved slots, so a gap shifted every later target down:
+   **109 installed soundscapes have a gap**, and on them loops played at another loop's target or were suppressed.
+2. **A proxy plays at its master's targets.** `CEnvSoundscapeProxy::Activate` copies every `m_positionNames[i]`
+   (`:52-54`); `From` read the proxy's own keys, so **1,094 proxies of a positioned master played none of its
+   positioned loops**. The master is `FindEntityByName`'s FIRST entity of that name (`:42`), which must be an
+   `env_soundscape`; it was the last one.
+3. **`StartDisabled`** (`:91`, `atoi != 0` per `saverestore_gamedll.cpp:62`) keeps a soundscape out of the contest
+   (`UpdateForPlayer`, `:247-256`). 82 installed entities set it — 78 on ctf_helltrain_event, 4 on pass_district. Only
+   the initial state is knowable; Enable/Disable are entity I/O, which no demo records. The held-disabled reset at
+   `:249-254` is not ported: the held one is measured first on freshly seeded state, so it changes nothing.
+
+**Fix:** `SoundscapePlacement.Positions` is eight nullable slots; `Enabled`. Tests in
+`SoundscapeEntityConformanceTests`, and the output-level one on shipped maps —
+`MoveTo_AShippedMapsPositionedSoundscapes_PlayEachLoopAtTheTargetItsSlotNames` (ctf_well, mvm_mannworks) reads each
+slot's target straight from the lump and checks the wave that sounds there. Its first form compared places only and
+**passed under compaction on ctf_well**, which kept the same three targets with the waves rotated; it compares
+(wave, place) now and reddens on both maps.
+
+## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — OPEN 2026-10-04
+
+**Read, published source:** `C_SoundscapeSystem::LevelInitPreEntity` re-runs `Init` on every level (`c_soundscape.cpp:
+99-102`), and `Init` appends `scripts/soundscapes_<map>.txt` after the manifest unless the manifest named it
+(`:306-336`), through the filesystem — which mounts the map's pakfile. `LevelSystems.OpenGame` builds the catalog once
+per install, from the VPKs only and with no map name, so **every placement on such a map resolves to index -1**.
+Measured while writing B464's output-level test: koth_lazarus's six position-keyed soundscapes (`Lazarus.Base`,
+`.Jungle`, `.Cave`) all resolve to -1, and its pakfile carries `SCRIPTS/SOUNDSCAPES_KOTH_LAZARUS.TXT` (`pak` probe,
+one of 6,293 entries). `SoundscapeCatalog.Load` already takes the map name; the level load needs to
+pass it and a reader that tries the pakfile first. How many installed maps ship one is not yet counted.
+
+## B469 — every particle collection drew the same random numbers: the seed was missing from every table index — FIXED 2026-10-04
+
+**Read, published source and disassembly:** every `RandomInt`/`RandomFloat`/`RandomVector` indexes
+`s_pRandomFloats[ ( m_nRandomSeed + nRandomSampleId ) & RANDOM_FLOAT_MASK ]` (`particles.h:1782`, `:1791`, `:1800`), and
+the four-wide one adds the seed into its offset. `CParticleCollection::Init( pDef, flDelay, nRandomSeed )`, in the SDK's
+`particles.lib` (`particles.obj`, symbols intact), keeps a non-zero seed and makes a zero one `(int)this + Plat_MSTime()`.
+Its child loop gives entry k of `children` the seed plus 129 × k, or 0 for an unseeded parent
+(`lea eax,[r15+0x81]; test r15d,r15d; cmovz eax,r15d; mov r15d,eax`). `ParticleRandom` had no seed term, so two
+rockets' trails, a rocket's children, and two explosions of one system drew identical numbers for particle n.
+`CalculatePathValues`'s random bulge reads the same field at `+0x2744`.
+
+**Fix:** every draw takes the collection's seed (`ParticleStore.Seed`); `ParticleEffect` takes `seed` and gives its
+children the engine's sequence. **D136's adaptation**: the TF2 client creates every effect unseeded, so its input is a
+pointer and a clock that no demo carries. `ParticleEffects` therefore creates trails and bursts on the engine's own seeded
+path, with a seed fixed by identity: `SeedFor`, the Fibonacci hash of a burst's key or of a trail's entity and spawn tick,
+never 0. Tests: `ParticleRandomConformanceTests.Sample_ASeed_ShiftsTheIndexAsTheParticleAndOffsetDo`,
+`ParticleEffectConformanceTests.Constructor_ASeed_GivesEachChildTheSeedPlus129PerEntry`, `…Constructor_NoSeed_GivesEveryChildZero`,
+`…Step_ASeededEffect_DrawsAtTheSeededIndex`, `PathConstraintConformanceTests.PathValues_ARandomBulge_ReadsTheEntriesTheSeedPicks`,
+and `ParticleBurstTests` (`…IsSeededFromItsKey`, `…IsSeededFromItsEntityAndSpawnTick`, `SeedFor_…`). Sabotaged: the
+seed term, the store's seed, the cumulative and the zero-guarded child seed, the `SeedFor` zero guard, and both call
+sites each reddened their tests.
+
+**Not changed:** an effect created without a seed (a HUD particle panel, a model panel, a test) keeps 0 rather than
+becoming a pointer and a clock. Its children are therefore unseeded alike. Those panels run on wall-clock time and
+were never reproducible.
+
+## B470 — a particle was born at the end of its step, on its control point's newest position — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_OP_ContinuousEmitter::Emit` spreads a step's particles across it. With
+start = curtime − dt and end = curtime, clamped to the window when the duration is non-zero, it adds
+`total += ( end − start ) · rate`, emits `n = floor( total ) − emitted`, and dates the k-th
+`CREATION_TIME = min( start + k · ( end − start ) / n, end )`, where `n` has already been capped by the room left.
+`C_OP_InstantaneousEmitter::Emit` dates every particle to its start time. `GetControlPointAtTime( cp, t )` lerps
+`m_PrevPosition` to `m_Position` by `max( 0, ( m_flDt − ( curtime − t ) ) / m_flDt )`. `Simulate` copies the previous
+positions on the first frame, simulates nothing below a 1e−22 step, simulates the children after the parent, and ends
+with `UpdatePrevControlPoints`. `C_INIT_CreateWithinSphere` places at the point at `CREATION_TIME` (read here); the
+offset, move-between and along-path initializers do the same per B415's notes. This port dated every particle to the
+step's end and handed every initializer the newest position. The spawn-time sphere, offset, tracer and path positions
+were therefore all at the step's end; the offset's own remark called it "the same thing for a spawn".
+
+**Fix, a replacement of the structure:** `ParticleEffect` keeps each control point's previous position, `Step` sets
+control point 0 and runs one `Simulate` (which `Fade` shares with emission off), and both emitters date their particles
+the engine's way and spawn them on the points lerped to that date. `ParticleStore.Add` and `ParticleSystems.Spawn` take
+the date. `ParticleCreationTimeConformanceTests` (12) cover every clause above. The scene-level assertion is
+`ParticleEffectsTests.Update_ARocketMovingBetweenTicks_DrawsEachTicksPuffsAlongItsPath`, on the quads the renderer
+receives: 0, 0, 33, 66. It reddened when sabotaged back to the step's end, and every clause's own sabotage reddened its
+test. `Step_AConstrainedSystem_HoldsItsParticleOnThePathAfterMoving` encoded the old dating and was changed from two
+half-second steps to two quarter-second ones, so that "half-way" still holds.
+
+**Behaviour that moved with it, by the same reading:** a fading effect now runs its constraints and movement lock as the
+engine's stopped collection does, and a paused step no longer emits. A windowed emitter now emits for the part of a step
+inside its window, where it used to emit whole steps or none.
+
+**Not built, and not established:** `initial_particles` (`SimulateFirstFrame`); the sub-steps a step longer than the
+definition's maximum sim tick is split into; and the burst at `max_particles`, where the engine drops only the refused
+part of a step's share and this stops owing at all. The sphere initializer converts velocity to `PREV_XYZ` with
+`m_flPreviousDt` (0.05 on the first frame), and this uses the step. The sphere initializer draws from the collection's
+running query stream (`m_nRandomSeed + m_nRandomQueryCount++`), and this keys by particle id, as `Trail Length Random`
+already did by choice (findings 58).
+
+## B471 — a control point took any orientation; the engine refuses one that is not a frame — FIXED 2026-10-04
+
+**Read, published source:** `SetControlPointOrientation` applies forward, right and up, and passes them to its children,
+only when `|forward·up|`, `|forward·right|` and `|right·up|` are each at most 0.1. Otherwise it warns and keeps the old
+orientation (`particles.h:1616-1640`). Position is a separate call that always lands (`:1595-1604`). `ParticleEffect.SetControlPoint`
+stored any basis.
+
+**Fix:** the position always lands and the basis only when it is a frame, in every child; control point 0 through
+`Step` is the same call. Tests: one per pair (`SetControlPoint_ForwardAlongUp_…`, `…ForwardAlongRight_…`, `…RightAlongUp_…`),
+the boundary (`…ForwardDotRightNearATenth_IsAcceptedUpToIt`, 0.1 accepted and 0.11 refused), the child and `Step`. Each
+clause and the `<=` were sabotaged and reddened. **Not reproduced:** the warning. **Unchanged, seen in passing:** an
+unset point's axes are the identity here (`ParticleControlPoint.Unoriented`, a stated fallback), where
+`CParticleControlPoint`'s constructor leaves them zero.
+
+## B472 — `RandomInt` returned the minimum for an inverted range; the engine computes the draw — FIXED 2026-10-04
+
+**Read, published source:** `RandomInt` is `(int)( r · ( nMax + 1 − nMin ) ) + nMin`, with no early return and no clamp
+(`particles.h:1779-1786`). `ParticleRandom.Whole` returned the minimum for max below min and clamped. Its sibling, the
+burst count, is `C_OP_InstantaneousEmitter::InitializeContextData` in `builtin_particle_emitters.obj`. It draws for any
+minimum of 0 or more, while ours took `num_to_emit` whenever the minimum was at or above it. No shipped `.pcf` is known
+to declare either; every reader of a drawn sequence already wraps it into its sheet.
+
+**Fix:** both as the engine computes them. `ParticleRandomConformanceTests.Whole_AnUpperBoundBelowTheLower_ComputesTheEnginesDraw`
+(5 and 2 give 5 below a half and 4 above; this test asserted 5 for both before) and
+`ParticleEffectConformanceTests.Step_ABurstMinimumAboveItsCount_EmitsTheEnginesDraw` (3 and 5 give 5). Both reddened
+when sabotaged back.
+
+## B466 — the round timer floated two `+m:ss` deltas where the engine floats ten — FIXED 2026-10-04
+
+**Read, published source:** `#define NUM_TIMER_DELTA_ITEMS 10` (`tf_time_panel.h:57`), the ring `m_TimerDeltaItems`
+(`:124`), `SetTimeAdded` wrapping its head with that constant (`tf_time_panel.cpp:399-402`) and `Paint` walking all ten
+(`:843-885`). `TfHudTimeStatus` declared 2, so a third `teamplay_timer_time_added` inside the 2-second `delta_lifetime`
+overwrote a delta still floating. Found by the 2026-10-04 parity audit; no reason for 2 was recorded anywhere.
+
+**Fix:** the constant is 10. `TfHudTimeStatusConformanceTests.Paint_TenDeltasWithinTheirLifetime_DrawsAllTen` and
+`…Paint_AnEleventhDelta_ReplacesTheOldest` (the eleventh takes slot 0) were red at 2 and are green; sabotaged back to 2,
+both reddened.
+
+## B467 — setting the round timer panel's timer never ran `SetExtraTimePanels` — FIXED 2026-10-04
+
+**Read, published source:** `SetTimerIndex( int index ){ m_iTimerIndex = ( index >= 0 ) ? index : 0; SetExtraTimePanels(); }`
+(`tf_time_panel.h:77`). The match status calls it whenever its panel's timer is no longer valid
+(`tf_hud_match_status.cpp:497`), and KOTH calls it only when a timer's entity index differs from the panel's
+(`tf_time_panel.cpp:1063`, `:1080`). `TfHudTimeStatus.TimerIndex` was a settable property, so the setup, waiting,
+overtime and sudden-death labels stayed as they were until the next `teamplay_update_timer`, and a negative index was
+kept. **A test asserted the divergence**: `…InSetupBeforeTheTimersUpdate_LeavesTheSetupLabelHidden`, written from the
+port. It is replaced by `SetTimerIndex_InSetup_ShowsTheSetupLabelWithoutAnUpdate`.
+
+**Fix:** `SetTimerIndex` clamps and runs `SetExtraTimePanels`; the property is private-set, written directly only by
+`ApplySchemeSettings` as the engine's `m_iTimerIndex = 0` is (`:664`). KOTH sets only on a change. Tests:
+`SetTimerIndex_Negative_IsZero`, `TfHudKothTimeStatusConformanceTests.Think_InSetup_ShowsEachPanelsSetupLabelWithoutAnUpdate`
+and `…Think_TheSameTimer_DoesNotRunSetExtraTimePanelsAgain` (setup ends, the index is unchanged, so the label stays up).
+Sabotaged: dropping the call, the clamp, and each of KOTH's two change guards reddened the matching test.
+
+**Kept:** the seek path's `RefreshExtraTimePanels` (`VguiHud`), which stands in for the `teamplay_update_timer` a seek
+skips and is a different question.
+
+## B468 — the ammo count drew for a Halloween ghost, in a minigame and under the match summary — FIXED 2026-10-04
+
+**Read, published source:** `CTFHudWeaponAmmo::ShouldDraw` returns false for `TF_COND_HALLOWEEN_GHOST_MODE`, an active
+minigame and `ShowMatchSummary()` before `CHudElement::ShouldDraw` (`tf_hud_ammostatus.cpp:153-160`). `TfHudWeaponAmmo`
+tested only the weapon's own refusals, while `TfHudPlayerStatus` beside it tested all three.
+
+**Fix:** the three tests, in the engine's order. `TfHudWeaponAmmoConformanceTests.ShouldDraw_AsAHalloweenGhost_IsHidden`,
+`…InAnActiveMinigame_IsHidden` and `…UnderTheMatchSummary_IsHidden`, against the control `…AUsableWeapon_IsDrawn`;
+each was red and each reddened again when its own test was sabotaged. `TF_COND_HALLOWEEN_GHOST_MODE` was declared as a
+private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
+
+**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
 
 ## B473 — no `CBeam` ever drew: `DT_Beam` is a NOBASE table, so the admission gate dropped every beam — FIXED 2026-10-04
 

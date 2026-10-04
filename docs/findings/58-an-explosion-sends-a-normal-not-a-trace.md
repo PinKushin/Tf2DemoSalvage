@@ -464,6 +464,63 @@ so two static sounds from one entity both play. The output was replacing them li
 have cut every Original blast short when a second landed; it no longer does for `CHAN_STATIC`. How a STOP matches is
 different again and is B416.
 
+## The seed, and the moment a particle is born
+
+A parity audit on 2026-10-04 confirmed four divergences in the collection itself (B469-B472). Each was settled in the
+SDK's own `particles.lib`. Its objects (`particles.obj`, `builtin_particle_emitters.obj`, `builtin_initializers.obj`)
+carry their C++ symbols, so `CParticleCollection::Init` is named in the binary and does not have to be found by its
+strings. *Read in the disassembly; decompiler output used only for shape.*
+
+**The seed is a pointer plus a clock.** `Init( pDef, flDelay, nRandomSeed )` stores `m_bIsScrubbable = nRandomSeed != 0`.
+A non-zero seed is kept; a zero one becomes `(int)this` plus `Plat_MSTime()`:
+
+```
+mov [rbx+0x2744], r15d          ; seed given
+mov [rbx+0x2744], ebx           ; else (int)this ...
+call [Plat_MSTime]
+add [rbx+0x2744], eax           ; ... + Plat_MSTime()
+```
+
+The public `Init( pDef )` passes 0, and so does every client effect (`CNewParticleEffect`'s constructors,
+`particles_new.cpp:31-43`). A seeded parent gives the k-th entry of its `children` the seed plus 129 × k, counting
+entries that fail to resolve: `lea eax,[r15+0x81]; test r15d,r15d; cmovz eax,r15d; mov r15d,eax`. An unseeded parent's
+children are unseeded. So in TF2 two rockets' trails, or a rocket's two children, never share draws, and the seed is in
+every index (`particles.h:1782`, `:1791`, `:1800`). **This project's table had no seed term at all**, under a remark
+that the scheme "needs no seed argument", so every instance of a system drew identical numbers for particle n. The input,
+a pointer and a clock, is something no demo carries. So by D136 a seekable effect takes the engine's seeded path,
+with a seed fixed by its identity. `CalculatePathValues` confirms the field: its random bulge reads
+`s_pRandomFloats[ ( [this+0x2744] + 0, 1, 2 ) & 0xfff ]`.
+
+**A particle is born at a time inside the step.** The previous reading treated birth as instantaneous. Every particle
+of a step was created at the step's end and placed on the control point's newest position. The port's own notes
+already said the engine reads control points "at CREATION_TIME", and dismissed that as "the same thing for a spawn". It
+is not:
+
+```
+C_OP_ContinuousEmitter::Emit   start = curtime − dt, end = curtime (a non-zero duration clamps both to the window)
+                               total += ( end − start ) · rate;  n = floor( total ) − emitted
+                               CREATION_TIME of the k-th = min( start + k · ( end − start ) / n, end )
+C_OP_InstantaneousEmitter      CREATION_TIME = emission_start_time, for every particle, however late it is emitted
+GetControlPointAtTime( cp, t ) lerp( m_PrevPosition, m_Position, max( 0, ( m_flDt − ( curtime − t ) ) / m_flDt ) )
+Simulate                       first frame: m_PrevPosition = m_Position;  dt < 1e−22 simulates nothing;
+                               after a step: m_PrevPosition = m_Position (UpdatePrevControlPoints)
+```
+
+`C_INIT_CreateWithinSphere` places at `GetControlPointAtTime( cp, *CREATION_TIME )`, read this time. The offset,
+move-between and along-path initializers do the same according to B415's notes on the 2010 `client.dll`; those were not
+re-read. At `rockettrail`'s 128 a second on a 66-tick clock, a rocket's two puffs a tick
+now sit half a tick and a whole tick along its path. A burst is dated to its start time, so a blast's particles are
+already one step old at the end of their first step. **One of this project's own tests had encoded the old dating**: a
+constrained burst asserted "half-way along" after two half-second steps, a number that only held while the particle was
+born at the end of the first one.
+
+**A control point's orientation is accepted only if it is a frame.** `SetControlPointOrientation` keeps the old axes
+unless every pair of forward, right and up is within 0.1 of perpendicular (`particles.h:1616-1640`).
+
+**`RandomInt` has no guard.** `(int)( r · ( nMax + 1 − nMin ) ) + nMin` (`particles.h:1779-1786`) gives 5 or 4 for an
+inverted 5..2. The burst emitter's count draw (`C_OP_InstantaneousEmitter::InitializeContextData`) likewise has no case
+for a minimum at or above `num_to_emit`.
+
 ## What is not established
 
 - **How a stop matches layered static sounds** — B416. The layering itself is settled below.
@@ -477,8 +534,8 @@ different again and is B416.
   order, as the sprite renderer does. Additive glows do not care, a translucent trail would.
 - **The visibility scale** (`Visibility Proxy …`), which the engine folds into the render list's radius and alpha.
   Every explosion child declares proxy control point −1, which should mean "off" — *interpolated*, not read.
-- **Whether `m_nRandomSeed` is fixed or varies per effect instance**, which decides whether two identical blasts
-  draw identical trail lengths in TF2.
+- ~~Whether `m_nRandomSeed` is fixed or varies per effect instance~~ — **answered 2026-10-04**, below: it varies, a
+  pointer plus a clock (B469).
 - **Operator strength** — each operator's own fade in and out (`operator start fadein` and its siblings), which
   scales what it does. Every explosion child declares zeros, which should mean full strength throughout;
   *interpolated*, and nothing here evaluates it.

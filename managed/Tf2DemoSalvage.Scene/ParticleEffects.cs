@@ -93,6 +93,30 @@ public sealed class ParticleEffects
     public ParticleEffect? BurstEffect(long key) =>
         _bursts.TryGetValue(key, out RunningBurst running) ? running.Effect : null;
 
+    /// <summary>One projectile's trail, children included, for a test or a diagnostic.</summary>
+    /// <param name="entity">The projectile's entity index.</param>
+    /// <returns>The effect, or null when that entity has none.</returns>
+    public ParticleEffect? TrailEffect(int entity) => _running.GetValueOrDefault(entity);
+
+    /// <summary>The seed an effect's identity fixes — the engine's seeded collection, for an effect a seek must reproduce (B469).</summary>
+    /// <param name="identity">What tells this effect from every other: a burst's key, a trail's entity and spawn tick.</param>
+    /// <returns>A non-zero seed.</returns>
+    /// <remarks>
+    /// **The TF2 client seeds every collection with <c>(int)this + Plat_MSTime()</c>** — a pointer and a clock, which no
+    /// demo carries and no replay could repeat. D136's rule is to reproduce the mechanism and fix the input the way a
+    /// replay needs, and the engine has a path for exactly that: a non-zero seed passed to `Init` is kept as is
+    /// (<c>m_bIsScrubbable</c>, read in `particles.lib`). **Hashed rather than used raw** because the seed is added to
+    /// every table index, so two keys one apart would draw the same numbers one particle apart; the Fibonacci hash puts
+    /// neighbours far apart, as the engine's pointers, a whole collection apart, are. **Never 0**, which `Init` would
+    /// take for "unseeded".
+    /// </remarks>
+    public static int SeedFor(long identity)
+    {
+        int seed = (int)(((ulong)identity * 0x9E3779B97F4A7C15UL) >> 32);
+
+        return seed != 0 ? seed : 1;
+    }
+
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
     /// <param name="projectiles">
     /// The live projectiles this tick: where each is, where it STARTED, and how many ticks ago
@@ -164,7 +188,8 @@ public sealed class ParticleEffects
 
             if (!_running.TryGetValue(entity, out ParticleEffect? effect))
             {
-                effect = new ParticleEffect(definition, others, Sheets);
+                // Entity indices are reused, so the trail is identified by its entity AND the tick its track began.
+                effect = new ParticleEffect(definition, others, Sheets, SeedFor(((long)(tick - ticks) << 32) | (uint)entity));
                 _running[entity] = effect;
             }
 
@@ -305,7 +330,7 @@ public sealed class ParticleEffects
             // Logical mutator's switch leaves it unassigned (CS0165) and Safe Mode drops the method — B410.
             if (!_bursts.TryGetValue(burst.Key, out RunningBurst running) || running.Stepped > wanted)
             {
-                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets), 0, false);
+                running = new RunningBurst(new ParticleEffect(burst.Definition, others, Sheets, SeedFor(burst.Key)), 0, false);
             }
 
             // Stryker restore all

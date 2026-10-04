@@ -81,6 +81,16 @@ local name for unrelated values. Full account: `docs/memory/nothing-is-closed.md
 **The tell to run this script** is a sentence naming a `DAT_`/`_UNK_` symbol, or reaching for a value
 because it is ADJACENT to a known one.
 
+## The SDK's static libraries keep their symbols
+
+`src/lib/public/x64/particles.lib` is unpacked to `D:\ghidra-proj\particles\*.obj` (`particles.obj`,
+`builtin_particle_emitters.obj`, `builtin_initializers.obj`, …). The objects keep their mangled C++ names, so
+`?Init@CParticleCollection@@AEAAXPEAVCParticleSystemDefinition@@MH@Z` is found by name. No string search is needed.
+The Ghidra MCP's `load_program` opens one in the running server beside whatever program is already open, with no
+project switch. **On these unanalysed objects `disassemble_function` returns nothing** while `decompile_function` works.
+So for a constant, find its bytes with `search_byte_patterns` (a field offset such as `44270000`), `read_memory` around
+the hit, and decode the instruction by hand. That is how B469's seed rule and child `lea …0x81` were settled.
+
 ## Outstanding
 
 An earlier assistant left a Ghidra output folder inside WindowsDriverCore that still needs cleaning

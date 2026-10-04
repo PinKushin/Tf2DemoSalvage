@@ -25,7 +25,7 @@ public sealed class ParticleRandomConformanceTests
 
         for (int particle = 0; particle < ParticleRandom.Floats; particle++)
         {
-            int drawn = ParticleRandom.Whole(particle, offset: 0, least: 0, most: 3);
+            int drawn = ParticleRandom.Whole(seed: 0, particle, offset: 0, least: 0, most: 3);
 
             drawn.ShouldBeInRange(0, 3);
 
@@ -43,11 +43,11 @@ public sealed class ParticleRandomConformanceTests
         // **The property that makes a replay reproducible without a seed** (D136): the draw is a
         // function of the particle's id, not of how many draws came before it. A generator with
         // internal state would fail this on the second call.
-        int first = ParticleRandom.Whole(particle: 41, offset: 0, least: 0, most: 3);
+        int first = ParticleRandom.Whole(seed: 0, particle: 41, offset: 0, least: 0, most: 3);
 
         for (int again = 0; again < 5; again++)
         {
-            ParticleRandom.Whole(particle: 41, offset: 0, least: 0, most: 3).ShouldBe(first);
+            ParticleRandom.Whole(seed: 0, particle: 41, offset: 0, least: 0, most: 3).ShouldBe(first);
         }
     }
 
@@ -61,8 +61,8 @@ public sealed class ParticleRandomConformanceTests
 
         for (int particle = 0; particle < 512; particle++)
         {
-            if (ParticleRandom.Whole(particle, 0, 0, 3) !=
-                ParticleRandom.Whole(particle, 1024, 0, 3))
+            if (ParticleRandom.Whole(0, particle, 0, 0, 3) !=
+                ParticleRandom.Whole(0, particle, 1024, 0, 3))
             {
                 differed++;
             }
@@ -85,7 +85,7 @@ public sealed class ParticleRandomConformanceTests
 
         for (int particle = 0; particle < 512; particle++)
         {
-            float drawn = ParticleRandom.Between(particle, ParticleSystems.LifetimeDraw, 0.8f, 1.2f);
+            float drawn = ParticleRandom.Between(0, particle, ParticleSystems.LifetimeDraw, 0.8f, 1.2f);
 
             drawn.ShouldBeInRange(0.8f, 1.2f);
 
@@ -97,13 +97,46 @@ public sealed class ParticleRandomConformanceTests
         above.ShouldBeTrue();
     }
 
+    /// <remarks>
+    /// **`RandomInt` has no early return and no clamp** (`particles.h:1779-1786`, B472): `(int)( r · ( nMax + 1 − nMin ) ) + nMin`.
+    /// With 5 and 2 the span is −2, so a draw below one half truncates to 0 and gives 5, and one at or above it truncates
+    /// to −1 and gives 4 — below the lower bound, as the engine's does. This test asserted 5 for both before B472.
+    /// </remarks>
     [Test]
-    public void Whole_AnUpperBoundBelowTheLower_ReturnsTheLower()
+    public void Whole_AnUpperBoundBelowTheLower_ComputesTheEnginesDraw()
     {
-        // A definition can declare `sequence_min` above `sequence_max`; the engine's arithmetic
-        // would give a negative span and an index below the array. Refusing is the only answer that
-        // cannot index out of a sequence list.
-        ParticleRandom.Whole(particle: 7, offset: 0, least: 5, most: 2).ShouldBe(5);
+        int low = FirstParticle(drawn => drawn < 0.5f);
+        int high = FirstParticle(drawn => drawn >= 0.5f);
+
+        (ParticleRandom.Whole(seed: 0, low, offset: 0, least: 5, most: 2), ParticleRandom.Whole(seed: 0, high, offset: 0, least: 5, most: 2))
+            .ShouldBe((5, 4));
+    }
+
+    /// <remarks>
+    /// **Every index is `( m_nRandomSeed + nRandomSampleId ) &amp; RANDOM_FLOAT_MASK`** (`particles.h:1782`, `:1791`, `:1800`;
+    /// B469), so the collection's seed shifts the index exactly as the particle id and the offset do, and wraps with them.
+    /// </remarks>
+    [Test]
+    public void Sample_ASeed_ShiftsTheIndexAsTheParticleAndOffsetDo()
+    {
+        ParticleRandom.Sample(seed: 7, particle: 3, offset: 11).ShouldBe(ParticleRandom.Sample(seed: 0, particle: 0, offset: 21));
+        ParticleRandom.Sample(seed: 4095, particle: 1, offset: 0).ShouldBe(ParticleRandom.Sample(seed: 0, particle: 0, offset: 0), "4096 wraps to 0");
+        ParticleRandom.Sample(seed: -1, particle: 1, offset: 0).ShouldBe(ParticleRandom.Sample(seed: 0, particle: 0, offset: 0), "a negative seed is two's complement under the mask");
+        ParticleRandom.Sample(seed: 1, particle: 0, offset: 0).ShouldNotBe(ParticleRandom.Sample(seed: 0, particle: 0, offset: 0), "the control: a seed moves the draw");
+    }
+
+    /// <summary>The first particle whose seed-0, offset-0 draw satisfies <paramref name="wanted"/>.</summary>
+    private static int FirstParticle(System.Func<float, bool> wanted)
+    {
+        for (int particle = 0; particle < ParticleRandom.Floats; particle++)
+        {
+            if (wanted(ParticleRandom.Sample(seed: 0, particle, offset: 0)))
+            {
+                return particle;
+            }
+        }
+
+        throw new AssertionException("no table entry satisfies the condition");
     }
 
     [Test]
@@ -113,7 +146,7 @@ public sealed class ParticleRandomConformanceTests
         // of a sequence array, on one particle in four thousand.
         for (int particle = 0; particle < ParticleRandom.Floats; particle++)
         {
-            float drawn = ParticleRandom.Sample(particle, offset: 0);
+            float drawn = ParticleRandom.Sample(seed: 0, particle, offset: 0);
 
             drawn.ShouldBeGreaterThanOrEqualTo(0f);
             drawn.ShouldBeLessThan(1f);

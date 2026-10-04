@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio;
 
@@ -18,8 +19,8 @@ namespace Tf2DemoSalvage.Audio;
 /// on that map visibility alone decides, not range.
 /// </param>
 /// <param name="Positions">
-/// Where its numbered position targets are, for a script's <c>"position" "3"</c>. Empty where the
-/// map sets none.
+/// Its <c>localSound</c> slots, for a script's <c>"position" "3"</c>: <b>slot N at index N</b>, null where
+/// <c>localBits</c> leaves bit N clear (<c>soundscape.cpp:217-229</c>) — eight from <see cref="SoundscapePlacements.From"/>.
 /// </param>
 /// <param name="Id">
 /// Which placement this is, by position in the map's own entity order. **The engine's analogue is
@@ -33,6 +34,11 @@ namespace Tf2DemoSalvage.Audio;
 /// `CSoundscapeSystem::LevelInitPostEntity` builds a per-cluster list once at map load rather than
 /// asking per frame.
 /// </param>
+/// <param name="Enabled">
+/// <c>!m_bDisabled</c>, from the <c>StartDisabled</c> keyfield (<c>soundscape.cpp:91</c>). A disabled soundscape never
+/// contends (<c>:247-256</c>). Only the INITIAL state is knowable: the Enable/Disable inputs that flip it at run time
+/// are entity I/O, which no demo records.
+/// </param>
 public readonly record struct SoundscapePlacement(
     int Id,
     string Name,
@@ -41,8 +47,9 @@ public readonly record struct SoundscapePlacement(
     float Y,
     float Z,
     float Radius,
-    IReadOnlyList<(float X, float Y, float Z)> Positions,
-    int Cluster = -1);
+    IReadOnlyList<(float X, float Y, float Z)?> Positions,
+    int Cluster = -1,
+    bool Enabled = true);
 
 /// <summary>
 /// Which soundscape a listener is standing in, decided the way the engine decides it.
@@ -59,12 +66,15 @@ public readonly record struct SoundscapePlacement(
 /// looking at bsps instead of making me manually do it"*. Every map carries its own answer.
 ///
 /// **Two classes, and only one names a soundscape.** `env_soundscape` carries a `soundscape` key;
-/// `env_soundscape_proxy` carries `MainSoundscapeName`, the targetname of a real one whose index it
-/// copies — `CEnvSoundscapeProxy` does exactly that at <c>soundscape.cpp:52</c>. cp_process has 4
-/// of the first and 40 of the second.
+/// `env_soundscape_proxy` carries `MainSoundscapeName`, the targetname of a real one whose index AND
+/// position names it copies — `CEnvSoundscapeProxy::Activate` at <c>soundscape.cpp:52-54</c>. cp_process
+/// has 4 of the first and 40 of the second.
 /// </remarks>
 public sealed class SoundscapePlacements
 {
+    /// <summary><c>NUM_AUDIO_LOCAL_SOUNDS</c>: the <c>position0</c>..<c>position7</c> slots.</summary>
+    private const int LocalSounds = 8;
+
     private readonly List<SoundscapePlacement> _placements;
 
     private SoundscapePlacements(List<SoundscapePlacement> placements) => _placements = placements;
@@ -104,16 +114,15 @@ public sealed class SoundscapePlacements
             byName[catalog.Soundscapes[index].Name] = index;
         }
 
-        // A proxy names its master by targetname, so the masters have to be known first.
-        Dictionary<string, string> masters = new(StringComparer.OrdinalIgnoreCase);
+        // A proxy names its master by targetname: `gEntList.FindEntityByName( NULL, m_MainSoundscapeName )`
+        // (`soundscape.cpp:42`), which is the FIRST entity of that name in the list, whatever its class.
+        Dictionary<string, BspEntity> byTargetName = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (BspEntity entity in entities)
         {
-            if (entity.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) &&
-                entity.TryGetValue("targetname", out string target) &&
-                entity.TryGetValue("soundscape", out string named))
+            if (entity.TryGetValue("targetname", out string target))
             {
-                masters[target] = named;
+                byTargetName.TryAdd(target, entity);
             }
         }
 
@@ -123,6 +132,10 @@ public sealed class SoundscapePlacements
         {
             string? name = null;
 
+            // **Whose position keys the placement plays at.** A proxy's are its master's: `Activate` copies every
+            // `m_positionNames[i]` from it (`soundscape.cpp:52-54`), so the proxy's own never reach the player (B464).
+            BspEntity positionsFrom = entity;
+
             if (entity.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) &&
                 entity.TryGetValue("soundscape", out string own))
             {
@@ -131,9 +144,12 @@ public sealed class SoundscapePlacements
             else if (entity.ClassName.Equals(
                          "env_soundscape_proxy", StringComparison.OrdinalIgnoreCase) &&
                      entity.TryGetValue("MainSoundscapeName", out string master) &&
-                     masters.TryGetValue(master, out string? resolved))
+                     byTargetName.TryGetValue(master, out BspEntity? main) &&
+                     main.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) &&
+                     main.TryGetValue("soundscape", out string resolved))
             {
                 name = resolved;
+                positionsFrom = main;
             }
 
             // Stryker disable once : a mutant that empties the guard body leaves 'origin's fields
@@ -155,12 +171,16 @@ public sealed class SoundscapePlacements
                 origin.Y,
                 origin.Z,
                 Radius(entity),
-                Targets(entity, entities),
+                Targets(positionsFrom, entities),
 
                 // **The entity's own cluster, resolved once here.** The engine does the same at map
                 // load rather than per frame (`LevelInitPostEntity`), and there is no reason to
                 // walk the BSP tree forty-four times a second for a value that cannot change.
-                leaves?.ClusterAt(origin.X, origin.Y, origin.Z) ?? -1));
+                leaves?.ClusterAt(origin.X, origin.Y, origin.Z) ?? -1,
+
+                // `FIELD_BOOLEAN` from a keyvalue is `atoi( szValue ) != 0` (`saverestore_gamedll.cpp:62`); a proxy
+                // inherits the keyfield and keeps its own.
+                !(entity.TryGetValue("StartDisabled", out string disabled) && CStdlib.Atoi(disabled) != 0)));
         }
 
         return new SoundscapePlacements(placements);
@@ -269,6 +289,19 @@ public sealed class SoundscapePlacements
 
         void Consider(SoundscapePlacement placement)
         {
+            // `if ( !IsEnabled() ) { if ( update.pCurrentSoundscape == this ) { pCurrentSoundscape = NULL;
+            // currentDistance = 0; bInRange = false; } return; }` (`soundscape.cpp:247-256`). The player's params are
+            // NOT rewritten, so `chosen` keeps the held one until a contender in range takes over (B464).
+            //
+            // **The inner reset is not ported because it changes nothing**: the held soundscape is measured FIRST, on
+            // the state `FrameUpdatePostEntityThink` has just seeded to exactly those values (`soundscape_system.cpp:
+            // 343-348`), and clearing `pCurrentSoundscape` only stops the walk skipping an entity that returns here
+            // anyway. Ported, it was a mutant nothing could kill.
+            if (!placement.Enabled)
+            {
+                return;
+            }
+
             float dx = placement.X - x;
             float dy = placement.Y - y;
             float dz = placement.Z - z;
@@ -337,13 +370,18 @@ public sealed class SoundscapePlacements
     /// Resolved here against the same entity list, since the targets are ordinary map entities with
     /// an origin. A name that resolves to nothing is skipped rather than defaulted: a sound placed
     /// at the world origin would be audible from the wrong side of the map.
+    ///
+    /// **Slot N stays at index N.** `audio.localBits |= 1&lt;&lt;i; audio.localSound.Set( i, ... )`
+    /// (`soundscape.cpp:225-226`) — an unset or unresolved slot is a clear bit, not a removed entry. This appended only
+    /// the resolved ones, so a gap shifted every later target down a slot: 109 installed soundscapes have one, and on
+    /// them a loop played at another loop's target or not at all (B464).
     /// </remarks>
-    private static List<(float X, float Y, float Z)> Targets(
+    private static (float X, float Y, float Z)?[] Targets(
         BspEntity entity, IReadOnlyList<BspEntity> entities)
     {
-        List<(float X, float Y, float Z)> targets = [];
+        (float X, float Y, float Z)?[] targets = new (float X, float Y, float Z)?[LocalSounds];
 
-        for (int slot = 0; slot < 8; slot++)
+        for (int slot = 0; slot < LocalSounds; slot++)
         {
             if (!entity.TryGetValue(
                     $"position{slot.ToString(CultureInfo.InvariantCulture)}", out string named) ||
@@ -358,7 +396,7 @@ public sealed class SoundscapePlacements
                     target.Equals(named, StringComparison.OrdinalIgnoreCase) &&
                     Origin(candidate) is { } origin)
                 {
-                    targets.Add(origin);
+                    targets[slot] = origin;
                     break;
                 }
             }

@@ -557,8 +557,8 @@ public sealed class MovementLock
             {
                 float life = Math.Clamp((particles.Age - particles.Born[index]) / particles.Lifetime[index], 0f, 1f);
                 int id = particles.Id[index] + (particles.Steps * 2);
-                float start = (Power(ParticleRandom.Sample(id, StartDraw), startExponent) * (startMost - startLeast)) + startLeast;
-                float end = (Power(ParticleRandom.Sample(id, EndDraw), endExponent) * (endMost - endLeast)) + endLeast;
+                float start = (Power(ParticleRandom.Sample(particles.Seed, id, StartDraw), startExponent) * (startMost - startLeast)) + startLeast;
+                float end = (Power(ParticleRandom.Sample(particles.Seed, id, EndDraw), endExponent) * (endMost - endLeast)) + endLeast;
 
                 weight = 1f - Math.Clamp((life - start) / (end - start), 0f, 1f);
 
@@ -866,16 +866,16 @@ public sealed class OscillateScalar : IParticleOperator
 
             float t = windowProportional ? AlphaFadeAndDecay.Reciprocal(lifetime) * age : age;
 
-            float start = (ParticleRandom.Sample(id, Draws + StartDraw) * startWidth) + startLeast;
-            float end = (ParticleRandom.Sample(id, Draws + EndDraw) * endWidth) + endLeast;
+            float start = (ParticleRandom.Sample(particles.Seed, id, Draws + StartDraw) * startWidth) + startLeast;
+            float end = (ParticleRandom.Sample(particles.Seed, id, Draws + EndDraw) * endWidth) + endLeast;
 
             if (!(lifetime > 0f && start <= t && t < end))
             {
                 continue;
             }
 
-            float frequency = (ParticleRandom.Sample(id, Draws + FrequencyDraw) * frequencyWidth) + frequencyLeast;
-            float rate = (ParticleRandom.Sample(id, Draws + RateDraw) * rateWidth) + rateLeast;
+            float frequency = (ParticleRandom.Sample(particles.Seed, id, Draws + FrequencyDraw) * frequencyWidth) + frequencyLeast;
+            float rate = (ParticleRandom.Sample(particles.Seed, id, Draws + RateDraw) * rateWidth) + rateLeast;
 
             float argument = proportional
                 ? (AlphaFadeAndDecay.Reciprocal(lifetime) * age * frequency * multiplier) + phase

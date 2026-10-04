@@ -214,6 +214,14 @@ public sealed class WorldVisibility
     /// </remarks>
     private void Collect(int leaf, int from, ViewFrustum frustum)
     {
+        // **A solid leaf is never walked into** (B262): engine.dll's world walk returns on contents 1 at entry
+        // (`0x1800e060f`) and before a far child (`0x1800e079c`), so `R_DrawLeaf` never lists one — whatever the PVS
+        // says, including the eye-in-solid case where every leaf is marked visible (`0x1801c9113`).
+        if (_tree.Contents(leaf) == BspLeafTree.ContentsSolid)
+        {
+            return;
+        }
+
         int cluster = _tree.Cluster(leaf);
 
         if (_pvs.HasData && from >= 0 && cluster >= 0 && !_pvs.Visible(from, cluster))

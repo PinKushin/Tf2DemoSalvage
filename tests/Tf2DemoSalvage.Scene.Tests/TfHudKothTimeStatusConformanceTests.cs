@@ -20,6 +20,36 @@ public sealed class TfHudKothTimeStatusConformanceTests
         (koth.BluePanel.TimeValue.Text, koth.RedPanel.TimeValue.Text).ShouldBe(("1:40", "3:00"));
     }
 
+    /// <remarks>
+    /// `m_pBluePanel-&gt;SetTimerIndex( pTimer-&gt;entindex() )` (tf_time_panel.cpp:1065, :1082) runs `SetExtraTimePanels`
+    /// (tf_time_panel.h:77), so a panel pointed at a timer in setup shows its setup label then (B467).
+    /// </remarks>
+    [Test]
+    public void Think_InSetup_ShowsEachPanelsSetupLabelWithoutAnUpdate()
+    {
+        TfHudKothTimeStatus koth = Thought(Koth() with { Rules = KothRules() with { Setup = true } });
+
+        (koth.BluePanel.FindChildByName("SetupLabel")!.Visible, koth.RedPanel.FindChildByName("SetupLabel")!.Visible).ShouldBe((true, true));
+    }
+
+    /// <remarks>
+    /// `if ( pTimer-&gt;entindex() != m_pBluePanel-&gt;GetTimerIndex() )` (tf_time_panel.cpp:1063): a think that finds the
+    /// panel already on its timer does not set it again, so setup ending leaves the label up until something else runs
+    /// `SetExtraTimePanels`.
+    /// </remarks>
+    [Test]
+    public void Think_TheSameTimer_DoesNotRunSetExtraTimePanelsAgain()
+    {
+        TfHudKothTimeStatus koth = Thought(Koth() with { Rules = KothRules() with { Setup = true } });
+        HudViewport viewport = (HudViewport)koth.Parent!;
+
+        // `CHud::Think` decides visibility; the panels' `OnThink` runs in the layout pass.
+        viewport.Think(Koth().WithMatchHud(true));
+        VguiLayout.SolveTraverse(viewport, viewport.Context!);
+
+        (koth.BluePanel.FindChildByName("SetupLabel")!.Visible, koth.RedPanel.FindChildByName("SetupLabel")!.Visible).ShouldBe((true, true));
+    }
+
     [Test]
     public void ShouldDraw_OutsideKothOrWaitingOrFreezeCamOrSummary_IsHidden()
     {
@@ -107,6 +137,8 @@ public sealed class TfHudKothTimeStatusConformanceTests
                 "Resource/UI/HudObjectiveTimePanel.res"
                 {
                     "TimePanelBG" { "ControlName" "ScalableImagePanel" "fieldName" "TimePanelBG" "wide" "78" "tall" "33" "visible" "1" "image" "../hud/objectives_timepanel_blue_bg" }
+                    "SetupLabel" { "ControlName" "CExLabel" "fieldName" "SetupLabel" "visible" "0" "labelText" "#game_Setup" }
+                    "SetupBG" { "ControlName" "CTFImagePanel" "fieldName" "SetupBG" "visible" "0" }
                 }
                 """),
         };

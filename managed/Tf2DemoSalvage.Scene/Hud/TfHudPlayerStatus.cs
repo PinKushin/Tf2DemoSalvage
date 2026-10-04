@@ -509,5 +509,5 @@ public sealed class TfHudPlayerStatus : VguiEditablePanel, IHudElement
         && HudVisibility.ShouldDraw(state, this);
 
     /// <summary>`TF_COND_HALLOWEEN_GHOST_MODE` (tf_shareddefs.h:767).</summary>
-    private const int ConditionHalloweenGhostMode = 77;
+    private const int ConditionHalloweenGhostMode = PlayerConditions.HalloweenGhostMode;
 }

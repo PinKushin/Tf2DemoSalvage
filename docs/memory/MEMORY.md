@@ -59,7 +59,7 @@
 - [A picture is assertable](a-picture-is-assertable.md) — no reference image needed.
 - [A budget rule must not gate a correctness rule](a-budget-rule-must-not-gate-a-correctness-rule.md); [a parity rule may bound the cost](a-parity-rule-may-bound-the-cost.md).
 - [Sound the demo does not carry](sound-the-demo-does-not-carry.md) — footsteps are predicted; [a loop is state](a-loop-is-state-not-an-event.md).
-- [Valve parity first](valve-parity-is-the-first-principle.md) — D89/D143/D148/D172; [Valve's shape](valve-shape-beyond-parity.md), C# names that map (D163); [never assume it's broken](never-assume-valve-is-broken.md); [parity is the search](parity-is-the-search-not-the-defence.md) — read every branch.
+- [Valve parity first](valve-parity-is-the-first-principle.md) — D89/D143/D148/D172; [Valve's shape](valve-shape-beyond-parity.md), C# names that map (D163); [never assume it's broken](never-assume-valve-is-broken.md); [parity is the search](parity-is-the-search-not-the-defence.md) — read every branch; [a Valve comment is not its code](a-valve-comment-is-not-its-code.md) (B463).
 - [The fat column is the subtracted one](the-fat-column-is-the-subtracted-one.md).
 - [custom/ and choosable huds](custom-folder-and-choosable-huds.md) — deliberate; don't "fix".
 - [A partial thin view is worse than none](a-partial-thin-view-is-worse-than-none.md); [ask if the view must hold it](ask-if-the-view-must-hold-it.md).
@@ -117,6 +117,7 @@
 - [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — B440.
 - [A declared codec is not the payload's](a-declared-codec-is-not-the-payloads.md) — vaudio_speex carried SILK; CRC32 tail decides (B441).
 - [A flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) — class scripts carried into the decode (B437).
+- [Never stop a working subagent](never-stop-a-working-subagent.md) — limits apply to the next launch; resume, don't relaunch.
 - [A check is a test or it is not in](a-check-is-a-test-or-it-is-not-in.md) — never assert in teardown.
 - [Mutation runs go to the box](mutation-runs-go-to-the-box.md) — local Stryker only for a few lines.
 - [Full corpus at most once a day](full-corpus-at-most-once-a-day.md) — recheck a failure with --filter, never a rerun.

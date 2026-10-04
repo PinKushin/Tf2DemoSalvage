@@ -19,7 +19,7 @@ public sealed class PathConstraintConformanceTests
     public void PathValues_NoBulge_IsTheMidpointBetweenTheControlPoints()
     {
         // `mid = start + ( end − start ) · mid point position`; a random bulge of 0 adds nothing.
-        (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(Function(Path(0.25f)), [Start, End]);
+        (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(Function(Path(0.25f)), [Start, End], seed: 0);
 
         start.ShouldBe(Vector3.Zero);
         mid.ShouldBe(new Vector3(25f, 0f, 0f));
@@ -38,8 +38,27 @@ public sealed class PathConstraintConformanceTests
         parameters["bulge control 0=random 1=orientation of start pnt 2=orientation of end point"] =
             new DmxValue(DmxAttributeType.Whole, Number: 1d);
 
-        PathConstraint.PathValues(Function(parameters), [up, End]).Mid.ShouldBe(new Vector3(50f, 0f, 20f));
-        PathConstraint.PathValues(Function(parameters), [Start, End]).Mid.ShouldBe(new Vector3(50f, 0f, 0f));
+        PathConstraint.PathValues(Function(parameters), [up, End], seed: 0).Mid.ShouldBe(new Vector3(50f, 0f, 20f));
+        PathConstraint.PathValues(Function(parameters), [Start, End], seed: 0).Mid.ShouldBe(new Vector3(50f, 0f, 0f));
+    }
+
+    /// <remarks>
+    /// `CalculatePathValues`, read in `particles.obj` (B469): a random bulge reads `s_pRandomFloats[ ( m_nRandomSeed + 0, 1, 2 )
+    /// &amp; 0xfff ]`, `( bulge − −bulge ) · r + −bulge` per axis — so the collection's seed picks the entries.
+    /// </remarks>
+    [Test]
+    public void PathValues_ARandomBulge_ReadsTheEntriesTheSeedPicks()
+    {
+        Dictionary<string, DmxValue> parameters = Path(0.5f);
+
+        parameters["random bulge"] = new DmxValue(DmxAttributeType.Real, Number: 10d);
+
+        Vector3 mid = PathConstraint.PathValues(Function(parameters), [Start, End], seed: 3).Mid;
+
+        mid.ShouldBe(new Vector3(
+            50f + ((20f * ParticleRandom.Sample(0, 0, 3)) - 10f),
+            (20f * ParticleRandom.Sample(0, 0, 4)) - 10f,
+            (20f * ParticleRandom.Sample(0, 0, 5)) - 10f));
     }
 
     [Test]
@@ -121,7 +140,7 @@ public sealed class PathConstraintConformanceTests
             seconds: 0.1f,
             points: [Start, End]);
 
-        float t = ParticleRandom.Sample(0, ParticleSystems.AlongPathDraw);
+        float t = ParticleRandom.Sample(0, 0, ParticleSystems.AlongPathDraw);
 
         particles.PositionOf(0).ShouldBe(new Vector3(100f * t, 0f, 0f));
         particles.Previous[0].ShouldBe(particles.PositionOf(0));

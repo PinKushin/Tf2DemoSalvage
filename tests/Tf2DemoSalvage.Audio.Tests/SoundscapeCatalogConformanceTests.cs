@@ -127,7 +127,7 @@ public sealed class SoundscapeCatalogConformanceTests
         foreach (SoundscapeSound sound in gorge.Looping)
         {
             TestContext.Out.WriteLine(
-                $"  [42] {sound.Wave} vol {sound.Volume.ToString("0.##", CultureInfo.InvariantCulture)} " +
+                $"  [42] {sound.Wave} vol {sound.Volume.Start.ToString("0.##", CultureInfo.InvariantCulture)} " +
                 $"position {sound.Position?.ToString(CultureInfo.InvariantCulture) ?? "-"}");
         }
 
@@ -164,10 +164,8 @@ public sealed class SoundscapeCatalogConformanceTests
         foreach (SoundscapeSound sound in room.Looping)
         {
             TestContext.Out.WriteLine(
-                $"  {sound.Wave} vol {sound.Volume.ToString("0.##", CultureInfo.InvariantCulture)} " +
-                $"pitch {sound.Pitch.ToString(CultureInfo.InvariantCulture)} " +
-                $"position {sound.Position?.ToString(CultureInfo.InvariantCulture) ?? "-"} " +
-                $"attenuation {sound.Attenuation?.ToString("0.##", CultureInfo.InvariantCulture) ?? "-"}");
+                $"  {sound.Wave} vol {sound.Volume} pitch {sound.Pitch} " +
+                $"position {sound.Position?.ToString(CultureInfo.InvariantCulture) ?? "-"} level {sound.Level}");
         }
 
         // **Three, and the count is the assertion that matters.** `playlooping` appears three times
@@ -187,15 +185,16 @@ public sealed class SoundscapeCatalogConformanceTests
 
         // Volumes as written, including the leading-dot decimals the scripts use — ".6", ".30",
         // ".75". Reading those under a comma-decimal culture would give 6, 30 and 75.
-        room.Looping[0].Volume.ShouldBe(0.6f, 0.001d);
-        room.Looping[1].Volume.ShouldBe(0.30f, 0.001d);
-        room.Looping[2].Volume.ShouldBe(0.75f, 0.001d);
+        room.Looping[0].Volume.Start.ShouldBe(0.6f, 0.001d);
+        room.Looping[1].Volume.Start.ShouldBe(0.30f, 0.001d);
+        room.Looping[2].Volume.Start.ShouldBe(0.75f, 0.001d);
+        room.Looping.ShouldAllBe(sound => sound.Volume.Range == 0f, "none of the three is a range");
 
         // The third carries the only position and attenuation in the section, which is what makes
         // it the one placed in the world rather than at the listener.
         room.Looping[2].Position.ShouldBe(0);
-        room.Looping[2].Attenuation.ShouldNotBeNull();
-        room.Looping[2].Attenuation!.Value.ShouldBe(0.7f, 0.001d);
+        room.Looping[2].Level.IsAttenuation.ShouldBeTrue();
+        room.Looping[2].Level.Value.Start.ShouldBe(0.7f, 0.001d);
 
         room.Dsp.ShouldBe(1, "the respawn room asks for DSP 1, 'Generic'");
     }

@@ -77,7 +77,7 @@ public sealed class SoundscapeCatalogTests
 
         only.Looping.Count.ShouldBe(1);
         only.Looping[0].Wave.ShouldBe("ambient/hum.wav");
-        only.Looping[0].Volume.ShouldBe(0.5f);
+        only.Looping[0].Volume.ShouldBe(new Tf2DemoSalvage.Core.Primitives.Interval(0.5f, 0f));
     }
 
     [Test]

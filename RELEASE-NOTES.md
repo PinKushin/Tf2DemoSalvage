@@ -1,6 +1,25 @@
-# Tf2DemoSalvage 0.1.0-beta.14
+# Tf2DemoSalvage 0.1.0-beta.16
 
-## Changes since 0.1.0-beta.13
+## Changes since 0.1.0-beta.15
+
+- **Map ambience, as TF2 plays it:** ambient loops play at their own pitch (Halloween maps are pitched down), sounds
+  placed in the map fade with distance, each placed sound plays at the spot the map gives it, and a sound shared by
+  two areas carries on as you cross between them instead of playing twice. Loops with no volume set stay silent, as
+  in the game.
+- **Particles:** every effect draws its own random values, so two rockets or two explosions no longer look
+  identical; a rocket's smoke puffs spread along its path between ticks instead of stacking on the rocket.
+- **HUD:** the round timer shows up to ten time bonuses at once, and its labels appear as soon as the timer is
+  picked up in setup and overtime. The ammo count hides for Halloween ghosts, in minigames and under the match
+  summary.
+
+## Changes in 0.1.0-beta.15
+
+- **What gets drawn, the engine's way:** models are kept in the map leaves they touch and gathered per visible leaf,
+  so only what TF2 would draw is posed and drawn. Models in the 3D skybox now draw in the sky.
+- **See-through models** keep the translucency their model declares, as TF2 does; a skin change no longer turns a
+  model see-through.
+
+## Changes in 0.1.0-beta.14
 
 - **HDR, as TF2 picks it:** maps with HDR lighting draw TF2's integer-HDR path; maps without it draw their LDR sky.
 - **Skies:** HDR sky textures, half-float skies and `$color` tints draw as in TF2, and the Halloween sky faces load.
@@ -173,8 +192,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
-- **No footsteps or landing sounds.** The game predicts these on the client and never records them
-  in the demo (B172).
+- **No landing sounds.** The game predicts them on the client and never records them in the demo;
+  footsteps are rebuilt from the player animations, landings are not yet (B172).
+- **Maps that ship their own ambience script play no ambience**, koth_lazarus among them (B465).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
 - **The 3D skybox is drawn without its scale transform** (B152).

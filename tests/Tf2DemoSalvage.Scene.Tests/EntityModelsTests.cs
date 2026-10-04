@@ -640,6 +640,60 @@ public sealed class EntityModelsTests
     }
 
     /// <remarks>
+    /// **The engine collates an EMPTY leaf list to nothing** — `BuildRenderablesList` loops `m_LeafCount` times
+    /// (`clientleafsystem.cpp:1822`) — so a view that lists no leaves poses nothing (B262). Only a caller with no view
+    /// at all (null) keeps the old frustum-only behaviour.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAnEmptyMainLeafList_PosesNothing()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([], null, default));
+
+        instances.ShouldBeEmpty();
+        models.Culled.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`CSkyboxView::DrawInternal` collates and draws entities in the sky room** — `BuildRenderableRenderLists`,
+    /// `DrawOpaqueRenderables`, `DrawTranslucentRenderables` (`viewrender.cpp:4920-4932`) over the sky view's own leaf
+    /// list. A prop the main view does not list but the sky view does is posed, and marked for the sky pass.
+    /// </remarks>
+    [Test]
+    public void Instances_WithOnlyTheSkyViewListingItsLeaf_EmitsItForTheSkyPass()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([], [0], LookingAlongX()));
+
+        instances.Count.ShouldBe(1);
+        instances[0].InSky.ShouldBeTrue();
+    }
+
+    /// <remarks>The control: listed by the main view alone, it is the main view's, and carries its collated bucket.</remarks>
+    [Test]
+    public void Instances_WithTheMainViewListingItsLeaf_EmitsItForTheMainPassWithItsBucket()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
+
+        instances.Count.ShouldBe(1);
+        instances[0].InSky.ShouldBeFalse();
+        instances[0].SizeBucket.ShouldBe(ClientLeafSystem.BucketFor(64f));
+    }
+
+    /// <remarks>
     /// **The visibility half of the cull, the one the engine leads with** (B254).
     /// `CClientLeafSystem::BuildRenderablesList` (`clientleafsystem.cpp:1813`) iterates only the
     /// visible leaf list, so a renderable whose leaves are all outside it never reaches
@@ -655,7 +709,8 @@ public sealed class EntityModelsTests
         SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f, z: 100f)];
 
         models.Add(props, BoxedTriangle);
-        models.Instances(props, instances, frustum: LookingAlongX(), visibleByLeaf: [true, false]);
+        // The world cull listed leaf 0 alone (B262: a leaf list, where it was a visible-by-leaf flag set).
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
 
         instances.ShouldBeEmpty();
         models.CulledByVisibility.ShouldBe(1);
@@ -674,25 +729,51 @@ public sealed class EntityModelsTests
         SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f, z: -200f)];
 
         models.Add(props, BoxedTriangle);
-        models.Instances(props, instances, frustum: LookingAlongX(), visibleByLeaf: [true, false]);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
 
         instances.Count.ShouldBe(1);
         models.CulledByVisibility.ShouldBe(0);
     }
 
-    /// <summary>One node splitting on z = 0: leaf 1 above, leaf 0 below.</summary>
+    /// <summary>One node splitting on z = 0: leaf 1 above, leaf 0 below, both empty space with real bounds.</summary>
+    /// <remarks>
+    /// **Bounds and contents on the node and both leaves, because the engine's leaf walk reads them** (B262):
+    /// <c>EnumerateLeavesInBox</c> (engine.dll <c>0x1800dd690</c>) tests each node's and leaf's own box before it
+    /// descends or files, and skips a leaf whose contents are solid. A tree of planes alone has no boxes to overlap,
+    /// so every renderable would be filed nowhere and the control would collate nothing.
+    /// </remarks>
     private static BspLeafTree SplitAtZeroAboveIsLeafOne()
     {
+        const short Reach = 4096;
+
         byte[] plane = new byte[20];
 
         BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
 
+        // dnode_t: planenum, children[2], mins short[3] at 12, maxs short[3] at 18.
         byte[] node = new byte[32];
 
         BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -2);
         BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -1);
+        WriteBox(node.AsSpan(12), (-Reach, -Reach, -Reach), (Reach, Reach, Reach));
 
-        return BspLeafTree.FromLumps(node, plane);
+        // dleaf_t (version 1, 32 bytes): contents 0 (empty), mins short[3] at 8, maxs short[3] at 14.
+        byte[] leaves = new byte[64];
+
+        WriteBox(leaves.AsSpan(8), (-Reach, -Reach, -Reach), (Reach, Reach, 0));
+        WriteBox(leaves.AsSpan(32 + 8), (-Reach, -Reach, 0), (Reach, Reach, Reach));
+
+        return BspLeafTree.FromLumps(node, plane, leaves);
+    }
+
+    private static void WriteBox(Span<byte> at, (short X, short Y, short Z) min, (short X, short Y, short Z) max)
+    {
+        BinaryPrimitives.WriteInt16LittleEndian(at, min.X);
+        BinaryPrimitives.WriteInt16LittleEndian(at[2..], min.Y);
+        BinaryPrimitives.WriteInt16LittleEndian(at[4..], min.Z);
+        BinaryPrimitives.WriteInt16LittleEndian(at[6..], max.X);
+        BinaryPrimitives.WriteInt16LittleEndian(at[8..], max.Y);
+        BinaryPrimitives.WriteInt16LittleEndian(at[10..], max.Z);
     }
 
     private static SceneProp Prop(
