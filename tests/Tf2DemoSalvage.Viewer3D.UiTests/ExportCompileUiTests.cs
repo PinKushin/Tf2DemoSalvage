@@ -68,7 +68,9 @@ public sealed class ExportCompileUiTests
     [TearDown]
     public void CloseDialogAndDeleteFolder()
     {
-        if (Dialog() is { } dialog)
+        // Through WhileException: one UIA call timing out (0x80131505, seen locally) must not skip
+        // the cancel and leave the dialog over every later test.
+        if (Retry.WhileException(Dialog, DialogTimeout).Result is { } dialog)
         {
             TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it\n" + DescribeWindows());
             // A box the dialog raised (CI: "File not found") disables it, so Cancel cannot be invoked
@@ -80,7 +82,7 @@ public sealed class ExportCompileUiTests
             }
 
             dialog.FindFirstChild(search => search.ByAutomationId("2"))?.AsButton().Invoke();
-            Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true);
+            Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true, ignoreException: true);
         }
 
         TestContext.Out.WriteLine("focus at teardown: " + Focused());
@@ -120,7 +122,7 @@ public sealed class ExportCompileUiTests
     /// <param name="defaultName">The name the viewer pre-fills, or empty when it sets none.</param>
     private static void FillDialog(string path, string defaultName)
     {
-        AutomationElement? dialog = Retry.WhileNull(Dialog, DialogTimeout).Result;
+        AutomationElement? dialog = Retry.WhileNull(Dialog, DialogTimeout, ignoreException: true).Result;
         dialog.ShouldNotBeNull(
             $"no file dialog opened; the status bar says '{_viewer.StatusText()}' and the desktop holds "
             + string.Join(", ", Array.ConvertAll(
@@ -189,7 +191,7 @@ public sealed class ExportCompileUiTests
         confirm.Patterns.Invoke.Pattern.Invoke();
         Mark("OK invoked");
 
-        bool closed = Retry.WhileFalse(() => Dialog() is null, DialogTimeout).Success;
+        bool closed = Retry.WhileFalse(() => Dialog() is null, DialogTimeout, ignoreException: true).Success;
         Mark("closed: " + closed);
         closed.ShouldBeTrue($"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
     }
