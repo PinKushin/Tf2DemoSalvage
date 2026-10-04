@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.GameSystems;
 using Tf2DemoSalvage.Scene;
@@ -204,16 +206,19 @@ public sealed class LevelSystems
     /// <param name="game">What the install provides.</param>
     /// <param name="timeline">The decoded demo, or null when none is open.</param>
     /// <param name="textureQuality">How far to downscale textures.</param>
+    /// <param name="mapName">The level's name without path or extension — the engine's <c>MapName()</c>.</param>
     /// <returns>The level, for the caller to keep.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="game"/> is null.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="game"/> or <paramref name="mapName"/> is null.</exception>
     /// <exception cref="System.IO.InvalidDataException">The file is not a readable BSP.</exception>
     public LoadedMap Load(
         ReadOnlyMemory<byte> bytes,
         GameContent game,
         DemoTimeline? timeline,
-        int textureQuality)
+        int textureQuality,
+        string mapName)
     {
         ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(mapName);
 
         // **A map load no longer depends on which VIEW is on** (B219). It took a `colourByClass`
         // flag until 2026-08-27, because the category view's colours were baked into the geometry —
@@ -254,6 +259,11 @@ public sealed class LevelSystems
         // category view could not be switched without rebuilding; they travel per instance now.
         _models.EntityTint = map.EntityTintFor;
 
+        // **The catalog is the LEVEL's, rebuilt with the map's name** (B465): `C_SoundscapeSystem::LevelInitPreEntity`
+        // is `Shutdown(); Init();` (`c_soundscape.cpp:99-102`), and `Init` appends the map's own script, read with its
+        // pakfile mounted first. Before the placements, which resolve their names against it.
+        _soundscape.Catalog = game.Archives.IsEmpty ? null : LevelCatalog(bytes, game, mapName);
+
         _soundscape.Placements = _soundscape.Catalog is { } loaded
             ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
             : null;
@@ -279,6 +289,26 @@ public sealed class LevelSystems
         Report(map);
 
         return map;
+    }
+
+    /// <summary>The soundscape catalog for one level, through its pakfile first.</summary>
+    /// <remarks>
+    /// **A malformed pakfile costs the map's own soundscapes, not the level** — the same trade every other pakfile
+    /// reader here makes. It is reported, and the catalog falls back to the install with the map's name, which still
+    /// finds a script the install ships for it.
+    /// </remarks>
+    private SoundscapeCatalog LevelCatalog(ReadOnlyMemory<byte> bytes, GameContent game, string mapName)
+    {
+        try
+        {
+            return SoundscapeCatalog.ForLevel(PakFile.ReadFrom(bytes), game.Archives.Read, mapName);
+        }
+        catch (InvalidDataException failure)
+        {
+            _audio.LogWarning(failure, "reading {Map}'s pakfile for its soundscapes; the install's alone are used", mapName);
+
+            return SoundscapeCatalog.Load(game.Archives.Read, mapName);
+        }
     }
 
     /// <summary>Tells every system the level is going away.</summary>

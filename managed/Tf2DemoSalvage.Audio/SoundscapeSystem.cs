@@ -44,8 +44,9 @@ public sealed class SoundscapeSystem(
     /// **`LevelShutdownPreEntity` rather than the post half, because these ARE the entity data.**
     /// A placement holds a leaf index into the map it was built from, so carrying one across a load
     /// chooses ambience by the previous map's geometry — which sounds like a bug in the chooser
-    /// rather than like stale state. The catalog is NOT cleared: it comes from the install, not the
-    /// level, and survives a map change exactly as it does in the engine.
+    /// rather than like stale state. The catalog is NOT cleared here: the engine rebuilds it at the NEXT level's
+    /// `LevelInitPreEntity` (`c_soundscape.cpp:99-102`), with that map's own script, and so does `LevelSystems.Load`
+    /// (B465).
     /// </remarks>
     public void LevelShutdownPreEntity()
     {

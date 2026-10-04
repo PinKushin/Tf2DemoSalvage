@@ -158,6 +158,32 @@ public sealed class SoundscapeCatalog
         return new SoundscapeCatalog(soundscapes);
     }
 
+    /// <summary>The catalog a level's client builds: the manifest, then the map's own script, read pakfile first.</summary>
+    /// <param name="pak">The map's pakfile.</param>
+    /// <param name="install">Opens a file from the game's own search path, or answers null when absent.</param>
+    /// <param name="mapName">The level's name, without path or extension.</param>
+    /// <returns>The catalog.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="pak"/> or <paramref name="install"/> is null.</exception>
+    /// <exception cref="System.IO.InvalidDataException">A pakfile entry the catalog reads is malformed.</exception>
+    /// <remarks>
+    /// **Per level, because the engine rebuilds it per level.** <c>C_SoundscapeSystem::LevelInitPreEntity</c> is
+    /// <c>Shutdown(); Init();</c> (<c>c_soundscape.cpp:99-102</c>), and <c>Init</c> appends
+    /// <c>scripts/soundscapes_&lt;MapName()&gt;.txt</c> after the manifest's files (<c>:306-336</c>) — the server's
+    /// <c>CSoundscapeSystem::Init</c> the same (<c>soundscape_system.cpp:129-175</c>), so both number the map's entries
+    /// after every stock one.
+    ///
+    /// **Pakfile first, because that is where the filesystem puts it.** Every read here — the manifest included — goes
+    /// through the <c>"GAME"</c> search path, at whose head the engine mounts the loaded map's pakfile; a map's own
+    /// script is usually nowhere else. Read from the install alone, koth_lazarus's placements were all index -1 (B465).
+    /// </remarks>
+    public static SoundscapeCatalog ForLevel(PakFile pak, Func<string, byte[]?> install, string mapName)
+    {
+        ArgumentNullException.ThrowIfNull(pak);
+        ArgumentNullException.ThrowIfNull(install);
+
+        return Load(path => pak.ReadFile(path) ?? install(path), mapName);
+    }
+
     /// <summary>Appends one file's top-level sections, in order.</summary>
     /// <remarks>
     /// The engine's rule is `if ( pKeys->GetFirstSubKey() )` — a top-level key that opens a block is

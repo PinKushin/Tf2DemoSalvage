@@ -455,6 +455,7 @@ public sealed class SoundscapeEntityConformanceTests
         SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
 
         int checkedProxies = 0;
+        int started = 0;
 
         foreach (BspEntity entity in entities)
         {
@@ -474,16 +475,25 @@ public sealed class SoundscapeEntityConformanceTests
                 .Single(placement => (placement.X, placement.Y, placement.Z) == at);
 
             placed.Name.ShouldBe(soundscape, $"the proxy at {at} names {master}");
-            catalog.At(placed.Index).ShouldNotBeNull().Name.ShouldBe(soundscape, System.StringComparer.OrdinalIgnoreCase);
+
+            Soundscape script = catalog.At(placed.Index).ShouldNotBeNull();
+
+            script.Name.ShouldBe(soundscape, System.StringComparer.OrdinalIgnoreCase);
 
             SoundscapeMixer mixer = new();
-            mixer.MoveTo(placed, catalog.At(placed.Index));
-            mixer.Advance(0f).ShouldNotBeEmpty($"{soundscape} starts its loops");
+            mixer.MoveTo(placed, script);
 
+            // Every `venice.inside.*` loop is an unpositioned room tone, so each starts; `venice.outside.*` has no
+            // `playlooping` of its own and nests one with `playsoundscape`, which is not ported (B173's list).
+            mixer.Advance(0f).Select(voice => voice.Wave)
+                .ShouldBe(script.Looping.Select(loop => loop.Wave), $"{soundscape} starts its own loops");
+
+            started += script.Looping.Count > 0 ? 1 : 0;
             checkedProxies++;
         }
 
         checkedProxies.ShouldBe(39, "the census: 39 proxies of a triggerable on pl_venice");
+        started.ShouldBe(30, "the 30 that name a venice.inside soundscape start its room tone");
     }
 
     private static string? Named(BspEntity entity, string key) =>

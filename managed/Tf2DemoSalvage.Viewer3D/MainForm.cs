@@ -1723,7 +1723,8 @@ internal class MainForm : Form, IFrameSteps
                 bytes,
                 _game,
                 timeline,
-                (int)_settings.TextureQuality);
+                (int)_settings.TextureQuality,
+                mapName);
 
             // **The LEVEL survives a content failure, and it did not before.** The old catch set
             // `_level = null` alongside `_assets = null`, throwing away lumps that had read

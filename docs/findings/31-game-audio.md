@@ -964,11 +964,24 @@ sounded at with the set the lump names. On ctf_well it passed with the compactio
 positions 1, 2 and 4, and compacted it still sounds at exactly those three places — with machine_hum where
 computer_tape belongs and computer_tape where computer_working does. Comparing (wave, place) pairs reddens it.
 
-**Not yet fixed, found on the way (B465):** the map's own `scripts/soundscapes_<map>.txt` is never loaded — the
-engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes are all
-index −1 here.
+**Found on the way, and fixed in the next pass (B465):** the map's own `scripts/soundscapes_<map>.txt` was never
+loaded — the engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes were
+all index −1 here.
 
-## The follow-ups: what C itself does to a number (B479–)
+## The follow-ups: a third of the maps, and what C itself does to a number (B465, B479–B485)
+
+*Measured on the install with the `soundscape-map-scripts` probe, 2026-10-04.* **The largest gap left in the
+soundscape was not in the soundscape code at all — it was in WHICH FILES the catalog was built from.** The catalog was
+built once per install, from the VPKs, with no map name, on the reasoning that it "comes from the install, not the
+level". The engine rebuilds it at every `LevelInitPreEntity` and appends the map's own script, read through a
+filesystem that has the map's pakfile mounted first. 71 of the 239 installed maps ship that script in their pakfile,
+and on 66 of them 3,700 placements named a soundscape the viewer's catalog did not have — near any of them the viewer
+kept whatever ambience had last started, or played none. The census and the
+index order are the parts worth keeping: the map's entries are numbered after all 153 stock ones on both the client and
+the server, so a demo's index means the same on each.
+
+The same pass found the wave reader has the same blind spot one level down — pl_venice carries 35 sounds in its pakfile
+and the sound cache never looks there (B485, open).
 
 *Read, published source and the C standard, 2026-10-04.* **`atof` returns a double**, and that is not pedantry here:
 `ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so

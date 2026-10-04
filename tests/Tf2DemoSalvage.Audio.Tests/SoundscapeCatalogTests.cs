@@ -201,6 +201,53 @@ public sealed class SoundscapeCatalogTests
         catalog.At(1).ShouldBeNull("the manifest already named it, so it must not load again");
     }
 
+    /// <remarks>
+    /// **The map's pakfile is searched ahead of the install, for every file the catalog reads** — the manifest's files as
+    /// much as the map's own (B465). The engine mounts the loaded map's pakfile at the head of the <c>"GAME"</c> path, and
+    /// <c>C_SoundscapeSystem::Init</c> reads through that path (<c>c_soundscape.cpp:274,314,333</c>). A synthetic zip, so
+    /// the machine without TF2 runs it: the same script name in both places answers the pakfile's, and the map's own
+    /// script, which only the pakfile has, is appended last.
+    /// </remarks>
+    [Test]
+    public void ForLevel_AScriptInBothThePakfileAndTheInstall_IsThePakfilesAndTheMapsOwnGoesLast()
+    {
+        Tf2DemoSalvage.Content.Assets.PakFile pak = Tf2DemoSalvage.Content.Assets.PakFile.Read(Zip(new()
+        {
+            ["scripts/soundscapes_test.txt"] = "\"test.pak\"\n{\n    \"dsp\"    \"1\"\n}\n",
+            ["scripts/soundscapes_cp_test.txt"] = "\"test.map\"\n{\n    \"dsp\"    \"2\"\n}\n",
+        }));
+        System.Func<string, byte[]?> install = Files(new()
+        {
+            [Manifest] = Listing("scripts/soundscapes_test.txt"),
+            ["scripts/soundscapes_test.txt"] = "\"test.install\"\n{\n    \"dsp\"    \"1\"\n}\n",
+        });
+
+        SoundscapeCatalog level = SoundscapeCatalog.ForLevel(pak, install, "cp_test");
+
+        level.Soundscapes.Select(soundscape => soundscape.Name).ShouldBe(["test.pak", "test.map"]);
+
+        // The control: the install alone has neither the pakfile's copy nor the map's script.
+        SoundscapeCatalog.Load(install, "cp_test").Soundscapes.Select(soundscape => soundscape.Name)
+            .ShouldBe(["test.install"]);
+    }
+
+    /// <summary>A zip of the given text files, as a map's pakfile holds them.</summary>
+    private static byte[] Zip(Dictionary<string, string> files)
+    {
+        using System.IO.MemoryStream stream = new();
+
+        using (System.IO.Compression.ZipArchive archive = new(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach ((string path, string text) in files)
+            {
+                using System.IO.Stream entry = archive.CreateEntry(path).Open();
+                entry.Write(Encoding.UTF8.GetBytes(text));
+            }
+        }
+
+        return stream.ToArray();
+    }
+
     [Test]
     public void Load_WithNoManifest_IsAnEmptyCatalogRatherThanAnError()
     {

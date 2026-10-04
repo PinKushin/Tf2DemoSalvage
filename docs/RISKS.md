@@ -34814,7 +34814,7 @@ slot's target straight from the lump and checks the wave that sounds there. Its 
 **passed under compaction on ctf_well**, which kept the same three targets with the waves rotated; it compares
 (wave, place) now and reddens on both maps.
 
-## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — OPEN 2026-10-04
+## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — FIXED 2026-10-04
 
 **Read, published source:** `C_SoundscapeSystem::LevelInitPreEntity` re-runs `Init` on every level (`c_soundscape.cpp:
 99-102`), and `Init` appends `scripts/soundscapes_<map>.txt` after the manifest unless the manifest named it
@@ -34823,7 +34823,26 @@ per install, from the VPKs only and with no map name, so **every placement on su
 Measured while writing B464's output-level test: koth_lazarus's six position-keyed soundscapes (`Lazarus.Base`,
 `.Jungle`, `.Cave`) all resolve to -1, and its pakfile carries `SCRIPTS/SOUNDSCAPES_KOTH_LAZARUS.TXT` (`pak` probe,
 one of 6,293 entries). `SoundscapeCatalog.Load` already takes the map name; the level load needs to
-pass it and a reader that tries the pakfile first. How many installed maps ship one is not yet counted.
+pass it and a reader that tries the pakfile first.
+
+**Counted, `soundscape-map-scripts` probe on the 239 installed maps:** 71 ship their own script in the pakfile and one
+(cp_coldfront) in the install, where the manifest already names it. **3,700 placements on 66 maps that named no
+catalog entry through the install alone resolve through the level's reader**; 21 on four maps still name nothing
+(cp_canaveral_5cp 8, pl_enclosure_final 11, plr_matterhorn 1, tow_dynamite 1 — masterless proxies among them, B481).
+The stock catalog is 153 either way, which is the control — a map that ships nothing comes out the same.
+
+**Fix:** `SoundscapeCatalog.ForLevel( pak, install, mapName )` — `Load` through a reader that asks the pakfile first —
+and `LevelSystems.Load` rebuilds the catalog per level with the map's name before the placements resolve against it,
+falling back to the install alone, reported, if the pakfile will not read. `MainForm` passes the demo's map name. The
+install-time catalog `OpenGame` builds stays as the engine's DLL-init one. Output level: `ForLevel_KothLazarus_
+ResolvesItsOwnSoundscapesFromItsPakfile` (all `Lazarus.*` placements -1 through the install as the control, each
+resolving after every stock entry and starting its loops through the level's), koth_lazarus added to the slot test,
+pl_venice's triggerable proxies starting their room tone; `ForLevel_AScriptInBothThePakfileAndTheInstall_IsThe
+PakfilesAndTheMapsOwnGoesLast` on a synthetic zip, for the machine without TF2. Sabotage — the install searched first,
+and no map name — reddened them, restored by the inverse edit.
+
+**Not asserted by a test:** the one line in `LevelSystems.Load` that hands `ForLevel` the map name. Exercising it needs
+a full `LoadedMap.Read` of a real map with the install, which no Presentation test does.
 
 ## B469 — every particle collection drew the same random numbers: the seed was missing from every table index — FIXED 2026-10-04
 
@@ -35220,3 +35239,13 @@ audible changes today; it is the branch B483's end-touch will reach.
 `MoveTo_NoEntity_StartsNothingAndTheLoopsPlayOn`, with re-entering the same placement as the control (a change, so a
 restart that reclaims the loop where it stands); `Ended_…` now fades through a soundscape with no loops, which is what
 `StartNewSoundscape` does. Sabotage — a fade on a null placement — reddened it; restored by the inverse edit.
+
+## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — OPEN 2026-10-04
+
+**Measured while closing B465** (`pak` probe): pl_venice's pakfile carries 35 entries under `sound/` — canal water,
+flies, rodents — and `LevelSystems.OpenGame` sets `SoundCache.Read = game.Archives.Read`, once per install. Any sound
+that lives only in a map's pakfile, whether a soundscape loop, a `playrandom` wave or an `ambient_generic`, logs
+"would not open" and is silent. The engine reads every sound through the `"GAME"` search path, with the map's pakfile
+mounted at its head. The fix needs the cache to read per level — and to forget what it decoded from the previous map's
+pakfile, since a stock path can be shadowed by one map and not the next. koth_lazarus ships no sounds, so B465's
+output-level test does not reach this.
