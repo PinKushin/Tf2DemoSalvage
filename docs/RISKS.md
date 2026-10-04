@@ -34392,4 +34392,5 @@ x 15.96875 with no velocity. **Fix** (e2f4d85e): StepMove returns after the low 
 
 **The same flag in `WaterMove`** (`:1693-1700`) raises the press-down start; the port always raises it. Tested rather than
 assumed (b3dcbd14): the destination trace was already clear, so the raised box lands there or starts solid and
-`TryPlayerMove` lands there — equivalent, no change.
+`TryPlayerMove` lands there — equivalent in that geometry. One geometry is not a proof for all, so the gate is ported
+anyway, in Valve's shape: the start is raised only with the flag.
