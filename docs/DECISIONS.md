@@ -9518,8 +9518,9 @@ owner's reason above.
 
 ## D209 — a Linux front end is planned: Dear ImGui for WinForms, Vulkan for D3D11 (2026-10-03)
 
-**Corrects D34's "this project is Windows-only regardless."** Linux was the plan from the start; D34's line
-recorded it wrongly. Owner: *"i think the earlier linux
+**Reverses D34's "this project is Windows-only regardless."** That was true when D34 was written: Linux was not the
+plan. It became one during the thin-view work (D90), when the measurement boxes turned out to be Linux-only, so
+running on Linux became a requirement rather than a nice-to-have. Owner: *"i think the earlier linux
 possiblilities just were not copmpletely documented right. I specifically required the true thin view so that we
 could replace winforms with dear imgui, later, and replace D3d with vulken, since the vulcan change is actually just a
 change in the silk framework."*
@@ -9531,9 +9532,11 @@ hypothetical test of the split. Its parts: Dear ImGui in place of WinForms, Vulk
 Silk.NET family, and FreeType in place of the GDI rasteriser (D90). D34's choice of D3D11 over OpenGL is unchanged —
 the portable backend is Vulkan, not OpenGL. The same portable renderer is what the online viewer (D208) needs.
 
-**Why Direct3D first, knowing Linux was coming** (owner): *"it was initially the plan, or i would have wwent with
-vulkan only, probably, but d3d is better for windows and more native tf2 expesically in old clients, so having the
-true or at least the modern true renderer that tf2 was built for as first priority still makes since, the easrly
-decision just costs a little extra time in the linux port, and web port."* So D3D is first because it is the API
-TF2 itself renders through, which matters most for parity on old clients; the cost is a little extra time on the
-Linux and web ports, accepted knowingly.
+**Why Direct3D stays first** (owner, correcting a first draft of this entry that said Linux was the plan from the
+start): *"[if] it was initially the plan, … i would have wwent with vulkan only, probably, but d3d is better for
+windows and more native tf2 expesically in old clients, so having the true or at least the modern true renderer that
+tf2 was built for as first priority still makes since, the easrly decision just costs a little extra time in the
+linux port, and web port"*, and *"linux was NOT the plan from the start, it came up when we went full thin view and
+realized the testing box was only linux and so cross platform was really a requirement not just a nice have."* So
+D3D remains the first renderer because it is the API TF2 itself renders through, which matters most for parity on
+old clients; the early Windows-only choice costs a little extra time on the Linux and web ports, accepted.
