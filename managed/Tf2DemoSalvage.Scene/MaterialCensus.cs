@@ -59,6 +59,11 @@ internal static class MaterialCensus
         "$detailtint",
         "$translucent",
 
+        // Whether the shader reads vertex alpha, which carries an overlay's fade (B329,
+        // `VmtMaterial.TakesVertexAlpha`); the colour itself is white on every world vertex.
+        "$vertexcolor",
+        "$vertexalpha",
+
         // The map's baked reflection. $envmap on a compiled map names a concrete texture rather
         // than the literal env_cubemap — vbsp rewrote it at compile time for every brush face it
         // bound — and the three shading parameters are read with Valve's own defaults, which point
@@ -179,6 +184,11 @@ internal static class MaterialCensus
         // for ever. Measured by `DeadShaderParameterConformanceTests` against the SDK rather than
         // asserted here — see `docs/findings/12-shader-parity.md`.
         "$modblend",
+
+        // UnlitGeneric's `$vertexalphatest` sets bHasVertexAlpha only while snapshotting
+        // (`vertexlitgeneric_dx9_helper.cpp:482`), so it widens the vertex format and never reaches
+        // the dynamic `g_fVertexAlpha` (:1472): no pixel it draws changes (B329).
+        "$vertexalphatest",
     };
 
     /// <summary>Whether a key is a tool or compile keyword rather than a shader parameter.</summary>

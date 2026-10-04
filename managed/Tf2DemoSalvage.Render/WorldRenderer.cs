@@ -222,7 +222,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             //
             // x: mat_showlowresimage — the material is drawn from the tiny copy of itself that
             //    every VTF stores ahead of its mip chain, rather than from the texture.
-            // y, z, w: unused, and left named rather than removed so the next debug mode costs an
+            // y: LINEAR_LIGHT_SCALE, cLightScale.x (common_ps_fxc.h:50) — the tone-map scale FinalOutput multiplies
+            //    every colour by. One except in a reflection view under HDR_TYPE_INTEGER, which draws at a quarter (B62).
+            // z, w: unused, and left named rather than removed so the next debug mode costs an
             //    assignment instead of a constant-buffer change on both sides.
             float4 debugModes2;
 
@@ -879,15 +881,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // engine's vertex shader writes. fogColour.w 2 is RANGE_RADIAL: CalcRadialFog_NonFixedFunction
         // (common_fxc.h:334) takes the straight-line distance from the eye instead. `mode` is the material's
         // fog mode — 0 toward the fog colour, 1 toward black, 2 none.
+        //
+        // **FinalOutput's TONEMAP_SCALE_LINEAR first** (:348-350): the colour times LINEAR_LIGHT_SCALE, then the fog. The
+        // fog colour is taken at the same scale — interpolated from SetClearColorToFogColor (viewrender.cpp:759-766), which
+        // scales the fog colour by the tone-map scale under HDR_TYPE_INTEGER; shaderapi's g_LinearFogColor is not read.
         float3 PixelFog(float3 lit, float3 wpos, float mode)
         {
+            lit *= debugModes2.y;
+
             if (fogColour.w > 0.5f && mode < 1.5f)
             {
                 float projZ = fogColour.w > 1.5f
                     ? distance(eyePosition.xyz, wpos)
                     : mul(float4(wpos, 1.0f), viewProjection).z;
                 float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
-                float3 toward = mode > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb;
+                float3 toward = mode > 0.5f ? float3(0.0f, 0.0f, 0.0f) : fogColour.rgb * debugModes2.y;
                 lit = lerp(lit, toward, fogFactor * fogFactor);
             }
 
@@ -1705,7 +1713,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 // "can't write a special value to dest alpha if we're actually using as-intended alpha"
                 // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor.
-                return float4(lerp(lit, under, waterFog), heightFog.z > 0.5f ? waterFog : albedo.a);
+                return float4(lerp(lit, under, waterFog) * debugModes2.y, heightFog.z > 0.5f ? waterFog : albedo.a);
             }
 
             return float4(PixelFog(lit, input.wpos, tintControl.z), albedo.a);
@@ -1747,6 +1755,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <param name="device">The device.</param>
     /// <param name="context">The device context.</param>
     /// <param name="texture">The image, or null for no texture.</param>
+    /// <param name="srgb">Whether it is read through the sRGB curve — not for a sky's RGBS face (B461).</param>
     /// <returns>A view, or a default handle when there was nothing to upload.</returns>
     /// <remarks>
     /// **Exposed for the 2D skybox, whose materials are not in the map's table at all** — sky
@@ -1754,8 +1763,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// (B303). Sharing this rather than copying it keeps one answer to what a VTF becomes.
     /// </remarks>
     internal static ComPtr<ID3D11ShaderResourceView> UploadTexture(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture) =>
-        Upload(device, context, texture);
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, MapTexture? texture, bool srgb = true) =>
+        Upload(device, context, texture, srgb);
 
     private static ComPtr<ID3D11ShaderResourceView> Upload(
         ComPtr<ID3D11Device> device,
@@ -1868,6 +1877,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// the engine's arrangement rather than a rule about who tidies up.
     /// </remarks>
     private readonly HashSet<int> _decalMaterials = [];
+
+    /// <summary>Materials whose shader reads vertex alpha, so an overlay's fade ramp shows (B329).</summary>
+    private readonly HashSet<int> _vertexAlphaMaterials = [];
 
     /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
     private readonly Dictionary<int, bool> _modulate = [];
@@ -2918,6 +2930,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 _decalMaterials.Add(index);
             }
+
+            if (texture is { TakesVertexAlpha: true })
+            {
+                _vertexAlphaMaterials.Add(index);
+            }
         }
 
         string chequeredAt = chequered.Count > 0
@@ -3961,7 +3978,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // the last frame put there, so a component that is sometimes not written is a mode that
             // sometimes turns itself on.
             debug.ShowLowResImage ? 1f : 0f,
-            0f,
+            LinearLightScale,
             0f,
             0f,
 
@@ -5691,7 +5708,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             // **Faded per overlay from the view origin** (lump 60, engine.dll 0x18010a580): past its
             // maximum the engine never queues it. Without an eye there is no distance, so it draws.
-            float? alpha = batch.Fade is { } fade && _eye is { } eye ? fade.Alpha(eye.X, eye.Y, eye.Z) : 1f;
+            // The ramp itself rides on vertex alpha, so only a shader that reads it shows one (B329).
+            float? alpha = batch.Fade is { } fade && _eye is { } eye
+                ? fade.DrawnAlpha(eye.X, eye.Y, eye.Z, _vertexAlphaMaterials.Contains(batch.MaterialIndex))
+                : 1f;
 
             if (alpha is { } drawn)
             {

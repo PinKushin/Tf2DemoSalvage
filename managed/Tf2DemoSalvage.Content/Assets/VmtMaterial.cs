@@ -488,6 +488,19 @@ public sealed class VmtMaterial
     /// <summary>Whether a modulating material doubles its result.</summary>
     public bool IsModulateTwice => IsDecalModulate || (IsModulate && Flag("$mod2x"));
 
+    /// <summary>Whether the shader multiplies the vertex's alpha into its output (B329).</summary>
+    /// <remarks>
+    /// **Per shader, because each gates it on a different flag.** LightmappedGeneric passes
+    /// <c>v.vColor</c> on only under its VERTEXCOLOR combo, set from <c>$vertexcolor</c>
+    /// (<c>lightmappedgeneric_dx9_helper.cpp:539</c>, <c>lightmappedgeneric_vs20.fxc:213-232</c>).
+    /// UnlitGeneric lerps alpha toward <c>alpha * i.color.a</c> by <c>$vertexalpha</c>
+    /// (<c>vertexlitgeneric_dx9_helper.cpp:1472</c>, <c>vertexlit_and_unlit_generic_ps2x.fxc:419</c>).
+    /// A lit VertexLitGeneric clears both (<c>vertexlitgeneric_dx9_helper.cpp:454-455</c>).
+    /// </remarks>
+    public bool TakesVertexAlpha =>
+        Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ? Flag("$vertexcolor")
+        : Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexalpha");
+
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");
 

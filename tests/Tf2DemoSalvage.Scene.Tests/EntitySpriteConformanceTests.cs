@@ -215,17 +215,41 @@ public sealed class EntitySpriteConformanceTests
     /// mode picks the blend, through the material `CEngineSprite::Init` built for that mode
     /// (`spritemodel.cpp:279`) — never the material's own text (B391). Additive is <c>SRC_ALPHA,
     /// ONE</c>; translucent is <c>SRC_ALPHA, ONE_MINUS_SRC_ALPHA</c>.
+    ///
+    /// **And the depth state is the mode's too**, from the same branches: every blended mode calls
+    /// <c>EnableDepthWrites( false )</c>; the two glow modes alone add <c>EnableDepthTest( false )</c>
+    /// (`sprite_dx9.cpp:264-265`); <c>kRenderNormal</c> enables no blending and leaves depth as the
+    /// initial shadow state has it, tested and written (`:229-241`).
     /// </remarks>
-    [TestCase(RenderModes.TransColor, SpriteBlend.Translucent)]
-    [TestCase(RenderModes.TransTexture, SpriteBlend.Translucent)]
-    [TestCase(RenderModes.Glow, SpriteBlend.Additive)]
-    [TestCase(RenderModes.TransAlpha, SpriteBlend.Translucent)]
-    [TestCase(RenderModes.TransAdd, SpriteBlend.Additive)]
-    [TestCase(RenderModes.TransAddFrameBlend, SpriteBlend.Additive)]
-    [TestCase(RenderModes.WorldGlow, SpriteBlend.Additive)]
-    public void BlendFor_EachModeTheShaderBlends_IsTheShadersBlend(int renderMode, SpriteBlend expected)
+    [TestCase(RenderModes.Normal, SpriteBlend.Opaque, SpriteDepth.TestAndWrite)]
+    [TestCase(RenderModes.TransColor, SpriteBlend.Translucent, SpriteDepth.TestNoWrite)]
+    [TestCase(RenderModes.TransTexture, SpriteBlend.Translucent, SpriteDepth.TestNoWrite)]
+    [TestCase(RenderModes.Glow, SpriteBlend.Additive, SpriteDepth.Off)]
+    [TestCase(RenderModes.TransAlpha, SpriteBlend.Translucent, SpriteDepth.TestNoWrite)]
+    [TestCase(RenderModes.TransAdd, SpriteBlend.Additive, SpriteDepth.TestNoWrite)]
+    [TestCase(RenderModes.TransAddFrameBlend, SpriteBlend.Additive, SpriteDepth.TestNoWrite)]
+    [TestCase(RenderModes.WorldGlow, SpriteBlend.Additive, SpriteDepth.Off)]
+    public void PassesFor_EachSinglePassMode_IsTheShadersOnePass(
+        int renderMode, SpriteBlend blend, SpriteDepth depth)
     {
-        EntitySprites.BlendFor(renderMode).ShouldBe(expected);
+        EntitySprites.PassesFor(renderMode).ShouldBe([new SpritePass(blend, depth)]);
+    }
+
+    /// <remarks>
+    /// **`kRenderTransAlphaAdd` draws twice, in this order** (`sprite_dx9.cpp:297-330`): first
+    /// <c>BlendFunc( SHADER_BLEND_SRC_ALPHA, SHADER_BLEND_ONE_MINUS_SRC_ALPHA )</c>, then — after
+    /// <c>SetInitialShadowState()</c> and <c>EnableDepthWrites( false )</c> again —
+    /// <c>BlendFunc( SHADER_BLEND_ONE_MINUS_SRC_ALPHA, SHADER_BLEND_ONE )</c>. Both depth-tested,
+    /// neither written. Drawn as one translucent pass until now.
+    /// </remarks>
+    [Test]
+    public void PassesFor_TransAlphaAdd_IsTranslucentThenInverseAlphaAdded()
+    {
+        EntitySprites.PassesFor(RenderModes.TransAlphaAdd).ShouldBe(
+        [
+            new SpritePass(SpriteBlend.Translucent, SpriteDepth.TestNoWrite),
+            new SpritePass(SpriteBlend.InverseAlphaAdd, SpriteDepth.TestNoWrite),
+        ]);
     }
 
     /// <remarks>
@@ -235,9 +259,9 @@ public sealed class EntitySpriteConformanceTests
     /// </remarks>
     [TestCase(RenderModes.Environmental)]
     [TestCase(RenderModes.None)]
-    public void BlendFor_AModeWithNoMaterial_DrawsNothing(int renderMode)
+    public void PassesFor_AModeWithNoMaterial_DrawsNothing(int renderMode)
     {
-        EntitySprites.BlendFor(renderMode).ShouldBeNull();
+        EntitySprites.PassesFor(renderMode).ShouldBeEmpty();
     }
 
     /// <remarks>

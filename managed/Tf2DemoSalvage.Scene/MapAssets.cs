@@ -59,6 +59,10 @@ namespace Tf2DemoSalvage.Scene;
 /// when the material names none.
 /// </param>
 /// <param name="SecondTransform"><c>$texture2transform</c>, the same for the second texture.</param>
+/// <param name="TakesVertexAlpha">
+/// Whether the shader reads vertex alpha — the only route an overlay's distance fade has to the
+/// screen (B329, <see cref="VmtMaterial.TakesVertexAlpha"/>).
+/// </param>
 /// <param name="IsDecal">
 /// Whether the material MARKS a surface rather than being one — <c>$decal</c>,
 /// <c>MATERIAL_VAR_DECAL</c>. Carried per material because that is where the engine keeps render
@@ -88,6 +92,7 @@ namespace Tf2DemoSalvage.Scene;
 /// the REST value of the modulation a material proxy animates, so a material with a proxy has it
 /// overwritten each frame and one without keeps this.
 /// </param>
+/// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -142,7 +147,11 @@ public readonly record struct MapTexture(
     // the two apart. A scrolling proxy overwrites these rows per frame; a material that only states
     // a static transform has no proxy and would otherwise draw untransformed.
     TextureTransform? BaseTransform = null,
-    TextureTransform? SecondTransform = null)
+    TextureTransform? SecondTransform = null,
+    bool TakesVertexAlpha = false,
+
+    // **A 2D sky face's shader, constant and sRGB read** (B461) — null for every texture that is not one.
+    SkyFaceShading? Sky = null)
 {
     /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
     /// <param name="decoded">The texture as read.</param>
@@ -1016,6 +1025,9 @@ public sealed class MapAssets
     /// <summary>Each <c>Water</c> material's parameters, null for every other material (B62).</summary>
     public IReadOnlyList<MapWater?> Waters { get; private init; } = [];
 
+    /// <summary>The HDR type TF2 runs on this map — <c>HDR_TYPE_INTEGER</c> on an HDR map, else none (B62).</summary>
+    public Content.Bsp.HdrType Hdr { get; private init; }
+
     /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
     public BspWater Water { get; private init; } = new([], []);
 
@@ -1732,6 +1744,9 @@ public sealed class MapAssets
 
         // Stryker restore all
 
+        // The HDR type the engine runs this map under (B62), which the water and the sky branch on.
+        Content.Bsp.HdrType hdr = Content.Bsp.BspHdr.ForTf2(map.Span);
+
         return new MapAssets(
             table.Textures,
             table.BlendTextures,
@@ -1773,7 +1788,8 @@ public sealed class MapAssets
             AnimationFrames = table.AnimationFrames,
             DetailAnimations = table.DetailAnimations,
             Waters = table.Waters,
-            Water = BspWater.Read(map),
+            Hdr = hdr,
+            Water =BspWater.Read(map),
             WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,
             DevGrid = LoadDevGrid(assets, archives, maximumTextureSize),
@@ -1785,7 +1801,8 @@ public sealed class MapAssets
                 archives,
                 pak,
                 maximumTextureSize,
-                BspEntities.SkyName(entities)),
+                BspEntities.SkyName(entities),
+                hdr),
 
             // Valve's own luxel grid, for mat_luxels. Same loader, different candidates — it ships
             // only in the Half-Life 2 archives, which TF2's gameinfo.txt mounts after its own.
@@ -1836,7 +1853,8 @@ public sealed class MapAssets
         GameArchives archives,
         PakFile pak,
         int maximumTextureSize,
-        string skyName)
+        string skyName,
+        Content.Bsp.HdrType hdr)
     {
         string[] materials = BspEntities.SkyFaces(skyName);
         MapTexture?[] faces = new MapTexture?[materials.Length];
@@ -1873,18 +1891,23 @@ public sealed class MapAssets
                 return [];
             }
 
-            // **The HDR face, as `Sky_HDR_DX9` draws it at TF2's default level** (SkySurface): `$hdrcompressedTexture`,
-            // RGBS decoded to linear light. The LDR `$basetexture` is the fallback for a sky that ships none.
+            // **The shader and texture `Sky_HDR_DX9` / `Sky_DX9` take under this map's HDR type** (B461, SkySurface):
+            // RGBS `$hdrcompressedtexture`, then `$hdrcompressedtexture0`, then `$hdrbasetexture` under HDR, else
+            // `$basetexture` — loaded as the file is, and decoded in the sky's own shader as Valve's is.
             // **Both archives again, and for the same map.** A community sky's VMT and its VTF are
             // packed together, so finding the material in the pak and then looking for its texture
             // only in the game's VPKs would fail on the second half of every custom sky.
-            MapTexture? read = material.Value("$hdrcompressedtexture") is { } compressed &&
-                               LoadRgbsSky(assets, archives, pak, maximumTextureSize, $"materials/{compressed}.vtf") is { } hdr
-                ? hdr
-                : LoadPackedTexture(assets, archives, pak, maximumTextureSize, $"materials/{texture}.vtf");
+            SkyChoice choice = SkySurface.Choose(material, hdr) ?? new SkyChoice(SkyPixelShader.Sky, texture);
+            MapTexture? read = LoadPackedTexture(assets, archives, pak, maximumTextureSize, $"materials/{choice.Texture}.vtf");
 
             // `$basetexturetransform`, which `sky_vs20.fxc` applies to the face's coordinate: harvest's sides stretch v by two.
-            faces[face] = read is { } loaded ? loaded with { BaseTransform = Transform(material.BaseTextureTransform) } : null;
+            faces[face] = read is { } loaded
+                ? loaded with
+                {
+                    BaseTransform = Transform(material.BaseTextureTransform),
+                    Sky = SkySurface.Shading(material, choice.Shader, loaded.Image.Format, hdr),
+                }
+                : null;
 
             if (faces[face] is null)
             {
@@ -1991,22 +2014,6 @@ public sealed class MapAssets
     private static MapTexture? LoadPackedTexture(
         ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path) =>
         DecodePacked(assets, archives, pak, path, file => MapTexture.Of(VtfTexture.Read(file, maximumTextureSize)));
-
-    /// <summary>An HDR sky face: an RGBS texture decoded to linear half floats (<see cref="SkySurface.DecodeRgbs"/>).</summary>
-    private static MapTexture? LoadRgbsSky(
-        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string path) =>
-        DecodePacked(assets, archives, pak, path, file =>
-        {
-            VtfTexture decoded = VtfTexture.Decode(file, maximumTextureSize);
-
-            return new MapTexture(
-                decoded.Width,
-                decoded.Height,
-                decoded.MappingWidth,
-                decoded.MappingHeight,
-                new TextureImage(VtfFormat.Rgba16161616F, [SkySurface.DecodeRgbs(decoded.Pixels)]),
-                IsTransparent: false);
-        });
 
     /// <summary>Reads a texture from the map's own archive first, then the game's, and decodes it; null when it will not.</summary>
     private static MapTexture? DecodePacked(
@@ -3249,7 +3256,8 @@ public sealed class MapAssets
                     // **Composed here rather than carried as a string** (B332), so the renderer is
                     // handed the two rows a shader takes and nothing downstream has to parse.
                     Transform(material.BaseTextureTransform),
-                    Transform(material.SecondTextureTransform));
+                    Transform(material.SecondTextureTransform),
+                    material.TakesVertexAlpha);
             }
             catch (InvalidDataException failure)
             {

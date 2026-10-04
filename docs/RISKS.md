@@ -17257,11 +17257,20 @@ only a fully opaque draw writes the fog factor to alpha (`lightmappedgeneric_dx9
 
 **Still interpolated, flagged:**
 
-1. **The HDR type.** `Water` multiplies the reflection by 4 and the view renders it at ×0.25 only under
-   `HDR_TYPE_INTEGER`. Which type TF2 runs is decided in `shaderapidx9.dll`'s hardware config; that binary is in the
-   Ghidra project but its strings and references are not analysed (no xref reaches its `MaterialSystemHardwareConfig`
-   interface string at `0x180079788`), so the read did not land. The non-integer branch is drawn, matching this
-   renderer's lack of a tone map.
+1. ~~**The HDR type.**~~ **Closed 2026-10-04, read in disassembly: TF2 runs `HDR_TYPE_INTEGER` on an HDR map**, and
+   `HDR_TYPE_NONE` on a map without HDR lumps. `shaderapidx9.dll` (analysed this pass): caps `+0x560`/`+0x5c4` are set
+   at `0x1800293eb-0x180029448` — float only when `mat_hdr_level` is 3, whose default is "2" (`0x18007e700`), else
+   integer on any device with the caps; there is no `-floathdr`. `GetHDRType` (`0x180004810`) returns it when
+   `m_bHDREnabled` (`+0x8a8`) and DX level ≥ 90. `engine.dll` `Map_CheckForHDR` (`0x1800ffa10`) enables HDR only when
+   lumps 53, 54 and (version ≥ 20) 55 are non-empty and `mat_hdr_level` ≥ 2. Ported as `BspHdr`
+   (`HdrTypeConformanceTests`, 15); `MapAssets.Hdr` carries it, and the water now draws the integer branch: reflect tint
+   and c7.z ×4, the reflection view at a quarter of the tone-map scale (`DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter`,
+   `…_DrawsAtAQuarterToneMapScale`). **ctf_2fort's own water names no `$reflecttexture`**, so on 2fort the change draws
+   nothing different; it shows on water that reflects. The scale is Valve's path: `LINEAR_LIGHT_SCALE` in every
+   shader's FinalOutput (`PixelFog`, and the sky's), set between PushView and PopView, drawn straight into the 8-bit
+   target so each blend rounds as the engine's does. A first version drew into an RGBA16F target and stored ×0.25 —
+   equal in arithmetic, not in rounding — and was replaced on review. **Interpolated:** the fog colour is taken at the
+   same scale, from `SetClearColorToFogColor` (`viewrender.cpp:759-766`); shaderapi's `g_LinearFogColor` was not read.
 2. `CalcWaterFogAlpha`'s one-over-range register is packed as the range fog's is (FogConstants, B139); shaderapi's
    `SetPixelShaderFogParams` is the closed half.
 3. The tangent frame from screen derivatives (T as increasing v); a target no view has drawn reads black, alpha one.
@@ -18895,7 +18904,17 @@ The owner flagged this before the first run: *"the background fps clamp is going
 testing this"*. He was right, and the first attempt had been backgrounded. **Take the focused
 population, or run it in front of you.**
 
-## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — OPEN
+## B254 — we pose every entity in the tick; the engine poses only what is in a visible leaf — FIXED
+
+**Closed 2026-10-04 by reading the code, not by new code.** `EntityModelSet.Culls` rejects a prop
+before its pose when the frustum or the visible-leaf set does (`BspLeafTree.TouchesAny` over the
+world cull's `VisibleByLeaf`), and both arrive from the same `Device3D` in `MainForm.ProjectWorld`.
+The frustum half was pinned (`Instances_WithAPropBehindTheCamera_DoesNotPoseItAtAll`); the PVS half
+was not, so `Instances_WithAPropInFrontButInNoVisibleLeaf_DoesNotPoseIt` and its control
+`…InAVisibleLeaf_PosesIt` were added — a prop inside the view cone but in a rejected leaf is not
+drawn. Sabotage: negating the `TouchesAny` test reddens both. Remaining SHAPE difference (per-leaf
+lists kept across frames) is B262/D131, not this entry. Re-measurement: "B254 re-measured
+2026-09-03" below.
 
 **The divergence B253 went looking for.** Measured, `tf2-2026-pub-pov-clean` at tick 14000, uncapped,
 10,700 rebuilds, focused window:
@@ -18950,7 +18969,14 @@ count, without changing what is drawn.
 
 Filed separately from B253, which is the measurement and the instruments; this is the cause it found.
 
-## B255 — we pose before the view is computed; the engine computes the view first — OPEN
+## B255 — we pose before the view is computed; the engine computes the view first — FIXED
+
+**Closed 2026-10-04, already true in the code.** `FrameSequence.Run` runs `Simulate` (sample and
+select only — `MomentPresenter.Show` ends at `Build`), then `PlaceCamera`, whose
+`Device3D.SetCamera` builds this frame's frustum and world visible set, then `ProjectWorld`, which
+calls `PoseNow` with that same device's frustum and `VisibleByLeaf`. View, visibility, bones — the
+`SetUpView` / `BuildWorldLists` / `BuildRenderablesList` order. The stage order is pinned by
+`FrameSequenceTests`; see "B255 re-measured 2026-09-03" below.
 
 **Found while fixing B254, and it is why B254's fix is not yet wired.** The cull itself is built and
 tested (`EntityModelSet.Instances(..., frustum)`, `Culls`, `DrawTally.Culled`), and it is inert until
@@ -19134,7 +19160,15 @@ moment cost 5.2 ms = sample 2.0, drawlist 0.6, models 0.5, pose 2.1
 every track every frame, where the engine interpolates entities as it meets them in the visible set.
 That is the next thing worth reading, and it is a decode-side question rather than a rendering one.
 
-## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — OPEN
+## B258 — we interpolate every track every frame; the engine interpolates "the minimal set" — FIXED
+
+**Closed 2026-10-04: both of the engine's rules are ported, under B259.** Rule one, the
+`ShouldInterpolate` visibility gate on the previous frame's posed set, is B259 fix 2; rule two, leaving
+the list on `bNoMoreChanges`, is B259 stage C (the wake queue and lerp list, joining at the latch as
+`OnLatchInterpolatedVariables` does). Every `ShouldInterpolate` branch — visible, view entity,
+parent of a drawn child, no model — is pinned in `InterpolationListTests`; leaving the list in
+`DemoTimelineSampleOrderTests.PropsAt_PastTheFirstPoseWithEveryHistorySettled_TakesTheTrackOffTheLerpList`;
+the stepped-against-fresh differential in `PersistentSampleTests`.
 
 **Where the frame time now is.** After B254 and B255, first person on `tf2-2026-pub-pov-clean`:
 
@@ -25056,7 +25090,26 @@ numbers now come from the code the ragdoll work will use.
 **Still not readable, and still the open question:** the `IVPS` hulls, which are what a falling body
 contacts the world with. `"volume"` is given per solid, which is not a shape.
 
-### B329 OPEN 2026-09-09: `$vertexcolor` reaches FIFTEEN drawn faces, and they are overlays
+### B329 CLOSED 2026-10-04: `$vertexcolor` reaches FIFTEEN drawn faces, and they are overlays
+
+**Closed in disassembly; the full account is `docs/findings/28-vertex-colour.md` § "Settled in
+disassembly".** A brush face's vertex colour is the constant `0xFFFFFFFF` (`engine.dll` `0x1800f4d40`),
+so the fifteen `dust_gradient` faces were never divergent. An overlay vertex is white with the lump-60
+fade in alpha (`0x180110630`), which exposed the real divergence: the renderer faded EVERY fading
+overlay, where the engine's ramp shows only when the shader reads vertex alpha (LightmappedGeneric
+`$vertexcolor`, UnlitGeneric `$vertexalpha`). Fixed by `OverlayFade.DrawnAlpha` and
+`VmtMaterial.TakesVertexAlpha`; tests in `OverlayFadeConformanceTests` (one on `cp_process_final`) and
+`VmtParameterTests`. **Owner-visible:** an overlay without either flag now draws opaque up to its fade
+maximum and then vanishes, instead of fading out — which is what TF2 does. Measured with
+`overlay-vertex-alpha` across every installed map: 47,538 overlays, 4,502 fading, of which 3,654 read
+vertex alpha and keep their fade; 0 use a Patch material.
+
+**The leftovers, closed the same day.** The `0x00FFFFFF` a `$basetexture2` material gets on a
+non-displacement brush face was already matched: `SurfaceVertex.Alpha` is 0 there and the shader's
+blend factor is that alpha, as LightmappedGeneric's is (`lightmappedgeneric_vs20.fxc:250`) — pinned by
+`MapWorldTests.Build_ANonDisplacementFace_IsWhiteWithBlendZero`. `$vertexalphatest` (UnlitGeneric's
+`VERTEXALPHATEST`) changes no pixel, so the census lists it as no rendering effect. A Patch already
+resolves to its include in `VmtMaterial.Load` before `TakesVertexAlpha` is asked.
 
 **2026-09-09 — the question is now bounded, and the owner reframed it before it was measured.** This
 entry asked whether the flag is inert and could not settle it, because the engine's world mesh builder
@@ -32814,7 +32867,23 @@ scans down exactly as the engine does, capped at 32 keyframes either side.
 after, with the arrival-pair selection temporarily restored to take the before-figures through the same
 instrument.*
 
-### B376 OPEN 2026-09-09: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
+### B376 FIXED 2026-10-04: two compiled scenes out of 9,939 drift two bytes inside a long EXPRESSION event
+
+**FIXED: the cause is Valve's writer wrapping a ramp count, not a flex field.** `CCurveData::SaveToBuffer`
+(`choreoevent.cpp:4362`) writes its count with `PutUnsignedChar`, then every sample. The expression's
+ramp has 259 samples under a count byte of 3, so the reader skipped 1,280 bytes too few, and the
+garbage strides that followed happened to end 2 bytes short. **The live game misreads these two
+scenes**: `RestoreFromBuffer` takes the 3 at its word. Per the owner's standing ruling (Valve's way,
+always: the target is what TF2 shows), the reader is now a read-for-read port of the engine's restore
+through `CUtlBuffer`'s get semantics (`EngineBuffer`). A read that does not fit yields 0 and does not
+advance, and the overflow is sticky. No restore fails on that, so every declared event is kept. On
+these scenes the engine reads 10 and 9 events, overflows, and stops 3 bytes short. A walk counts as
+complete only when it lands exactly on the end without overflowing. The census is 9,943 of 9,945,
+and `SceneImageTests.SequenceAt_EverySceneTheGameShips_LandsExactlyExceptTheTwoTheEngineDesyncs` pins
+the two desyncs by crc. An earlier commit on this branch recovered the wrapped count instead; that
+departed from the engine and was replaced. Full account:
+`docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md#b376-valves-own-writer-wraps-a-ramp-count-and-the-two-bytes-was-a-coincidence`.
+The original entry follows, kept with its wrong localisation.
 
 **Found by censusing the scene reader over the WHOLE archive instead of over the taunts** — B351's
 first measurement was 730 of 730 taunt paths, which is 7.3% of the population and would pass a stride
@@ -33756,6 +33825,79 @@ were replaced before any result was read.
 
 *Evidence class: read from source for every engine fact above; differential for the five sabotages.*
 
+### B391 FIXED 2026-10-04: every render mode's draws — the glow's depth test is off, mode 0 is opaque, mode 8 draws twice, mode 7 is `$alpha` grey
+
+**The three open items of the two entries above, closed from `sprite_dx9.cpp:227-484`.** The full
+mode table and what was believed first are in `docs/findings/12-shader-parity.md` ("The `Sprite`
+shader: a render mode is a blend AND a depth state").
+
+**The glow depth test was no longer blocked.** The OPEN entry held it back because, with no occlusion
+query, a depth-off glow would draw through every wall. B378's line-of-sight gate (`GlowSight`, Valve's
+own `PixelVisibility_FractionVisible` fallback, `c_pixel_visibility.cpp:825`) now refuses a glow whose
+centre is hidden before it is built, which is the engine's arrangement exactly. So a wall-mounted
+lamp's quad is no longer cut where it passes into the wall.
+
+**What was done.**
+
+- **`EntitySprites.PassesFor(renderMode)`** replaces `BlendFor`: the mode's draws in order, each a
+  `SpritePass` of blend and `SpriteDepth`. Modes 3 and 9 are additive with the depth test off; 5 and 7
+  additive, tested; 1, 2 and 4 translucent, tested; 0 opaque, tested and written; 8 translucent then
+  `ONE_MINUS_SRC_ALPHA, ONE`, both tested; 6 and 10 none.
+- **`SpriteBlend` gains `Opaque` and `InverseAlphaAdd`**, and **`ParticleMaterial` gains `Depth`**,
+  defaulting to tested-unwritten so no particle or detail sprite changes.
+- **`EntitySpriteBatches`** batches by path and pass and emits one set of corners per draw.
+  **`FrameBlend`** is mode 7's color: grey `$alpha` with alpha one, times the entity's color and
+  brightness only when `$ignorevertexcolors` is 0. The shader's two frame-weighted draws sum to this
+  over one texture, which is all this project samples.
+- **`DetailSpriteRenderer.SetDepth`** and three depth states; `Opaque` binds no blend state. The pass
+  puts the old tested-unwritten state back after drawing, so a glow's depth-off state cannot leak into
+  whatever inherits it.
+
+**Proved by manipulation.** Red first: a compile failure, the tests naming `PassesFor`, `SpriteDepth`
+and `OffscreenTarget.DrawSprites` before they existed (`91147aea`). Then three rounds, each prediction
+disjoint within its round:
+
+| sabotage | reddened, exactly as predicted |
+|---|---|
+| the renderer swaps the write state for depth-off and depth-off for the write state | `Render_AWorldGlowBehindAnOccluder_AddsOverIt` (centre red 0 against > 64), `Render_ASpriteThenAQuadBehindIt_…(0,False)` |
+| `NormalPass` translucent | `PassesFor_EachSinglePassMode_…(0,…)`, `Build_ANormalModeSprite_IsOpaqueAndWritesDepth` |
+| `GlowPass` depth-tested | `PassesFor_EachSinglePassMode_…(3,…)` and `(9,…)`, `Build_AWorldGlow_IsNotDepthTested` |
+| mode 8's second pass dropped | `PassesFor_TransAlphaAdd_IsTranslucentThenInverseAlphaAdded`, `Build_ATransAlphaAddSprite_DrawsBothPassesInTheShadersOrder` |
+| mode 7's arm moved to mode 4 | both `Build_ATransAddFrameBlendSprite…` tests |
+| `FrameBlend` keeps vertex color but drops the brightness | `Build_ATransAddFrameBlendSpriteThatKeepsVertexColors_MultipliesTheGrey` |
+
+The four Scene breaks in the middle ran together and reddened nine, the predicted nine. Each was
+restored with its inverse edit and the diff searched for the residue. Two first attempts did not
+compile — identical switch arms (S3923) and an unused parameter (S1172) — and were replaced before any
+result was read.
+
+**The output-level assertion** is `EntitySpriteDepthRenderTests`, on `cp_process_f12`'s real
+`light_glow03` through the production builder and the viewer's renderer: mode 9 adds over an occluder,
+mode 5 is hidden by it and draws beside it, mode 0 hides a quad drawn behind it afterwards and mode 1
+does not. The first run of the last pair passed mode 0 for the wrong reason — nothing had bound the
+render target, so nothing drew at all — and its control, mode 1, caught it at `(0, 0)`. A world draw
+now binds the target first.
+
+**Still open.**
+
+- **The sprite's own frame.** `SetSpriteCommonDynamicState` binds the base texture at `FRAME` for
+  every mode (`sprite_dx9.cpp:171`); `SceneSprite.Frame` carries `m_flFrame` and nothing draws it.
+  Every animated `env_sprite` shows its first frame, and mode 7's cross-fade needs it too.
+- **`render->GetBlend()`** is still taken as one.
+- **`HDRCOLORSCALE`** (`m_flHDRColorScale` is carried) and the fog — `FogToBlack` for 3, 5, 7, 9 and
+  8's second pass, `FogToFogColor` for the rest — are not applied.
+- **The constant color's gamma.** With `$nosrgb` 0, the default, modes 5 and 7 load their constant
+  through `SetPixelShaderConstantGammaToLinear` (`sprite_dx9.cpp:204`, `:411`); this project passes
+  `$color` and `$alpha` as written. Whether that differs on screen depends on this renderer's own
+  color space, which is not established here.
+- **A glow is now drawn over models in front of it** whose centre the trace does not hit, since the
+  trace sees brushes and static props only (B378's residual). The engine's query sees models.
+- **Unobserved on screen.** The census found only mode 9; mode 9's change is the depth test, so a
+  lamp quad that met a wall now draws whole. Nobody has looked.
+
+*Evidence class: read from source for every engine fact; arithmetic for mode 7's collapse; differential
+for the sabotages; measured for the glow's falloff on the real texture.*
+
 ### B383 FIXED 2026-09-10: the cycle history resets on the parity counter — fixed on 2026-09-09 and never closed here
 
 **This is paperwork, not a fix.** The work landed with B382 in `0c0727cc`, whose message states it, and
@@ -34550,3 +34692,46 @@ x 15.96875 with no velocity. **Fix** (e2f4d85e): StepMove returns after the low 
 assumed (b3dcbd14): the destination trace was already clear, so the raised box lands there or starts solid and
 `TryPlayerMove` lands there — equivalent in that geometry. One geometry is not a proof for all, so the gate is ported
 anyway, in Valve's shape: the start is raised only with the flag.
+
+## B460 — a flinch found at sequence zero was substituted with the chest flinch; the engine abandons it — FIXED 2026-10-04
+
+**Read, published source:** `CMultiPlayerAnimState::PlayFlinchGesture` (`multiplayer_animstate.cpp:376`) substitutes
+`ACT_MP_GESTURE_FLINCH_CHEST` only when `SelectWeightedSequence( iActivity ) == -1`. Any other answer restarts the
+gesture with the activity as asked, and `AddToGestureSlot`'s `if ( iGestureSequence <= 0 ) return;` then abandons a
+sequence of zero. `EntityModelSet.LayersFor` substituted on `sequence <= 0`, so a non-chest flinch a model declares at
+sequence zero played the chest flinch where the engine plays nothing.
+
+**Reach:** synthetic only, as far as measured — TF2's class models put no flinch at sequence zero. Found by a surviving
+`<=` → `<` mutant on the guard while raising `EntityModels.cs`'s mutation score.
+
+**Fix:** the guard is `sequence == -1`. `FlinchFallbackConformanceTests.Instances_ForAFlinchTheModelHasAtSequenceZero_IsAbandonedRatherThanSubstituted`
+was red against the old guard (a chest layer at sequence 1) and is green with the fix.
+
+## B461 — the 2D sky ignored the HDR type: one shader for every map, and none of Sky_HDR_DX9's branches but one — FIXED 2026-10-04
+
+**Filed as "TF2 draws `sky_hdr_dx9` with the `_hdr` sky textures; we draw the LDR sky". Half of that was wrong, and
+it was this project's own earlier finding** (B62's closing note, 2026-10-04): the sky already took
+`$hdrcompressedtexture` when a material named one, decoded RGBS on the CPU and let the sampler filter — equal to
+Valve's shader to within the filter. What was actually divergent, read in `sky_hdr_dx9.cpp` and `sky_dx9.cpp`:
+
+1. **No HDR gate.** `Sky` falls back to `Sky_HDR_DX9` (`:21`), which falls back to `Sky_DX9` under `HDR_TYPE_NONE`
+   (`:33-40`). A map without HDR lumps (`Map_CheckForHDR`, B62) draws `$basetexture`; this drew the compressed HDR face.
+2. **`$hdrbasetexture` was never read** — 90 of the 324 shipped sky materials name it instead of a compressed texture,
+   17 of those in half floats, which take `$color` ×16 under integer HDR (`:268-279`).
+3. **`$hdrcompressedtexture0`** (method B, `:154-172`) had no path. Its published pixel shader returns red; no shipped
+   material names it (`vmt-param`, 0). Ported as published.
+4. **`$color` was ignored** — `c0` is `$color`, ×8 for RGBS (`:208-229`).
+5. **No `LINEAR_LIGHT_SCALE`**, so a water reflection's sky did not take the reflection view's quarter (B62).
+6. **Five shipped faces would not load**: `sky_halloween`'s VPK faces are `IMAGE_FORMAT_RGB888_BLUESCREEN` (9), which
+   the VTF reader refused (`sky-hdr` probe). koth_harvest_event packs its own readable copy, so its sky drew anyway;
+   which installed map, if any, reaches the VPK faces is not measured.
+
+**Fix:** `SkySurface.Choose`/`Shading`/`TexelInfo` (`SkySurfaceConformanceTests`, 11), the sky shader ported from
+`sky_vs20.fxc`, `sky_ps2x.fxc` and `sky_hdr_compressed_rgbs_ps2x.fxc` (four raw taps, `rgb *= a`, the hand lerp), the
+blue-screen formats (`VtfBlueScreenTests`). **Output-level:** `SkyRenderTests` draws 2fort's RGBS face and
+koth_harvest_event's plain face and reads back exactly the value the SDK's arithmetic gives from the face's own texels
+(87,124,156 and 50,28,37), and a quarter of it at `LINEAR_LIGHT_SCALE` 0.25. Sabotaged: dropping the premultiply
+(255,255,255), the scale (unchanged at a quarter), and reading RGBS through the sRGB curve (41,89,150) each reddened it.
+
+**Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
+does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.

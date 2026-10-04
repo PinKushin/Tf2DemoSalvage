@@ -40,7 +40,29 @@ public sealed class SceneImageTests
     private const string Sequence = "taunt_hi5_start";
 
     /// <summary>The strings the fixture pools, index 0 empty as the compiler's pool starts.</summary>
-    private static string[] Pool => ["", "loop_event", "hi5", Sequence];
+    private static string[] Pool => ["", "loop_event", "hi5", Sequence, new string('p', 3000)];
+
+    /// <summary>Pool slot of a parameter longer than the engine's 2,048-byte buffer.</summary>
+    private const short LongSlot = 4;
+
+    [TestCase(LongSlot, 2047)]
+    [TestCase(SequenceSlot, 15)]
+    [TestCase((short)5, 0)]
+    [TestCase((short)-1, 0)]
+    public void EventsAt_APooledParameter_IsWhatTheEnginesStringPoolCopies(short slot, int length)
+    {
+        // **`CChoreoStringPool::GetString`** (`c_sceneentity.cpp:738`) asks
+        // `scenefilecache->GetSceneString`, which in TF2's x64 `scenefilecache.dll` (vtable slot 9,
+        // 0x180001db0, disassembly) is `SceneImageHeader_t::String` exactly: no image, a negative
+        // index or one at or past `nNumStrings` gives NULL, and NULL copies as "". A found string
+        // is `V_strncpy`'d into `char params[ 2048 ]` (`choreoevent.cpp:4256`), so at most 2,047
+        // bytes survive.
+        byte[] image = Image(TauntCrc, Scene(
+            loose: [],
+            channelled: [Gesture(name: 2, parameters: slot)]));
+
+        SceneImage.Read(image).ShouldNotBeNull().EventsAt(0)[0].Parameters.Length.ShouldBe(length);
+    }
 
     [Test]
     public void SequenceFor_AGestureUnderAnActor_IsFoundPastTheActorlessEvents()
@@ -164,6 +186,120 @@ public sealed class SceneImageTests
         walk.Length.ShouldBeGreaterThan(0);
     }
 
+    [TestCase(255, true)]
+    [TestCase(259, false)]
+    [TestCase(520, false)]
+    public void SequenceAt_AnExpressionRampPastAByteOfSamples_DesyncsAsTheEngineDoes(
+        int rampSamples, bool complete)
+    {
+        // **B376. `CCurveData::SaveToBuffer` writes its count with `PutUnsignedChar` and then EVERY
+        // sample** (`choreoevent.cpp:4364`) — `Assert( c <= 255 )` is all that stands between them,
+        // and it is compiled out. `RestoreFromBuffer` takes the wrapped byte at its word, and so
+        // does this reader: the target is what TF2 shows, and TF2 desyncs here.
+        byte[] image = Image(TauntCrc, Scene(
+            loose: [],
+            channelled:
+            [
+                Expression(name: 1, rampSamples),
+                Gesture(name: 2, parameters: SequenceSlot),
+            ]));
+
+        SceneImage.Read(image).ShouldNotBeNull().SequenceAt(0).Complete.ShouldBe(complete);
+    }
+
+    [Test]
+    public void EventsAt_AReadThatOverrunsTheScene_ReturnsZeroForItAndForEveryReadAfter()
+    {
+        // **`CUtlBuffer` overflow is sticky and silent** (`utlbuffer.cpp:801`, `utlbuffer.h:639`): a
+        // read that does not fit sets `GET_OVERFLOW`, yields 0 and does NOT advance, and every read
+        // after it yields 0 too — even a one-byte read with bytes left. No restore returns false on
+        // it (`CChoreoChannel::RestoreFromBuffer`, `choreochannel.cpp:540`), so the engine keeps the
+        // event. The manipulation: a channel declaring two events with only `06 01` of the second.
+        // Event two then reads type 6, a name of 0x0101 (its 01 and the channel flag), and a start
+        // time that needs four of the three bytes left: overflow, 0, and the cursor stays put.
+        byte[] scene = Scene(
+            loose: [],
+            channelled: [Gesture(name: 2, parameters: SequenceSlot), [6, 1]]);
+
+        SceneImage archive = SceneImage.Read(Image(TauntCrc, scene)).ShouldNotBeNull();
+        IReadOnlyList<SceneEvent> events = archive.EventsAt(0);
+        SceneWalk walk = archive.SequenceAt(0);
+
+        events.Count.ShouldBe(2);
+        events[1].Type.ShouldBe<byte>(6);
+        events[1].Start.ShouldBe(0f);
+        events[1].End.ShouldBe(0f);
+        events[1].Parameters.ShouldBe(string.Empty);
+
+        walk.Complete.ShouldBeFalse();
+        walk.Overflowed.ShouldBeTrue();
+        walk.Stopped.ShouldBe(walk.Length - 3);
+        walk.Sequence.ShouldBe(Sequence);
+    }
+
+    [Test]
+    public void SequenceAt_AFlexTrackWithANegativeSampleCount_ReadsNoSamples()
+    {
+        // **The flex sample count is `GetShort`, SIGNED** (`choreoevent.cpp:4473`), and the loop is
+        // `j < s`, so a count past 32,767 reads zero samples — it does not step backwards.
+        List<byte> flexed = Common(10, 1, 0, flexSamples: 0);
+
+        flexed[^1] = 1;                                     // one flex track
+        flexed.AddRange(BitConverter.GetBytes((short)1));
+        flexed.Add(0x01);
+        flexed.AddRange(BitConverter.GetBytes(0.0f));
+        flexed.AddRange(BitConverter.GetBytes(1.0f));
+        flexed.AddRange(BitConverter.GetBytes((short)-1));
+
+        byte[] image = Image(TauntCrc, Scene(
+            loose: [],
+            channelled: [[.. flexed], Gesture(name: 2, parameters: SequenceSlot)]));
+
+        SceneWalk walk = SceneImage.Read(image).ShouldNotBeNull().SequenceAt(0);
+
+        walk.Complete.ShouldBeTrue();
+        walk.Sequence.ShouldBe(Sequence);
+    }
+
+    [Test]
+    public void SequenceAt_ABytePastTheIgnorePhonemesFlag_IsIncomplete()
+    {
+        // **A walk is complete only when it lands EXACTLY on the end** — the scene ramp and
+        // `m_bIgnorePhonemes` are the last things `SaveToBinaryBuffer` writes
+        // (`choreoscene.cpp:3757`). "Short is fine" is what let B376 hide at two bytes.
+        byte[] exact = Scene(loose: [], channelled: [Gesture(name: 2, parameters: SequenceSlot)]);
+
+        SceneImage.Read(Image(TauntCrc, exact)).ShouldNotBeNull().SequenceAt(0).Complete.ShouldBeTrue();
+        SceneImage.Read(Image(TauntCrc, [.. exact, 0])).ShouldNotBeNull().SequenceAt(0).Complete
+            .ShouldBeFalse();
+    }
+
+    [Test]
+    public void SequenceAt_EverySceneTheGameShips_LandsExactlyExceptTheTwoTheEngineDesyncs()
+    {
+        // **The census as an assertion** (B376): every compiled scene in the installed game, not
+        // the 7.3% the taunts are. The control is the count — an archive that read as empty would
+        // pass a loop over nothing. The two that do not land are the jackhammer-rodeo scenes whose
+        // expression ramp wrapped its count byte; the live game misreads them the same way.
+        GameArchives archives = GameArchives.Open(GameInstall.Require());
+        SceneImage archive = SceneImage.Read(archives.Read("scenes/scenes.image").ShouldNotBeNull())
+            .ShouldNotBeNull();
+
+        archive.Count.ShouldBeGreaterThan(9_000);
+
+        List<uint> desynced = [];
+
+        for (int slot = 0; slot < archive.Count; slot++)
+        {
+            if (!archive.SequenceAt(slot).Complete)
+            {
+                desynced.Add(archive.CrcAt(slot));
+            }
+        }
+
+        desynced.ShouldBe([0x2D581E89u, 0xE4759CDCu], ignoreOrder: true);
+    }
+
     [Test]
     public void Read_AnImageThatIsNotVsif_IsNull()
     {
@@ -261,8 +397,8 @@ public sealed class SceneImageTests
             bytes.Add(1);                                      // the actor is active
         }
 
-        // The scene ramp and the rest follow in a real file; nothing under test reads past here.
-        bytes.Add(0);
+        bytes.Add(0);                                          // the scene ramp, empty
+        bytes.Add(0);                                          // m_bIgnorePhonemes
 
         return [.. bytes];
     }
@@ -272,7 +408,12 @@ public sealed class SceneImageTests
     /// <param name="name">Pool slot of the event's name.</param>
     /// <param name="parameters">Pool slot of the first parameter — the sequence, for a gesture.</param>
     /// <param name="flexSamples">Samples on a single flex track, or zero for no tracks at all.</param>
-    private static List<byte> Common(byte type, short name, short parameters, int flexSamples)
+    /// <param name="rampSamples">
+    /// Samples on the event's ramp. Written the way <c>CCurveData::SaveToBuffer</c> writes them:
+    /// the count as ONE byte, then every sample — so past 255 the count wraps and the samples do not.
+    /// </param>
+    private static List<byte> Common(
+        byte type, short name, short parameters, int flexSamples, int rampSamples = 2)
     {
         List<byte> bytes =
         [
@@ -285,12 +426,14 @@ public sealed class SceneImageTests
             .. BitConverter.GetBytes((short)0),         // parameters 3
         ];
 
-        // A ramp with two samples, so the reader's stride is exercised rather than skipped.
-        bytes.Add(2);
-        bytes.AddRange(BitConverter.GetBytes(0.0f));
-        bytes.Add(0);
-        bytes.AddRange(BitConverter.GetBytes(1.0f));
-        bytes.Add(255);
+        // A ramp with samples, so the reader's stride is exercised rather than skipped.
+        bytes.Add(unchecked((byte)rampSamples));
+
+        for (int sample = 0; sample < rampSamples; sample++)
+        {
+            bytes.AddRange(BitConverter.GetBytes(sample * 0.03f));
+            bytes.Add((byte)(sample * 255 / Math.Max(1, rampSamples - 1)));
+        }
 
         bytes.Add(0x08);                                // flags: active
         bytes.AddRange(BitConverter.GetBytes(0.0f));    // distance to target
@@ -346,6 +489,10 @@ public sealed class SceneImageTests
     /// <summary>A <c>GESTURE</c>, whose first parameter is the sequence name.</summary>
     private static byte[] Gesture(short name, short parameters) =>
         [.. Common(6, name, parameters, flexSamples: 0)];
+
+    /// <summary>An <c>EXPRESSION</c> whose ramp holds <paramref name="rampSamples"/> samples.</summary>
+    private static byte[] Expression(short name, int rampSamples) =>
+        [.. Common(2, name, 0, flexSamples: 3, rampSamples)];
 
     /// <summary>A <c>FLEXANIMATION</c> carrying tracks, to exercise the sample stride.</summary>
     private static byte[] Flexed(short name, int samples) =>

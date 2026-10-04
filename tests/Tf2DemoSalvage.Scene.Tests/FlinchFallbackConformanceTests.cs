@@ -117,6 +117,21 @@ public sealed class FlinchFallbackConformanceTests
             "the engine treats a gesture sequence of zero as no answer");
     }
 
+    /// <remarks>
+    /// **The substitution fires on −1 ONLY, not on "no answer"** — `SelectWeightedSequence( iActivity ) == -1`
+    /// (<c>multiplayer_animstate.cpp:376</c>). A head flinch the model declares at sequence ZERO is found, so the engine
+    /// restarts the gesture with the HEAD activity, and `AddToGestureSlot`'s <c>&lt;= 0</c> then abandons it. No chest
+    /// flinch plays. A guard written as <c>&lt;= 0</c> here substituted the chest instead (B460).
+    /// </remarks>
+    [Test]
+    public void Instances_ForAFlinchTheModelHasAtSequenceZero_IsAbandonedRatherThanSubstituted()
+    {
+        EntityModelSet models = Posed(Flinching(Head), headFirst: true);
+
+        models.LayersOf(9).ShouldNotBeNull().ShouldBeEmpty(
+            "the head flinch resolved to 0, not -1, so the engine does not substitute and then abandons it");
+    }
+
     /// <summary>Where the chest flinch sits in the fixture's merged table.</summary>
     /// <remarks>
     /// **Index one, not zero.** `SelectWeightedSequence`'s result is abandoned on `&lt;= 0`, so a
@@ -126,9 +141,9 @@ public sealed class FlinchFallbackConformanceTests
     private const int ChestSequence = 1;
 
     private static EntityModelSet Posed(
-        SceneProp prop, bool flinches = true, bool chestFirst = false)
+        SceneProp prop, bool flinches = true, bool chestFirst = false, bool headFirst = false)
     {
-        PropModels.ModelFrames model = Frames(flinches, chestFirst);
+        PropModels.ModelFrames model = Frames(flinches, chestFirst, headFirst);
         EntityModelSet models = new() { Geometry = _ => model };
 
         List<SceneProp> drawn = [prop];
@@ -155,12 +170,13 @@ public sealed class FlinchFallbackConformanceTests
             },
             null);
 
-    private static PropModels.ModelFrames Frames(bool flinches, bool chestFirst = false)
+    private static PropModels.ModelFrames Frames(bool flinches, bool chestFirst = false, bool headFirst = false)
     {
-        PropModels.SkinnedModel model = (flinches, chestFirst) switch
+        PropModels.SkinnedModel model = (flinches, chestFirst, headFirst) switch
         {
-            (_, true) => SyntheticSkinnedModel.With(Chest, "idle", "other"),
-            (true, _) => SyntheticSkinnedModel.With("idle", Chest, "other"),
+            (_, _, true) => SyntheticSkinnedModel.With(Head, Chest, "other"),
+            (_, true, _) => SyntheticSkinnedModel.With(Chest, "idle", "other"),
+            (true, _, _) => SyntheticSkinnedModel.With("idle", Chest, "other"),
             _ => SyntheticSkinnedModel.With("idle", "other", "another"),
         };
 

@@ -68,9 +68,11 @@ public sealed class ExportCompileUiTests
     [TearDown]
     public void CloseDialogAndDeleteFolder()
     {
-        // Through WhileException: one UIA call timing out (0x80131505, seen locally) must not skip
-        // the cancel and leave the dialog over every later test.
-        if (Retry.WhileException(Dialog, DialogTimeout).Result is { } dialog)
+        // **Asked once, never retried.** This went through WhileException after one UIA call timed out
+        // (0x80131505, seen locally); a retry hides that rather than removing it. `Dialog` reads only
+        // the window's and the desktop's direct children, never a whole-tree walk, so one read is
+        // the smallest exposure there is, and a timeout that still lands surfaces as itself.
+        if (Dialog() is { } dialog)
         {
             TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it\n" + DescribeWindows());
             // A box the dialog raised (CI: "File not found") disables it, so Cancel cannot be invoked
@@ -78,11 +80,17 @@ public sealed class ExportCompileUiTests
             if (dialog.FindFirstChild(search => search.ByClassName("#32770")) is { } box)
             {
                 box.FindFirstDescendant(search => search.ByControlType(ControlType.Button))?.AsButton().Invoke();
-                Retry.WhileFalse(() => dialog.Properties.IsEnabled.ValueOrDefault, DialogTimeout, throwOnTimeout: true);
+                Retry.WhileFalse(() => dialog.Properties.IsEnabled.ValueOrDefault, DialogTimeout);
             }
 
             dialog.FindFirstChild(search => search.ByAutomationId("2"))?.AsButton().Invoke();
-            Retry.WhileFalse(() => Dialog() is null, DialogTimeout, throwOnTimeout: true, ignoreException: true);
+
+            // Teardown releases state; it never asserts (owner, 2026-10-04). A dialog that will not close
+            // is logged here, and the next test on the shared viewer fails as itself if it truly stuck.
+            if (!Retry.WhileFalse(() => Dialog() is null, DialogTimeout, ignoreException: true).Success)
+            {
+                TestContext.Out.WriteLine("the file dialog was still open after Cancel:\n" + DescribeWindows());
+            }
         }
 
         TestContext.Out.WriteLine("focus at teardown: " + Focused());

@@ -15,7 +15,7 @@ namespace Tf2DemoSalvage.Scene.Tests;
 /// A 640 × 480 viewport. Players: 1 "Recorder" (user 11, RED), 2 "Scout" (user 12, BLU), 3 "Medic" (user 13, BLU),
 /// 4 "Pyro" (user 14, RED). `d_scattergun`, `dneg_scattergun`, `d_skull_tf`, `d_crit` and `leaderboard_dominated` exist.
 /// </remarks>
-public sealed class TfHudDeathNoticeConformanceTests
+public sealed partial class TfHudDeathNoticeConformanceTests
 {
     private const string SharedDefs = "src/game/shared/tf/tf_shareddefs.h";
 
@@ -372,7 +372,9 @@ public sealed class TfHudDeathNoticeConformanceTests
             ["playerpenetratecount"] = penetrateCount,
         }, rules);
 
-    private static HudGameEvent Fire(string name, Dictionary<string, object?> values, SceneGameRules rules = default)
+    private static HudGameEvent Fire(
+        string name, Dictionary<string, object?> values, SceneGameRules rules = default, ScenePlayer[]? players = null,
+        string map = "maps/cp_test.bsp", int vision = 0)
     {
         Dictionary<int, PlayerInfo> roster = new()
         {
@@ -381,23 +383,26 @@ public sealed class TfHudDeathNoticeConformanceTests
             [3] = new PlayerInfo("Medic", 13, string.Empty, 3, false, false),
             [4] = new PlayerInfo("Pyro", 14, string.Empty, 4, false, false),
         };
-        ScenePlayer[] players =
-        [
-            new(1, 0f, 0f, 0f, 2, 125, 1),
-            new(2, 0f, 0f, 0f, 3, 125, 1),
-            new(3, 0f, 0f, 0f, 3, 150, 5),
-            new(4, 0f, 0f, 0f, 2, 175, 7),
-        ];
+        players ??= Players();
 
-        return new HudGameEvent(new SceneGameEvent(1000, name, values, roster), 10f, players, 1, rules, "maps/cp_test.bsp", 0);
+        return new HudGameEvent(new SceneGameEvent(1000, name, values, roster), 10f, players, 1, rules, map, vision);
     }
 
-    private static TfHudDeathNotice Feed()
+    /// <summary>The four players of the fixture: Recorder and Pyro RED, Scout and Medic BLU.</summary>
+    private static ScenePlayer[] Players() =>
+    [
+        new(1, 0f, 0f, 0f, 2, 125, 1),
+        new(2, 0f, 0f, 0f, 3, 125, 1),
+        new(3, 0f, 0f, 0f, 3, 150, 5),
+        new(4, 0f, 0f, 0f, 2, 175, 7),
+    ];
+
+    private static TfHudDeathNotice Feed(string fonts = "", bool streakIcons = false)
     {
         HudViewport viewport = new() { Wide = 640, Tall = 480 };
         TfHudDeathNotice feed = new(viewport) { Wide = 200, Tall = 100 };
         TextRecorder surface = new();
-        VguiContext context = Context(surface, Files());
+        VguiContext context = Context(surface, Files(streakIcons), fonts);
 
         viewport.Context = context;
         viewport.Icons = HudTextures.Load(context);
@@ -406,26 +411,52 @@ public sealed class TfHudDeathNoticeConformanceTests
         return feed;
     }
 
-    private static Dictionary<string, byte[]> Files() => new()
+    /// <summary>The icons: also every rune in both files, `d_australium`, and on request the streak icons in both forms.</summary>
+    /// <remarks>The streak icons are opt-in: with `leaderboard_streak` loaded the banner sizes its label, which this fixture never schemes.</remarks>
+    private static Dictionary<string, byte[]> Files(bool streakIcons = false)
     {
-        ["scripts/mod_textures.txt"] = Encoding.UTF8.GetBytes("""
-            "sprites/640_hud"
-            {
-                TextureFileRefs { "dfile" { "prefix" "d_" } "dnegfile" { "prefix" "dneg_" } }
-                TextureData
-                {
-                    "scattergun" { "dfile" "HUD/d_images" "dnegfile" "HUD/dneg_images" "x" "96" "y" "192" "width" "96" "height" "32" }
-                    "skull_tf" { "dfile" "HUD/d_images" "x" "0" "y" "0" "width" "32" "height" "32" }
-                    "crit" { "dfile" "HUD/d_images" "x" "0" "y" "32" "width" "96" "height" "32" }
-                    "leaderboard_dominated" { "file" "HUD/leaderboard_dominated" "x" "0" "y" "0" "width" "32" "height" "32" }
-                }
-            }
-            """),
-    };
+        string runes = string.Concat(RuneIconNames.Select(rune =>
+            $"\"{rune}\" {{ \"dfile\" \"HUD/d_images\" \"dnegfile\" \"HUD/dneg_images\" \"x\" \"0\" \"y\" \"0\" \"width\" \"32\" \"height\" \"32\" }}\n"));
+        string streak = streakIcons ? StreakIcons : string.Empty;
 
-    private static VguiContext Context(TextRecorder surface, Dictionary<string, byte[]> files)
+        return new()
+        {
+            ["scripts/mod_textures.txt"] = Encoding.UTF8.GetBytes($$"""
+                "sprites/640_hud"
+                {
+                    TextureFileRefs { "dfile" { "prefix" "d_" } "dnegfile" { "prefix" "dneg_" } }
+                    TextureData
+                    {
+                        "scattergun" { "dfile" "HUD/d_images" "dnegfile" "HUD/dneg_images" "x" "96" "y" "192" "width" "96" "height" "32" }
+                        "skull_tf" { "dfile" "HUD/d_images" "x" "0" "y" "0" "width" "32" "height" "32" }
+                        "crit" { "dfile" "HUD/d_images" "x" "0" "y" "32" "width" "96" "height" "32" }
+                        "australium" { "dfile" "HUD/d_images" "x" "0" "y" "64" "width" "96" "height" "32" }
+                        "leaderboard_dominated" { "file" "HUD/leaderboard_dominated" "x" "0" "y" "0" "width" "32" "height" "32" }
+                        {{streak}}
+                        {{runes}}
+                    }
+                }
+                """),
+        };
+    }
+
+    private const string StreakIcons = """
+        "leaderboard_streak" { "file" "HUD/leaderboard_streak" "x" "0" "y" "0" "width" "32" "height" "32" }
+        "leaderboard_streak_dneg" { "file" "HUD/leaderboard_streak_dneg" "x" "0" "y" "0" "width" "32" "height" "32" }
+        "eotl_duck" { "file" "HUD/eotl_duck" "x" "0" "y" "0" "width" "32" "height" "32" }
+        "eotl_duck_dneg" { "file" "HUD/eotl_duck_dneg" "x" "0" "y" "0" "width" "32" "height" "32" }
+        """;
+
+    /// <summary>`GetMannPowerIcon`'s names without their prefix, in `RuneTypes_t` order (tf_hud_deathnotice.cpp:1675–1686).</summary>
+    private static readonly string[] RuneIconNames =
+    [
+        "mannpower_strength", "mannpower_haste", "mannpower_regen", "mannpower_resist", "mannpower_vamp", "mannpower_reflect",
+        "mannpower_precision", "mannpower_agility", "mannpower_fist", "mannpower_king", "mannpower_plague", "mannpower_supernova",
+    ];
+
+    private static VguiContext Context(TextRecorder surface, Dictionary<string, byte[]> files, string fonts = "")
     {
-        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes("Scheme { Colors { } Borders { } Fonts { } }"), "scheme.res", _ => null);
+        KeyValuesTree scheme = KeyValuesTree.Load(Encoding.UTF8.GetBytes($"Scheme {{ Colors {{ }} Borders {{ }} Fonts {{ {fonts} }} }}"), "scheme.res", _ => null);
         VguiScheme colours = VguiScheme.Load(scheme);
         Dictionary<string, string> strings = new(System.StringComparer.OrdinalIgnoreCase)
         {
@@ -438,7 +469,14 @@ public sealed class TfHudDeathNoticeConformanceTests
             ["Msg_KillStreakEnd"] = "%s1 ended %s2's %s3",
         };
 
-        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english")
+        foreach ((string key, string text) in MoreStrings)
+        {
+            strings[key] = text;
+        }
+
+        VguiSchemeFonts schemeFonts = VguiSchemeFonts.Load(scheme, new VguiFontManager(new FakeGdi()), _ => null, "english", 480);
+
+        return new VguiContext(colours, VguiBorders.Load(scheme, colours, 480), scheme.Find("Fonts")!, 640, 480, "english", schemeFonts)
         {
             Surface = surface,
             Read = files.GetValueOrDefault,

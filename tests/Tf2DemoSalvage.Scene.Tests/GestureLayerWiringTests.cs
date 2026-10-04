@@ -103,6 +103,23 @@ public sealed class GestureLayerWiringTests
     }
 
     /// <remarks>
+    /// **The kill is `flCycle &gt; 1.0f`, strictly** (<c>multiplayer_animstate.cpp:1294</c>), so an auto-kill gesture whose
+    /// cycle is exactly one — a second into this one-cycle-a-second reload — is still drawn, on its last frame.
+    /// </remarks>
+    [Test]
+    public void Instances_ForAnAutoKillGestureAtExactlyItsEnd_StillHandsItsLastFrame()
+    {
+        EntityModelSet models = new() { Geometry = _ => Frames() };
+
+        List<SceneProp> drawn = [Reloading(startedSeconds: 0d)];
+
+        models.Add(drawn, _ => Frames());
+        models.Instances(drawn, [], seconds: 1d);
+
+        models.LayersOf(4).ShouldNotBeNull().ShouldHaveSingleItem().Sequence.ShouldBe(ReloadSequence);
+    }
+
+    /// <remarks>
     /// **A gesture that does NOT auto-kill holds its last frame instead of vanishing**, which is
     /// what the <c>_BEGIN</c> gestures are for: a stun or a sniper's pre-fire stays up until
     /// something ends it. Same input, opposite flag, opposite answer — which is what makes the

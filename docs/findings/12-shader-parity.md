@@ -666,3 +666,84 @@ both because the pixel shader cannot do both (`skin_dx9_helper.cpp:269`).
 Measured on a load with three cosmetics: **3 of 432 materials tint by base alpha, all three carrying
 a colour, and none of the map's own brushwork** — which is the control, since a reader answering
 true by default would change how every surface in the game draws.
+
+## The `Sprite` shader: a render mode is a blend AND a depth state (B391)
+
+**What was believed first.** B391's first fix read `sprite_dx9.cpp`'s switch for the BLEND and filed
+the rest as blocked: the glow modes' `EnableDepthTest( false )` "until the occlusion query exists",
+`kRenderNormal` and `kRenderTransAlphaAdd` as "no opaque sprite state and no second pass". The
+blocking premise had expired by the time it was re-read: B378's line-of-sight gate (`GlowSight`,
+Valve's own fallback in `PixelVisibility_FractionVisible`, `c_pixel_visibility.cpp:825`) had landed,
+and that gate is exactly what makes a depth-off glow safe — a glow whose centre is hidden is refused
+before it is drawn. Nothing else was missing.
+
+**What the shader says, every branch** (read from published source, `sprite_dx9.cpp:227-484`):
+
+| mode | draws | blend | depth |
+|---|---|---|---|
+| `kRenderNormal` 0 | 1 | none | tested, written — nothing is changed from the initial shadow state |
+| `kRenderTransColor` 1, `kRenderTransTexture` 2, `kRenderTransAlpha` 4 | 1 | `SRC_ALPHA, ONE_MINUS_SRC_ALPHA` | tested, not written |
+| `kRenderGlow` 3, `kRenderWorldGlow` 9 | 1 | `SRC_ALPHA, ONE` | **not tested**, not written |
+| `kRenderTransAdd` 5 | 1 | `SRC_ALPHA, ONE` | tested, not written |
+| `kRenderTransAddFrameBlend` 7 | 2 | `SRC_ALPHA, ONE` | tested, not written |
+| `kRenderTransAlphaAdd` 8 | 2 | first `SRC_ALPHA, ONE_MINUS_SRC_ALPHA`, then `ONE_MINUS_SRC_ALPHA, ONE` | tested, not written |
+
+So a render mode is a list of draws, each a blend and a depth state — which is what this project now
+carries (`EntitySprites.PassesFor`). Batching by blend alone could not express it: a world glow and a
+`kRenderTransAdd` sprite share a blend and not a depth test.
+
+**Mode 7's two draws collapse to one here, and the collapse is exact, not an approximation, for what
+this project draws.** Each draw's constant is grey `$alpha × weight` with alpha one — `$color` is
+never read — and the weights are `1 − frac($frame)` and `frac($frame)` on frames `(int)$frame` and
+the next. Over a single texture the two sum to one draw at `$alpha`. Arithmetic; it stops being exact
+the moment a sprite's own animation frames are carried, which they are not for ANY mode yet (see
+below).
+
+**Found while reading, not yet implemented:** `SetSpriteCommonDynamicState` binds the base texture at
+`FRAME` for every mode (`:171`), and `CSprite` networks `m_flFrame`. `SceneSprite.Frame` carries it
+and nothing on the sprite draw path reads it. Filed in B391's FIXED entry rather than here.
+
+**Proved on pixels.** A real `light_glow03` from `cp_process_f12`, built by the production pass and
+drawn by the viewer's sprite renderer, adds over an occluder in front of it at mode 9 and is hidden
+by the same occluder at mode 5; a mode 0 sprite hides a quad drawn behind it afterwards and a mode 1
+sprite does not. The texture falls off steeply — red 29 one texel outside a 6-texel occluder and 6
+four texels further — which decided where the control reads. *Measured.*
+
+## Which HDR type TF2 runs — integer, and float is unreachable at the defaults (B62, 2026-10-04)
+
+Every `GetHDRType() == HDR_TYPE_INTEGER` branch in the SDK's shaders was a coin this project had not
+called. The SDK publishes the branches but not the decision; that lives in `shaderapidx9.dll`, which
+had sat in the Ghidra project unanalysed, so an earlier pass found no reference to anything and
+stopped. Running analysis fixed that, and the caps dump (`0x18002bb50`) then named the field by
+printing it beside `"m_HDRType: HDR_TYPE_INTEGER"` — a debug print is a free field map.
+
+*Read in disassembly:* the caps code (`0x1800293eb-0x180029448`) makes the type float only when
+`mat_hdr_level` is exactly 3. The convar's default is "2". There is no `-floathdr` string in the
+binary, the parameter the type was once believed to hang on. So on any current PC, DXVK included,
+TF2 runs `HDR_TYPE_INTEGER` — when HDR is enabled at all, which `Map_CheckForHDR` (`engine.dll
+0x1800ffa10`) decides per map from lumps 53, 54 and 55. A map compiled without HDR runs
+`HDR_TYPE_NONE`, and `mat_hdr_level`'s own help text says as much: *"2 for full HDR on HDR maps."*
+
+**The wrong turn worth keeping:** the water had been drawn with the non-integer branch "matching this
+renderer's lack of a tone map". That conflated two things. The tone map is the main view's
+exposure; the water's ×0.25/×4 is a range trick for an 8-bit target, and it is exact without any
+tone map — the reflection keeps light up to 4 instead of clipping at 1.
+
+**And the measured anticlimax:** ctf_2fort's own water names no `$reflecttexture`, so on the map
+the question was filed against, the branch changes nothing drawn.
+
+*Other shaders that branch on the type*, checked against what this project draws: `sky_dx9` /
+`sky_hdr_dx9` multiply an `RGBA16161616F` sky by 16 under integer (`sky_dx9.cpp:93-102`).
+**The first write-up of this said "this project reads the LDR sky, so the branch is not reached",
+and that was wrong**: the loader already took `$hdrcompressedtexture`, and a reading of the loader
+rather than a memory of it would have said so. What it lacked was the rest of `Sky_HDR_DX9` —
+the HDR gate, `$hdrbasetexture` and its ×16, `$color`, and the tone-map scale (B461).
+`SetClearColorToFogColor` (`viewrender.cpp:759`) scales the clear colour by the tone-map scale, and
+the reflection view's clear now does. `lightmappedreflective` and `core_dx9` are not implemented.
+The main view's `SetToneMappingScaleLinear` (`:2211`) is the auto-exposure D192 queues.
+
+**The reflection's ×0.25 was first ported as an equivalent and then as Valve's path.** Drawing the
+view unscaled into a float target and storing it at a quarter is the same arithmetic, because every
+output, blend and fog is linear in the scale — but not the same rounding: the engine writes each
+blend at a quarter into 8 bits. Reviewed and replaced the same day; the scale is now
+`LINEAR_LIGHT_SCALE` in every shader's FinalOutput, as `common_ps_fxc.h:345-350` applies it.

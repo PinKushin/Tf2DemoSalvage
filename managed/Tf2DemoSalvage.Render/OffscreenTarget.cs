@@ -221,19 +221,57 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>Draws a map's 2D skybox around the camera, as the viewer's sky pass does (B461).</summary>
+    /// <param name="assets">The map, whose <c>SkyFaces</c> are drawn.</param>
+    /// <param name="camera">The view.</param>
+    /// <param name="linearLightScale"><c>LINEAR_LIGHT_SCALE</c>.</param>
+    /// <returns>False when the map's sky did not load.</returns>
+    internal bool DrawSky(MapAssets assets, FreeCamera camera, float linearLightScale = 1f)
+    {
+        ArgumentNullException.ThrowIfNull(assets);
+        ArgumentNullException.ThrowIfNull(camera);
+
+        if (assets.SkyFaces.Count != SkyboxGeometry.Faces)
+        {
+            return false;
+        }
+
+        using SkyboxRenderer sky = SkyboxRenderer.Create(_device);
+        List<ComPtr<ID3D11ShaderResourceView>> held = [];
+
+        sky.UploadFaces(_device, _context, assets.SkyFaces, held);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        sky.Draw(_device, _context, camera.Origin, camera.ToMatrix(), 1000f, linearLightScale);
+
+        foreach (ComPtr<ID3D11ShaderResourceView> view in held)
+        {
+            view.Dispose();
+        }
+
+        return true;
+    }
+
+    /// <summary>The world renderer's tone-map scale as it stands, one before anything has drawn.</summary>
+    internal float LinearLightScale => _world?.LinearLightScale ?? 1f;
+
     /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
     /// <param name="vertices">Triangle corners in world coordinates.</param>
     /// <param name="batches">Material runs.</param>
     /// <param name="camera">The main view.</param>
     /// <param name="assets">The map's materials.</param>
     /// <param name="frame">The views; its matrices are filled from <paramref name="camera"/> here.</param>
-    /// <returns>How many water batches drew each pass.</returns>
+    /// <param name="hdr">The HDR type to draw under in place of the map's own, or null for the map's.</param>    /// <returns>How many water batches drew each pass.</returns>
     public (int Expensive, int Cheap, int Plain) DrawWaterWorld(
         IReadOnlyList<WorldVertex> vertices,
         IReadOnlyList<WorldBatch> batches,
         FreeCamera camera,
         MapAssets assets,
-        WaterDraw frame)
+        WaterDraw frame,
+        Content.Bsp.HdrType? hdr = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
         ArgumentNullException.ThrowIfNull(frame);
@@ -256,6 +294,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         world.Seconds = Seconds;
         world.UploadTextures(_device, _context, assets);
         _uploaded = assets;
+        world.HdrType = hdr ?? assets.Hdr;
         world.UploadGeometry(_device, vertices, batches);
         world.Overlays = [];
 
@@ -339,6 +378,36 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _detail.SetSheet(_detailSheet);
         _detail.Upload(_device, _context, corners);
         _detail.Draw(_device, _context, camera, firstQuad * DetailSprites.CornersPerQuad, quads * DetailSprites.CornersPerQuad);
+    }
+
+    private DetailSpriteRenderer? _sprites;
+    private ComPtr<ID3D11ShaderResourceView> _spriteSheet;
+
+    /// <summary>Draws one particle or entity sprite batch with its blend and depth state, as the viewer's particle pass does (B391).</summary>
+    /// <param name="batch">The batch.</param>
+    /// <param name="camera">The view-projection matrix.</param>
+    /// <exception cref="ArgumentNullException">The camera is null.</exception>
+    /// <exception cref="ArgumentException">The batch has no sheet.</exception>
+    public void DrawSprites(ParticleBatch batch, float[] camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+
+        if (batch.Material.Sheet is not { } sheet)
+        {
+            throw new ArgumentException("A sprite batch without a sheet draws nothing.", nameof(batch));
+        }
+
+        _sprites ??= DetailSpriteRenderer.Create(_device);
+
+        // Uploaded afresh each call; a test draws a handful.
+        _spriteSheet.Dispose();
+        _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+
+        _sprites.SetSheet(_spriteSheet);
+        _sprites.SetBlend(batch.Material.Blend);
+        _sprites.SetDepth(batch.Material.Depth);
+        _sprites.Upload(_device, _context, batch.Corners);
+        _sprites.Draw(_device, _context, camera);
     }
 
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
@@ -610,6 +679,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _points?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();
+        _sprites?.Dispose();
+        _spriteSheet.Dispose();
         _world?.Dispose();
         _view.Dispose();
         _depthView.Dispose();

@@ -278,7 +278,66 @@ as everything else here: the wire says what happened, the installed game says wh
   ours does not read that flag — it relies on the scene's own loop instead. For every scene measured
   the two agree, because the looping taunts are the ones with a `LOOP` event; a looping SEQUENCE inside
   a non-looping scene would diverge and none has been found.
-- **The scene ramp and everything after the actors.** The reader stops once the actors are walked, so
-  nothing past that point in a compiled scene has been read or verified beyond arithmetic on its
-  known 4-byte shape.
-- **The cause of B376.** Localised to one 2-byte field, not identified.
+## B376: Valve's own writer wraps a ramp count, and the "two bytes" was a coincidence
+
+**The first diagnosis was wrong, and the wrong part is worth keeping.** The census found two scenes
+ending "two bytes short" and B376 localised that to one 2-byte field in a flex track. Every flex stride
+checked out against the SDK, because the flex tracks were never the problem.
+
+**The cause is the EXPRESSION event's ramp** (read from source, then measured). `CCurveData::SaveToBuffer`
+(`choreoevent.cpp:4362`) writes `PutUnsignedChar( c )` behind an `Assert( c <= 255 )` that a release
+build drops, then loops over all `c` samples. `RestoreFromBuffer` reads the one byte back. The
+jackhammer-rodeo expression (`player\engineer\emotion\emotion`, 0 to 9.9 s) has a **259-sample** ramp,
+and the count byte is **3**, which is 259 mod 256. The 259 sample times rise monotonically, and the 260th
+"sample" is `08 00000000`, which is the event's flags (active) and a zero distance to target. That
+arithmetic decides it: 1 + 259 × 5 = 1,296 bytes of ramp, and the reader skipped 1 + 3 × 5 = 16.
+
+**Why it looked like two bytes:** after skipping 1,280 bytes too few, the walk read sample bytes as
+tags and flex headers, and the resulting garbage strides happened to land 2 bytes from the end. The
+channel really declares eight EXPRESSION events, not one. Only the first event's ramp is over 255.
+The other seven ramps hold 47, 168, 198, 165, 201, 79 and 146 samples.
+
+**The engine misreads these two scenes too, and so do we, on purpose.** `RestoreFromBuffer` takes the 3
+at face value, so in-game the Engineer's jackhammer-rodeo facial track is read from the wrong offsets.
+
+**A wrong turn worth keeping:** the first fix recovered the count. When the strict walk failed, it
+extended the count by 256 while the sample times kept rising, and accepted the result only if the scene
+then landed exactly. That reads what the writer meant, but it is not what TF2 shows. The owner's
+standing ruling (Valve's way, always) overturned it, and it was replaced by a port of the engine's
+restore.
+
+**What the engine does with the desynced bytes** (read from source): every value is read through
+`CUtlBuffer`. `CheckGet` (`utlbuffer.cpp:801`) refuses a read that does not fit and sets
+`GET_OVERFLOW`, and it refuses every later read once that flag is set. `GetTypeBin`
+(`utlbuffer.h:639`) then yields 0 without advancing. No restore in the chain notices: the event,
+channel and actor restores fail only if a ramp or flex restore does, and neither ever does. So the
+engine keeps every declared event. Garbage counts drive the loops until the buffer overflows, and the
+rest of the scene reads as zeros. `EngineBuffer` reproduces these semantics, and the walk issues the
+same reads in the same order. That includes the flex sample count, which is read as a SIGNED short:
+a count past 32,767 reads no samples rather than stepping backwards. Measured on the two scenes: 10
+and 9 events, an overflow, and a cursor 3 bytes short of the end.
+
+**Completeness is now exact.** The walk reads the scene ramp and `m_bIgnorePhonemes`, which are the
+last two things `SaveToBinaryBuffer` writes (`choreoscene.cpp:3757`). It counts a scene as complete
+only when it lands on the end without overflowing. Before, the check accepted any cursor short of the
+end, and that is how a 1,280-byte error passed as 2 bytes. Census: 9,943 of 9,945 complete, and the
+two engine desyncs are pinned by crc (0x2D581E89 and 0xE4759CDC).
+
+*Evidence class: read from source for the writer, the reader and `CUtlBuffer`; measured for the 259/3
+count, the eight written events, the census and the desynced reads; arithmetic for the strides.*
+
+- **What the engine renders for those two expressions.** We know its reader desyncs. We have not
+  measured what a desynced restore produces on screen.
+
+**The string pool on a garbage index — settled in disassembly.** `CChoreoStringPool::GetString`
+(`c_sceneentity.cpp:738`) asks `scenefilecache->GetSceneString`. That function lives only in the
+closed `scenefilecache.dll`. In TF2's x64 build it is slot 9 of `CSceneFileCache`'s vtable
+(0x18001f3a8 → 0x180001db0), and its eleven instructions are `SceneImageHeader_t::String` from
+`SceneImageFile.h` exactly. With no image loaded, a negative index, or an index at or past
+`nNumStrings` (`[image + 0xC]`), it returns NULL. Otherwise it returns the image base plus
+`table[index]`, with the table at `+0x14`. `GetString` copies NULL as "", and copies a found string
+with `V_strncpy` into the caller's buffer, which is `char params[ 2048 ]` for a parameter. So a
+garbage event's parameter is "" whenever its index is out of range, and any parameter is cut to
+2,047 bytes. Ours now does both. Its only addition is a bound on the string's OFFSET: a corrupt table
+would make the engine read arbitrary memory, which no port can reproduce. *Evidence class:
+disassembly for the lookup, read from source for the copy.*

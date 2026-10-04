@@ -8,6 +8,25 @@ using Silk.NET.Direct3D11;
 
 namespace Tf2DemoSalvage.Render;
 
+/// <summary>One sky face's pixel shader, <c>c0</c> and <c>g_vTextureSizeInfo</c> (B461).</summary>
+/// <param name="Shader">The pixel shader.</param>
+/// <param name="InputScale"><c>c0</c>.</param>
+/// <param name="TexelInfo">The vertex shader's half-texel offsets and texture size.</param>
+public readonly record struct SkyFaceDraw(
+    SkyPixelShader Shader, (float Red, float Green, float Blue) InputScale, (float X, float Y, float W, float H) TexelInfo)
+{
+    /// <summary>The draw state for a face as the sky shader sets it up.</summary>
+    /// <param name="face">The loaded face.</param>
+    /// <returns>Its draw; <c>sky_ps2x</c> at a scale of one when the face carries no sky shading.</returns>
+    public static SkyFaceDraw For(MapTexture face) =>
+        face.Sky is { } sky
+            ? new SkyFaceDraw(sky.Shader, sky.InputScale, SkySurface.TexelInfo(sky.Shader, face.Width, face.Height))
+            : Plain;
+
+    /// <summary><c>sky_ps2x</c> at a scale of one, for a face given no shading.</summary>
+    public static SkyFaceDraw Plain { get; } = new(SkyPixelShader.Sky, (1f, 1f, 1f), default);
+}
+
 /// <summary>
 /// Draws the 2D skybox — six textured quads around the eye.
 /// </summary>
@@ -44,6 +63,9 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     /// <summary>Sixteen floats of camera, in the slot the other renderers use.</summary>
     private const int CameraConstants = 16;
 
+    /// <summary>The camera, then <c>inputScale</c>, <c>texelInfo</c> and <c>shading</c>, rewritten per face.</summary>
+    private const int BufferConstants = CameraConstants + 12;
+
     /// <summary>The constant buffer slot, matching <c>WorldRenderer</c>'s.</summary>
     private const uint CameraSlot = 4;
 
@@ -59,25 +81,77 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         cbuffer Camera : register(b4)
         {
             row_major float4x4 viewProjection;
+            float4 inputScale;  // c0: $color with the shader's own factor (sky_hdr_dx9.cpp:208-229, :268-279)
+            float4 texelInfo;   // g_vTextureSizeInfo: RGBS half-texel offsets and size, else zero (:220-224, :244)
+            float4 shading;     // x the pixel shader (SkyPixelShader), y LINEAR_LIGHT_SCALE
         };
 
         Texture2D face : register(t0);
         SamplerState linearClamp : register(s0);
 
         struct VsIn  { float3 pos : POSITION; float2 uv : TEXCOORD0; };
-        struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+        // sky_vs20.fxc's outputs: the four taps and the first one in texels.
+        struct VsOut
+        {
+            float4 pos : SV_POSITION;
+            float2 t00 : TEXCOORD0;
+            float2 t01 : TEXCOORD1;
+            float2 t10 : TEXCOORD2;
+            float2 t11 : TEXCOORD3;
+            float2 inPixels : TEXCOORD4;
+        };
 
         VsOut VsMain(VsIn input)
         {
             VsOut output;
             output.pos = mul(float4(input.pos, 1.0f), viewProjection);
-            output.uv = input.uv;
+
+            // The coordinate already carries $basetexturetransform (SkySurface.Coordinate), as sky_vs20.fxc:35-38 dots it.
+            float2 uv = input.uv;
+
+            output.t00 = float2(uv.x - texelInfo.x, uv.y - texelInfo.y);
+            output.t10 = float2(uv.x + texelInfo.x, uv.y - texelInfo.y);
+            output.t01 = float2(uv.x - texelInfo.x, uv.y + texelInfo.y);
+            output.t11 = float2(uv.x + texelInfo.x, uv.y + texelInfo.y);
+            output.inPixels = output.t00 * texelInfo.zw;
             return output;
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
         {
-            return float4(face.Sample(linearClamp, input.uv).rgb, 1.0f);
+            float3 result;
+
+            if (shading.x < 0.5f)
+            {
+                // sky_ps2x.fxc: one tap at TEXCOORD0, times InputScale.
+                result = face.Sample(linearClamp, input.t00).rgb * inputScale.rgb;
+            }
+            else if (shading.x < 1.5f)
+            {
+                // sky_hdr_compressed_rgbs_ps2x.fxc, the PC branch verbatim: each tap rgb *= a, then a bilinear lerp.
+                float4 s00 = face.Sample(linearClamp, input.t00);
+                float4 s10 = face.Sample(linearClamp, input.t10);
+                float4 s01 = face.Sample(linearClamp, input.t01);
+                float4 s11 = face.Sample(linearClamp, input.t11);
+                float2 fracCoord = frac(input.inPixels);
+
+                s00.rgb *= s00.a;
+                s10.rgb *= s10.a;
+                s00.xyz = lerp(s00, s10, fracCoord.x).xyz;
+                s01.rgb *= s01.a;
+                s11.rgb *= s11.a;
+                s01.xyz = lerp(s01, s11, fracCoord.x).xyz;
+                result = lerp(s00, s01, fracCoord.y).xyz * inputScale.rgb;
+            }
+            else
+            {
+                // sky_hdr_compressed_ps2x.fxc as published: its blend of three exposures is commented out and it returns red.
+                result = float3(1.0f, 0.0f, 0.0f);
+            }
+
+            // FinalOutput( ..., PIXEL_FOG_TYPE_NONE, TONEMAP_SCALE_LINEAR ) (common_ps_fxc.h:345-350): never fogged.
+            return float4(result * shading.y, 1.0f);
         }
         """;
 
@@ -177,15 +251,47 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     /// from every frame.
     /// </remarks>
     /// <param name="transforms">Each face's `$basetexturetransform`, or null for none — applied as `sky_vs20.fxc` applies it.</param>
+    /// <param name="draws">Each face's shader and constants (B461), or null for <c>sky_ps2x</c> at a scale of one.</param>
     public void SetFaces(
         ReadOnlySpan<ComPtr<ID3D11ShaderResourceView>> faces,
-        System.Collections.Generic.IReadOnlyList<TextureTransform?>? transforms = null)
+        System.Collections.Generic.IReadOnlyList<TextureTransform?>? transforms = null,
+        System.Collections.Generic.IReadOnlyList<SkyFaceDraw>? draws = null)
     {
         _faces = faces.Length == SkyboxGeometry.Faces ? faces.ToArray() : [];
         _transforms = transforms is { Count: SkyboxGeometry.Faces } given ? [.. given] : new TextureTransform?[SkyboxGeometry.Faces];
+        _draws = draws is { Count: SkyboxGeometry.Faces } stated ? [.. stated] : PlainDraws();
     }
 
+    /// <summary>Uploads six loaded faces and draws with them from now on.</summary>
+    /// <param name="device">The device.</param>
+    /// <param name="context">The context.</param>
+    /// <param name="faces">The six faces, from <c>MapAssets.SkyFaces</c>.</param>
+    /// <param name="held">Receives the views, which the caller owns and disposes.</param>
+    /// <remarks>Sampler zero reads through the sRGB curve only where the sky shader asks it to (B461) — never for RGBS.</remarks>
+    internal void UploadFaces(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        System.Collections.Generic.IReadOnlyList<MapTexture?> faces,
+        System.Collections.Generic.List<ComPtr<ID3D11ShaderResourceView>> held)
+    {
+        ArgumentNullException.ThrowIfNull(faces);
+        ArgumentNullException.ThrowIfNull(held);
+
+        foreach (MapTexture? face in faces)
+        {
+            held.Add(WorldRenderer.UploadTexture(device, context, face, face?.Sky?.Srgb ?? true));
+        }
+
+        SetFaces(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(held),
+            [.. System.Linq.Enumerable.Select(faces, static face => face?.BaseTransform)],
+            [.. System.Linq.Enumerable.Select(faces, static face => face is { } present ? SkyFaceDraw.For(present) : SkyFaceDraw.Plain)]);
+    }
+
+    private static SkyFaceDraw[] PlainDraws() => [.. System.Linq.Enumerable.Repeat(SkyFaceDraw.Plain, SkyboxGeometry.Faces)];
+
     private TextureTransform?[] _transforms = new TextureTransform?[SkyboxGeometry.Faces];
+    private SkyFaceDraw[] _draws = PlainDraws();
 
     /// <summary>Whether there is a sky to draw.</summary>
     public bool HasSky => _faces.Length == SkyboxGeometry.Faces;
@@ -198,6 +304,7 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     /// <param name="eye">Where the camera is; the box is centred here.</param>
     /// <param name="viewProjection">The camera, row major, sixteen floats.</param>
     /// <param name="reach">How far from the eye to put the box.</param>
+    /// <param name="linearLightScale"><c>LINEAR_LIGHT_SCALE</c>: a quarter in an integer-HDR reflection view, else one (B62).</param>
     /// <exception cref="ArgumentNullException"><paramref name="viewProjection"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="viewProjection"/> is not sixteen floats.</exception>
     /// <remarks>
@@ -211,7 +318,8 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         ComPtr<ID3D11DeviceContext> context,
         (float X, float Y, float Z) eye,
         float[] viewProjection,
-        float reach)
+        float reach,
+        float linearLightScale = 1f)
     {
         ArgumentNullException.ThrowIfNull(viewProjection);
 
@@ -245,7 +353,6 @@ public sealed unsafe class SkyboxRenderer : IDisposable
 
         EnsureBuffers(device);
         Upload(context, vertices);
-        UploadCamera(device, context, viewProjection);
 
         uint stride = VertexStride;
         uint offset = 0;
@@ -254,7 +361,6 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
-        context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _sampler);
 
@@ -280,6 +386,10 @@ public sealed unsafe class SkyboxRenderer : IDisposable
 
             ComPtr<ID3D11ShaderResourceView> bound = _faces[face];
 
+            // The face's own constants — SHADER_DRAW's DYNAMIC_STATE runs per material, and each face is one.
+            UploadCamera(device, context, viewProjection, _draws[face], linearLightScale);
+            context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
+            context.PSSetConstantBuffers(CameraSlot, 1, ref _camera);
             context.PSSetShaderResources(0, 1, ref bound);
             context.Draw(SkyboxGeometry.CornersPerFace, (uint)(face * SkyboxGeometry.CornersPerFace));
         }
@@ -434,13 +544,13 @@ public sealed unsafe class SkyboxRenderer : IDisposable
     }
 
     private void UploadCamera(
-        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, float[] matrix)
+        ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, float[] matrix, SkyFaceDraw draw, float linearLightScale)
     {
         if (_camera.Handle is null)
         {
             BufferDesc description = new()
             {
-                ByteWidth = sizeof(float) * CameraConstants,
+                ByteWidth = sizeof(float) * BufferConstants,
                 Usage = Usage.Dynamic,
                 BindFlags = (uint)BindFlag.ConstantBuffer,
                 CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -452,16 +562,24 @@ public sealed unsafe class SkyboxRenderer : IDisposable
             _camera = buffer;
         }
 
+        float[] contents =
+        [
+            .. matrix,
+            draw.InputScale.Red, draw.InputScale.Green, draw.InputScale.Blue, 1f,
+            draw.TexelInfo.X, draw.TexelInfo.Y, draw.TexelInfo.W, draw.TexelInfo.H,
+            (float)draw.Shader, linearLightScale, 0f, 0f,
+        ];
+
         MappedSubresource mapped = default;
         SilkMarshal.ThrowHResult(context.Map(_camera, 0, Map.WriteDiscard, 0, ref mapped));
 
-        fixed (float* source = matrix)
+        fixed (float* source = contents)
         {
             System.Buffer.MemoryCopy(
                 source,
                 mapped.PData,
-                sizeof(float) * CameraConstants,
-                sizeof(float) * CameraConstants);
+                sizeof(float) * BufferConstants,
+                sizeof(float) * BufferConstants);
         }
 
         context.Unmap(_camera, 0);

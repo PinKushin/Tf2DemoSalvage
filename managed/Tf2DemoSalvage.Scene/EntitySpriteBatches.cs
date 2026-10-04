@@ -18,11 +18,13 @@ namespace Tf2DemoSalvage.Scene;
 /// **Batched per material AND blend, which is not an optimization.** An additive glow and a
 /// translucent sprite cannot share a draw call because the blend state differs — and since B391 the
 /// blend belongs to the ENTITY's render mode rather than to the material, one material can be drawn
-/// both ways in the same moment, exactly as `CEngineSprite` keeps a material per render mode.
+/// both ways in the same moment, exactly as `CEngineSprite` keeps a material per render mode. The key
+/// is the whole PASS — blend and depth state — since a glow and a `kRenderTransAdd` sprite share a
+/// blend and not a depth test (B391).
 /// </remarks>
 public sealed class EntitySpriteBatches
 {
-    private readonly Dictionary<(string Path, SpriteBlend Blend), List<DetailSpriteVertex>> _byMaterial =
+    private readonly Dictionary<(string Path, SpritePass Pass), List<DetailSpriteVertex>> _byMaterial =
         [];
 
     private readonly List<ParticleBatch> _batches = [];
@@ -117,9 +119,9 @@ public sealed class EntitySpriteBatches
             // `CEngineSprite::Init` builds a material per render mode and the shader switches on it;
             // `light_glow03`'s text reads translucent, and drawing it by that text painted its opaque
             // black around every lamp. A mode with no material at all draws nothing.
-            // Stryker disable once : a mutant that empties the guard body leaves 'blending'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (EntitySprites.BlendFor(prop.Pose.RenderMode) is not { } blending)
+            IReadOnlyList<SpritePass> passes = EntitySprites.PassesFor(prop.Pose.RenderMode);
+
+            if (passes.Count == 0)
             {
                 Skipped++;
                 continue;
@@ -189,12 +191,6 @@ public sealed class EntitySpriteBatches
 
             // Stryker restore all
 
-            if (!_byMaterial.TryGetValue((prop.ModelPath, blending), out List<DetailSpriteVertex>? corners))
-            {
-                corners = [];
-                _byMaterial[(prop.ModelPath, blending)] = corners;
-            }
-
             // **The entity's color, not white** (B391): `CSprite::DrawModel` passes
             // `m_clrRender->r/g/b` as the color and its brightness as the alpha (`Sprite.cpp:795-806`),
             // a glow multiplies the color by its blend, and `DrawSpriteModel` writes `{ r, g, b, a }`
@@ -203,7 +199,7 @@ public sealed class EntitySpriteBatches
             // **`kRenderNormal` is the texture alone**: its shader branch declares no vertex color
             // (`SetSpriteCommonShadowState( 0 )`), so neither the color nor the brightness reaches it.
             // **`kRenderTransAdd` is the material's color**, and the vertex color only on request; see
-            // `TransAdd`.
+            // `TransAdd`. **`kRenderTransAddFrameBlend` is `$alpha` as grey**; see `FrameBlend`.
             Vector3 vertexColor = Tint(prop.Pose.RenderColor) * blend;
             float vertexAlpha = state.Brightness / 255f;
 
@@ -211,19 +207,31 @@ public sealed class EntitySpriteBatches
             {
                 RenderModes.Normal => (Vector3.One, 1f),
                 RenderModes.TransAdd => TransAdd(sprite, vertexColor, vertexAlpha),
+                RenderModes.TransAddFrameBlend => FrameBlend(sprite, vertexColor, vertexAlpha),
                 _ => (vertexColor, vertexAlpha),
             };
 
-            EntitySprites.Corners(origin, right, up, sprite.Extents, scale, color, alpha, corners);
+            // **One set of corners per DRAW, in the shader's order** — `kRenderTransAlphaAdd` is two.
+            foreach (SpritePass pass in passes)
+            {
+                if (!_byMaterial.TryGetValue((prop.ModelPath, pass), out List<DetailSpriteVertex>? corners))
+                {
+                    corners = [];
+                    _byMaterial[(prop.ModelPath, pass)] = corners;
+                }
+
+                EntitySprites.Corners(origin, right, up, sprite.Extents, scale, color, alpha, corners);
+            }
 
             Drawn++;
         }
 
-        foreach (((string path, SpriteBlend blending), List<DetailSpriteVertex> corners) in _byMaterial)
+        foreach (((string path, SpritePass pass), List<DetailSpriteVertex> corners) in _byMaterial)
         {
             if (corners.Count > 0 && sprites.TryGetValue(path, out EngineSprite sprite))
             {
-                _batches.Add(new ParticleBatch(corners, sprite.Material with { Blend = blending }));
+                _batches.Add(new ParticleBatch(
+                    corners, sprite.Material with { Blend = pass.Blend, Depth = pass.Depth }));
             }
         }
 
@@ -259,6 +267,27 @@ public sealed class EntitySpriteBatches
         return sprite.IgnoresVertexColors
             ? (constant, constantAlpha)
             : (constant * vertexColor, constantAlpha * vertexAlpha);
+    }
+
+    /// <summary>What <c>kRenderTransAddFrameBlend</c> multiplies the texture by (B391).</summary>
+    /// <param name="sprite">The sprite, carrying its material's <c>$alpha</c>.</param>
+    /// <param name="vertexColor">The entity's color, which the vertices carry.</param>
+    /// <param name="vertexAlpha">The entity's brightness, which the vertices carry as alpha.</param>
+    /// <returns>The color and alpha the corners are given.</returns>
+    /// <remarks>
+    /// **Two draws in the shader, one here, and the sum is the same** (`sprite_dx9.cpp:356-484`). Each
+    /// sets <c>color[0] = color[1] = color[2] = flFade * frameBlendAlpha; color[3] = 1.0f;</c> with
+    /// <c>flFade = params[ALPHA]</c> — `$color` is never read — and the weights are
+    /// <c>1 - frac( $frame )</c> on frame <c>(int)$frame</c> and <c>frac( $frame )</c> on the next.
+    /// This project draws a sprite's first frame only, so both draws sample one texture and add to one
+    /// draw of grey `$alpha`. The vertex color follows `$ignorevertexcolors`, as in mode 5.
+    /// </remarks>
+    private static (Vector3 Color, float Alpha) FrameBlend(
+        EngineSprite sprite, Vector3 vertexColor, float vertexAlpha)
+    {
+        Vector3 grey = new(sprite.ConstantColor.Alpha);
+
+        return sprite.IgnoresVertexColors ? (grey, 1f) : (grey * vertexColor, vertexAlpha);
     }
 
     /// <summary><c>m_clrRender</c>'s three bytes as the renderer's zero-to-one color.</summary>

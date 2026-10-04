@@ -142,6 +142,27 @@ public readonly record struct OverlayFade(float X, float Y, float Z, float MinSq
 
         return Math.Clamp((MaxSquared - distanceSquared) / (MaxSquared - MinSquared), 0f, 1f);
     }
+
+    /// <summary>The alpha the overlay is DRAWN with, or null when it is not drawn at all (B329).</summary>
+    /// <param name="eyeX">The view origin.</param>
+    /// <param name="eyeY">The view origin, across.</param>
+    /// <param name="eyeZ">The view origin, up.</param>
+    /// <param name="takesVertexAlpha">The material's shader multiplies vertex alpha in.</param>
+    /// <returns>An alpha in [0, 1], or null.</returns>
+    /// <remarks>
+    /// engine.dll 0x180110630 writes the fade only into the vertex colour, as
+    /// <c>(int)(fade · 255 + 2^23) &lt;&lt; 24 | 0xFFFFFF</c> — white, the fade rounded to a byte in alpha.
+    /// A shader that ignores vertex alpha therefore draws the overlay opaque until it is culled.
+    /// </remarks>
+    public float? DrawnAlpha(float eyeX, float eyeY, float eyeZ, bool takesVertexAlpha)
+    {
+        if (Alpha(eyeX, eyeY, eyeZ) is not { } fade)
+        {
+            return null;
+        }
+
+        return takesVertexAlpha ? MathF.Round(fade * 255f) / 255f : 1f;
+    }
 }
 
 /// <summary>What a drawn surface is, for the diagnostic view.</summary>

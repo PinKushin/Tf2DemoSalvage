@@ -681,7 +681,9 @@ jobs:
           # It asserts an exit code and PNG bytes rather than a picture, so it needs no roster and
           # runs on an era specimen — 32 tests in 33s measured locally, against 2m06 if it had used
           # z1800 as this session first suggested.
-          ./build/assert-test-count.sh '**/viewer-ui.trx' 32 ViewerUi
+          # 32 -> 41 on 2026-10-04: 40 measured locally (.trx total, drift) plus PlaybackUiTests, the old
+          # gate phase 3 (build/playback-check.ps1) folded in as a counted test (B408). 41 measured.
+          ./build/assert-test-count.sh '**/viewer-ui.trx' 41 ViewerUi
           # 117 -> 118 on 2026-08-28: ViewmodelAnimationParityCorpusTests, which asserts the parity
           # counter reaches the scene from a real demo and changes there.
           # 118 -> 121 on 2026-08-28: LifeStateCorpusDiagnostic (3), which chose the UI suite's

@@ -33,4 +33,14 @@ public enum SpriteBlend
 
     /// <summary>One plus one minus source alpha, for a material that adds itself.</summary>
     AddOver,
+
+    /// <summary>No blending — the <c>Sprite</c> shader's <c>kRenderNormal</c> (`sprite_dx9.cpp:229`, B391).</summary>
+    /// <remarks>Not one of <c>SpriteCard</c>'s three; only an entity sprite's render mode selects it.</remarks>
+    Opaque,
+
+    /// <summary>
+    /// One minus source alpha plus destination — <c>kRenderTransAlphaAdd</c>'s second pass
+    /// (`sprite_dx9.cpp:319`, B391). Only an entity sprite's render mode selects it.
+    /// </summary>
+    InverseAlphaAdd,
 }
