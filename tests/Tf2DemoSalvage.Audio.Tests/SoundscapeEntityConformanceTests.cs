@@ -83,7 +83,9 @@ public sealed class SoundscapeEntityConformanceTests
     /// <remarks>
     /// <c>gEntList.FindEntityByName( NULL, m_MainSoundscapeName )</c> then <c>dynamic_cast&lt; CEnvSoundscape* &gt;</c>
     /// (<c>soundscape.cpp:42-45</c>): the FIRST entity of that name, of any class. Two soundscapes sharing a name give
-    /// the first's; a name whose first holder is not a soundscape leaves the proxy with none, and it is skipped.
+    /// the first's; a name whose first holder is not a soundscape leaves the proxy with no master — and it is KEPT, at
+    /// the index -1 its constructor gave it (<c>:105</c>), because the soundscape system listed it when it was
+    /// constructed (<c>:108</c>) and nothing takes it out.
     /// </remarks>
     [Test]
     public void From_AProxyOfASharedName_TakesTheFirstEntityOfThatName()
@@ -98,9 +100,133 @@ public sealed class SoundscapeEntityConformanceTests
                 "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"relay\"\n\"origin\" \"8 9 10\"\n}\n"),
             Catalog).Placements;
 
-        placed.Count.ShouldBe(4, "three soundscapes and one proxy; the relay's proxy found an info_target first");
+        placed.Count.ShouldBe(5, "three soundscapes and both proxies");
         placed[3].X.ShouldBe(5f);
         placed[3].Name.ShouldBe("test.second", "the first entity named master");
+        placed[3].Index.ShouldBe(1);
+        placed[4].X.ShouldBe(8f);
+        placed[4].Index.ShouldBe(-1, "the relay's proxy found an info_target first, so it has no master");
+    }
+
+    /// <remarks>
+    /// **A proxy's master can be any <c>CEnvSoundscape</c>** — the <c>dynamic_cast</c> at <c>soundscape.cpp:45</c> accepts
+    /// <c>env_soundscape_triggerable</c> and <c>env_soundscape_proxy</c>, both derived from it (<c>soundscape.h:75,93</c>).
+    /// A triggerable has its index from its own <c>Precache</c> at spawn, before any entity activates
+    /// (<c>mapentities.cpp:257-308</c>), so a proxy of one copies it. Census, `soundscape-entities` probe: 64 installed
+    /// proxies have a triggerable master — 39 on pl_venice — and played nothing.
+    /// </remarks>
+    [Test]
+    public void From_AProxyOfATriggerable_TakesTheTriggerablesSoundscapeAndPositions()
+    {
+        IReadOnlyList<SoundscapePlacement> placed = SoundscapePlacements.From(
+            Entities(
+                "{\n\"classname\" \"env_soundscape_triggerable\"\n\"targetname\" \"trig\"\n\"soundscape\" \"test.second\"\n" +
+                "\"origin\" \"0 0 0\"\n\"position0\" \"hum\"\n}\n" +
+                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"trig\"\n\"origin\" \"5 6 7\"\n}\n" +
+                "{\n\"classname\" \"info_target\"\n\"targetname\" \"hum\"\n\"origin\" \"10 20 30\"\n}\n"),
+            Catalog).Placements;
+
+        // The triggerable itself is not placed: its own place in the radius contest is B483, filed open.
+        SoundscapePlacement proxy = placed.ShouldHaveSingleItem();
+
+        proxy.X.ShouldBe(5f);
+        proxy.Index.ShouldBe(1, "test.second, the triggerable's");
+        proxy.Name.ShouldBe("test.second");
+        proxy.Positions[0].ShouldBe((10f, 20f, 30f), "the triggerable's position0");
+    }
+
+    /// <remarks>
+    /// **A proxy of a proxy copies what its master holds WHEN IT ACTIVATES.** <c>Activate</c> runs in spawn-list order
+    /// (<c>mapentities.cpp:299-308</c>); a proxy's own <c>Precache</c> is empty (<c>soundscape.h:86</c>), so a master
+    /// proxy that has not activated yet still has index -1 and its OWN position keys, and that is what is copied. One that
+    /// has activated hands on its master's. Census: 13 installed proxies of a proxy, 12 of them on ctf_applejack.
+    ///
+    /// *Interpolated:* the order. The spawn list is <c>qsort</c>ed on hierarchy depth and a short class priority list
+    /// (<c>mapentities.cpp:107-127,199</c>), neither of which separates two unparented soundscapes, so their order is the
+    /// sort's: lump order where <c>qsort</c> is stable — glibc's merge sort, on a Linux server — and not promised by MSVC's.
+    /// </remarks>
+    [Test]
+    public void From_AProxyOfAProxy_CopiesWhatThatProxyHoldsWhenItActivates()
+    {
+        const string Master =
+            "{\n\"classname\" \"env_soundscape\"\n\"targetname\" \"master\"\n\"soundscape\" \"test.second\"\n" +
+            "\"origin\" \"0 0 0\"\n\"position0\" \"hum\"\n}\n";
+        const string Relay =
+            "{\n\"classname\" \"env_soundscape_proxy\"\n\"targetname\" \"relay\"\n\"MainSoundscapeName\" \"master\"\n" +
+            "\"origin\" \"1 0 0\"\n\"position1\" \"own\"\n}\n";
+        const string Second =
+            "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"relay\"\n\"origin\" \"2 0 0\"\n}\n";
+        const string Targets =
+            "{\n\"classname\" \"info_target\"\n\"targetname\" \"hum\"\n\"origin\" \"10 20 30\"\n}\n" +
+            "{\n\"classname\" \"info_target\"\n\"targetname\" \"own\"\n\"origin\" \"40 50 60\"\n}\n";
+
+        IReadOnlyList<SoundscapePlacement> inOrder = SoundscapePlacements.From(Entities(Master + Relay + Second + Targets), Catalog)
+            .Placements;
+
+        inOrder.Count.ShouldBe(3);
+
+        SoundscapePlacement after = inOrder[2];
+
+        after.X.ShouldBe(2f);
+        after.Index.ShouldBe(1, "the relay activated first and already held test.second");
+        after.Positions[0].ShouldBe((10f, 20f, 30f), "and the master's position0");
+        after.Positions[1].ShouldBeNull();
+
+        IReadOnlyList<SoundscapePlacement> reversed = SoundscapePlacements.From(Entities(Master + Second + Relay + Targets), Catalog)
+            .Placements;
+
+        reversed.Count.ShouldBe(3);
+
+        SoundscapePlacement before = reversed[1];
+
+        before.X.ShouldBe(2f);
+        before.Index.ShouldBe(-1, "the relay had not activated, so its index was still the constructor's -1");
+        before.Positions[0].ShouldBeNull();
+        before.Positions[1].ShouldBe((40f, 50f, 60f), "the relay's OWN position1, which it had not yet replaced");
+    }
+
+    /// <remarks>
+    /// <c>Warning( "env_soundscape_proxy can't find target soundscape: '%s'\n", ... )</c> and nothing else
+    /// (<c>soundscape.cpp:56-59</c>): the proxy stays in the system's list with index -1 and contends like any other. When
+    /// it wins, the client is told an entity and no soundscape, and starts nothing (<c>c_soundscape.cpp:562-575</c>) — so
+    /// whatever was playing carries on. Census: 27 installed proxies name no master.
+    /// </remarks>
+    [Test]
+    public void Choose_AProxyWithNoMaster_ContendsAndCarriesNoSoundscape()
+    {
+        SoundscapePlacements placements = SoundscapePlacements.From(
+            Entities(
+                Soundscape("300 0 0", string.Empty) +
+                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"100 0 0\"\n}\n"),
+            Catalog);
+
+        placements.Placements.Count.ShouldBe(2);
+
+        SoundscapePlacement chosen = placements.Choose(0f, 0f, 0f, Clear).ShouldNotBeNull();
+
+        chosen.X.ShouldBe(100f, "the masterless proxy is nearer, and it is in the contest");
+        chosen.Index.ShouldBe(-1);
+    }
+
+    /// <remarks>
+    /// <c>CBaseEntity *pEntity = gEntList.FindEntityByName( NULL, m_positionNames[i], this, this ); if ( pEntity ) {
+    /// ... audio.localSound.Set( i, pEntity-&gt;GetAbsOrigin() ); }</c> (<c>soundscape.cpp:222-227</c>): the FIRST entity
+    /// of the name, and wherever it stands — an entity that declares no <c>origin</c> stands at the world origin. Census:
+    /// no installed map names such a target, so this is the rule a third-party map meets.
+    /// </remarks>
+    [Test]
+    public void From_APositionTargetWithNoOrigin_IsAtTheWorldOriginAndTheFirstOfItsNameWins()
+    {
+        SoundscapePlacement placed = SoundscapePlacements.From(
+            Entities(
+                Soundscape("0 0 0", "\"position0\" \"bare\"\n\"position1\" \"twice\"") +
+                "{\n\"classname\" \"info_target\"\n\"targetname\" \"bare\"\n}\n" +
+                "{\n\"classname\" \"info_target\"\n\"targetname\" \"twice\"\n}\n" +
+                "{\n\"classname\" \"info_target\"\n\"targetname\" \"twice\"\n\"origin\" \"7 8 9\"\n}\n"),
+            Catalog).Placements.ShouldHaveSingleItem();
+
+        placed.Positions[0].ShouldBe((0f, 0f, 0f), "a named entity with no origin is at the world origin, not absent");
+        placed.Positions[1].ShouldBe((0f, 0f, 0f), "the FIRST entity of the name, not the first with an origin");
     }
 
     /// <remarks>
@@ -178,19 +304,21 @@ public sealed class SoundscapeEntityConformanceTests
     /// here rather than through the placement. Both maps leave gaps — ctf_well sets 1, 2 and 4, mvm_mannworks 1 and 2 —
     /// and compacted, a loop at `position 1` played at `position2`'s target and the last one was suppressed.
     ///
-    /// Not koth_lazarus, the census's other example: its soundscapes live in the map's own pakfile script, which the
-    /// viewer does not load at all (B465), so every placement there is index -1.
+    /// koth_lazarus, the census's other example, keeps its soundscapes in the map's own pakfile script, so its catalog is
+    /// the one the level loads — through the pakfile first (B465).
     /// </remarks>
     /// <param name="map">The installed map.</param>
     [TestCase("ctf_well")]
     [TestCase("mvm_mannworks")]
+    [TestCase("koth_lazarus")]
     public void MoveTo_AShippedMapsPositionedSoundscapes_PlayEachLoopAtTheTargetItsSlotNames(string map)
     {
-        string bsp = Tf2DemoSalvage.SdkReference.GameInstall.RequireFile($"maps/{map}.bsp");
-        SoundscapeCatalog catalog = SoundscapeCatalog.Load(
+        byte[] bytes = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile($"maps/{map}.bsp"));
+        SoundscapeCatalog catalog = SoundscapeCatalog.ForLevel(
+            Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bytes),
             Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
             map);
-        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(System.IO.File.ReadAllBytes(bsp));
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bytes);
         SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
 
         int heardAtTheirSlots = 0;
@@ -235,15 +363,15 @@ public sealed class SoundscapeEntityConformanceTests
 
             foreach (SoundscapeSound loop in script.Looping)
             {
+                // The FIRST entity of the name, at the world origin when it declares none (`soundscape.cpp:222-226`).
                 if (loop.Position is { } slot and >= 0 and < 8 &&
                     loop.Volume != default &&
                     Named(entity, $"position{slot}") is { } target &&
                     entities.FirstOrDefault(candidate =>
                             Named(candidate, "targetname") is { } name &&
-                            name.Equals(target, System.StringComparison.OrdinalIgnoreCase) &&
-                            Origin(candidate) is not null) is { } found)
+                            name.Equals(target, System.StringComparison.OrdinalIgnoreCase)) is { } found)
                 {
-                    expected.Add((loop.Wave, Origin(found)!.Value));
+                    expected.Add((loop.Wave, Origin(found) ?? (0f, 0f, 0f)));
                 }
             }
 
@@ -257,6 +385,115 @@ public sealed class SoundscapeEntityConformanceTests
 
         heardAtTheirSlots.ShouldBeGreaterThan(0, "the control: a soundscape here must place a loop");
         gapped.ShouldBeGreaterThan(0, "and one of them must have the gap this exists to check");
+    }
+
+    /// <remarks>
+    /// **The output-level check for B465, on the map the census found it on.** <c>C_SoundscapeSystem::LevelInitPreEntity</c>
+    /// re-runs <c>Init</c> for every level (<c>c_soundscape.cpp:99-102</c>), and <c>Init</c> appends
+    /// <c>scripts/soundscapes_&lt;map&gt;.txt</c> after the manifest's files when the manifest did not name it
+    /// (<c>:306-336</c>), read through the filesystem — where the map's own pakfile is mounted ahead of the game's
+    /// archives. koth_lazarus ships its soundscapes only there, so through the install alone every placement naming one
+    /// is index -1 (the control), and through the level's reader each names the entry of its own name, after every stock
+    /// one, and starts that entry's loops.
+    /// </remarks>
+    [Test]
+    public void ForLevel_KothLazarus_ResolvesItsOwnSoundscapesFromItsPakfile()
+    {
+        byte[] bsp = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/koth_lazarus.bsp"));
+        System.Func<string, byte[]?> install =
+            Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read;
+        Tf2DemoSalvage.Content.Assets.PakFile pak = Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bsp);
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bsp);
+
+        pak.Contains("scripts/soundscapes_koth_lazarus.txt").ShouldBeTrue("the census: the map ships its own script");
+        install("scripts/soundscapes_koth_lazarus.txt").ShouldBeNull("and the install does not");
+
+        SoundscapeCatalog stock = SoundscapeCatalog.Load(install, "koth_lazarus");
+        SoundscapeCatalog level = SoundscapeCatalog.ForLevel(pak, install, "koth_lazarus");
+
+        List<SoundscapePlacement> own = [.. SoundscapePlacements.From(entities, stock).Placements
+            .Where(placement => placement.Name.StartsWith("Lazarus.", System.StringComparison.OrdinalIgnoreCase))];
+
+        own.ShouldNotBeEmpty("the control: koth_lazarus places soundscapes of its own");
+        own.ShouldAllBe(placement => placement.Index == -1, "through the install alone none of them resolves");
+
+        int checkedPlacements = 0;
+
+        foreach (SoundscapePlacement placement in SoundscapePlacements.From(entities, level).Placements
+                     .Where(placement => placement.Name.StartsWith("Lazarus.", System.StringComparison.OrdinalIgnoreCase)))
+        {
+            Soundscape script = level.At(placement.Index).ShouldNotBeNull($"{placement.Name} resolves");
+
+            script.Name.ShouldBe(placement.Name, System.StringComparer.OrdinalIgnoreCase);
+            placement.Index.ShouldBeGreaterThanOrEqualTo(stock.Count, "the map's file is appended after the manifest's");
+
+            SoundscapeMixer mixer = new();
+            mixer.MoveTo(placement, script);
+            mixer.Advance(0f).ShouldNotBeEmpty($"{placement.Name} starts its loops");
+
+            checkedPlacements++;
+        }
+
+        checkedPlacements.ShouldBe(own.Count);
+    }
+
+    /// <remarks>
+    /// **The output-level check for a triggerable master, on the map that has the most**: pl_venice's 39 proxies of an
+    /// `env_soundscape_triggerable` were dropped, so a listener near one heard whatever the last ordinary soundscape left.
+    /// Each must now carry its triggerable's soundscape — read straight from the lump here, not through the placement —
+    /// and, the map's own script read through its pakfile as the level loads it (B465), start that soundscape's loops.
+    /// </remarks>
+    [Test]
+    public void From_PlVenicesProxiesOfATriggerable_CarryTheTriggerablesSoundscape()
+    {
+        byte[] bytes = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/pl_venice.bsp"));
+        SoundscapeCatalog catalog = SoundscapeCatalog.ForLevel(
+            Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bytes),
+            Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
+            "pl_venice");
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bytes);
+        SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
+
+        int checkedProxies = 0;
+        int started = 0;
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.ClassName.Equals("env_soundscape_proxy", System.StringComparison.OrdinalIgnoreCase) ||
+                Named(entity, "MainSoundscapeName") is not { } master ||
+                entities.FirstOrDefault(candidate =>
+                        Named(candidate, "targetname") is { } name &&
+                        name.Equals(master, System.StringComparison.OrdinalIgnoreCase)) is not { } main ||
+                !main.ClassName.Equals("env_soundscape_triggerable", System.StringComparison.OrdinalIgnoreCase) ||
+                Named(main, "soundscape") is not { } soundscape ||
+                Origin(entity) is not { } at)
+            {
+                continue;
+            }
+
+            SoundscapePlacement placed = placements.Placements
+                .Single(placement => (placement.X, placement.Y, placement.Z) == at);
+
+            placed.Name.ShouldBe(soundscape, $"the proxy at {at} names {master}");
+
+            Soundscape script = catalog.At(placed.Index).ShouldNotBeNull();
+
+            script.Name.ShouldBe(soundscape, System.StringComparer.OrdinalIgnoreCase);
+
+            SoundscapeMixer mixer = new();
+            mixer.MoveTo(placed, script);
+
+            // Every `venice.inside.*` loop is an unpositioned room tone, so each starts; `venice.outside.*` has no
+            // `playlooping` of its own and nests one with `playsoundscape`, which is not ported (B173's list).
+            mixer.Advance(0f).Select(voice => voice.Wave)
+                .ShouldBe(script.Looping.Select(loop => loop.Wave), $"{soundscape} starts its own loops");
+
+            started += script.Looping.Count > 0 ? 1 : 0;
+            checkedProxies++;
+        }
+
+        checkedProxies.ShouldBe(39, "the census: 39 proxies of a triggerable on pl_venice");
+        started.ShouldBe(30, "the 30 that name a venice.inside soundscape start its room tone");
     }
 
     private static string? Named(BspEntity entity, string key) =>

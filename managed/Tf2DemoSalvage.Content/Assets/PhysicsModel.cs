@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
+using Tf2DemoSalvage.Core.Primitives;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>One rigid body of a model's collision definition, as its <c>.phy</c> declares it.</summary>
@@ -641,34 +643,10 @@ public sealed class PhysicsModel
     {
         int comma = value.IndexOf(',', StringComparison.Ordinal);
 
+        // `int index0 = atoi(szToken)` (`ragdoll_shared.cpp:94,96`) — the C runtime's, so `CStdlib`'s.
         return comma < 0
             ? null
-            : new PhysicsCollisionPair(Atoi(value.AsSpan(0, comma)), Atoi(value.AsSpan(comma + 1)));
-    }
-
-    /// <summary>C's <c>atoi</c>: leading space, optional sign, digits, and zero for the rest.</summary>
-    /// <param name="text">The token.</param>
-    /// <returns>The value, or zero.</returns>
-    private static int Atoi(ReadOnlySpan<char> text)
-    {
-        ReadOnlySpan<char> trimmed = text.Trim();
-
-        int end = 0;
-
-        if (end < trimmed.Length && (trimmed[end] == '-' || trimmed[end] == '+'))
-        {
-            end++;
-        }
-
-        while (end < trimmed.Length && char.IsAsciiDigit(trimmed[end]))
-        {
-            end++;
-        }
-
-        return int.TryParse(
-            trimmed[..end], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
-            ? parsed
-            : 0;
+            : new PhysicsCollisionPair(CStdlib.Atoi(value.AsSpan(0, comma)), CStdlib.Atoi(value.AsSpan(comma + 1)));
     }
 
     private static PhysicsSolid SolidFrom(Dictionary<string, string> fields) =>
@@ -724,6 +702,12 @@ public sealed class PhysicsModel
     private static string Text(Dictionary<string, string> fields, string key) =>
         fields.TryGetValue(key, out string? value) ? value : string.Empty;
 
+    /// <remarks>
+    /// **Not <see cref="CStdlib"/>, because the reader is not known to be `atoi`.** These keys are parsed inside
+    /// vphysics (`IVPhysicsKeyParser::ParseSolid`/`ParseRagdollConstraint`, `vcollide_parse.h`), whose source is not
+    /// published and whose number reader has not been disassembled; the collision pair above is game code that calls
+    /// `atoi` in the open. On the decimals a `.phy` writes (`"-35.000000"`) the two agree.
+    /// </remarks>
     private static int Integer(Dictionary<string, string> fields, string key, int fallback = 0) =>
         fields.TryGetValue(key, out string? value) &&
         int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)

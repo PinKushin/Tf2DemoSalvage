@@ -34814,7 +34814,7 @@ slot's target straight from the lump and checks the wave that sounds there. Its 
 **passed under compaction on ctf_well**, which kept the same three targets with the waves rotated; it compares
 (wave, place) now and reddens on both maps.
 
-## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — OPEN 2026-10-04
+## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — FIXED 2026-10-04
 
 **Read, published source:** `C_SoundscapeSystem::LevelInitPreEntity` re-runs `Init` on every level (`c_soundscape.cpp:
 99-102`), and `Init` appends `scripts/soundscapes_<map>.txt` after the manifest unless the manifest named it
@@ -34823,7 +34823,26 @@ per install, from the VPKs only and with no map name, so **every placement on su
 Measured while writing B464's output-level test: koth_lazarus's six position-keyed soundscapes (`Lazarus.Base`,
 `.Jungle`, `.Cave`) all resolve to -1, and its pakfile carries `SCRIPTS/SOUNDSCAPES_KOTH_LAZARUS.TXT` (`pak` probe,
 one of 6,293 entries). `SoundscapeCatalog.Load` already takes the map name; the level load needs to
-pass it and a reader that tries the pakfile first. How many installed maps ship one is not yet counted.
+pass it and a reader that tries the pakfile first.
+
+**Counted, `soundscape-map-scripts` probe on the 239 installed maps:** 71 ship their own script in the pakfile and one
+(cp_coldfront) in the install, where the manifest already names it. **3,700 placements on 66 maps that named no
+catalog entry through the install alone resolve through the level's reader**; 21 on four maps still name nothing
+(cp_canaveral_5cp 8, pl_enclosure_final 11, plr_matterhorn 1, tow_dynamite 1 — masterless proxies among them, B481).
+The stock catalog is 153 either way, which is the control — a map that ships nothing comes out the same.
+
+**Fix:** `SoundscapeCatalog.ForLevel( pak, install, mapName )` — `Load` through a reader that asks the pakfile first —
+and `LevelSystems.Load` rebuilds the catalog per level with the map's name before the placements resolve against it,
+falling back to the install alone, reported, if the pakfile will not read. `MainForm` passes the demo's map name. The
+install-time catalog `OpenGame` builds stays as the engine's DLL-init one. Output level: `ForLevel_KothLazarus_
+ResolvesItsOwnSoundscapesFromItsPakfile` (all `Lazarus.*` placements -1 through the install as the control, each
+resolving after every stock entry and starting its loops through the level's), koth_lazarus added to the slot test,
+pl_venice's triggerable proxies starting their room tone; `ForLevel_AScriptInBothThePakfileAndTheInstall_IsThe
+PakfilesAndTheMapsOwnGoesLast` on a synthetic zip, for the machine without TF2. Sabotage — the install searched first,
+and no map name — reddened them, restored by the inverse edit.
+
+**Not asserted by a test:** the one line in `LevelSystems.Load` that hands `ForLevel` the map name. Exercising it needs
+a full `LoadedMap.Read` of a real map with the install, which no Presentation test does.
 
 ## B469 — every particle collection drew the same random numbers: the seed was missing from every table index — FIXED 2026-10-04
 
@@ -35109,3 +35128,157 @@ The rope port leaves five things out, each stated here so its absence is not mis
 
 **Interpolated:** the gusts draw from a stream seeded by the entity index, not the client's global stream. Their
 timing and direction are a valid draw, not TF2's.
+
+## B479 — `atof` was read straight to float; C returns a double, and `ReadInterval` subtracts in it — FIXED 2026-10-04
+
+**Read, published source and the C standard.** `double atof( const char * )` (C11 7.22.1.2); `ReadInterval` narrows
+only on assignment — `tmp.start = atof( token )` — and computes `tmp.range = atof( token ) - tmp.start` in double, the
+float start promoted (`interval.cpp:34,38`). `CStdlib.Atof` parsed straight to float, so:
+
+1. **A value just past a float midpoint rounded once where the engine rounds twice.** `"1.0000000596046447755"` is
+   1.00000012 read to float; read to double it is exactly the midpoint 1 + 2⁻²⁴, and narrowing ties to even, 1.0.
+2. **Every soundscape range was a float subtraction.** `".2, .3"` — `Halloween.Outside`'s shipped wind volume — has
+   range 0.099999994f in the engine and was 0.10000001f here, one float apart. The B462 test asserted the float
+   subtraction.
+
+**Fix:** `CStdlib.Atof` returns `double`; `Interval.Read` narrows the start and the difference where the engine does;
+`PanelLayout.Atof` narrows for its float callers. Tests in `CStdlibConformanceTests` (the midpoint, with the direct
+float parse as the control) and `IntervalConformanceTests`; sabotage — a float parse inside `Atof`, and a float
+subtraction in `Read` — reddened them, restored by the inverse edit.
+
+## B480 — a `SNDLVL_` number outside 1–180 was taken as itself; `TextToSoundLevel` gives `SNDLVL_NORM` — FIXED 2026-10-04
+
+**Read, published source** (`SoundParametersInternal.cpp:181-213`). After the name table — matched without case —
+`TextToSoundLevel` takes `atoi` of the text after `SNDLVL_` and returns it only `if ( sndlvl > 0 && sndlvl <= 180 )`;
+anything else is `SNDLVL_NORM`, 75. `SoundScript.SoundLevel` took any integer the name carried, trimmed of `dB`, so
+`SNDLVL_181dB` was 181 and `SNDLVL_0dB` was 0 (only the NAME `SNDLVL_NONE` is 0); and `int.TryParse` refused
+`SNDLVL_80 dB`, which `atoi` reads as 80. Both soundscripts and a soundscape's `soundlevel` reach it. The shipped
+soundscript census (`Read_EveryShippedSoundScript_ParsesWithoutLosingEntries`) held every level within 0–180 before
+the fix, so no stock soundscript names one past 180; a stock `SNDLVL_0dB`, or a soundscape script's, was not counted.
+
+**Fix:** `CStdlib.Atoi` and the range check. Test `SoundLevel_ANumberOutsideOneTo180OrNotANumber_IsSndlvlNorm`;
+sabotage of both bounds (`>= 0`, `< 180`) reddened it and the existing 180 case, restored by the inverse edit.
+
+## B481 — a proxy's master had to be an `env_soundscape`, and a proxy without one was dropped — FIXED 2026-10-04
+
+**Read, published source** (`game/server/soundscape.cpp`, `soundscape.h`, `mapentities.cpp`). Census of the 239
+installed maps, `soundscape-entities` probe: of 6,616 proxies, the master is an `env_soundscape` for 6,512, an
+`env_soundscape_triggerable` for 64 (39 on pl_venice, 15 on pl_embargo), another proxy for 13 (12 on ctf_applejack),
+and nothing for 27.
+
+1. **Any `CEnvSoundscape` is a master.** `CEnvSoundscapeProxy::Activate` casts the first entity of the name to
+   `CEnvSoundscape` (`:42-45`), which both other classes derive from (`soundscape.h:75,93`). `From` accepted only
+   `env_soundscape`, so **the 64 proxies of a triggerable and the 13 of a proxy were dropped** — near one, a listener
+   kept whatever an ordinary soundscape had left playing.
+2. **What is copied is what the master holds when the proxy activates.** Every entity spawns before any activates
+   (`mapentities.cpp:257-308`); a triggerable takes its index at spawn (`Precache`, `:360-377`), a proxy's `Precache`
+   is empty (`soundscape.h:86`). So a master proxy that activates LATER hands on -1 and its own position keys.
+3. **A proxy with no master is kept**, at the constructor's -1 (`:105`) with only a warning (`:58`). It contends like
+   any other; when it wins the client is told no soundscape and starts nothing, so what was playing carries on
+   (`c_soundscape.cpp:562-575`, the mixer's B463 branch). `From` dropped the 27.
+
+***Interpolated:* the activation order.** The spawn list is `qsort`ed on hierarchy depth and a short class-priority
+list (`mapentities.cpp:107-127,174-205`), neither of which separates two unparented soundscapes, so their relative
+order is the sort's. Lump order is taken — what glibc's merge sort, a stable sort, gives on a Linux server; MSVC's
+`qsort` on a Windows listen server promises nothing. It decides only the 13 proxies of a proxy.
+
+**Fix:** `SoundscapePlacements.From` spawns every `CEnvSoundscape` with what its `Precache` gives, then activates the
+proxies in lump order, each copying its master's index, name and position source. Tests in
+`SoundscapeEntityConformanceTests` (triggerable master, proxy of a proxy in both orders, masterless contending, the
+shared-name case now keeping its relay proxy) and the output-level `From_PlVenicesProxiesOfATriggerable_
+CarryTheTriggerablesSoundscape`, which reads each triggerable's `soundscape` key from the lump. Sabotage, each
+restored by the inverse edit: masters restricted to `env_soundscape`; a second activation pass (order ignored);
+masterless proxies skipped; triggerables placed — each reddened its tests.
+
+## B482 — an entity with no `origin` was skipped, a malformed one dropped, and a target was the first of its name WITH an origin — FIXED 2026-10-04
+
+**Read, published source.** `CBaseEntity::KeyValue` reads `origin` through `UTIL_StringToVector`
+(`baseentity_shared.cpp:427-430`): `atof` of each whitespace-separated field, a missing field zero
+(`util_shared.cpp:919-954`). An entity with no key stays at the world origin. `WriteAudioParamsTo` places a slot at
+`FindEntityByName( NULL, name, this, this )->GetAbsOrigin()` (`soundscape.cpp:222-226`) — the first entity of the name,
+wherever it is.
+
+`SoundscapePlacements` parsed an origin with `float.TryParse` on exactly three space-separated fields and treated
+anything else as absent: a soundscape without one, or with `"1 2"`, was not placed, and a position target took the
+first holder of the name that HAD an origin. Census, `soundscape-entities` probe: no installed map has a target or a
+soundscape entity without an origin, so this is the rule a third-party map meets.
+
+**Fix:** `Origin` is `UTIL_StringToVector` or the world origin; `Targets` takes the first entity of the name from the
+same first-by-name table the proxies use. Tests `From_APositionTargetWithNoOrigin_IsAtTheWorldOriginAndTheFirstOfIts
+NameWins` and `From_AnEntityWithNoOrMalformedOrigin_StandsWhereTheServerPutsIt`; sabotage — a target without an origin
+left unset, and a short origin dropped whole — reddened each, restored by the inverse edit.
+
+**Not changed, found here:** `m_flRadius` is a `FIELD_FLOAT` keyfield, `atof`'d (`saverestore_gamedll.cpp:56-58`), and
+`CEnvSoundscape`'s constructor never sets it; `Radius` reads a missing or unparseable key as -1, unlimited. What the
+engine's allocation leaves there was not read. The census found no soundscape entity without the key.
+
+## B483 — an `env_soundscape_triggerable` contends by radius like any soundscape, and is never placed — OPEN 2026-10-04
+
+**Read, published source.** The triggerable is a `CEnvSoundscape` (`soundscape.h:93`), so its constructor lists it in
+the soundscape system (`soundscape.cpp:108`) and `FrameUpdatePostEntityThink` runs `UpdateForPlayer` on it with every
+other (`soundscape_system.cpp:296-369`) — overriding `Think` (`soundscape.cpp:461-464`) stops nothing, because the
+contest is not a think. On top of that, `trigger_soundscape` writes its params on touch and restores the next on the
+list, or `entIndex = 0`, on end touch (`:417-458`). `SoundscapePlacements` places neither half: B481 holds a
+triggerable only as a proxy's master. 71 on the installed maps. Fixing it needs the trigger volumes and per-tick touch
+state as well as the radius half, and a `entIndex = 0` that the mixer now answers the engine's way (B484).
+
+## B484 — params naming no entity faded every loop out; the client starts nothing and the loops play on — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:555-576`). `UpdateAudioParams` copies the params whenever the index or
+the entity changed, and calls `StartNewSoundscape` — the only thing that zeroes a loop's target — only
+`if ( audio.entIndex > 0 && audio.soundscapeIndex >= 0 && audio.soundscapeIndex < m_soundscapes.Count() )`. With no
+entity (the server writes `entIndex = 0` when a player leaves the last `trigger_soundscape`, `soundscape.cpp:457`)
+nothing starts and every loop keeps its target. `SoundscapeMixer.MoveTo( null, … )` zeroed them all, a three-second
+fade to silence. B463 had already made an unknown INDEX start nothing; this is the same branch's other half.
+
+**When this side is reached:** `SoundscapeSystem` asks the mixer with a null placement only before anything has been
+chosen — `Choose` holds the current placement otherwise — and a seek's `Clear()` empties the loops first. So nothing
+audible changes today; it is the branch B483's end-touch will reach.
+
+**Fix:** one guard — no placement or no definition returns after recording the params, before the fade. Test
+`MoveTo_NoEntity_StartsNothingAndTheLoopsPlayOn`, with re-entering the same placement as the control (a change, so a
+restart that reclaims the loop where it stands); `Ended_…` now fades through a soundscape with no loops, which is what
+`StartNewSoundscape` does. Sabotage — a fade on a null placement — reddened it; restored by the inverse edit.
+
+## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — OPEN 2026-10-04
+
+**Measured while closing B465** (`pak` probe): pl_venice's pakfile carries 35 entries under `sound/` — canal water,
+flies, rodents — and `LevelSystems.OpenGame` sets `SoundCache.Read = game.Archives.Read`, once per install. Any sound
+that lives only in a map's pakfile, whether a soundscape loop, a `playrandom` wave or an `ambient_generic`, logs
+"would not open" and is silent. The engine reads every sound through the `"GAME"` search path, with the map's pakfile
+mounted at its head. The fix needs the cache to read per level — and to forget what it decoded from the previous map's
+pakfile, since a stock path can be shadowed by one map and not the next. koth_lazarus ships no sounds, so B465's
+output-level test does not reach this.
+
+## B486 — `CStdlib` was not the runtime: no inf or nan, .NET's white space, zero on overflow; two private copies held what it lacked — FIXED 2026-10-04
+
+**Read, the C standard and Microsoft's runtime reference.** Three answers differed, each on input no stock file is known
+to carry:
+
+1. **`atof` reads `inf`, `infinity` and `nan`** (C11 7.22.1.3). `CStdlib.Atof` read `inf` as 0 and `nan` as .NET's
+   negative NaN. vphysics' private copy had it right, with the NaN bits measured from the shipped binary (B369).
+2. **C's white space is six characters** (C11 7.4.1.10); `TrimStart` and `char.IsWhiteSpace` also skip U+00A0, which a
+   Latin-1 byte 0xA0 becomes, so `" 7"` read 7 where C reads 0.
+3. **MSVC's `atoi` clamps to `INT_MAX`/`INT_MIN`** — its own example reads `"3336402735171707160320"` as 2147483647.
+   `CStdlib.Atoi` answered 0, vphysics' copy wrapped.
+
+**Fix:** `CStdlib` takes vphysics' scanner (now returning the double, B479), C's white space, and the clamp; the
+private copies go. **`VphysicsSurfaceData`** calls the runtime's `atof`/`atoi` in the binary (`FUN_180018740`), so it
+now calls `CStdlib`; **`PhysicsModel.Pair`** is `ragdoll_shared.cpp:94,96`'s `atoi`, so it does too. **Kept separate,
+with the reason on it:** `PhysicsModel`'s `Integer`/`Number`, which read keys parsed inside vphysics'
+`IVPhysicsKeyParser` (`vcollide_parse.h:52-66`), whose number reader is unpublished and not yet disassembled.
+Tests in `CStdlibConformanceTests`; vphysics' binary-measured surface test now runs through `CStdlib`. Sabotage, each
+restored by the inverse edit: .NET's NaN (reddened both the CStdlib test and the binary-measured vphysics test, so the
+vphysics path is proved to route through it), a wrapping cast, .NET white space, and the collision pair's second
+`atoi` given the comma — each reddened its tests.
+
+## B487 — a soundscript's volume, pitch and numeric soundlevel are read as ordered numbers with fallbacks, not as `ReadInterval` — OPEN 2026-10-04
+
+**Read, published source, while fixing B480** (`SoundParametersInternal.cpp:498-550`). `VolumeFromString`,
+`PitchFromString` and `SoundLevelFromString` take the named constant, else `FromInterval( ReadInterval( sz ) )` —
+`atof` of comma tokens, start and range, unordered, drawn at play. `SoundScript.Range` sorts the pair into
+`Math.Min`/`Math.Max` and falls back to the default when `float.TryParse` refuses either half; a numeric soundlevel
+is `int.TryParse` with a fallback to 75, never a range; and `PITCH_LOW`/`PITCH_HIGH` (`:523-531`) are not names it
+knows. The same family as B462 for soundscapes, on the emitter's side: a pitch of `"90,110x"` reads 100 where the
+engine draws 90–110, and a soundlevel of `"80, 90"` reads 75 where the engine draws 80–90. Not counted on the
+shipped scripts.

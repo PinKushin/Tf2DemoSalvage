@@ -69,16 +69,28 @@ public sealed class SoundscapePlacementsTests
         placed[1].Id.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **An origin is read as the server reads it, and its absence is the world origin.** <c>CBaseEntity::KeyValue</c>
+    /// passes <c>"origin"</c> to <c>UTIL_StringToVector</c> (<c>baseentity_shared.cpp:427-430</c>), which is
+    /// <c>atof</c> of each whitespace-separated field, a missing field zero (<c>util_shared.cpp:919-954</c>); an entity
+    /// with no key never moves from where it was made, the origin. Neither is skipped. A proxy with an unknown master is
+    /// not skipped either (B481). Only a class that is not a soundscape is.
+    /// </remarks>
     [Test]
-    public void From_AProxyWithAnUnknownMasterOrAnEntityWithNoOrigin_IsSkipped()
+    public void From_AnEntityWithNoOrMalformedOrigin_StandsWhereTheServerPutsIt()
     {
-        SoundscapePlacements.From(
+        IReadOnlyList<SoundscapePlacement> placed = SoundscapePlacements.From(
             Entities(
-                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"5 6 7\"\n}\n" +
                 "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n}\n" +
                 "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n\"origin\" \"1 2\"\n}\n" +
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n\"origin\" \" 4x  -5.5e1 6 7\"\n}\n" +
                 "{\n\"classname\" \"info_target\"\n\"soundscape\" \"test.first\"\n\"origin\" \"1 2 3\"\n}\n"),
-            Catalog).Placements.ShouldBeEmpty();
+            Catalog).Placements;
+
+        placed.Count.ShouldBe(3, "the info_target is not a soundscape");
+        (placed[0].X, placed[0].Y, placed[0].Z).ShouldBe((0f, 0f, 0f), "no origin key: the world origin");
+        (placed[1].X, placed[1].Y, placed[1].Z).ShouldBe((1f, 2f, 0f), "a missing field is zero");
+        (placed[2].X, placed[2].Y, placed[2].Z).ShouldBe((4f, -55f, 6f), "atof per field, trailing text and a fourth ignored");
     }
 
     [Test]

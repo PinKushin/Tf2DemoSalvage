@@ -916,17 +916,20 @@ against a three-second fade, so the outdoor wind and birds never rose above abou
 volume — while the log showed the correct soundscape being chosen the entire time. Measured on the
 running viewer: 90 changes in 3m49s, with pairs alternating at the 250 ms selection interval.
 
-Two faults fed it, and only one is fixed:
+Two faults fed it, and both are fixed — the second later the same day:
 
 - **The hysteresis was dead.** `Choose` reassigned its running `chosen` during the walk, so the
   branch testing "is this the current one" compared against a contender instead, and the current
   placement's own range was never established. Selection degenerated to bare nearest-visible with
   nothing resisting a flip. The engine measures the current FIRST and then skips it in the loop
   (`soundscape_system.cpp:339-362`), seeding `currentDistance = 0` and `bInRange = false`.
-- **The PVS restriction is still missing.** Only soundscapes in the listener's own visibility
-  cluster contend in the engine (`m_soundscapesInCluster`). This project reads no visibility lump —
-  `BspLumpIndex.Visibility` is defined and unused — so all 44 contend and a placement across the map
-  can win on a long clear traceline.
+- **The PVS restriction was missing.** Only soundscapes in the listener's own visibility cluster
+  contend in the engine (`m_soundscapesInCluster`, built at `LevelInitPostEntity`), and this project
+  then read no visibility lump, so all 44 contended and a placement across the map could win on a
+  long clear traceline. **Closed by B177:** `BspVisibility` reads the lump, and `Choose` considers a
+  placement only when its cluster is visible from the listener's — the transpose of Valve's
+  per-soundscape list, equal because `vvis` computes mutual visibility. From cp_process's far spawn,
+  6 of the 44 are reachable.
 
 **Valve hit the same wall in the same order**, and left the evidence in a comment four lines below
 the reuse check: fading one positional sound out while fading another in sends alternating commands
@@ -964,6 +967,53 @@ sounded at with the set the lump names. On ctf_well it passed with the compactio
 positions 1, 2 and 4, and compacted it still sounds at exactly those three places — with machine_hum where
 computer_tape belongs and computer_tape where computer_working does. Comparing (wave, place) pairs reddens it.
 
-**Not yet fixed, found on the way (B465):** the map's own `scripts/soundscapes_<map>.txt` is never loaded — the
-engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes are all
-index −1 here.
+**Found on the way, and fixed in the next pass (B465):** the map's own `scripts/soundscapes_<map>.txt` was never
+loaded — the engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes were
+all index −1 here.
+
+## The follow-ups: a third of the maps, and what C itself does to a number (B465, B479–B485)
+
+*Measured on the install with the `soundscape-map-scripts` probe, 2026-10-04.* **The largest gap left in the
+soundscape was not in the soundscape code at all — it was in WHICH FILES the catalog was built from.** The catalog was
+built once per install, from the VPKs, with no map name, on the reasoning that it "comes from the install, not the
+level". The engine rebuilds it at every `LevelInitPreEntity` and appends the map's own script, read through a
+filesystem that has the map's pakfile mounted first. 71 of the 239 installed maps ship that script in their pakfile,
+and on 66 of them 3,700 placements named a soundscape the viewer's catalog did not have — near any of them the viewer
+kept whatever ambience had last started, or played none. The census and the
+index order are the parts worth keeping: the map's entries are numbered after all 153 stock ones on both the client and
+the server, so a demo's index means the same on each.
+
+The same pass found the wave reader has the same blind spot one level down — pl_venice carries 35 sounds in its pakfile
+and the sound cache never looks there (B485, open).
+
+*Read, published source and the C standard, 2026-10-04.* **`atof` returns a double**, and that is not pedantry here:
+`ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so
+`Halloween.Outside`'s `".2, .3"` has a range of 0.099999994f in the engine and had 0.10000001f here. One float is not
+audible; it is listed because the earlier test asserted the float subtraction, which is how a reading of the code gets
+locked in by a test that agrees with it (B479). The shared reader had also never been the runtime the engine links:
+no `inf` or `nan`, .NET's idea of white space, and zero where Microsoft's `atoi` clamps — while a private copy in the
+vphysics surface parser had the first two right, measured against the shipped binary. The copy was the better
+reader; it is the shared one now (B486).
+
+**A named soundlevel is range-checked, not trusted.** `TextToSoundLevel` takes `atoi` of what follows `SNDLVL_` and
+keeps it only from 1 to 180; anything else, zero included, is `SNDLVL_NORM` (B480). No stock soundscript names one
+past 180, so this is mostly the rule a map's own script meets.
+
+**A proxy's master is anything the server can cast to `CEnvSoundscape`, and it is read at ACTIVATE time.** The B464
+reading took "master" to mean `env_soundscape`, and a census of the master's class said otherwise: 64 installed
+proxies follow an `env_soundscape_triggerable` and 13 follow another proxy, all dropped. The second kind has a
+property worth writing down: the server spawns every entity and only then activates them, and a proxy's `Precache`
+is empty, so a proxy that follows a proxy copies whatever that proxy holds *at that moment* — its master's soundscape
+if it activated first, or -1 and its own position keys if not. Which comes first is decided by an unstable-in-principle
+`qsort` over keys that do not separate soundscapes; lump order is the reading taken (B481). A proxy that finds no
+master is not discarded either: it stays in the contest at -1, and winning it means the client starts nothing.
+
+**Where an entity stands is the server's reading of its key, not ours.** An `origin` goes through
+`UTIL_StringToVector` — `atof` per field, missing fields zero — and an entity without one is at the world origin;
+a position target is the first entity of its name, wherever that is. This parsed three floats or nothing and skipped
+the rest (B482). No installed map exercises it; it is listed for the same reason as B480.
+
+**"No soundscape" is not "silence".** The client's only route to fading a loop out is starting a new soundscape, and it
+starts one only for an entity and an index it knows. Params that name neither — a masterless proxy winning, a player
+leaving the last trigger — change nothing that is sounding. This project read "no soundscape" as "fade to silence"
+twice, for an unknown index (B463) and then for no entity (B484).

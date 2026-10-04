@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Core.Tests.Primitives;
@@ -29,7 +31,13 @@ public sealed class IntervalConformanceTests
         Interval read = Interval.Read(".2, .3");
 
         read.Start.ShouldBe(0.2f);
-        read.Range.ShouldBe(0.3f - 0.2f);
+
+        // **`tmp.range = atof( token ) - tmp.start` subtracts in DOUBLE** (`interval.cpp:38`): `atof` is a double and the
+        // float start is promoted, and only the difference is narrowed. 0.3 − 0.2f is 0.0999999970…, which narrows to
+        // 0.099999994f; two floats subtracted give 0.10000001f — one float apart.
+        read.Range.ShouldBe((float)(0.3d - 0.2f));
+        BitConverter.SingleToInt32Bits(read.Range).ShouldNotBe(
+            BitConverter.SingleToInt32Bits(0.3f - 0.2f), "the control: the float subtraction gives the other neighbour");
     }
 
     [Test]

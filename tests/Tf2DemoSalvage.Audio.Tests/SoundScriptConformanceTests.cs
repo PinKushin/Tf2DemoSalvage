@@ -83,6 +83,30 @@ public sealed class SoundScriptConformanceTests
         SoundScript.SoundLevel("SNDLVL_GUNFIRE").ShouldBe(SoundScript.SoundLevel("SNDLVL_140dB"));
     }
 
+    /// <remarks>
+    /// <c>TextToSoundLevel</c> (<c>SoundParametersInternal.cpp:181-213</c>): the name table first, case-insensitively;
+    /// then, after <c>SNDLVL_</c>, <c>int sndlvl = atoi( val ); if ( sndlvl &gt; 0 &amp;&amp; sndlvl &lt;= 180 ) return
+    /// sndlvl;</c>; anything else is <c>SNDLVL_NORM</c>. So the range is 1 to 180 inclusive, zero is out (only the NAME
+    /// <c>SNDLVL_NONE</c> gives 0), and <c>atoi</c> skips leading space and stops at the first non-digit.
+    /// </remarks>
+    [Test]
+    public void SoundLevel_ANumberOutsideOneTo180OrNotANumber_IsSndlvlNorm()
+    {
+        SoundScript.SoundLevel("SNDLVL_181dB").ShouldBe(75);
+        SoundScript.SoundLevel("SNDLVL_200dB").ShouldBe(75);
+        SoundScript.SoundLevel("SNDLVL_0dB").ShouldBe(75, "zero is outside sndlvl > 0; only SNDLVL_NONE is 0");
+        SoundScript.SoundLevel("SNDLVL_-5dB").ShouldBe(75);
+        SoundScript.SoundLevel("SNDLVL_LOUD").ShouldBe(75);
+
+        // The controls: the boundaries that ARE inside, and atoi's own prefix rules.
+        SoundScript.SoundLevel("SNDLVL_1dB").ShouldBe(1);
+        SoundScript.SoundLevel("SNDLVL_180dB").ShouldBe(180);
+        SoundScript.SoundLevel("SNDLVL_80 dB").ShouldBe(80, "atoi stops at the space");
+        SoundScript.SoundLevel("SNDLVL_ 90dB").ShouldBe(90, "atoi skips leading space");
+        SoundScript.SoundLevel("sndlvl_norm").ShouldBe(75);
+        SoundScript.SoundLevel("sndlvl_gunfire").ShouldBe(140, "the table is matched without case");
+    }
+
     [Test]
     public void Channel_BothFormsTheHeaderDocuments_AreAccepted()
     {

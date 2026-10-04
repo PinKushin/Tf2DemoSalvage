@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio;
 
@@ -94,6 +95,12 @@ public static class SoundScript
 
     /// <summary><c>SNDLVL_NORM</c>.</summary>
     public const int NormalSoundLevel = 75;
+
+    /// <summary>What marks a soundlevel as a name: <c>SNDLVL_PREFIX</c> (<c>SoundParametersInternal.cpp:179</c>).</summary>
+    private const string SoundLevelPrefix = "SNDLVL_";
+
+    /// <summary>The highest number <c>TextToSoundLevel</c> takes from a name, <c>SNDLVL_180dB</c>.</summary>
+    private const int MostSoundLevel = 180;
 
     /// <summary><c>CHAN_AUTO</c>.</summary>
     public const int AutoChannel = 0;
@@ -250,13 +257,13 @@ public static class SoundScript
             default: break;
         }
 
-        if (text.StartsWith("SNDLVL_", StringComparison.OrdinalIgnoreCase))
+        // `int sndlvl = atoi( val ); if ( sndlvl > 0 && sndlvl <= 180 ) return sndlvl;` — else `SNDLVL_NORM`
+        // (`SoundParametersInternal.cpp:200-212`). A number past 180 or at zero is the default, not itself.
+        if (text.StartsWith(SoundLevelPrefix, StringComparison.OrdinalIgnoreCase))
         {
-            string digits = text[7..].TrimEnd('B', 'b', 'D', 'd');
+            int dB = CStdlib.Atoi(text.AsSpan(SoundLevelPrefix.Length));
 
-            return int.TryParse(digits, NumberStyles.Integer, CultureInfo.InvariantCulture, out int dB)
-                ? dB
-                : NormalSoundLevel;
+            return dB is > 0 and <= MostSoundLevel ? dB : NormalSoundLevel;
         }
 
         return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int plain)

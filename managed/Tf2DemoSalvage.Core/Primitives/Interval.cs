@@ -33,9 +33,11 @@ public readonly record struct Interval(float Start, float Range)
             return default;
         }
 
-        float start = CStdlib.Atof(tokens[0]);
+        // `tmp.start = atof( token )` narrows on assignment; `tmp.range = atof( token ) - tmp.start` subtracts in double —
+        // the float start promoted — and narrows only the difference (`interval.cpp:34,38`).
+        float start = (float)CStdlib.Atof(tokens[0]);
 
-        return new Interval(start, tokens.Length > 1 ? CStdlib.Atof(tokens[1]) - start : 0f);
+        return new Interval(start, tokens.Length > 1 ? (float)(CStdlib.Atof(tokens[1]) - start) : 0f);
     }
 
     /// <summary><c>RandomInterval</c>: the start, plus one draw over the range when there is one.</summary>

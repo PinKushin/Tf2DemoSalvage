@@ -25,7 +25,7 @@ public sealed class SoundscapeEntityProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "soundscape entities on the installed maps: disabled, gapped positions, proxies of positioned masters: soundscape-entities [map]";
+        "soundscape entities on the installed maps: disabled, gapped positions, proxy masters, unnamed, targets with no origin: soundscape-entities [map]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -52,6 +52,10 @@ public sealed class SoundscapeEntityProbe : IProbe
         int positioned = 0;
         int gapped = 0;
         int proxiesOfPositioned = 0;
+        int unnamed = 0;
+        int targetsWithoutOrigin = 0;
+        int withoutRadius = 0;
+        Dictionary<string, int> masters = [];
 
         foreach (string map in maps)
         {
@@ -107,6 +111,51 @@ public sealed class SoundscapeEntityProbe : IProbe
                 {
                     proxiesOfPositioned++;
                 }
+
+                // **What `CEnvSoundscapeProxy::Activate` finds** (`soundscape.cpp:40-58`): the FIRST entity of the master's
+                // name, cast to `CEnvSoundscape` — any of the three classes — or nothing.
+                if (kind == "ENV_SOUNDSCAPE_PROXY")
+                {
+                    string masterKind = entity.TryGetValue("MainSoundscapeName", out string named) && named.Length > 0 &&
+                                        firstByName.TryGetValue(named, out BspEntity? found)
+                        ? found.ClassName.ToUpperInvariant()
+                        : "(none)";
+
+                    masters[masterKind] = masters.GetValueOrDefault(masterKind) + 1;
+
+                    if (masterKind is not "ENV_SOUNDSCAPE")
+                    {
+                        output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name}: proxy of {masterKind}"));
+                    }
+                }
+
+                // `m_flRadius` is a `FIELD_FLOAT` keyfield, `atof`'d (`saverestore_gamedll.cpp:56-58`), and the constructor
+                // never sets it — so an entity without the key has whatever the allocation held.
+                if (!entity.TryGetValue("radius", out _))
+                {
+                    withoutRadius++;
+                    output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name}: {entity.ClassName} has no radius key"));
+                }
+
+                if (kind != "ENV_SOUNDSCAPE_PROXY" && !(entity.TryGetValue("soundscape", out string own) && own.Length > 0))
+                {
+                    unnamed++;
+                    output.WriteLine(string.Create(CultureInfo.InvariantCulture, $"  {name}: {entity.ClassName} names no soundscape"));
+                }
+
+                // `FindEntityByName( NULL, m_positionNames[i], this, this )` then `GetAbsOrigin()` (`:222-226`): the first
+                // entity of the name, wherever it is — one with no `origin` key stands at the world origin.
+                foreach (int slot in slots)
+                {
+                    if (entity.TryGetValue($"position{slot.ToString(CultureInfo.InvariantCulture)}", out string target) &&
+                        firstByName.TryGetValue(target, out BspEntity? at) &&
+                        !at.TryGetValue("origin", out _))
+                    {
+                        targetsWithoutOrigin++;
+                        output.WriteLine(string.Create(
+                            CultureInfo.InvariantCulture, $"  {name}: position{slot} names {at.ClassName} '{target}' with no origin"));
+                    }
+                }
             }
         }
 
@@ -114,6 +163,11 @@ public sealed class SoundscapeEntityProbe : IProbe
             CultureInfo.InvariantCulture,
             $"{maps.Length} maps: env_soundscape {soundscapes}, proxy {proxies}, triggerable {triggerables}; " +
             $"StartDisabled {disabled}; with positions {positioned}, gapped {gapped}; proxies of a positioned master {proxiesOfPositioned}"));
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"proxy masters: {string.Join(", ", masters.OrderByDescending(pair => pair.Value).Select(pair => $"{pair.Key} {pair.Value}"))}; " +
+            $"non-proxies naming no soundscape {unnamed}; position targets with no origin {targetsWithoutOrigin}; " +
+            $"soundscape entities with no radius key {withoutRadius}"));
     }
 
     /// <summary>Which of `position0`..`position7` an entity sets, in slot order.</summary>
