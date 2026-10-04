@@ -637,6 +637,60 @@ public sealed class EntityModelsTests
         models.Culled.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **The engine collates an EMPTY leaf list to nothing** — `BuildRenderablesList` loops `m_LeafCount` times
+    /// (`clientleafsystem.cpp:1822`) — so a view that lists no leaves poses nothing (B262). Only a caller with no view
+    /// at all (null) keeps the old frustum-only behaviour.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAnEmptyMainLeafList_PosesNothing()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([], null, default));
+
+        instances.ShouldBeEmpty();
+        models.Culled.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// **`CSkyboxView::DrawInternal` collates and draws entities in the sky room** — `BuildRenderableRenderLists`,
+    /// `DrawOpaqueRenderables`, `DrawTranslucentRenderables` (`viewrender.cpp:4920-4932`) over the sky view's own leaf
+    /// list. A prop the main view does not list but the sky view does is posed, and marked for the sky pass.
+    /// </remarks>
+    [Test]
+    public void Instances_WithOnlyTheSkyViewListingItsLeaf_EmitsItForTheSkyPass()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([], [0], LookingAlongX()));
+
+        instances.Count.ShouldBe(1);
+        instances[0].InSky.ShouldBeTrue();
+    }
+
+    /// <remarks>The control: listed by the main view alone, it is the main view's, and carries its collated bucket.</remarks>
+    [Test]
+    public void Instances_WithTheMainViewListingItsLeaf_EmitsItForTheMainPassWithItsBucket()
+    {
+        EntityModelSet models = new();
+        List<ModelInstance> instances = [];
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), views: new RenderableViews([0], null, default));
+
+        instances.Count.ShouldBe(1);
+        instances[0].InSky.ShouldBeFalse();
+        instances[0].SizeBucket.ShouldBe(ClientLeafSystem.BucketFor(64f));
+    }
+
     private static SceneProp Prop(
         string model,
         float x = 0f,
