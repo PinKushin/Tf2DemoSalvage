@@ -975,3 +975,7 @@ index −1 here.
 `Halloween.Outside`'s `".2, .3"` has a range of 0.099999994f in the engine and had 0.10000001f here. One float is not
 audible; it is listed because the earlier test asserted the float subtraction, which is how a reading of the code gets
 locked in by a test that agrees with it (B479).
+
+**A named soundlevel is range-checked, not trusted.** `TextToSoundLevel` takes `atoi` of what follows `SNDLVL_` and
+keeps it only from 1 to 180; anything else, zero included, is `SNDLVL_NORM` (B480). No stock soundscript names one
+past 180, so this is mostly the rule a map's own script meets.

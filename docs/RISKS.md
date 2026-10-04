@@ -35126,3 +35126,16 @@ float start promoted (`interval.cpp:34,38`). `CStdlib.Atof` parsed straight to f
 `PanelLayout.Atof` narrows for its float callers. Tests in `CStdlibConformanceTests` (the midpoint, with the direct
 float parse as the control) and `IntervalConformanceTests`; sabotage — a float parse inside `Atof`, and a float
 subtraction in `Read` — reddened them, restored by the inverse edit.
+
+## B480 — a `SNDLVL_` number outside 1–180 was taken as itself; `TextToSoundLevel` gives `SNDLVL_NORM` — FIXED 2026-10-04
+
+**Read, published source** (`SoundParametersInternal.cpp:181-213`). After the name table — matched without case —
+`TextToSoundLevel` takes `atoi` of the text after `SNDLVL_` and returns it only `if ( sndlvl > 0 && sndlvl <= 180 )`;
+anything else is `SNDLVL_NORM`, 75. `SoundScript.SoundLevel` took any integer the name carried, trimmed of `dB`, so
+`SNDLVL_181dB` was 181 and `SNDLVL_0dB` was 0 (only the NAME `SNDLVL_NONE` is 0); and `int.TryParse` refused
+`SNDLVL_80 dB`, which `atoi` reads as 80. Both soundscripts and a soundscape's `soundlevel` reach it. The shipped
+soundscript census (`Read_EveryShippedSoundScript_ParsesWithoutLosingEntries`) held every level within 0–180 before
+the fix, so no stock soundscript names one past 180; a stock `SNDLVL_0dB`, or a soundscape script's, was not counted.
+
+**Fix:** `CStdlib.Atoi` and the range check. Test `SoundLevel_ANumberOutsideOneTo180OrNotANumber_IsSndlvlNorm`;
+sabotage of both bounds (`>= 0`, `< 180`) reddened it and the existing 180 case, restored by the inverse edit.
