@@ -26,11 +26,11 @@ jobs:
     steps:
       # Versions looked up 2026-10-01 (`gh api repos/actions/<name>/releases/latest`): checkout
       # v7.0.1, setup-dotnet v6.0.0, cache v6.1.0 - the same majors test.yml pins.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           lfs: false   # no demo is packaged or read
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -45,7 +45,7 @@ jobs:
       # Same key as test.yml's, so a tag on a commit main has already tested reuses its codecs.
       - name: Cache the native codecs
         id: native-cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: |
             tools/native-audio/celt.dll

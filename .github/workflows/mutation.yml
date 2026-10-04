@@ -51,9 +51,9 @@ jobs:
       # No Git LFS here at all. After the D25 split this project is entirely synthetic - it does
       # not read a single demo - so it costs none of the account's 1 GiB/month LFS bandwidth and
       # needs no cache.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mutation-report-core
           path: tests/Tf2DemoSalvage.Core.Tests/StrykerOutput/*/reports/
@@ -100,9 +100,9 @@ jobs:
     steps:
       # No Git LFS. The viewer's tests write their own demos — a header and a dem_stop — so this
       # job reads no corpus file and costs none of the account's 1 GiB/month LFS bandwidth.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -114,7 +114,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mutation-report-viewer
           path: tests/Tf2DemoSalvage.Viewer3D.Tests/StrykerOutput/*/reports/
@@ -125,7 +125,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # Fetched explicitly below so the objects can be cached. Letting checkout pull LFS
           # would spend the account's 1 GiB/month bandwidth on every run.
@@ -136,7 +136,7 @@ jobs:
         run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
 
       - name: Restore LFS cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .git/lfs
           key: lfs-${{ hashFiles('.lfs-assets-id') }}
@@ -151,7 +151,7 @@ jobs:
           echo "smallest demo: $smallest bytes"
           test "$smallest" -gt 4096
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -163,7 +163,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mutation-report-cli
           path: tests/Tf2DemoSalvage.Cli.Tests/StrykerOutput/*/reports/
@@ -183,7 +183,7 @@ jobs:
     # here. GitHub's hard ceiling for a job is 6 hours, so this is near the practical maximum.
     timeout-minutes: 350
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           lfs: false
           fetch-depth: 0
@@ -192,7 +192,7 @@ jobs:
         run: git lfs ls-files --long | cut -d' ' -f1 | sort > .lfs-assets-id
 
       - name: Restore LFS cache
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .git/lfs
           key: lfs-${{ hashFiles('.lfs-assets-id') }}
@@ -205,7 +205,7 @@ jobs:
           echo "smallest demo: $smallest bytes"
           test "$smallest" -gt 4096
 
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
@@ -236,7 +236,7 @@ jobs:
 
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: mutation-report-corpus
           path: tests/Tf2DemoSalvage.Corpus.Tests/StrykerOutput/*/reports/
