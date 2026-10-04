@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.14
+# Tf2DemoSalvage 0.1.0-beta.15
 
-## Changes since 0.1.0-beta.13
+## Changes since 0.1.0-beta.14
+
+- **What gets drawn, the engine's way:** models are kept in the map leaves they touch and gathered per visible leaf,
+  so only what TF2 would draw is posed and drawn. Models in the 3D skybox now draw in the sky.
+- **See-through models** keep the translucency their model declares, as TF2 does; a skin change no longer turns a
+  model see-through.
+
+## Changes in 0.1.0-beta.14
 
 - **HDR, as TF2 picks it:** maps with HDR lighting draw TF2's integer-HDR path; maps without it draw their LDR sky.
 - **Skies:** HDR sky textures, half-float skies and `$color` tints draw as in TF2, and the Halloween sky faces load.
