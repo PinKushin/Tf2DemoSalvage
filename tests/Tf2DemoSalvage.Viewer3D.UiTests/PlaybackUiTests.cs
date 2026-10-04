@@ -8,7 +8,7 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>
 /// Plays a real demo at speed and requires the viewer to finish on its own (B408) — formerly gate phase 3,
-/// <c>build/playback-check.ps1</c>, now a counted test.
+/// the former <c>build/playback-check.ps1</c> (removed 2026-10-04), now a counted test.
 /// </summary>
 /// <remarks>
 /// **Every other fixture here holds one tick and never plays**, so a hang in the physics loop passed the whole UI suite for
