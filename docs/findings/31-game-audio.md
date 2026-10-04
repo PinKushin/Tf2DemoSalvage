@@ -987,7 +987,10 @@ and the sound cache never looks there (B485, open).
 `ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so
 `Halloween.Outside`'s `".2, .3"` has a range of 0.099999994f in the engine and had 0.10000001f here. One float is not
 audible; it is listed because the earlier test asserted the float subtraction, which is how a reading of the code gets
-locked in by a test that agrees with it (B479).
+locked in by a test that agrees with it (B479). The shared reader had also never been the runtime the engine links:
+no `inf` or `nan`, .NET's idea of white space, and zero where Microsoft's `atoi` clamps — while a private copy in the
+vphysics surface parser had the first two right, measured against the shipped binary. The copy was the better
+reader; it is the shared one now (B486).
 
 **A named soundlevel is range-checked, not trusted.** `TextToSoundLevel` takes `atoi` of what follows `SNDLVL_` and
 keeps it only from 1 to 180; anything else, zero included, is `SNDLVL_NORM` (B480). No stock soundscript names one

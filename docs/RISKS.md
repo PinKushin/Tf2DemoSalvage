@@ -35249,3 +35249,25 @@ that lives only in a map's pakfile, whether a soundscape loop, a `playrandom` wa
 mounted at its head. The fix needs the cache to read per level — and to forget what it decoded from the previous map's
 pakfile, since a stock path can be shadowed by one map and not the next. koth_lazarus ships no sounds, so B465's
 output-level test does not reach this.
+
+## B486 — `CStdlib` was not the runtime: no inf or nan, .NET's white space, zero on overflow; two private copies held what it lacked — FIXED 2026-10-04
+
+**Read, the C standard and Microsoft's runtime reference.** Three answers differed, each on input no stock file is known
+to carry:
+
+1. **`atof` reads `inf`, `infinity` and `nan`** (C11 7.22.1.3). `CStdlib.Atof` read `inf` as 0 and `nan` as .NET's
+   negative NaN. vphysics' private copy had it right, with the NaN bits measured from the shipped binary (B369).
+2. **C's white space is six characters** (C11 7.4.1.10); `TrimStart` and `char.IsWhiteSpace` also skip U+00A0, which a
+   Latin-1 byte 0xA0 becomes, so `" 7"` read 7 where C reads 0.
+3. **MSVC's `atoi` clamps to `INT_MAX`/`INT_MIN`** — its own example reads `"3336402735171707160320"` as 2147483647.
+   `CStdlib.Atoi` answered 0, vphysics' copy wrapped.
+
+**Fix:** `CStdlib` takes vphysics' scanner (now returning the double, B479), C's white space, and the clamp; the
+private copies go. **`VphysicsSurfaceData`** calls the runtime's `atof`/`atoi` in the binary (`FUN_180018740`), so it
+now calls `CStdlib`; **`PhysicsModel.Pair`** is `ragdoll_shared.cpp:94,96`'s `atoi`, so it does too. **Kept separate,
+with the reason on it:** `PhysicsModel`'s `Integer`/`Number`, which read keys parsed inside vphysics'
+`IVPhysicsKeyParser` (`vcollide_parse.h:52-66`), whose number reader is unpublished and not yet disassembled.
+Tests in `CStdlibConformanceTests`; vphysics' binary-measured surface test now runs through `CStdlib`. Sabotage, each
+restored by the inverse edit: .NET's NaN (reddened both the CStdlib test and the binary-measured vphysics test, so the
+vphysics path is proved to route through it), a wrapping cast, .NET white space, and the collision pair's second
+`atoi` given the comma — each reddened its tests.

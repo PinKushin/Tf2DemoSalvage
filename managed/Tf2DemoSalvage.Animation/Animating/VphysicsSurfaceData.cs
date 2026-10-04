@@ -1,6 +1,7 @@
 using System;
-using System.Globalization;
 using System.Text;
+
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Animation.Animating;
 
@@ -19,7 +20,8 @@ namespace Tf2DemoSalvage.Animation.Animating;
 /// once, after the first text:  append $MATERIAL_INDEX_SHADOW, copied from "default" with friction 0.8f and elasticity 0.001f
 /// </code>
 /// **Only the physics parameters are kept**, `+0x14..+0x27`; `base` copies audio and game fields too, which nothing here reads.
-/// **Hexadecimal floats are not read**: the C runtime's `atof` accepts `0x1.8p1`, which answers zero here.
+/// **Numbers go through <see cref="CStdlib"/>**, because the binary calls the C runtime's own <c>atof</c> and <c>atoi</c>;
+/// the private copies this held were moved there, inf, nan and all. Hexadecimal floats are still not read.
 /// </remarks>
 internal static class VphysicsSurfaceData
 {
@@ -122,13 +124,13 @@ internal static class VphysicsSurfaceData
                 sounds = sounds with { ImpactSoft = value };
                 break;
             case "audiohardnessfactor":
-                audio = audio with { HardnessFactor = (float)Atof(value) };
+                audio = audio with { HardnessFactor = (float)CStdlib.Atof(value) };
                 break;
             case "impacthardthreshold":
-                audio = audio with { HardThreshold = (float)Atof(value) };
+                audio = audio with { HardThreshold = (float)CStdlib.Atof(value) };
                 break;
             case "audiohardminvelocity":
-                audio = audio with { HardVelocityThreshold = (float)Atof(value) };
+                audio = audio with { HardVelocityThreshold = (float)CStdlib.Atof(value) };
                 break;
             case "scraperough":
                 sounds = sounds with { ScrapeRough = value };
@@ -137,10 +139,10 @@ internal static class VphysicsSurfaceData
                 sounds = sounds with { ScrapeSmooth = value };
                 break;
             case "audioroughnessfactor":
-                audio = audio with { RoughnessFactor = (float)Atof(value) };
+                audio = audio with { RoughnessFactor = (float)CStdlib.Atof(value) };
                 break;
             case "scraperoughthreshold":
-                audio = audio with { RoughThreshold = (float)Atof(value) };
+                audio = audio with { RoughThreshold = (float)CStdlib.Atof(value) };
                 break;
 
             // `FUN_180018740`: a one-character value that is not a digit is `toupper`'d — the key parser lowercased it —
@@ -148,28 +150,28 @@ internal static class VphysicsSurfaceData
             case "gamematerial":
                 return staged with
                 {
-                    Game = value.Length == 1 && (uint)(value[0] - '0') > 9 ? char.ToUpperInvariant(value[0]) : (short)Atoi(value),
+                    Game = value.Length == 1 && (uint)(value[0] - '0') > 9 ? char.ToUpperInvariant(value[0]) : (short)CStdlib.Atoi(value),
                 };
             // `surfacegameprops_t`'s movement half (`vphysics_interface.h:942-946`); key names as the shipped
             // `scripts/surfaceproperties.txt` spells them. *Published header and shipped data; the parser's branch unread.*
             case "jumpfactor":
-                return staged with { JumpFactor = (float)Atof(value) };
+                return staged with { JumpFactor = (float)CStdlib.Atof(value) };
             case "maxspeedfactor":
-                return staged with { MaxSpeedFactor = (float)Atof(value) };
+                return staged with { MaxSpeedFactor = (float)CStdlib.Atof(value) };
             case "friction":
-                physics = physics with { Friction = (float)Atof(value) };
+                physics = physics with { Friction = (float)CStdlib.Atof(value) };
                 break;
             case "elasticity":
-                physics = physics with { Elasticity = (float)Atof(value) };
+                physics = physics with { Elasticity = (float)CStdlib.Atof(value) };
                 break;
             case "density":
-                physics = physics with { Density = (float)Atof(value) };
+                physics = physics with { Density = (float)CStdlib.Atof(value) };
                 break;
             case "thickness":
-                physics = physics with { Thickness = (float)Atof(value) };
+                physics = physics with { Thickness = (float)CStdlib.Atof(value) };
                 break;
             case "dampening":
-                physics = physics with { Dampening = (float)Atof(value) };
+                physics = physics with { Dampening = (float)CStdlib.Atof(value) };
                 break;
             default:
                 break;
@@ -218,34 +220,6 @@ internal static class VphysicsSurfaceData
             throw new InvalidOperationException($"The surface '{name}' closes onto index {index}, which names no surface.");
 
         props.Replace(target, staged.Build(target.Name, target.HasSecondFriction));
-    }
-
-    /// <summary>The C runtime's `atoi`: leading whitespace, a sign, digits, stopping at the first other character.</summary>
-    private static int Atoi(string value)
-    {
-        int at = 0;
-
-        while (at < value.Length && char.IsWhiteSpace(value[at]))
-        {
-            at++;
-        }
-
-        bool negative = at < value.Length && value[at] == '-';
-
-        if (at < value.Length && (value[at] == '-' || value[at] == '+'))
-        {
-            at++;
-        }
-
-        long result = 0;
-
-        while (at < value.Length && (uint)(value[at] - '0') <= 9 && result <= int.MaxValue)
-        {
-            result = (result * 10) + (value[at] - '0');
-            at++;
-        }
-
-        return (int)(negative ? -result : result);
     }
 
     /// <summary>A key and its value, lowercased — <c>FUN_18002e6c0</c>. A key of exactly <c>}</c> reads no value.</summary>
@@ -366,80 +340,6 @@ internal static class VphysicsSurfaceData
         while (token.Length < MostTokenBytes && !IsBreak(c) && c > 0x20);
 
         return token.ToString();
-    }
-
-    /// <summary>The C runtime's <c>atof</c> for decimal text: leading space, a sign, digits with a point, an exponent, <c>inf</c> and <c>nan</c>.</summary>
-    private static double Atof(string value)
-    {
-        int at = 0;
-
-        while (at < value.Length && value[at] is ' ' or '\t' or '\n' or '\v' or '\f' or '\r')
-        {
-            at++;
-        }
-
-        int start = at;
-
-        if (at < value.Length && value[at] is '+' or '-')
-        {
-            at++;
-        }
-
-        if (value.AsSpan(at).StartsWith("inf", StringComparison.OrdinalIgnoreCase) ||
-            value.AsSpan(at).StartsWith("nan", StringComparison.OrdinalIgnoreCase))
-        {
-            // The C runtime's NaN is positive with every payload bit set: vphysics narrows it to 0x7fffffff.
-            double special = value.AsSpan(at).StartsWith("inf", StringComparison.OrdinalIgnoreCase)
-                ? double.PositiveInfinity
-                : BitConverter.Int64BitsToDouble(long.MaxValue);
-            return value[start] == '-' ? -special : special;
-        }
-
-        int digits = 0;
-
-        while (at < value.Length && char.IsAsciiDigit(value[at]))
-        {
-            at++;
-            digits++;
-        }
-
-        if (at < value.Length && value[at] == '.')
-        {
-            at++;
-
-            while (at < value.Length && char.IsAsciiDigit(value[at]))
-            {
-                at++;
-                digits++;
-            }
-        }
-
-        if (digits == 0)
-        {
-            return 0d;
-        }
-
-        if (at < value.Length && value[at] is 'e' or 'E')
-        {
-            int exponent = at + 1;
-
-            if (exponent < value.Length && value[exponent] is '+' or '-')
-            {
-                exponent++;
-            }
-
-            if (exponent < value.Length && char.IsAsciiDigit(value[exponent]))
-            {
-                at = exponent;
-
-                while (at < value.Length && char.IsAsciiDigit(value[at]))
-                {
-                    at++;
-                }
-            }
-        }
-
-        return double.Parse(value.AsSpan(start, at - start), NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
     /// <summary><c>FUN_1800b9a10</c>: ASCII capitals lowered; the C locale leaves every other byte.</summary>
