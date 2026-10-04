@@ -71,12 +71,6 @@ public sealed class SceneImage
     /// <summary><c>CChoreoEvent::LOOP</c>, which writes its count after its flex tracks.</summary>
     private const byte Loop = 12;
 
-    /// <summary>Bytes a <c>SPEAK</c> adds: caption type, pooled token, flags.</summary>
-    private const int SpeakBytes = 4;
-
-    /// <summary>Bytes in one flex sample: time, value, curve type.</summary>
-    private const int SampleBytes = 7;
-
     /// <summary><c>NUM_ABS_TAG_TYPES</c> — <c>PLAYBACK</c> and <c>ORIGINAL</c>.</summary>
     private const int AbsoluteTagTypes = 2;
 
@@ -327,9 +321,9 @@ public sealed class SceneImage
             return new SceneWalk(null, Complete: false, Stopped: 0, Length: 0);
         }
 
-        string? sequence = SequenceIn(body, null, out bool complete, out int stopped);
+        string? sequence = SequenceIn(body, null, out bool complete, out int stopped, out bool overflowed);
 
-        return new SceneWalk(sequence, complete, stopped, body.Length);
+        return new SceneWalk(sequence, complete, stopped, body.Length, overflowed);
     }
 
     /// <summary>One directory slot's decompressed bytes, so an incomplete walk can be looked at.</summary>
@@ -493,123 +487,122 @@ public sealed class SceneImage
     private string? SequenceIn(
         ReadOnlyMemory<byte> vcd, List<SceneEvent>? into, out bool complete, out int stopped)
     {
-        ReadOnlySpan<byte> span = vcd.Span;
+        return SequenceIn(vcd, into, out complete, out stopped, out _);
+    }
+
+    /// <summary>
+    /// <c>CChoreoScene::RestoreFromBinaryBuffer</c> (<c>choreoscene.cpp:3796</c>), read for read.
+    /// </summary>
+    /// <remarks>
+    /// **Every read goes through <see cref="EngineBuffer"/>, which is `CUtlBuffer`'s get side**, so a
+    /// scene the writer corrupted is read exactly as TF2 reads it (B376). Nothing in the restore
+    /// chain returns false on a short buffer — the event, channel and actor restores only fail when
+    /// a ramp or flex restore does, and those never do — so the engine keeps every declared event,
+    /// zeros and all, and this walk does the same.
+    ///
+    /// **A walk is complete only when it lands EXACTLY on the end without overflowing**: the scene
+    /// ramp and `m_bIgnorePhonemes` are the last two things `SaveToBinaryBuffer` writes
+    /// (<c>choreoscene.cpp:3757</c>). Anything else is a scene the engine itself desyncs on.
+    /// </remarks>
+    private string? SequenceIn(
+        ReadOnlyMemory<byte> vcd, List<SceneEvent>? into, out bool complete, out int stopped,
+        out bool overflowed)
+    {
+        EngineBuffer buffer = new(vcd.Span);
 
         complete = false;
         stopped = 0;
+        overflowed = false;
 
-        if (span.Length < 11 ||
-            BinaryPrimitives.ReadInt32LittleEndian(span) != SceneTag ||
-            span[4] != SceneVersion)
+        if (buffer.Int() != SceneTag || buffer.Byte() != SceneVersion)
         {
             return null;
         }
 
-        // tag, version, then the text version's CRC, which the reader itself skips.
-        int at = 9;
+        buffer.Int();                                     // the text version's CRC, skipped
+
         string? found = null;
 
-        complete = Events(span, ref at, CountIn(span, ref at), into, ref found);
+        Events(ref buffer, buffer.Byte(), into, ref found);
 
-        int actors = CountIn(span, ref at);
+        int actors = buffer.Byte();
 
         for (int actor = 0; actor < actors; actor++)
         {
-            at += 2;                                      // the actor's name, pooled
+            buffer.Short();                               // the actor's name, pooled
 
-            int channels = CountIn(span, ref at);
+            int channels = buffer.Byte();
 
             for (int channel = 0; channel < channels; channel++)
             {
-                at += 2;                                  // the channel's name, pooled
+                buffer.Short();                           // the channel's name, pooled
 
-                complete &= Events(span, ref at, CountIn(span, ref at), into, ref found);
+                Events(ref buffer, buffer.Byte(), into, ref found);
 
-                at += 1;                                  // the channel's active flag
+                buffer.Byte();                            // the channel's active flag
             }
 
-            at += 1;                                      // the actor's active flag
+            buffer.Byte();                                // the actor's active flag
         }
 
-        // **The scene ramp and the rest follow, so landing short is expected** — but landing PAST
-        // the end means a stride was wrong somewhere above, and every name found after that point
-        // was read from the wrong offset.
-        complete &= at <= span.Length;
-        stopped = at;
+        Ramp(ref buffer);
+        buffer.Byte();                                    // m_bIgnorePhonemes
+
+        overflowed = buffer.Overflowed;
+        stopped = buffer.At;
+        complete = !overflowed && buffer.At == vcd.Length;
 
         return found;
-    }
-
-    /// <summary>A one-byte count, advancing the cursor and refusing to read past the end.</summary>
-    /// <remarks>
-    /// **Running out pushes the cursor PAST the end rather than to it**, so every caller's own
-    /// bounds check fires and the walk reports itself incomplete instead of quietly reading zeros.
-    /// </remarks>
-    private static int CountIn(ReadOnlySpan<byte> span, ref int at)
-    {
-        if (at < 0 || at >= span.Length)
-        {
-            at = span.Length + 1;
-
-            return 0;
-        }
-
-        return span[at++];
     }
 
     /// <summary>Walks a run of events, keeping the first gesture or sequence parameter it sees.</summary>
     /// <remarks>
     /// **It does not stop at the first gesture**, because a channel's events are consecutive and the
     /// caller still has to reach the next channel and the next actor. Bailing out early would leave
-    /// the cursor mid-event, and the actor tree after it unreadable.
+    /// the cursor mid-event, and the actor tree after it unreadable. Read for read, this is
+    /// <c>CChoreoEvent::RestoreFromBuffer</c> (<c>choreoevent.cpp:4244</c>).
     /// </remarks>
-    /// <returns>Whether every declared event was consumed without running out of bytes.</returns>
-    private bool Events(
-        ReadOnlySpan<byte> span, ref int at, int count, List<SceneEvent>? into, ref string? found)
+    private void Events(ref EngineBuffer buffer, int count, List<SceneEvent>? into, ref string? found)
     {
         for (int index = 0; index < count; index++)
         {
-            if (at + 19 > span.Length)
-            {
-                return false;
-            }
+            int began = buffer.At;
+            byte type = buffer.Byte();
 
-            int began = at;
-            byte type = span[at++];
+            buffer.Short();                           // name, pooled
 
-            at += 2;                                  // name, pooled
+            float start = buffer.Float();
+            float end = buffer.Float();
 
-            float start = BinaryPrimitives.ReadSingleLittleEndian(span[at..]);
-            float end = BinaryPrimitives.ReadSingleLittleEndian(span[(at + 4)..]);
+            int parameters = buffer.Short();          // the sequence name, for a gesture
+            buffer.Short();                           // parameters 2
+            buffer.Short();                           // parameters 3
 
-            at += 8;                                  // start and end time
-            int parameters = Short(span, ref at);     // the sequence name, for a gesture
-            at += 4;                                  // parameters 2 and 3
+            Ramp(ref buffer);
 
-            Ramp(span, ref at);
+            buffer.Byte();                            // flags
+            buffer.Float();                           // distance to target
 
-            at += 1;                                  // flags
-            at += 4;                                  // distance to target
-
-            Tags(span, ref at, wide: false);          // relative
-            Tags(span, ref at, wide: false);          // timing
+            Tags(ref buffer, wide: false);            // relative
+            Tags(ref buffer, wide: false);            // timing
 
             for (int kind = 0; kind < AbsoluteTagTypes; kind++)
             {
-                Tags(span, ref at, wide: true);
+                Tags(ref buffer, wide: true);
             }
 
             if (type == Gesture)
             {
-                at += 4;                              // the gesture's own duration
+                buffer.Float();                       // the gesture's own duration
             }
 
-            if (at < span.Length && span[at++] == 1)
+            if (buffer.Byte() == 1)
             {
-                at += 4;                              // a relative tag's name and wav
+                buffer.Short();                       // a relative tag's name
+                buffer.Short();                       // and its wav
             }
 
-            Flex(span, ref at);
+            Flex(ref buffer);
 
             // **The two per-type trailers, and they are why this walk cannot stop early.** A `LOOP`
             // writes its count and a `SPEAK` its caption type, token and flags after the flex
@@ -617,16 +610,13 @@ public sealed class SceneImage
             // event that follows, which in a taunt is the gesture.
             if (type == Loop)
             {
-                at += 1;
+                buffer.Byte();
             }
             else if (type == Speak)
             {
-                at += SpeakBytes;
-            }
-
-            if (at > span.Length)
-            {
-                return false;
+                buffer.Byte();
+                buffer.Short();
+                buffer.Byte();
             }
 
             string named = Pooled(parameters);
@@ -638,47 +628,45 @@ public sealed class SceneImage
                 found = named;
             }
         }
-
-        return true;
     }
 
-    /// <summary>A pooled string index, advancing the cursor.</summary>
-    private static int Short(ReadOnlySpan<byte> span, ref int at)
+    /// <summary><c>CCurveData::RestoreFromBuffer</c>: a one-byte count, then a float and a byte each.</summary>
+    /// <remarks>
+    /// **The count is taken at its word, as the engine takes it — wrapped or not** (B376). The
+    /// writer puts it with <c>PutUnsignedChar</c> and then writes EVERY sample
+    /// (<c>choreoevent.cpp:4362</c>), so a ramp of 259 samples reads as 3 and the rest of the scene
+    /// is read from the wrong offsets, in TF2 and here.
+    /// </remarks>
+    private static void Ramp(ref EngineBuffer buffer)
     {
-        if (at + 2 > span.Length)
+        int count = buffer.Byte();
+
+        for (int sample = 0; sample < count; sample++)
         {
-            at = span.Length + 1;
-            return -1;
+            buffer.Float();
+            buffer.Byte();
         }
-
-        int value = BinaryPrimitives.ReadInt16LittleEndian(span[at..]);
-
-        at += 2;
-
-        return value;
-    }
-
-    /// <summary>A <c>CCurveData</c>: a count, then a float and a byte each.</summary>
-    private static void Ramp(ReadOnlySpan<byte> span, ref int at)
-    {
-        if (at >= span.Length)
-        {
-            return;
-        }
-
-        at += 1 + (span[at] * 5);
     }
 
     /// <summary>A tag list: a count, then a pooled name and a percentage each.</summary>
-    private static void Tags(ReadOnlySpan<byte> span, ref int at, bool wide)
+    private static void Tags(ref EngineBuffer buffer, bool wide)
     {
-        if (at >= span.Length)
-        {
-            return;
-        }
+        int count = buffer.Byte();
 
-        // An absolute tag's percentage is a ushort over 4096; the others are a byte over 255.
-        at += 1 + (span[at] * (wide ? 4 : 3));
+        for (int tag = 0; tag < count; tag++)
+        {
+            buffer.Short();
+
+            // An absolute tag's percentage is a ushort over 4096; the others are a byte over 255.
+            if (wide)
+            {
+                buffer.UnsignedShort();
+            }
+            else
+            {
+                buffer.Byte();
+            }
+        }
     }
 
     /// <summary>The flex animation tracks, which a taunt does not use but must be stepped over.</summary>
@@ -687,41 +675,43 @@ public sealed class SceneImage
     /// curve type (<c>choreoevent.cpp:4419</c>). The curve type is easy to miss because the ramp's
     /// samples, written by <c>CCurveData::SaveToBuffer</c> a few lines away, carry no such field and
     /// really are five.
+    ///
+    /// **The first count is SIGNED and the combo count unsigned**, because that is how
+    /// <c>RestoreFlexAnimationsFromBuffer</c> reads them (<c>choreoevent.cpp:4473</c>, <c>:4486</c>):
+    /// <c>GetShort</c> then <c>GetUnsignedShort</c>. A first count past 32,767 reads no samples.
     /// </remarks>
-    private static void Flex(ReadOnlySpan<byte> span, ref int at)
+    private static void Flex(ref EngineBuffer buffer)
     {
-        if (at >= span.Length)
+        int tracks = buffer.Byte();
+
+        for (int track = 0; track < tracks; track++)
         {
-            return;
-        }
+            buffer.Short();                           // name, pooled
 
-        int tracks = span[at++];
+            int flags = buffer.Byte();
 
-        for (int track = 0; track < tracks && at < span.Length; track++)
-        {
-            at += 2;                                  // name, pooled
+            buffer.Float();                           // min
+            buffer.Float();                           // max
 
-            if (at >= span.Length)
-            {
-                return;
-            }
-
-            int flags = span[at++];
-
-            at += 8;                                  // min and max
-
-            int samples = Short(span, ref at);
-
-            at += samples * SampleBytes;
+            FlexSamples(ref buffer, buffer.Short());
 
             // **`IsComboType` is bit 1 of the flags**, and a combo track carries a second sample
             // list. Missing it puts the cursor into the middle of the next track.
             if ((flags & 0x02) != 0)
             {
-                int more = Short(span, ref at);
-
-                at += more * SampleBytes;
+                FlexSamples(ref buffer, buffer.UnsignedShort());
             }
+        }
+    }
+
+    /// <summary>Flex samples: a float time, a byte value and an unsigned short curve type each.</summary>
+    private static void FlexSamples(ref EngineBuffer buffer, int count)
+    {
+        for (int sample = 0; sample < count; sample++)
+        {
+            buffer.Float();
+            buffer.Byte();
+            buffer.UnsignedShort();
         }
     }
 }
