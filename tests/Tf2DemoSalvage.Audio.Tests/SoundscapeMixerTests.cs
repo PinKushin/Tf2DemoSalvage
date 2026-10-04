@@ -220,8 +220,15 @@ public sealed class SoundscapeMixerTests
         voices[0].Wave.ShouldBe("ambient/room_tone.wav");
     }
 
+    /// <remarks>
+    /// **No entity starts nothing and stops nothing.** <c>UpdateAudioParams</c> (<c>c_soundscape.cpp:555-576</c>) copies
+    /// the params and calls <c>StartNewSoundscape</c> only <c>if ( audio.entIndex &gt; 0 &amp;&amp; ... )</c>; with no
+    /// entity — what <c>CEnvSoundscapeTriggerable::DelegateEndTouch</c> writes when the last trigger is left,
+    /// <c>soundscape.cpp:457</c> — every loop keeps its target and plays on. This faded them all out. The params DID
+    /// change, so the same placement entered next is a change and restarts, reclaiming its loops at the volume they have.
+    /// </remarks>
     [Test]
-    public void MoveTo_Null_FadesEverythingOut()
+    public void MoveTo_NoEntity_StartsNothingAndTheLoopsPlayOn()
     {
         SoundscapeMixer mixer = new();
 
@@ -231,8 +238,19 @@ public sealed class SoundscapeMixerTests
         mixer.MoveTo(null, null);
         mixer.Advance(SoundscapeMixer.FadeSeconds);
 
-        mixer.Advance(0f).ShouldBeEmpty("leaving every soundscape should end in silence");
-        mixer.Current.ShouldBeNull();
+        mixer.Advance(0f).ShouldHaveSingleItem().Volume.ShouldBe(1f, "the loop's target was never touched");
+        mixer.Current.ShouldBeNull("the params changed all the same");
+
+        // The control: the same placement is now a change, and its loop is reclaimed where it stands, not restarted.
+        int key = mixer.Advance(0f).Single().Key;
+
+        mixer.MoveTo(Placement(0), Room(1f));
+
+        SoundscapeVoice again = mixer.Advance(0f).ShouldHaveSingleItem();
+
+        again.Key.ShouldBe(key);
+        again.Volume.ShouldBe(1f);
+        mixer.Current.ShouldNotBeNull().Id.ShouldBe(0);
     }
 
     [Test]
@@ -247,7 +265,8 @@ public sealed class SoundscapeMixerTests
         IReadOnlyList<SoundscapeVoice> before = mixer.Advance(SoundscapeMixer.FadeSeconds);
         int[] keys = [.. before.Select(voice => voice.Key)];
 
-        mixer.MoveTo(null, null);
+        // A soundscape with no loops: `StartNewSoundscape` zeroes every target and adds nothing (`c_soundscape.cpp:587-595`).
+        mixer.MoveTo(Placement(1), new Soundscape("Gorge.Silent", 1, [], []));
         mixer.Advance(SoundscapeMixer.FadeSeconds);
 
         // The sink holds a voice until told otherwise, so a dropped fade has to be reported or the
