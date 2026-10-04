@@ -1,6 +1,11 @@
-# Tf2DemoSalvage 0.1.0-beta.19
+# Tf2DemoSalvage 0.1.0-beta.20
 
-## Changes since 0.1.0-beta.18
+## Changes since 0.1.0-beta.19
+
+- **Demos from late 2011 to early 2013 decode:** protocols 18, 19, 21 and 22, the era of the ESEA Season 10 to 12
+  LANs and Insomnia 46, now decode correctly. Their sounds and decals were misread before.
+
+## Changes in 0.1.0-beta.19
 
 - **Map ambience on community and event maps:** a map that ships its own ambience script (71 of the installed maps,
   koth_lazarus and pl_venice among them) now plays it. Proxied ambience follows its master as in TF2, and sound
