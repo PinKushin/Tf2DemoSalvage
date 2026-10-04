@@ -7982,7 +7982,7 @@ internal class MainForm : Form, IFrameSteps
         // reaching the cull together.
         if (_device is { } device)
         {
-            _moments.PoseNow(device.Frustum, device.VisibleByLeaf, device.Eye, device.ScreenView);
+            _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
         }
         else
         {

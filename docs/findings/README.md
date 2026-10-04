@@ -232,6 +232,10 @@ in any public writeup found:
   water views run from one material's parameters; the engine picks the visible volume by walking the tree from the
   eye; the `WaterLOD` proxy hands the view's cheap-water distances to every water material it binds, so the cheap
   pass covers the expensive one as the distance runs out ([71](71-the-water-views.md)).
+- **A renderable lives in the leaves it touches, across frames.** The client leaf system re-links only what moved,
+  collates the view's leaves in order and fills the size buckets as it goes, so the draw side never sorts. A box
+  touching a plane goes in both sides' leaves, which neither of this project's earlier walks did
+  ([72](72-a-renderable-lives-in-the-leaves-it-touches.md)).
 
 ## Conventions used throughout
 

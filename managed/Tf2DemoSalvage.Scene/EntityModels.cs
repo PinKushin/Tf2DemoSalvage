@@ -109,6 +109,9 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="BakedColours">
 /// A baked static prop's colour mesh in its model buffer's order, or null for a model lit per draw (B426).
 /// </param>
+/// <param name="LeafPlace">Its place in its view's leaf list, where the scene collated it (B262).</param>
+/// <param name="SizeBucket">The size bucket of the box it was collated by; null when the scene did not collate it.</param>
+/// <param name="InSky">Whether the 3D skybox view collated it, so the sky pass draws it.</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -232,7 +235,25 @@ public readonly record struct ModelInstance(
     // the buffer's order, overbright applied. `engine.dll` `0x1800f1bd0` draws a prop with baked colours
     // with them and with no cube and no local lights. Null for everything else — and null is the switch
     // B424 needs: a prop whose colours are dropped for a frame is drawn with full lighting instead.
-    float[]? BakedColours = null);
+    float[]? BakedColours = null,
+
+    // **Where collation put it** (B262): the place in its view's leaf list, the size bucket of the box it was
+    // collated by, and whether that view was the 3D skybox's. A model the scene did not collate — a detail model,
+    // a viewmodel — has no bucket, and the device files it itself.
+    int LeafPlace = 0,
+    int? SizeBucket = null,
+    bool InSky = false);
+
+/// <summary>
+/// The views collation walks — <c>m_pWorldListInfo->m_pLeafList</c> per view (B262).
+/// </summary>
+/// <param name="MainLeaves">The main view's leaves, nearest first; null when no view walk has run.</param>
+/// <param name="SkyLeaves">The 3D skybox view's leaves; null or empty when it does not draw.</param>
+/// <param name="SkyFrustum">The skybox view's volume.</param>
+public readonly record struct RenderableViews(
+    IReadOnlyList<int>? MainLeaves,
+    IReadOnlyList<int>? SkyLeaves,
+    ViewFrustum SkyFrustum);
 
 /// <summary>
 /// The models a demo's entities wear, packed once and posed by the GPU.
@@ -5275,9 +5296,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// The view being drawn, so a prop off screen is rejected before it is posed — the engine's
     /// order (B254). The default culls nothing.
     /// </param>
-    /// <param name="visibleByLeaf">
-    /// Which leaves the world cull accepted, indexed by leaf, for the visibility half (B254). An
-    /// empty span applies no visibility test.
+    /// <param name="views">
+    /// The views' leaf lists collation walks (B262): only what a view collates is posed. The default — no
+    /// view walk at all — collates every leaf, so the frustum alone decides.
     /// </param>
     /// <param name="pass">
     /// Which pass is drawing, for the tally's report — <c>world</c> or <c>viewmodel</c>. One
@@ -5297,7 +5318,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
         Func<float, float, float, SunLight?>? sunAt = null,
         double seconds = 0d,
         ViewFrustum frustum = default,
-        ReadOnlySpan<bool> visibleByLeaf = default,
+        RenderableViews views = default,
         string pass = WorldPass)
     {
         ArgumentNullException.ThrowIfNull(props);
@@ -5374,54 +5395,23 @@ public sealed class EntityModelSet : Hud.IMdlCache
         // is missing and why.
         _tally.Begin(props.Count, pass);
 
-        // In the order the scene gave them, because nothing needs any other order now.
-        foreach (SceneProp prop in props)
+        // **Collated before anything is posed, in collation order** (B254, B262): `BuildRenderablesList` over each
+        // view's leaves, the frustum test inside it, and only what a view collates reaches `DrawModel` and so
+        // `SetupBones`. The box needs no bones — `WorldBoxFor` is `CalcRenderableWorldSpaceAABB`.
+        Collate(props, frustum, views, pass);
+
+        foreach ((SceneProp prop, int place, int? bucket, bool inSky) in _ordered)
         {
             (int frame, int _, float blend) = SelectFor(prop, seconds);
 
             int skin = prop.Pose.Skin;
 
-            // **An empty path joins the undrawable kinds here, where it used to fall through to
-            // "no batches"** (PARITY-AUDIT finding 5). Those two counts mean different things and
-            // `DrawTally` says so: no-batches for one model is a load failure, while a prop with
-            // no model at all is a gap somebody has to close — which is why `NotDrawable` already
-            // carried a `<no model>` label that nothing could reach. Measured on `z1800` at tick
-            // 20000: 24 bone-merged cosmetics name no model, so this is not a rare case.
-            if (!CanDraw(prop))
+            // **Recorded HERE, where the main view's collation answered, and not at bone setup** (B385). The
+            // corpse fade asks `IsBoxInViewCluster` and then `CullBox` (`c_tf_player.cpp:1350`).
+            if (!inSky)
             {
-                _tally.NotDrawable(prop);
-                continue;
+                _inView.Add(prop.EntityIndex);
             }
-
-            // **`CollateRenderablesInLeaf`'s frustum test, in the engine's ORDER** (B254,
-            // `clientleafsystem.cpp:1574`): `CalcRenderableWorldSpaceAABB` and then
-            // `engine->CullBox( absMins, absMaxs )`, with only the survivors reaching `DrawModel`
-            // and so `SetupBones`. Bone setup, lighting and skinning are downstream of visibility
-            // in the engine.
-            //
-            // **They were upstream of it here, and that is what this moves.** The cull existed —
-            // `Device3D.Culled`, same `ViewFrustum.Cull`, same empty-box rule — but it ran at draw
-            // time, after every prop in the tick had been posed. Measured on `tf2-2026-pub-pov-clean`:
-            // 600 props posed per rebuild, `pose` 4.8 ms of a 7.8 ms rebuild, every column of it
-            // per-entity work multiplied by a count visibility had not yet touched.
-            //
-            // **The box needs no bones**, which is what makes the move possible at all:
-            // `WorldBoxFor` reads the model's render bounds, the prop's own pose and its parent's
-            // placement, exactly as `CalcRenderableWorldSpaceAABB` reads render bounds and the
-            // entity's origin rather than its skeleton.
-            if (Culls(prop, frustum, visibleByLeaf))
-            {
-                Culled++;
-                _tally.Culled();
-                continue;
-            }
-
-            // **Recorded HERE, where the cull's answer is, and not at bone setup** (B385). The corpse
-            // fade asks `IsBoxInViewCluster` and then `CullBox` (`c_tf_player.cpp:1350`), which is what
-            // this line has just run. Filled at bone setup it excluded every entity without a
-            // skeleton — which for a corpse is nothing, since corpses are skinned, but the set was
-            // being read for the interpolation list too and that is where it did the damage.
-            _inView.Add(prop.EntityIndex);
 
             // **`C_BaseEntity::ShouldDraw`'s first test** (`c_baseentity.cpp:1447`): *"Some
             // rendermodes prevent rendering"*, and `kRenderNone` is the one. Eighteen `func_door`s
@@ -5909,7 +5899,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 Alpha: fx.Blend,
                 RenderMode: prop.Pose.RenderMode,
                 EntityIndex: prop.EntityIndex,
-                BakedColours: baked));
+                BakedColours: baked,
+                LeafPlace: place,
+                SizeBucket: bucket,
+                InSky: inSky));
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
@@ -5993,7 +5986,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
                     // extra model drawn on the item's own transform and bones
                     // (`econ_entity.cpp:103`), so it has no index of its own. That still separates
                     // two players in the same hat, which is what B356 needs: they are two props.
-                    EntityIndex: prop.EntityIndex));
+                    EntityIndex: prop.EntityIndex,
+
+                    // Drawn with its item, so collated where the item was (`DrawEconEntityAttachedModels`).
+                    LeafPlace: place,
+                    SizeBucket: bucket,
+                    InSky: inSky));
             }
         }
 
@@ -6070,69 +6068,162 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
     public int Posed { get; private set; }
 
-    /// <summary>Whether the view frustum rejects this prop — <c>engine->CullBox</c>.</summary>
-    /// <param name="prop">The prop about to be posed.</param>
-    /// <param name="frustum">The view being drawn, or the default when there is none.</param>
-    /// <param name="visibleByLeaf">The visible-leaf set, or empty to skip the visibility test.</param>
-    /// <returns>True when nothing of the prop can be seen, so it need not be posed.</returns>
+    /// <summary>The renderables of the world pass, kept per leaf across frames — <c>CClientLeafSystem</c> (B262).</summary>
+    private ClientLeafSystem _leafSystem = OneLeaf();
+
+    private BspLeafTree? _tree;
+    private int[] _everyLeaf = [0];
+
+    private static readonly int[] PlaceZero = [0];
+
+    private static ClientLeafSystem OneLeaf() => new(1, static (_, _, into) => into.Add(0));
+
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), int> _handleOf = [];
+    private readonly Dictionary<(int Entity, string Model, int Occurrence), SceneProp> _propOf = [];
+    private readonly Dictionary<(int Entity, string Model), int> _occurrence = [];
+    private readonly List<(int Entity, string Model, int Occurrence)> _staleEntities = [];
+    private readonly CollatedRenderables _mainCollated = new();
+    private readonly CollatedRenderables _skyCollated = new();
+    private readonly List<(SceneProp Prop, int Place, int? Bucket, bool InSky)> _ordered = [];
+    private static readonly Func<int, LeafRenderGroup> Opaque = static _ => LeafRenderGroup.Opaque;
+
+    /// <summary>Registers this pass's props and collates each view's leaves into <see cref="_ordered"/>.</summary>
+    /// <param name="props">What exists at this tick.</param>
+    /// <param name="frustum">The main view's volume; an unbuilt one culls nothing.</param>
+    /// <param name="views">The views' leaf lists.</param>
+    /// <param name="pass">The pass; only the world pass is collated.</param>
     /// <remarks>
-    /// **A model with no bounds is kept, never point-tested.** `WorldSpaceBounds.IsPlaced` is the
-    /// same guard `Device3D.Culled` applies, and it exists because a zero box is a point at the map
-    /// origin — which culls the model everywhere except one spot, and reads as a model that flickers
-    /// rather than as a cull that is wrong
-    /// (`docs/memory/an-empty-box-must-never-cull.md`).
+    /// **The registration is reconciled against the tick's props**: a prop keeps its handle while its entity
+    /// persists, is re-linked only when its box moved (<c>RenderableChanged</c>), and leaves when it does — so a seek
+    /// is just a frame in which many boxes moved, and nothing can be filed where it no longer is (D131's hazard).
     ///
-    /// **An unbuilt frustum keeps everything**, which is what `ViewFrustum.Cull` already does and is
-    /// why every caller that passes no frustum is unaffected.
+    /// **The render group is not asked here**: whether a model is translucent is the material system's answer, in
+    /// the render layer; everything is collated as opaque so the bucket comes from the box, and the device files the
+    /// translucent from this order. The answer to WHICH renderables and in WHAT order is the same either way.
+    ///
+    /// **A view list that is null means no view walk ran** (a caller with no device): every leaf is listed, so the
+    /// frustum alone decides. **An empty list collates nothing**, which is the engine's loop over zero leaves.
     /// </remarks>
-    private bool Culls(SceneProp prop, ViewFrustum frustum, ReadOnlySpan<bool> visibleByLeaf)
+    private void Collate(IReadOnlyList<SceneProp> props, ViewFrustum frustum, RenderableViews views, string pass)
     {
-        if (!frustum.IsBuilt)
+        _ordered.Clear();
+
+        if (!string.Equals(pass, WorldPass, StringComparison.Ordinal))
         {
-            return false;
+            foreach (SceneProp prop in props)
+            {
+                if (CanDraw(prop))
+                {
+                    _ordered.Add((prop, 0, null, false));
+                }
+                else
+                {
+                    _tally.NotDrawable(prop);
+                }
+            }
+
+            return;
         }
 
-        (float MinX, float MinY, float MinZ, float MaxX, float MaxY, float MaxZ) box =
-            WorldBoxFor(prop);
+        _propOf.Clear();
+        _occurrence.Clear();
 
-        if (!WorldSpaceBounds.IsPlaced(box))
+        foreach (SceneProp prop in props)
         {
-            Unjudgeable++;
-            return false;
+            // **An empty path joins the undrawable kinds** (PARITY-AUDIT finding 5): no-batches for one model is a
+            // load failure, a prop with no model at all is a gap — `DrawTally` keeps them apart.
+            if (!CanDraw(prop))
+            {
+                _tally.NotDrawable(prop);
+                continue;
+            }
+
+            // Keyed by entity, model and occurrence: a synthesised prop carries entity 0, and two can share it.
+            int seen = _occurrence.GetValueOrDefault((prop.EntityIndex, prop.ModelPath));
+            _occurrence[(prop.EntityIndex, prop.ModelPath)] = seen + 1;
+            (int, string, int) key = (prop.EntityIndex, prop.ModelPath, seen);
+
+            (float, float, float, float, float, float) box = WorldBoxFor(prop);
+
+            if (_handleOf.TryGetValue(key, out int handle))
+            {
+                _leafSystem.RenderableChanged(handle, box);
+            }
+            else
+            {
+                _handleOf[key] = _leafSystem.AddRenderable(box);
+            }
+
+            _propOf[key] = prop;
         }
 
-        if (frustum.Cull(box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ))
+        _staleEntities.Clear();
+
+        foreach ((int, string, int) key in _handleOf.Keys)
         {
-            return true;
+            if (!_propOf.ContainsKey(key))
+            {
+                _staleEntities.Add(key);
+            }
         }
 
-        // **The visibility half, and it is the one the engine leads with** (B254).
-        // `BuildRenderablesList` iterates the VISIBLE LEAF LIST and only frustum-tests what is
-        // already in it, so an entity behind a wall never enters the render list at all — the
-        // frustum alone keeps everything in the view cone, wall or no wall.
-        //
-        // **Ordered frustum-first here for cost rather than for parity**: the frustum test is six
-        // dot products and rejects most of the map, where this walks the tree. The ANSWER is the
-        // same either way — a box is kept only if it passes both — and the engine's ordering is a
-        // consequence of it maintaining per-leaf renderable lists across frames, which this does not.
-        //
-        // **An empty set culls nothing**, which is a map with no visibility data, or any frame
-        // before the first world cull has run.
-        if (visibleByLeaf.IsEmpty || Tree is not { } tree)
+        foreach ((int, string, int) key in _staleEntities)
         {
-            return false;
+            _leafSystem.RemoveRenderable(_handleOf[key]);
+            _handleOf.Remove(key);
         }
 
-        if (tree.TouchesAny(
-                box.MinX, box.MinY, box.MinZ, box.MaxX, box.MaxY, box.MaxZ, visibleByLeaf))
+        _leafSystem.PreRender();
+
+        IReadOnlyList<int> mainLeaves = views.MainLeaves ?? _everyLeaf;
+
+        _leafSystem.BuildRenderablesList(mainLeaves, frustum, Opaque, _mainCollated);
+
+        bool sky = views.SkyLeaves is { Count: > 0 };
+
+        if (sky)
         {
-            return false;
+            _leafSystem.BuildRenderablesList(views.SkyLeaves!, views.SkyFrustum, Opaque, _skyCollated, includeUnplaced: false);
         }
 
-        CulledByVisibility++;
+        Dictionary<int, SceneProp> byHandle = _propByHandle;
+        byHandle.Clear();
 
-        return true;
+        foreach (((int, string, int) key, int handle) in _handleOf)
+        {
+            byHandle[handle] = _propOf[key];
+        }
+
+        foreach ((int handle, int place, int? bucket) in _mainCollated.Entries)
+        {
+            _ordered.Add((byHandle[handle], place, bucket, false));
+        }
+
+        int collated = _mainCollated.Entries.Count;
+
+        if (sky)
+        {
+            foreach ((int handle, int place, int? bucket) in _skyCollated.Entries)
+            {
+                _ordered.Add((byHandle[handle], place, bucket, true));
+            }
+
+            collated += _skyCollated.Entries.Count;
+        }
+
+        // **Carried from the collation, not re-derived** (B243): what no view collated, split by whether the frustum
+        // or the leaf list turned it away.
+        Culled = Math.Max(_propOf.Count - collated, 0);
+        CulledByVisibility = Math.Max(Culled - _mainCollated.FrustumRejected, 0);
+        Unjudgeable = _mainCollated.Unplaced;
+
+        for (int at = 0; at < Culled; at++)
+        {
+            _tally.Culled();
+        }
     }
+
+    private readonly Dictionary<int, SceneProp> _propByHandle = [];
 
     /// <summary>Brings every corpse's simulation up to the tick, seen or not (B58).</summary>
     /// <param name="props">Every prop this moment carries, before any cull.</param>
@@ -6237,7 +6328,18 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// Null until a map is read, and null leaves the cull frustum-only rather than culling
     /// everything — the safe direction this whole path takes.
     /// </remarks>
-    public BspLeafTree? Tree { get; set; }
+    public BspLeafTree? Tree
+    {
+        get => _tree;
+        set
+        {
+            // **A new map is a new leaf system** (`LevelInitPreEntity`): every handle names the old tree's leaves.
+            _tree = value;
+            _handleOf.Clear();
+            _leafSystem = value is { IsEmpty: false } tree ? new ClientLeafSystem(tree.LeafCount, tree.EnumerateLeavesInBox) : OneLeaf();
+            _everyLeaf = value is { IsEmpty: false } leaves ? [.. Enumerable.Range(0, leaves.LeafCount)] : PlaceZero;
+        }
+    }
 
     /// <summary>The box the engine would cull this model by, placed — <c>CalcRenderableWorldSpaceAABB</c>.</summary>
     /// <param name="prop">The entity being drawn.</param>

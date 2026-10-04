@@ -194,7 +194,12 @@ public sealed class WorldVisibilityMapTests
             [.. visibility.Leaves(middle.X, middle.Y, middle.Z, Looking(middle, (-1f, 0f, 0f)))];
 
         forward.ShouldNotBe(backward);
-        forward.Except(backward).ShouldNotBeEmpty("looking forward sees something looking back does not");
+
+        // **Either way round, not forward-only** (B262). Every leaf forward saw that backward did not was a SOLID leaf
+        // here; the engine's walk never lists those (`0x1800e0600`), and with them gone forward's set falls inside
+        // backward's from this eye. A fixed set still fails: it would differ in neither direction.
+        forward.Except(backward).Concat(backward.Except(forward))
+            .ShouldNotBeEmpty("the two directions see different leaves");
     }
 
     /// <summary>That the PVS removes leaves the frustum alone would keep.</summary>

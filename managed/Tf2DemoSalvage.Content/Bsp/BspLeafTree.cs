@@ -648,6 +648,90 @@ public sealed class BspLeafTree
         }
     }
 
+    /// <summary>The leaves a box is filed in for the client leaf system — <c>CEngineBSPTree::EnumerateLeavesInBox</c>.</summary>
+    /// <param name="min">The box's low corner.</param>
+    /// <param name="max">The box's high corner.</param>
+    /// <param name="into">Where the leaves are appended, front child first.</param>
+    /// <remarks>
+    /// **Read from engine.dll's DISASSEMBLY (B262)**: the <c>CEngineBSPTree</c> vtable (<c>0x18038e768</c>, found by
+    /// its RTTI) has <c>EnumerateLeavesInBox</c> in slot 2, <c>0x1800d96a0</c>, which turns the box into a centre and
+    /// half extents and walks <c>0x1800dd690</c>:
+    ///
+    /// * a node or leaf with contents 1 (solid) ends that branch (<c>0x1800dd6a7</c>, <c>0x1800dd73f</c>);
+    /// * the node's or leaf's own box must overlap the query, touching included (<c>0x1800dd6f0</c> →
+    ///   <c>0x180172540</c>: rejected only when <c>|c1 − c2| &gt; e1 + e2</c> on an axis);
+    /// * against the plane, back alone when the far corner is at or behind it (<c>0x1800dd80a</c>, and
+    ///   <c>dist &gt;= max</c> for an axial plane at <c>0x1800dd716</c>), front alone when the near corner is at or in
+    ///   front (<c>0x1800dd82d</c>, <c>dist &lt;= min</c> at <c>0x1800dd71c</c>), otherwise front then back.
+    ///
+    /// **No epsilon**, unlike the tools copy in <c>utils/common/bsplib.cpp:3403</c> (1/32), which this ported first. The
+    /// axial branch is the general one with a unit normal, so one formula serves both.
+    /// </remarks>
+    public void EnumerateLeavesInBox(
+        (float X, float Y, float Z) min, (float X, float Y, float Z) max, ICollection<int> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (IsEmpty)
+        {
+            return;
+        }
+
+        Stack<int> pending = new();
+        int budget = NodeCount + LeafCount + 1;
+
+        pending.Push(0);
+
+        while (pending.Count > 0 && budget-- > 0)
+        {
+            int node = pending.Pop();
+
+            if (node < 0)
+            {
+                int leaf = -node - 1;
+
+                if (Contents(leaf) != ContentsSolid && Bounds(leaf) is { } box && Overlaps(box.Min, box.Max, min, max))
+                {
+                    into.Add(leaf);
+                }
+
+                continue;
+            }
+
+            if (Node(node) is not { } split || !Overlaps(split.Min, split.Max, min, max))
+            {
+                continue;
+            }
+
+            (float nx, float ny, float nz) = (split.NormalX, split.NormalY, split.NormalZ);
+
+            float far = (nx * (nx >= 0 ? max.X : min.X)) + (ny * (ny >= 0 ? max.Y : min.Y)) + (nz * (nz >= 0 ? max.Z : min.Z));
+            float near = (nx * (nx >= 0 ? min.X : max.X)) + (ny * (ny >= 0 ? min.Y : max.Y)) + (nz * (nz >= 0 ? min.Z : max.Z));
+
+            if (far <= split.Distance)
+            {
+                pending.Push(split.Back);
+            }
+            else if (near >= split.Distance)
+            {
+                pending.Push(split.Front);
+            }
+            else
+            {
+                pending.Push(split.Back);
+                pending.Push(split.Front);
+            }
+        }
+    }
+
+    /// <summary><c>0x180172540</c>: two boxes overlap unless an axis separates them, touching counts.</summary>
+    private static bool Overlaps(
+        (float X, float Y, float Z) aMin, (float X, float Y, float Z) aMax,
+        (float X, float Y, float Z) bMin, (float X, float Y, float Z) bMax) =>
+        aMin.X <= bMax.X && bMin.X <= aMax.X &&
+        aMin.Y <= bMax.Y && bMin.Y <= aMax.Y &&
+        aMin.Z <= bMax.Z && bMin.Z <= aMax.Z;
+
     /// <summary>How far a box may travel between two points before it meets something solid.</summary>
     /// <param name="fromX">Where the sweep starts, in world units.</param>
     /// <param name="fromY">Where the sweep starts.</param>
