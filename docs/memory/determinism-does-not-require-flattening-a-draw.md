@@ -9,9 +9,15 @@ metadata:
 ---
 
 **A random draw and a reproducible replay aren't in tension in Source; assuming otherwise cost a
-visible divergence.** `CParticleCollection::RandomInt` is a table lookup keyed on the particle's own
-id plus a per-operator offset (`particles.h:1782`) — a particle's lifetime is a pure function of that particle,
-independent of frame rate or draw order. Replaying gives the same answer with nothing stored.
+visible divergence.** `CParticleCollection::RandomInt` is a table lookup keyed on the collection's seed
+plus the particle's own id plus a per-operator offset (`particles.h:1782`) — a particle's lifetime is a
+pure function of that particle and its collection's seed, independent of frame rate or draw order.
+
+**The seed is the part that was missed (B462).** The TF2 client seeds every collection with
+`(int)this + Plat_MSTime()`, which no demo carries; `Init` keeps a non-zero seed instead (the engine's
+"scrubbable" path). So a seekable effect passes a seed fixed by its identity — `ParticleEffects.SeedFor`
+— and the replay is reproducible again. Leaving the seed out made every instance of a system draw the
+same numbers, which a remark defended as "needs no seed argument".
 
 **What went wrong (B373, D152):** `Lifetime Random` was implemented as the MIDPOINT of min/max, citing
 D136's replay determinism — but `rockettrail` declares 0.8/1.2, so every particle lived exactly one
