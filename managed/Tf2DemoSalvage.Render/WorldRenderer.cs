@@ -1869,6 +1869,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private readonly HashSet<int> _decalMaterials = [];
 
+    /// <summary>Materials whose shader reads vertex alpha, so an overlay's fade ramp shows (B329).</summary>
+    private readonly HashSet<int> _vertexAlphaMaterials = [];
+
     /// <summary>Materials that multiply what is behind them; the value says whether it doubles.</summary>
     private readonly Dictionary<int, bool> _modulate = [];
 
@@ -2917,6 +2920,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (texture is { IsDecal: true })
             {
                 _decalMaterials.Add(index);
+            }
+
+            if (texture is { TakesVertexAlpha: true })
+            {
+                _vertexAlphaMaterials.Add(index);
             }
         }
 
@@ -5691,7 +5699,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         {
             // **Faded per overlay from the view origin** (lump 60, engine.dll 0x18010a580): past its
             // maximum the engine never queues it. Without an eye there is no distance, so it draws.
-            float? alpha = batch.Fade is { } fade && _eye is { } eye ? fade.Alpha(eye.X, eye.Y, eye.Z) : 1f;
+            // The ramp itself rides on vertex alpha, so only a shader that reads it shows one (B329).
+            float? alpha = batch.Fade is { } fade && _eye is { } eye
+                ? fade.DrawnAlpha(eye.X, eye.Y, eye.Z, _vertexAlphaMaterials.Contains(batch.MaterialIndex))
+                : 1f;
 
             if (alpha is { } drawn)
             {

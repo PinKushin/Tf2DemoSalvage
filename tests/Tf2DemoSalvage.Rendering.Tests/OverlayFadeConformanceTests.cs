@@ -1,5 +1,9 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+
+using Tf2DemoSalvage.SdkReference;
 
 using Tf2DemoSalvage.Content.Bsp;
 
@@ -35,6 +39,42 @@ public sealed class OverlayFadeConformanceTests
     [Test]
     public void Alpha_BetweenMinimumAndMaximum_IsTheLinearRampInSquaredDistance() =>
         Fade.Alpha(750f, 0f, 0f)!.Value.ShouldBe(437_500f / 750_000f, 1e-6f);
+
+    // **The fade reaches the screen only through the VERTEX alpha** (B329). engine.dll 0x180110630 packs each
+    // overlay vertex's colour as `round(fade · 255) << 24 | 0xFFFFFF` — white, with the fade in alpha — and
+    // 0x1801117c0 initialises that fade to 1. So a material whose shader ignores vertex alpha draws fully
+    // opaque right up to the maximum, where 0x18010a580 stops queueing it.
+    [Test]
+    public void DrawnAlpha_BetweenMinimumAndMaximum_WithoutVertexAlpha_IsOne() =>
+        Fade.DrawnAlpha(750f, 0f, 0f, takesVertexAlpha: false).ShouldBe(1f);
+
+    [Test]
+    public void DrawnAlpha_BetweenMinimumAndMaximum_WithVertexAlpha_IsTheRampQuantisedToAByte() =>
+        Fade.DrawnAlpha(750f, 0f, 0f, takesVertexAlpha: true).ShouldBe(MathF.Round(437_500f / 750_000f * 255f) / 255f);
+
+    [Test]
+    public void DrawnAlpha_AtTheMaximum_WithoutVertexAlpha_IsNotDrawn() =>
+        Fade.DrawnAlpha(0f, 1000f, 0f, takesVertexAlpha: false).ShouldBeNull();
+
+    [Test]
+    public void TakesVertexAlpha_OnCpProcess_CarriesDustGradientsAndNotTheRest()
+    {
+        // **On the real map, through the production load** (B329). `overlays/dust_gradient01` is
+        // UnlitGeneric with `$vertexalpha 1`, so it is the one kind whose fade ramp shows. The control
+        // is every other loaded material: if the flag reached all of them, the gate would be a no-op.
+        if (GameInstall.Root is not { } tf || !File.Exists(Path.Combine(tf, "maps", "cp_process_final.bsp")))
+        {
+            Assert.Ignore("Team Fortress 2 with cp_process_final is not installed.");
+            return;
+        }
+
+        MapAssets assets = MapCache.Load();
+        int dust = Enumerable.Range(0, assets.Materials.Count).Single(index =>
+            assets.Materials[index].Name.Equals("overlays/dust_gradient01", StringComparison.OrdinalIgnoreCase));
+
+        assets.Textures[dust].ShouldNotBeNull().TakesVertexAlpha.ShouldBeTrue();
+        assets.Textures.Count(texture => texture is { TakesVertexAlpha: false }).ShouldBeGreaterThan(100);
+    }
 
     [Test]
     public void Alpha_AtTheMaximum_IsNotDrawn() =>

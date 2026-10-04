@@ -211,6 +211,27 @@ public sealed class MapWorldTests
             faceIndex, vertices, material, default, (0f, 0f, normalZ), flags, -1);
     }
 
+    [Test]
+    public void Build_ANonDisplacementFace_IsWhiteWithBlendZero()
+    {
+        // engine.dll 0x1800f4d40 writes a brush face's colour as white, alpha 0 for a material with
+        // `$basetexture2` (0x00FFFFFF) and 1 otherwise. That alpha is LightmappedGeneric's blend factor
+        // (`lightmappedgeneric_vs20.fxc:250` → `ps2_3_x.h:314`), so a two-texture material on a plain
+        // brush draws its FIRST texture; without `$basetexture2` the second is bound to the first and
+        // the factor cannot be seen. Zero therefore matches both cases (B329).
+        MapWorld world = MapWorldBuilder.Build(
+            null,
+            [OverlayRenderOrderConformanceTests.Floor()],
+            [new BspMaterial("nature/blendgrassdirt", (0.5f, 0.5f, 0.5f), 64, 64)],
+            LightmapAtlas.Pack([]),
+            null,
+            []);
+
+        world.Vertices.ShouldNotBeEmpty();
+        world.Vertices.Select(vertex => (vertex.Alpha, vertex.Red, vertex.Green, vertex.Blue)).Distinct()
+            .ShouldBe([(0f, 1f, 1f, 1f)]);
+    }
+
     private static BspLightmap Lightmap(int width, int height) =>
         new(width, height, new byte[width * height * 4]);
 }
