@@ -12,6 +12,10 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </param>
 /// <param name="Stopped">The cursor the walk finished on.</param>
 /// <param name="Length">The scene's decompressed length, to compare that cursor against.</param>
+/// <param name="Overflowed">
+/// Whether a read ran past the end, which in the engine's <c>CUtlBuffer</c> is sticky: every read
+/// after it yields zero (B376). An incomplete walk WITHOUT this landed short of the end instead.
+/// </param>
 /// <remarks>
 /// **<paramref name="Sequence"/> being null and <paramref name="Complete"/> being false are
 /// different findings, which is the whole reason this type exists.** A null sequence is ordinary; an
@@ -20,4 +24,5 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// the actor tree stayed missing from this reader — see
 /// `docs/findings/53-a-taunt-names-its-sequence-in-a-scene.md`.
 /// </remarks>
-public readonly record struct SceneWalk(string? Sequence, bool Complete, int Stopped, int Length);
+public readonly record struct SceneWalk(
+    string? Sequence, bool Complete, int Stopped, int Length, bool Overflowed = false);
