@@ -677,9 +677,17 @@ public sealed class FirstPersonUiTests
     /// **Checked rather than assumed, because the alternative fails in the wrong direction.** If a
     /// previous test leaked the first-person mode, the negative test below would be run in the mode
     /// where cycling is *supposed* to work — and would pass only if the feature were broken.
+    /// <para>
+    /// **Third-person arrivals are subtracted** because their line repeats the first-person one
+    /// (`third person on, chasing first person on, ...`), so one lap Free, first, third, free logs
+    /// two lines containing <see cref="FirstPersonOn"/> and one <see cref="BackToMap"/>. The plain
+    /// comparison held only while no earlier test in the session had lapped through third person;
+    /// the File-menu key test in <c>ExportCompileUiTests</c> does, and this then read 4 against 2
+    /// with the camera free.
+    /// </para>
     /// </remarks>
     private static void EnsureFreeCamera() =>
-        Viewer.Count(FirstPersonOn).ShouldBe(
+        (Viewer.Count(FirstPersonOn) - Viewer.Count(ThirdPersonOn)).ShouldBe(
             Viewer.Count(BackToMap),
             "this test needs the free camera, and the teardown should have left it there");
 }
