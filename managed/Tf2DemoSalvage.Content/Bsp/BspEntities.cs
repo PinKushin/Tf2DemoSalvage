@@ -313,17 +313,16 @@ public static class BspEntities
         return DefaultSkyName;
     }
 
-    /// <summary>The cheap-water distances the view uses: <c>water_lod_control</c>'s, else the view's own.</summary>
+    /// <summary>The cheap-water distances a map's <c>water_lod_control</c> hands the view, or null with none.</summary>
     /// <param name="entities">Entities from <see cref="Parse"/>.</param>
-    /// <returns>Start and end, in units.</returns>
+    /// <returns>Start and end, in units; null when the map places no such entity.</returns>
     /// <remarks>
     /// The entity networks its two keyfields to <c>C_WaterLODControl</c>, which hands them to the view
     /// (<c>C_WaterLODControl.cpp:49-50</c>); a missing key keeps the server constructor's 1000 and 2000
-    /// (<c>WaterLODControl.cpp:66-67</c>). With no entity the view keeps what it was constructed with, 0 and 0.1
-    /// (<c>viewrender.cpp:937-938</c>) — for a freshly started client. Like <c>sv_skyname</c> the view's value
-    /// otherwise persists from the previous map, which this does not reproduce.
+    /// (<c>WaterLODControl.cpp:66-67</c>). With no entity nothing is handed over and the view keeps what it had —
+    /// <c>Scene.WaterLodSession</c>.
     /// </remarks>
-    public static (float Start, float End) WaterLod(IReadOnlyList<BspEntity> entities)
+    public static (float Start, float End)? WaterLod(IReadOnlyList<BspEntity> entities)
     {
         ArgumentNullException.ThrowIfNull(entities);
 
@@ -342,7 +341,7 @@ public static class BspEntities
             }
         }
 
-        return (0f, 0.1f);
+        return null;
     }
 
     /// <summary>`sv_skyname`'s default — <c>movevars_shared.cpp:105</c>.</summary>

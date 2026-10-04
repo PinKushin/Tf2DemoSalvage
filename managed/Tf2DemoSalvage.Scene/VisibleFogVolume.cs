@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Tf2DemoSalvage.Content.Bsp;
 
 namespace Tf2DemoSalvage.Scene;
@@ -32,6 +33,30 @@ public static class VisibleFogVolume
 {
     /// <summary><c>CONTENTS_TESTFOGVOLUME</c>, <c>public/bspflags.h</c>.</summary>
     public const int ContentsTestFogVolume = 0x100;
+
+    /// <summary><c>DoesBoxIntersectWaterVolume</c>, IVRenderView slot 34 (engine.dll <c>0x18012ea20</c>).</summary>
+    /// <param name="tree">The map's tree.</param>
+    /// <param name="min">The box's low corner.</param>
+    /// <param name="max">Its high corner.</param>
+    /// <param name="waterDataId">The volume asked about.</param>
+    /// <returns>Whether any leaf the box reaches belongs to that volume.</returns>
+    /// <remarks>
+    /// The engine enumerates the leaves in the box through the spatial query (vtable +0x10 of <c>0x180471498</c>) with
+    /// an enumerator (<c>0x18012e9f0</c>) that stops at the first leaf whose water data ID (+0x42) is the one asked for.
+    /// The leaves are walked here by <see cref="BspLeafTree.LeavesTouchingBox"/>, the engine's box-down-the-tree walk
+    /// (B457); that the spatial query's walk splits a box at a plane the same way is <i>interpolated</i>.
+    /// </remarks>
+    public static bool BoxIntersectsVolume(
+        BspLeafTree tree, (float X, float Y, float Z) min, (float X, float Y, float Z) max, int waterDataId)
+    {
+        ArgumentNullException.ThrowIfNull(tree);
+
+        List<int> reached = [];
+
+        tree.LeavesTouchingBox(min, max, reached);
+
+        return reached.Exists(leaf => tree.WaterDataId(leaf) == waterDataId);
+    }
 
     /// <summary>Finds the fog volume the eye sees.</summary>
     /// <param name="tree">The map's tree.</param>

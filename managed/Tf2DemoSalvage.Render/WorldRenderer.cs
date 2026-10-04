@@ -160,7 +160,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         cbuffer WaterView : register(b4)
         {
             float4 clipPlane;
-            float4 heightFog;       // x on, y water z, w 1 / (fogend - fogstart)
+            float4 heightFog;       // x on, y water z, z write the factor to alpha (opaque draws), w 1 / (fogend - fogstart)
             float4 heightFogColour; // rgb linear
             float4 refractTint;
             float4 reflectTint;
@@ -1703,7 +1703,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 float waterFog = WaterFogAlpha(input.wpos);
                 float3 under = tintControl.z > 0.5f ? float3(0.0f, 0.0f, 0.0f) : heightFogColour.rgb;
 
-                return float4(lerp(lit, under, waterFog), waterFog);
+                // "can't write a special value to dest alpha if we're actually using as-intended alpha"
+                // (lightmappedgeneric_dx9_helper.cpp:907-918): only a fully opaque draw writes the factor.
+                return float4(lerp(lit, under, waterFog), heightFog.z > 0.5f ? waterFog : albedo.a);
             }
 
             return float4(PixelFog(lit, input.wpos, tintControl.z), albedo.a);
@@ -3745,6 +3747,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         foreach (WorldBatch batch in batches)
         {
             if (_additive.Contains(batch.MaterialIndex) || _translucent.Contains(batch.MaterialIndex))
+            {
+                continue;
+            }
+
+            // **Only the sort groups this view's DF_ flags name** (viewrender.cpp:696, B62); a run nobody grouped draws.
+            if (batch.SortGroup >= 0 && !WaterViews.DrawsSortGroup(ViewDraws, batch.SortGroup))
             {
                 continue;
             }
@@ -6150,6 +6158,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             WorldBatch batch = leaves.Runs[at];
             bool additive = _additive.Contains(batch.MaterialIndex);
 
+            // The translucent world draws group by group too, `1 << n` (0x1800e4fd0) — only the view's (B62).
+            if (at < leaves.RunGroup.Count && !WaterViews.DrawsSortGroup(ViewDraws, leaves.RunGroup[at]))
+            {
+                continue;
+            }
+
             context.OMSetBlendState(additive ? _addBlend : _alphaBlend, factor, 0xFFFFFFFF);
             DrawBlendedBatch(context, batch, additive);
 
@@ -7806,12 +7820,16 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// <c>(1,1): error X3000: unrecognized identifier 's'</c> — a complaint about the first letter
     /// of the first word, which reads like a broken shader rather than a broken encoding.
     /// </remarks>
-    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string entry, string profile)
+    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string entry, string profile) =>
+        Compile(compiler, ShaderSource, entry, profile);
+
+    /// <summary>Compiles one entry point of a given source.</summary>
+    private static ComPtr<ID3D10Blob> Compile(D3DCompiler compiler, string shaderText, string entry, string profile)
     {
         ComPtr<ID3D10Blob> bytecode = default;
         ComPtr<ID3D10Blob> errors = default;
 
-        byte[] source = System.Text.Encoding.ASCII.GetBytes(ShaderSource);
+        byte[] source = System.Text.Encoding.ASCII.GetBytes(shaderText);
 
         fixed (byte* text = source)
         {

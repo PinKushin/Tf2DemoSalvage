@@ -1012,6 +1012,111 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _waterMainFog ?? WorldFog);
     }
 
+    /// <summary>Draws one model instance, whole or one half of it.</summary>
+    /// <param name="instance">The instance.</param>
+    /// <param name="pass">Which half.</param>
+    private void DrawInstance(ModelInstance instance, ModelPass pass)
+    {
+        if (_world is null)
+        {
+            return;
+        }
+
+        if (instance.Bones is { Count: > 0 } bones)
+        {
+            _world.SetBones(_context, bones);
+        }
+
+        _world.DrawModel(
+            _context,
+            instance.ModelPath,
+            instance.Matrix,
+            _world.ModelBatches(instance.ModelPath, instance.Frame),
+            instance.Light,
+            instance.Sun,
+            instance.Blend,
+            instance.Bones?.Count ?? 0,
+            instance.SkinSwap,
+            pass,
+            instance.BodyParts,
+            instance.Body,
+            instance.Mirrored,
+
+            // Where the model stands, for its cubemap. Its matrix cannot say, because a skinned model's placement is
+            // in its bones (B170).
+            origin: instance.Origin,
+
+            // Valve's class colour for a brush entity, in the category view (B219).
+            tint: instance.Tint,
+
+            // The lamps near this model, which its ambient cube no longer carries.
+            locals: instance.Locals,
+
+            // Gold or ice on a corpse and the items it wears, both halves — the override replaces every material
+            // rather than a subset (B325).
+            overrideMaterial: instance.MaterialOverride,
+
+            // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
+            paint: instance.Paint,
+            burn: instance.Burn,
+            urine: instance.Urine,
+
+            // A baked static prop's colour mesh (B426).
+            bakedColours: instance.BakedColours);
+    }
+
+    /// <summary>The frame's models, for the water views that draw entities.</summary>
+    private IReadOnlyList<ModelInstance> _waterViewModels = [];
+
+    /// <summary>A water view's renderables: <c>DrawOpaqueRenderables</c> then <c>DrawTranslucentRenderables</c> (B62).</summary>
+    /// <param name="view">The view, whose camera is bound.</param>
+    /// <remarks>
+    /// **DrawExecute's own order** (<c>viewrender.cpp:5524-5538</c>). The view's leaf list is its own in the engine; here
+    /// the translucent models are sorted back to front along this view's axis without the main view's leaf
+    /// interleave, which a water view's mirrored or clipped camera does not share.
+    /// </remarks>
+    private void DrawWaterViewEntities(WaterView view)
+    {
+        _ = view;
+
+        if (_world is null || !DrawEntities)
+        {
+            return;
+        }
+
+        _context.OMSetDepthStencilState(_depthOn, 0);
+
+        List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> translucent = [];
+
+        foreach (ModelInstance instance in _waterViewModels)
+        {
+            (bool joinsOpaque, bool joinsTranslucent, bool twoPass) = Classify(instance);
+
+            if (joinsOpaque)
+            {
+                DrawInstance(instance, twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel);
+            }
+
+            if (joinsTranslucent)
+            {
+                translucent.Add((0, TranslucentOrder.Along(instance, _translucentEye, _translucentForward), (instance, twoPass)));
+            }
+        }
+
+        TranslucentOrder.Sort(translucent);
+        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+        _world.WriteWaterFogToAlpha(_context, opaque: false);
+
+        foreach ((_, _, (ModelInstance instance, bool twoPass)) in translucent)
+        {
+            DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
+        }
+
+        _world.WriteWaterFogToAlpha(_context, opaque: true);
+        WorldRenderer.ResetBlend(_context);
+        _context.OMSetDepthStencilState(_depthOn, 0);
+    }
+
     /// <summary>Clears, draws the map and the players, and presents.</summary>
     /// <param name="red">Clear colour, red channel.</param>
     /// <param name="green">Clear colour, green channel.</param>
@@ -1145,9 +1250,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // the reflection and refraction render into their targets, then this view draws.
                 if (_waterDraw is { } water)
                 {
+                    _waterViewModels = DrawEntities ? models ?? [] : [];
+
                     _world.DrawWaterViews(
                         _context,
-                        water,
+                        water with { Frame = new WaterFrameTarget(_backBufferView, _depthView, _width, _height) },
                         () =>
                         {
                             _context.RSSetViewports(1, in viewport);
@@ -1155,6 +1262,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                             _context.OMSetDepthStencilState(_depthOn, 0);
                             ReapplyCamera();
                         });
+                }
+                else
+                {
+                    // A simple view still draws only its sides of the water (CSimpleWorldView::Setup, viewrender.cpp:5710).
+                    _world.ViewDraws = _simpleViewDraws;
                 }
 
                 _world.Draw(_context);
@@ -1234,49 +1346,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         continue;
                     }
 
-                    if (instance.Bones is { Count: > 0 } bones)
-                    {
-                        _world.SetBones(_context, bones);
-                    }
-
                     ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
 
-                    _world.DrawModel(
-                        _context,
-                        instance.ModelPath,
-                        instance.Matrix,
-                        _world.ModelBatches(instance.ModelPath, instance.Frame),
-                        instance.Light,
-                        instance.Sun,
-                        instance.Blend,
-                        instance.Bones?.Count ?? 0,
-                        instance.SkinSwap,
-                        twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel,
-                        instance.BodyParts,
-                        instance.Body,
-                        instance.Mirrored,
-
-                        // Where the model stands, for its cubemap. Its matrix cannot say, because a
-                        // skinned model's placement is in its bones (B170).
-                        origin: instance.Origin,
-
-                        // Valve's class colour for a brush entity, in the category view (B219).
-                        tint: instance.Tint,
-
-                        // The lamps near this model, which its ambient cube no longer carries.
-                        locals: instance.Locals,
-
-                        // Gold or ice on a corpse and the items it wears; null everywhere else
-                        // (B325).
-                        overrideMaterial: instance.MaterialOverride,
-
-                        // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
-                        paint: instance.Paint,
-                        burn: instance.Burn,
-                        urine: instance.Urine,
-
-                        // A baked static prop's colour mesh (B426).
-                        bakedColours: instance.BakedColours);
+                    DrawInstance(instance, twoPass ? ModelPass.OpaqueOnly : ModelPass.EntireModel);
 
                     // **Its decals straight after it, with its bones still bound** — `CStudioRender::DrawModel` draws a
                     // model's decal meshes after its own (B415).
@@ -1398,49 +1470,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                     (ModelInstance instance, bool twoPass) = _translucentDraw[step.Index].Entry;
 
-                    if (instance.Bones is { Count: > 0 } bones)
-                    {
-                        _world.SetBones(_context, bones);
-                    }
-
-                    _world.DrawModel(
-                        _context,
-                        instance.ModelPath,
-                        instance.Matrix,
-                        _world.ModelBatches(instance.ModelPath, instance.Frame),
-                        instance.Light,
-                        instance.Sun,
-                        instance.Blend,
-                        instance.Bones?.Count ?? 0,
-                        instance.SkinSwap,
-                        twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel,
-                        instance.BodyParts,
-                        instance.Body,
-                        instance.Mirrored,
-
-                        // Where the model stands, for its cubemap. Its matrix cannot say, because a
-                        // skinned model's placement is in its bones (B170).
-                        origin: instance.Origin,
-
-                        // Valve's class colour for a brush entity, in the category view (B219).
-                        tint: instance.Tint,
-
-                        // The lamps near this model, which its ambient cube no longer carries.
-                        locals: instance.Locals,
-
-                        // **The translucent half takes it too**, since the override replaces every
-                        // material rather than a subset — an iced corpse whose model has a blended
-                        // part must not draw that part unfrozen (B325).
-                        overrideMaterial: instance.MaterialOverride,
-
-                        // TF2's paint, feeding the ItemTintColor proxy at the bind (B330).
-                        paint: instance.Paint,
-                        burn: instance.Burn,
-                        urine: instance.Urine,
-                        bakedColours: instance.BakedColours);
+                    DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
                 }
 
                 WorldRenderer.ResetBlend(_context);
+
+                // **The intersection view, after the main one** (viewrender.cpp:5958-5961): the water side of a near
+                // plane that crosses the surface, under the volume's height fog.
+                if (_waterDraw is { } crossing && _world.DrawWaterIntersection(_context, crossing))
+                {
+                    _context.OMSetDepthStencilState(_depthOn, 0);
+                    ReapplyCamera();
+                }
 
                 DrawViewmodels(viewmodels, viewmodelCamera);
 
@@ -1608,6 +1649,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _materialNames = [.. assets.Materials.Select(material => material.Name)];
         _waterDraw = null;
         _waterMainFog = null;
+        _simpleViewDraws = WorldRenderer.AllWaterDraws;
+
+        // The view keeps the last map's distances unless this one places a water_lod_control.
+        _waterLod.EnterMap(assets.WaterLod);
+        _world.WaterLod = _waterLod.Current;
     }
 
     private Content.Bsp.BspWater _water = new([], []);
@@ -1627,14 +1673,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <remarks>
     /// The visible-set test is the cull's own <see cref="WorldCulling.VisibleByLeaf"/>, which is already the PVS
     /// within the frustum, so the walk's separate frustum test passes everything (the engine tests the node box
-    /// against the frustum at 0x1800e0fac; a leaf in the visible set has passed the same test). The near plane's
-    /// intersection with the water (<c>DoesViewPlaneIntersectWater</c>) is not computed: the engine asks the closed
-    /// <c>DoesBoxIntersectWaterVolume</c> for it, so a camera at the waterline takes the non-intersecting branch.
+    /// against the frustum at 0x1800e0fac; a leaf in the visible set has passed the same test).
     /// </remarks>
     private void PlanWater(FreeCamera camera)
     {
         _waterDraw = null;
         _waterMainFog = null;
+        _simpleViewDraws = WorldRenderer.AllWaterDraws;
 
         if (_culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
         {
@@ -1647,17 +1692,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             (_, _) => true);
 
         int material = WaterViews.FogVolumeMaterial(fog, _water.Volumes, _waters, _materialNames);
-        WaterMaterialParameters? parameters = material >= 0 && material < _waters.Count ? _waters[material]?.View : null;
+        int surface = WaterViews.FogVolumeMaterial(fog with { EyeInFogVolume = false }, _water.Volumes, _waters, _materialNames);
+        MapWater? Water(int index) => index >= 0 && index < _waters.Count ? _waters[index] : null;
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
-            parameters, fog.DistanceToWater, _world?.WaterLod.End ?? 0.1f, WaterConVars.Defaults);
+            Water(material)?.View, fog.DistanceToWater, _waterLod.Current.End, WaterConVars.Defaults);
+
+        // DoesViewPlaneIntersectWater (viewrender.cpp:2741) through DoesBoxIntersectWaterVolume (engine.dll 0x18012ea20).
+        bool crosses = WaterViews.ViewPlaneIntersectsWater(
+            WaterViews.NearPlane(camera), fog.WaterHeight, fog.Volume,
+            (min, max) => VisibleFogVolume.BoxIntersectsVolume(culling.Tree, min, max, fog.Volume));
 
         IReadOnlyList<WaterView> views = WaterViews.Plan(
-            info, new WaterFrame(fog.EyeInFogVolume, DrawSkybox, fog.WaterHeight, ViewIntersectsWater: false), ViewClears.Depth);
+            info, new WaterFrame(fog.EyeInFogVolume, DrawSkybox, fog.WaterHeight, crosses), ViewClears.Depth);
 
-        if (views.Count > 0 && views[^1].Fog == WaterViewFog.Volume && material >= 0 && _waters[material] is { } water)
+        WaterView main = views.First(view => view.Target == WaterViewTarget.BackBuffer);
+
+        _simpleViewDraws = main.Draw;
+
+        // From inside the volume the main view draws under its own fog: SetFogVolumeState( fogInfo, false ), the bottom
+        // material's (engine.dll 0x1800e0cd0).
+        if (main.Fog == WaterViewFog.Volume &&
+            WaterViews.VolumeFogFor(Water(material), fog.WaterHeight, useHeightFog: false) is { } inside)
         {
-            _waterMainFog = new(water.FogStart, water.FogEnd, water.FogColor.Red, water.FogColor.Green, water.FogColor.Blue, 1f);
+            _waterMainFog = new(inside.Start, inside.End, inside.Color.Red, inside.Color.Green, inside.Color.Blue, inside.MaxDensity);
         }
 
         if (info.CheapWater)
@@ -1686,8 +1744,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 {
                     sky.Draw(_device, _context, _eye, through, SkyReach);
                 }
-            });
+            },
+            DrawWaterViewEntities)
+        {
+            SurfaceMaterial = surface,
+        };
     }
+
+    /// <summary>The view's cheap-water distances for this viewer's life (B62).</summary>
+    private readonly WaterLodSession _waterLod = new();
+
+    /// <summary>The main view's draw flags when it is a <c>CSimpleWorldView</c>.</summary>
+    private ViewDraws _simpleViewDraws = WorldRenderer.AllWaterDraws;
 
     /// <summary>Uploads a map's projected geometry, keeping the textures already resident.</summary>
     /// <param name="world">The triangles and their material batches.</param>

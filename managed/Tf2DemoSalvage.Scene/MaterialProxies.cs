@@ -227,6 +227,18 @@ public static class MaterialProxies
             return TextureTransform.Identity;
         }
 
+        return TextureTransformOf(centre, scale, rotate, translate);
+    }
+
+    /// <summary>The composition <c>CTextureTransformProxy::OnBind</c> builds (<c>matrixproxy.cpp:75-110</c>).</summary>
+    /// <param name="centre">The centre; 0.5, 0.5 when the proxy names none.</param>
+    /// <param name="scale">The scale; 1, 1 when it names none (the proxy then skips the step, which is the same matrix).</param>
+    /// <param name="rotate">Degrees about Z.</param>
+    /// <param name="translate">The translation.</param>
+    /// <returns>The transform's first two rows.</returns>
+    public static TextureTransform TextureTransformOf(
+        (float X, float Y) centre, (float X, float Y) scale, float rotate, (float X, float Y) translate)
+    {
         float radians = rotate * ToRadians;
 
         float cos = (float)Math.Cos(radians);

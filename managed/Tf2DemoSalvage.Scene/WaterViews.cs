@@ -306,6 +306,39 @@ public readonly record struct WaterView(
     bool ClearToFogColor,
     HeightClip Clip);
 
+/// <summary>The fog <c>SetFogVolumeState</c> sets for a water volume (engine.dll <c>0x1800e0cd0</c>).</summary>
+/// <param name="HeightFog">MATERIAL_FOG_LINEAR_BELOW_FOG_Z (2) for height fog, else MATERIAL_FOG_LINEAR (1).</param>
+/// <param name="FogZ"><c>SetFogZ</c>: the volume's <c>surfaceZ</c>.</param>
+/// <param name="Color"><c>FogColor3fv( $fogcolor )</c>, as written (gamma).</param>
+/// <param name="Start"><c>FogStart( $fogstart )</c>.</param>
+/// <param name="End"><c>FogEnd( $fogend )</c>.</param>
+/// <param name="MaxDensity"><c>FogMaxDensity( 1.0 )</c>, the constant at <c>0x18035c93c</c>.</param>
+public readonly record struct VolumeFog(
+    bool HeightFog, float FogZ, (float Red, float Green, float Blue) Color, float Start, float End, float MaxDensity);
+
+/// <summary>The view's cheap-water distances for a viewer session — <c>CViewRender</c>'s two members.</summary>
+/// <remarks>
+/// Constructed 0 and 0.1 (<c>viewrender.cpp:937-938</c>), written only by <c>SetCheapWater*Distance</c> (<c>:2957-2965</c>)
+/// — from a map's <c>water_lod_control</c> (<c>C_WaterLODControl.cpp:49-50</c>) or the <c>r_cheapwater*</c> commands —
+/// and never reset at a level change (<c>LevelShutdown</c>, <c>:950</c>). The view is one object for the client's life,
+/// so a map without the entity keeps the previous map's distances; a viewer session is that lifetime here.
+/// </remarks>
+public sealed class WaterLodSession
+{
+    /// <summary>The distances in force.</summary>
+    public (float Start, float End) Current { get; private set; } = (0f, 0.1f);
+
+    /// <summary>A map loads: its entity's distances, if it places one, replace the current ones.</summary>
+    /// <param name="lod">The map's <c>water_lod_control</c> distances, or null.</param>
+    public void EnterMap((float Start, float End)? lod)
+    {
+        if (lod is { } set)
+        {
+            Current = set;
+        }
+    }
+}
+
 /// <summary>The engine's water views, composed into a frame.</summary>
 /// <remarks>
 /// **The hardware-clip-plane path.** <c>UseFastClipping()</c> is <c>mat_fastclip</c>, 0 by default, so every view
@@ -452,6 +485,90 @@ public static class WaterViews
             !info.Refract, height);
 
         return views;
+    }
+
+    /// <summary><c>R_SetFogVolumeState</c>, engine.dll <c>0x1800e0cd0</c>, read in disassembly.</summary>
+    /// <param name="material">The volume's material — the SURFACE's for height fog, the <c>$bottommaterial</c> otherwise:
+    /// the function asks <c>0x1800dffd0</c> with its second argument <c>!bUseHeightFog</c> (<c>0x1800e0cf5</c>).</param>
+    /// <param name="surfaceZ">The volume's <c>surfaceZ</c>.</param>
+    /// <param name="useHeightFog"><c>bUseHeightFog</c>.</param>
+    /// <param name="fogEnableWaterFog"><c>fog_enable_water_fog</c>, default 1 (<c>0x18035e7a4</c>).</param>
+    /// <returns>The fog, or null for MATERIAL_FOG_NONE.</returns>
+    /// <remarks>
+    /// Reads <c>$fogcolor</c>, <c>$fogenable</c>, <c>$fogstart</c> and <c>$fogend</c> (strings at <c>0x18038ea18</c>-<c>0x18038ea48</c>);
+    /// when <c>$fogenable</c>'s int is non-zero and the cvar is on (<c>0x1800e0d98</c>-<c>0x1800e0dad</c>) it sets the fog z,
+    /// the mode, the colour, the start, the end and a max density of one; otherwise <c>FogMode( MATERIAL_FOG_NONE )</c>.
+    /// </remarks>
+    public static VolumeFog? VolumeFogFor(MapWater? material, float surfaceZ, bool useHeightFog, bool fogEnableWaterFog = true) =>
+        material is { FogEnable: true } water && fogEnableWaterFog
+            ? new VolumeFog(useHeightFog, surfaceZ, water.FogColor, water.FogStart, water.FogEnd, 1f)
+            : null;
+
+    /// <summary><c>DoesViewPlaneIntersectWater</c>, <c>viewrender.cpp:2741</c>.</summary>
+    /// <param name="nearPlane">The view's near-plane corners, world space — the engine unprojects (±1, ±1, 0).</param>
+    /// <param name="waterZ">The water's height.</param>
+    /// <param name="waterDataId">The visible volume, −1 for none.</param>
+    /// <param name="boxIntersectsVolume"><c>render-&gt;DoesBoxIntersectWaterVolume</c> for that volume.</param>
+    /// <returns>Whether the near plane crosses the water volume.</returns>
+    public static bool ViewPlaneIntersectsWater(
+        IReadOnlyList<(float X, float Y, float Z)> nearPlane,
+        float waterZ,
+        int waterDataId,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> boxIntersectsVolume)
+    {
+        ArgumentNullException.ThrowIfNull(nearPlane);
+        ArgumentNullException.ThrowIfNull(boxIntersectsVolume);
+
+        if (waterDataId == -1)
+        {
+            return false;
+        }
+
+        const float fudge = 7f;
+        bool above = false;
+        bool below = false;
+        (float X, float Y, float Z) min = (float.MaxValue, float.MaxValue, float.MaxValue);
+        (float X, float Y, float Z) max = (float.MinValue, float.MinValue, float.MinValue);
+
+        foreach ((float x, float y, float z) in nearPlane)
+        {
+            min = (MathF.Min(min.X, x), MathF.Min(min.Y, y), MathF.Min(min.Z, z));
+            max = (MathF.Max(max.X, x), MathF.Max(max.Y, y), MathF.Max(max.Z, z));
+            above |= z + fudge > waterZ;
+            below |= z - fudge < waterZ;
+        }
+
+        // "early out if the near plane doesn't cross the z plane of the water."
+        if (!(above && below))
+        {
+            return false;
+        }
+
+        return boxIntersectsVolume(
+            (min.X - fudge, min.Y - fudge, min.Z - fudge), (max.X + fudge, max.Y + fudge, max.Z + fudge));
+    }
+
+    /// <summary>A camera's four near-plane corners: what <c>DoesViewPlaneIntersectWater</c> unprojects from (±1, ±1, 0).</summary>
+    /// <param name="camera">The camera.</param>
+    /// <returns>The corners, world space.</returns>
+    public static (float X, float Y, float Z)[] NearPlane(FreeCamera camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+        float halfWidth = camera.NearZ * MathF.Tan(camera.FieldOfView * MathF.PI / 360f);
+        float halfHeight = halfWidth / camera.Aspect;
+        (float X, float Y, float Z) centre = (
+            camera.Origin.X + (forward.X * camera.NearZ),
+            camera.Origin.Y + (forward.Y * camera.NearZ),
+            camera.Origin.Z + (forward.Z * camera.NearZ));
+
+        (float X, float Y, float Z) Corner(float across, float down) => (
+            centre.X + (right.X * across * halfWidth) + (up.X * down * halfHeight),
+            centre.Y + (right.Y * across * halfWidth) + (up.Y * down * halfHeight),
+            centre.Z + (right.Z * across * halfWidth) + (up.Z * down * halfHeight));
+
+        return [Corner(-1f, -1f), Corner(-1f, 1f), Corner(1f, -1f), Corner(1f, 1f)];
     }
 
     /// <summary>The material the visible fog volume is drawn with: <c>m_pFogVolumeMaterial</c>.</summary>

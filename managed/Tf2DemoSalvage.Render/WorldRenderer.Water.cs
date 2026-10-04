@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 using Silk.NET.Core.Native;
@@ -18,6 +19,7 @@ namespace Tf2DemoSalvage.Render;
 /// <param name="ReflectedCamera">The same view mirrored by <see cref="WaterViews.Reflect"/>, for the reflection.</param>
 /// <param name="Fog">The world's fog, which the reflection and the under-water refraction draw under.</param>
 /// <param name="DrawSkybox">Draws the 2D skybox through a camera matrix — the reflection's DF_DRAWSKYBOX — or null.</param>
+/// <param name="DrawEntities">Draws a view's opaque then translucent renderables, for a view with DF_DRAW_ENTITITES.</param>
 internal sealed record WaterDraw(
     IReadOnlyList<WaterView> Views,
     int Material,
@@ -25,7 +27,26 @@ internal sealed record WaterDraw(
     float[] Camera,
     float[] ReflectedCamera,
     Core.Scene.SceneFog? Fog,
-    Action<float[]>? DrawSkybox);
+    Action<float[]>? DrawSkybox,
+    Action<WaterView>? DrawEntities = null)
+{
+    /// <summary>The volume's SURFACE material, which <c>SetFogVolumeState( ..., true )</c> takes its fog from; −1 means <see cref="Material"/>.</summary>
+    public int SurfaceMaterial { get; init; } = -1;
+
+    /// <summary>The frame's own target, which the under-water refraction renders into before it is copied out.</summary>
+    public WaterFrameTarget? Frame { get; init; }
+
+    /// <summary>The surface material, resolved.</summary>
+    public int Surface => SurfaceMaterial >= 0 ? SurfaceMaterial : Material;
+}
+
+/// <summary>The frame's render target and depth, and its size.</summary>
+/// <param name="Target">The colour target.</param>
+/// <param name="Depth">The depth target.</param>
+/// <param name="Width">Its width.</param>
+/// <param name="Height">Its height.</param>
+internal readonly record struct WaterFrameTarget(
+    ComPtr<ID3D11RenderTargetView> Target, ComPtr<ID3D11DepthStencilView> Depth, int Width, int Height);
 
 /// <summary>The engine's water: its views, its render targets and the <c>Water</c> shader's two passes (B62).</summary>
 internal sealed unsafe partial class WorldRenderer
@@ -277,7 +298,42 @@ internal sealed unsafe partial class WorldRenderer
     private readonly float[] _waterContents = new float[WaterConstants];
 
     private IReadOnlyList<MapWater?> _waters = [];
-    private readonly Dictionary<int, ComPtr<ID3D11ShaderResourceView>> _waterNormals = [];
+    /// <summary>Each water material's normal-map frames, uploaded.</summary>
+    private readonly Dictionary<int, List<ComPtr<ID3D11ShaderResourceView>>> _waterNormals = [];
+
+    /// <summary>The frame copy the under-water refraction is stretched from, and the pass that stretches it.</summary>
+    private ComPtr<ID3D11Texture2D> _frameCopy;
+    private ComPtr<ID3D11ShaderResourceView> _frameCopyView;
+    private (int Width, int Height, Silk.NET.DXGI.Format Format) _frameCopyShape;
+    private ComPtr<ID3D11VertexShader> _blitVertex;
+    private ComPtr<ID3D11PixelShader> _blitPixel;
+
+    /// <summary>A full-screen triangle sampling t0 — <c>CopyRenderTargetToTextureEx</c>'s stretch, as a pass.</summary>
+    private const string BlitShaderText = """
+        Texture2D source : register(t0);
+        SamplerState linearClamp : register(s0);
+
+        struct BlitOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+        BlitOut VsBlit(uint id : SV_VertexID)
+        {
+            BlitOut output;
+            output.uv = float2((id << 1) & 2, id & 2);
+            output.pos = float4(output.uv * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
+            return output;
+        }
+
+        float4 PsBlit(BlitOut input) : SV_TARGET
+        {
+            return source.Sample(linearClamp, input.uv);
+        }
+        """;
+
+    /// <summary>Every side of the water and its surface: a view that draws the whole world.</summary>
+    public static ViewDraws AllWaterDraws => ViewDraws.RenderAboveWater | ViewDraws.RenderUnderWater | ViewDraws.RenderWater;
+
+    /// <summary>The view's draw flags — which sort groups and whether the water surface draw (B62).</summary>
+    public ViewDraws ViewDraws { get; set; } = AllWaterDraws;
 
     private ComPtr<ID3D11Texture2D> _reflectionTexture;
     private ComPtr<ID3D11RenderTargetView> _reflectionTarget;
@@ -290,9 +346,6 @@ internal sealed unsafe partial class WorldRenderer
 
     /// <summary>What the last <see cref="SetCamera"/> was told besides the matrix, so a water view keeps the main view's switches.</summary>
     private (bool Colours, bool Specular, Fullbright Fullbright, DebugModes Debug, bool Phong) _cameraSwitches = (false, true, Fullbright.Off, default, true);
-
-    /// <summary>Whether this view draws the water surface — <c>DF_RENDER_WATER</c>.</summary>
-    public bool DrawWaterSurface { get; set; } = true;
 
     /// <summary>The view's cheap-water distances, which the <c>WaterLOD</c> proxy hands each water material it binds.</summary>
     public (float Start, float End) WaterLod { get; set; } = (0f, 0.1f);
@@ -307,14 +360,13 @@ internal sealed unsafe partial class WorldRenderer
     {
         ReleaseWaters();
         _waters = assets.Waters;
-        WaterLod = assets.WaterLod;
 
         for (int index = 0; index < _waters.Count; index++)
         {
-            if (_waters[index] is { NormalMap: { } normal })
+            if (_waters[index] is { NormalFrames.Count: > 0 } water)
             {
                 // A normal map is a direction, not a colour, so it is never read through the sRGB curve.
-                _waterNormals[index] = Upload(device, context, normal, srgb: false);
+                _waterNormals[index] = [.. water.NormalFrames.Select(frame => Upload(device, context, frame, srgb: false))];
             }
         }
 
@@ -341,7 +393,7 @@ internal sealed unsafe partial class WorldRenderer
 
     private void ReleaseWaters()
     {
-        foreach (ComPtr<ID3D11ShaderResourceView> normal in _waterNormals.Values)
+        foreach (ComPtr<ID3D11ShaderResourceView> normal in _waterNormals.Values.SelectMany(frames => frames))
         {
             normal.Dispose();
         }
@@ -364,6 +416,10 @@ internal sealed unsafe partial class WorldRenderer
         _refractionTexture.Dispose();
         _waterDepth.Dispose();
         _waterDepthTexture.Dispose();
+        _frameCopyView.Dispose();
+        _frameCopy.Dispose();
+        _blitVertex.Dispose();
+        _blitPixel.Dispose();
     }
 
     /// <summary>Whether a material is a <c>Water</c> material.</summary>
@@ -374,9 +430,8 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>Sets the view's height clip and, for a refraction view, the volume's height fog.</summary>
     /// <param name="context">The context.</param>
     /// <param name="clip">The clip, <see cref="HeightClip.None"/> for none.</param>
-    /// <param name="heightFog">The volume material whose fog the view draws under, or −1.</param>
-    /// <param name="waterHeight">The fog's height, <c>SetFogZ</c>.</param>
-    public void SetWaterView(ComPtr<ID3D11DeviceContext> context, HeightClip clip, int heightFog = -1, float waterHeight = 0f)
+    /// <param name="heightFog">The volume's height fog — <see cref="WaterViews.VolumeFogFor"/> — or null.</param>
+    public void SetWaterView(ComPtr<ID3D11DeviceContext> context, HeightClip clip, VolumeFog? heightFog = null)
     {
         Array.Clear(_waterView);
 
@@ -392,25 +447,38 @@ internal sealed unsafe partial class WorldRenderer
             _waterView[3] = clip.Z;
         }
 
-        // **The volume's fog, from its material** — render->SetFogVolumeState, closed. $fogcolor, $fogstart and
-        // $fogend with the fog z at the water: *interpolated* from the material's parameters and from
-        // CalcWaterFogAlpha's register layout (g_WaterZ in y, g_FogOORange in w).
-        if (heightFog >= 0 && heightFog < _waters.Count && _waters[heightFog] is { } water)
+        // **The volume's height fog, as R_SetFogVolumeState sets it** (engine.dll 0x1800e0cd0): SetFogZ, the colour,
+        // start and end. CalcWaterFogAlpha reads the fog z from g_FogParams.y and one over the range from .w — packed
+        // here as the range fog's own registers are (FogConstants, B139).
+        if (heightFog is { HeightFog: true } fog)
         {
-            float range = water.FogEnd - water.FogStart;
+            float range = fog.End - fog.Start;
 
             _waterView[4] = 1f;
-            _waterView[5] = waterHeight;
+            _waterView[5] = fog.FogZ;
+            _waterView[6] = 1f;
             _waterView[7] = range != 0f ? 1f / range : 0f;
-            _waterView[8] = Linear(water.FogColor.Red);
-            _waterView[9] = Linear(water.FogColor.Green);
-            _waterView[10] = Linear(water.FogColor.Blue);
+            _waterView[8] = Linear(fog.Color.Red);
+            _waterView[9] = Linear(fog.Color.Green);
+            _waterView[10] = Linear(fog.Color.Blue);
         }
 
         WriteWater(context, null, -1);
     }
 
     private static float Linear(float gamma) => MathF.Pow(gamma, 2.2f);
+
+    /// <summary>Whether the draws that follow write the height fog factor to alpha — only fully opaque ones do.</summary>
+    /// <param name="context">The context.</param>
+    /// <param name="opaque">True before the opaque draws, false before the blended ones.</param>
+    public void WriteWaterFogToAlpha(ComPtr<ID3D11DeviceContext> context, bool opaque)
+    {
+        if (_waterView[4] > 0.5f)
+        {
+            _waterView[6] = opaque ? 1f : 0f;
+            WriteWater(context, null, -1);
+        }
+    }
 
     private void BindWaterView(ComPtr<ID3D11DeviceContext> context)
     {
@@ -465,8 +533,11 @@ internal sealed unsafe partial class WorldRenderer
             float delta = end - start;
 
             Put(c, 40, start, end, delta != 0f ? 1f / delta : 0f, delta != 0f ? start / delta : 0f);
-            Put(c, 44, water.BumpTransform.Row0.X, water.BumpTransform.Row0.Y, water.BumpTransform.Row0.Z, water.BumpTransform.Row0.W);
-            Put(c, 48, water.BumpTransform.Row1.X, water.BumpTransform.Row1.Y, water.BumpTransform.Row1.Z, water.BumpTransform.Row1.W);
+            // $bumptransform after the material's proxy chain has run for this bind.
+            TextureTransform bump = water.BumpTransformAt(Seconds);
+
+            Put(c, 44, bump.Row0.X, bump.Row0.Y, bump.Row0.Z, bump.Row0.W);
+            Put(c, 48, bump.Row1.X, bump.Row1.Y, bump.Row1.Z, bump.Row1.W);
 
             float time = (float)Seconds;
 
@@ -517,7 +588,8 @@ internal sealed unsafe partial class WorldRenderer
             return false;
         }
 
-        if (!DrawWaterSurface)
+        // DF_RENDER_WATER: the surface draws only in a view that asks for MAT_SORT_GROUP_WATERSURFACE.
+        if ((ViewDraws & ViewDraws.RenderWater) == 0)
         {
             return true;
         }
@@ -541,9 +613,11 @@ internal sealed unsafe partial class WorldRenderer
         SetMaterial(context, batch.MaterialIndex, batch.Category);
         WriteWater(context, water, batch.MaterialIndex);
 
-        ComPtr<ID3D11ShaderResourceView> normal = _waterNormals.TryGetValue(batch.MaterialIndex, out ComPtr<ID3D11ShaderResourceView> found)
-            ? found
-            : _flatWhite;
+        // BindTexture( NORMALMAP, BUMPFRAME ), BUMPFRAME being the AnimatedTexture proxy's output.
+        ComPtr<ID3D11ShaderResourceView> normal =
+            _waterNormals.TryGetValue(batch.MaterialIndex, out List<ComPtr<ID3D11ShaderResourceView>>? frames)
+                ? frames[water.NormalFrameAt(Seconds, frames.Count)]
+                : _flatWhite;
 
         context.PSSetShaderResources(4, 1, ref normal);
         context.PSSetShaderResources(5, 1, ref cube);
@@ -588,10 +662,9 @@ internal sealed unsafe partial class WorldRenderer
     /// <param name="restore">Rebinds the main view's target, viewport and camera afterwards.</param>
     /// <returns>The main view's own entry — Main, UnderMain or Simple — for the caller to draw, or null.</returns>
     /// <remarks>
-    /// **The sub-views draw the opaque world.** <c>DrawExecute</c> (<c>viewrender.cpp:5524-5553</c>) also draws the
-    /// opaque and translucent renderables when DF_DRAW_ENTITITES is set and the translucent world otherwise; neither
-    /// is drawn into a water target here yet. The sort-group filter is realised by the height clip, which removes
-    /// the same surfaces wherever a group lies wholly on one side of the plane (B62 follow-on in RISKS).
+    /// Each view runs <c>DrawExecute</c>'s order (<c>viewrender.cpp:5524-5553</c>): the world (its sort groups by the
+    /// view's DF_ flags), then with DF_DRAW_ENTITITES the opaque and translucent renderables, and the translucent world.
+    /// The main view's flags and height clip are left set for the caller's draw.
     /// </remarks>
     public WaterView? DrawWaterViews(ComPtr<ID3D11DeviceContext> context, WaterDraw frame, Action restore)
     {
@@ -614,31 +687,41 @@ internal sealed unsafe partial class WorldRenderer
 
             EnsureWaterTargets();
 
-            // The under-water refraction renders into the back buffer and is copied out (viewrender.cpp:6203);
-            // a D3D11 copy cannot stretch, so it renders straight into the target — the same pixels.
+            // **The under-water refraction renders into the FRAME and is copied out** (viewrender.cpp:6203-6248):
+            // "Refraction renders into the back buffer ... It is then blitted out into the refraction target."
             bool reflection = target == WaterViewTarget.Reflection;
+            bool viaFrame = target == WaterViewTarget.BackBufferCopiedToRefraction && frame.Frame is not null;
             ComPtr<ID3D11RenderTargetView> into = reflection ? _reflectionTarget : _refractionTarget;
-            Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
+
+            if (viaFrame)
+            {
+                into = frame.Frame!.Value.Target;
+            }
+            ComPtr<ID3D11DepthStencilView> depth = viaFrame ? frame.Frame!.Value.Depth : _waterDepth;
+            Viewport viewport = viaFrame
+                ? new(0f, 0f, frame.Frame!.Value.Width, frame.Frame.Value.Height, 0f, 1f)
+                : new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
 
             // **Unbound before it is drawn into** — a texture cannot be a shader input and an output at once.
             ComPtr<ID3D11ShaderResourceView> none = default;
 
             context.PSSetShaderResources(12, 1, ref none);
             context.PSSetShaderResources(13, 1, ref none);
-            context.OMSetRenderTargets(1u, into.GetAddressOf(), _waterDepth);
+            context.OMSetRenderTargets(1u, into.GetAddressOf(), depth);
             context.RSSetViewports(1, in viewport);
 
-            // VIEW_CLEAR_COLOR to the fog colour where the view sets it (SetClearColorToFogColor), else black.
+            // VIEW_CLEAR_COLOR to the fog colour where the view sets it — SetFogVolumeState( fogInfo, true ) then
+            // GetFogColor, so the SURFACE material's (engine.dll 0x1800e0cd0) — else black.
             colour[0] = 0f;
             colour[1] = 0f;
             colour[2] = 0f;
             colour[3] = 1f;
 
-            if (view.ClearToFogColor && frame.Material >= 0 && frame.Material < _waters.Count && _waters[frame.Material] is { } fogged)
+            if (view.ClearToFogColor && WaterViews.VolumeFogFor(Water(frame.Surface), frame.WaterHeight, true) is { } clearFog)
             {
-                colour[0] = Linear(fogged.FogColor.Red);
-                colour[1] = Linear(fogged.FogColor.Green);
-                colour[2] = Linear(fogged.FogColor.Blue);
+                colour[0] = Linear(clearFog.Color.Red);
+                colour[1] = Linear(clearFog.Color.Green);
+                colour[2] = Linear(clearFog.Color.Blue);
             }
 
             if ((view.Clear & ViewClears.Color) != 0)
@@ -646,7 +729,7 @@ internal sealed unsafe partial class WorldRenderer
                 context.ClearRenderTargetView(into, colour);
             }
 
-            context.ClearDepthStencilView(_waterDepth, (uint)ClearFlag.Depth, 1f, 0);
+            context.ClearDepthStencilView(depth, (uint)ClearFlag.Depth, 1f, 0);
 
             float[] camera = reflection ? frame.ReflectedCamera : frame.Camera;
 
@@ -659,19 +742,220 @@ internal sealed unsafe partial class WorldRenderer
                 frame.DrawSkybox?.Invoke(camera);
             }
 
-            SetWaterView(context, view.Clip, view.Fog == WaterViewFog.VolumeHeight ? frame.Material : -1, frame.WaterHeight);
+            ExecuteView(context, frame, view);
 
-            bool drawWater = DrawWaterSurface;
-
-            DrawWaterSurface = (view.Draw & ViewDraws.RenderWater) != 0;
-            Draw(context);
-            DrawWaterSurface = drawWater;
+            if (viaFrame)
+            {
+                StretchFrameToRefraction(context, frame.Frame!.Value);
+            }
         }
 
-        SetWaterView(context, main is { } chosen ? chosen.Clip : HeightClip.None);
+        if (main is { } chosen)
+        {
+            ViewDraws = chosen.Draw;
+        }
+
+        SetWaterView(context, main is { } clipped ? clipped.Clip : HeightClip.None);
         restore();
 
         return main;
+    }
+
+    /// <summary>The views drawn into the frame after the main one: <c>CIntersectionView</c> (<c>viewrender.cpp:5958-5961</c>).</summary>
+    /// <param name="context">The context, with the main view's target and camera bound.</param>
+    /// <param name="frame">The frame's water.</param>
+    /// <returns>True when a view drew, so the caller restores its own state.</returns>
+    public bool DrawWaterIntersection(ComPtr<ID3D11DeviceContext> context, WaterDraw frame)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+
+        bool drew = false;
+
+        foreach (WaterView view in frame.Views)
+        {
+            if (view.Kind == WaterViewKind.Intersection)
+            {
+                ExecuteView(context, frame, view);
+                drew = true;
+            }
+        }
+
+        // The main view's flags back for whatever draws next in it.
+        if (drew && frame.Views.FirstOrDefault(view => view.Kind is WaterViewKind.Main or WaterViewKind.UnderMain or WaterViewKind.Simple) is { } main)
+        {
+            ViewDraws = main.Draw;
+            SetWaterView(context, main.Clip);
+        }
+
+        return drew;
+    }
+
+    /// <summary><c>CBaseWorldView::DrawExecute</c> for a water view, its camera already bound.</summary>
+    private void ExecuteView(ComPtr<ID3D11DeviceContext> context, WaterDraw frame, WaterView view)
+    {
+        SetWaterView(
+            context, view.Clip,
+            view.Fog == WaterViewFog.VolumeHeight ? WaterViews.VolumeFogFor(Water(frame.Surface), frame.WaterHeight, true) : null);
+
+        ViewDraws drawn = ViewDraws;
+
+        ViewDraws = view.Draw;
+        Draw(context);
+
+        // DF_DRAW_ENTITITES: DrawOpaqueRenderables, DrawTranslucentRenderables (with the translucent world); without
+        // it, DrawTranslucentWorldInLeaves (viewrender.cpp:5524-5553).
+        if ((view.Draw & ViewDraws.DrawEntities) != 0)
+        {
+            frame.DrawEntities?.Invoke(view);
+        }
+
+        WriteWaterFogToAlpha(context, opaque: false);
+        DrawTranslucentWorld(context);
+        WriteWaterFogToAlpha(context, opaque: true);
+        ViewDraws = drawn;
+    }
+
+    private MapWater? Water(int material) => material >= 0 && material < _waters.Count ? _waters[material] : null;
+
+    /// <summary><c>CopyRenderTargetToTextureEx( refraction, 0, &amp;srcRect )</c>: the frame, stretched into the 1024² target.</summary>
+    /// <remarks>
+    /// **A pass rather than a copy, because a D3D11 copy cannot stretch** and the engine's (shaderapi's
+    /// <c>StretchRect</c>) does. The frame is first copied whole into a texture that can be sampled, then a full-screen
+    /// triangle draws it into the target with linear filtering — what a stretch does.
+    /// </remarks>
+    private void StretchFrameToRefraction(ComPtr<ID3D11DeviceContext> context, WaterFrameTarget frame)
+    {
+        ComPtr<ID3D11Resource> source = default;
+
+        frame.Target.GetResource(ref source);
+
+        RenderTargetViewDesc viewDescription = default;
+
+        frame.Target.GetDesc(ref viewDescription);
+        EnsureFrameCopy(frame.Width, frame.Height, viewDescription.Format);
+        context.CopyResource(_frameCopy, source);
+        source.Dispose();
+
+        if (_blitPixel.Handle is null)
+        {
+            using D3DCompiler compiler = D3DCompiler.GetApi();
+
+            ComPtr<ID3D10Blob> vertex = Compile(compiler, BlitShaderText, "VsBlit", "vs_5_0");
+            ComPtr<ID3D10Blob> pixel = Compile(compiler, BlitShaderText, "PsBlit", "ps_5_0");
+
+            SilkMarshal.ThrowHResult(_device.CreateVertexShader(
+                vertex.GetBufferPointer(), vertex.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitVertex));
+            SilkMarshal.ThrowHResult(_device.CreatePixelShader(
+                pixel.GetBufferPointer(), pixel.GetBufferSize(), ref Unsafe.NullRef<ID3D11ClassLinkage>(), ref _blitPixel));
+            vertex.Dispose();
+            pixel.Dispose();
+        }
+
+        Viewport viewport = new(0f, 0f, WaterTargetSize, WaterTargetSize, 0f, 1f);
+        ComPtr<ID3D11DepthStencilView> noDepth = default;
+
+        context.OMSetRenderTargets(1u, _refractionTarget.GetAddressOf(), noDepth);
+        context.RSSetViewports(1, in viewport);
+        context.IASetInputLayout(default(ComPtr<ID3D11InputLayout>));
+        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+        context.VSSetShader(_blitVertex, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShader(_blitPixel, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetShaderResources(0, 1, ref _frameCopyView);
+        context.PSSetSamplers(0, 1, ref _clampSampler);
+        ResetBlend(context);
+        context.Draw(3, 0);
+
+        // The world's pipeline back: its shaders, samplers and the frame target.
+        ComPtr<ID3D11ShaderResourceView> none = default;
+
+        context.PSSetShaderResources(0, 1, ref none);
+        BindPipeline(context);
+
+        Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
+
+        context.OMSetRenderTargets(1u, frame.Target.GetAddressOf(), frame.Depth);
+        context.RSSetViewports(1, in frameViewport);
+    }
+
+    private void EnsureFrameCopy(int width, int height, Silk.NET.DXGI.Format viewFormat)
+    {
+        if (_frameCopy.Handle is not null && _frameCopyShape == (width, height, viewFormat))
+        {
+            return;
+        }
+
+        _frameCopyView.Dispose();
+        _frameCopy.Dispose();
+
+        // Typeless, so the frame's bytes copy across whichever of UNORM and SRGB its target view reads them as.
+        Silk.NET.DXGI.Format typeless = viewFormat switch
+        {
+            Silk.NET.DXGI.Format.FormatB8G8R8A8Unorm or Silk.NET.DXGI.Format.FormatB8G8R8A8UnormSrgb => Silk.NET.DXGI.Format.FormatB8G8R8A8Typeless,
+            _ => Silk.NET.DXGI.Format.FormatR8G8B8A8Typeless,
+        };
+
+        Texture2DDesc description = new()
+        {
+            Width = (uint)width,
+            Height = (uint)height,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = typeless,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Default,
+            BindFlags = (uint)BindFlag.ShaderResource,
+        };
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, ref Unsafe.NullRef<SubresourceData>(), ref _frameCopy));
+
+        ShaderResourceViewDesc view = new() { Format = viewFormat, ViewDimension = D3DSrvDimension.D3DSrvDimensionTexture2D };
+
+        view.Texture2D.MipLevels = 1;
+        SilkMarshal.ThrowHResult(_device.CreateShaderResourceView(_frameCopy, in view, ref _frameCopyView));
+        _frameCopyShape = (width, height, viewFormat);
+    }
+
+    /// <summary>One of the refraction or reflection target's pixels, for a test.</summary>
+    /// <param name="context">The context.</param>
+    /// <param name="refraction">The refraction target, else the reflection.</param>
+    /// <param name="x">Column.</param>
+    /// <param name="y">Row.</param>
+    /// <returns>Red, green and blue as stored.</returns>
+    internal (int Red, int Green, int Blue) WaterTargetPixel(ComPtr<ID3D11DeviceContext> context, bool refraction, int x, int y)
+    {
+        EnsureWaterTargets();
+
+        Texture2DDesc description = new()
+        {
+            Width = 1,
+            Height = 1,
+            MipLevels = 1,
+            ArraySize = 1,
+            Format = Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb,
+            SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
+            Usage = Usage.Staging,
+            CPUAccessFlags = (uint)CpuAccessFlag.Read,
+        };
+
+        ComPtr<ID3D11Texture2D> staging = default;
+
+        SilkMarshal.ThrowHResult(_device.CreateTexture2D(in description, ref Unsafe.NullRef<SubresourceData>(), ref staging));
+
+        Box box = new((uint)x, (uint)y, 0, (uint)x + 1, (uint)y + 1, 1);
+
+        context.CopySubresourceRegion(staging, 0, 0, 0, 0, refraction ? _refractionTexture : _reflectionTexture, 0, in box);
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(staging, 0, Map.Read, 0, ref mapped));
+
+        byte* texel = (byte*)mapped.PData;
+        (int, int, int) result = (texel[0], texel[1], texel[2]);
+
+        context.Unmap(staging, 0);
+        staging.Dispose();
+
+        return result;
     }
 
     private void EnsureWaterTargets()

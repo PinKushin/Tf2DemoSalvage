@@ -625,6 +625,7 @@ public sealed class VisibleWorld
             if (open is { } run &&
                 run.MaterialIndex == span.MaterialIndex &&
                 run.Category == span.Category &&
+                run.SortGroup == SortGroup(span.Face) &&
                 run.FirstVertex + run.VertexCount == span.FirstVertex)
             {
                 open = run with { VertexCount = run.VertexCount + span.VertexCount };
@@ -638,7 +639,8 @@ public sealed class VisibleWorld
             }
 
             open = new WorldBatch(
-                span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category);
+                span.MaterialIndex, span.FirstVertex, span.VertexCount, Category: span.Category,
+                SortGroup: SortGroup(span.Face));
         }
 
         if (open is { } last)

@@ -1019,8 +1019,8 @@ public sealed class MapAssets
     /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
     public BspWater Water { get; private init; } = new([], []);
 
-    /// <summary>The view's cheap-water distances on this map — <see cref="BspEntities.WaterLod"/>.</summary>
-    public (float Start, float End) WaterLod { get; private init; } = (0f, 0.1f);
+    /// <summary>This map's <c>water_lod_control</c> distances, or null — <see cref="BspEntities.WaterLod"/>.</summary>
+    public (float Start, float End)? WaterLod { get; private init; }
 
     /// <summary>The frames of every animated detail texture, keyed by path (B342).</summary>
     /// <remarks>
@@ -1262,6 +1262,27 @@ public sealed class MapAssets
                         string.Join(", ", shaders.Select(entry => $"{entry.Shader} x{entry.Materials}")));
         }
         ReportCensus("brushwork", found);
+
+        // **Each water's `$bottommaterial`, loaded by name as the material system does** (B62): engine.dll
+        // 0x1800dffd0 finds it with `FindMaterial` whether or not any face wears it, and from inside the volume it is
+        // the material the view decides with and the fog comes from. Appended after the brushwork, so no face's
+        // index moves.
+        HashSet<string> named = new(materials.Select(material => material.Name.Replace('\\', '/')), StringComparer.OrdinalIgnoreCase);
+
+        foreach (string bottom in found
+                     .Select(material => material.Water?.BottomMaterial)
+                     .OfType<string>()
+                     .Select(name => (name.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name).Replace('\\', '/'))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .ToList())
+        {
+            if (named.Add(bottom))
+            {
+                table.Add(
+                    new BspMaterial(bottom, (1f, 1f, 1f), 0, 0),
+                    Resolve(assets, bottom, pak, archives, maximumTextureSize, report: true, animatedDetails));
+            }
+        }
 
         // **Props after the brushwork, deliberately.** They extend the same material table, so
         // every index the BSP already handed out keeps its meaning and the new ones continue from
@@ -2656,9 +2677,19 @@ public sealed class MapAssets
             {
                 assets.LogWarning(
                     "{Message}", $"water normal map {normal}, named by materials/{materialName}.vmt, could not be read");
+
+                return MapWater.From(material, []);
             }
 
-            return MapWater.From(material, decoded is null ? null : MapTexture.Of(decoded));
+            // Every frame: an AnimatedTexture on $normalmap picks one per bind (water.cpp binds NORMALMAP at BUMPFRAME).
+            List<MapTexture> normalFrames = [MapTexture.Of(decoded)];
+
+            for (int frame = 1; frame < decoded.FrameCount && LoadFrame(normal, frame) is { } next; frame++)
+            {
+                normalFrames.Add(MapTexture.Of(next));
+            }
+
+            return MapWater.From(material, normalFrames);
         }
 
         string? ResolveDetailAnimation()

@@ -65,7 +65,7 @@ public sealed class WaterViewRenderTests
             .First(index => assets.Textures[index] is { IsTranslucent: false, IsTransparent: false } && assets.Waters[index] is null);
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
-            assets.Waters[water]!.View, distanceToWater: 0f, cheapWaterEndDistance: assets.WaterLod.End, WaterConVars.Defaults);
+            assets.Waters[water]!.View, distanceToWater: 0f, cheapWaterEndDistance: new WaterLodSession().Current.End, WaterConVars.Defaults);
 
         IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
 
@@ -166,7 +166,7 @@ public sealed class WaterViewRenderTests
             .First(index => assets.Textures[index] is { IsTranslucent: true } && assets.Waters[index] is null);
 
         WaterRenderInfo info = WaterRenderInfo.Determine(
-            assets.Waters[water]!.View, 0f, assets.WaterLod.End, WaterConVars.Defaults);
+            assets.Waters[water]!.View, 0f, new WaterLodSession().Current.End, WaterConVars.Defaults);
         IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
 
         (int, int, int) Draw((float, float, float) colour)
@@ -187,7 +187,9 @@ public sealed class WaterViewRenderTests
 
         TestContext.Out.WriteLine($"GLASS UNDER WATER RED {red} GREEN {green}");
 
-        red.ShouldNotBe(green, "a translucent surface under the water never reached the refraction");
+        // Faint, because the glass blends by its own low alpha into a target cleared to the fog colour — but in the
+        // floor's direction, which nothing else in the scene can supply.
+        (red.R - green.R).ShouldBeGreaterThan(1, "a translucent surface under the water never reached the refraction");
     }
 
     private static (int Water, int Floor) Materials(MapAssets assets) =>

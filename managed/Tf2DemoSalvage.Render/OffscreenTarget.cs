@@ -251,14 +251,25 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             Aspect = camera.Aspect,
         };
 
-        DrawWorld(vertices, batches, matrix, assets, translucent: false);
+        WorldRenderer world = _world ??= WorldRenderer.Create(_device, _loggers);
 
-        WorldRenderer world = _world!;
+        world.Seconds = Seconds;
+        world.UploadTextures(_device, _context, assets);
+        _uploaded = assets;
+        world.UploadGeometry(_device, vertices, batches);
+        world.Overlays = [];
+
         Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        WaterDraw draw = frame with
+        {
+            Camera = matrix,
+            ReflectedCamera = reflected.ToMatrix(),
+            Frame = new WaterFrameTarget(_view, _depthView, _width, _height),
+        };
 
         world.DrawWaterViews(
             _context,
-            frame with { Camera = matrix, ReflectedCamera = reflected.ToMatrix() },
+            draw,
             () =>
             {
                 _context.RSSetViewports(1, in viewport);
@@ -266,11 +277,22 @@ internal sealed unsafe class OffscreenTarget : IDisposable
                 world.SetCamera(_device, _context, matrix);
             });
 
+        // The main view clears depth only (VIEW_CLEAR_DEPTH), so what it does not draw keeps the frame's colour.
         _context.ClearDepthStencilView(_depthView, (uint)ClearFlag.Depth, 1f, 0);
         world.Draw(_context);
+        world.DrawTranslucentWorld(_context);
+        world.DrawWaterIntersection(_context, draw);
 
         return world.WaterDraws;
     }
+
+    /// <summary>A pixel of the water reflection or refraction target, as stored.</summary>
+    /// <param name="refraction">The refraction target, else the reflection.</param>
+    /// <param name="x">Column.</param>
+    /// <param name="y">Row.</param>
+    /// <returns>Red, green and blue.</returns>
+    public (int Red, int Green, int Blue) WaterTargetPixel(bool refraction, int x, int y) =>
+        (_world ??= WorldRenderer.Create(_device, _loggers)).WaterTargetPixel(_context, refraction, x, y);
 
     /// <summary>The assets whose textures the renderer holds now.</summary>
     private MapAssets? _uploaded;
