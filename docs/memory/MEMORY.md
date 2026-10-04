@@ -125,3 +125,4 @@
 - [Water LOD lives in a material proxy](water-lod-lives-in-a-material-proxy.md) — WaterLOD; `$forceexpensive` defaults 1 on PC.
 - [An unanalysed Ghidra program shows no xrefs](an-unanalysed-ghidra-program-shows-no-xrefs.md) — run analysis before concluding absence (B62).
 - [A level reads its pakfile first](a-level-reads-its-pakfile-first.md) — install-only readers miss maps' own scripts/sounds (B465, B485).
+- [Download every demo found](download-every-demo-found.md) — whole packs into lcor; archive.org later.

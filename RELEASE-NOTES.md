@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.18
+# Tf2DemoSalvage 0.1.0-beta.19
 
-## Changes since 0.1.0-beta.17
+## Changes since 0.1.0-beta.18
+
+- **Map ambience on community and event maps:** a map that ships its own ambience script (71 of the installed maps,
+  koth_lazarus and pl_venice among them) now plays it. Proxied ambience follows its master as in TF2, and sound
+  levels outside the game's range fall back to normal as the game does.
+
+## Changes in 0.1.0-beta.18
 
 - **Beams, ropes and sprite trails now draw:** spotlight shafts and other beams, the ropes and cables hung in maps
   (sagging and swaying as in TF2), and projectile sprite trails as the ribbon the game draws rather than a single
@@ -207,7 +213,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   saying so (B24).
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
-- **Maps that ship their own ambience script play no ambience**, koth_lazarus among them (B465).
+- **Sounds a map ships in its own files do not play** (pl_venice has 35) (B485).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
