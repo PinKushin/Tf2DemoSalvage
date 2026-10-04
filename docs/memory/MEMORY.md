@@ -117,6 +117,7 @@
 - [A corpus selection outlives its corpus](a-corpus-selection-outlives-its-corpus.md) — B440.
 - [A declared codec is not the payload's](a-declared-codec-is-not-the-payloads.md) — vaudio_speex carried SILK; CRC32 tail decides (B441).
 - [A flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) — class scripts carried into the decode (B437).
+- [Never stop a working subagent](never-stop-a-working-subagent.md) — limits apply to the next launch; resume, don't relaunch.
 - [A check is a test or it is not in](a-check-is-a-test-or-it-is-not-in.md) — never assert in teardown.
 - [Mutation runs go to the box](mutation-runs-go-to-the-box.md) — local Stryker only for a few lines.
 - [Full corpus at most once a day](full-corpus-at-most-once-a-day.md) — recheck a failure with --filter, never a rerun.
