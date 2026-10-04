@@ -75,12 +75,15 @@ public sealed class MapFullScreenUiTests
         // control cannot be driven that way, that is an accessibility defect in the application
         // worth fixing rather than a reason to reach for the mouse — every route this suite needs
         // is one a keyboard-only user needs too.
+        // Found once and polled by property: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
+        AutomationElement viewport = _viewer.Find("Viewport");
+
         _viewer.PressKey(VirtualKeyShort.F11);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width >= screen.Width,
+            () => viewport.BoundingRectangle.Width >= screen.Width,
             TimeSpan.FromSeconds(20),
             throwOnTimeout: true,
             timeoutMessage: "The viewport never filled the screen.");

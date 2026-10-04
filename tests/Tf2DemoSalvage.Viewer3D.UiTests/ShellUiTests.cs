@@ -101,16 +101,19 @@ public sealed class ShellUiTests
         // Relative to the window's own starting width, not to pixel constants: these run at CI's
         // 754x512 as well as on a developer's screen, and a hard-coded 1000 would be wrong on one
         // of them.
-        int beforeFullScreen = _viewer.Find("Viewport").BoundingRectangle.Width;
+        // **Found once, polled by property** — `Find` walks the whole UIA tree, and one walk under a
+        // slow frame outlasts UIA's 2 s timeout (see TransportUiTests' speed readout, 395ae0f6).
+        AutomationElement viewport = _viewer.Find("Viewport");
+        int beforeFullScreen = viewport.BoundingRectangle.Width;
 
         _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width > beforeFullScreen,
+            () => viewport.BoundingRectangle.Width > beforeFullScreen,
             TimeSpan.FromSeconds(10));
 
         _viewer.PressKey(VirtualKeyShort.ESCAPE);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width == beforeFullScreen,
+            () => viewport.BoundingRectangle.Width == beforeFullScreen,
             TimeSpan.FromSeconds(10));
 
         int playTop = _viewer.Find("PlayPauseButton").BoundingRectangle.Top;
@@ -148,13 +151,13 @@ public sealed class ShellUiTests
         // that fires on the complete keystroke never sees one.
         _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width > windowedWidth,
+            () => viewport.BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
 
         TestContext.Out.WriteLine(
-            $"after F11: {_viewer.Find("Viewport").BoundingRectangle.Width}");
+            $"after F11: {viewport.BoundingRectangle.Width}");
 
-        _viewer.Find("Viewport").BoundingRectangle.Width
+        viewport.BoundingRectangle.Width
             .ShouldBeGreaterThan(windowedWidth, "the viewport did not grow on entering full screen");
 
 
@@ -163,17 +166,17 @@ public sealed class ShellUiTests
         _viewer.PressKey(VirtualKeyShort.ESCAPE);
 
         Retry.WhileFalse(
-            () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
+            () => Math.Abs(viewport.BoundingRectangle.Width - windowedWidth) < 2,
             TimeSpan.FromSeconds(10));
 
         TestContext.Out.WriteLine(
-            $"after Escape: {_viewer.Find("Viewport").BoundingRectangle.Width}");
+            $"after Escape: {viewport.BoundingRectangle.Width}");
 
         // Exactly the width it started at. An earlier version allowed two pixels of slack and
         // would have passed against a real defect: leaving full screen restored the border style
         // but not the bounds, so the client area came back 16 pixels narrower - and lost another
         // 16 on every toggle. A tolerance chosen to "avoid flake" hides exactly that.
-        _viewer.Find("Viewport").BoundingRectangle.Width
+        viewport.BoundingRectangle.Width
             .ShouldBe(windowedWidth, "Escape did not restore the original window size");
     }
 
@@ -191,15 +194,16 @@ public sealed class ShellUiTests
         // and the viewport came out that much narrower.
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-        int windowedWidth = _viewer.Find("Viewport").BoundingRectangle.Width;
+        AutomationElement viewportElement = _viewer.Find("Viewport");
+        int windowedWidth = viewportElement.BoundingRectangle.Width;
 
         _viewer.PressKey(VirtualKeyShort.F11);
         Retry.WhileFalse(
-            () => _viewer.Find("Viewport").BoundingRectangle.Width > windowedWidth,
+            () => viewportElement.BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
 
         System.Drawing.Rectangle window = _viewer.Window.BoundingRectangle;
-        System.Drawing.Rectangle viewport = _viewer.Find("Viewport").BoundingRectangle;
+        System.Drawing.Rectangle viewport = viewportElement.BoundingRectangle;
 
         ViewerApplication.Log(
             $"screen={screen.Width}x{screen.Height} window={window.Width}x{window.Height} " +
@@ -215,7 +219,7 @@ public sealed class ShellUiTests
 
         _viewer.PressKey(VirtualKeyShort.ESCAPE);
         Retry.WhileFalse(
-            () => Math.Abs(_viewer.Find("Viewport").BoundingRectangle.Width - windowedWidth) < 2,
+            () => Math.Abs(viewportElement.BoundingRectangle.Width - windowedWidth) < 2,
             TimeSpan.FromSeconds(10));
     }
 
