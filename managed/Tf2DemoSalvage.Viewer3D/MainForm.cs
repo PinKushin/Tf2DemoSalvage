@@ -7430,7 +7430,7 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>
-    /// The heading <c>build/playback-check.ps1</c> parses: seconds played, rate reports, rebuild reports, and the tick
+    /// The heading <c>PlaybackUiTests</c> parses: seconds played, rate reports, rebuild reports, and the tick
     /// the demo was showing when measuring ended.
     /// </summary>
     /// <remarks>

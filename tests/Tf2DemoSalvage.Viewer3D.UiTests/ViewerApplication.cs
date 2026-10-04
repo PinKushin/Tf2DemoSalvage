@@ -497,8 +497,11 @@ internal sealed partial class ViewerApplication : IDisposable
     {
         Find(MainForm.SearchId).AsTextBox().Text = demoName;
 
+        // Found once and its rows polled: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
+        ListBox playlist = Find(MainForm.PlaylistId).AsListBox();
+
         ListBoxItem[] rows = Retry.WhileEmpty(
-            () => Find(MainForm.PlaylistId).AsListBox().Items,
+            () => playlist.Items,
             TimeSpan.FromSeconds(10)).Result ?? [];
 
         if (rows.Length == 0)

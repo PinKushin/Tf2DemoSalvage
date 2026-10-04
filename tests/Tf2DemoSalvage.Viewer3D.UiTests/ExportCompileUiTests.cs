@@ -68,9 +68,11 @@ public sealed class ExportCompileUiTests
     [TearDown]
     public void CloseDialogAndDeleteFolder()
     {
-        // Through WhileException: one UIA call timing out (0x80131505, seen locally) must not skip
-        // the cancel and leave the dialog over every later test.
-        if (Retry.WhileException(Dialog, DialogTimeout).Result is { } dialog)
+        // **Asked once, never retried.** This went through WhileException after one UIA call timed out
+        // (0x80131505, seen locally); a retry hides that rather than removing it. `Dialog` reads only
+        // the window's and the desktop's direct children, never a whole-tree walk, so one read is
+        // the smallest exposure there is, and a timeout that still lands surfaces as itself.
+        if (Dialog() is { } dialog)
         {
             TestContext.Out.WriteLine("a file dialog was still open after the test; cancelling it\n" + DescribeWindows());
             // A box the dialog raised (CI: "File not found") disables it, so Cancel cannot be invoked
