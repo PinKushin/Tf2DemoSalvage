@@ -733,8 +733,17 @@ tone map — the reflection keeps light up to 4 instead of clipping at 1.
 the question was filed against, the branch changes nothing drawn.
 
 *Other shaders that branch on the type*, checked against what this project draws: `sky_dx9` /
-`sky_hdr_dx9` multiply an `RGBA16161616F` sky by 16 under integer (`sky_dx9.cpp:93-102`), but this
-project reads the LDR sky, so the branch is not reached — reading the `_hdr` sky is its own HDR-set
-gap. `SetClearColorToFogColor` (`viewrender.cpp:759`) scales the clear colour by the tone-map scale,
-which commutes with the reflection's store. `lightmappedreflective` and `core_dx9` are not
-implemented. The main view's `SetToneMappingScaleLinear` (`:2211`) is the auto-exposure D192 queues.
+`sky_hdr_dx9` multiply an `RGBA16161616F` sky by 16 under integer (`sky_dx9.cpp:93-102`).
+**The first write-up of this said "this project reads the LDR sky, so the branch is not reached",
+and that was wrong**: the loader already took `$hdrcompressedtexture`, and a reading of the loader
+rather than a memory of it would have said so. What it lacked was the rest of `Sky_HDR_DX9` —
+the HDR gate, `$hdrbasetexture` and its ×16, `$color`, and the tone-map scale (B461).
+`SetClearColorToFogColor` (`viewrender.cpp:759`) scales the clear colour by the tone-map scale, and
+the reflection view's clear now does. `lightmappedreflective` and `core_dx9` are not implemented.
+The main view's `SetToneMappingScaleLinear` (`:2211`) is the auto-exposure D192 queues.
+
+**The reflection's ×0.25 was first ported as an equivalent and then as Valve's path.** Drawing the
+view unscaled into a float target and storing it at a quarter is the same arithmetic, because every
+output, blend and fog is linear in the scale — but not the same rounding: the engine writes each
+blend at a quarter into 8 bits. Reviewed and replaced the same day; the scale is now
+`LINEAR_LIGHT_SCALE` in every shader's FinalOutput, as `common_ps_fxc.h:345-350` applies it.
