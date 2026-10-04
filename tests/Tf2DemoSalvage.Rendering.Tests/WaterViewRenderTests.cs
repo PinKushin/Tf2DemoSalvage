@@ -208,6 +208,40 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    public void DrawWaterWorld_ReflectionViewUnderIntegerHdr_DrawsAtAQuarterToneMapScale()
+    {
+        // Valve scales in the SHADERS, not after: PushView's SetLightmapScaleForWater (viewrender.cpp:5351, :2726-2736)
+        // sets the tone-map scale to a quarter for the reflection view, every shader's FinalOutput multiplies by it
+        // (common_ps_fxc.h:345-350) into the 8-bit target, and PopView restores it (:5399-5403). So the scale is what the
+        // view's own renderables are drawn with, and the main view's is back to one afterwards.
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int water, int floor) = Materials(assets);
+        WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: true, ReflectEntities: true, DrawWaterSurface: true, OpaqueWater: false);
+        List<(WaterViewKind Kind, float Scale)> seen = [];
+
+        using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+        target.DrawWaterWorld(
+            [.. Quad(-5f, (1f, 0f, 0f)), .. Quad(0f, (1f, 1f, 1f))],
+            [new(floor, 0, 6), new(water, 6, 6)],
+            Camera,
+            assets,
+            new WaterDraw(
+                WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null,
+                view => seen.Add((view.Kind, target.LinearLightScale))),
+            HdrType.IntegerHdr);
+
+        seen.ShouldContain((WaterViewKind.Reflection, 0.25f));
+        seen.ShouldContain((WaterViewKind.Refraction, 1f));
+        target.LinearLightScale.ShouldBe(1f, "PopView restores the main view's scale");
+    }
+
+    [Test]
     public void DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter()
     {
         // PushView's SetLightmapScaleForWater (viewrender.cpp:5351, :2726-2736): under HDR_TYPE_INTEGER the reflection

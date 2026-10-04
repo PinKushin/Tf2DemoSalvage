@@ -221,6 +221,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         }
     }
 
+    /// <summary>The world renderer's tone-map scale as it stands, one before anything has drawn.</summary>
+    internal float LinearLightScale => _world?.LinearLightScale ?? 1f;
+
     /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
     /// <param name="vertices">Triangle corners in world coordinates.</param>
     /// <param name="batches">Material runs.</param>

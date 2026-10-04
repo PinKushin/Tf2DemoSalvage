@@ -347,6 +347,9 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The HDR type the map runs under, which the <c>Water</c> shader and the reflection view branch on (B62).</summary>
     public HdrType HdrType { get; set; }
 
+    /// <summary>The tone-map scale every shader's output is multiplied by — <c>LINEAR_LIGHT_SCALE</c> (B62).</summary>
+    public float LinearLightScale { get; set; } = 1f;
+
     /// <summary>Every side of the water and its surface: a view that draws the whole world.</summary>
     public static ViewDraws AllWaterDraws => ViewDraws.RenderAboveWater | ViewDraws.RenderUnderWater | ViewDraws.RenderWater;
 
