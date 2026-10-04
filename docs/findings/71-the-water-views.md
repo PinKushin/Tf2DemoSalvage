@@ -61,6 +61,23 @@ the shader declares**; `BLURRY_REFRACT` reads `$blurrefract`. Valve's own map, i
 `WaterViewRenderTests`: the water drawn over a red and a green floor five units down reads (205,0,0) and (0,107,0);
 with the refraction view removed, (0,0,0) both times.
 
+## The fog the water views draw under — read in disassembly
+
+`IVRenderView::SetFogVolumeState` is vtable slot 30 of the object `VEngineRenderView014` registers (vtable
+`0x180394378`), a thunk to `0x1800e0cd0`. It asks `0x1800dffd0` for the volume's material with the second argument
+`!bUseHeightFog` — so **height fog takes the SURFACE material and plain volume fog the BOTTOM one** — reads
+`$fogcolor`, `$fogenable`, `$fogstart`, `$fogend`, and only when `$fogenable` is non-zero and `fog_enable_water_fog`
+(default `"1"`) is on sets the fog z to the volume's `surfaceZ`, the mode (2, linear below fog z, for height fog;
+1 otherwise), the colour, start, end and a max density of 1.0; otherwise fog is off. **An undeclared `$fogenable` is
+no fog** — the earlier port fogged every water volume regardless.
+
+`DoesBoxIntersectWaterVolume` is slot 34 (`0x18012ea20`): every leaf in the box is offered to an enumerator that
+stops on the volume's water data ID.
+
+**Translucent draws never write the fog factor.** `lightmappedgeneric_dx9_helper.cpp:907-918`: *"can't write a special
+value to dest alpha if we're actually using as-intended alpha"*. Writing it anyway weighted every blended surface in
+a refraction by its fog factor, so translucent glass under water vanished — the first version of the test caught it.
+
 ## What is interpolated, and what is still ours
 
 The list is kept in one place — `docs/RISKS.md` under B62, "2026-10-03" — rather than restated here.

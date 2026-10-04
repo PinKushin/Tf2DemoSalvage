@@ -17243,26 +17243,32 @@ the bottom material from inside (`0x1800dffd0`); the 1024² targets (`0x1800f6cd
 **Output-level:** `WaterViewRenderTests` draws ctf_2fort's own water over a red and a green floor 5 units
 down — (205,0,0) and (0,107,0) — and both (0,0,0) with no refraction view.
 
-**Interpolated, flagged:** the volume's fog in a refraction view (`render->SetFogVolumeState`, closed) is taken
-as `$fogcolor`, `$fogstart`/`$fogend` and the fog z at the water; the tangent frame is built from screen
-derivatives with T as increasing v; a target no view has drawn reads black with alpha one; the integer-HDR
-branches (×0.25 into the reflection, ×4 out) are not taken, because this renderer has no tone map.
+**The six divergences first filed here are closed (second pass, 2026-10-03)**, each with a red test first and a
+sabotage after: the sub-views draw entities and the translucent world (`DrawExecute`, `:5524-5553`); opaque and
+translucent world runs carry their sort group and every view draws only its DF_ groups; `DoesViewPlaneIntersectWater`
+runs through `DoesBoxIntersectWaterVolume` (IVRenderView slot 34, engine.dll `0x18012ea20`) and the intersection
+view draws after the main one; the under-water refraction renders into the frame and is stretched into the target
+by a full-screen pass (the engine's `CopyRenderTargetToTextureEx` stretches; a D3D11 copy cannot, so the pass is
+what the copy effectively does); `$bumptransform` comes from the material's own Sine/Equals/TextureTransform chain
+and `$normalmap` animates; the bottom material is loaded by name; the view's LOD persists for the viewer session
+(`WaterLodSession`). `SetFogVolumeState` is read (engine.dll `0x1800e0cd0`, IVRenderView slot 30): surface material
+for height fog, bottom otherwise, `$fogenable` and `fog_enable_water_fog` (default 1) gate it, max density 1 — and
+only a fully opaque draw writes the fog factor to alpha (`lightmappedgeneric_dx9_helper.cpp:907-918`).
 
-**Still ours — divergences, not decisions:**
+**Still interpolated, flagged:**
 
-1. **The water sub-views draw the opaque WORLD only.** DF_DRAW_ENTITITES (refraction always, reflection with
-   `$reflectentities`) and the translucent world are not drawn into the targets.
-2. **No strict sort-group filter in the views.** The height clip removes the same surfaces wherever a group
-   lies wholly on one side of the plane; group 1 under a refracting surface still draws in the main view and is
-   then covered by the water.
-3. **`DoesViewPlaneIntersectWater` is not computed** — it asks the closed `DoesBoxIntersectWaterVolume`. A camera
-   at the waterline takes the non-intersecting branch: no intersection view, no main-view clip.
-4. **The under-water refraction renders straight into the target** rather than into the back buffer and copied
-   (`:6203`): a D3D11 copy cannot stretch.
-5. **`$bumptransform` driven by a proxy** (2fort's TextureTransform → `$bumptransform`) is not run; the static
-   value is. **The bottom material** is found by name in the map's table only.
-6. **The view's LOD persists across maps in the engine** (`m_flCheapWaterEndDistance` is set in the ctor and by
-   `water_lod_control`); this takes a fresh client's 0/0.1 on a map without one.
+1. **The HDR type.** `Water` multiplies the reflection by 4 and the view renders it at ×0.25 only under
+   `HDR_TYPE_INTEGER`. Which type TF2 runs is decided in `shaderapidx9.dll`'s hardware config; that binary is in the
+   Ghidra project but its strings and references are not analysed (no xref reaches its `MaterialSystemHardwareConfig`
+   interface string at `0x180079788`), so the read did not land. The non-integer branch is drawn, matching this
+   renderer's lack of a tone map.
+2. `CalcWaterFogAlpha`'s one-over-range register is packed as the range fog's is (FogConstants, B139); shaderapi's
+   `SetPixelShaderFogParams` is the closed half.
+3. The tangent frame from screen derivatives (T as increasing v); a target no view has drawn reads black, alpha one.
+4. `DoesBoxIntersectWaterVolume` enumerates leaves through the spatial query; `BspLeafTree.LeavesTouchingBox` is
+   taken as the same walk.
+5. A water view's translucent models sort by its own axis without the main view's leaf interleave, and draw the
+   whole translucent world rather than its own leaves'.
 
 ## B229 — 19,274 triangles draw as the missing-material chequer, because skin family zero was privileged — CLOSED 2026-08-29
 
