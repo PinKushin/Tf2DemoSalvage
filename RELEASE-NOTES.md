@@ -1,6 +1,11 @@
-# Tf2DemoSalvage 0.1.0-beta.16
+# Tf2DemoSalvage 0.1.0-beta.17
 
-## Changes since 0.1.0-beta.15
+## Changes since 0.1.0-beta.16
+
+- **No more footsteps while paused:** a paused demo, or moving the camera while paused, kept replaying the players'
+  last footsteps every frame. Each footstep now plays once, when the animation reaches it, as in TF2.
+
+## Changes in 0.1.0-beta.16
 
 - **Map ambience, as TF2 plays it:** ambient loops play at their own pitch (Halloween maps are pitched down), sounds
   placed in the map fade with distance, each placed sound plays at the spot the map gives it, and a sound shared by
