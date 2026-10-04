@@ -16,4 +16,4 @@ time frozen, frames continue = same footsteps every frame. Unit suite green; fou
 - Paused is a test condition, like 8x speed ([[play-fast-to-find-lifecycle-bugs]]): count a log line across paused
   frame-rate reports; it must not grow.
 - Before filing "engine walks every frame", read the caller's guard: `C_BaseAnimating::Simulate` walks only when
-  `gpGlobals->frametime != 0` — a suspected B474 died on that line.
+  `gpGlobals->frametime != 0` — a suspected second divergence died on that line (recorded in B473).
