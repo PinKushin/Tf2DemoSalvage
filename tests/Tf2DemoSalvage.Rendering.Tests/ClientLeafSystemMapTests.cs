@@ -181,6 +181,51 @@ public sealed class ClientLeafSystemMapTests
         filed.ShouldBeEmpty();
     }
 
+    /// <summary>
+    /// The engine's world walk never reaches a solid leaf: engine.dll <c>0x1800e0600</c> returns at entry when the
+    /// node's contents are 1 (<c>0x1800e060f</c>) and stops before a far child that is (<c>0x1800e079c</c>), so
+    /// <c>R_DrawLeaf</c> (<c>0x1800df9d0</c>) — which appends the leaf to the world list — is never called for one.
+    /// </summary>
+    [Test]
+    public void Batches_ForCpProcessFromInside_ListsNoSolidLeaf()
+    {
+        (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
+        (_, (float X, float Y, float Z) eye) = WorldCullingMapTests.SomewhereInside(tree);
+        WorldCulling culling = level.Culling(world.FaceSpans).ShouldNotBeNull();
+
+        culling.Batches(eye.X, eye.Y, eye.Z, default);
+
+        culling.MainLeaves.ShouldNotBeEmpty("the control: the walk lists something");
+        culling.MainLeaves.ShouldNotContain(leaf => tree.Contents(leaf) == BspLeafTree.ContentsSolid);
+    }
+
+    /// <summary>
+    /// **An eye in solid sees every leaf** — engine.dll's mark-leaves (<c>0x1801c8cb0</c>) flags any view cluster of −1
+    /// (<c>0x1801c8dc1</c>) and then marks EVERY leaf and node visible (<c>0x1801c9113</c>-<c>0x1801c918a</c>), as
+    /// <c>r_novis</c> does. The walk then lists every non-solid leaf in the frustum.
+    /// </summary>
+    [Test]
+    public void Batches_ForAnEyeInSolid_ListsEveryNonSolidLeaf()
+    {
+        (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
+        WorldCulling culling = level.Culling(world.FaceSpans).ShouldNotBeNull();
+
+        // Leaf 0 is the solid leaf every BSP has; its box's middle is inside it.
+        (float X, float Y, float Z) inSolid = Enumerable.Range(0, tree.LeafCount)
+            .Where(leaf => tree.Contents(leaf) == BspLeafTree.ContentsSolid && tree.Bounds(leaf) is not null)
+            .Select(leaf => tree.Bounds(leaf)!.Value)
+            .Select(box => ((box.Min.X + box.Max.X) * 0.5f, (box.Min.Y + box.Max.Y) * 0.5f, (box.Min.Z + box.Max.Z) * 0.5f))
+            .First(at => tree.Cluster(tree.LeafAt(at.Item1, at.Item2, at.Item3)) < 0);
+
+        culling.Batches(inSolid.X, inSolid.Y, inSolid.Z, default);
+
+        int open = Enumerable.Range(0, tree.LeafCount).Count(leaf => tree.Contents(leaf) != BspLeafTree.ContentsSolid);
+
+        culling.LeafCount.ShouldBe(open);
+    }
+
     /// <summary>A box over the whole map is filed in no solid leaf (<c>CMP dword ptr [RCX],0x1</c>, <c>0x1800dd6a7</c>).</summary>
     [Test]
     public void EnumerateLeavesInBox_ForTheWholeMap_FilesNoSolidLeaf()
