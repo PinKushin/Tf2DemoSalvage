@@ -98,6 +98,18 @@ public sealed class VisibleFogVolumeConformanceTests
     }
 
     [Test]
+    public void BoxIntersectsVolume_ABoxReachingTheWaterLeaf_IsTrueOnlyForItsId()
+    {
+        // DoesBoxIntersectWaterVolume, IVRenderView slot 34 (0x18012ea20): every leaf the box reaches is offered to
+        // 0x18012e9f0, which answers "found" when the leaf's water data ID is the one asked for.
+        BspLeafTree tree = Tree(dryContents: 0);
+
+        VisibleFogVolume.BoxIntersectsVolume(tree, (-20f, -5f, 0f), (-10f, 5f, 10f), 0).ShouldBeTrue();
+        VisibleFogVolume.BoxIntersectsVolume(tree, (10f, -5f, 0f), (20f, 5f, 10f), 0).ShouldBeFalse();
+        VisibleFogVolume.BoxIntersectsVolume(tree, (-20f, -5f, 0f), (-10f, 5f, 10f), 1).ShouldBeFalse();
+    }
+
+    [Test]
     public void Find_SlimeLeaf_IsSkipped()
     {
         // 0x1800e0fcd — CONTENTS_SLIME (0x10) is passed over.

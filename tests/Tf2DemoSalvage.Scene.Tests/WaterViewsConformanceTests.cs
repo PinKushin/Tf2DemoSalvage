@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Text;
 using Tf2DemoSalvage.Content.Assets;
@@ -345,12 +346,151 @@ public sealed class WaterViewsConformanceTests
 
     // ---- the view's LOD distances: C_WaterLODControl.cpp:49, WaterLODControl.cpp:66, viewrender.cpp:937 ----
 
-    [TestCase("", 0f, 0.1f)]
     [TestCase("{ \"classname\" \"water_lod_control\" }", 1000f, 2000f)]
     [TestCase("{ \"classname\" \"water_lod_control\" \"cheapwaterstartdistance\" \"300\" \"cheapwaterenddistance\" \"900\" }", 300f, 900f)]
-    public void WaterLod_FromTheMapsEntities_IsTheViews(string entities, float start, float end) =>
+    public void WaterLod_FromTheMapsEntities_IsTheEntitys(string entities, float start, float end) =>
         Content.Bsp.BspEntities.WaterLod(Content.Bsp.BspEntities.Parse(Encoding.ASCII.GetBytes(entities)))
             .ShouldBe((start, end));
+
+    [Test]
+    public void WaterLod_WithNoEntity_IsNothing() =>
+        Content.Bsp.BspEntities.WaterLod(Content.Bsp.BspEntities.Parse(Encoding.ASCII.GetBytes(string.Empty)))
+            .ShouldBeNull();
+
+    [Test]
+    public void WaterLodSession_AMapWithoutTheEntity_KeepsThePreviousMaps()
+    {
+        // m_flCheapWaterEndDistance is set by the constructor (viewrender.cpp:937-938) and by
+        // SetCheapWaterEndDistance alone (:2962) — from C_WaterLODControl or r_cheapwaterend. Nothing resets it at a
+        // level change (LevelShutdown, :950, does not), so the view keeps the last map's values for the session.
+        WaterLodSession session = new();
+
+        session.Current.ShouldBe((0f, 0.1f));
+        session.EnterMap((300f, 900f));
+        session.Current.ShouldBe((300f, 900f));
+        session.EnterMap(null);
+        session.Current.ShouldBe((300f, 900f));
+    }
+
+    // ---- SetFogVolumeState: engine.dll 0x1800e0cd0, through IVRenderView slot 30 (0x18012e9d0) ----
+
+    private static MapWater Fogged(string fog) => MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes(
+        "\"Water\"\n{\n" + fog + "\n\"$fogcolor\" \"{51 43 13}\"\n\"$fogstart\" -100\n\"$fogend\" 400\n}")), null);
+
+    [Test]
+    public void VolumeFog_HeightFog_IsLinearBelowTheSurfaceWithTheMaterialsFog()
+    {
+        // FogMode 2 (LINEAR_BELOW_FOG_Z) for height fog, SetFogZ the volume's surfaceZ, FogColor3fv $fogcolor,
+        // FogStart $fogstart, FogEnd $fogend, FogMaxDensity 1.0 (0x18035c93c).
+        VolumeFog fog = WaterViews.VolumeFogFor(Fogged("\"$fogenable\" 1"), surfaceZ: 64f, useHeightFog: true).ShouldNotBeNull();
+
+        fog.ShouldBe(new VolumeFog(true, 64f, (51f / 255f, 43f / 255f, 13f / 255f), -100f, 400f, 1f));
+    }
+
+    [Test]
+    public void VolumeFog_FromTheEye_IsPlainLinear() =>
+        WaterViews.VolumeFogFor(Fogged("\"$fogenable\" 1"), 64f, useHeightFog: false)!.Value.HeightFog.ShouldBeFalse();
+
+    [Test]
+    public void VolumeFog_WithoutFogEnable_IsNone()
+    {
+        // 0x1800e0d98: `$fogenable` is read as an int and zero turns fog off — undeclared reads zero.
+        WaterViews.VolumeFogFor(Fogged(string.Empty), 64f, true).ShouldBeNull();
+    }
+
+    [Test]
+    public void VolumeFog_WithWaterFogDisabled_IsNone() =>
+        // 0x1800e0da2: fog_enable_water_fog, default "1" (0x18035e7a4).
+        WaterViews.VolumeFogFor(Fogged("\"$fogenable\" 1"), 64f, true, fogEnableWaterFog: false).ShouldBeNull();
+
+    // ---- DoesViewPlaneIntersectWater, viewrender.cpp:2741 ----
+
+    private static readonly (float X, float Y, float Z)[] NearPlaneAcross =
+        [(-10f, -10f, 60f), (-10f, 10f, 60f), (10f, -10f, 70f), (10f, 10f, 70f)];
+
+    [Test]
+    public void ViewPlaneIntersectsWater_NoWaterData_IsFalse() =>
+        WaterViews.ViewPlaneIntersectsWater(NearPlaneAcross, 64f, -1, (_, _) => true).ShouldBeFalse();
+
+    [Test]
+    public void ViewPlaneIntersectsWater_PlaneWhollyAboveThePlusFudge_IsFalse()
+    {
+        // :2776-2788 — `worldPos.z - fudge < waterZ` with fudge 7: 71.1 is above, 70.9 is not.
+        (float X, float Y, float Z)[] above = [.. NearPlaneAcross.Select(corner => (corner.X, corner.Y, 71.1f))];
+        (float X, float Y, float Z)[] within = [.. NearPlaneAcross.Select(corner => (corner.X, corner.Y, 70.9f))];
+
+        WaterViews.ViewPlaneIntersectsWater(above, 64f, 0, (_, _) => true).ShouldBeFalse();
+        WaterViews.ViewPlaneIntersectsWater(within, 64f, 0, (_, _) => true).ShouldBeTrue();
+    }
+
+    [Test]
+    public void ViewPlaneIntersectsWater_Straddling_AsksTheVolumeWithTheBoundsGrownBySeven()
+    {
+        // :2790-2796.
+        ((float, float, float) Min, (float, float, float) Max) asked = default;
+
+        WaterViews.ViewPlaneIntersectsWater(NearPlaneAcross, 64f, 0, (min, max) =>
+        {
+            asked = (min, max);
+            return false;
+        }).ShouldBeFalse();
+
+        asked.ShouldBe(((-17f, -17f, 53f), (17f, 17f, 77f)));
+    }
+
+    [Test]
+    public void NearPlane_AFreeCamera_IsItsCornersAtTheNearDistance()
+    {
+        // The four (±1, ±1, 0) corners the engine unprojects (:2762-2765), taken from the camera that made the matrix.
+        FreeCamera camera = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f), FieldOfView = 90f, NearZ = 7f, Aspect = 1f };
+
+        WaterViews.NearPlane(camera).Select(corner => (MathF.Round(corner.X, 3), MathF.Round(corner.Y, 3), MathF.Round(corner.Z, 3)))
+            .OrderBy(corner => corner.Item2).ThenBy(corner => corner.Item3)
+            .ShouldBe([(7f, -7f, -7f), (7f, -7f, 7f), (7f, 7f, -7f), (7f, 7f, 7f)]);
+    }
+
+    // ---- the $bumptransform proxy chain and the animated normal map (ctf_2fort's water/water_2fort.vmt) ----
+
+    private const string TwoFortProxies =
+        "\"$normalmap\" \"water/tfwater001_normal\"\n\"$bumpframe\" 0\n\"$temp\" \"[0 0]\"\n\"$curr\" 0.0\n\"$curr2\" 0.0\n" +
+        "\"Proxies\"\n{\n" +
+        "\"AnimatedTexture\"\n{\n\"animatedtexturevar\" \"$normalmap\"\n\"animatedtextureframenumvar\" \"$bumpframe\"\n\"animatedtextureframerate\" 30.00\n}\n" +
+        "\"Sine\"\n{\n\"sineperiod\" \"24\"\n\"sinemin\" -0.5\n\"sinemax\" 0.5\n\"resultVar\" \"$curr\"\n}\n" +
+        "\"Sine\"\n{\n\"sineperiod\" \"16\"\n\"sinemin\" 0.5\n\"sinemax\" -0.5\n\"resultVar\" \"$curr2\"\n}\n" +
+        "\"Equals\"\n{\n\"srcVar1\" \"$curr2\"\n\"resultVar\" \"$temp[0]\"\n}\n" +
+        "\"Equals\"\n{\n\"srcVar1\" \"$curr\"\n\"resultVar\" \"$temp[1]\"\n}\n" +
+        "\"TextureTransform\"\n{\n\"translateVar\" \"$temp\"\n\"resultVar\" \"$bumptransform\"\n}\n" +
+        "\"WaterLOD\"\n{\n\"dummy\" 0\n}\n}";
+
+    [Test]
+    public void BumpTransformAt_TheTwoFortChain_TranslatesBySineOutputs()
+    {
+        // CTextureTransformProxy::OnBind (matrixproxy.cpp:75): with only translateVar, T(translate) · T(c) · T(−c).
+        MapWater water = MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes("\"Water\"\n{\n" + TwoFortProxies + "\n}")), null);
+        const double seconds = 5.0;
+
+        TextureTransform transform = water.BumpTransformAt(seconds);
+
+        transform.Row0.W.ShouldBe(MaterialProxies.Sine(seconds, 16f, 0.5f, -0.5f), 1e-5f);
+        transform.Row1.W.ShouldBe(MaterialProxies.Sine(seconds, 24f, -0.5f, 0.5f), 1e-5f);
+        transform.Row0.X.ShouldBe(1f, 1e-6f);
+        transform.Row1.Y.ShouldBe(1f, 1e-6f);
+    }
+
+    [Test]
+    public void BumpTransformAt_NoProxy_IsTheDeclaredTransform() =>
+        MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes("\"Water\"\n{\n\"$bumptransform\" \"center .5 .5 scale 2 2 rotate 0 translate 0 0\"\n}")), null)
+            .BumpTransformAt(3.0).Row0.X.ShouldBe(2f, 1e-6f);
+
+    [Test]
+    public void NormalFrameAt_AnAnimatedNormalMap_AdvancesAtItsRate()
+    {
+        // AnimatedTexture on $normalmap at 30 frames a second; Water binds NORMALMAP with BUMPFRAME (water.cpp:296).
+        MapWater water = MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes("\"Water\"\n{\n" + TwoFortProxies + "\n}")), null);
+
+        water.NormalFrameAt(0.5, frames: 24).ShouldBe(MaterialProxies.AnimationFrame(0.5, 30f, 24));
+        water.NormalFrameAt(0.5, frames: 1).ShouldBe(0);
+    }
 
     // ---- m_pFogVolumeMaterial: engine.dll 0x1800e01bc → 0x1800dffd0 ----
 

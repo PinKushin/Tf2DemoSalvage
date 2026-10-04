@@ -85,6 +85,116 @@ public sealed class WaterViewRenderTests
         control.Red.ShouldBe(control.Green, "with no refraction view the floor still reached the water pixel");
     }
 
+    [Test]
+    public void DrawWaterWorld_TheRefractionView_DrawsTheEntitiesAndTheReflectionDoesNot()
+    {
+        // DF_DRAW_ENTITITES: the refraction view always (viewrender.cpp:6041), the reflection only with
+        // $reflectentities (:5985) — and DrawExecute then draws the opaque and translucent renderables (:5524-5538).
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int water, int floor) = Materials(assets);
+        WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: true, ReflectEntities: false, DrawWaterSurface: true, OpaqueWater: false);
+        List<WaterViewKind> drew = [];
+
+        using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+        target.DrawWaterWorld(
+            [.. Quad(-5f, (1f, 0f, 0f)), .. Quad(0f, (1f, 1f, 1f))],
+            [new(floor, 0, 6), new(water, 6, 6)],
+            Camera,
+            assets,
+            new WaterDraw(
+                WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null,
+                view => drew.Add(view.Kind)));
+
+        // The main view's entities are the frame's own model pass, not the water views'.
+        drew.ShouldBe([WaterViewKind.Refraction]);
+    }
+
+    [Test]
+    public void DrawWaterWorld_UnderWater_TheRefractionIsDrawnIntoTheFrameAndCopiedOut()
+    {
+        // CUnderWaterView::CRefractionView (viewrender.cpp:6203-6248): "Refraction renders into the back buffer, over
+        // the top of the 3D skybox. It is then blitted out into the refraction target." The main under-water view
+        // clears depth only (:6134), so what it does not cover is still the refraction view's picture.
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int water, int floor) = Materials(assets);
+        WaterRenderInfo info = new(CheapWater: false, Refract: true, Reflect: false, ReflectEntities: false, DrawWaterSurface: true, OpaqueWater: false);
+        FreeCamera under = new() { Origin = (0f, 0f, -20f), Angles = (-89f, 0f, 0f), Aspect = 1f };
+
+        using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWaterWorld(
+            Quad(50f, (1f, 0f, 0f)),
+            [new(floor, 0, 6)],
+            under,
+            assets,
+            new WaterDraw(
+                WaterViews.Plan(info, new WaterFrame(true, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null));
+
+        (int red, int green, _) = target.PixelAt(32, 32);
+        (int targetRed, int targetGreen, _) = target.WaterTargetPixel(refraction: true, 512, 512);
+
+        TestContext.Out.WriteLine($"FRAME {red},{green}  REFRACTION TARGET {targetRed},{targetGreen}");
+
+        (red - green).ShouldBeGreaterThan(20, "the frame does not hold the refraction view's picture");
+        (targetRed - targetGreen).ShouldBeGreaterThan(20, "the refraction target was not filled from the frame");
+    }
+
+    [Test]
+    public void DrawWaterWorld_ATranslucentFloorUnderWater_ShowsThroughTheSurface()
+    {
+        // DrawExecute draws the translucent world in every water view (viewrender.cpp:5537 with entities, :5553 without).
+        if (!Direct3DApi.IsAvailable || Assets is not { } assets)
+        {
+            Assert.Ignore("needs Direct3D and TF2's ctf_2fort");
+            return;
+        }
+
+        (int water, _) = Materials(assets);
+        int glass = Enumerable.Range(0, assets.Textures.Count)
+            .First(index => assets.Textures[index] is { IsTranslucent: true } && assets.Waters[index] is null);
+
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            assets.Waters[water]!.View, 0f, assets.WaterLod.End, WaterConVars.Defaults);
+        IReadOnlyList<WaterView> views = WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth);
+
+        (int, int, int) Draw((float, float, float) colour)
+        {
+            using OffscreenTarget target = OffscreenTarget.TryCreate(64, 64)!;
+
+            target.Clear(0f, 0f, 0f);
+            target.DrawWaterWorld(
+                [.. Quad(-5f, colour), .. Quad(0f, (1f, 1f, 1f))],
+                [new(glass, 0, 6), new(water, 6, 6)],
+                Camera, assets, new WaterDraw(views, water, 0f, [], [], null, null));
+
+            return target.PixelAt(32, 32);
+        }
+
+        (int R, int G, int B) red = Draw((1f, 0f, 0f));
+        (int R, int G, int B) green = Draw((0f, 1f, 0f));
+
+        TestContext.Out.WriteLine($"GLASS UNDER WATER RED {red} GREEN {green}");
+
+        red.ShouldNotBe(green, "a translucent surface under the water never reached the refraction");
+    }
+
+    private static (int Water, int Floor) Materials(MapAssets assets) =>
+        (Enumerable.Range(0, assets.Waters.Count).First(index => assets.Waters[index] is { View.RefractTexture: true, AboveWater: true }),
+         Enumerable.Range(0, assets.Textures.Count)
+             .First(index => assets.Textures[index] is { IsTranslucent: false, IsTransparent: false } && assets.Waters[index] is null));
+
     /// <summary>The water pixel over a red floor and over a green one, on a fresh target so no view leaks between plans.</summary>
     private static ((int, int, int) Red, (int, int, int) Green) Pair(
         MapAssets assets, int floor, int water, IReadOnlyList<WaterView> plan)

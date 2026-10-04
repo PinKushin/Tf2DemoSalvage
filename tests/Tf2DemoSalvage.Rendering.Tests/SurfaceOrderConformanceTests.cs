@@ -123,6 +123,20 @@ public sealed class SurfaceOrderConformanceTests
         From(-1000f, Culling(leaf0Faces: [6, 8, 5], leaf0Water: true)).ShouldBe([5, 6, 9]);
 
     [Test]
+    public void Batches_AWaterLeafsFaces_CarryTheirSortGroup()
+    {
+        // The opaque world draws group by group (0x1800e5e10), and a water view draws only the groups its DF_ flags
+        // name (viewrender.cpp:696) — so an opaque run must not merge across groups and must say which it is in.
+        // Leaf 0 is wet: its faces 6 and 8 are group 1 (strictly under water); leaf 1's 5, 7 and 9 are group 0.
+        WorldCulling culling = Culling(leaf0Water: true);
+
+        IReadOnlyList<WorldBatch> batches = culling.Batches(1000f, 0f, 0f, default).ShouldNotBeNull();
+
+        batches.Single(batch => batch.MaterialIndex == 8).SortGroup.ShouldBe(1);
+        batches.Single(batch => batch.MaterialIndex == 7).SortGroup.ShouldBe(0);
+    }
+
+    [Test]
     public void Surfaces_ANoCullLeafFace_IsDrawnFacingAway() =>
         From(1000f, twoSided: material => material == 9).ShouldBe([7, 9, 5, 8]);
 
