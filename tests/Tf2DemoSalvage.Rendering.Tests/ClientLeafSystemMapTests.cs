@@ -93,11 +93,13 @@ public sealed class ClientLeafSystemMapTests
     }
 
     /// <summary>
-    /// <c>EnumerateLeavesInBox_R</c> (<c>utils/common/bsplib.cpp:3486-3494</c>, <c>TEST_EPSILON</c> 1/32 at <c>:3403</c>)
-    /// files a box whose face lies ON a plane in the leaves on both sides of it; the old walk filed it behind only.
+    /// engine.dll's <c>CEngineBSPTree::EnumerateLeavesInBox</c> (vtable slot 2 at <c>0x18038e778</c> →
+    /// <c>0x1800d96a0</c>, walk <c>0x1800dd690</c>): back alone when <c>far &lt;= dist</c> (<c>0x1800dd80a</c>), front
+    /// alone when <c>near &gt;= dist</c> (<c>0x1800dd82d</c>) — NO epsilon, unlike the tools copy in
+    /// <c>bsplib.cpp:3403</c>. A box ending exactly on a plane is behind it only.
     /// </summary>
     [Test]
-    public void EnumerateLeavesInBox_ForABoxEndingOnANodePlane_IncludesTheLeafJustInFront()
+    public void EnumerateLeavesInBox_ForABoxEndingOnANodePlane_ExcludesTheLeafJustInFront()
     {
         (MapLevel level, _) = WorldCullingMapTests.Built();
         BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
@@ -115,11 +117,53 @@ public sealed class ClientLeafSystemMapTests
         List<int> filed = [];
         tree.EnumerateLeavesInBox(min, max, filed);
 
-        List<int> oldWalk = [];
-        tree.LeavesTouchingBox(min, max, oldWalk);
+        // The control: a hundredth of a unit further and it is in front too, so the leaf is reachable at all.
+        List<int> past = [];
+        tree.EnumerateLeavesInBox(min, (split.Distance + 0.01f, y + 1f, z + 1f), past);
 
-        // The control: the old rule must leave it out, or this cannot tell the two apart.
-        oldWalk.ShouldNotContain(justInFront);
-        filed.ShouldContain(justInFront);
+        past.ShouldContain(justInFront);
+        filed.ShouldNotContain(justInFront);
+    }
+
+    /// <summary>
+    /// The same walk tests each node's and leaf's own box first (<c>0x1800dd6f0</c> → <c>0x180172540</c>,
+    /// <c>|c1 − c2| &gt; e1 + e2</c> rejects) and never enters a leaf whose contents are 1, solid (<c>0x1800dd6a7</c>):
+    /// a box outside the world reaches nothing, where a plane-only descent always ends in some leaf.
+    /// </summary>
+    [Test]
+    public void EnumerateLeavesInBox_ForABoxOutsideTheWorld_ReachesNoLeaf()
+    {
+        (MapLevel level, _) = WorldCullingMapTests.Built();
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
+        (float, float, float) min = (60000f, 60000f, 60000f);
+        (float, float, float) max = (60010f, 60010f, 60010f);
+
+        List<int> planesOnly = [];
+        tree.LeavesTouchingBox(min, max, planesOnly);
+
+        List<int> filed = [];
+        tree.EnumerateLeavesInBox(min, max, filed);
+
+        planesOnly.ShouldNotBeEmpty("the control: a plane-only walk files every box somewhere");
+        filed.ShouldBeEmpty();
+    }
+
+    /// <summary>A box over the whole map is filed in no solid leaf (<c>CMP dword ptr [RCX],0x1</c>, <c>0x1800dd6a7</c>).</summary>
+    [Test]
+    public void EnumerateLeavesInBox_ForTheWholeMap_FilesNoSolidLeaf()
+    {
+        (MapLevel level, _) = WorldCullingMapTests.Built();
+        BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
+        BspNode root = tree.Node(0)!.Value;
+
+        List<int> planesOnly = [];
+        tree.LeavesTouchingBox(root.Min, root.Max, planesOnly);
+
+        List<int> filed = [];
+        tree.EnumerateLeavesInBox(root.Min, root.Max, filed);
+
+        planesOnly.ShouldContain(leaf => tree.Contents(leaf) == BspLeafTree.ContentsSolid, "the control");
+        filed.ShouldNotBeEmpty();
+        filed.ShouldNotContain(leaf => tree.Contents(leaf) == BspLeafTree.ContentsSolid);
     }
 }
