@@ -247,7 +247,9 @@ public sealed class TfGameMovement
         HighMaxSpeedMove();
         PlayerMove(first);
 
-        // FinishMove (gamemovement.cpp:1197) and CPrediction::FinishMove's m_nOldButtons.
+        // FinishMove (gamemovement.cpp:1197) and CPrediction::FinishMove's m_nOldButtons. Every write the move makes to
+        // m_nOldButtons before this — Duck's IN_DUCK, the IN_JUMP set by CheckJumpButton and CheckWaterJump and cleared by
+        // FullWalkMove — is overwritten here with nothing reading it between, so none of them is ported (D180).
         _player.OldButtons = _buttons;
         _player.OldForwardMove = _forwardMove;
         _player.CurTime += frametime;
@@ -671,7 +673,8 @@ public sealed class TfGameMovement
             }
             else
             {
-                _player.Conditions = Without(_player.Conditions, CondLostFooting);
+                // RemoveCond( TF_COND_LOST_FOOTING ): bit 30 of m_nPlayerCondEx3 (conditions 96 to 127).
+                _player.Conditions = _player.Conditions with { Ex3 = _player.Conditions.Ex3 & ~(1 << (CondLostFooting - 96)) };
             }
         }
 
@@ -702,15 +705,6 @@ public sealed class TfGameMovement
         SetGroundEntity(inAir || !Hit(trace) ? null : trace);
         _player.SurfaceFriction *= inAir ? airFrictionMult : groundFrictionMult;
     }
-
-    private static PlayerConditions Without(PlayerConditions conditions, int condition) => (condition / 32) switch
-    {
-        0 => conditions with { Cond = conditions.Cond & ~(1 << condition) },
-        1 => conditions with { Ex = conditions.Ex & ~(1 << (condition - 32)) },
-        2 => conditions with { Ex2 = conditions.Ex2 & ~(1 << (condition - 64)) },
-        3 => conditions with { Ex3 = conditions.Ex3 & ~(1 << (condition - 96)) },
-        _ => conditions with { Ex4 = conditions.Ex4 & ~(1 << (condition - 128)) },
-    };
 
     /// <summary><c>TracePlayerBBoxForGround</c> (<c>gamemovement.cpp:3660</c>): the four quadrant boxes.</summary>
     private BspTrace TracePlayerBBoxForGround(Vector3 start, Vector3 end, BspTrace original)
@@ -784,8 +778,6 @@ public sealed class TfGameMovement
         uint changed = _player.OldButtons ^ _buttons;
         uint pressed = changed & _buttons;
         uint released = changed & _player.OldButtons;
-
-        _player.OldButtons = (_buttons & InDuck) != 0 ? _player.OldButtons | InDuck : _player.OldButtons & ~InDuck;
 
         if (_player.IsDead)
         {
@@ -1048,10 +1040,6 @@ public sealed class TfGameMovement
         {
             CheckJumpButton();
         }
-        else
-        {
-            _player.OldButtons &= ~InJump;
-        }
 
         CheckVelocity();
 
@@ -1107,7 +1095,6 @@ public sealed class TfGameMovement
 
             _player.Velocity = _player.Velocity with { Z = MathF.Min(z, GetAirSpeedCap()) };
             FinishGravity();
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1116,7 +1103,6 @@ public sealed class TfGameMovement
         {
             _player.Velocity = _player.Velocity with { Z = GhostUpSpeed };
             FinishGravity();
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1138,10 +1124,8 @@ public sealed class TfGameMovement
             {
                 AirDash();
                 _player.AirDucked = 0;
-                return;
             }
 
-            _player.OldButtons |= InJump;
             return;
         }
 
@@ -1161,8 +1145,6 @@ public sealed class TfGameMovement
         }
 
         FinishGravity();
-
-        _player.OldButtons |= InJump;
     }
 
     private void AirDash()
@@ -1804,6 +1786,13 @@ public sealed class TfGameMovement
         Vector3 position = _player.Origin;
         Vector3 velocity = _player.Velocity;
 
+        // tf_gamemovement.cpp:2845, :2875-2878: without m_bAllowAutoMovement there is no high road, only the low.
+        if (!_player.AllowAutoMovement)
+        {
+            TryPlayerMove(destination, saveTrace, 0f);
+            return;
+        }
+
         // The high road: up a step, across, back down.
         Vector3 endPos = _player.Origin with { Z = _player.Origin.Z + _convars.StepSize + DistEpsilon };
         trace = TracePlayerBBox(_player.Origin, endPos);
@@ -1966,6 +1955,7 @@ public sealed class TfGameMovement
             return;
         }
 
+        // Stryker disable once all : emptying the guard leaves `taunt` unassigned, and Safe Mode drops the method.
         if (_player.TauntMovement is not { } taunt)
         {
             // The taunt item's attributes are not known: the move is declined rather than guessed.
@@ -2121,6 +2111,7 @@ public sealed class TfGameMovement
     /// </summary>
     private void GrapplingHookMove()
     {
+        // Stryker disable once all : emptying the guard leaves `hook` unassigned, and Safe Mode drops the method.
         if (_player.GrapplingHook is not { } hook)
         {
             return;
@@ -2214,6 +2205,7 @@ public sealed class TfGameMovement
     /// <summary><c>CTFGameMovement::CheckWater</c> (<c>tf_gamemovement.cpp:1452</c>): feet, then eyes, then waist.</summary>
     private void CheckWater()
     {
+        // Stryker disable once all : emptying the guard leaves `contents` unassigned, and Safe Mode drops the method.
         if (PointContents is not { } contents)
         {
             return;
@@ -2270,10 +2262,6 @@ public sealed class TfGameMovement
         if ((_buttons & InJump) != 0)
         {
             CheckJumpButton();
-        }
-        else
-        {
-            _player.OldButtons &= ~InJump;
         }
 
         WaterMove();
@@ -2368,7 +2356,6 @@ public sealed class TfGameMovement
         if (trace.Fraction < 1f && trace.Normal.Z >= 0.7f)
         {
             _player.Velocity = _player.Velocity with { Z = TfWaterJumpUp };
-            _player.OldButtons |= InJump;
             _player.WaterJumpTime = 2000f;
         }
     }
@@ -2474,8 +2461,8 @@ public sealed class TfGameMovement
 
         if (trace.Fraction >= 1f)
         {
-            // m_bAllowAutoMovement is true for a TF player: press down from a step above.
-            Vector3 start = destination with { Z = destination.Z + _convars.StepSize + 1f };
+            // tf_gamemovement.cpp:1693-1700: press down from a step above, raised only with m_bAllowAutoMovement.
+            Vector3 start = _player.AllowAutoMovement ? destination with { Z = destination.Z + _convars.StepSize + 1f } : destination;
             trace = TracePlayerBBox(start, destination);
 
             if (!trace.StartSolid && !trace.AllSolid)

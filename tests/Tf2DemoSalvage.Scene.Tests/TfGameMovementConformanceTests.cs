@@ -323,7 +323,7 @@ public sealed class TfGameMovementConformanceTests
     /// as a RED one's movement meets him, or (above 24) any entity that is not a player — which he starts in and cannot
     /// leave in a tick.
     /// </summary>
-    private static PlayerTraceRay EnemyAround(PlayerTraceRay world, int entity) => (start, end, mins, maxs, mask) =>
+    internal static PlayerTraceRay EnemyAround(PlayerTraceRay world, int entity) => (start, end, mins, maxs, mask) =>
     {
         bool sees = entity > 24 || (mask & 0x1000) != 0;
 
@@ -349,7 +349,7 @@ public sealed class TfGameMovementConformanceTests
     /// <summary>A wall with no floor: everything at x ≥ 100 is solid.</summary>
     private static PlayerTraceRay Wall() => Through(HalfSpace(-1f, 0f, 0f, -100f));
 
-    private static PlayerTraceRay Through(BspLeafTree tree) => (start, end, mins, maxs, mask) =>
+    internal static PlayerTraceRay Through(BspLeafTree tree) => (start, end, mins, maxs, mask) =>
     {
         Vector3 centre = (mins + maxs) * 0.5f;
         Vector3 extents = (maxs - mins) * 0.5f;
@@ -359,7 +359,7 @@ public sealed class TfGameMovementConformanceTests
         return tree.Trace(from.X, from.Y, from.Z, to.X, to.Y, to.Z, (extents.X, extents.Y, extents.Z), 0, mask);
     };
 
-    private static BspLeafTree HalfSpace(float nx, float ny, float nz, float distance)
+    internal static BspLeafTree HalfSpace(float nx, float ny, float nz, float distance)
     {
         byte[] plane = new byte[20];
 

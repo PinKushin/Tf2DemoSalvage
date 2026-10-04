@@ -34441,3 +34441,22 @@ after its last run; `WorldRenderer.DrawTranslucentLeaf` draws them with the over
 the translucent state back. The opaque pass no longer queues translucent surfaces at all. A map that
 cannot be culled has no translucent leaf pass, so there (only) they stay queued after the opaque
 brush overlays. Red 67354d94, green in the commit after.
+
+## B459 — StepMove always tried the high road; the engine needs m_bAllowAutoMovement for it — FIXED 2026-10-03
+
+**Read, published source:** `CTFGameMovement::StepMove` (`tf_gamemovement.cpp:2829-2926`) steps up only
+`if ( player->m_Local.m_bAllowAutoMovement )` (`:2845`); without it `bLowRoad` is set at once (`:2875-2878`) and the move
+is `TryPlayerMove( &vecEndPos, &saveTrace )` along the ground alone. The D205 port went up, across and down whatever the
+flag said, so a recorder with `DT_Local.m_bAllowAutoMovement` 0 was predicted climbing steps the client would stop at.
+
+**Found by mutation**, not by playback: a local Stryker run on `TfGameMovement.cs` left StepMove's whole body
+uncovered, and reading the engine to write its test turned up the gate.
+
+**Red test:** `ProcessMovement_WalkingIntoAStepWithoutAutoMovement_TakesTheLowRoadAndStops` — at 300 into a 10-unit step
+1 unit away, the port ended on top at x 19.23, z 10.03125; the engine stops a `DIST_EPSILON` short of the face at
+x 15.96875 with no velocity. **Fix** (e2f4d85e): StepMove returns after the low road when the flag is clear.
+
+**The same flag in `WaterMove`** (`:1693-1700`) raises the press-down start; the port always raises it. Tested rather than
+assumed (b3dcbd14): the destination trace was already clear, so the raised box lands there or starts solid and
+`TryPlayerMove` lands there — equivalent in that geometry. One geometry is not a proof for all, so the gate is ported
+anyway, in Valve's shape: the start is raised only with the flag.

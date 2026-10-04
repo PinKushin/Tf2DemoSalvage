@@ -106,3 +106,13 @@ client, and `CTFGameMovement::CheckStuck`'s `func_tracktrain` rescue (`:1417`) c
 movement state are the movement object's own and never networked — `m_isPassingThroughEnemies` and
 `m_flStuckCheckTime` — so a demo cannot say what they were; the port re-derives the first from the restored origin.
 *Published source; the last is interpolated.*
+
+## The step-up is gated by a flag that reads as a ducking flag
+
+`m_bAllowAutoMovement` looks like a ducking flag — `OnUnDuck` uses it to stop an on-ground unduck (`:3306`) — and the port
+first treated it only there. **TF's `StepMove` gates the whole step-up on it too** (`tf_gamemovement.cpp:2845`): without
+it a player walking into a step stops at the face, the low road alone (B459). The wrong belief was "it is always true for
+a TF player", written as a comment in `WaterMove`; `WaterMove` does read it (`:1693`), and a test shows it changing
+nothing under a low ceiling — but one geometry is not a proof, so the gate is ported there too. The gap was found by mutation testing, not by
+playback: StepMove had no test at all, and reading the engine to write one is what surfaced the branch.
+*Published source; the WaterMove equivalence is a test against a synthetic world.*
