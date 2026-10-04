@@ -126,6 +126,25 @@ if (($tool -eq 'Agent' -or $tool -eq 'Workflow') -and -not [string]::IsNullOrWhi
           "given yourself, or stop and report what blocks you."))
 }
 
+# JOB TYPE PICKS THE MODEL, 2026-10-03. Every agent of one session went out on opus, including a hook
+# conversion and a write-up, because a bare `model: opus` on a general-purpose agent cost nothing to type.
+# The owner: "because its a judgment call, hooks cant really enforce it". So the judgment is made
+# explicit instead: implementation work names subagent_type 'implementer' (opus), bounded work names
+# 'bounded-task' (sonnet), and the read-only specialists keep their own models. A general-purpose or
+# unnamed agent is refused, so no launch happens without the choice being made.
+if ($tool -eq 'Agent') {
+    $type = "$($toolInput.subagent_type)".ToLowerInvariant()
+    $byType = @{ 'implementer' = @('opus'); 'bounded-task' = @('sonnet') }
+    $specialists = @('sabotage-verifier', 'engine-reader', 'instrument-auditor', 'explore', 'plan',
+                     'claude-code-guide', 'statusline-setup')
+    if (-not $byType.ContainsKey($type) -and $specialists -notcontains $type -and $type -notlike 'caveman:*') {
+        Deny(("Blocked: name the job type. subagent_type 'implementer' (opus) for implementation, bug hunts, " +
+              "ports and mutation campaigns; 'bounded-task' (sonnet) for write-ups, docs, mechanical or " +
+              "already-specified changes. General-purpose and unnamed agents are refused (2026-10-03)."))
+    }
+    if ($byType.ContainsKey($type)) { $allowed = $byType[$type] }
+}
+
 if ($tool -eq 'Agent') {
     $model = $toolInput.model
 
