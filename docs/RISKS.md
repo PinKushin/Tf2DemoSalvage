@@ -34735,3 +34735,89 @@ koth_harvest_event's plain face and reads back exactly the value the SDK's arith
 
 **Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
 does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.
+
+## B462 — a playlooping rule was parsed as numbers, not as ProcessPlayLooping reads it: pitch dropped, ranges lost, a missing volume played at full, positioned loops unattenuated — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:722-807`, `interval.cpp:21-59`), found by a parity audit and re-read
+branch by branch:
+
+1. **Pitch was parsed and dropped.** `AddLoopingAmbient( name, volume, pitch )` and `ep.m_nPitch` (`:1161,1171`); every
+   loop played at rate 1. Census of the 40 shipped scripts: 8 of 543 loops are not at 100 (both Halloween sets at 50
+   and 75, `Halloween.Underworld` 110, `underground_soho` 80 and 115).
+2. **Ranges fell back to defaults.** Volume, pitch, attenuation and a numeric soundlevel are
+   `RandomInterval( ReadInterval( ... ) )` (`:735,739,751,761`); `int.TryParse`/`float.TryParse` rejected `".2, .3"`
+   and gave 1.0 and 100. Two shipped loops are ranged (`Halloween.Outside`, `Halloween_sf14.Outside`, both wind).
+3. **A loop with no `volume` played at full.** `float volume = 0` (`:724`), started only `if ( volume != 0 )` (`:790`).
+   No shipped loop omits it.
+4. **A positioned loop with no attenuation had no falloff, and `soundlevel` was not read.** The default is
+   `ATTN_TO_SNDLVL(ATTN_NORM)` = 75 (`:725`); `soundlevel` is `TextToSoundLevel` or a truncated interval (`:753-763`),
+   the later of it and `attenuation` winning. A missing attenuation became level 0 — no falloff — so the **79 shipped
+   positioned loops that name a soundlevel and no attenuation played at full volume at any distance**.
+5. **A negative `position` plays as an ambient loop** (`:769-772,792`), not a suppressed one.
+
+**Fix:** `Interval` (`ReadInterval`/`RandomInterval`) and `CStdlib` (`atoi`/`atof`, moved out of `PanelLayout`) in
+`Core.Primitives`; `SoundscapeSound` keeps intervals and `SoundscapeLevel`, drawn by the mixer at each start as the
+engine draws at `StartNewSoundscape`; `SoundScript.Rate` is the one pitch-to-rate conversion (SoundPresenter's two
+copies route through it). Tests: `IntervalConformanceTests` (8), `CStdlibConformanceTests` (4),
+`SoundscapeLoopingConformanceTests` (load and draw cases), each sabotaged with the inverse edit and reddened.
+**Interpolated:** the draws — the engine's come from its global stream; ours are Valve's generator seeded by the
+placement, so a seek redraws the same values.
+
+## B463 — a loop was reused only within one soundscape index; AddLoopingSound reuses across soundscapes, scans backwards, and restarts a moved positional loop at once — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:497-528,555-576,1103-1197`). `AddLoopingSound` matches any slot of an
+earlier generation on wave and pitch, whatever soundscape owned it. The mixer's shortcut kept loops only when the
+index was the same AND the whole resolved list equal, so **a wave two soundscapes share played twice across every
+threshold between them**, one copy fading out under another fading in from silence. Also wrong, each now ported:
+
+1. **A moved positional loop is stopped and its slot restarted immediately at the volume it had** (`StopLoopingSound`,
+   `bForceSoundUpdate`, `:1130-1144`) — not crossfaded, whatever the comment above it says. The old test asserted the
+   crossfade; it now asserts the restart.
+2. **The scan runs from the end** (`:1106`) while loops are added in script order, so two loops of one wave at
+   targets that did not move are crossed over and both restart. `FastRemove` (`:519`) moves the last slot into a
+   removed one, which decides the next scan's order.
+3. **New positioned loops start at 0.05** (`:1167-1178`); ambients at 0.
+4. **A slot cancelled before it rose stays**: the removal sits inside `if ( volumeCurrent != volumeTarget )` (`:512`),
+   so a 0/0 slot is kept and can be reclaimed.
+5. **An index the client has no soundscape for starts nothing** (`:562-575`): the loops already sounding carry on.
+   The mixer faded them out.
+
+**Fix:** `SoundscapeMixer` holds `m_loopingSounds` as an ordered list of `loopingsound_t`, transcribed. Tests in
+`SoundscapeLoopingConformanceTests`; every branch sabotaged (ambient reuse, pitch match, generation guard,
+case-insensitive wave, restart, tolerance `<=`, backward scan, `FastRemove`, the 0.05 start, the `:512` guard, the
+unknown-index return) and each reddened its test.
+
+## B464 — position slots were compacted, a proxy took its own position keys, and StartDisabled was ignored — FIXED 2026-10-04
+
+**Read, published source** (`game/server/soundscape.cpp`). Census of the 239 installed maps, `soundscape-entities`
+probe: 4,781 `env_soundscape`, 6,616 proxies, 71 triggerables.
+
+1. **Slot N stays at index N.** `WriteAudioParamsTo` sets bit `i` and `localSound[i]` (`:217-229`); the client gates on
+   bit N (`c_soundscape.cpp:797`). `Targets` appended only resolved slots, so a gap shifted every later target down:
+   **109 installed soundscapes have a gap**, and on them loops played at another loop's target or were suppressed.
+2. **A proxy plays at its master's targets.** `CEnvSoundscapeProxy::Activate` copies every `m_positionNames[i]`
+   (`:52-54`); `From` read the proxy's own keys, so **1,094 proxies of a positioned master played none of its
+   positioned loops**. The master is `FindEntityByName`'s FIRST entity of that name (`:42`), which must be an
+   `env_soundscape`; it was the last one.
+3. **`StartDisabled`** (`:91`, `atoi != 0` per `saverestore_gamedll.cpp:62`) keeps a soundscape out of the contest
+   (`UpdateForPlayer`, `:247-256`). 82 installed entities set it — 78 on ctf_helltrain_event, 4 on pass_district. Only
+   the initial state is knowable; Enable/Disable are entity I/O, which no demo records. The held-disabled reset at
+   `:249-254` is not ported: the held one is measured first on freshly seeded state, so it changes nothing.
+
+**Fix:** `SoundscapePlacement.Positions` is eight nullable slots; `Enabled`. Tests in
+`SoundscapeEntityConformanceTests`, and the output-level one on shipped maps —
+`MoveTo_AShippedMapsPositionedSoundscapes_PlayEachLoopAtTheTargetItsSlotNames` (ctf_well, mvm_mannworks) reads each
+slot's target straight from the lump and checks the wave that sounds there. Its first form compared places only and
+**passed under compaction on ctf_well**, which kept the same three targets with the waves rotated; it compares
+(wave, place) now and reddens on both maps.
+
+## B465 — the map's own soundscape script is never loaded, so a map that ships one plays no ambience — OPEN 2026-10-04
+
+**Read, published source:** `C_SoundscapeSystem::LevelInitPreEntity` re-runs `Init` on every level (`c_soundscape.cpp:
+99-102`), and `Init` appends `scripts/soundscapes_<map>.txt` after the manifest unless the manifest named it
+(`:306-336`), through the filesystem — which mounts the map's pakfile. `LevelSystems.OpenGame` builds the catalog once
+per install, from the VPKs only and with no map name, so **every placement on such a map resolves to index -1**.
+Measured while writing B464's output-level test: koth_lazarus's six position-keyed soundscapes (`Lazarus.Base`,
+`.Jungle`, `.Cave`) all resolve to -1, and its pakfile carries `SCRIPTS/SOUNDSCAPES_KOTH_LAZARUS.TXT` (`pak` probe,
+one of 6,293 entries). `SoundscapeCatalog.Load` already takes the map name; the level load needs to
+pass it and a reader that tries the pakfile first. How many installed maps ship one is not yet counted.

@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio;
 
@@ -35,6 +35,12 @@ public sealed class SoundscapeCatalog
 {
     /// <summary>The manifest, from <c>SOUNDSCAPE_MANIFEST_FILE</c>.</summary>
     private const string ManifestPath = "scripts/soundscapes_manifest.txt";
+
+    /// <summary>What marks a <c>soundlevel</c> value as a name rather than a number (<c>c_soundscape.cpp:755</c>).</summary>
+    private const string SoundLevelPrefix = "SNDLVL_";
+
+    /// <summary><c>int pitch = PITCH_NORM</c> (<c>c_soundscape.cpp:727</c>).</summary>
+    private static readonly Interval NormalPitch = new(SoundScript.NormalPitch, 0f);
 
     private readonly List<Soundscape> _soundscapes;
 
@@ -165,13 +171,15 @@ public sealed class SoundscapeCatalog
         List<SoundscapeSound> looping = [];
         List<string> other = [];
 
-        // The block currently being filled, and the fields gathered for it so far.
+        // The block currently being filled, and the fields gathered for it so far — starting from
+        // `ProcessPlayLooping`'s own initial values (`c_soundscape.cpp:724-728`): volume ZERO, `PITCH_NORM`, and
+        // `ATTN_TO_SNDLVL(ATTN_NORM)`.
         string? rule = null;
         string wave = string.Empty;
-        float volume = 1f;
-        int pitch = 100;
+        Interval volume = default;
+        Interval pitch = NormalPitch;
         int? position = null;
-        float? attenuation = null;
+        SoundscapeLevel level = SoundscapeLevel.Normal;
 
         void CloseRule()
         {
@@ -183,7 +191,7 @@ public sealed class SoundscapeCatalog
             if (rule.Equals("playlooping", StringComparison.OrdinalIgnoreCase) &&
                 wave.Length > 0)
             {
-                looping.Add(new SoundscapeSound(wave, volume, pitch, position, attenuation));
+                looping.Add(new SoundscapeSound(wave, volume, pitch, position, level));
             }
             else if (!rule.Equals("playlooping", StringComparison.OrdinalIgnoreCase))
             {
@@ -192,10 +200,10 @@ public sealed class SoundscapeCatalog
 
             rule = null;
             wave = string.Empty;
-            volume = 1f;
-            pitch = 100;
+            volume = default;
+            pitch = NormalPitch;
             position = null;
-            attenuation = null;
+            level = SoundscapeLevel.Normal;
         }
 
         void CloseSoundscape()
@@ -232,7 +240,7 @@ public sealed class SoundscapeCatalog
                 case 1:
                     if (key.Equals("dsp", StringComparison.OrdinalIgnoreCase))
                     {
-                        dsp = Number(value, 0);
+                        dsp = CStdlib.Atoi(value);
                     }
 
                     break;
@@ -250,6 +258,8 @@ public sealed class SoundscapeCatalog
 
         CloseSoundscape();
 
+        // `ProcessPlayLooping`'s key loop (`c_soundscape.cpp:731-767`), branch for branch. Every variable value is an
+        // interval (B462): these were int/float parses that turned `".2, .3"` into the fallback.
         void Field(string key, string value)
         {
             if (key.Equals("wave", StringComparison.OrdinalIgnoreCase))
@@ -258,19 +268,27 @@ public sealed class SoundscapeCatalog
             }
             else if (key.Equals("volume", StringComparison.OrdinalIgnoreCase))
             {
-                volume = Decimal(value, 1f);
+                volume = Interval.Read(value);
             }
             else if (key.Equals("pitch", StringComparison.OrdinalIgnoreCase))
             {
-                pitch = Number(value, 100);
+                pitch = Interval.Read(value);
             }
             else if (key.Equals("position", StringComparison.OrdinalIgnoreCase))
             {
-                position = Number(value, 0);
+                // `pKey->GetInt()`, which is `atoi` of a string value.
+                position = CStdlib.Atoi(value);
             }
             else if (key.Equals("attenuation", StringComparison.OrdinalIgnoreCase))
             {
-                attenuation = Decimal(value, 1f);
+                level = new SoundscapeLevel(Interval.Read(value), IsAttenuation: true);
+            }
+            else if (key.Equals("soundlevel", StringComparison.OrdinalIgnoreCase))
+            {
+                // `TextToSoundLevel` for a `SNDLVL_` name (`:755-758`), else the interval truncated (`:761`).
+                level = value.StartsWith(SoundLevelPrefix, StringComparison.OrdinalIgnoreCase)
+                    ? new SoundscapeLevel(new Interval(SoundScript.SoundLevel(value), 0f), IsAttenuation: false)
+                    : new SoundscapeLevel(Interval.Read(value), IsAttenuation: false);
             }
         }
     }
@@ -300,20 +318,4 @@ public sealed class SoundscapeCatalog
         return paths;
     }
 
-    private static int Number(string? value, int fallback) =>
-        int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int read)
-            ? read
-            : fallback;
-
-    /// <summary>
-    /// A decimal as the scripts write it — <c>".6"</c> and <c>".30"</c> with no leading zero.
-    /// </summary>
-    /// <remarks>
-    /// Invariant culture, because a machine whose decimal separator is a comma would otherwise read
-    /// <c>".75"</c> as 75 and play the sound a hundred times too loud.
-    /// </remarks>
-    private static float Decimal(string? value, float fallback) =>
-        float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out float read)
-            ? read
-            : fallback;
 }

@@ -92,7 +92,8 @@ public sealed class SoundscapePlacementsTests
                 "{\n\"classname\" \"info_target\"\n\"targetname\" \"A\"\n\"origin\" \"1 2 3\"\n}\n"),
             Catalog).Placements.ShouldHaveSingleItem();
 
-        placed.Positions.ShouldBe([(1f, 2f, 3f), (4f, 5f, 6f)]);
+        // Each slot at its own index; unset, empty and unresolved ones null (B464).
+        placed.Positions.ShouldBe([(1f, 2f, 3f), null, (4f, 5f, 6f), null, null, null, null, null]);
     }
 
     private static SoundscapePlacements Two(string firstRadius, string secondRadius) =>

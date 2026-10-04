@@ -932,3 +932,38 @@ Two faults fed it, and only one is fixed:
 the reuse check: fading one positional sound out while fading another in sends alternating commands
 naming the same sound, *"this will occasionally cause the sound to vanish entirely"*, so they stop
 the old one immediately. Pops, then a crossfade, then the crossfade interfering with itself.
+
+## The reuse rule above was right, and the implementation narrowed it — plus seven more (B462–B464)
+
+*Read, published source; census measured on the install, 2026-10-04.* A parity audit re-read `ProcessPlayLooping`,
+`AddLoopingSound` and the server's `soundscape.cpp` branch by branch. The section above had the reuse rule correct;
+**the code built from it did not**: it kept loops only when the soundscape INDEX was unchanged and the whole resolved
+list equal. The engine's match has no index in it — any earlier loop of the same wave and pitch is reclaimed, from
+whatever soundscape — so a wave two soundscapes share played twice across every threshold between them.
+
+**Valve's own comment misdescribes the code below it.** *"Will always restart/crossfade positional sounds"* reads as a
+crossfade, and this project's test asserted one. The code stops the old sound and restarts its slot at once, at the
+volume the slot had (`:1130-1144`). And the scan runs from the END of a list the new loops are appended to in script
+order, so two loops of one wave at targets that did not move pair up crossed over and BOTH restart. The comment's
+"always" is that ordering, not a rule anyone wrote down.
+
+**The parser read numbers where the engine reads intervals.** `volume`, `pitch`, `attenuation` and a numeric
+`soundlevel` are `RandomInterval( ReadInterval( ... ) )` — `strtok` on commas and `atof` — so a TryParse fell back to
+1.0 and 100 on `".2, .3"`. Pitch was parsed and never reached the sink. The defaults were a reader's guess rather
+than the engine's: volume 0, not 1 (a loop without one never starts), and soundlevel 75, not "none" — which mattered,
+because the `soundlevel` key was not read either, and **79 of the 130 shipped positioned loops name a soundlevel and
+no attenuation**, so every one played at full volume at any distance.
+
+**The server side lost a slot's identity.** `localSound[i]` is slot i whether or not slot i−1 is set; this list
+appended only the resolved targets, so a gap shifted every later target down — 109 installed soundscapes have one.
+A proxy copies its master's position NAMES (`:52-54`), and this read the proxy's own, which none of the 1,094 proxies
+of a positioned master carries.
+
+**An instrument that agreed with the bug.** The output-level test for the gap first compared the set of places loops
+sounded at with the set the lump names. On ctf_well it passed with the compaction put back: `Well.DeepInside` sets
+positions 1, 2 and 4, and compacted it still sounds at exactly those three places — with machine_hum where
+computer_tape belongs and computer_tape where computer_working does. Comparing (wave, place) pairs reddens it.
+
+**Not yet fixed, found on the way (B465):** the map's own `scripts/soundscapes_<map>.txt` is never loaded — the
+engine re-reads the catalog per level, with the map's pakfile mounted — so koth_lazarus's soundscapes are all
+index −1 here.

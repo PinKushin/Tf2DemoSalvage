@@ -1,5 +1,6 @@
 using System;
-using System.Globalization;
+
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Scene.Hud;
 
@@ -274,23 +275,7 @@ public static class PanelLayout
     }
 
     /// <summary>C's `atoi`: leading space, a sign, then digits; anything else stops it.</summary>
-    internal static int Atoi(ReadOnlySpan<char> text)
-    {
-        text = text.TrimStart();
-        int length = 0;
-
-        if (length < text.Length && text[length] is '-' or '+')
-        {
-            length++;
-        }
-
-        while (length < text.Length && char.IsAsciiDigit(text[length]))
-        {
-            length++;
-        }
-
-        return int.TryParse(text[..length], NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out int value) ? value : 0;
-    }
+    internal static int Atoi(ReadOnlySpan<char> text) => CStdlib.Atoi(text);
 
     /// <summary>`sscanf( text, "%f %f ..." )`: reads up to <c>values.Length</c> floats, stopping at a token with no number at its start.</summary>
     /// <param name="text">The text.</param>
@@ -353,22 +338,5 @@ public static class PanelLayout
     }
 
     /// <summary>C's `atof`: the longest prefix that reads as a decimal number, else zero.</summary>
-    internal static float Atof(ReadOnlySpan<char> text)
-    {
-        text = text.TrimStart();
-
-        for (int length = text.Length; length > 0; length--)
-        {
-            if (float.TryParse(
-                    text[..length],
-                    NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint | NumberStyles.AllowExponent,
-                    CultureInfo.InvariantCulture,
-                    out float value))
-            {
-                return value;
-            }
-        }
-
-        return 0f;
-    }
+    internal static float Atof(ReadOnlySpan<char> text) => CStdlib.Atof(text);
 }

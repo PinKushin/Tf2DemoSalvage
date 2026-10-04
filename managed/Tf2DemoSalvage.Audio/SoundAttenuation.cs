@@ -38,6 +38,9 @@ public static class SoundAttenuation
     /// <summary>The ordinary sound level, <c>SNDLVL_NORM</c>.</summary>
     public const int Normal = 75;
 
+    /// <summary>The ordinary attenuation, <c>ATTN_NORM</c> (<c>soundflags.h:44</c>) — <see cref="Normal"/> through <see cref="ToSoundLevel"/>.</summary>
+    public const float NormalAttenuation = 0.8f;
+
     /// <summary>Largest attenuation the wire can carry: it sends <c>attenuation * 64</c> in 8 bits.</summary>
     public const float Maximum = 3.98f;
 

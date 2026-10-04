@@ -56,7 +56,7 @@ public sealed class SoundscapeSystemTests
         // AT the listener, so the distance is zero by construction and a falloff would be
         // meaningless. Two very different listener positions, because one cannot tell "ignores
         // distance" from "happened to be zero away".
-        SoundscapeVoice voice = new(1, "ambient/indoors.wav", 0.5f, Position: null, Attenuation: null);
+        SoundscapeVoice voice = new(1, "ambient/indoors.wav", 0.5f, 100, Position: null, SoundLevel: 75);
 
         SoundscapeSystem.GainOf(voice, (0f, 0f, 0f)).ShouldBe(0.5f);
         SoundscapeSystem.GainOf(voice, (4000f, 3000f, 500f)).ShouldBe(0.5f);
@@ -72,8 +72,9 @@ public sealed class SoundscapeSystemTests
             1,
             "ambient/generator.wav",
             1f,
+            100,
             Position: (1000f, 0f, 0f),
-            Attenuation: 1f);
+            SoundLevel: 70);
 
         float near = SoundscapeSystem.GainOf(voice, (900f, 0f, 0f));
         float far = SoundscapeSystem.GainOf(voice, (0f, 0f, 0f));

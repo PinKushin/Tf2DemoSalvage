@@ -87,6 +87,11 @@ public static class SoundScript
     /// <summary><c>PITCH_NORM</c>.</summary>
     public const int NormalPitch = 100;
 
+    /// <summary>A pitch as a playback rate: <see cref="NormalPitch"/> is 1.</summary>
+    /// <param name="pitch">The pitch percentage.</param>
+    /// <returns>The rate, or 1 for a pitch of zero or below, which no sink can play.</returns>
+    public static float Rate(int pitch) => pitch > 0 ? pitch / (float)NormalPitch : 1f;
+
     /// <summary><c>SNDLVL_NORM</c>.</summary>
     public const int NormalSoundLevel = 75;
 

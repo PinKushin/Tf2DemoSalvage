@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -26,8 +27,15 @@ public sealed class SoundscapeMixerTests
         new(
             "Gorge.Inside",
             1,
-            [.. volumes.Select((volume, at) => new SoundscapeSound($"ambient/{at}.wav", volume))],
+            [.. volumes.Select((volume, at) => Loop($"ambient/{at}.wav", volume))],
             []);
+
+    /// <summary>A soundscape whose wave no <see cref="Room"/> shares, so moving to it cannot reclaim a loop (B463).</summary>
+    private static Soundscape OtherRoom(float volume) =>
+        new("Gorge.Outside", 1, [Loop("ambient/outside.wav", volume)], []);
+
+    private static SoundscapeSound Loop(string wave, float volume, int? position = null) =>
+        new(wave, new Interval(volume, 0f), new Interval(100f, 0f), position, SoundscapeLevel.Normal);
 
     [Test]
     public void MoveTo_ANewSoundscape_FadesItInFromSilence()
@@ -61,7 +69,7 @@ public sealed class SoundscapeMixerTests
         mixer.MoveTo(Placement(0), Room(1f));
         mixer.Advance(SoundscapeMixer.FadeSeconds);
 
-        mixer.MoveTo(Placement(1, index: 41), Room(1f));
+        mixer.MoveTo(Placement(1, index: 41), OtherRoom(1f));
 
         // **Both at once**, which is what a crossfade is. Replacing the set instead would be a
         // clean switch and audibly wrong on every threshold — and cp_process has 42 of them.
@@ -80,7 +88,7 @@ public sealed class SoundscapeMixerTests
         mixer.MoveTo(Placement(0), Room(1f));
         mixer.Advance(SoundscapeMixer.FadeSeconds);
 
-        mixer.MoveTo(Placement(1, index: 41), Room(1f));
+        mixer.MoveTo(Placement(1, index: 41), OtherRoom(1f));
         mixer.Advance(SoundscapeMixer.FadeSeconds);
 
         // The old one has reached zero and is gone; only the new one remains. Keeping it would leak
@@ -107,15 +115,11 @@ public sealed class SoundscapeMixerTests
     }
 
     [Test]
-    public void MoveTo_TheSameSoundscapeFromAnEntityWithDifferentPositions_Restarts()
+    public void MoveTo_TheSameSoundscapeFromAnEntityWithDifferentPositions_RestartsTheLoopThere()
     {
         SoundscapeMixer mixer = new();
 
-        Soundscape positioned = new(
-            "Gorge.Inside",
-            1,
-            [new SoundscapeSound("ambient/machine_hum.wav", 1f, Position: 0)],
-            []);
+        Soundscape positioned = new("Gorge.Inside", 1, [Loop("ambient/machine_hum.wav", 1f, position: 0)], []);
 
         mixer.MoveTo(Placement(0), positioned);
         mixer.Advance(SoundscapeMixer.FadeSeconds);
@@ -123,13 +127,16 @@ public sealed class SoundscapeMixerTests
         // Same soundscape index, different entity, and its `position0` is somewhere else — which is
         // the reason `UpdateAudioParams` keys on `entIndex` at all. The loop has to move, and a
         // loop moving means stopping it and starting it where it now belongs.
+        //
+        // **One voice, not two.** This expected a crossfade of the old and new copies, which is what the engine's
+        // comment says and not what its code does: `StopLoopingSound` then a forced update of the same slot
+        // (`c_soundscape.cpp:1130-1144`, B463).
         SoundscapePlacement elsewhere = new(
             1, "Gorge.Inside", 42, 0f, 0f, 0f, -1f, [(900f, 0f, 0f)]);
 
         mixer.MoveTo(elsewhere, positioned);
 
-        mixer.Advance(0f).Count.ShouldBe(
-            2, "a different entity restarts the soundscape at its own positions");
+        mixer.Advance(0f).ShouldHaveSingleItem().Position.ShouldBe((900f, 0f, 0f), "restarted where it now belongs");
     }
 
     [Test]
@@ -167,8 +174,8 @@ public sealed class SoundscapeMixerTests
             "Gorge.Inside",
             1,
             [
-                new SoundscapeSound("ambient/at_listener.wav", 1f),
-                new SoundscapeSound("ambient/at_one.wav", 1f, Position: 1),
+                Loop("ambient/at_listener.wav", 1f),
+                Loop("ambient/at_one.wav", 1f, position: 1),
             ],
             []);
 
@@ -194,8 +201,8 @@ public sealed class SoundscapeMixerTests
             "Gorge.Inside",
             1,
             [
-                new SoundscapeSound("ambient/room_tone.wav", 1f),
-                new SoundscapeSound("ambient/machine_hum.wav", 0.75f, Position: 5),
+                Loop("ambient/room_tone.wav", 1f),
+                Loop("ambient/machine_hum.wav", 0.75f, position: 5),
             ],
             []);
 
@@ -235,7 +242,9 @@ public sealed class SoundscapeMixerTests
 
         mixer.MoveTo(Placement(0), Room(1f));
 
-        IReadOnlyList<SoundscapeVoice> before = mixer.Advance(0f);
+        // Risen first: a loop cancelled while still at zero is never removed, as the engine never removes it
+        // (`c_soundscape.cpp:512`, `SoundscapeLoopingConformanceTests`).
+        IReadOnlyList<SoundscapeVoice> before = mixer.Advance(SoundscapeMixer.FadeSeconds);
         int[] keys = [.. before.Select(voice => voice.Key)];
 
         mixer.MoveTo(null, null);

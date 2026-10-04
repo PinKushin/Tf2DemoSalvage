@@ -339,7 +339,7 @@ public sealed class SoundPresenter(
 
             if (sound.ChangesPitch)
             {
-                output.SetPitch(sound.EntityIndex, sound.Channel, sound.Pitch > 0 ? sound.Pitch / 100f : 1f);
+                output.SetPitch(sound.EntityIndex, sound.Channel, SoundScript.Rate(sound.Pitch));
             }
 
             return;
@@ -458,7 +458,7 @@ public sealed class SoundPresenter(
             // TF2 sends a percentage where 100 is unshifted. Measured across a real match: 100
             // dominates with a spread of 95..99 around it, which is the engine's own random
             // variation and not a decode fault.
-            sound.Pitch > 0 ? sound.Pitch / 100f : 1f,
+            SoundScript.Rate(sound.Pitch),
 
             // **The channel is what makes a stop possible and a voice line replace itself.** Passed
             // through rather than defaulted, because CHAN_AUTO is a real value with its own meaning
