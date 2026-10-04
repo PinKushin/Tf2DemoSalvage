@@ -323,6 +323,35 @@ public sealed class SkippableMessageTests
     }
 
     [Test]
+    public void BspDecal_WithA2048ModelPrecache_ReadsTwelveModelBits()
+    {
+        // B489. SP_MODEL_INDEX_BITS is MAX_MODEL_INDEX_BITS + 1, and the model precache table is
+        // created 1 << MAX_MODEL_INDEX_BITS long, so the demo states the width itself: 2048 entries
+        // in every corpus demo through 2013, 4096 in modern ones. The protocol-19 specimen's one
+        // entity decal stopped its packet at 13 bits and read clean at 12.
+        BitWriter writer = new();
+        writer.Message(NetMessageType.BspDecal).Write(0, 1).Write(0, 1).Write(0, 1);
+        writer.Write(12, 9).Write(1, 1);            // texture, on an entity
+        writer.Write(148, 11).Write(58, 12);        // entity, model at 12 bits
+        writer.Write(0, 1);                         // low priority
+        writer.NetTick(2424, 0, 0);
+
+        NetDecodeState state = new()
+        {
+            ServerInfo = new ServerInfoMessage(
+                Protocol, 0, false, false, 0, 24, [], 0, 0, 0f, 'l', string.Empty,
+                string.Empty, string.Empty, string.Empty, false),
+        };
+        state.AddStringTable("modelprecache", 2048);
+
+        System.Collections.Generic.IReadOnlyList<INetMessage> messages =
+            NetMessageReader.Read(writer.Build(), state).Messages;
+
+        messages.OfType<BspDecalMessage>().ShouldHaveSingleItem().ModelIndex.ShouldBe(58);
+        messages.OfType<NetTickMessage>().ShouldHaveSingleItem().Tick.ShouldBe(2424);
+    }
+
+    [Test]
     public void BspDecal_WithoutAnEntity_OmitsBothIndices()
     {
         // The flag that cost a day. Entity and model indices are present only when a bit says

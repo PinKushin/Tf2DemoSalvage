@@ -137,6 +137,35 @@ public sealed class CorpusSoundTests
         demos.ShouldBeGreaterThan(0, "no demo carried svc_Sounds");
     }
 
+    [Test]
+    public void Decode_Protocol18Specimen_ReadsEverySoundBodyAtElevenFlagBits()
+    {
+        // B488. The whole file, because the walk above reads 2,000 commands and the first body
+        // that 9-bit flags overrun sits later than that - it passed with the defect in place.
+        // 23,542 bodies at 11 bits; 88 of them overrun at the 9 bits soundinfo.h prescribes.
+        string path = Corpus.Demo("tf2-2011-build4735-pov-cp_badlands");
+        ushort protocol = Corpus.ProtocolOf(path);
+        int bodies = 0;
+        List<string> failures = [];
+
+        foreach (SoundsMessage message in Messages(path, int.MaxValue))
+        {
+            bodies++;
+            try
+            {
+                _ = SoundDecoder.Decode(message.Body.Span, message.Count, message.BodyBits, protocol);
+            }
+            catch (Exception error) when (error is InvalidDataException or EndOfStreamException)
+            {
+                failures.Add(error.Message);
+            }
+        }
+
+        protocol.ShouldBe((ushort)18);
+        bodies.ShouldBe(23542);
+        failures.ShouldBeEmpty();
+    }
+
     private static int PrecacheSize(string path, ushort protocol)
     {
         byte[] bytes = File.ReadAllBytes(path);
@@ -187,13 +216,13 @@ public sealed class CorpusSoundTests
         }
     }
 
-    private static IEnumerable<SoundsMessage> Messages(string path)
+    private static IEnumerable<SoundsMessage> Messages(string path, int commands = 2000)
     {
         byte[] bytes = File.ReadAllBytes(path);
         NetDecodeState state = new() { NetworkProtocol = Corpus.ProtocolOf(path) };
 
         foreach (DemoCommand command in
-            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(2000))
+            DemoCommandReader.Read(bytes.AsMemory(DemoHeader.SizeBytes)).Take(commands))
         {
             if (command.Type is not (DemoCommandType.Signon or DemoCommandType.Packet))
             {

@@ -60,7 +60,8 @@ public static class NetMessageReader
     /// <summary>Width of an entity index in svc_BspDecal: MAX_EDICT_BITS.</summary>
     internal const int EntityIndexBits = 11;
 
-    /// <summary>Width of a model index in svc_BspDecal: SP_MODEL_INDEX_BITS.</summary>
+    /// <summary>Width of a model index in svc_BspDecal: SP_MODEL_INDEX_BITS, modern builds.</summary>
+    /// <remarks>Older builds were one narrower; the demo says which (<see cref="NetDecodeState.ModelIndexBits"/>, B489).</remarks>
     internal const int ModelIndexBits = 13;
 
     /// <summary>Width of <c>svc_SetView</c>'s entity index.</summary>
@@ -405,7 +406,7 @@ public static class NetMessageReader
                         if (onEntity)
                         {
                             decalEntity = (int)reader.ReadUInt32(EntityIndexBits);
-                            decalModel = (int)reader.ReadUInt32(ModelIndexBits);
+                            decalModel = (int)reader.ReadUInt32(state.ModelIndexBits);
                         }
 
                         bool lowPriority = reader.ReadBit();

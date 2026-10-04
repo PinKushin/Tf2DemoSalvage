@@ -213,6 +213,11 @@ public sealed class CorpusMessageRoundTripTests
                 {
                     writeState.AddEventDefinitions(list.Definitions);
                 }
+                else if (message is CreateStringTableMessage table)
+                {
+                    // The model precache's capacity sizes svc_BspDecal's model index (B489).
+                    writeState.AddStringTable(table.Name, table.MaxEntries);
+                }
             }
 
             yield return new Packet(payload, messages);
@@ -229,6 +234,11 @@ public sealed class CorpusMessageRoundTripTests
         };
 
         copy.AddEventDefinitions(state.EventDefinitions.Values);
+        for (int table = 0; state.StringTableName(table) is { } name; table++)
+        {
+            copy.AddStringTable(name, state.StringTableCapacity(table));
+        }
+
         return copy;
     }
 

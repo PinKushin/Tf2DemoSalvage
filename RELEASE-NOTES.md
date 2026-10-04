@@ -182,11 +182,14 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
-- **Every protocol TF2 has shipped with that a demo could be found for: 11, 14, 15, 16 and 24.** The
-  test suite carries one demo per era and point of view, recorded on a client of that period: 2007
-  (build 3258, first-person and SourceTV), 2008 (build 3420, both), 2009 (build 3862, first-person),
-  2011 (build 4604, both), 2013 (build 1729296, both) and a 2020 match. All decode and round-trip in
-  every test run. Protocols 17 to 23 have no known surviving demo, so they are untested.
+- **Every protocol TF2 has shipped with that a demo could be found for: 11, 14, 15, 16, 18, 19, 21,
+  22 and 24.** The test suite carries one demo per era and point of view, recorded on a client of
+  that period: 2007 (build 3258, first-person and SourceTV), 2008 (build 3420, both), 2009
+  (build 3862, first-person), 2011 (build 4604, both), 2013 (build 1729296, both) and a 2020 match.
+  All decode and round-trip in every test run. Protocols 18, 19, 21 and 22 are verified on full
+  2011-2012 ESEA and i46 recordings held in the local corpus only (builds 4735, 4743, 4833, 5126);
+  committed specimens for them await short recordings on period clients. Protocols 12, 13, 17, 20
+  and 23 have no known surviving demo, so they are untested.
 - **Both points of view.** First-person (POV) recordings and SourceTV recordings decode alike; most
   eras above are tested with a POV and a SourceTV recording of the same session.
 - **A census of 459 distinct real-world demos** (2026-09-30): the entity stage failed on none. At

@@ -134,6 +134,26 @@ public sealed class NetDecodeState
             ? _stringTableCapacities[tableId]
             : 0;
 
+    /// <summary>Width of a model index in <c>svc_BspDecal</c>: <c>SP_MODEL_INDEX_BITS</c>.</summary>
+    /// <remarks>
+    /// <c>SP_MODEL_INDEX_BITS</c> is <c>MAX_MODEL_INDEX_BITS + 1</c>, and the engine creates the
+    /// <c>modelprecache</c> table <c>1 &lt;&lt; MAX_MODEL_INDEX_BITS</c> long, so the demo states
+    /// the constant it was built with: 2048 entries (12 bits) in every corpus demo through 2013,
+    /// 4096 (13) in modern ones (B489). Until the table is seen, the modern width.
+    /// </remarks>
+    public int ModelIndexBits
+    {
+        get
+        {
+            int table = _stringTableNames.IndexOf(ModelPrecacheTable);
+            return table < 0
+                ? NetMessageReader.ModelIndexBits
+                : System.Numerics.BitOperations.Log2((uint)_stringTableCapacities[table]) + 1;
+        }
+    }
+
+    private const string ModelPrecacheTable = "modelprecache";
+
     /// <summary>Records the definitions from a <c>svc_GameEventList</c>.</summary>
     /// <param name="definitions">Definitions to remember.</param>
     public void AddEventDefinitions(IEnumerable<GameEventDefinition> definitions)

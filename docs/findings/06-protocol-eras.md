@@ -40,11 +40,17 @@ closes the loop: the file, the binary, and the date all agree, and none of it de
 | **14** | 3420 | **19 March 2008** | client `version` |
 | **15** | 3862 | **4 June 2009** | client `version` |
 | **16** | 4604 | **15 June 2011** | client `version` |
+| 18 | 4735 | 1 November 2011 | server banner `Build:`; recording-clock file time — **interpolated** |
+| 19 | 4743 | 3 November 2011 | server banner; file time — **interpolated** |
+| 21 | 4833 | 3 March 2012 | server banner; file time (ESEA S10 LAN) — **interpolated** |
+| 22 | 5126 | between 4833 and 5252 | server banner; build arithmetic only, the file time is a download |
 | **24** | 5252 / 1729296 | **25 March 2013** | client `version` |
 
-Gaps, still unmeasured: **12–13**, now squeezed into the five weeks after launch, and **17–23**,
-between June 2011 and March 2013. Nine protocol numbers, and one of the two windows is much
-tighter than it was.
+Gaps in SPECIMENS: **12–13**, squeezed into the five weeks after launch, and **17, 20 and 23**. The
+2011–2012 rows are a different grade from the bold ones: a server's connect banner (`svc_Print` at
+signon, `Build: 4735`) names the build the SERVER ran, and the date is a file's modification time as
+an archive preserved it — a clock, not a `version`. Builds 4735 and 4743 are two days apart and
+already on different protocols, which is the fastest bump this table shows after launch.
 
 ## The one boundary Valve wrote down, and why a patch note is a ceiling
 
@@ -172,6 +178,8 @@ From `proto_version.h` where it says so, from measurement where it does not:
 | `SendPropType` renumbering | **inside 15**, after build 3862 | measured + hl2sdk history (B440) |
 | `svc_ServerInfo` replay flag | above 15 | measured at 16, the first value that carries it |
 | MD5 replaces 4-byte map CRC | above 17 | `proto_version.h` |
+| `svc_Sounds` flags 9 → 11 bits | **inside 18**, by build 4735 | **measured**; `soundinfo.h` says above 18 (B488) |
+| `svc_BspDecal` model index 12 → 13 bits | not a protocol: follows the `modelprecache` capacity, 2048 → 4096, after March 2013 | **measured** (B489) |
 | Sound index width | above 22 | `proto_version.h` |
 | `svc_Prefetch` index 13 → 14 bits | above 22 | `proto_version.h` |
 | Varint string table lengths | above 23 | `proto_version.h` |
@@ -199,6 +207,27 @@ the interpolation the 15-to-24 jump had forced the parser to guess at.
 **And the adjacent value was the wrong place to look.** Both of those changes turned out to sit
 inside protocol 15, not at 16 — the section below. A boundary is tested at the value where it
 changes only if the NUMBER changes where the wire does, and here it did not.
+
+## Protocol 18 was two builds as well, and Valve's reader is one protocol late (B488)
+
+Found 2026-10-04, on the first protocol-18 demo the project has held (a full recording in lcor; a short gcor specimen awaits a period client). Evidence classes inline.
+
+**What the source says** (read, `public/soundinfo.h:289-297`): `ReadDelta` reads the `svc_Sounds`
+flags as 11 bits above protocol 18, and 9 *"for version 18 and below (prior to Halloween 2011)"*.
+
+**What the file says** (measured): `tf2-2011-build4735-pov-cp_badlands.dem`, server build 4735,
+recorded 1 November 2011. At 9 bits, 88 of its 23,542 sound bodies overran their stated length, and
+bodies that fit decoded flag values of 511, 268 and 90 — no `SND_*` combination. At 11, none overran
+and every flag is a real one. The protocol-19 file two days later decodes clean at 11, as the SDK says.
+
+**The reading** (interpolated): the widening shipped with the Halloween 2011 update, inside protocol 18,
+and the protocol bump followed days later — B440's shape again, a protocol number hiding two wire
+formats. Valve's own condition misreads a post-Halloween 18 recording. This parser now reads 11 at 18;
+the cost, named in B488, is that a pre-Halloween 18 recording would be misread instead, and none is held.
+
+Also worth keeping: the corpus-wide sound test walks only the first 2,000 commands of each demo, and the
+first overrun here sits later, so that test **passed** with the defect in place. The pin is a
+whole-file test on this one specimen.
 
 ## Protocol 15 was two builds, and the change was never at 16 (B440)
 

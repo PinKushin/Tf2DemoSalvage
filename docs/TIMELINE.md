@@ -56,6 +56,10 @@ The corpus's fixed points. Everything else is positioned relative to these.
 | **19 March 2008** | **14** | TF2 build 3420. `Exe build: 20:17:35 Mar 19 2008 (3420)`, `PatchVersion=1.0.2.2`. | **Measured** |
 | **4 June 2009** | 15 | TF2 build 3862. The client's own `version` reports `Exe build: 13:52:56 Jun 4 2009 (3862)`. | **Measured** |
 | **15 June 2011** | **16** | TF2 build 4604. `Exe build: 13:46:52 Jun 15 2011 (4604) (440)`, `Exe version 1.1.5.8`. | **Measured** |
+| 1 Nov 2011 | 18 | ESEA S10 POV; server banner `Build: 4735`, preserved file time | **Inferred** |
+| 3 Nov 2011 | 19 | ESEA S10 POV; server banner `Build: 4743`, preserved file time | **Inferred** |
+| 3 Mar 2012 | 21 | ESEA S10 LAN POV + SourceTV of one match; server banner `Build: 4833`, file time | **Inferred** |
+| after 3 Mar 2012 | 22 | public POV; server banner `Build: 5126`, between builds 4833 and 5252 | **Bounded** |
 | **25 March 2013** | **24** | TF2 build 1729296. `Exe build: 17:24:29 Mar 25 2013 (5252) (215)`. | **Measured** |
 | 21–23 July 2020 | 24 | ETF2L match demos, dated by their league metadata | **Measured** |
 | 7 Aug 2026 | 24 | demos.tf and serveme downloads | **Measured** |
@@ -66,12 +70,24 @@ them were additionally dated *before* the client was ever launched, by reading t
 out of `bin/engine.dll` — see `DECISIONS.md` D30, which also explains why that costs 4 MB rather
 than a 3–5 GB download when the archive is a ZIP.
 
-**The gaps, as of 2026-08-24:**
+**The gaps, as of 2026-10-04:**
 
 | Gap | Window | Width |
 |---|---|---|
 | **12–13** | 9 Oct 2007 → 15 Nov 2007 | five weeks, both inside it |
-| **17–20, 23** | 15 Jun 2011 → 25 Mar 2013 | the 17–23 span, less 21 and 22 |
+| **17** | 15 Jun 2011 → 1 Nov 2011 | no specimen |
+| **20** | 3 Nov 2011 → ~Dec 2011 | no specimen; none in the 2011–2012 ESEA, i46 or GotFrag packs either |
+| **23** | after build 5126 → 25 Mar 2013 | no specimen |
+
+**18, 19, 21 and 22 were verified on 2026-10-04 on lcor demos** (full matches, never committed: owner ruling, full real demos stay out of gcor; gcor specimens for these protocols await short recordings on period clients), from ESEA season 10 POV and LAN packs and the i46
+SourceTV pack (in `tools/corpus/local/` under their specimen names, not in the manifest). Each POV's server connect banner names its build —
+`Build: 4735` at 18, `4743` at 19, `4833` at 21, `5126` at 22 — and the 18 and 19 files carry their
+recording clocks as preserved file times, 1 and 3 November 2011. **Inferred, by this document's rule:**
+a server build plus a file time is weaker than a client `version`, but these are tournament POVs of
+the night, so they are as contemporaneous as a recovered file gets. They place 18 → 19 inside two
+days, 1–3 November 2011. **Protocol 20 still has none:** the 471 demo headers in
+`tools/corpus/local/incoming/` read 15 (31), 18 (1), 19 (5), 21 (59), 22 (163) and 24 (212) — the
+TechDude pack itself jumps from 19 on 16 Nov 2011 to 21 on 29 Nov 2011.
 
 **21 and 22 now have specimens, and the 17–23 gap is no longer unbroken.** Four demos recovered
 from GotFrag MediaFire links still live fourteen years later (`TF2DEMOSALVAGE-LOG.md`, 2026-08-22):

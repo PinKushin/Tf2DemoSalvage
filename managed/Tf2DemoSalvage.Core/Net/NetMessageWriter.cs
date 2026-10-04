@@ -277,7 +277,7 @@ public static class NetMessageWriter
                 if (decal.OnEntity)
                 {
                     writer.Write((uint)decal.EntityIndex, NetMessageReader.EntityIndexBits)
-                        .Write((uint)decal.ModelIndex, NetMessageReader.ModelIndexBits);
+                        .Write((uint)decal.ModelIndex, state.ModelIndexBits);
                 }
 
                 writer.WriteBit(decal.IsLowPriority);

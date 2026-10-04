@@ -367,6 +367,11 @@ internal sealed class DemoCensus
             {
                 write.AddEventDefinitions(list.Definitions);
             }
+            else if (message is CreateStringTableMessage table)
+            {
+                // The model precache's capacity sizes svc_BspDecal's model index (B489).
+                write.AddStringTable(table.Name, table.MaxEntries);
+            }
         }
 
         if (result.StopReason is { } reason)

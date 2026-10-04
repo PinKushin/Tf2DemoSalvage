@@ -269,12 +269,18 @@ public sealed class SoundCodecTests
     }
 
     [Test]
-    public void FlagsBits_AtProtocol18And19_Are9And11()
+    public void FlagsBits_AtProtocol17And18_Are9And11()
     {
         // Nine to eleven, so a two-bit step. Isolated within each protocol for the reason spelled
         // out above: a cross-protocol difference cannot tell this field from any other that moves
         // at the same time.
-        Width(SoundFields.Flags, protocol: 18).ShouldBe(9);
+        //
+        // **soundinfo.h puts this boundary at 18/19, and the only protocol-18 demo says 17/18**
+        // (B488). `ReadDelta` reads 9 bits "for version 18 and below (prior to Halloween 2011)";
+        // tf2-2011-build4735-pov-cp_badlands.dem, recorded 1 Nov 2011, overruns 88 svc_Sounds
+        // bodies at 9 bits and none at 11, and only the 11-bit reading gives sane flag values.
+        Width(SoundFields.Flags, protocol: 17).ShouldBe(9);
+        Width(SoundFields.Flags, protocol: 18).ShouldBe(11);
         Width(SoundFields.Flags, protocol: 19).ShouldBe(11);
     }
 

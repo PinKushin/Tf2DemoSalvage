@@ -145,7 +145,7 @@ public enum SoundFields
 /// | Field | Above | At or below |
 /// |---|---|---|
 /// | sound index | 14 bits (proto &gt; 22) | 13 bits |
-/// | flags | 11 bits (proto &gt; 18) | 9 bits |
+/// | flags | 11 bits (proto &gt; 17, measured; the SDK says &gt; 18 - B488) | 9 bits |
 /// | special DSP | present (proto &gt; 21) | absent |
 /// </remarks>
 public static class SoundDecoder
@@ -175,9 +175,16 @@ public static class SoundDecoder
     internal const int OriginBits = 14 - 2;
     internal const float OriginScale = 8f;
 
-    /// <summary>Protocol boundaries, from <c>soundinfo.h</c>'s own comments.</summary>
+    /// <summary>Protocol boundaries, from <c>soundinfo.h</c>'s own comments, except one.</summary>
+    /// <remarks>
+    /// The flag boundary departs from <c>soundinfo.h:289</c>, which reads 9 bits at 18 and below
+    /// "prior to Halloween 2011". The only protocol-18 demo known, build 4735 recorded on
+    /// 1 November 2011, wrote 11: it overruns 88 bodies at 9 bits and none at 11 (B488). So the
+    /// widening shipped inside protocol 18, and a pre-Halloween protocol-18 recording - none is
+    /// held - would be misread here instead.
+    /// </remarks>
     private const int SoundIndexWidthProtocol = 22;
-    private const int FlagWidthProtocol = 18;
+    private const int FlagWidthProtocol = 17;
     internal const int SpecialDspProtocol = 21;
 
     /// <summary>Width of a sound index at this protocol.</summary>

@@ -61,3 +61,8 @@ in an hour. **Standing rule (owner, 2026-09-30): one subagent at a time; two onl
 *"running more than one agent at a time, eats my limit hard"*. Supersedes the parallel note above.
 **Temporary raise, 2026-10-01 until the Sunday weekly reset:** up to 3 at once — owner: *"you can use more than
 one subagent for the rest of the week... still max of like 3"* (under 20% of the week used). Back to one after.
+
+## 2026-10-04: corpus/specimen plumbing is sonnet or haiku
+Owner, on an opus agent launched to add gcor specimens for new protocols: *"adding specimens was probably a sonnet or
+haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
+if a decode actually fails and needs diagnosis — spawn that separately when it happens.

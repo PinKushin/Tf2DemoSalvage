@@ -56,8 +56,9 @@ no log file; send its console output.
 
 ## Status
 
-**Phase 1 is substantially complete.** Every demo in the corpus decodes end to end across five
-network protocols — 11, 14, 15, 16 and 24, spanning October 2007 to 2013 and the modern game —
+**Phase 1 is substantially complete.** Every demo in the corpus decodes end to end across nine
+network protocols — 11, 14, 15, 16, 18, 19, 21, 22 and 24, spanning October 2007 to 2013 and the modern game
+(18, 19, 21 and 22 on local-corpus demos; committed specimens for them await short recordings on period clients) —
 and every message body those demos contain is decoded rather than stepped over.
 
 | Layer | State |

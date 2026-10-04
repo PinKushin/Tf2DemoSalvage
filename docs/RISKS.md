@@ -35282,3 +35282,34 @@ is `int.TryParse` with a fallback to 75, never a range; and `PITCH_LOW`/`PITCH_H
 knows. The same family as B462 for soundscapes, on the emitter's side: a pitch of `"90,110x"` reads 100 where the
 engine draws 90–110, and a soundlevel of `"80, 90"` reads 75 where the engine draws 80–90. Not counted on the
 shipped scripts.
+
+## B488 — `svc_Sounds` flags are 11 bits at protocol 18, not the 9 `soundinfo.h` reads — FIXED 2026-10-04
+
+**Measured, on the first protocol-18 demo this project has held** (lcor, `tf2-2011-build4735-pov-cp_badlands.dem`, server
+banner `Build: 4735`, file time 1 Nov 2011). `SoundInfo_t::ReadDelta` (`public/soundinfo.h:289-297`) reads the flags
+field as `SND_FLAG_BITS_ENCODE` above 18 and as 9 bits at 18 and below — *"prior to Halloween 2011"*, says its comment.
+At 9 bits, 88 of the file's 23,542 `svc_Sounds` bodies overran their stated length, and the ones that fit decoded
+flag values of 511, 268 and 90; at 11 bits none overran and every flag is one of 0, 1, 2, 3, 4, 128-136. The
+protocol-19 file two days later (build 4743) decodes clean at 11, as the SDK predicts.
+
+**So the widening shipped inside protocol 18** — the Halloween 2011 update — and Valve's boundary is one protocol
+late for post-Halloween 18 recordings. `SoundDecoder.FlagWidthProtocol` is now 17. **The trade, named:** a
+pre-Halloween protocol-18 recording, which `soundinfo.h` says wrote 9 bits, would now be misread; none is held, and a
+protocol cannot tell the two builds apart (`docs/memory/a-protocol-can-hide-two-builds.md`). If one surfaces, the
+discriminator to look for is the server build in the connect banner. Interpolated: that the 9-bit 18 builds exist at
+all rests only on the SDK comment. Test: `SoundCodecTests.FlagsBits_AtProtocol17And18_Are9And11`; output level:
+`CorpusSoundTests.Decode_EveryRealSoundBody_StaysWithinItsStatedLength` over the specimen.
+
+## B489 — `svc_BspDecal`'s model index is `SP_MODEL_INDEX_BITS` of the build, 12 bits before the 4096-model raise — FIXED 2026-10-04
+
+**Measured, on the protocol-19 specimen** (`tf2-2011-build4743-pov-cp_badlands.dem`). Its one entity decal (entity 148,
+model 58) stopped its packet with *"Unrecognised message id 42 at bit 9202"* when the model index was read at the
+13 bits the 2013 SDK's `SP_MODEL_INDEX_BITS` gives; at 12 the packet decodes to its end and more world decals follow.
+**No other corpus demo carries an entity decal at all**, so the 13-bit width had never run against real bytes.
+
+**The demo states the width** (arithmetic + read): `SP_MODEL_INDEX_BITS` is `MAX_MODEL_INDEX_BITS + 1` and the
+`modelprecache` table is created `1 << MAX_MODEL_INDEX_BITS` long. Measured capacities: 2048 at protocols 16, 18, 19,
+21, 22 and 24 (build 5252, March 2013), 4096 in `z1800.dem`. So `NetDecodeState.ModelIndexBits` is
+`log2(capacity) + 1`, 13 until the table is seen; reader and writer both use it. Test:
+`SkippableMessageTests.BspDecal_WithA2048ModelPrecache_ReadsTwelveModelBits`; output level:
+`CorpusTraceTests.EveryDemo_TracesWithoutAnUnreadableBlock` over the specimen, which is what found it.
