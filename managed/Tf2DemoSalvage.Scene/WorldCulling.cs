@@ -287,6 +287,9 @@ public sealed class WorldCulling
     /// <summary>The last view's main leaves, nearest first — <c>m_pWorldListInfo->m_pLeafList</c>, what collation walks (B262).</summary>
     public IReadOnlyList<int> MainLeaves => _mainLeaves;
 
+    /// <summary>The last sky view's leaves in the sky area, nearest first — what the skybox view collates (B262).</summary>
+    public IReadOnlyList<int> SkyLeaves => _skyLeaves;
+
     private readonly List<WorldWalkStep> _mainWalk = [];
 
     /// <summary>The faces the last <see cref="Batches"/> walk reached, in <c>R_DrawSurface</c> order; null before one.</summary>

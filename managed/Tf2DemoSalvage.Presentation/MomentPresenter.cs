@@ -251,7 +251,7 @@ public sealed class MomentPresenter
 
     /// <summary>Poses the moment already built, once the view for this frame exists.</summary>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
-    /// <param name="visibleByLeaf">The world cull's visible-leaf set, for the visibility half.</param>
+    /// <param name="views">The views' leaf lists the scene collates over before posing (B262).</param>
     /// <remarks>
     /// **Called after `PlaceCamera` and not from `Show`**, because the engine computes the view
     /// before it decides what is visible and long before it sets up any bones — `SetUpView`, then
@@ -274,7 +274,7 @@ public sealed class MomentPresenter
     /// <param name="screen">The main view for the static props' screen fades (B432), from the same device.</param>
     public void PoseNow(
         ViewFrustum frustum = default,
-        ReadOnlySpan<bool> visibleByLeaf = default,
+        RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
         ScreenFadeView? screen = null)
     {
@@ -287,7 +287,7 @@ public sealed class MomentPresenter
 
         _posed = true;
 
-        MomentPhases posing = _moment.Pose(info, frustum, visibleByLeaf, eye, screen);
+        MomentPhases posing = _moment.Pose(info, frustum, views, eye, screen);
 
         // **One line per rebuild, not two.** The two halves are measured apart and read together;
         // reporting each on its own would put `advance`'s parts in separate lines that a reader has

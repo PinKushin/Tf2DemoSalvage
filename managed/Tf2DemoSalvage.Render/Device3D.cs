@@ -1090,6 +1090,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         foreach (ModelInstance instance in _waterViewModels)
         {
+            // The sky room's entities are the sky view's (B262), not a water view's.
+            if (instance.InSky)
+            {
+                continue;
+            }
+
             (bool joinsOpaque, bool joinsTranslucent, bool twoPass) = Classify(instance);
 
             if (joinsOpaque)
@@ -1206,6 +1212,30 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 _context.OMSetDepthStencilState(_depthOn, 0);
 
+                // **The map's detail models join the scene's list rather than getting a pass**
+                // (B363), because the engine puts them in the same one:
+                // `CollateRenderablesInLeaf` adds a `CDetailModel` under
+                // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
+                // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
+                // detail model could not sort against the entities it stands among.
+                // **`r_drawentities 0` draws no renderable** — `DrawOpaqueRenderables` and the translucent
+                // pass return at the top on it, static props included. It gated only the merged prop
+                // batches here until static props became model draws (B426), and gates the models now.
+                IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
+
+                if (DrawEntities && _detailModelInstances.Count > 0)
+                {
+                    _allModels.Clear();
+                    _allModels.AddRange(drawn);
+                    _allModels.AddRange(_detailModelInstances);
+                    drawn = _allModels;
+                }
+
+                // **Filed, not filtered** (B262): the scene collated its renderables per view before posing them;
+                // this files them into render groups and collates the detail models. Ahead of the sky view, which
+                // draws its own collated entities (`CSkyboxView::DrawInternal`, `viewrender.cpp:4920-4932`).
+                CollateRenderables(drawn);
+
                 // **The 3D skybox, first and from its own view** — `CSkyboxView` runs before
                 // `CBaseWorldView` and is the reason a TF2 map's horizon has distant scenery on it
                 // (B152). The room is a miniature far outside the level, drawn from a camera that
@@ -1236,6 +1266,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                         SkyFogDistanceScale);
 
                     _world.DrawSky(_context);
+
+                    // **The sky room's entities, through the sky camera** — `DrawOpaqueRenderables` then
+                    // `DrawTranslucentRenderables` over the sky view's own collation (`viewrender.cpp:4929-4932`).
+                    DrawSkyRenderables();
 
                     if (_depthView.Handle is not null)
                     {
@@ -1307,37 +1341,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **Opaque only.** The translucent pass below must stay back-to-front by distance —
                 // blending is order-dependent, and a size sort there would put a window in front of
                 // what should show through it.
-                // **The map's detail models join the scene's list rather than getting a pass**
-                // (B363), because the engine puts them in the same one:
-                // `CollateRenderablesInLeaf` adds a `CDetailModel` under
-                // `RENDER_GROUP_OPAQUE_ENTITY` or `RENDER_GROUP_TRANSLUCENT_ENTITY` exactly as it
-                // adds a player (`clientleafsystem.cpp:1718`). Drawn beside the list instead, a
-                // detail model could not sort against the entities it stands among.
-                // **`r_drawentities 0` draws no renderable** — `DrawOpaqueRenderables` and the translucent
-                // pass return at the top on it, static props included. It gated only the merged prop
-                // batches here until static props became model draws (B426), and gates the models now.
-                IReadOnlyList<ModelInstance> drawn = DrawEntities ? models ?? [] : [];
-
-                if (DrawEntities && _detailModelInstances.Count > 0)
-                {
-                    _allModels.Clear();
-                    _allModels.AddRange(drawn);
-                    _allModels.AddRange(_detailModelInstances);
-                    drawn = _allModels;
-                }
-
-                // **Collated, not filtered** (B262): `BuildRenderablesList` over the view's leaves hands back
-                // the opaque buckets already filled, culled once and classified once. See ClientLeafSystem.
-                CollateRenderables(drawn);
-
                 ReportDrawOrder(models, _collatedInstances);
 
                 // Biggest bucket first, each in collation order (`viewrender.cpp:4188`).
                 for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
                 {
-                    foreach ((int handle, int _) in _collated.Opaque(bucket))
+                    foreach ((int _, ModelInstance instance, bool twoPass) in _opaqueDraw[bucket])
                     {
-                        DrawOpaqueRenderable(handle);
+                        DrawOpaqueRenderable(instance, twoPass);
                     }
                 }
 
@@ -1386,14 +1397,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // **The collated translucent group** (B262): culled and classified once with the opaque
                 // buckets, each at its nearest listed leaf (`ComputeTranslucentRenderLeaf`). Detail models
                 // are in it too — a detail model mid-fade is translucent (B363).
-                foreach ((int handle, int place, bool _) in _collated.Translucent)
+                foreach ((int place, ModelInstance instance, bool twoPass) in _translucentEntries)
                 {
-                    ModelInstance instance = _byHandle[handle];
-
                     _translucentDraw.Add((
                         worldLeaves is null ? 0 : place,
                         TranslucentOrder.Along(instance, _translucentEye, _translucentForward),
-                        (instance, _classOf[handle].TwoPass)));
+                        (instance, twoPass)));
                 }
 
                 // Sorted within each leaf, leaves in list order; with no leaves every model is in place 0.
@@ -2542,8 +2551,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             {
                 FreeCamera sky = SkyboxView.CameraFor(camera, room.Origin, room.Scale);
 
+                _skyFrustum = sky.Frustum();
+                _skyEye = (sky.Origin.X, sky.Origin.Y, sky.Origin.Z);
                 _world.SkyBatches = cull.SkyRunsFrom(
-                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, sky.Frustum());
+                    sky.Origin.X, sky.Origin.Y, sky.Origin.Z, _skyFrustum);
 
                 _skyCamera = _world.SkyBatches.Count > 0 ? sky.ToMatrix() : null;
             }
@@ -2926,13 +2937,28 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     private Core.Scene.ScreenFadeView? _screenView;
 
-    /// <summary>Which leaves the world cull accepted this view, for the entity cull (B254).</summary>
+    /// <summary>The views' leaf lists the scene collates its renderables over (B254, B262).</summary>
     /// <remarks>
-    /// Empty when the map carries no visibility data or no cull has run, and an empty span culls
-    /// nothing — the safe direction, as everywhere else in this path.
+    /// The main list is null until a view walk has run, or on a map that cannot be culled — the scene then lists
+    /// every leaf and the frustum alone decides. The sky list is the 3D skybox view's, present only when that view
+    /// draws (<c>CSkyboxView::DrawInternal</c>, <c>viewrender.cpp:4920-4932</c>).
     /// </remarks>
-    public ReadOnlySpan<bool> VisibleByLeaf =>
-        _culling is { } culling ? culling.VisibleByLeaf : default;
+    public RenderableViews Views
+    {
+        get
+        {
+            if (_culling is not { CanCull: true } culling || _culledFor is null)
+            {
+                return default;
+            }
+
+            IReadOnlyList<int>? sky = _skyCamera is not null ? culling.SkyLeaves : null;
+
+            return new RenderableViews(culling.MainLeaves, sky, _skyFrustum);
+        }
+    }
+
+    private ViewFrustum _skyFrustum;
 
     private ViewFrustum _frustum;
 
@@ -3187,7 +3213,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
     }
 
-    /// <summary>The leaf system for the current map, or one leaf holding everything when it cannot be culled.</summary>
+    /// <summary>
+    /// The leaf system for what the scene did NOT collate — detail models, which the engine keeps per leaf too
+    /// (<c>m_FirstDetailProp</c>, <c>clientleafsystem.cpp:1720-1750</c>) — or one leaf when the map cannot be culled.
+    /// </summary>
     private ClientLeafSystem _leafSystem = OneLeaf();
 
     /// <summary>Every leaf of a tree, for a frame collated before any view walk has listed leaves.</summary>
@@ -3227,9 +3256,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     {
         _collateFrame++;
         _occurrences.Clear();
+        _sceneMain.Clear();
+        _sceneSky.Clear();
 
         foreach (ModelInstance instance in drawn)
         {
+            // **Collated by the scene, before it was posed** (B262): placed, bucketed and in order already.
+            if (instance.SizeBucket is not null)
+            {
+                (instance.InSky ? _sceneSky : _sceneMain).Add(instance);
+                continue;
+            }
+
             (int, string) identity = (instance.EntityIndex, instance.ModelPath);
             int occurrence = _occurrences.GetValueOrDefault(identity);
             _occurrences[identity] = occurrence + 1;
@@ -3284,27 +3322,182 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _leafSystem.BuildRenderablesList(leaves, _frustum, _groupOf ??= GroupOf, _collated);
 
+        File(_sceneMain, _opaqueDraw, _translucentEntries, merge: true);
+        File(_sceneSky, _skyOpaque, _skyTranslucent, merge: false);
+
         _collatedInstances.Clear();
 
-        foreach (int handle in _collated.Collated)
+        foreach (List<(int Place, ModelInstance Instance, bool TwoPass)> bucket in _opaqueDraw)
         {
-            _collatedInstances.Add(_byHandle[handle]);
+            foreach ((int _, ModelInstance instance, bool twoPass) in bucket)
+            {
+                if (!twoPass)
+                {
+                    _collatedInstances.Add(instance);
+                }
+            }
+        }
+
+        foreach ((int _, ModelInstance instance, bool _) in _translucentEntries)
+        {
+            _collatedInstances.Add(instance);
         }
     }
 
+    private readonly List<ModelInstance> _sceneMain = [];
+    private readonly List<ModelInstance> _sceneSky = [];
+
+    /// <summary>The main view's opaque groups, biggest bucket first, each in collation order.</summary>
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _opaqueDraw = [[], [], [], []];
+
+    /// <summary>The main view's translucent entries with their leaf places, unsorted.</summary>
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _translucentEntries = [];
+
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)>[] _skyOpaque = [[], [], [], []];
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _skyTranslucent = [];
+    private readonly List<(int Place, ModelInstance Instance, bool TwoPass)> _merging = [];
+
+    /// <summary>Files the scene's collated instances into render groups, with the device's own collation merged in.</summary>
+    /// <param name="scene">The scene's instances for one view, in collation order.</param>
+    /// <param name="opaque">The view's opaque groups; cleared here.</param>
+    /// <param name="translucent">The view's translucent entries; cleared here.</param>
+    /// <param name="merge">Whether this view also takes the device-collated detail models (the main view only).</param>
+    /// <remarks>
+    /// **The group is the one thing the scene could not decide** — it needs the materials — so it is asked here, once
+    /// per instance, through the cached classification (<see cref="Classify"/>). The rest is
+    /// <c>CollateRenderablesInLeaf</c>'s filing (<c>clientleafsystem.cpp:1678-1715</c>): an opaque renderable to its
+    /// size bucket, a translucent one to the translucent list, a two-pass one to both, its opaque half in
+    /// <c>RENDER_GROUP_OPAQUE_ENTITY</c>, the last bucket. The detail models arrive from the device's own leaf system
+    /// in the same leaf order and are merged by place — at one place, the leaf's renderables before its detail
+    /// props, which is the order <c>CollateRenderablesInLeaf</c> appends them in (<c>:1583</c> then <c>:1720</c>).
+    /// </remarks>
+    private void File(
+        List<ModelInstance> scene,
+        List<(int Place, ModelInstance Instance, bool TwoPass)>[] opaque,
+        List<(int Place, ModelInstance Instance, bool TwoPass)> translucent,
+        bool merge)
+    {
+        foreach (List<(int, ModelInstance, bool)> bucket in opaque)
+        {
+            bucket.Clear();
+        }
+
+        translucent.Clear();
+
+        foreach (ModelInstance instance in scene)
+        {
+            (bool joinsOpaque, bool joinsTranslucent, bool twoPass) = Classify(instance);
+
+            if (joinsTranslucent)
+            {
+                translucent.Add((instance.LeafPlace, instance, twoPass));
+            }
+
+            if (joinsOpaque)
+            {
+                int bucket = joinsTranslucent ? ClientLeafSystem.BucketCount - 1 : instance.SizeBucket ?? ClientLeafSystem.BucketCount - 1;
+
+                opaque[bucket].Add((instance.LeafPlace, instance, twoPass));
+            }
+        }
+
+        if (!merge)
+        {
+            return;
+        }
+
+        for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
+        {
+            IReadOnlyList<(int Handle, int Place)> detail = _collated.Opaque(bucket);
+
+            if (detail.Count == 0)
+            {
+                continue;
+            }
+
+            List<(int Place, ModelInstance Instance, bool TwoPass)> filed = opaque[bucket];
+            _merging.Clear();
+            _merging.AddRange(filed);
+            filed.Clear();
+
+            int at = 0;
+
+            foreach ((int handle, int place) in detail)
+            {
+                while (at < _merging.Count && _merging[at].Place <= place)
+                {
+                    filed.Add(_merging[at++]);
+                }
+
+                filed.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
+            }
+
+            while (at < _merging.Count)
+            {
+                filed.Add(_merging[at++]);
+            }
+        }
+
+        foreach ((int handle, int place, bool _) in _collated.Translucent)
+        {
+            translucent.Add((place, _byHandle[handle], _classOf[handle].TwoPass));
+        }
+    }
+
+    /// <summary>The sky view's entities: its opaque groups biggest first, then its translucent back to front.</summary>
+    /// <remarks>
+    /// <c>CSkyboxView::DrawInternal</c> (<c>viewrender.cpp:4929-4932</c>) through the sky camera, which is bound. The
+    /// translucent entries are sorted per leaf along the sky eye's axis (<c>SortEntities</c>, <c>:1758</c>) and walked
+    /// backwards; the sky room's own translucent world is not interleaved with them here.
+    /// </remarks>
+    private void DrawSkyRenderables()
+    {
+        for (int bucket = 0; bucket < ClientLeafSystem.BucketCount; bucket++)
+        {
+            foreach ((int _, ModelInstance instance, bool twoPass) in _skyOpaque[bucket])
+            {
+                DrawOpaqueRenderable(instance, twoPass);
+            }
+        }
+
+        if (_skyTranslucent.Count == 0)
+        {
+            return;
+        }
+
+        _skyTranslucentDraw.Clear();
+
+        foreach ((int place, ModelInstance instance, bool twoPass) in _skyTranslucent)
+        {
+            _skyTranslucentDraw.Add((place, TranslucentOrder.Along(instance, _skyEye, _translucentForward), (instance, twoPass)));
+        }
+
+        TranslucentOrder.Sort(_skyTranslucentDraw);
+        _context.OMSetDepthStencilState(_depthReadOnly, 0);
+
+        for (int at = _skyTranslucentDraw.Count; --at >= 0;)
+        {
+            (ModelInstance instance, bool twoPass) = _skyTranslucentDraw[at].Entry;
+
+            DrawInstance(instance, twoPass ? ModelPass.TranslucentOnly : ModelPass.EntireModel);
+        }
+
+        WorldRenderer.ResetBlend(_context);
+        _context.OMSetDepthStencilState(_depthOn, 0);
+    }
+
+    private readonly List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> _skyTranslucentDraw = [];
+    private (float X, float Y, float Z) _skyEye;
+
     /// <summary>Draws one collated opaque renderable, then its decals.</summary>
-    /// <param name="handle">The renderable.</param>
-    private void DrawOpaqueRenderable(int handle)
+    /// <param name="instance">The renderable.</param>
+    /// <param name="twoPass">Whether only its solid half draws here — classified once at collation (RenderGroups).</param>
+    private void DrawOpaqueRenderable(ModelInstance instance, bool twoPass)
     {
         if (_world is null)
         {
             return;
         }
-
-        ModelInstance instance = _byHandle[handle];
-
-        // **Which pass, and whether it is split** — classified once at collation (RenderGroups).
-        bool twoPass = _classOf[handle].TwoPass;
 
         ReportBodySelection(instance, _world.ModelBatches(instance.ModelPath, instance.Frame));
 

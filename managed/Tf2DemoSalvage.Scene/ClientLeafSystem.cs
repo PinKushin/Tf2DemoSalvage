@@ -43,10 +43,28 @@ public sealed class CollatedRenderables
 
     internal void AddTranslucent(int handle, int place, bool twoPass) => _translucent.Add((handle, place, twoPass));
 
-    internal void AddCollated(int handle) => _collated.Add(handle);
+    /// <summary>Every collated renderable in collation order, with its place and the opaque bucket it joined, if any.</summary>
+    public IReadOnlyList<(int Handle, int Place, int? Bucket)> Entries => _entries;
+
+    private readonly List<(int Handle, int Place, int? Bucket)> _entries = [];
+
+    internal void AddCollated(int handle, int place, int? bucket)
+    {
+        _collated.Add(handle);
+        _entries.Add((handle, place, bucket));
+    }
+
+    /// <summary>How many renderables met in a listed leaf the frustum then rejected (<c>CullBox</c>, <c>:1647</c>).</summary>
+    public int FrustumRejected { get; internal set; }
+
+    /// <summary>How many renderables with no placed box were collated without a frustum test.</summary>
+    public int Unplaced { get; internal set; }
 
     internal void Clear()
     {
+        FrustumRejected = 0;
+        Unplaced = 0;
+
         foreach (List<(int, int)> bucket in _opaque)
         {
             bucket.Clear();
@@ -54,6 +72,7 @@ public sealed class CollatedRenderables
 
         _translucent.Clear();
         _collated.Clear();
+        _entries.Clear();
     }
 }
 
@@ -233,12 +252,14 @@ public sealed class ClientLeafSystem
     /// <param name="frustum">The view volume; an unbuilt one culls nothing.</param>
     /// <param name="groupOf">The render group of a handle this frame.</param>
     /// <param name="into">Receives the groups; cleared here.</param>
+    /// <param name="includeUnplaced">Whether the unplaced join this view at place 0; false for the sky view.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public void BuildRenderablesList(
         IReadOnlyList<int> leaves,
         ViewFrustum frustum,
         Func<int, LeafRenderGroup> groupOf,
-        CollatedRenderables into)
+        CollatedRenderables into,
+        bool includeUnplaced = true)
     {
         ArgumentNullException.ThrowIfNull(leaves);
         ArgumentNullException.ThrowIfNull(groupOf);
@@ -247,10 +268,13 @@ public sealed class ClientLeafSystem
         into.Clear();
         _frame++;
 
-        // Ours: an unplaced box touches no leaf and is never culled, so it goes at place 0.
-        foreach (int handle in _unplaced)
+        // Ours: an unplaced box touches no leaf and is never culled, so it goes at place 0 — of the main view only.
+        if (includeUnplaced)
         {
-            Collate(handle, 0, frustum, groupOf, into, cull: false);
+            foreach (int handle in _unplaced)
+            {
+                Collate(handle, 0, frustum, groupOf, into, cull: false);
+            }
         }
 
         for (int place = 0; place < leaves.Count; place++)
@@ -283,7 +307,13 @@ public sealed class ClientLeafSystem
 
         if (cull && frustum.Cull(minX, minY, minZ, maxX, maxY, maxZ))
         {
+            into.FrustumRejected++;
             return;
+        }
+
+        if (!cull && frustum.IsBuilt)
+        {
+            into.Unplaced++;
         }
 
         LeafRenderGroup group = groupOf(handle);
@@ -293,22 +323,23 @@ public sealed class ClientLeafSystem
             return;
         }
 
-        into.AddCollated(handle);
-
         if (group == LeafRenderGroup.Opaque)
         {
-            into.AddOpaque(
-                BucketFor(Math.Max(Math.Max(maxX - minX, maxY - minY), maxZ - minZ)), handle, place);
+            int bucket = BucketFor(Math.Max(Math.Max(maxX - minX, maxY - minY), maxZ - minZ));
+
+            into.AddCollated(handle, place, bucket);
+            into.AddOpaque(bucket, handle, place);
             return;
         }
 
         bool twoPass = group == LeafRenderGroup.TwoPass;
 
+        // `RENDER_GROUP_OPAQUE_ENTITY`, unbucketed: the last of the four (:1710-1713).
+        into.AddCollated(handle, place, twoPass ? BucketCount - 1 : null);
         into.AddTranslucent(handle, place, twoPass);
 
         if (twoPass)
         {
-            // `RENDER_GROUP_OPAQUE_ENTITY`, unbucketed: the last of the four (:1710-1713).
             into.AddOpaque(BucketCount - 1, handle, place);
         }
     }

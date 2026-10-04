@@ -489,7 +489,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>Poses what <see cref="Build"/> selected, and produces the instances.</summary>
     /// <param name="info">The moment, whose camera this call needs and <see cref="Build"/> does not.</param>
     /// <param name="frustum">The view being drawn, for the cull that precedes the pose (B254).</param>
-    /// <param name="visibleByLeaf">The world cull's visible-leaf set, for the visibility half.</param>
+    /// <param name="views">The views' leaf lists the scene collates over before posing (B262).</param>
     /// <param name="eye">
     /// <c>CurrentViewOrigin()</c> — where the frame is drawn from, whatever camera is driving it
     /// (B365). Null falls back to <see cref="MomentInfo.EyeCamera"/>, which is first person only.
@@ -513,7 +513,7 @@ public sealed class MomentScene : IGameSystemPerFrame
     public MomentPhases Pose(
         MomentInfo info,
         ViewFrustum frustum = default,
-        ReadOnlySpan<bool> visibleByLeaf = default,
+        RenderableViews views = default,
         (float X, float Y, float Z)? eye = null,
         ScreenFadeView? screen = null)
     {
@@ -558,7 +558,7 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         _models.Instances(
             _drawn, _instances, Lighting.ModelLightingAt, Lighting.ModelSunAt, info.Seconds, frustum,
-            visibleByLeaf);
+            views);
 
         EntityModelSet.PoseCounters pose = _models.Counters.Since(before);
 
