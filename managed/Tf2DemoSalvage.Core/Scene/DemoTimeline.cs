@@ -5396,6 +5396,12 @@ public sealed class DemoTimeline
                         state.SpriteScaleIsWorldSpace() ?? false)
                     : null,
 
+                // **`DT_Beam`, read by nothing until now.** The halo is a model index like the beam's own, so it is
+                // named here, where the precache is, rather than by a drawer that has no table to look it up in.
+                Beam = state.Beam() is { } beam
+                    ? beam with { HaloPath = precache.Path(ModelPrecache.Unpack(beam.HaloIndex, protocol)) }
+                    : null,
+
                 // **An areaportal window's three, which travel together or not at all** (B358).
                 // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what
                 // identifies the class — and the tuple stays null for every other entity, which is
@@ -5817,7 +5823,10 @@ public sealed class DemoTimeline
         // a paused client holds even the entity the view is attached to (B399).
         double revisit = double.PositiveInfinity;
 
-        bool blend = interpolating && Interpolates(track, stated, tick, viewEntity, out revisit);
+        // **A beam is never drawn where interpolation put it.** `C_Beam::AddEntity` ends with
+        // `MoveToLastReceivedPosition()` (`beam_shared.cpp:1075`), which writes the network origin back over whatever
+        // `Interpolate` produced, every frame — so a beam stands at the last position it was SENT, not between two.
+        bool blend = interpolating && stated?.Beam is null && Interpolates(track, stated, tick, viewEntity, out revisit);
 
         (bool changing, double nextWake) = track.Motion(tick, blend);
 

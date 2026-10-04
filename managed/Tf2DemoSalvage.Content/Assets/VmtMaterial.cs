@@ -501,6 +501,16 @@ public sealed class VmtMaterial
         Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ? Flag("$vertexcolor")
         : Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexalpha");
 
+    /// <summary>Whether an <c>UnlitGeneric</c> material multiplies its texture by the vertex colour.</summary>
+    /// <remarks>
+    /// The <c>VERTEXCOLOR</c> combo, from <c>$vertexcolor</c>: an unlit material has no diffuse lighting, so
+    /// <c>if( bDiffuseLighting || bVertexColor ) diffuseLighting = i.color.rgb;</c> makes the vertex colour the whole of
+    /// its "lighting" (`vertexlit_and_unlit_generic_ps2x.fxc:345-348`), multiplied into the albedo at `:421`. Without it
+    /// <c>diffuseLighting</c> stays one. A sprite trail's ribbon is coloured only through this.
+    /// </remarks>
+    public bool TakesVertexColour =>
+        Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexcolor");
+
     /// <summary>The detail texture tiled over the base, without extension, or null.</summary>
     public string? Detail => Value("$detail");
 

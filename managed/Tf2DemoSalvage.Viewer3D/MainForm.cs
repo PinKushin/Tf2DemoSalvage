@@ -7055,6 +7055,21 @@ internal class MainForm : Form, IFrameSteps
             (float ahead, float across, float above) = AngleVectors.Forward(
                 viewing.Angles.Pitch, viewing.Angles.Yaw);
 
+            // **The occlusion gate: the engine's line-of-sight fallback** (`GlowSight`,
+            // `c_pixel_visibility.cpp:825`). This was `_ => true`, which drew a lamp's halo through
+            // the roof above it; the owner saw it in the pyro's view on `koth_harvest_final`.
+            //
+            // **Brushes AND static props**, as `MASK_OPAQUE` is: on `koth_harvest_final` a lamp's halo sits under
+            // a roof of `corrugated_metal` props, and a brush-only trace went straight through it. One gate for the
+            // entity sprites and the beams' halos, which ask `PixelVisibility_FractionVisible` the same question.
+            bool Sees(Vector3 glow) =>
+                _loaded?.Level is not { } level ||
+                GlowSight.Visible(
+                    new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                    new Vector3(ahead, across, above),
+                    glow,
+                    (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f);
+
             IReadOnlyList<ParticleBatch> glows = _sprites.Build(
                 _moment.Drawn,
                 new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
@@ -7062,19 +7077,16 @@ internal class MainForm : Form, IFrameSteps
                 new Vector3(ux, uy, uz),
                 new Vector3(ahead, across, above),
                 _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
+                Sees);
 
-                // **The occlusion gate: the engine's line-of-sight fallback** (`GlowSight`,
-                // `c_pixel_visibility.cpp:825`). This was `_ => true`, which drew a lamp's halo through
-                // the roof above it; the owner saw it in the pyro's view on `koth_harvest_final`.
-                //
-                // **Brushes AND static props**, as `MASK_OPAQUE` is: on `koth_harvest_final` a lamp's halo sits under
-                // a roof of `corrugated_metal` props, and a brush-only trace went straight through it.
-                glow => _loaded?.Level is not { } level ||
-                        GlowSight.Visible(
-                            new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                            new Vector3(ahead, across, above),
-                            glow,
-                            (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
+            // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
+            IReadOnlyList<ParticleBatch> drawnByClass = BuildEffectEntities(
+                viewing, new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+            if (drawnByClass.Count > 0)
+            {
+                glows = [.. glows, .. drawnByClass];
+            }
 
             // **The value the builder USED, carried here rather than recounted** (B243). A picture
             // can only show a glow the camera happens to face, so the count is what says the pass
@@ -7102,6 +7114,129 @@ internal class MainForm : Form, IFrameSteps
 
         _device.SetParticles(batches);
     }
+
+    /// <summary>
+    /// The entities whose class overrides <c>DrawModel</c> with a strip rather than a model — <c>CBeam</c> — as batches.
+    /// </summary>
+    /// <param name="viewing">The camera.</param>
+    /// <param name="forward">Its forward axis.</param>
+    /// <param name="right">Its right axis.</param>
+    /// <param name="up">Its up axis.</param>
+    /// <param name="sees">The halo occlusion gate the entity sprites use.</param>
+    /// <returns>The batches; empty when the moment holds none.</returns>
+    /// <remarks>
+    /// **The clock is the demo's, and a frame that does not advance it has a frame time of zero** — which is what
+    /// <c>gpGlobals-&gt;frametime</c> is while a demo is paused, and what makes <c>UpdateBeam</c> re-seed its noise so a
+    /// paused frame repeats itself. A step backwards is a seek, not negative time, and counts as zero too.
+    /// </remarks>
+    private IReadOnlyList<ParticleBatch> BuildEffectEntities(
+        FreeCamera viewing, Vector3 forward, Vector3 right, Vector3 up, Func<Vector3, bool> sees)
+    {
+        double interval = _timeline?.IntervalPerTick ?? (1d / 66d);
+        double tick = _transport.CurrentTick;
+        float seconds = (float)(tick * interval);
+        float elapsed = (float)Math.Max(0d, (tick - _effectEntitiesTick) * interval);
+
+        _effectEntitiesTick = tick;
+
+        _drawnByEntity.Clear();
+
+        foreach (SceneProp prop in _moment.Drawn)
+        {
+            _drawnByEntity[prop.EntityIndex] = prop;
+        }
+
+        BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
+
+        _effectViewOrigin = view.Origin;
+
+        IReadOnlyList<ParticleBatch> beams = _beams.Build(
+            _moment.Drawn,
+            view,
+            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
+            AbsolutePose,
+            BeamEnd,
+            sees,
+            seconds,
+            elapsed);
+
+        // The values the builder USED, carried rather than recounted (B243), so "no beams here" and "every beam
+        // refused" read differently in the log.
+        if (_renderLog.IsEnabled(LogLevel.Debug) && (_beams.Drawn > 0 || _beams.Skipped > 0))
+        {
+            _renderLog.LogDebug(
+                "{Message}",
+                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped");
+        }
+
+        return beams;
+    }
+
+    /// <summary>A drawn prop's place in the world, through its move parents — <c>GetAbsOrigin()</c>.</summary>
+    private ScenePose AbsolutePose(SceneProp prop) =>
+        ParentChain.Absolute(prop, entity => _drawnByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null);
+
+    /// <summary><c>ComputeBeamEntPosition</c> for one beam end, the handle dereferenced as the client does (B231).</summary>
+    /// <remarks>
+    /// **The serial decides, as <c>CBaseHandle::Get</c>'s does**: the slot's track AT THIS TICK must carry the handle's
+    /// serial, or the handle names an entity that is gone and the end is "not found". Then the engine's three answers —
+    /// the attachment (or the hitbox point nearest the view), a player's <c>WorldSpaceCenter</c>, anything else's render
+    /// origin.
+    /// </remarks>
+    private Vector3? BeamEnd(int handle, int attachment, bool hitboxes)
+    {
+        const int InvalidHandle = (1 << 21) - 1;
+        const int SlotMask = (1 << 11) - 1;
+
+        if (handle == InvalidHandle || _timeline is null)
+        {
+            return null;
+        }
+
+        int slot = handle & SlotMask;
+        int serial = handle >> 11;
+        double tick = _transport.CurrentTick;
+
+        if (_timeline.TrackFor(slot, tick) is not { } track || !track.Continues(serial) ||
+            !_drawnByEntity.TryGetValue(slot, out SceneProp? prop))
+        {
+            return null;
+        }
+
+        if (!hitboxes)
+        {
+            if (_models.AttachmentPosition(slot, attachment) is { } at)
+            {
+                return new Vector3(at.X, at.Y, at.Z);
+            }
+        }
+        else if (_models.HitboxPointNearest(slot, attachment, _effectViewOrigin) is { } nearest)
+        {
+            return nearest;
+        }
+
+        ScenePose placed = AbsolutePose(prop);
+
+        // "Player origins are at their feet": a player answers the middle of its hull.
+        return string.Equals(track.ClassName, PlayerClassName, StringComparison.Ordinal)
+            ? new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags))
+            : new Vector3(placed.X, placed.Y, placed.Z);
+    }
+
+    /// <summary>The one class <c>IsPlayer()</c> answers true for in TF2.</summary>
+    private const string PlayerClassName = "CTFPlayer";
+
+    /// <summary>The demo tick the last frame's effect entities were built at, for their frame time.</summary>
+    private double _effectEntitiesTick;
+
+    /// <summary>Where the camera was for the last effect-entity build — <c>MainViewOrigin()</c> for a hitbox end.</summary>
+    private Vector3 _effectViewOrigin;
+
+    /// <summary>This frame's drawn props by entity index, for a parent chain or a beam end.</summary>
+    private readonly Dictionary<int, SceneProp> _drawnByEntity = [];
+
+    /// <summary>Every <c>CBeam</c> in the moment, as strips.</summary>
+    private readonly EntityBeams _beams = new();
 
     /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
     private IReadOnlyList<ParticleBatch> _lastParticles = [];

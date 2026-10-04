@@ -2468,7 +2468,11 @@ public sealed class MapAssets
                 vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
                 vmt?.SpriteOrigin,
                 vmt?.SpriteConstantColor ?? (1f, 1f, 1f, 1f),
-                vmt?.IgnoresVertexColors ?? true);
+                vmt?.IgnoresVertexColors ?? true,
+                vmt?.Shader ?? EngineSprite.SpriteShader,
+                vmt?.Modulation,
+                vmt?.TakesVertexColour ?? false,
+                vmt?.TakesVertexAlpha ?? false);
         }
 
         // Stryker disable all : the String mutator wraps the interpolated literal in a

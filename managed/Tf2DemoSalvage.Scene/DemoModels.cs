@@ -324,9 +324,22 @@ public static class DemoModels
 
         foreach (ScenePropTrack track in demo.Props)
         {
-            if (track.Kind == SceneModelKind.Sprite && track.ModelPath.Length > 0)
+            if (track.Kind != SceneModelKind.Sprite || track.ModelPath.Length == 0)
             {
-                paths.Add(track.ModelPath);
+                continue;
+            }
+
+            paths.Add(track.ModelPath);
+
+            // **A beam names a second sprite, its halo** — `m_nHaloIndex`, drawn by `BeamDrawHalo` beside the shaft.
+            // Every corpus spotlight's is `sprites/light_glow03.vmt`, which an `env_sprite` on the same map usually
+            // asks for too; "usually" is not a reason to leave a beam's halo to chance.
+            foreach ((int _, ScenePose pose) in track.Keyframes)
+            {
+                if (pose.Beam?.HaloPath is { Length: > 0 } halo)
+                {
+                    paths.Add(halo);
+                }
             }
         }
 

@@ -1521,6 +1521,54 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return (System.Numerics.Vector3.Distance(local, clamped), local - ((hitbox.Min + hitbox.Max) * 0.5f));
     }
 
+    /// <summary>
+    /// The point on one of an entity's posed hitboxes nearest a viewer — <c>ComputeBeamEntPosition</c>'s hitbox branch
+    /// (`view_beams.cpp:233-257`), for a beam flagged <c>FBEAM_USE_HITBOXES</c>.
+    /// </summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="number">The hitbox, ONE-based as the beam's attachment index carries it: <c>pHitbox( nAttachment - 1 )</c>.</param>
+    /// <param name="viewer"><c>MainViewOrigin()</c>.</param>
+    /// <returns>The world point, or null when the entity is not posed here or has no such box.</returns>
+    /// <remarks>
+    /// <code>
+    /// VectorITransform( vecViewPt, *hitboxbones[ pHitbox-&gt;bone ], vecLocalViewPt );
+    /// CalcClosestPointOnAABB( pHitbox-&gt;bbmin, pHitbox-&gt;bbmax, vecLocalViewPt, vecLocalClosestPt );
+    /// VectorTransform( vecLocalClosestPt, *hitboxbones[ pHitbox-&gt;bone ], pt );
+    /// </code>
+    ///
+    /// Set 0, which is <c>m_nHitboxSet</c> for everything TF2 draws; the guard is the engine's
+    /// <c>set-&gt;numhitboxes &gt;= nAttachment &amp;&amp; nAttachment &gt; 0</c>.
+    /// </remarks>
+    public System.Numerics.Vector3? HitboxPointNearest(int entity, int number, System.Numerics.Vector3 viewer)
+    {
+        if (InScene(entity) is null ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets || number < 1 || number > sets[0].Count ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        StudioHitbox hitbox = sets[0][number - 1];
+        ReadOnlySpan<float> m = animating.Bones.Bone(hitbox.Bone);
+        System.Numerics.Vector3 relative = viewer - new System.Numerics.Vector3(m[3], m[7], m[11]);
+
+        // Into the bone's frame — the rotation's transpose, which is `VectorITransform`.
+        System.Numerics.Vector3 local = new(
+            (m[0] * relative.X) + (m[4] * relative.Y) + (m[8] * relative.Z),
+            (m[1] * relative.X) + (m[5] * relative.Y) + (m[9] * relative.Z),
+            (m[2] * relative.X) + (m[6] * relative.Y) + (m[10] * relative.Z));
+
+        System.Numerics.Vector3 closest = System.Numerics.Vector3.Clamp(local, hitbox.Min, hitbox.Max);
+
+        return new System.Numerics.Vector3(
+            (m[0] * closest.X) + (m[1] * closest.Y) + (m[2] * closest.Z) + m[3],
+            (m[4] * closest.X) + (m[5] * closest.Y) + (m[6] * closest.Z) + m[7],
+            (m[8] * closest.X) + (m[9] * closest.Y) + (m[10] * closest.Z) + m[11]);
+    }
+
     /// <summary>Each pass's entities as its last run saw them, by pass name — see <see cref="Instances"/>.</summary>
     private readonly Dictionary<string, Dictionary<int, SceneProp>> _scenes = new(StringComparer.Ordinal);
 
@@ -3621,68 +3669,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// should never carry a cycle and a demo this project exists to open may carry anything. A
     /// chain that runs past it keeps the prop's own pose, which draws it in the wrong place rather
     /// than not at all — the milder of the two failures, and the one that leaves something to see.
+    ///
+    /// **The composition is <see cref="ParentChain.Absolute(SceneProp, Func{int, SceneProp?}, int)"/>**, shared with everything outside the model pass that
+    /// asks <c>GetAbsOrigin()</c>. The owner's report that drove its third branch — *"that one gate on the left is
+    /// rotated 90 degreed"*, from `cp_fulgur`'s setup gates (B241) — is why the angle shortcut there is conditional.
     /// </remarks>
-    private ScenePose Absolute(SceneProp prop, int budget)
-    {
-        if (prop.AttachedTo is not { } wearer || budget <= 0)
-        {
-            return prop.Pose;
-        }
-
-        if (!_propsByEntity.TryGetValue(wearer, out SceneProp? parent))
-        {
-            return prop.Pose;
-        }
-
-        ScenePose above = Absolute(parent, budget - 1);
-
-        // **Branch 2 — `EF_BONEMERGE`.** `MoveToAimEnt` gives the follower its parent's place
-        // outright, and its own origin is the zero `FollowEntity` wrote.
-        if (prop.BoneMerged)
-        {
-            return above;
-        }
-
-        // **Branch 3, which this method used to skip** (B241). `c_baseentity.cpp:4396`:
-        //
-        //   AngleMatrix( GetLocalAngles(), matEntityToParent );
-        //   MatrixSetColumn( GetLocalOrigin(), 3, matEntityToParent );
-        //   ConcatTransforms( GetParentToWorldTransform( … ), matEntityToParent, m_rgflCoordinateFrame );
-        //
-        // Returning the parent's pose for everything is the bone-merge branch applied to entities
-        // that are not merged, and it throws the child's own ANGLES away. A setup gate's grate is
-        // rotated to face its doorway and the three gates on `cp_fulgur` face different ways, so
-        // one of them drew a quarter turn out — the owner's *"that one gate on the left is rotated
-        // 90 degreed"*, reported before any of this was understood.
-        PropTransform composed = new PropTransform(
-                above.X, above.Y, above.Z, above.Pitch, above.Yaw, above.Roll, above.Scale)
-            .Concat(new PropTransform(
-                prop.Pose.X, prop.Pose.Y, prop.Pose.Z,
-                prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll, prop.Pose.Scale));
-
-        (float x, float y, float z) = composed.Apply(0f, 0f, 0f);
-
-        // **The angle shortcut is Valve's and it is CONDITIONAL** (`:4406`): a child with no angles
-        // of its own and no parent attachment copies the parent's absolute angles; anything else
-        // extracts them from the composed matrix. Applying the shortcut unconditionally is what
-        // discarded the gate's quarter turn.
-        bool declaresNoAngles =
-            prop.Pose.Pitch == 0f && prop.Pose.Yaw == 0f && prop.Pose.Roll == 0f;
-
-        (float pitch, float yaw, float roll) = declaresNoAngles && prop.AttachmentPoint is null
-            ? (above.Pitch, above.Yaw, above.Roll)
-            : composed.Angles();
-
-        return prop.Pose with
-        {
-            X = x,
-            Y = y,
-            Z = z,
-            Pitch = pitch,
-            Yaw = yaw,
-            Roll = roll,
-        };
-    }
+    private ScenePose Absolute(SceneProp prop, int budget) =>
+        ParentChain.Absolute(
+            prop, entity => _propsByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null, budget);
 
     /// <summary>This frame's props by entity index, so a parent chain can be walked.</summary>
     private readonly Dictionary<int, SceneProp> _propsByEntity = [];

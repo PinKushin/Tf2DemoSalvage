@@ -21,6 +21,17 @@ namespace Tf2DemoSalvage.Scene;
 /// Whether <c>kRenderTransAdd</c> leaves the entity's color and brightness out; see
 /// <see cref="VmtMaterial.IgnoresVertexColors"/>.
 /// </param>
+/// <param name="Shader">
+/// The material's shader. <c>CEngineSprite::Init</c> stamps <c>$spriteRenderMode</c> on a copy of the material per
+/// render mode (`spritemodel.cpp:287-290`), and only the <c>Sprite</c> shader reads it — a sprite trail's
+/// <c>UnlitGeneric</c> or <c>Refract</c> material draws by its own text whatever the entity's mode says.
+/// </param>
+/// <param name="Modulation">
+/// <c>$color</c> times <c>$color2</c>, and <c>$alpha</c> — what a non-Sprite shader multiplies its output by
+/// (<see cref="VmtMaterial.Modulation"/>). The Sprite shader reads <see cref="ConstantColor"/> instead.
+/// </param>
+/// <param name="VertexColour">Whether a non-Sprite shader multiplies in the vertex colour — <c>$vertexcolor</c>.</param>
+/// <param name="VertexAlpha">Whether it multiplies in the vertex alpha — <c>$vertexalpha</c>.</param>
 /// <remarks>
 /// **Built once, at load, as the engine builds it** (B390). `CEngineSprite::Init` reads the orientation
 /// and the origin a single time and keeps four edges; nothing per frame looks at the material's text
@@ -38,8 +49,18 @@ public readonly record struct EngineSprite(
     SpriteOrientation Orientation,
     SpriteExtents Extents,
     (float Red, float Green, float Blue, float Alpha) ConstantColor,
-    bool IgnoresVertexColors)
+    bool IgnoresVertexColors,
+    string Shader = EngineSprite.SpriteShader,
+    (float Red, float Green, float Blue, float Alpha)? Modulation = null,
+    bool VertexColour = false,
+    bool VertexAlpha = false)
 {
+    /// <summary>The shader that reads <c>$spriteRenderMode</c>.</summary>
+    public const string SpriteShader = "Sprite";
+
+    /// <summary>Whether this material is drawn by the <c>Sprite</c> shader, which switches on the entity's render mode.</summary>
+    public bool IsSpriteShader => Shader.Equals(SpriteShader, System.StringComparison.OrdinalIgnoreCase);
+
     /// <summary>A sprite as <c>CEngineSprite::Init</c> builds it from its material.</summary>
     /// <param name="texture">The material's texture.</param>
     /// <param name="sequences">The animation sequences that texture declares.</param>
@@ -48,6 +69,10 @@ public readonly record struct EngineSprite(
     /// <param name="origin">Its <c>$spriteorigin</c>, or null when it declares no vector.</param>
     /// <param name="constantColor">Its <c>$color</c> and <c>$alpha</c>, as the Sprite shader packs them.</param>
     /// <param name="ignoresVertexColors">Its <c>$ignorevertexcolors</c>, true when absent.</param>
+    /// <param name="shader">Its shader, <c>Sprite</c> unless the material names another.</param>
+    /// <param name="modulation">Its <c>$color</c> × <c>$color2</c> and <c>$alpha</c>, for a non-Sprite shader.</param>
+    /// <param name="vertexColour">Its <c>$vertexcolor</c>.</param>
+    /// <param name="vertexAlpha">Its <c>$vertexalpha</c>.</param>
     /// <returns>The sprite.</returns>
     /// <remarks>
     /// **Sized by the MAPPING size, the texture as authored** (B390):
@@ -69,7 +94,11 @@ public readonly record struct EngineSprite(
         SpriteOrientation orientation,
         (float X, float Y)? origin,
         (float Red, float Green, float Blue, float Alpha) constantColor,
-        bool ignoresVertexColors) =>
+        bool ignoresVertexColors,
+        string shader = SpriteShader,
+        (float Red, float Green, float Blue, float Alpha)? modulation = null,
+        bool vertexColour = false,
+        bool vertexAlpha = false) =>
         new(
             new ParticleMaterial(texture, sequences, blend),
             texture.MappingWidth,
@@ -77,7 +106,11 @@ public readonly record struct EngineSprite(
             orientation,
             SpriteExtents.Of(texture.MappingWidth, texture.MappingHeight, origin),
             constantColor,
-            ignoresVertexColors);
+            ignoresVertexColors,
+            shader,
+            modulation,
+            vertexColour,
+            vertexAlpha);
 }
 
 /// <summary>

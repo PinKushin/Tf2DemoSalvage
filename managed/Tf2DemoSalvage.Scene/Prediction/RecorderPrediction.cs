@@ -516,7 +516,7 @@ public sealed class RecorderPrediction
 
     /// <summary><c>WorldSpaceCenter()</c> of a player: the middle of his standing or ducked hull.</summary>
     private static Vector3 Center(ScenePlayer player) =>
-        new(player.X, player.Y, player.Z + ((((player.Flags ?? 0) & DuckingFlag) != 0 ? 62f : 82f) * 0.5f));
+        new(player.X, player.Y, player.Z + PlayerHull.CenterHeight(player.Flags));
 
     private static bool MovementStunned(ScenePlayer player) =>
         player.StunIndex is >= 0 && player.Conditions.Has(CondStunned) && ((player.StunFlags ?? 0) & StunMovement) != 0;

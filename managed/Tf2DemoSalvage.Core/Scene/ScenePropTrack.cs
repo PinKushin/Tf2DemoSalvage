@@ -529,6 +529,13 @@ public readonly record struct ScenePose
     /// </remarks>
     public SceneSprite? Sprite { get; init; }
 
+    /// <summary>What a beam says about itself, or null for everything that is not a <c>CBeam</c>.</summary>
+    /// <remarks>
+    /// **State, so it follows arrival like the sprite's fields** — <c>C_Beam</c>'s members are plain networked values
+    /// assigned on receipt, with no interpolation history of their own.
+    /// </remarks>
+    public SceneBeam? Beam { get; init; }
+
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
     {

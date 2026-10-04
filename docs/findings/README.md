@@ -232,6 +232,11 @@ in any public writeup found:
   water views run from one material's parameters; the engine picks the visible volume by walking the tree from the
   eye; the `WaterLOD` proxy hands the view's cheap-water distances to every water material it binds, so the cheap
   pass covers the expensive one as the distance runs out ([71](71-the-water-views.md)).
+- **Beams, trails and ropes are strips the client builds, and two of the three have NOBASE tables.** `DT_Beam` and
+  `DT_RopeKeyframe` declare their own model index, so a gate that read `DT_BaseEntity`'s dropped every one. A beam is
+  rebuilt from the entity each frame, and its strip comes from `CBeamSegDraw`, which is closed and was read in
+  disassembly. No demo in either corpus carries a temp-entity beam
+  ([73](73-beams-trails-and-ropes-are-strips-the-client-builds.md)).
 
 ## Conventions used throughout
 

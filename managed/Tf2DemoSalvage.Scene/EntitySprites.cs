@@ -186,6 +186,101 @@ public static class EntitySprites
         _ => [],
     };
 
+    /// <summary>How a sprite MATERIAL draws at a render mode — the Sprite shader's switch, or a non-Sprite shader's own blend.</summary>
+    /// <param name="sprite">The material, as loaded.</param>
+    /// <param name="renderMode">The mode the caller draws it at.</param>
+    /// <returns>Each draw in order; none for a Sprite-shader mode that has no material.</returns>
+    /// <remarks>
+    /// **The render mode reaches only the Sprite shader.** <c>CEngineSprite::Init</c> copies the material once per mode
+    /// and sets <c>$spriteRenderMode</c> on each copy (`spritemodel.cpp:287-290`); a shader that never reads the variable
+    /// — a sprite trail's <c>UnlitGeneric</c> — draws every copy the same way, by its own <c>$translucent</c> or
+    /// <c>$additive</c>, tested and unwritten as a blended material is.
+    /// </remarks>
+    public static IReadOnlyList<SpritePass> PassesFor(EngineSprite sprite, int renderMode) =>
+        sprite.IsSpriteShader ? PassesFor(renderMode) : [new SpritePass(sprite.Material.Blend, SpriteDepth.TestNoWrite)];
+
+    /// <summary>What the shader multiplies the texture by, given the colour and alpha a vertex carries (B391).</summary>
+    /// <param name="sprite">The material, as loaded.</param>
+    /// <param name="renderMode">The mode the caller draws it at.</param>
+    /// <param name="vertexColour">The vertex colour, 0 to 1.</param>
+    /// <param name="vertexAlpha">The vertex alpha, 0 to 1.</param>
+    /// <returns>The colour and alpha the corner must carry for the renderer's texture-times-colour to match.</returns>
+    /// <remarks>
+    /// **The Sprite shader's own branches** (`sprite_dx9.cpp:227-484`): <c>kRenderNormal</c> declares no vertex colour
+    /// (<c>SetSpriteCommonShadowState( 0 )</c>), so the texture alone reaches the screen; <c>kRenderTransAdd</c> multiplies
+    /// the material's constant <c>$color</c> and <c>$alpha</c>, and the vertex colour only when
+    /// <c>$ignorevertexcolors</c> is cleared — it defaults to one (`:39`, `:332-338`);
+    /// <c>kRenderTransAddFrameBlend</c> is <c>$alpha</c> as grey; every other mode is the vertex colour.
+    ///
+    /// **A non-Sprite shader is the material's modulation, and the vertex colour where it asks for it** —
+    /// <c>UnlitGeneric</c>'s <c>VERTEXCOLOR</c> combo and its <c>$vertexalpha</c> lerp
+    /// (`vertexlit_and_unlit_generic_ps2x.fxc:345-348`, `:419`), against <c>$color</c> × <c>$color2</c> and <c>$alpha</c>.
+    ///
+    /// **Moved here from `EntitySpriteBatches`** so a beam, which draws a sprite material at a mode of its own choosing,
+    /// gets the same answer as an entity sprite — the rule belongs to the material, not to whoever draws it.
+    /// </remarks>
+    public static (Vector3 Colour, float Alpha) ShaderInput(
+        EngineSprite sprite, int renderMode, Vector3 vertexColour, float vertexAlpha)
+    {
+        if (!sprite.IsSpriteShader)
+        {
+            (float red, float green, float blue, float alpha) = sprite.Modulation ?? (1f, 1f, 1f, 1f);
+
+            return (
+                (sprite.VertexColour ? vertexColour : Vector3.One) * new Vector3(red, green, blue),
+                (sprite.VertexAlpha ? vertexAlpha : 1f) * alpha);
+        }
+
+        return renderMode switch
+        {
+            RenderModes.Normal => (Vector3.One, 1f),
+            RenderModes.TransAdd => TransAdd(sprite, vertexColour, vertexAlpha),
+            RenderModes.TransAddFrameBlend => FrameBlend(sprite, vertexColour, vertexAlpha),
+            _ => (vertexColour, vertexAlpha),
+        };
+    }
+
+    /// <summary>What <c>kRenderTransAdd</c> multiplies the texture by (B391).</summary>
+    /// <remarks>
+    /// **The shader's branch** (`sprite_dx9.cpp:332-338`):
+    ///
+    /// <code>
+    /// unsigned int flags = SHADER_USE_CONSTANT_COLOR;
+    /// if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )
+    ///     flags |= SHADER_USE_VERTEX_COLOR;
+    /// </code>
+    ///
+    /// and the pixel shader multiplies the texture by each one present — <c>sample *= i.color;</c>, then
+    /// <c>sample *= g_Color;</c> (`sprite_ps2x.fxc:35-41`). The constant is the MATERIAL's <c>$color</c> and
+    /// <c>$alpha</c>. `$ignorevertexcolors` defaults to one, so by default the entity's tint and brightness never reach
+    /// the pixels.
+    /// </remarks>
+    private static (Vector3 Color, float Alpha) TransAdd(EngineSprite sprite, Vector3 vertexColor, float vertexAlpha)
+    {
+        (float red, float green, float blue, float constantAlpha) = sprite.ConstantColor;
+        Vector3 constant = new(red, green, blue);
+
+        return sprite.IgnoresVertexColors
+            ? (constant, constantAlpha)
+            : (constant * vertexColor, constantAlpha * vertexAlpha);
+    }
+
+    /// <summary>What <c>kRenderTransAddFrameBlend</c> multiplies the texture by (B391).</summary>
+    /// <remarks>
+    /// **Two draws in the shader, one here, and the sum is the same** (`sprite_dx9.cpp:356-484`). Each sets
+    /// <c>color[0] = color[1] = color[2] = flFade * frameBlendAlpha; color[3] = 1.0f;</c> with
+    /// <c>flFade = params[ALPHA]</c> — `$color` is never read — and the weights are <c>1 - frac( $frame )</c> on frame
+    /// <c>(int)$frame</c> and <c>frac( $frame )</c> on the next. This project draws a sprite's first frame only, so both
+    /// draws sample one texture and add to one draw of grey `$alpha`. The vertex color follows `$ignorevertexcolors`,
+    /// as in mode 5.
+    /// </remarks>
+    private static (Vector3 Color, float Alpha) FrameBlend(EngineSprite sprite, Vector3 vertexColor, float vertexAlpha)
+    {
+        Vector3 grey = new(sprite.ConstantColor.Alpha);
+
+        return sprite.IgnoresVertexColors ? (grey, 1f) : (grey * vertexColor, vertexAlpha);
+    }
+
     private static readonly SpritePass[] NormalPass = [new(SpriteBlend.Opaque, SpriteDepth.TestAndWrite)];
 
     private static readonly SpritePass[] GlowPass = [new(SpriteBlend.Additive, SpriteDepth.Off)];

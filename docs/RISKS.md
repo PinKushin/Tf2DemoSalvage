@@ -34645,3 +34645,35 @@ koth_harvest_event's plain face and reads back exactly the value the SDK's arith
 
 **Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
 does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.
+
+## B473 — no `CBeam` ever drew: `DT_Beam` is a NOBASE table, so the admission gate dropped every beam — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** `point_spotlight` shafts are `CBeam` entities. Every committed
+era carries them: 102 in the 2011 viaduct STV demo, 378 in the 2013 foundry STV demo and 228 in z1800. Not one
+produced a track. `DT_Beam` (`beam_shared.cpp:147`) is `NOBASE`, so it declares its own `m_nModelIndex`. The model
+accessor read only `DT_BaseEntity`'s, and `DemoTimeline` drops an entity with no model. `DT_RopeKeyframe`
+(`c_rope.cpp:42`) has the same shape and is the rope half of this finding.
+
+**Fix:** the base-member accessors (model, colour, render mode, render FX, move parent) fall back to the class's own
+table. `EntityState.Beam()` decodes the beam's fields, including the scroll speed's receive proxy (`× 0.1`,
+`beam_shared.cpp:83-96`). A beam pose snaps to its last update (`MoveToLastReceivedPosition`,
+`beam_shared.cpp:1075`). `EntityBeams` ports `CViewRenderBeams::DrawBeam( C_Beam* )`: the type remap, the flag mask,
+`UpdateBeam`'s pause re-seed, `DrawBeamWithHalo`, `DrawLaser` and `DrawSplineSegs`. `BeamSegDraw` ports the closed
+`CBeamSegDraw` from disassembly. The full account is in `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** conformance suites citing `view_beams.cpp`, `beamdraw.cpp` and `beam_shared.cpp`
+(`BeamStateConformanceTests`, `BeamTimelineTests`, `BeamSegDrawConformanceTests`, `BeamDrawConformanceTests`,
+`EntityBeamsConformanceTests`). **Output level:** `EntityBeamRenderTests` draws the viaduct demo's first spotlight
+through the production chain and reads (25, 24, 24) at the shaft and black at every corner. Sabotage turned five
+tests red, and each was restored by the inverse edit:
+
+- Dropping the `DT_Beam` model fallback reddened the admission and base-member tests.
+- Dropping the snap reddened the last-received test (30, not 100).
+- Dropping the half-width reddened the strip tests, and zeroing it reddened the render test at (1, 0, 0).
+- Passing `FBEAM_FADEOUT` reddened its test.
+- Using the end width for a halo beam reddened the spotlight test.
+
+**Not ported, deliberately:** temp-entity beams. No demo in either corpus carries one (`entity-census`), and the
+draw types only they reach (tesla, disk, cylinder, ring, follow) are unreachable from an entity beam. The halo's
+occlusion is the line-of-sight trace, not the engine's pixel-visibility query, and a beam draws its sprite's first
+frame. Both are B378's open half.
