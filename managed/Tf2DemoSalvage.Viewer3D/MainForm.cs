@@ -4208,6 +4208,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private VguiTools? _vguiTools;
 
+    /// <summary>The frame-rate log's meter, independent of whether the on-screen one is shown.</summary>
+    private readonly FpsMeter _loggedRate = new() { Mode = FpsMeter.Smoothed };
+
     /// <summary>The surface, font manager and strings every VGUI root shares; null until the game's files are open.</summary>
     private VguiSurfaceHost? _vguiHost;
 
@@ -7834,7 +7837,10 @@ internal class MainForm : Form, IFrameSteps
 
         _wasOnScreen = onScreen;
 
-        if (_frameRateLog.Report(_vguiTools?.LastReading, phases, _frameSeconds) is { } rate)
+        // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers
+        // nothing while `cl_showfps` is 0 — Valve's rule for drawing it — and with no TF2 install it is never built, so a
+        // log that borrowed its reading went silent on a fresh profile and `--measure` counted 0 samples on CI.
+        if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } rate)
         {
             _renderLog.LogInformation("{Message}", rate);
 

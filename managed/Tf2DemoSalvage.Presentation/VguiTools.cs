@@ -35,9 +35,6 @@ public sealed class VguiTools
     /// <summary>The meter, which owns the smoothing and the watermarks.</summary>
     public FpsMeter Meter { get; } = new();
 
-    /// <summary>The most recent reading, drawn or not — what <see cref="FrameRateLog"/> reports.</summary>
-    public FpsReading? LastReading { get; private set; }
-
     /// <summary>Lays out and paints this frame into the host's list, begun already.</summary>
     /// <param name="realtime">Seconds since the viewer started, for the tick.</param>
     /// <param name="frameSeconds">How long the previous frame took.</param>
@@ -47,7 +44,7 @@ public sealed class VguiTools
     public void Frame(double realtime, double frameSeconds, int mode, PositionReadout position, string? mapName)
     {
         Meter.Mode = mode;
-        LastReading = Meter.Sample(frameSeconds);
+        FpsReading? reading = Meter.Sample(frameSeconds);
 
         if (_context is null || !ReferenceEquals(_context.Surface, _host.List))
         {
@@ -70,7 +67,7 @@ public sealed class VguiTools
         Fps.Mode = mode;
         Fps.FrameSeconds = frameSeconds;
         Fps.Position = position;
-        Fps.Reading = LastReading;
+        Fps.Reading = reading;
 
         // `V_GetFileName( engine->GetLevelName() )` keeps the extension.
         Fps.MapName = mapName is { Length: > 0 } named ? named + ".bsp" : "no map";

@@ -86,6 +86,11 @@ public sealed class PlaybackUiTests
             "--autoplay",
             "--measure", PlaybackSeconds.ToString(CultureInfo.InvariantCulture),
             "+demo_timescale", Speed,
+
+            // **The on-screen meter OFF, as on a fresh profile.** `--measure` counted only while `cl_showfps` was on, and
+            // this machine's saved settings have it on, so the run passed here and failed on CI with 0 samples for every
+            // push since it became a test. The condition is pinned rather than inherited from whoever runs it.
+            "+cl_showfps", "0",
         ])
         {
             start.ArgumentList.Add(argument);
