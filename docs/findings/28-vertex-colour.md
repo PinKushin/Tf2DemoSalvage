@@ -213,6 +213,25 @@ under `$vertexalpha` alone (`vertexlitgeneric_dx9_helper.cpp:1472` →
 overlay whose material reads it fades; every other overlay draws fully opaque until `0x18010a580`
 stops queueing it at its maximum distance — a pop, not a fade.
 
+**`$vertexalphatest` looks like a third gate and is not one.** UnlitGeneric declares it
+(`unlitgeneric_dx9.cpp:30`, wired at `:109`), and `vertexlitgeneric_dx9_helper.cpp:482` turns
+`bHasVertexAlpha` on for it — but only inside the snapshot block. The dynamic pass recomputes
+`bHasVertexAlpha` from the `$vertexalpha` flag alone (`:455`) and feeds that to `g_fVertexAlpha`
+(`:1472`), so the parameter widens the vertex format and changes no pixel. *Read from published
+source.*
+
+**On plain brushwork the alpha is the blend factor, and it is zero for exactly the materials that
+blend.** `0x1800f4d40` writes alpha 0 when the material defines `$basetexture2` — the warning it prints
+names WorldTwoTextureBlend, but the test is the parameter — and LightmappedGeneric takes its
+two-texture blend from `v.vColor.a` (`lightmappedgeneric_vs20.fxc:250`). So a WorldVertexTransition
+material on a non-displacement face draws its first texture, which is what a zero `SurfaceVertex.Alpha`
+already gave.
+
+**Measured across every installed map** with the `overlay-vertex-alpha` probe, through the production
+`VmtMaterial.Load`: 47,538 overlays, 4,502 of them fading; 41,757 read vertex alpha, 3,654 of the
+fading ones; none uses a Patch material. So the change is visible on 848 overlays, which now pop at
+their maximum distance instead of fading out. *Measured.*
+
 **The wrong turn this corrects is ours, not the question's.** The renderer had multiplied every
 fading overlay's ramp into its modulation alpha, which is right for exactly the materials this file
 was worried about and wrong for all the others. The flag that looked like a missing feature turned out
