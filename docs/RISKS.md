@@ -35139,3 +35139,44 @@ the fix, so no stock soundscript names one past 180; a stock `SNDLVL_0dB`, or a 
 
 **Fix:** `CStdlib.Atoi` and the range check. Test `SoundLevel_ANumberOutsideOneTo180OrNotANumber_IsSndlvlNorm`;
 sabotage of both bounds (`>= 0`, `< 180`) reddened it and the existing 180 case, restored by the inverse edit.
+
+## B481 — a proxy's master had to be an `env_soundscape`, and a proxy without one was dropped — FIXED 2026-10-04
+
+**Read, published source** (`game/server/soundscape.cpp`, `soundscape.h`, `mapentities.cpp`). Census of the 239
+installed maps, `soundscape-entities` probe: of 6,616 proxies, the master is an `env_soundscape` for 6,512, an
+`env_soundscape_triggerable` for 64 (39 on pl_venice, 15 on pl_embargo), another proxy for 13 (12 on ctf_applejack),
+and nothing for 27.
+
+1. **Any `CEnvSoundscape` is a master.** `CEnvSoundscapeProxy::Activate` casts the first entity of the name to
+   `CEnvSoundscape` (`:42-45`), which both other classes derive from (`soundscape.h:75,93`). `From` accepted only
+   `env_soundscape`, so **the 64 proxies of a triggerable and the 13 of a proxy were dropped** — near one, a listener
+   kept whatever an ordinary soundscape had left playing.
+2. **What is copied is what the master holds when the proxy activates.** Every entity spawns before any activates
+   (`mapentities.cpp:257-308`); a triggerable takes its index at spawn (`Precache`, `:360-377`), a proxy's `Precache`
+   is empty (`soundscape.h:86`). So a master proxy that activates LATER hands on -1 and its own position keys.
+3. **A proxy with no master is kept**, at the constructor's -1 (`:105`) with only a warning (`:58`). It contends like
+   any other; when it wins the client is told no soundscape and starts nothing, so what was playing carries on
+   (`c_soundscape.cpp:562-575`, the mixer's B463 branch). `From` dropped the 27.
+
+***Interpolated:* the activation order.** The spawn list is `qsort`ed on hierarchy depth and a short class-priority
+list (`mapentities.cpp:107-127,174-205`), neither of which separates two unparented soundscapes, so their relative
+order is the sort's. Lump order is taken — what glibc's merge sort, a stable sort, gives on a Linux server; MSVC's
+`qsort` on a Windows listen server promises nothing. It decides only the 13 proxies of a proxy.
+
+**Fix:** `SoundscapePlacements.From` spawns every `CEnvSoundscape` with what its `Precache` gives, then activates the
+proxies in lump order, each copying its master's index, name and position source. Tests in
+`SoundscapeEntityConformanceTests` (triggerable master, proxy of a proxy in both orders, masterless contending, the
+shared-name case now keeping its relay proxy) and the output-level `From_PlVenicesProxiesOfATriggerable_
+CarryTheTriggerablesSoundscape`, which reads each triggerable's `soundscape` key from the lump. Sabotage, each
+restored by the inverse edit: masters restricted to `env_soundscape`; a second activation pass (order ignored);
+masterless proxies skipped; triggerables placed — each reddened its tests.
+
+## B483 — an `env_soundscape_triggerable` contends by radius like any soundscape, and is never placed — OPEN 2026-10-04
+
+**Read, published source.** The triggerable is a `CEnvSoundscape` (`soundscape.h:93`), so its constructor lists it in
+the soundscape system (`soundscape.cpp:108`) and `FrameUpdatePostEntityThink` runs `UpdateForPlayer` on it with every
+other (`soundscape_system.cpp:296-369`) — overriding `Think` (`soundscape.cpp:461-464`) stops nothing, because the
+contest is not a think. On top of that, `trigger_soundscape` writes its params on touch and restores the next on the
+list, or `entIndex = 0`, on end touch (`:417-458`). `SoundscapePlacements` places neither half: B481 holds a
+triggerable only as a proxy's master. 71 on the installed maps. Fixing it needs the trigger volumes and per-tick touch
+state as well as the radius half, and a `entIndex = 0` that the mixer now answers the engine's way (B484).

@@ -979,3 +979,12 @@ locked in by a test that agrees with it (B479).
 **A named soundlevel is range-checked, not trusted.** `TextToSoundLevel` takes `atoi` of what follows `SNDLVL_` and
 keeps it only from 1 to 180; anything else, zero included, is `SNDLVL_NORM` (B480). No stock soundscript names one
 past 180, so this is mostly the rule a map's own script meets.
+
+**A proxy's master is anything the server can cast to `CEnvSoundscape`, and it is read at ACTIVATE time.** The B464
+reading took "master" to mean `env_soundscape`, and a census of the master's class said otherwise: 64 installed
+proxies follow an `env_soundscape_triggerable` and 13 follow another proxy, all dropped. The second kind has a
+property worth writing down: the server spawns every entity and only then activates them, and a proxy's `Precache`
+is empty, so a proxy that follows a proxy copies whatever that proxy holds *at that moment* — its master's soundscape
+if it activated first, or -1 and its own position keys if not. Which comes first is decided by an unstable-in-principle
+`qsort` over keys that do not separate soundscapes; lump order is the reading taken (B481). A proxy that finds no
+master is not discarded either: it stays in the contest at -1, and winning it means the client starts nothing.

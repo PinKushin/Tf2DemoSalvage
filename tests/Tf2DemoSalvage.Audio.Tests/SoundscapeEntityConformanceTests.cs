@@ -385,6 +385,48 @@ public sealed class SoundscapeEntityConformanceTests
         gapped.ShouldBeGreaterThan(0, "and one of them must have the gap this exists to check");
     }
 
+    /// <remarks>
+    /// **The output-level check for a triggerable master, on the map that has the most**: pl_venice's 39 proxies of an
+    /// `env_soundscape_triggerable` were dropped, so a listener near one heard whatever the last ordinary soundscape left.
+    /// Each must now carry its triggerable's soundscape — read straight from the lump here, not through the placement.
+    /// </remarks>
+    [Test]
+    public void From_PlVenicesProxiesOfATriggerable_CarryTheTriggerablesSoundscape()
+    {
+        string bsp = Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/pl_venice.bsp");
+        SoundscapeCatalog catalog = SoundscapeCatalog.Load(
+            Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
+            "pl_venice");
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(System.IO.File.ReadAllBytes(bsp));
+        SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog);
+
+        int checkedProxies = 0;
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.ClassName.Equals("env_soundscape_proxy", System.StringComparison.OrdinalIgnoreCase) ||
+                Named(entity, "MainSoundscapeName") is not { } master ||
+                entities.FirstOrDefault(candidate =>
+                        Named(candidate, "targetname") is { } name &&
+                        name.Equals(master, System.StringComparison.OrdinalIgnoreCase)) is not { } main ||
+                !main.ClassName.Equals("env_soundscape_triggerable", System.StringComparison.OrdinalIgnoreCase) ||
+                Named(main, "soundscape") is not { } soundscape ||
+                Origin(entity) is not { } at)
+            {
+                continue;
+            }
+
+            SoundscapePlacement placed = placements.Placements
+                .Single(placement => (placement.X, placement.Y, placement.Z) == at);
+
+            placed.Name.ShouldBe(soundscape, $"the proxy at {at} names {master}");
+
+            checkedProxies++;
+        }
+
+        checkedProxies.ShouldBe(39, "the census: 39 proxies of a triggerable on pl_venice");
+    }
+
     private static string? Named(BspEntity entity, string key) =>
         entity.TryGetValue(key, out string value) && value.Length > 0 ? value : null;
 

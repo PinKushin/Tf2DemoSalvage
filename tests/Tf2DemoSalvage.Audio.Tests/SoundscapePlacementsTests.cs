@@ -69,12 +69,13 @@ public sealed class SoundscapePlacementsTests
         placed[1].Id.ShouldBe(1);
     }
 
+    /// <remarks>A proxy with an unknown master is NOT skipped — the server keeps it at index -1 (B481,
+    /// `SoundscapeEntityConformanceTests.Choose_AProxyWithNoMaster_ContendsAndCarriesNoSoundscape`).</remarks>
     [Test]
-    public void From_AProxyWithAnUnknownMasterOrAnEntityWithNoOrigin_IsSkipped()
+    public void From_AnEntityWithNoOriginOrNotASoundscape_IsSkipped()
     {
         SoundscapePlacements.From(
             Entities(
-                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"5 6 7\"\n}\n" +
                 "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n}\n" +
                 "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n\"origin\" \"1 2\"\n}\n" +
                 "{\n\"classname\" \"info_target\"\n\"soundscape\" \"test.first\"\n\"origin\" \"1 2 3\"\n}\n"),

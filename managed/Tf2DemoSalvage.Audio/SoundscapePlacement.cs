@@ -126,52 +126,65 @@ public sealed class SoundscapePlacements
             }
         }
 
+        // **Spawn, then activate — the server's two passes over the entity list** (`mapentities.cpp:257-308`). At spawn
+        // each `CEnvSoundscape` takes its index from its own `soundscape` key (`Precache`, `soundscape.cpp:360-377`);
+        // a proxy's `Precache` is empty (`soundscape.h:86`), so it holds the constructor's -1 (`:105`) and its own
+        // position keys. Then each proxy, in list order, copies what its master holds AT THAT MOMENT (`:49-55`) — so
+        // a master that is itself a proxy hands on its master's only if it activated first.
+        Dictionary<BspEntity, Held> held = new(ReferenceEqualityComparer.Instance);
+
+        foreach (BspEntity entity in entities)
+        {
+            if (IsSoundscape(entity))
+            {
+                string own = !IsProxy(entity) && entity.TryGetValue("soundscape", out string named) ? named : string.Empty;
+
+                // **-1 for a name the catalog does not hold, rather than dropping the entity.** A map naming a
+                // soundscape this install lacks is a fact worth being able to report; silently omitting it would look
+                // identical to the map having no ambience there.
+                held[entity] = new Held(own, own.Length > 0 && byName.TryGetValue(own, out int index) ? index : -1, entity);
+            }
+        }
+
+        foreach (BspEntity entity in entities)
+        {
+            // `if ( m_MainSoundscapeName != NULL_STRING )` then `dynamic_cast< CEnvSoundscape* >` (`:40-45`): a master of
+            // any of the three classes. With none, only a warning (`:58`) — the proxy keeps -1 and stays in the list.
+            if (IsProxy(entity) &&
+                entity.TryGetValue("MainSoundscapeName", out string master) &&
+                master.Length > 0 &&
+                byTargetName.TryGetValue(master, out BspEntity? main) &&
+                held.TryGetValue(main, out Held copied))
+            {
+                held[entity] = copied;
+            }
+        }
+
         List<SoundscapePlacement> placements = [];
 
         foreach (BspEntity entity in entities)
         {
-            string? name = null;
-
             // **Whose position keys the placement plays at.** A proxy's are its master's: `Activate` copies every
             // `m_positionNames[i]` from it (`soundscape.cpp:52-54`), so the proxy's own never reach the player (B464).
-            BspEntity positionsFrom = entity;
-
-            if (entity.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) &&
-                entity.TryGetValue("soundscape", out string own))
-            {
-                name = own;
-            }
-            else if (entity.ClassName.Equals(
-                         "env_soundscape_proxy", StringComparison.OrdinalIgnoreCase) &&
-                     entity.TryGetValue("MainSoundscapeName", out string master) &&
-                     byTargetName.TryGetValue(master, out BspEntity? main) &&
-                     main.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) &&
-                     main.TryGetValue("soundscape", out string resolved))
-            {
-                name = resolved;
-                positionsFrom = main;
-            }
-
+            //
+            // The triggerable is held, as a master, and not placed: its own place in the radius contest is B483.
+            //
             // Stryker disable once : a mutant that empties the guard body leaves 'origin's fields
             // unassigned (CS0170), and Safe Mode then drops every mutation in this method — B410.
-            if (name is null || Origin(entity) is not { } origin)
+            if (!held.TryGetValue(entity, out Held soundscape) || IsTriggerable(entity) || Origin(entity) is not { } origin)
             {
                 continue;
             }
 
             placements.Add(new SoundscapePlacement(
                 placements.Count,
-                name,
-
-                // **-1 for a name the catalog does not hold, rather than dropping the entity.** A
-                // map naming a soundscape this install lacks is a fact worth being able to report;
-                // silently omitting it would look identical to the map having no ambience there.
-                byName.TryGetValue(name, out int index) ? index : -1,
+                soundscape.Name,
+                soundscape.Index,
                 origin.X,
                 origin.Y,
                 origin.Z,
                 Radius(entity),
-                Targets(positionsFrom, entities),
+                Targets(soundscape.PositionsFrom, entities),
 
                 // **The entity's own cluster, resolved once here.** The engine does the same at map
                 // load rather than per frame (`LevelInitPostEntity`), and there is no reason to
@@ -348,6 +361,24 @@ public sealed class SoundscapePlacements
             currentDistance = range;
         }
     }
+
+    /// <summary>What a <c>CEnvSoundscape</c> holds once it has spawned, and a proxy once it has activated.</summary>
+    /// <param name="Name">The soundscape's name, for the log; empty when it names none.</param>
+    /// <param name="Index"><c>m_soundscapeIndex</c>.</param>
+    /// <param name="PositionsFrom">The entity whose <c>position&lt;N&gt;</c> keys are its <c>m_positionNames</c>.</param>
+    private readonly record struct Held(string Name, int Index, BspEntity PositionsFrom);
+
+    /// <summary>A <c>CEnvSoundscape</c> or a class derived from it (<c>soundscape.cpp:23,69,406</c>).</summary>
+    private static bool IsSoundscape(BspEntity entity) =>
+        entity.ClassName.Equals("env_soundscape", StringComparison.OrdinalIgnoreCase) ||
+        IsProxy(entity) ||
+        IsTriggerable(entity);
+
+    private static bool IsProxy(BspEntity entity) =>
+        entity.ClassName.Equals("env_soundscape_proxy", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsTriggerable(BspEntity entity) =>
+        entity.ClassName.Equals("env_soundscape_triggerable", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>An entity's origin, or null when it declares none.</summary>
     private static (float X, float Y, float Z)? Origin(BspEntity entity) =>
