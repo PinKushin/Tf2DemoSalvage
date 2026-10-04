@@ -71,9 +71,25 @@ public sealed class TfHudTimeStatusConformanceTests
         (panel.FindChildByName("SetupLabel")!.Visible, panel.FindChildByName("WaitingForPlayersLabel")!.Visible).ShouldBe((true, false));
     }
 
+    /// <remarks>
+    /// `SetTimerIndex( int index ){ m_iTimerIndex = ( index &gt;= 0 ) ? index : 0; SetExtraTimePanels(); }`
+    /// (tf_time_panel.h:77), and the match status calls it the think it points the panel at the timer
+    /// (tf_hud_match_status.cpp:497) — so the setup label shows then, with no `teamplay_update_timer` (B467). This test
+    /// asserted the opposite before B467, written from the port rather than the header.
+    /// </remarks>
     [Test]
-    public void SetExtraTimePanels_InSetupBeforeTheTimersUpdate_LeavesTheSetupLabelHidden() =>
-        Thought(Playing() with { Rules = Rules() with { Setup = true } }).TimePanel.FindChildByName("SetupLabel")!.Visible.ShouldBeFalse();
+    public void SetTimerIndex_InSetup_ShowsTheSetupLabelWithoutAnUpdate() =>
+        Thought(Playing() with { Rules = Rules() with { Setup = true } }).TimePanel.FindChildByName("SetupLabel")!.Visible.ShouldBeTrue();
+
+    [Test]
+    public void SetTimerIndex_Negative_IsZero()
+    {
+        TfHudTimeStatus panel = Thought(Playing()).TimePanel;
+
+        panel.SetTimerIndex(-3);
+
+        panel.TimerIndex.ShouldBe(0);
+    }
 
     [Test]
     public void SetExtraTimePanels_WaitingForPlayersInSetup_ShowsWaitingNotSetup()
@@ -127,17 +143,37 @@ public sealed class TfHudTimeStatusConformanceTests
     }
 
     [Test]
-    public void Paint_AfterTimeAdded_DrawsTheDelta()
+    public void Paint_AfterTimeAdded_DrawsTheDelta() =>
+        PaintedAfterTimeAdded(90).ShouldBe("+1:30");
+
+    /// <remarks>`NUM_TIMER_DELTA_ITEMS 10` (tf_time_panel.h:57): a ring of ten, each painted while it lives (:843) — B466.</remarks>
+    [Test]
+    public void Paint_TenDeltasWithinTheirLifetime_DrawsAllTen() =>
+        PaintedAfterTimeAdded(61, 62, 63, 64, 65, 66, 67, 68, 69, 70).ShouldBe("+1:01+1:02+1:03+1:04+1:05+1:06+1:07+1:08+1:09+1:10");
+
+    /// <remarks>`m_iTimerDeltaHead %= NUM_TIMER_DELTA_ITEMS` (tf_time_panel.cpp:402): the eleventh takes slot 0.</remarks>
+    [Test]
+    public void Paint_AnEleventhDelta_ReplacesTheOldest() =>
+        PaintedAfterTimeAdded(61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71).ShouldBe("+1:11+1:02+1:03+1:04+1:05+1:06+1:07+1:08+1:09+1:10");
+
+    /// <summary>What the panel paints after a `teamplay_timer_time_added` for timer 42 per entry, all at curtime 10.</summary>
+    private static string PaintedAfterTimeAdded(params int[] seconds)
     {
         TfHudMatchStatus status = Built(Playing(), useMatchHud: true);
-        SceneGameEvent added = new(0, "teamplay_timer_time_added", new Dictionary<string, object?> { ["timer"] = 42, ["seconds_added"] = 90 }, new Dictionary<int, PlayerInfo>());
         TextRecorder surface = new();
 
         Think(status, Playing());
-        status.TimePanel.HandleGameEvent(new HudGameEvent(added, 10f, [], 1, Rules(), "cp_test", 0));
+
+        foreach (int one in seconds)
+        {
+            SceneGameEvent added = new(0, "teamplay_timer_time_added", new Dictionary<string, object?> { ["timer"] = 42, ["seconds_added"] = one }, new Dictionary<int, PlayerInfo>());
+
+            status.TimePanel.HandleGameEvent(new HudGameEvent(added, 10f, [], 1, Rules(), "cp_test", 0));
+        }
+
         status.TimePanel.Paint(surface, Context());
 
-        string.Concat(surface.Glyphs.Select(glyph => glyph[0])).ShouldBe("+1:30");
+        return string.Concat(surface.Glyphs.Select(glyph => glyph[0]));
     }
 
     [TestCase(3725, "1:02:05")]

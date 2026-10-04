@@ -87,6 +87,24 @@ evidently not filtered by it. *Measured on the corpus* (`AudienceSplitCorpusTest
 The stock manifest's two scripts declare 311 events; 309 parse, and the two missing are `[$X360]` variants of
 `WeaponUsesClips` and `WeaponDoesNotUseClips`. *Read from published source, counted on the shipped files.*
 
+## Three round-timer and ammo details the port had from memory rather than the header
+
+A parity audit (2026-10-04) re-read `tf_time_panel.h/.cpp` and `tf_hud_ammostatus.cpp` against the port and found three
+divergences, each settled by the published source and fixed the same day (B466-B468). *Read from published source.*
+
+- **Ten floating deltas, not two.** `NUM_TIMER_DELTA_ITEMS` is 10 (`tf_time_panel.h:57`) and `Paint` walks all ten
+  (`tf_time_panel.cpp:843`). The port kept two, so a third `teamplay_timer_time_added` inside the 2-second
+  `delta_lifetime` overwrote a delta still on screen. Capture and cart bonuses arrive in bursts, so this was reachable.
+- **Setting the timer index is not a plain store.** `SetTimerIndex` clamps a negative index to 0 and calls
+  `SetExtraTimePanels()` (`tf_time_panel.h:77`). The match status calls it when its timer goes invalid
+  (`tf_hud_match_status.cpp:497`), and KOTH calls it when the entity index differs from the panel's (`tf_time_panel.cpp:1063`,
+  `:1080`). The port assigned a property, so the setup, waiting, overtime and sudden-death labels waited for the next
+  `teamplay_update_timer`. **This project's own test asserted that wait** (`…InSetupBeforeTheTimersUpdate_LeavesTheSetupLabelHidden`),
+  with a comment explaining why the update was needed. The test was written from the port rather than from the header, so it
+  agreed with whoever wrote the port. It now asserts the label shows on the think that points the panel at the timer.
+- **The ammo count hides for a Halloween ghost, an active minigame and the match summary** (`tf_hud_ammostatus.cpp:153-160`).
+  `CTFHudPlayerStatus` beside it already tested all three, so the two sibling elements disagreed under the summary.
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font

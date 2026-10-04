@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -81,6 +82,25 @@ public sealed class TfHudWeaponAmmoConformanceTests
     [Test]
     public void ShouldDraw_NotShown_IsHidden() =>
         ((IHudElement)Built()).ShouldDraw(State(Scattergun with { Shown = false })).ShouldBeFalse();
+
+    [Test]
+    public void ShouldDraw_AUsableWeapon_IsDrawn() =>
+        ((IHudElement)Built()).ShouldDraw(State(Scattergun)).ShouldBeTrue("the control for the three refusals below");
+
+    /// <remarks>`InCond( TF_COND_HALLOWEEN_GHOST_MODE )` (tf_hud_ammostatus.cpp:153) — condition 77, bit 13 of `m_nPlayerCondEx2` (B468).</remarks>
+    [Test]
+    public void ShouldDraw_AsAHalloweenGhost_IsHidden() =>
+        ((IHudElement)Built()).ShouldDraw(State(Scattergun) with { Conditions = new PlayerConditions(0, 0, 1 << (77 - 64), 0, 0) }).ShouldBeFalse();
+
+    /// <remarks>`GetMinigameLogic()-&gt;GetActiveMinigame()` (tf_hud_ammostatus.cpp:156) — B468.</remarks>
+    [Test]
+    public void ShouldDraw_InAnActiveMinigame_IsHidden() =>
+        ((IHudElement)Built()).ShouldDraw(State(Scattergun) with { Rules = new SceneGameRules(false, 0, false) { ActiveMinigame = true } }).ShouldBeFalse();
+
+    /// <remarks>`TFGameRules()-&gt;ShowMatchSummary()` (tf_hud_ammostatus.cpp:159) — B468.</remarks>
+    [Test]
+    public void ShouldDraw_UnderTheMatchSummary_IsHidden() =>
+        ((IHudElement)Built()).ShouldDraw(State(Scattergun) with { Rules = new SceneGameRules(false, 0, false) { ShowMatchSummary = true } }).ShouldBeFalse();
 
     private static HudState State(TfAmmoState ammo) => new(true, true, 0, 125, true, 125, 185, CurTime: 1f, Ammo: ammo, ActiveWeapon: 5);
 

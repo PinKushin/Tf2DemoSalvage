@@ -1,3 +1,5 @@
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Scene.Hud;
 
 /// <summary>`CTFHudWeaponAmmo` (game/client/tf/tf_hud_ammostatus.cpp): the active weapon's clip and reserve.</summary>
@@ -39,8 +41,15 @@ public sealed class TfHudWeaponAmmo : VguiEditablePanel, IHudElement
     /// <inheritdoc/>
     public int HiddenBits => HudVisibility.HideHealth | HudVisibility.HidePlayerDead;
 
-    /// <inheritdoc/>
-    public bool ShouldDraw(HudState state) => state.Ammo.Shown && !HudVisibility.IsHidden(state, HiddenBits);
+    /// <summary>
+    /// `CTFHudWeaponAmmo::ShouldDraw` (tf_hud_ammostatus.cpp:120-163): the weapon's own refusals, then not as a Halloween
+    /// ghost, nor in an active minigame, nor under the match summary (:153-160, B468), then `CHudElement::ShouldDraw`.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <returns>Whether it draws.</returns>
+    public bool ShouldDraw(HudState state) =>
+        state.Ammo.Shown && !state.Conditions.Has(PlayerConditions.HalloweenGhostMode) && !state.Rules.ActiveMinigame
+        && !state.Rules.ShowMatchSummary && !HudVisibility.IsHidden(state, HiddenBits);
 
     /// <inheritdoc/>
     public override void ApplySchemeSettings(VguiContext context)

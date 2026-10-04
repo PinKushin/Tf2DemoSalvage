@@ -75,7 +75,7 @@ public sealed class TfGameMovement
     private const int CondHalloweenSpeedBoost = 72;
     private const int CondBlastJumping = 81;
     private const int CondRuneAgility = 97;
-    private const int CondGhost = 77;
+    private const int CondGhost = PlayerConditions.HalloweenGhostMode;
     private const int CondParachute = 80;
     private const int CondKart = 82;
     private const int CondSwimmingCurse = 86;

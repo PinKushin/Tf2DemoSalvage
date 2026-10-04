@@ -34645,3 +34645,46 @@ koth_harvest_event's plain face and reads back exactly the value the SDK's arith
 
 **Interpolated:** a material under HDR naming none of the three HDR textures falls to `$basetexture` (none shipped
 does); the blue-screen key's colour after the closed bitmap library's conversion is left as stored.
+
+## B466 — the round timer floated two `+m:ss` deltas where the engine floats ten — FIXED 2026-10-04
+
+**Read, published source:** `#define NUM_TIMER_DELTA_ITEMS 10` (`tf_time_panel.h:57`), the ring `m_TimerDeltaItems`
+(`:124`), `SetTimeAdded` wrapping its head with that constant (`tf_time_panel.cpp:399-402`) and `Paint` walking all ten
+(`:843-885`). `TfHudTimeStatus` declared 2, so a third `teamplay_timer_time_added` inside the 2-second `delta_lifetime`
+overwrote a delta still floating. Found by the 2026-10-04 parity audit; no reason for 2 was recorded anywhere.
+
+**Fix:** the constant is 10. `TfHudTimeStatusConformanceTests.Paint_TenDeltasWithinTheirLifetime_DrawsAllTen` and
+`…Paint_AnEleventhDelta_ReplacesTheOldest` (the eleventh takes slot 0) were red at 2 and are green; sabotaged back to 2,
+both reddened.
+
+## B467 — setting the round timer panel's timer never ran `SetExtraTimePanels` — FIXED 2026-10-04
+
+**Read, published source:** `SetTimerIndex( int index ){ m_iTimerIndex = ( index >= 0 ) ? index : 0; SetExtraTimePanels(); }`
+(`tf_time_panel.h:77`). The match status calls it whenever its panel's timer is no longer valid
+(`tf_hud_match_status.cpp:497`), and KOTH calls it only when a timer's entity index differs from the panel's
+(`tf_time_panel.cpp:1063`, `:1080`). `TfHudTimeStatus.TimerIndex` was a settable property, so the setup, waiting,
+overtime and sudden-death labels stayed as they were until the next `teamplay_update_timer`, and a negative index was
+kept. **A test asserted the divergence**: `…InSetupBeforeTheTimersUpdate_LeavesTheSetupLabelHidden`, written from the
+port. It is replaced by `SetTimerIndex_InSetup_ShowsTheSetupLabelWithoutAnUpdate`.
+
+**Fix:** `SetTimerIndex` clamps and runs `SetExtraTimePanels`; the property is private-set, written directly only by
+`ApplySchemeSettings` as the engine's `m_iTimerIndex = 0` is (`:664`). KOTH sets only on a change. Tests:
+`SetTimerIndex_Negative_IsZero`, `TfHudKothTimeStatusConformanceTests.Think_InSetup_ShowsEachPanelsSetupLabelWithoutAnUpdate`
+and `…Think_TheSameTimer_DoesNotRunSetExtraTimePanelsAgain` (setup ends, the index is unchanged, so the label stays up).
+Sabotaged: dropping the call, the clamp, and each of KOTH's two change guards reddened the matching test.
+
+**Kept:** the seek path's `RefreshExtraTimePanels` (`VguiHud`), which stands in for the `teamplay_update_timer` a seek
+skips and is a different question.
+
+## B468 — the ammo count drew for a Halloween ghost, in a minigame and under the match summary — FIXED 2026-10-04
+
+**Read, published source:** `CTFHudWeaponAmmo::ShouldDraw` returns false for `TF_COND_HALLOWEEN_GHOST_MODE`, an active
+minigame and `ShowMatchSummary()` before `CHudElement::ShouldDraw` (`tf_hud_ammostatus.cpp:153-160`). `TfHudWeaponAmmo`
+tested only the weapon's own refusals, while `TfHudPlayerStatus` beside it tested all three.
+
+**Fix:** the three tests, in the engine's order. `TfHudWeaponAmmoConformanceTests.ShouldDraw_AsAHalloweenGhost_IsHidden`,
+`…InAnActiveMinigame_IsHidden` and `…UnderTheMatchSummary_IsHidden`, against the control `…AUsableWeapon_IsDrawn`;
+each was red and each reddened again when its own test was sabotaged. `TF_COND_HALLOWEEN_GHOST_MODE` was declared as a
+private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
+
+**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
