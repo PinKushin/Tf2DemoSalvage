@@ -28,6 +28,50 @@ public sealed class CStdlibConformanceTests
         CStdlib.Atoi(string.Empty).ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **The Microsoft C runtime clamps** — <i>"atoi and _wtoi return INT_MAX and INT_MIN on these conditions"</i>, its
+    /// own example reading <c>"3336402735171707160320"</c> as 2147483647 (learn.microsoft.com, <c>atoi</c>). The engine
+    /// binaries this project reads are built against it. A TryParse that fails on overflow answered zero.
+    /// </remarks>
+    [Test]
+    public void Atoi_ANumberPastTheIntRange_ClampsAsTheMicrosoftRuntimeDoes()
+    {
+        CStdlib.Atoi("3336402735171707160320").ShouldBe(int.MaxValue);
+        CStdlib.Atoi("-99999999999x").ShouldBe(int.MinValue);
+        CStdlib.Atoi("2147483647").ShouldBe(int.MaxValue, "the control: the largest int is itself");
+        CStdlib.Atoi("-2147483648").ShouldBe(int.MinValue);
+    }
+
+    /// <remarks>
+    /// **C's white space is six characters** — space, <c>\t \n \v \f \r</c> (C11 7.4.1.10, the "C" locale) — not .NET's
+    /// Unicode set. A byte 0xA0 read as Latin-1 is a no-break space to <c>char.IsWhiteSpace</c> and a non-digit to C, so
+    /// it stops the scan at once.
+    /// </remarks>
+    [Test]
+    public void AtoiAndAtof_LeadingWhiteSpace_IsOnlyCs()
+    {
+        CStdlib.Atoi("\v\f7").ShouldBe(7);
+        CStdlib.Atoi(" 7").ShouldBe(0);
+        CStdlib.Atof("\t\r.5").ShouldBe(0.5d);
+        CStdlib.Atof(" .5").ShouldBe(0d);
+    }
+
+    /// <remarks>
+    /// **<c>atof</c> reads <c>inf</c>, <c>infinity</c> and <c>nan</c>, without case** (C11 7.22.1.3). The NaN's bits are
+    /// the runtime's: narrowed to float, vphysics' own surface table held <c>0x7fffffff</c> for <c>"nan"</c>
+    /// (`VphysicsSurfaceDataConformanceTests`, read back from the shipped binary).
+    /// </remarks>
+    [Test]
+    public void Atof_InfinityAndNan_AreTheCRuntimesSpecials()
+    {
+        CStdlib.Atof("inf").ShouldBe(double.PositiveInfinity);
+        CStdlib.Atof(" -Infinity").ShouldBe(double.NegativeInfinity);
+        CStdlib.Atof("INFx").ShouldBe(double.PositiveInfinity);
+        BitConverter.SingleToInt32Bits((float)CStdlib.Atof("nan")).ShouldBe(0x7fffffff);
+        BitConverter.SingleToInt32Bits((float)CStdlib.Atof("-NaN")).ShouldBe(unchecked((int)0xffffffff));
+        CStdlib.Atof("in").ShouldBe(0d, "the control: a prefix of a special is no number");
+    }
+
     [Test]
     public void Atof_ADecimalWithNoLeadingZero_IsRead()
     {
