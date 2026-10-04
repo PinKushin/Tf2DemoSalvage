@@ -35,7 +35,9 @@ public sealed class ClientLeafSystemMapTests
 
         for (int leaf = 0; leaf < tree.LeafCount; leaf++)
         {
-            if (tree.Bounds(leaf) is not { } bounds)
+            // Where an entity can stand: an empty leaf. A box wholly inside solid is filed nowhere by the engine
+            // (contents 1 ends the branch, 0x1800dd6a7) and anywhere by a plane-only walk.
+            if (tree.Contents(leaf) == BspLeafTree.ContentsSolid || tree.Bounds(leaf) is not { } bounds)
             {
                 continue;
             }
@@ -60,22 +62,42 @@ public sealed class ClientLeafSystemMapTests
         CollatedRenderables collated = new();
         system.BuildRenderablesList(culling.MainLeaves, default, static _ => LeafRenderGroup.Translucent, collated);
 
-        bool[] visible = new bool[tree.LeafCount];
+        // **The view lists solid leaves, and the engine's never does** — so the old route's place (PositionOf, which
+        // ranks every listed leaf) is compared over the listed leaves an entity can be in. See RISKS B262.
+        Dictionary<int, int> placeOf = [];
 
-        foreach (int leaf in culling.MainLeaves)
+        for (int place = 0; place < culling.MainLeaves.Count; place++)
         {
-            visible[leaf] = true;
+            if (tree.Contents(culling.MainLeaves[place]) != BspLeafTree.ContentsSolid)
+            {
+                placeOf.TryAdd(culling.MainLeaves[place], place);
+            }
         }
 
         Dictionary<int, int> expected = [];
+        List<int> touched = [];
 
         for (int at = 0; at < boxes.Count; at++)
         {
             (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) = boxes[at];
 
-            if (tree.TouchesAny(minX, minY, minZ, maxX, maxY, maxZ, visible))
+            touched.Clear();
+            tree.LeavesTouchingBox((minX, minY, minZ), (maxX, maxY, maxZ), touched);
+
+            // And whose own box the entity's overlaps — the engine tests a leaf's bounds before filing (0x180172540).
+            int[] places =
+            [
+                .. touched
+                    .Where(leaf => placeOf.ContainsKey(leaf) && tree.Bounds(leaf) is { } box &&
+                        box.Min.X <= maxX && minX <= box.Max.X &&
+                        box.Min.Y <= maxY && minY <= box.Max.Y &&
+                        box.Min.Z <= maxZ && minZ <= box.Max.Z)
+                    .Select(leaf => placeOf[leaf]),
+            ];
+
+            if (places.Length > 0)
             {
-                expected[handles[at]] = culling.PositionOf(minX, minY, minZ, maxX, maxY, maxZ);
+                expected[handles[at]] = places.Min();
             }
         }
 
@@ -104,9 +126,20 @@ public sealed class ClientLeafSystemMapTests
         (MapLevel level, _) = WorldCullingMapTests.Built();
         BspLeafTree tree = level.Leaves.ShouldNotBeNull("cp_process has a tree");
 
+        // A +X plane with open space on both sides of it at the node's middle: two different empty leaves.
+        bool Open(float x, float y, float z) => tree.Contents(tree.LeafAt(x, y, z)) != BspLeafTree.ContentsSolid;
+
         BspNode split = Enumerable.Range(0, tree.NodeCount)
             .Select(node => tree.Node(node)!.Value)
-            .First(node => node.NormalX > 0.9999f && System.MathF.Abs(node.NormalY) + System.MathF.Abs(node.NormalZ) < 1e-6f);
+            .First(node =>
+            {
+                float y = (node.Min.Y + node.Max.Y) * 0.5f;
+                float z = (node.Min.Z + node.Max.Z) * 0.5f;
+
+                return node.NormalX > 0.9999f && System.MathF.Abs(node.NormalY) + System.MathF.Abs(node.NormalZ) < 1e-6f &&
+                    Open(node.Distance + 0.01f, y, z) && Open(node.Distance - 5f, y, z) &&
+                    tree.LeafAt(node.Distance + 0.01f, y, z) != tree.LeafAt(node.Distance - 5f, y, z);
+            });
 
         float y = (split.Min.Y + split.Max.Y) * 0.5f;
         float z = (split.Min.Z + split.Max.Z) * 0.5f;

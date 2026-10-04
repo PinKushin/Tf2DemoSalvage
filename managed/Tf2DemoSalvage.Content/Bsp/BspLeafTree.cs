@@ -648,22 +648,28 @@ public sealed class BspLeafTree
         }
     }
 
-    /// <summary>The leaves a box is filed in for the client leaf system — <c>EnumerateLeavesInBox_R</c>.</summary>
+    /// <summary>The leaves a box is filed in for the client leaf system — <c>CEngineBSPTree::EnumerateLeavesInBox</c>.</summary>
     /// <param name="min">The box's low corner.</param>
     /// <param name="max">The box's high corner.</param>
     /// <param name="into">Where the leaves are appended, front child first.</param>
     /// <remarks>
-    /// **source-sdk-2013 <c>utils/common/bsplib.cpp:3461-3499</c>**: the box's corners along the plane normal; back
-    /// alone when the far corner is at least <c>TEST_EPSILON</c> (<c>:3403</c>, 1/32) behind, front alone when the
-    /// near corner is that far in front, otherwise both — so a box touching a plane is in the leaves on BOTH sides.
-    /// That is the published copy of <c>ISpatialQuery::EnumerateLeavesInBox</c>; the engine's own is closed and has not
-    /// been disassembled, so its equality with this is INTERPOLATED (B262).
+    /// **Read from engine.dll's DISASSEMBLY (B262)**: the <c>CEngineBSPTree</c> vtable (<c>0x18038e768</c>, found by
+    /// its RTTI) has <c>EnumerateLeavesInBox</c> in slot 2, <c>0x1800d96a0</c>, which turns the box into a centre and
+    /// half extents and walks <c>0x1800dd690</c>:
+    ///
+    /// * a node or leaf with contents 1 (solid) ends that branch (<c>0x1800dd6a7</c>, <c>0x1800dd73f</c>);
+    /// * the node's or leaf's own box must overlap the query, touching included (<c>0x1800dd6f0</c> →
+    ///   <c>0x180172540</c>: rejected only when <c>|c1 − c2| &gt; e1 + e2</c> on an axis);
+    /// * against the plane, back alone when the far corner is at or behind it (<c>0x1800dd80a</c>, and
+    ///   <c>dist &gt;= max</c> for an axial plane at <c>0x1800dd716</c>), front alone when the near corner is at or in
+    ///   front (<c>0x1800dd82d</c>, <c>dist &lt;= min</c> at <c>0x1800dd71c</c>), otherwise front then back.
+    ///
+    /// **No epsilon**, unlike the tools copy in <c>utils/common/bsplib.cpp:3403</c> (1/32), which this ported first. The
+    /// axial branch is the general one with a unit normal, so one formula serves both.
     /// </remarks>
     public void EnumerateLeavesInBox(
         (float X, float Y, float Z) min, (float X, float Y, float Z) max, ICollection<int> into)
     {
-        const float TestEpsilon = 0.03125f;
-
         ArgumentNullException.ThrowIfNull(into);
 
         if (IsEmpty)
@@ -671,8 +677,6 @@ public sealed class BspLeafTree
             return;
         }
 
-        ReadOnlySpan<byte> nodes = _nodes.Span;
-        ReadOnlySpan<byte> planes = _planes.Span;
         Stack<int> pending = new();
         int budget = NodeCount + LeafCount + 1;
 
@@ -684,47 +688,49 @@ public sealed class BspLeafTree
 
             if (node < 0)
             {
-                into.Add(-node - 1);
+                int leaf = -node - 1;
+
+                if (Contents(leaf) != ContentsSolid && Bounds(leaf) is { } box && Overlaps(box.Min, box.Max, min, max))
+                {
+                    into.Add(leaf);
+                }
+
                 continue;
             }
 
-            int at = node * NodeStride;
-            int planeAt = at + NodeStride <= nodes.Length
-                ? BinaryPrimitives.ReadInt32LittleEndian(nodes[at..]) * PlaneStride
-                : -1;
-
-            if (planeAt < 0 || planeAt + PlaneStride > planes.Length)
+            if (Node(node) is not { } split || !Overlaps(split.Min, split.Max, min, max))
             {
                 continue;
             }
 
-            float nx = BinaryPrimitives.ReadSingleLittleEndian(planes[planeAt..]);
-            float ny = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 4)..]);
-            float nz = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 8)..]);
-            float distance = BinaryPrimitives.ReadSingleLittleEndian(planes[(planeAt + 12)..]);
+            (float nx, float ny, float nz) = (split.NormalX, split.NormalY, split.NormalZ);
 
-            // `normal[i] >= 0` puts mins in cornermin (:3474), so the near corner is the min side for a zero normal.
-            float cornerMin = (nx * (nx >= 0 ? min.X : max.X)) + (ny * (ny >= 0 ? min.Y : max.Y)) + (nz * (nz >= 0 ? min.Z : max.Z));
-            float cornerMax = (nx * (nx >= 0 ? max.X : min.X)) + (ny * (ny >= 0 ? max.Y : min.Y)) + (nz * (nz >= 0 ? max.Z : min.Z));
+            float far = (nx * (nx >= 0 ? max.X : min.X)) + (ny * (ny >= 0 ? max.Y : min.Y)) + (nz * (nz >= 0 ? max.Z : min.Z));
+            float near = (nx * (nx >= 0 ? min.X : max.X)) + (ny * (ny >= 0 ? min.Y : max.Y)) + (nz * (nz >= 0 ? min.Z : max.Z));
 
-            int front = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 4)..]);
-            int back = BinaryPrimitives.ReadInt32LittleEndian(nodes[(at + 8)..]);
-
-            if (cornerMax - distance <= -TestEpsilon)
+            if (far <= split.Distance)
             {
-                pending.Push(back);
+                pending.Push(split.Back);
             }
-            else if (cornerMin - distance >= TestEpsilon)
+            else if (near >= split.Distance)
             {
-                pending.Push(front);
+                pending.Push(split.Front);
             }
             else
             {
-                pending.Push(back);
-                pending.Push(front);
+                pending.Push(split.Back);
+                pending.Push(split.Front);
             }
         }
     }
+
+    /// <summary><c>0x180172540</c>: two boxes overlap unless an axis separates them, touching counts.</summary>
+    private static bool Overlaps(
+        (float X, float Y, float Z) aMin, (float X, float Y, float Z) aMax,
+        (float X, float Y, float Z) bMin, (float X, float Y, float Z) bMax) =>
+        aMin.X <= bMax.X && bMin.X <= aMax.X &&
+        aMin.Y <= bMax.Y && bMin.Y <= aMax.Y &&
+        aMin.Z <= bMax.Z && bMin.Z <= aMax.Z;
 
     /// <summary>How far a box may travel between two points before it meets something solid.</summary>
     /// <param name="fromX">Where the sweep starts, in world units.</param>
