@@ -1,8 +1,10 @@
 using System;
+using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Scene.Tests;
@@ -635,6 +637,62 @@ public sealed class EntityModelsTests
 
         instances.Count.ShouldBe(1);
         models.Culled.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **The visibility half of the cull, the one the engine leads with** (B254).
+    /// `CClientLeafSystem::BuildRenderablesList` (`clientleafsystem.cpp:1813`) iterates only the
+    /// visible leaf list, so a renderable whose leaves are all outside it never reaches
+    /// `CollateRenderablesInLeaf` and therefore never `SetupBones` — even when it is squarely inside
+    /// the view cone. The prop here is in front of the camera and in a leaf the world cull rejected.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPropInFrontButInNoVisibleLeaf_DoesNotPoseIt()
+    {
+        EntityModelSet models = new() { Tree = SplitAtZeroAboveIsLeafOne() };
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f, z: 100f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), visibleByLeaf: [true, false]);
+
+        instances.ShouldBeEmpty();
+        models.CulledByVisibility.ShouldBe(1);
+    }
+
+    /// <remarks>
+    /// The control: the same prop in the visible leaf is posed, so the test above cannot pass by a
+    /// tree or a set that rejects everything.
+    /// </remarks>
+    [Test]
+    public void Instances_WithAPropInFrontAndInAVisibleLeaf_PosesIt()
+    {
+        EntityModelSet models = new() { Tree = SplitAtZeroAboveIsLeafOne() };
+        List<ModelInstance> instances = [];
+
+        SceneProp[] props = [Prop("models/props/crate.mdl", x: 500f, z: -200f)];
+
+        models.Add(props, BoxedTriangle);
+        models.Instances(props, instances, frustum: LookingAlongX(), visibleByLeaf: [true, false]);
+
+        instances.Count.ShouldBe(1);
+        models.CulledByVisibility.ShouldBe(0);
+    }
+
+    /// <summary>One node splitting on z = 0: leaf 1 above, leaf 0 below.</summary>
+    private static BspLeafTree SplitAtZeroAboveIsLeafOne()
+    {
+        byte[] plane = new byte[20];
+
+        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
+
+        byte[] node = new byte[32];
+
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -2);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -1);
+
+        return BspLeafTree.FromLumps(node, plane);
     }
 
     private static SceneProp Prop(
