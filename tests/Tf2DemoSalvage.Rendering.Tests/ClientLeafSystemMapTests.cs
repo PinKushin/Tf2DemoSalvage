@@ -62,8 +62,8 @@ public sealed class ClientLeafSystemMapTests
         CollatedRenderables collated = new();
         system.BuildRenderablesList(culling.MainLeaves, default, static _ => LeafRenderGroup.Translucent, collated);
 
-        // **The view lists solid leaves, and the engine's never does** — so the old route's place (PositionOf, which
-        // ranks every listed leaf) is compared over the listed leaves an entity can be in. See RISKS B262.
+        // The old route's place, over the listed leaves an entity can be in. The view lists no solid leaf now
+        // (`Batches_ForCpProcessFromInside_ListsNoSolidLeaf`); the filter stays so this test does not depend on it.
         Dictionary<int, int> placeOf = [];
 
         for (int place = 0; place < culling.MainLeaves.Count; place++)
@@ -221,7 +221,24 @@ public sealed class ClientLeafSystemMapTests
 
         culling.Batches(inSolid.X, inSolid.Y, inSolid.Z, default);
 
-        int open = Enumerable.Range(0, tree.LeafCount).Count(leaf => tree.Contents(leaf) != BspLeafTree.ContentsSolid);
+        // Every non-solid leaf of the WORLD tree — the leaves under node 0; the brush models' trees are not walked.
+        int open = 0;
+        Stack<int> pending = new([0]);
+
+        while (pending.Count > 0)
+        {
+            int node = pending.Pop();
+
+            if (node < 0)
+            {
+                open += tree.Contents(-node - 1) == BspLeafTree.ContentsSolid ? 0 : 1;
+                continue;
+            }
+
+            BspNode split = tree.Node(node)!.Value;
+            pending.Push(split.Front);
+            pending.Push(split.Back);
+        }
 
         culling.LeafCount.ShouldBe(open);
     }
