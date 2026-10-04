@@ -155,9 +155,9 @@ public static class EntitySprites
         }
     }
 
-    /// <summary>How a sprite blends — the <c>Sprite</c> shader's switch on its render mode (B391).</summary>
+    /// <summary>How a sprite is drawn — the <c>Sprite</c> shader's switch on its render mode (B391).</summary>
     /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
-    /// <returns>The blend, or null for the modes that have no material and draw nothing.</returns>
+    /// <returns>Each draw in order, or none for the modes that have no material and draw nothing.</returns>
     /// <remarks>
     /// **The ENTITY decides, never the material's text.** `CEngineSprite::Init` builds one material per
     /// render mode, stamping each with <c>$spriteRenderMode</c> (`spritemodel.cpp:279-289`), and the
@@ -167,20 +167,38 @@ public static class EntitySprites
     /// `light_glow03`'s text reads translucent — its `$additive` is commented out — and drawing it by
     /// that text is what painted its opaque black around every lamp.
     ///
-    /// **Two modes are drawn translucent here and are NOT the engine's**, named rather than hidden:
-    /// `kRenderNormal` has no blending at all and writes depth, and `kRenderTransAlphaAdd` draws twice,
-    /// the second pass <c>ONE_MINUS_SRC_ALPHA, ONE</c>. The renderer has neither an opaque sprite state
-    /// nor a second pass yet (B391). Every sprite group the census found, in three demos, was
-    /// `light_glow03` at `kRenderWorldGlow`.
+    /// **The depth state is the mode's too.** Every blended branch calls <c>EnableDepthWrites( false )</c>;
+    /// the two glow modes alone add <c>EnableDepthTest( false )</c> (`sprite_dx9.cpp:264-265`), which
+    /// the engine can afford because `GlowBlend`'s visibility gate has already refused a hidden glow
+    /// — `GlowSight` here. `kRenderNormal` (`:229-241`) sets neither blending nor depth, so it is
+    /// opaque, tested and written.
+    ///
+    /// **`kRenderTransAlphaAdd` draws twice** (`:297-330`): translucent, then
+    /// <c>ONE_MINUS_SRC_ALPHA, ONE</c>, both depth-tested and unwritten.
     /// </remarks>
-    public static SpriteBlend? BlendFor(int renderMode) => renderMode switch
+    public static IReadOnlyList<SpritePass> PassesFor(int renderMode) => renderMode switch
     {
-        RenderModes.Glow or RenderModes.WorldGlow or RenderModes.TransAdd
-            or RenderModes.TransAddFrameBlend => SpriteBlend.Additive,
-        RenderModes.TransColor or RenderModes.TransTexture or RenderModes.TransAlpha
-            or RenderModes.Normal or RenderModes.TransAlphaAdd => SpriteBlend.Translucent,
-        _ => null,
+        RenderModes.Normal => NormalPass,
+        RenderModes.Glow or RenderModes.WorldGlow => GlowPass,
+        RenderModes.TransAdd or RenderModes.TransAddFrameBlend => AdditivePass,
+        RenderModes.TransColor or RenderModes.TransTexture or RenderModes.TransAlpha => TranslucentPass,
+        RenderModes.TransAlphaAdd => TransAlphaAddPasses,
+        _ => [],
     };
+
+    private static readonly SpritePass[] NormalPass = [new(SpriteBlend.Opaque, SpriteDepth.TestAndWrite)];
+
+    private static readonly SpritePass[] GlowPass = [new(SpriteBlend.Additive, SpriteDepth.Off)];
+
+    private static readonly SpritePass[] AdditivePass = [new(SpriteBlend.Additive, SpriteDepth.TestNoWrite)];
+
+    private static readonly SpritePass[] TranslucentPass = [new(SpriteBlend.Translucent, SpriteDepth.TestNoWrite)];
+
+    private static readonly SpritePass[] TransAlphaAddPasses =
+    [
+        new(SpriteBlend.Translucent, SpriteDepth.TestNoWrite),
+        new(SpriteBlend.InverseAlphaAdd, SpriteDepth.TestNoWrite),
+    ];
 
     /// <summary>How much of a glow survives — <c>StandardGlowBlend</c> (`c_sprite.cpp:147`).</summary>
     /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>

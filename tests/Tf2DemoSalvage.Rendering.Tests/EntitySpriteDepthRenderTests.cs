@@ -65,8 +65,10 @@ public sealed class EntitySpriteDepthRenderTests
         {
             DrawOccluderThenGlow(target, assets, RenderModes.TransAdd);
 
-            target.PixelAt(32, 32).Red.ShouldBeLessThan(16, "the occluder hides a depth-tested sprite");
-            target.PixelAt(32, 24).Red.ShouldBeGreaterThan(64, "outside the occluder the sprite draws");
+            // `light_glow03` falls off steeply: measured along the middle row, red is 29 one pixel
+            // left of the occluder's edge and 6 four pixels further out, so the control reads there.
+            target.PixelAt(32, 32).Red.ShouldBeLessThan(4, "the occluder hides a depth-tested sprite");
+            target.PixelAt(28, 32).Red.ShouldBeGreaterThan(16, "outside the occluder the sprite draws");
         }
     }
 
@@ -88,7 +90,11 @@ public sealed class EntitySpriteDepthRenderTests
 
         using (target)
         {
+            // A far blue wall first: `DrawWorld` is what binds the target and clears its depth.
+            (List<WorldVertex> wall, WorldBatch wallBatch) = Quad(0.9f, (0f, 0f, 1f), half: 1f);
+
             target.Clear(0f, 0f, 0f);
+            target.DrawWorld(wall, [wallBatch], Identity, assets, surfaceColours: true, translucent: false);
             DrawSprite(target, assets, renderMode, depth: 0.3f);
 
             (List<WorldVertex> quad, WorldBatch batch) = Quad(0.5f, (0f, 1f, 0f), half: 0.25f);

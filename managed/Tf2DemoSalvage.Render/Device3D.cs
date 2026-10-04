@@ -1940,7 +1940,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -1958,7 +1958,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 _particleSheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Corners));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners));
         }
     }
 
@@ -1976,7 +1976,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Draws the given batches under one camera — the world's, or a model panel's.</summary>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, IReadOnlyList<DetailSpriteVertex> Corners)> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners)> batches,
         float[] viewProjection)
     {
         if (batches.Count == 0)
@@ -1988,10 +1988,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         foreach ((ComPtr<ID3D11ShaderResourceView> sheet,
                   SpriteBlend blend,
+                  SpriteDepth depth,
                   IReadOnlyList<DetailSpriteVertex> corners) in batches)
         {
             _particleSprites.SetSheet(sheet);
             _particleSprites.SetBlend(blend);
+            _particleSprites.SetDepth(depth);
             _particleSprites.Upload(_device, _context, corners);
             _particleSprites.Draw(_device, _context, viewProjection);
         }
@@ -2006,12 +2008,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private readonly List<(
         ComPtr<ID3D11ShaderResourceView> Sheet,
         SpriteBlend Blend,
+        SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
         ComPtr<ID3D11ShaderResourceView> Sheet,
         SpriteBlend Blend,
+        SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners)> _particleBatches = [];
 
     private DetailSpriteRenderer? _detailSprites;
