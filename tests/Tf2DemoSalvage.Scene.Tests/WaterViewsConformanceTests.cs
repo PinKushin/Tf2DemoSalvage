@@ -343,6 +343,31 @@ public sealed class WaterViewsConformanceTests
     public void SortGroups_ForADrawFlagSet_AreTheEnginesWorldListGroups(ViewDraws flags, int[] groups) =>
         Enumerable.Range(0, VisibleWorld.SortGroups).Where(group => WaterViews.DrawsSortGroup(flags, group)).ShouldBe(groups);
 
+    // ---- the view's LOD distances: C_WaterLODControl.cpp:49, WaterLODControl.cpp:66, viewrender.cpp:937 ----
+
+    [TestCase("", 0f, 0.1f)]
+    [TestCase("{ \"classname\" \"water_lod_control\" }", 1000f, 2000f)]
+    [TestCase("{ \"classname\" \"water_lod_control\" \"cheapwaterstartdistance\" \"300\" \"cheapwaterenddistance\" \"900\" }", 300f, 900f)]
+    public void WaterLod_FromTheMapsEntities_IsTheViews(string entities, float start, float end) =>
+        Content.Bsp.BspEntities.WaterLod(Content.Bsp.BspEntities.Parse(Encoding.ASCII.GetBytes(entities)))
+            .ShouldBe((start, end));
+
+    // ---- m_pFogVolumeMaterial: engine.dll 0x1800e01bc → 0x1800dffd0 ----
+
+    [Test]
+    public void FogVolumeMaterial_FromInside_IsTheBottomMaterial()
+    {
+        MapWater surface = MapWater.From(VmtMaterial.Parse(Encoding.UTF8.GetBytes(
+            "\"Water\"\n{\n\"$bottommaterial\" \"water/under.vmt\"\n}")), null);
+        Content.Bsp.BspWaterVolume[] volumes = [new(64f, 0f, 3, SurfaceTexdata: 1)];
+        MapWater?[] waters = [null, surface, null];
+        string[] names = ["dev/a", "water/top", "WATER/UNDER"];
+
+        WaterViews.FogVolumeMaterial(new FogVolumeInfo(0, 5, false, 0f, 64f, 3), volumes, waters, names).ShouldBe(1);
+        WaterViews.FogVolumeMaterial(new FogVolumeInfo(0, 5, true, 0f, 64f, 3), volumes, waters, names).ShouldBe(2);
+        WaterViews.FogVolumeMaterial(FogVolumeInfo.None(0f), volumes, waters, names).ShouldBe(-1);
+    }
+
     // ---- AdjustView :5265-5285, the mirrored camera ----
 
     [Test]

@@ -1009,7 +1009,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _fullbright,
             _debug,
             _phong,
-            WorldFog);
+            _waterMainFog ?? WorldFog);
     }
 
     /// <summary>Clears, draws the map and the players, and presents.</summary>
@@ -1139,6 +1139,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     }
 
                     ReapplyCamera();
+                }
+
+                // **The water views before the main one** (B62) — DrawWorldAndEntities' AddViewToScene order:
+                // the reflection and refraction render into their targets, then this view draws.
+                if (_waterDraw is { } water)
+                {
+                    _world.DrawWaterViews(
+                        _context,
+                        water,
+                        () =>
+                        {
+                            _context.RSSetViewports(1, in viewport);
+                            _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                            _context.OMSetDepthStencilState(_depthOn, 0);
+                            ReapplyCamera();
+                        });
                 }
 
                 _world.Draw(_context);
@@ -1586,6 +1602,91 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _world ??= WorldRenderer.Create(_device, _loggers);
         _world.UploadTextures(_device, _context, assets);
+
+        _water = assets.Water;
+        _waters = assets.Waters;
+        _materialNames = [.. assets.Materials.Select(material => material.Name)];
+        _waterDraw = null;
+        _waterMainFog = null;
+    }
+
+    private Content.Bsp.BspWater _water = new([], []);
+    private IReadOnlyList<MapWater?> _waters = [];
+    private string[] _materialNames = [];
+
+    /// <summary>This view's water views, or null when the frame is one simple view (B62).</summary>
+    private WaterDraw? _waterDraw;
+
+    /// <summary>The visible volume's own fog, which the main view draws under from inside it — <c>SetFogVolumeState( fogInfo, false )</c>.</summary>
+    private Tf2DemoSalvage.Core.Scene.SceneFog? _waterMainFog;
+
+    /// <summary>
+    /// <c>CViewRender::DrawWorldAndEntities</c> for this camera (B62): the visible fog volume, its material's
+    /// <c>WaterRenderInfo</c> and the views it needs.
+    /// </summary>
+    /// <remarks>
+    /// The visible-set test is the cull's own <see cref="WorldCulling.VisibleByLeaf"/>, which is already the PVS
+    /// within the frustum, so the walk's separate frustum test passes everything (the engine tests the node box
+    /// against the frustum at 0x1800e0fac; a leaf in the visible set has passed the same test). The near plane's
+    /// intersection with the water (<c>DoesViewPlaneIntersectWater</c>) is not computed: the engine asks the closed
+    /// <c>DoesBoxIntersectWaterVolume</c> for it, so a camera at the waterline takes the non-intersecting branch.
+    /// </remarks>
+    private void PlanWater(FreeCamera camera)
+    {
+        _waterDraw = null;
+        _waterMainFog = null;
+
+        if (_culling is not { CanCull: true } culling || _water.Volumes.Count == 0)
+        {
+            return;
+        }
+
+        FogVolumeInfo fog = VisibleFogVolume.Find(
+            culling.Tree, _water, camera.Origin,
+            leaf => leaf >= 0 && leaf < culling.VisibleByLeaf.Length && culling.VisibleByLeaf[leaf],
+            (_, _) => true);
+
+        int material = WaterViews.FogVolumeMaterial(fog, _water.Volumes, _waters, _materialNames);
+        WaterMaterialParameters? parameters = material >= 0 && material < _waters.Count ? _waters[material]?.View : null;
+
+        WaterRenderInfo info = WaterRenderInfo.Determine(
+            parameters, fog.DistanceToWater, _world?.WaterLod.End ?? 0.1f, WaterConVars.Defaults);
+
+        IReadOnlyList<WaterView> views = WaterViews.Plan(
+            info, new WaterFrame(fog.EyeInFogVolume, DrawSkybox, fog.WaterHeight, ViewIntersectsWater: false), ViewClears.Depth);
+
+        if (views.Count > 0 && views[^1].Fog == WaterViewFog.Volume && material >= 0 && _waters[material] is { } water)
+        {
+            _waterMainFog = new(water.FogStart, water.FogEnd, water.FogColor.Red, water.FogColor.Green, water.FogColor.Blue, 1f);
+        }
+
+        if (info.CheapWater)
+        {
+            return;
+        }
+
+        ((float X, float Y, float Z) origin, (float Pitch, float Yaw, float Roll) angles) =
+            WaterViews.Reflect(camera.Origin, camera.Angles, fog.WaterHeight);
+
+        FreeCamera reflected = new()
+        {
+            Origin = origin,
+            Angles = angles,
+            FieldOfView = camera.FieldOfView,
+            NearZ = camera.NearZ,
+            FarZ = camera.FarZ,
+            Aspect = camera.Aspect,
+        };
+
+        _waterDraw = new WaterDraw(
+            views, material, fog.WaterHeight, camera.ToMatrix(), reflected.ToMatrix(), WorldFog,
+            through =>
+            {
+                if (DrawSkybox && _skybox is { HasSky: true } sky)
+                {
+                    sky.Draw(_device, _context, _eye, through, SkyReach);
+                }
+            });
     }
 
     /// <summary>Uploads a map's projected geometry, keeping the textures already resident.</summary>
@@ -2406,6 +2507,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             }
 
             ReportWorldCull();
+
+            // The water views, from the same cull (B62); the main view's fog may be the volume's.
+            PlanWater(camera);
+            ReapplyCamera();
         }
 
         // **Outside the cull gate, because it turns on a different thing**: the eye and the view direction (the fast
@@ -2440,7 +2545,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _world.DrawWorld = _drawWorld;
 
         _world.SetCamera(
-            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, WorldFog);
+            _device, _context, matrix, surfaceColours, _specular, _fullbright, _debug, _phong, _waterMainFog ?? WorldFog);
 
         // Remembered so the viewmodel pass can put it back. The world's camera is set on a view
         // CHANGE rather than per frame, so anything that overwrites it has to restore it or the
