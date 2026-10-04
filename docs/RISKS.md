@@ -17257,11 +17257,18 @@ only a fully opaque draw writes the fog factor to alpha (`lightmappedgeneric_dx9
 
 **Still interpolated, flagged:**
 
-1. **The HDR type.** `Water` multiplies the reflection by 4 and the view renders it at ×0.25 only under
-   `HDR_TYPE_INTEGER`. Which type TF2 runs is decided in `shaderapidx9.dll`'s hardware config; that binary is in the
-   Ghidra project but its strings and references are not analysed (no xref reaches its `MaterialSystemHardwareConfig`
-   interface string at `0x180079788`), so the read did not land. The non-integer branch is drawn, matching this
-   renderer's lack of a tone map.
+1. ~~**The HDR type.**~~ **Closed 2026-10-04, read in disassembly: TF2 runs `HDR_TYPE_INTEGER` on an HDR map**, and
+   `HDR_TYPE_NONE` on a map without HDR lumps. `shaderapidx9.dll` (analysed this pass): caps `+0x560`/`+0x5c4` are set
+   at `0x1800293eb-0x180029448` — float only when `mat_hdr_level` is 3, whose default is "2" (`0x18007e700`), else
+   integer on any device with the caps; there is no `-floathdr`. `GetHDRType` (`0x180004810`) returns it when
+   `m_bHDREnabled` (`+0x8a8`) and DX level ≥ 90. `engine.dll` `Map_CheckForHDR` (`0x1800ffa10`) enables HDR only when
+   lumps 53, 54 and (version ≥ 20) 55 are non-empty and `mat_hdr_level` ≥ 2. Ported as `BspHdr`
+   (`HdrTypeConformanceTests`, 15); `MapAssets.Hdr` carries it, and the water now draws the integer branch: reflect tint
+   and c7.z ×4, the reflection stored at ×0.25 (`DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter`).
+   **ctf_2fort's own water names no `$reflecttexture`**, so on 2fort the change draws nothing different; it shows on
+   water that reflects. The ×0.25 is applied as a store from an RGBA16F target rather than a scale in every shader —
+   equal because output, blending and fog are all linear in it; Valve also quantizes each blend to 8 bits, which this
+   does once (arithmetic, not measured).
 2. `CalcWaterFogAlpha`'s one-over-range register is packed as the range fog's is (FogConstants, B139); shaderapi's
    `SetPixelShaderFogParams` is the closed half.
 3. The tangent frame from screen derivatives (T as increasing v); a target no view has drawn reads black, alpha one.
