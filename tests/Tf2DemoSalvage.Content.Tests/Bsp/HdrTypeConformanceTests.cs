@@ -30,15 +30,15 @@ public sealed class HdrTypeConformanceTests
 
     [Test]
     public void CapsHdrType_FloatCapableAtTheDefaultLevel_IsInteger() =>
-        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: true, matHdrLevel: 2).ShouldBe(HdrType.Integer);
+        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: true, matHdrLevel: 2).ShouldBe(HdrType.IntegerHdr);
 
     [Test]
     public void CapsHdrType_FloatCapableAtLevel3_IsFloat() =>
-        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: true, matHdrLevel: 3).ShouldBe(HdrType.Float);
+        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: true, matHdrLevel: 3).ShouldBe(HdrType.FloatHdr);
 
     [Test]
     public void CapsHdrType_IntegerOnlyAtLevel3_IsInteger() =>
-        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: false, matHdrLevel: 3).ShouldBe(HdrType.Integer);
+        BspHdr.CapsHdrType(supportsInteger: true, supportsFloat: false, matHdrLevel: 3).ShouldBe(HdrType.IntegerHdr);
 
     [Test]
     public void CapsHdrType_NeitherCapability_IsNone() =>
@@ -46,15 +46,15 @@ public sealed class HdrTypeConformanceTests
 
     [Test]
     public void HdrTypeInUse_HdrDisabled_IsNone() =>
-        BspHdr.HdrTypeInUse(hdrEnabled: false, dxLevel: 95, HdrType.Integer).ShouldBe(HdrType.None);
+        BspHdr.HdrTypeInUse(hdrEnabled: false, dxLevel: 95, HdrType.IntegerHdr).ShouldBe(HdrType.None);
 
     [Test]
     public void HdrTypeInUse_BelowDx90_IsNone() =>
-        BspHdr.HdrTypeInUse(hdrEnabled: true, dxLevel: 81, HdrType.Integer).ShouldBe(HdrType.None);
+        BspHdr.HdrTypeInUse(hdrEnabled: true, dxLevel: 81, HdrType.IntegerHdr).ShouldBe(HdrType.None);
 
     [Test]
     public void HdrTypeInUse_EnabledAtDx90_IsTheCapsType() =>
-        BspHdr.HdrTypeInUse(hdrEnabled: true, dxLevel: 90, HdrType.Integer).ShouldBe(HdrType.Integer);
+        BspHdr.HdrTypeInUse(hdrEnabled: true, dxLevel: 90, HdrType.IntegerHdr).ShouldBe(HdrType.IntegerHdr);
 
     [Test]
     public void MapHasHdr_AllThreeHdrLumps_IsTrue() =>
@@ -70,7 +70,7 @@ public sealed class HdrTypeConformanceTests
 
     [Test]
     public void ForTf2_AnHdrMap_IsInteger() =>
-        BspHdr.ForTf2(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr)).ShouldBe(HdrType.Integer);
+        BspHdr.ForTf2(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr)).ShouldBe(HdrType.IntegerHdr);
 
     [Test]
     public void ForTf2_AnLdrOnlyMap_IsNone() =>
@@ -79,7 +79,7 @@ public sealed class HdrTypeConformanceTests
     /// <summary><c>water.cpp:296-312</c> and <c>:351-355</c>, and <c>viewrender.cpp:2726-2736</c> with <c>:5351</c>.</summary>
     [Test]
     public void WaterScales_UnderInteger_AreFourFourAndAQuarter() =>
-        BspHdr.WaterScales(HdrType.Integer).ShouldBe((4f, 4f, 0.25f));
+        BspHdr.WaterScales(HdrType.IntegerHdr).ShouldBe((4f, 4f, 0.25f));
 
     [Test]
     public void WaterScales_UnderNone_AreOne() =>
@@ -87,7 +87,7 @@ public sealed class HdrTypeConformanceTests
 
     [Test]
     public void WaterScales_UnderFloat_AreOne() =>
-        BspHdr.WaterScales(HdrType.Float).ShouldBe((1f, 1f, 1f));
+        BspHdr.WaterScales(HdrType.FloatHdr).ShouldBe((1f, 1f, 1f));
 
     private static byte[] Map(params int[] lumps)
     {
