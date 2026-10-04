@@ -82,6 +82,31 @@ public sealed class VmtParameterTests
     }
 
     [Test]
+    public void TakesVertexAlpha_LightmappedGeneric_FollowsVertexColorAlone()
+    {
+        // `lightmappedgeneric_vs20.fxc:213-232`: only the VERTEXCOLOR combo — set from `$vertexcolor` at
+        // `lightmappedgeneric_dx9_helper.cpp:539` — passes `v.vColor.a` on; `ps2_3_x.h:429` multiplies it in (B329).
+        Parse("LightmappedGeneric\n{\n\t\"$vertexcolor\" 1\n}\n").TakesVertexAlpha.ShouldBeTrue();
+        Parse("LightmappedGeneric\n{\n\t\"$vertexalpha\" 1\n}\n").TakesVertexAlpha.ShouldBeFalse();
+    }
+
+    [Test]
+    public void TakesVertexAlpha_UnlitGeneric_FollowsVertexAlphaAlone()
+    {
+        // `vertexlitgeneric_dx9_helper.cpp:1472` feeds `$vertexalpha` to `g_fVertexAlpha`, and
+        // `vertexlit_and_unlit_generic_ps2x.fxc:419` lerps alpha toward `alpha * i.color.a` by it.
+        Parse("UnlitGeneric\n{\n\t\"$vertexalpha\" 1\n}\n").TakesVertexAlpha.ShouldBeTrue();
+        Parse("UnlitGeneric\n{\n\t\"$vertexcolor\" 1\n}\n").TakesVertexAlpha.ShouldBeFalse();
+    }
+
+    [Test]
+    public void TakesVertexAlpha_VertexLitGeneric_IsNever()
+    {
+        // `vertexlitgeneric_dx9_helper.cpp:454-455`: a lit VertexLitGeneric clears both flags.
+        Parse("VertexLitGeneric\n{\n\t\"$vertexcolor\" 1\n\t\"$vertexalpha\" 1\n}\n").TakesVertexAlpha.ShouldBeFalse();
+    }
+
+    [Test]
     public void VmtParameters_ModulateTwice_NeedsBothTheShaderAndTheKey()
     {
         // An AND of two conditions, so each has to be shown to matter on its own - otherwise a
