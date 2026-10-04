@@ -529,6 +529,19 @@ public readonly record struct ScenePose
     /// </remarks>
     public SceneSprite? Sprite { get; init; }
 
+    /// <summary>What a beam says about itself, or null for everything that is not a <c>CBeam</c>.</summary>
+    /// <remarks>
+    /// **State, so it follows arrival like the sprite's fields** — <c>C_Beam</c>'s members are plain networked values
+    /// assigned on receipt, with no interpolation history of their own.
+    /// </remarks>
+    public SceneBeam? Beam { get; init; }
+
+    /// <summary>What a sprite trail says about itself, or null for everything that is not a <c>CSpriteTrail</c>.</summary>
+    public SceneSpriteTrail? SpriteTrail { get; init; }
+
+    /// <summary>What a rope says about itself, or null for everything that is not a <c>CRopeKeyframe</c>.</summary>
+    public SceneRope? Rope { get; init; }
+
     /// <summary>Builds a pose at the world origin, unrotated and unanimated.</summary>
     public ScenePose()
     {
@@ -2180,6 +2193,17 @@ public sealed class ScenePropTrack
             // `m_flModelScale` does two fields down. Blending them would produce values the engine
             // never held — and a frame index especially, where half of frame three is not a frame.
             Sprite = from.Sprite,
+
+            // A beam's fields, held for the same reason: `C_Beam` registers none of them with the
+            // interpolator, and its origin does not interpolate either (B474) — the timeline snaps a beam's
+            // pose before it reaches here, so this is the general rebuild keeping what it was handed.
+            Beam = from.Beam,
+
+            // A trail's sampling parameters, held for the same reason: `C_SpriteTrail` registers none of them.
+            SpriteTrail = from.SpriteTrail,
+
+            // And a rope's: `C_RopeKeyframe` interpolates none of its own fields either.
+            Rope = from.Rope,
 
             // Discrete, so it takes the earlier keyframe's value rather than being blended — half
             // of "spinning" is not a state (B347).

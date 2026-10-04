@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Core.Scene;
     Justification = "The accessors are named for the PropertyValueKind they read, the same " +
                     "reasoning already applied to PropertyValue itself. Renaming only here " +
                     "would break the correspondence with the tagged union they unwrap.")]
-public sealed class EntityState
+public sealed partial class EntityState
 {
     /// <summary>Where TF2 sends the recording client's own position.</summary>
     /// <summary>Every networked property this decoder looks for, by the table it lives in.</summary>
@@ -89,6 +89,29 @@ public sealed class EntityState
             [
                 FogEnableProperty, FogStartProperty, FogEndProperty,
                 FogColourProperty, FogMaxDensityProperty,
+            ],
+
+            // **The effect entities' own tables** (B474, B475), every scalar `EntityState.Effects` asks for. The beam's
+            // two attach arrays arrive as `m_hAttachEntity.000` upward, which `entity-census` shows on viaduct.
+            ["DT_Beam"] =
+            [
+                "m_nBeamType", "m_nBeamFlags", "m_nNumBeamEnts", "m_nHaloIndex", "m_fHaloScale", "m_fWidth",
+                "m_fEndWidth", "m_fFadeLength", "m_fAmplitude", "m_fStartFrame", "m_fSpeed", "m_flFrameRate",
+                "m_flHDRColorScale", "m_flFrame", "m_vecEndPos", "m_nMinDXLevel", ModelIndexProperty,
+                OriginProperty, ParentProperty,
+            ],
+            ["DT_SpriteTrail"] =
+            [
+                "m_flLifeTime", "m_flStartWidth", "m_flEndWidth", "m_flStartWidthVariance", "m_flTextureRes",
+                "m_flMinFadeLength", "m_vecSkyboxOrigin", "m_flSkyboxScale",
+            ],
+            ["DT_Sprite"] = ["m_hAttachedToEntity", "m_nAttachment"],
+            ["DT_RopeKeyframe"] =
+            [
+                "m_hStartPoint", "m_hEndPoint", "m_iStartAttachment", "m_iEndAttachment", "m_Slack", "m_RopeLength",
+                "m_fLockedPoints", "m_RopeFlags", "m_nSegments", "m_bConstrainBetweenEndpoints",
+                "m_iRopeMaterialModelIndex", "m_Subdiv", "m_TextureScale", "m_Width", "m_flScrollSpeed",
+                ParentProperty, "m_iParentAttachment",
             ],
         };
 
@@ -1204,7 +1227,8 @@ public sealed class EntityState
     /// never sent the property is a different thing from one that sent zero, and collapsing them
     /// hides a decode that missed a property behind a value that looks deliberate.
     /// </remarks>
-    public int? ModelIndex() => Integer($"{BaseEntityTable}.{ModelIndexProperty}");
+    public int? ModelIndex() =>
+        Integer($"{BaseEntityTable}.{ModelIndexProperty}") ?? Integer($"{BeamTable}.{ModelIndexProperty}");
 
     /// <summary>The table a viewmodel's properties arrive under.</summary>
     /// <remarks>
@@ -1895,7 +1919,7 @@ public sealed class EntityState
     public int? Attachment()
     {
         // The parent is attachment outright - an entity only has one because something set it.
-        if (Slot(Integer($"{BaseEntityTable}.{ParentProperty}")) is { } parent)
+        if (Slot(MoveParent()) is { } parent)
         {
             return parent;
         }
@@ -1919,7 +1943,7 @@ public sealed class EntityState
     /// </remarks>
     public int? AttachmentHandle()
     {
-        if (Integer($"{BaseEntityTable}.{ParentProperty}") is { } parent &&
+        if (MoveParent() is { } parent &&
             parent != InvalidHandle)
         {
             return parent;
@@ -1954,7 +1978,8 @@ public sealed class EntityState
     /// the corpus from the 2007 build onward.
     /// </remarks>
     public int? ParentAttachment() =>
-        Integer($"{BaseEntityTable}.m_iParentAttachment") is { } attachment && attachment > 0
+        (Integer($"{BaseEntityTable}.m_iParentAttachment") ?? Integer($"{RopeTable}.m_iParentAttachment"))
+            is { } attachment && attachment > 0
             ? attachment
             : null;
 
@@ -2253,7 +2278,8 @@ public sealed class EntityState
     /// mentions the field is: unmodulated and fully solid. `RenderAlpha` applies that default so a
     /// caller does not have to.
     /// </remarks>
-    public int? RenderColor() => Integer($"{BaseEntityTable}.{RenderColorProperty}");
+    public int? RenderColor() =>
+        Integer($"{BaseEntityTable}.{RenderColorProperty}") ?? Integer($"{BeamTable}.{RenderColorProperty}");
 
     /// <summary>The alpha byte of <see cref="RenderColor"/>, defaulting to opaque.</summary>
     /// <remarks>
@@ -2289,7 +2315,8 @@ public sealed class EntityState
     /// Eight bits unsigned (<c>baseentity.cpp:276</c>). **Absent means <c>kRenderFxNone</c>**, which
     /// is zero and by far the common case — almost nothing in a match pulses or strobes.
     /// </remarks>
-    public int? RenderFx() => Integer($"{BaseEntityTable}.{RenderFxProperty}");
+    public int? RenderFx() =>
+        Integer($"{BaseEntityTable}.{RenderFxProperty}") ?? Integer($"{BeamTable}.{RenderFxProperty}");
 
     /// <summary>The distance at which this entity starts fading out.</summary>
     /// <returns><c>m_fadeMinDist</c>, or <c>null</c> when it was never sent.</returns>
@@ -2431,7 +2458,8 @@ public sealed class EntityState
     /// answers 255 for <c>kRenderNormal</c> and the colour's alpha for anything else, so reading
     /// absence as some other mode would make every untouched entity translucent.
     /// </remarks>
-    public int? RenderMode() => Integer($"{BaseEntityTable}.{RenderModeProperty}");
+    public int? RenderMode() =>
+        Integer($"{BaseEntityTable}.{RenderModeProperty}") ?? Integer($"{BeamTable}.{RenderModeProperty}");
 
     /// <summary>The player's engine flags, when they were sent.</summary>
     /// <returns><c>m_fFlags</c>, or <c>null</c> when it was never sent.</returns>

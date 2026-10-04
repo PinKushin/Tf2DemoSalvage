@@ -236,6 +236,12 @@ in any public writeup found:
   collates the view's leaves in order and fills the size buckets as it goes, so the draw side never sorts. A box
   touching a plane goes in both sides' leaves, which neither of this project's earlier walks did
   ([72](72-a-renderable-lives-in-the-leaves-it-touches.md)).
+- **Beams, trails and ropes are strips the client builds, and two of the three have NOBASE tables.** `DT_Beam` and
+  `DT_RopeKeyframe` declare their own model index, so a gate that read `DT_BaseEntity`'s dropped every one. A beam is
+  rebuilt from the entity each frame, and its strip comes from `CBeamSegDraw`, which is closed and was read in
+  disassembly. A trail is points the client samples from where its projectile is drawn, and a rope is a Verlet chain
+  the client hangs between two entities. No demo in either corpus carries a temp-entity beam
+  ([73](73-beams-trails-and-ropes-are-strips-the-client-builds.md)).
 
 ## Conventions used throughout
 

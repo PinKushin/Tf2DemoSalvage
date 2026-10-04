@@ -34978,3 +34978,134 @@ events (`flEventCycle = 0.0f; m_flPrevEventCycle = -0.01`, `:3633-3634`); everyt
 waits for the next walk. A paused viewer does not rebuild, so here those wait for unpause, and that looked like a
 divergence from an engine that walks every frame. It is not: `C_BaseAnimating::Simulate` walks only
 `if ( gpGlobals->frametime != 0.0f )` (`:5162`), so a paused engine waits for unpause too.
+
+## B474 — no `CBeam` ever drew: `DT_Beam` is a NOBASE table, so the admission gate dropped every beam — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** `point_spotlight` shafts are `CBeam` entities. Every committed
+era carries them: 102 in the 2011 viaduct STV demo, 378 in the 2013 foundry STV demo and 228 in z1800. Not one
+produced a track. `DT_Beam` (`beam_shared.cpp:147`) is `NOBASE`, so it declares its own `m_nModelIndex`. The model
+accessor read only `DT_BaseEntity`'s, and `DemoTimeline` drops an entity with no model. `DT_RopeKeyframe`
+(`c_rope.cpp:42`) has the same shape and is the rope half of this finding.
+
+**Fix:** the base-member accessors (model, colour, render mode, render FX, move parent) fall back to the class's own
+table. `EntityState.Beam()` decodes the beam's fields, including the scroll speed's receive proxy (`× 0.1`,
+`beam_shared.cpp:83-96`). A beam pose snaps to its last update (`MoveToLastReceivedPosition`,
+`beam_shared.cpp:1075`). `EntityBeams` ports `CViewRenderBeams::DrawBeam( C_Beam* )`: the type remap, the flag mask,
+`UpdateBeam`'s pause re-seed, `DrawBeamWithHalo`, `DrawLaser` and `DrawSplineSegs`. `BeamSegDraw` ports the closed
+`CBeamSegDraw` from disassembly. The full account is in `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** conformance suites citing `view_beams.cpp`, `beamdraw.cpp` and `beam_shared.cpp`
+(`BeamStateConformanceTests`, `BeamTimelineTests`, `BeamSegDrawConformanceTests`, `BeamDrawConformanceTests`,
+`EntityBeamsConformanceTests`). **Output level:** `EntityBeamRenderTests` draws the viaduct demo's first spotlight
+through the production chain and reads (25, 24, 24) at the shaft and black at every corner. Sabotage turned five
+tests red, and each was restored by the inverse edit:
+
+- Dropping the `DT_Beam` model fallback reddened the admission and base-member tests.
+- Dropping the snap reddened the last-received test (30, not 100).
+- Dropping the half-width reddened the strip tests, and zeroing it reddened the render test at (1, 0, 0).
+- Passing `FBEAM_FADEOUT` reddened its test.
+- Using the end width for a halo beam reddened the spotlight test.
+
+**Not ported, deliberately:** temp-entity beams. No demo in either corpus carries one (`entity-census`), and the
+draw types only they reach (tesla, disk, cylinder, ring, follow) are unreachable from an entity beam. The halo's
+occlusion is the line-of-sight trace, not the engine's pixel-visibility query, and a beam draws its sprite's first
+frame. Both are B378's open half.
+
+## B475 — a sprite trail drew as a quad at its projectile: `CSpriteTrail::DrawModel`'s ribbon was never built — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** `DT_SpriteTrail` inherits `DT_Sprite`, so a trail was admitted
+and handed to the sprite pass, which drew one quad of `effects/repair_claw_trail_blue` at the bolt. The engine draws a
+ribbon instead: `UpdateTrail` samples the render origin every frame into a 256-point ring, and `DrawModel` strings the
+ring and the head through `CBeamSegDraw` (`SpriteTrail.cpp:379-531`). 35 of the 50 local demos and z1800 carry
+trails (`entity-census`). Nothing read `DT_SpriteTrail`, and nothing read `DT_Sprite`'s `m_hAttachedToEntity` and
+`m_nAttachment`, which place the head.
+
+**Fix:** `EntityState.SpriteTrail()` decodes the table and the attachment, with the constructor's defaults
+(`SpriteTrail.cpp:119-131`). `EntityTrails` ports `UpdateTrail` and `DrawModel` branch for branch: the two-unit step,
+the `lifetime / 256` interval, the ring's steal, life and tail fade, the width lerp and variance, texture coordinates,
+and the dead point drawn once at zero and removed. The sprite pass leaves a trail alone. The viewer's `TrailOrigin` is
+`GetRenderOrigin`, with attachment 0 answering the entity's origin (`c_baseanimating.cpp:2129-2134`). Two rules are the
+viewer's own because it seeks: a trail not offered is forgotten, and a clock that ran backwards or jumped past the
+lifetime empties the ring.
+
+**Found on the way:** 34 of z1800's 41 trails outlive their projectile's track while still naming it. Placed
+through the missing parent, the head went to the world origin. It is now held where it was, as the client's dormant
+or unlinked entity holds it. Full account: `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** `SpriteTrailStateConformanceTests` (3), `EntityTrailsConformanceTests` (17), `PoseCompletenessTests`
+carrying the record, and the three new `DT_SpriteTrail`/`DT_Sprite` names in `SendPropConformanceTests`.
+**Output level:** `EntityTrailRenderTests` samples z1800's entity 806 tick by tick and reads 142 at the ribbon's
+crossing of the centre column, with black corners. Sabotage reddened each target, restored by the inverse edit:
+
+- Without the ring's steal, 1,806 corners instead of 1,536.
+- With `>=` for the two-unit step, the two-unit case drew a point.
+- Without the sprite pass's skip, the trail drew as a quad.
+- With the end width and the start width swapped, ±2 instead of ±4.
+- With `<` for death, the dead point survived a frame.
+- With a misspelled attachment key, the attachment read 0; with a misspelled table name, the SendProp test reddened.
+- With the segment alpha zeroed, the render test read 0.
+
+**Interpolated:** the width variance draws from this pass's own `CUniformRandomStream`, not the engine's global
+`random`, whose state cannot be reproduced. Every corpus trail sends a variance of 0. A trail in the 3D skybox
+(`m_flSkyboxScale` ≠ 1) is drawn in the main view; none in the corpus is.
+
+## B476 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — OPEN 2026-10-04
+
+`effects/beam001_white`, `_red` and `_blu` are `Refract` materials (`$normalmap effects/beam001_normal`,
+`$refractamount .2`, `$forcerefract 1`). They are the most common trail on several real matches, attached to players
+at attachments 3 to 8: 49 + 36 + 13 of `pass_sanctum_a2a`'s 261 trails are `beam001_white` alone. The particle pass
+draws a texture over the frame and cannot sample the frame. So `EntityTrails` samples these trails and skips them,
+counted in `Skipped`. It does not draw the normal map as a texture.
+
+**What closes it:** a pass after the opaque world that copies the frame and draws the strip through the `Refract`
+shader's offset, as the water views already do for the world. The strip geometry is already built.
+
+## B477 — no rope ever drew: `DT_RopeKeyframe` is NOBASE with no model index, and nothing hung one — FIXED 2026-10-04
+
+**Found by a parity audit, then counted on the wire.** Every committed era carries `CRopeKeyframe`: 30 on granary,
+35 on viaduct, 188 on the 2013 foundry STV demo, and 34 of the 50 local demos (`entity-census`). The table is NOBASE
+(`c_rope.cpp:42-64`) and sends no `m_nModelIndex`, so the admission gate dropped every one. A rope's shape is not on
+the wire either: the client hangs a Verlet chain between the two end entities and simulates it every frame.
+
+**Fix:** `EntityState.Rope()` decodes the table, and the timeline admits a rope by its material
+(`m_iRopeMaterialModelIndex`). `RopePhysics` ports `CSimplePhysics` and `CBaseRopePhysics`. `EntityRopes` ports
+`InitRopePhysics` (the five-second hang and the light sample), `ClientThink`, `DetectRestingState`, the gusts, the
+delegate's forces and constraints (collision, end locks, direction locks), `ConstrainNodesBetweenEndpoints`,
+`BuildRope` (the Catmull-Rom subdivision, texture increment and fake anti-aliasing), and the manager's back and solid
+passes. The viewer resolves the ends as `CalculateEndPointAttachment` does. A non-Sprite, non-SpriteCard material now
+blends by its own flags (`VmtMaterial.MaterialBlending`), which makes `cable/cable` opaque and depth-writing. The
+`Cable` shader takes vertex colour and alpha unconditionally (`cable_ps2x.fxc:49-50`). Full account:
+`docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Evidence:** `RopeStateConformanceTests` (3), `RopePhysicsConformanceTests` (5), `EntityRopesConformanceTests` (12),
+`PoseCompletenessTests` carrying the record, and the `DT_RopeKeyframe` names in `SendPropConformanceTests`.
+**Output level:** `EntityRopeRenderTests` hangs viaduct's entity 95 and reads 0 at the cable against a grey of 381,
+with grey corners. Sabotage reddened each target, restored by the inverse edit:
+
+- Unlocking the end point moved the end 175 units, and the missing-end rope's end 49.
+- With the fake anti-aliasing enlargement at 1.0, the solid width was 1.9 instead of 1.86.
+- Without the `ROPE_SIMULATE` gate, a last keyframe drew.
+- With both passes' widths zeroed, the render test read 381.
+
+## B478 — what of the rope is not ported: impulse, `ShakeRopes`, holiday lights, the cable's bump term, dormant ends — OPEN 2026-10-04
+
+The rope port leaves five things out, each stated here so its absence is not mistaken for the engine's:
+
+1. **The instantaneous impulse** a rope's entity message carries (`C_RopeKeyframe::ReceiveMessage`, `c_rope.cpp:
+   2082-2095`). Its force term is ported, but the impulse is always zero. Whether any demo carries the message is
+   not measured.
+2. **The `ShakeRopes` client effect** (`c_rope.cpp:856-871`). Only HL2's strider dispatches it in the published
+   server code.
+3. **Holiday lights** (`TF_HolidayLight` dispatched per strip point under `IsHolidayLightMode`) and the `pure_white`
+   material under Pyro vision.
+4. **The `Cable` shader's bump term.** The pixel is `blue( normal map )² · base · vertex colour`
+   (`cable_ps2x.fxc:42-49`; half-Lambert of the normal against +Z). The particle pass multiplies the base by the vertex
+   colour without it, so the translucent back pass is flat across the strip instead of shaded like a cylinder. The
+   solid pass is black either way.
+5. **`DrawModel`'s dormant-ends refusal** (`c_rope.cpp:1462-1467`): both ends dormant and both with a model. Every
+   corpus rope ends on another rope keyframe, which has no model, so the branch is unreachable there. The viewer
+   cannot tell dormant from deleted. A rope end on a non-rope, non-player entity takes its origin, where the engine
+   takes the centre of its collision box.
+
+**Interpolated:** the gusts draw from a stream seeded by the entity index, not the client's global stream. Their
+timing and direction are a valid draw, not TF2's.

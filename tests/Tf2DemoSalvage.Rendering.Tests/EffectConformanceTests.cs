@@ -53,15 +53,11 @@ public sealed class EffectConformanceTests
         Assert.Ignore("Sprites classified but undrawn; no glows or flares.");
     }
 
-    [Test]
-    public void Beams_AreNotDrawn()
-    {
-        // C_TEBaseBeam and its subclasses — beamlaser, beampoints, beamring, beamfollow. The
-        // medigun beam and the grappling line are beams rather than particles.
-        //
-        // WHAT YOU SEE: a medic and his patient are two unconnected players.
-        Assert.Ignore("Beams undrawn; medigun and similar links invisible.");
-    }
+    // **`Beams_AreNotDrawn` stood here** until entity beams drew (B474, 2026-10-04): EntityBeamRenderTests, and
+    // EntityBeamsConformanceTests in Scene.Tests. It named the wrong subject twice. The medigun's link is a particle
+    // system, not a beam, and no demo in either corpus carries a C_TEBaseBeam at all (`entity-census`,
+    // docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md). The beams TF2 maps do carry are CBeam
+    // entities, point_spotlight's shafts, which a NOBASE table had kept out of the timeline.
 
     [Test]
     public void RuntimeDecals_AreNotDrawn()

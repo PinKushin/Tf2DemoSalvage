@@ -4450,7 +4450,12 @@ public sealed class DemoTimeline
         // Preferred rather than exclusive: an entity that is not a weapon does not declare the
         // table at all, and a weapon that somehow sent no world model still has its base index to
         // fall back on, which is no worse than what it had before.
-        int? index = state.WorldModelIndex() ?? state.ModelIndex();
+        //
+        // **A rope has no model, and its renderable is its material** (B477): `DT_RopeKeyframe` sends no
+        // `m_nModelIndex`, and `C_RopeKeyframe::OnDataChanged` draws the material `m_iRopeMaterialModelIndex` names
+        // (`c_rope.cpp:1294-1309`). Carried as the track's model path, it is what admits the rope and what loads the
+        // material it is drawn with.
+        int? index = state.WorldModelIndex() ?? state.ModelIndex() ?? state.RopeMaterialIndex();
 
         // The engine's own compatibility shim: protocol 20 and below packed indices below -1.
         // See ModelPrecache.Unpack and docs/findings/19-model-indices.md.
@@ -5396,6 +5401,19 @@ public sealed class DemoTimeline
                         state.SpriteScaleIsWorldSpace() ?? false)
                     : null,
 
+                // **`DT_Beam`, read by nothing until now.** The halo is a model index like the beam's own, so it is
+                // named here, where the precache is, rather than by a drawer that has no table to look it up in.
+                Beam = state.Beam() is { } beam
+                    ? beam with { HaloPath = precache.Path(ModelPrecache.Unpack(beam.HaloIndex, protocol)) }
+                    : null,
+
+                // **`DT_SpriteTrail`, whose sampling parameters nothing read until B475** — the trail drew as a plain
+                // sprite quad of its own material.
+                SpriteTrail = state.SpriteTrail(),
+
+                // **`DT_RopeKeyframe`, a NOBASE table nothing read until B477** — no rope ever reached a track.
+                Rope = state.Rope(),
+
                 // **An areaportal window's three, which travel together or not at all** (B358).
                 // Only `DT_FuncAreaPortalWindow` sends them, so a present start distance is what
                 // identifies the class — and the tuple stays null for every other entity, which is
@@ -5817,7 +5835,10 @@ public sealed class DemoTimeline
         // a paused client holds even the entity the view is attached to (B399).
         double revisit = double.PositiveInfinity;
 
-        bool blend = interpolating && Interpolates(track, stated, tick, viewEntity, out revisit);
+        // **A beam is never drawn where interpolation put it.** `C_Beam::AddEntity` ends with
+        // `MoveToLastReceivedPosition()` (`beam_shared.cpp:1075`), which writes the network origin back over whatever
+        // `Interpolate` produced, every frame — so a beam stands at the last position it was SENT, not between two.
+        bool blend = interpolating && stated?.Beam is null && Interpolates(track, stated, tick, viewEntity, out revisit);
 
         (bool changing, double nextWake) = track.Motion(tick, blend);
 
