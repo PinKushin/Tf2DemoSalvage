@@ -74,8 +74,8 @@ does — *interpolated*), `OverlayRenderLists.Order`'s per-group batches, `Blend
 `TranslucentLeafRuns.RunGroup`, and `ForTranslucentLeaves` flushing displacement overlays at each group's end.
 
 **Still ours.** The main view draws every group in one `DrawWorldLists` call, as the client's `CSimpleWorldView`
-does when no water is in view; the water views that split groups across reflection and refraction passes are not
-modelled. World decals are not drawn per group, and the opaque surfaces are not either — the latter is invisible
+does when no water is in view; the water views that split groups across reflection and refraction passes are
+ported since ([71](71-the-water-views.md)), with the group split realised by their height clip. World decals are not drawn per group, and the opaque surfaces are not either — the latter is invisible
 under the depth test.
 
 ## The map test needed a chosen eye

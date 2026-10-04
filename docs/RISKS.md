@@ -17226,6 +17226,44 @@ answer is the `Water` shader with refraction and reflection render targets, whic
 rather than a fallback, so this is one of D121's narrow "really cannot do it yet" cases and is the
 owner's call rather than something to substitute quietly.
 
+### 2026-10-03: the water views are ported — what is Valve's, what is interpolated, what is still ours
+
+**Ported, read from published source, conformance-tested:** `DetermineWaterRenderInfo`
+(`viewrender.cpp:2488`, PC branches) as `WaterRenderInfo.Determine`; `DrawWorldAndEntities` and every water
+view's draw/clear flags, fog and target (`:2652`, `:5705-6249`) as `WaterViews.Plan`; `PushView`'s height clip
+(`:5295`, ±2 spread, `mat_clipz`); `AdjustView`'s mirrored eye (`:5282`); the world-list flag per sort group
+(`:696`, `ivrenderview.h:36-58`); `water.cpp`'s parameter defaults (`$forceexpensive` is **1** on the PC when
+undeclared) and both shader passes, `water_ps2x.fxc`/`DrawWater` and `WaterCheap_ps2x.fxc`. Tests:
+`WaterViewsConformanceTests` (35), `MapWaterConformanceTests` (3).
+
+**Read in disassembly** (`docs/findings/71-the-water-views.md`): `R_GetVisibleFogVolume` (engine.dll
+`0x1800e0080`) and its walk (`0x1800e0f70`), as `VisibleFogVolume.Find` (`VisibleFogVolumeConformanceTests`, 6);
+the bottom material from inside (`0x1800dffd0`); the 1024² targets (`0x1800f6cd5`).
+
+**Output-level:** `WaterViewRenderTests` draws ctf_2fort's own water over a red and a green floor 5 units
+down — (205,0,0) and (0,107,0) — and both (0,0,0) with no refraction view.
+
+**Interpolated, flagged:** the volume's fog in a refraction view (`render->SetFogVolumeState`, closed) is taken
+as `$fogcolor`, `$fogstart`/`$fogend` and the fog z at the water; the tangent frame is built from screen
+derivatives with T as increasing v; a target no view has drawn reads black with alpha one; the integer-HDR
+branches (×0.25 into the reflection, ×4 out) are not taken, because this renderer has no tone map.
+
+**Still ours — divergences, not decisions:**
+
+1. **The water sub-views draw the opaque WORLD only.** DF_DRAW_ENTITITES (refraction always, reflection with
+   `$reflectentities`) and the translucent world are not drawn into the targets.
+2. **No strict sort-group filter in the views.** The height clip removes the same surfaces wherever a group
+   lies wholly on one side of the plane; group 1 under a refracting surface still draws in the main view and is
+   then covered by the water.
+3. **`DoesViewPlaneIntersectWater` is not computed** — it asks the closed `DoesBoxIntersectWaterVolume`. A camera
+   at the waterline takes the non-intersecting branch: no intersection view, no main-view clip.
+4. **The under-water refraction renders straight into the target** rather than into the back buffer and copied
+   (`:6203`): a D3D11 copy cannot stretch.
+5. **`$bumptransform` driven by a proxy** (2fort's TextureTransform → `$bumptransform`) is not run; the static
+   value is. **The bottom material** is found by name in the map's table only.
+6. **The view's LOD persists across maps in the engine** (`m_flCheapWaterEndDistance` is set in the ctor and by
+   `water_lod_control`); this takes a fresh client's 0/0.1 on a map without one.
+
 ## B229 — 19,274 triangles draw as the missing-material chequer, because skin family zero was privileged — CLOSED 2026-08-29
 
 **Found by the owner looking at `cp_fulgur`**, a map the real game renders with no chequer anywhere:
