@@ -65,10 +65,11 @@ public readonly record struct SoundscapePlacement(
 /// dumps like that for every map, so we need to figure out how to do this right... and probably
 /// looking at bsps instead of making me manually do it"*. Every map carries its own answer.
 ///
-/// **Two classes, and only one names a soundscape.** `env_soundscape` carries a `soundscape` key;
-/// `env_soundscape_proxy` carries `MainSoundscapeName`, the targetname of a real one whose index AND
-/// position names it copies — `CEnvSoundscapeProxy::Activate` at <c>soundscape.cpp:52-54</c>. cp_process
-/// has 4 of the first and 40 of the second.
+/// **Two classes are placed, and only one names a soundscape.** `env_soundscape` carries a `soundscape` key;
+/// `env_soundscape_proxy` carries `MainSoundscapeName`, the targetname of any `CEnvSoundscape` — an
+/// `env_soundscape_triggerable` or another proxy included — whose index AND position names it copies
+/// (`CEnvSoundscapeProxy::Activate`, <c>soundscape.cpp:40-62</c>, B481). cp_process has 4 of the first and 40 of the
+/// second. The triggerable is read only as a master (B483).
 /// </remarks>
 public sealed class SoundscapePlacements
 {
