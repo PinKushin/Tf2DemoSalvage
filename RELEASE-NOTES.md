@@ -1,6 +1,14 @@
-# Tf2DemoSalvage 0.1.0-beta.10
+# Tf2DemoSalvage 0.1.0-beta.11
 
-## Changes since 0.1.0-beta.9
+## Changes since 0.1.0-beta.10
+
+- **Water:** water now reflects and refracts the world as TF2 draws it — reflection and refraction views with the
+  game's fog, cheap-water distance fade, waterline view and animated normal maps.
+- **Keyboard after the File menu:** opening a file dialog from a File menu expanded by a screen reader no longer
+  leaves every key going to the menu bar.
+- **Movement:** the recorder's re-simulated movement only steps up over ledges when the game allows it, as TF2 does.
+
+## Changes in 0.1.0-beta.10
 
 - **See-through surfaces:** glass, grates and other translucent world surfaces draw in the game's order, leaf by
   leaf as the world is walked, and surfaces facing away from the camera are no longer drawn.
