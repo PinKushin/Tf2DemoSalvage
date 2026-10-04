@@ -2461,7 +2461,9 @@ public sealed class TfGameMovement
 
         if (trace.Fraction >= 1f)
         {
-            // m_bAllowAutoMovement is true for a TF player: press down from a step above.
+            // Press down from a step above. Valve raises the start only with m_bAllowAutoMovement (:1693-1700), but the trace
+            // to the destination was clear, so the raised box ends there or starts solid and TryPlayerMove ends there: the
+            // flag changes nothing (ProcessMovement_SwimmingUnderACeilingWithOrWithoutAutoMovement_ReachesTheSameDestination).
             Vector3 start = destination with { Z = destination.Z + _convars.StepSize + 1f };
             trace = TracePlayerBBox(start, destination);
 

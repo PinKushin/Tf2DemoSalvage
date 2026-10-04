@@ -723,6 +723,23 @@ public sealed class TfGameMovementBranchConformanceTests
         player.Velocity.Z.ShouldBe(25.456f, 1e-2f);
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public void ProcessMovement_SwimmingUnderACeilingWithOrWithoutAutoMovement_ReachesTheSameDestination(bool auto)
+    {
+        // WaterMove (tf_gamemovement.cpp:1693-1700) raises the press-down start by stepsize + 1 only with
+        // m_bAllowAutoMovement. The first trace to the destination was clear, so the raised box either starts solid (here:
+        // the ceiling 10 above his head) and TryPlayerMove reaches the same point, or sweeps down onto it unobstructed: the
+        // flag cannot change where he ends. 100 less water friction is 94; 94 · 0.015 = 1.41.
+        PredictedPlayer player = Swimming() with { Velocity = new Vector3(100f, 0f, 0f), AllowAutoMovement = auto };
+        PlayerTraceRay ceiling = BoxWorld.Of((new Vector3(-1e4f, -1e4f, 592f), new Vector3(1e4f, 1e4f, 1000f)));
+
+        Run(ref player, Move(), contents: Water(1000f), trace: ceiling);
+
+        player.Origin.ShouldBe(new Vector3(1.41f, 0f, 500f));
+        player.Velocity.X.ShouldBe(94f, 1e-3f);
+    }
+
     // ---- The sub-boxes -------------------------------------------------------------------------------------------
 
     [Test]
