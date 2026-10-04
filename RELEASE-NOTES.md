@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.11
+# Tf2DemoSalvage 0.1.0-beta.12
 
-## Changes since 0.1.0-beta.10
+## Changes since 0.1.0-beta.11
+
+- **Sprites:** every sprite render mode draws the way the game draws it — glows ignore depth, normal mode is opaque,
+  additive-fractional-frame sprites draw twice, and the alpha-as-grey mode uses the texture's alpha.
+- **Flinches:** a flinch a model places at its first sequence is skipped as in TF2, rather than replaced by the
+  chest flinch.
+
+## Changes in 0.1.0-beta.11
 
 - **Water:** water now reflects and refracts the world as TF2 draws it — reflection and refraction views with the
   game's fog, cheap-water distance fade, waterline view and animated normal maps.
