@@ -993,3 +993,8 @@ master is not discarded either: it stays in the contest at -1, and winning it me
 `UTIL_StringToVector` — `atof` per field, missing fields zero — and an entity without one is at the world origin;
 a position target is the first entity of its name, wherever that is. This parsed three floats or nothing and skipped
 the rest (B482). No installed map exercises it; it is listed for the same reason as B480.
+
+**"No soundscape" is not "silence".** The client's only route to fading a loop out is starting a new soundscape, and it
+starts one only for an entity and an index it knows. Params that name neither — a masterless proxy winning, a player
+leaving the last trigger — change nothing that is sounding. This project read "no soundscape" as "fade to silence"
+twice, for an unknown index (B463) and then for no entity (B484).

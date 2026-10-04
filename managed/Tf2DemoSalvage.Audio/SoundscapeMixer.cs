@@ -119,7 +119,7 @@ public sealed class SoundscapeMixer
     public SoundscapePlacement? Current => _current;
 
     /// <summary>Moves to a soundscape, crossfading from whatever was playing.</summary>
-    /// <param name="placement">The chosen placement, or <c>null</c> to fade everything out.</param>
+    /// <param name="placement">The chosen placement, or <c>null</c> for params naming no entity — which starts nothing and leaves every loop playing.</param>
     /// <param name="soundscape">Its definition, or <c>null</c> when the catalog has none.</param>
     /// <remarks>
     /// **Does nothing when neither the soundscape nor the entity changed**, which is the common
@@ -142,17 +142,16 @@ public sealed class SoundscapeMixer
             return;
         }
 
-        if (_current is null && placement is null)
-        {
-            return;
-        }
-
         _current = placement;
 
-        // **An index the client has no soundscape for starts nothing** — `StartNewSoundscape` is called only when
-        // `soundscapeIndex` is inside the list (`c_soundscape.cpp:562-566`); otherwise only `m_params` changes, and
-        // the loops already sounding carry on (B463).
-        if (placement is not null && soundscape is null)
+        // **No entity, or an index the client has no soundscape for, starts nothing** — `StartNewSoundscape` is called
+        // only `if ( audio.entIndex > 0 && audio.soundscapeIndex >= 0 && audio.soundscapeIndex < m_soundscapes.Count() )`
+        // (`c_soundscape.cpp:562-566`); otherwise only `m_params` changes, and the loops already sounding carry on (B463,
+        // B484). No entity used to fade everything out.
+        //
+        // Stryker disable once : a mutant that empties the guard body leaves 'placed'
+        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (placement is not { } placed || soundscape is null)
         {
             return;
         }
@@ -165,13 +164,6 @@ public sealed class SoundscapeMixer
         }
 
         _generation++;
-
-        // Stryker disable once : a mutant that empties the guard body leaves 'placed'
-        // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-        if (placement is not { } placed || soundscape is null)
-        {
-            return;
-        }
 
         _random.SetSeed(placed.Id);
 

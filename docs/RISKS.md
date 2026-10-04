@@ -35202,3 +35202,21 @@ contest is not a think. On top of that, `trigger_soundscape` writes its params o
 list, or `entIndex = 0`, on end touch (`:417-458`). `SoundscapePlacements` places neither half: B481 holds a
 triggerable only as a proxy's master. 71 on the installed maps. Fixing it needs the trigger volumes and per-tick touch
 state as well as the radius half, and a `entIndex = 0` that the mixer now answers the engine's way (B484).
+
+## B484 — params naming no entity faded every loop out; the client starts nothing and the loops play on — FIXED 2026-10-04
+
+**Read, published source** (`c_soundscape.cpp:555-576`). `UpdateAudioParams` copies the params whenever the index or
+the entity changed, and calls `StartNewSoundscape` — the only thing that zeroes a loop's target — only
+`if ( audio.entIndex > 0 && audio.soundscapeIndex >= 0 && audio.soundscapeIndex < m_soundscapes.Count() )`. With no
+entity (the server writes `entIndex = 0` when a player leaves the last `trigger_soundscape`, `soundscape.cpp:457`)
+nothing starts and every loop keeps its target. `SoundscapeMixer.MoveTo( null, … )` zeroed them all, a three-second
+fade to silence. B463 had already made an unknown INDEX start nothing; this is the same branch's other half.
+
+**When this side is reached:** `SoundscapeSystem` asks the mixer with a null placement only before anything has been
+chosen — `Choose` holds the current placement otherwise — and a seek's `Clear()` empties the loops first. So nothing
+audible changes today; it is the branch B483's end-touch will reach.
+
+**Fix:** one guard — no placement or no definition returns after recording the params, before the fade. Test
+`MoveTo_NoEntity_StartsNothingAndTheLoopsPlayOn`, with re-entering the same placement as the control (a change, so a
+restart that reclaims the loop where it stands); `Ended_…` now fades through a soundscape with no loops, which is what
+`StartNewSoundscape` does. Sabotage — a fade on a null placement — reddened it; restored by the inverse edit.
