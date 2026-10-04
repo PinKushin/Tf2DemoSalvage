@@ -296,12 +296,14 @@ public sealed class SoundscapeSystem(
             ? SoundGain.Pan(SoundGain.Rightward(listener, right, at))
             : (1f, 1f);
 
+        // **At the loop's own pitch** — `EmitAmbientSound( pSoundName, 0, pitch )` and `ep.m_nPitch = pitch`
+        // (`c_soundscape.cpp:1161,1171`). Every loop played at rate 1 until B462; `Halloween.Outside` is at 50.
         output.Play(
             opened,
             left,
             rightGain,
             GainOf(voice, listener),
-            pitch: 1f,
+            SoundScript.Rate(voice.Pitch),
             SoundscapeEntity,
             voice.Key);
 
@@ -318,9 +320,10 @@ public sealed class SoundscapeSystem(
     /// distance would be zero and the falloff meaningless. One placed at a target is a source in the
     /// world and falls off from it.
     ///
-    /// The script's own <c>attenuation</c> is Valve's attenuation unit rather than a soundlevel, so
-    /// it is converted through <see cref="SoundAttenuation.ToSoundLevel"/> to reach the same curve
-    /// everything else here uses.
+    /// **At the soundlevel the loop was started with** (`ep.m_SoundLevel = soundlevel`, <c>c_soundscape.cpp:1170</c>),
+    /// which is 75 when the script names none. A missing <c>attenuation</c> used to read as level 0 — no falloff at
+    /// all — and the <c>soundlevel</c> key was not read, so the 79 shipped positioned loops that name a soundlevel and
+    /// no attenuation played at full volume at any distance (B462).
     /// </remarks>
     public static float GainOf(SoundscapeVoice voice, (float X, float Y, float Z) listener)
     {
@@ -335,10 +338,6 @@ public sealed class SoundscapeSystem(
 
         float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-        int level = voice.Attenuation is { } attenuation
-            ? SoundAttenuation.ToSoundLevel(attenuation)
-            : 0;
-
-        return voice.Volume * SoundGain.AtDistance(level, distance);
+        return voice.Volume * SoundGain.AtDistance(voice.SoundLevel, distance);
     }
 }

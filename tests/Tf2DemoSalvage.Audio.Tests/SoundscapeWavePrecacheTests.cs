@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -85,5 +86,10 @@ public sealed class SoundscapeWavePrecacheTests
     }
 
     private static Soundscape Room(string name, params string[] waves) =>
-        new(name, 1, [.. waves.Select(wave => new SoundscapeSound(wave))], []);
+        new(
+            name,
+            1,
+            [.. waves.Select(wave => new SoundscapeSound(
+                wave, new Interval(1f, 0f), new Interval(100f, 0f), null, SoundscapeLevel.Normal))],
+            []);
 }

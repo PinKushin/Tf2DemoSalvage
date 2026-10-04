@@ -60,6 +60,15 @@ public sealed class SoundScriptTests
     }
 
     [Test]
+    public void Rate_APitchOrZero_IsItsShareOfPitchNormOrUnshifted()
+    {
+        // The one conversion every sink caller shares (B462): a soundscape loop at pitch 50 plays at half rate.
+        SoundScript.Rate(50).ShouldBe(0.5f);
+        SoundScript.Rate(150).ShouldBe(1.5f);
+        SoundScript.Rate(0).ShouldBe(1f, "no sink can play at rate zero, so it is unshifted");
+    }
+
+    [Test]
     public void Channel_EveryNameTheHeaderLists_HasItsNumber()
     {
         string[] names =
