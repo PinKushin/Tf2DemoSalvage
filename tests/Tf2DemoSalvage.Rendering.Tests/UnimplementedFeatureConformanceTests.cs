@@ -70,6 +70,19 @@ public sealed class UnimplementedFeatureConformanceTests
     }
 
     [Test]
+    public void ImplementedParameters_TheVertexAlphaFlags_AreClaimed()
+    {
+        // Read by `VmtMaterial.TakesVertexAlpha` (B329).
+        new[] { "$vertexcolor", "$vertexalpha" }.ShouldAllBe(
+            parameter => MaterialCensus.ImplementedParameters.Contains(parameter, StringComparer.OrdinalIgnoreCase));
+
+        // `$vertexalphatest` (unlitgeneric_dx9.cpp:30, 109) sets bHasVertexAlpha only inside the
+        // snapshot block (vertexlitgeneric_dx9_helper.cpp:482), so it widens the vertex format and
+        // never reaches the dynamic `g_fVertexAlpha` (:1472) — no pixel it draws changes.
+        MaterialCensus.IgnoredParameters.ShouldContain("$vertexalphatest");
+    }
+
+    [Test]
     public void Features_VertexColour_TintsTheBaseTexturePerVertex()
     {
         // **66 materials, and it is not clear that any work is owed.** This was written as a plain
@@ -92,20 +105,12 @@ public sealed class UnimplementedFeatureConformanceTests
         // face that channel holds white, so the two agree today for every material that does NOT
         // declare the flag — which is the great majority.
         //
-        // **What is undecided is where `v.vColor` comes from for the ones that do.** Measured on
-        // cp_process_final: 64 LightmappedGeneric and 2 UnLitGeneric materials declare it, always
-        // paired with $vertexalpha, and they are overlays, decals, signs and stains —
-        // `overlays/stain016`, `signs/factory_label02`, `OVERLAYS/DUST_GRADIENT01`. The BSP gives
-        // no colour for those: `doverlay_t` (bspfile.h:1007) carries an id, a texinfo, faces and
-        // texture coordinates, and no colour at all.
-        //
-        // So either the engine's world mesh builder supplies one — and that is engine code the SDK
-        // does not ship — or these declarations are inert, which would make this $modblend again:
-        // declared in shipped VMTs, read by nothing, correct implementation nothing.
-        //
-        // **Not guessed either way.** The assertion below is the part that is settled: the pairing,
-        // and that the absent case is white rather than skipped.
-        RequireImplemented("$vertexcolor", "no entry yet");
+        // **Where `v.vColor` comes from is settled in disassembly** (B329,
+        // `docs/findings/28-vertex-colour.md` § "Settled in disassembly"): a brush face is white
+        // (engine.dll 0x1800f4d40), an overlay is white with its distance fade in alpha
+        // (0x180110630). So the colour is inert and the ALPHA is what the flag gates —
+        // `VmtMaterial.TakesVertexAlpha`.
+        RequireImplemented("$vertexcolor", "B329, docs/findings/28-vertex-colour.md");
 
         VmtMaterial material = Parse(
             """
@@ -126,6 +131,7 @@ public sealed class UnimplementedFeatureConformanceTests
         // $alpha before the modulation work, and it is why "66 materials want this" does not
         // translate into 66 materials drawn wrongly.
         material.IsTranslucent.ShouldBeTrue("$vertexalpha alone makes a material blend");
+        material.TakesVertexAlpha.ShouldBeTrue("LightmappedGeneric's VERTEXCOLOR combo passes v.vColor.a on");
 
         Parse("""
             "LightmappedGeneric"

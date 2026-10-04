@@ -100,6 +100,24 @@ public sealed class VmtParameterTests
     }
 
     [Test]
+    public void TakesVertexAlpha_UnlitGenericVertexAlphaTestAlone_IsFalse() =>
+        // `vertexlitgeneric_dx9_helper.cpp:482` sets bHasVertexAlpha for `$vertexalphatest` only while
+        // snapshotting; the dynamic `fVertexAlpha` at :1472 sees the `$vertexalpha` flag alone.
+        Parse("UnlitGeneric\n{\n\t\"$vertexalphatest\" 1\n}\n").TakesVertexAlpha.ShouldBeFalse();
+
+    [Test]
+    public void TakesVertexAlpha_PatchOverUnlitGeneric_AnswersForTheIncludedShader()
+    {
+        // The material system draws a Patch as its include with the patch's keys merged in.
+        byte[] patch = Encoding.ASCII.GetBytes(
+            "Patch\n{\n\tinclude \"materials/base.vmt\"\n\tinsert\n\t{\n\t\t\"$vertexalpha\" 1\n\t}\n}\n");
+        byte[] included = Encoding.ASCII.GetBytes("UnlitGeneric\n{\n\t\"$basetexture\" \"x\"\n}\n");
+
+        VmtMaterial.Load(patch, path => path == "materials/base.vmt" ? included : null)
+            .TakesVertexAlpha.ShouldBeTrue();
+    }
+
+    [Test]
     public void TakesVertexAlpha_VertexLitGeneric_IsNever()
     {
         // `vertexlitgeneric_dx9_helper.cpp:454-455`: a lit VertexLitGeneric clears both flags.
