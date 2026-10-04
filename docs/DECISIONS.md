@@ -1386,7 +1386,9 @@ explicitly so nobody re-derives the wrong one later.
 
 The reasons that do hold:
 
-- **This project is Windows-only regardless**, so OpenGL's portability buys nothing.
+- **This project is Windows-only regardless**, so OpenGL's portability buys nothing. *(Superseded by D209: a
+  Linux front end is planned. The choice of D3D11 over OpenGL stands; the portable backend is Vulkan, through
+  the same Silk.NET family.)*
 - **PIX and the Windows graphics tooling** are better than the OpenGL equivalents.
 - **Silk.NET's Direct3D bindings are a thin layer over the COM vtables.** Every buffer map, every
   `UpdateSubresource`, every copy is visible and controllable. An abstraction such as Veldrid or
@@ -9511,3 +9513,20 @@ So: an online viewer matching what dribble.tf does on demos.tf's Rust parser is 
 ordered after full Valve parity in the 3D viewer and possibly after video editing and export. It is built on this
 project's C# decoder, never by adopting the Rust parser; the standing no-Rust constraint (CLAUDE.md) now carries the
 owner's reason above.
+
+---
+
+## D209 — a Linux front end is planned: Dear ImGui for WinForms, Vulkan for D3D11 (2026-10-03)
+
+**Reverses D34's "this project is Windows-only regardless."** That line was the stated reason OpenGL's portability
+bought nothing; it was never the plan, only incompletely written down. Owner: *"i think the earlier linux
+possiblilities just were not copmpletely documented right. I specifically required the true thin view so that we
+could replace winforms with dear imgui, later, and replace D3d with vulken, since the vulcan change is actually just a
+change in the silk framework."*
+
+The requirement was already on record as D90's acceptance test — *"we should be easily able to replace the view with
+something that runs on linux… and not have to touch anything outside the winforms view and d3d"* — with Dear ImGui
+named as the frontend. What changes is its status: a Linux front end is a roadmap item (`ROADMAP.md` §3), not a
+hypothetical test of the split. Its parts: Dear ImGui in place of WinForms, Vulkan in place of D3D11 through the same
+Silk.NET family, and FreeType in place of the GDI rasteriser (D90). D34's choice of D3D11 over OpenGL is unchanged —
+the portable backend is Vulkan, not OpenGL. The same portable renderer is what the online viewer (D208) needs.

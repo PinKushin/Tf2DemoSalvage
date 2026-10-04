@@ -107,6 +107,11 @@ It is also mostly a *scene-graph and camera* problem rather than a rendering one
 
 Rendering backend, when we get there: **Vortice.Windows** (actively maintained, modern successor to SharpDX, thin managed wrapper over real D3D11/12) fits your Windows/DirectX + C# preference directly — no need to drop into C for the renderer itself, only asset-format parsing if you want that shared with the C core for consistency.
 
+**Linux front end (owner-stated, 2026-10-03).** Dear ImGui in place of WinForms, Vulkan in place of Direct3D 11
+through the same Silk.NET family, FreeType in place of the GDI rasteriser. Possible without touching anything else
+because the view is thin (D90); the plan and the D34 line it reverses: D209. Its portable renderer is also what the
+online viewer below needs.
+
 **Online viewer — match dribble.tf's reach in the browser (owner-stated, 2026-10-03).** A roadmap item, ordered
 **after full Valve parity in the 3D viewer**, and possibly after video editing and export. dribble.tf plays demos in
 the browser on demos.tf's Rust parser; the goal is to match that capability from this codebase and be faster and
