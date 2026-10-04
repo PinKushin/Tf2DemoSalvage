@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.13
+# Tf2DemoSalvage 0.1.0-beta.14
 
-## Changes since 0.1.0-beta.12
+## Changes since 0.1.0-beta.13
+
+- **HDR, as TF2 picks it:** maps with HDR lighting draw TF2's integer-HDR path; maps without it draw their LDR sky.
+- **Skies:** HDR sky textures, half-float skies and `$color` tints draw as in TF2, and the Halloween sky faces load.
+- **Water reflections** keep reflected light the way TF2's integer-HDR reflection view does.
+
+## Changes in 0.1.0-beta.13
 
 - **Overlay fading:** only overlays whose material reads vertex alpha fade out with distance, as in TF2; the rest
   stay solid and disappear at their maximum distance (848 overlays across the stock maps).
