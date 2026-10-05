@@ -72,6 +72,31 @@ public sealed class SoundscapeTriggerConformanceTests
     }
 
     /// <remarks>
+    /// **A soundscape with no <c>radius</c> key has radius ZERO and never wins.** <c>m_flRadius</c> is a keyfield
+    /// (<c>soundscape.cpp:73</c>) the constructor never sets (<c>:102-109</c>), so it holds what the allocator left:
+    /// <c>CBaseEntity::operator new</c> is <c>engine-&gt;PvAllocEntPrivateData</c> (<c>baseentity.cpp:3816-3821</c>), and
+    /// in the shipped x64 <c>engine.dll</c> that slot (<c>IVEngineServer</c> index 23, <c>18014a370</c>) is
+    /// <c>calloc( 1, cb )</c>, whose body (<c>1801c8140</c>) allocates through <c>g_pMemAlloc</c> and then
+    /// <c>memset( p, 0, n )</c> (<c>xor edx, edx</c> at <c>1801c817b</c>). Zero fails both <c>m_flRadius &gt; range</c>
+    /// and <c>m_flRadius == -1</c> (<c>:266, 280</c>), and the cluster list skips it too (<c>soundscape_system.cpp:234</c>).
+    /// A malformed value is <c>atof</c>'s, also zero. The control: an explicit -1 is unlimited.
+    /// </remarks>
+    [Test]
+    public void Choose_ASoundscapeWithNoRadiusKey_NeverWins()
+    {
+        SoundscapePlacements placements = SoundscapePlacements.From(
+            Entities(
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n\"origin\" \"0 0 0\"\n}\n" +
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.first\"\n\"origin\" \"0 0 0\"\n\"radius\" \"wide\"\n}\n" +
+                "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.second\"\n\"origin\" \"500 0 0\"\n\"radius\" \"-1\"\n}\n"),
+            Catalog);
+
+        placements.Placements[0].Radius.ShouldBe(0f);
+        placements.Placements[1].Radius.ShouldBe(0f);
+        placements.Choose(1f, 0f, 0f, (_, _) => true).ShouldNotBeNull().Id.ShouldBe(2, "only the explicit -1 reaches");
+    }
+
+    /// <remarks>
     /// <c>CTriggerSoundscape::Activate</c>: <c>dynamic_cast&lt; CEnvSoundscapeTriggerable* &gt;( gEntList.FindEntityByName(
     /// NULL, m_SoundscapeName ) )</c> (<c>soundscape.cpp:538-544</c>) — the FIRST entity of the name, and only if it is
     /// a triggerable. A trigger naming a plain <c>env_soundscape</c> has a null handle, so its touches do nothing
