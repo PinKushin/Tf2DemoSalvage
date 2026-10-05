@@ -121,9 +121,10 @@ public sealed class DemoHeaderHostileInputTests
     public void Parse_ShorterThanAHeader_ThrowsEndOfStream(int length)
     {
         // Every boundary that could be read one byte early: empty, one byte, the stamp's own
-        // width, and one short of the whole header.
+        // width, and one short of the whole header. **A truncated WELLFORMED header, not zeroes**
+        // (B499): the stamp is checked first, as the engine does, so zeroes are "not a demo" now.
         EndOfStreamException error =
-            Should.Throw<EndOfStreamException>(() => DemoHeader.Parse(new byte[length]));
+            Should.Throw<EndOfStreamException>(() => DemoHeader.Parse(Wellformed().AsSpan(0, length)));
 
         error.Message.ShouldContain("1072");
     }
