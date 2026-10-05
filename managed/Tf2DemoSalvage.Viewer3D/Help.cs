@@ -80,7 +80,8 @@ internal static class Help
           TF2's own config syntax; lines it does not know are ignored. Among them:
           cl_game_folder <path>      Your TF2 tf folder, when Steam's records do not find it.
                                      File > TF2 folder sets it; the viewer asks at startup
-                                     when TF2 is not found.
+                                     when TF2 is not found. +cl_game_folder <path> on the
+                                     command line uses a folder for one run without saving it.
           cl_game_folder_ask 0       Stop asking for the tf folder at startup.
           cl_screenshot_folder <path> Where --shot and the screenshot key write.
 

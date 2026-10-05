@@ -35442,3 +35442,29 @@ Program Files discovery with one named Steam folder. `GameFolderUiTests` launche
 Steam root, no `TF2_FOLDER` and a temp cfg, and asserts the viewer's `game folder at startup: not found` line before
 expecting any dialog. **Sabotaged:** with the seam disabled, both tests fail in SetUp quoting the owner's F: path; with
 picker validation removed, the refusal test fails with the folder "set".
+
+## B498 — `+cl_game_folder` on the command line never reached install detection, and a startup folder pick left the menu printing the old keys — FIXED 2026-10-05
+
+**Two D210 follow-ups.** (1) `SteamInstall.Machine` re-read `cl_game_folder` from `settings.cfg`, so a launch option
+set the in-memory value and detection never saw it; D210's note had filed a per-run folder as `TF2_FOLDER`'s job.
+Source orders it the other way: the shipped `cfg/valve.rc` runs `exec autoexec.cfg` then `stuffcmds`, which runs the
+command line's `+` commands, so a later reader sees the command line's value (read from shipped game data with
+`game-file cfg/valve.rc`). Detection now reads the live value through `SteamInstall.ConfiguredFolder`, which the
+viewer points at its settings; without a viewer it still reads the cfg file. Precedence: `TF2_FOLDER` >
+`+cl_game_folder` > cfg > Steam. (2) The startup picker reloads the player's config after the menu was built from the
+defaults, so the menu kept printing (and registering) the pre-pick keys; `ViewerMenu.ApplyBindings` now redoes every
+shortcut from the reloaded table.
+
+**Tests, output-level:** `GameFolderCommandLineUiTests.Startup_ClGameFolderOnTheCommandLine_IsTheFolderDetectionFinds`
+(own viewer, empty Steam root, temp cfg; asserts the startup line names the folder and the cfg is not written) and
+`GameFolderUiTests.StartupPicker_ATf2FolderWithItsOwnBinds_RelabelsTheMenuShortcuts` (the picked folder's autoexec
+binds F9 to `screenshot`; asserts the View menu item's accelerator reads F9). **Sabotaged:** with the live-value hookup
+removed the first logs `not found`; with `ApplyBindings` not called after the reload the second reads `F5`.
+
+**A wrong turn worth keeping:** the first version set every shortcut in one `ApplyBindings` pass at the end of the
+`ViewerMenu` constructor, after the items had joined their menus. Every Viewer3D test that loads a demo on a form that
+is never shown then hung (`LoadDemoAsync_ADemo_LoadsItAndSaysSo` alone, reproducibly; bisected by disabling the pass,
+which made it pass in 15 s): setting `ShortcutKeys` on an OWNED item evidently gives the form a handle, so the load's
+hand-back to the UI thread waits on a test thread with no message loop. Keys are now set as each item is built
+(`ViewerMenu.Bind`), before it has an owner, as the old initializers did; only the reload re-applies them, on a
+shown form. Mechanism inferred from the bisection, not traced in the WinForms source.

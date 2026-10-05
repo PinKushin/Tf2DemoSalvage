@@ -46,23 +46,30 @@ public sealed class SteamInstall(
 
     /// <summary>
     /// This machine: its registry, its Program Files, and the folder named by
-    /// <see cref="ChosenFolder"/> — <see cref="OverrideVariable"/>, else the viewer cfg's <c>cl_game_folder</c>.
+    /// <see cref="ChosenFolder"/> — <see cref="OverrideVariable"/>, else the live <c>cl_game_folder</c>
+    /// (<see cref="ConfiguredFolder"/>).
     /// </summary>
-    /// <remarks>
-    /// **The cfg is read on every call, deliberately** (D210): a folder chosen in the picker reaches the
-    /// next lookup without anything holding a stale copy. It is a few hundred bytes, read a handful of
-    /// times per demo.
-    /// </remarks>
     public static SteamInstall Machine =>
         Environment.GetEnvironmentVariable(SteamRootVariable) is { Length: > 0 } steamRoot
             ? new(
                 (key, name) => key == UserKey && name == "SteamPath" ? steamRoot : null,
                 null,
-                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ViewerSettings.Load().GameFolder))
+                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ConfiguredFolder()))
             : new(
                 ReadWindowsRegistry,
                 Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ViewerSettings.Load().GameFolder));
+                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ConfiguredFolder()));
+
+    /// <summary>The live <c>cl_game_folder</c>: what a ConVar's value is, not what the cfg file says.</summary>
+    /// <remarks>
+    /// **The viewer points this at its in-memory settings** (D210 follow-up), so <c>+cl_game_folder</c>
+    /// on the command line reaches detection. Source orders it the same way: the shipped
+    /// <c>cfg/valve.rc</c> runs <c>exec autoexec.cfg</c> and THEN <c>stuffcmds</c>, which executes the
+    /// command line's <c>+</c> commands, so a later reader sees the command line's value over the cfg's.
+    /// Without a viewer (the CLI, probes, tests) it falls back to reading the cfg file on every call, so a
+    /// folder saved by the picker still reaches the next lookup.
+    /// </remarks>
+    public static Func<string?> ConfiguredFolder { get; set; } = () => ViewerSettings.Load().GameFolder;
 
     /// <summary>
     /// TEST SEAM (D210): names the only Steam folder discovery may look in, replacing the registry and

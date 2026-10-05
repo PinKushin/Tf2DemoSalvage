@@ -119,6 +119,24 @@ public sealed class GameFolderUiTests
         File.ReadAllText(_settings).ShouldContain($"{ViewerSettings.GameFolderCommand} \"{tf}\"");
     }
 
+    [Test]
+    public void StartupPicker_ATf2FolderWithItsOwnBinds_RelabelsTheMenuShortcuts()
+    {
+        // The player's autoexec moves the screenshot off F5, TF2's default and the viewer's own.
+        string tf = Directory.CreateDirectory(Path.Combine(_root, "tf")).FullName;
+        File.WriteAllBytes(Path.Combine(tf, SteamInstall.Recogniser), []);
+        Directory.CreateDirectory(Path.Combine(tf, "cfg"));
+        File.WriteAllText(Path.Combine(tf, "cfg", "autoexec.cfg"), "bind F9 screenshot\n");
+
+        Choose(tf);
+        Retry.WhileFalse(() => Viewer.Count("] " + MainForm.GameFolderSet) > 0, DialogTimeout)
+            .Success.ShouldBeTrue($"the folder was not accepted; status '{Viewer.StatusText()}'");
+
+        Viewer.Click(FindShown(MainForm.ViewMenuName), MainForm.ViewMenuName);
+        FindShown(MainForm.ScreenshotItemName).Properties.AcceleratorKey.ValueOrDefault
+            .ShouldBe("F9", "the menu still prints the key bound before the player's config was read");
+    }
+
     /// <summary>Types a folder into the open folder dialog and confirms it.</summary>
     private void Choose(string folder)
     {

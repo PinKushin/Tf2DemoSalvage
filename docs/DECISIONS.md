@@ -9580,5 +9580,12 @@ the next start). The sort:
 | `+<cvar> <value>` | launch | Source's own per-run cfg override | unchanged |
 | CLI (`tf2demosalvage`) options | launch | per-invocation; nothing persistent | unchanged |
 
-Known limit: `+cl_game_folder <path>` on the command line does not reach discovery, which reads the cfg file; a
-per-run folder is `TF2_FOLDER`'s job.
+~~Known limit: `+cl_game_folder <path>` on the command line does not reach discovery, which reads the cfg file; a
+per-run folder is `TF2_FOLDER`'s job.~~ **Superseded (2026-10-05, B498):** discovery reads the LIVE
+`cl_game_folder` (`SteamInstall.ConfiguredFolder`, pointed at the viewer's in-memory settings), so the precedence is
+`TF2_FOLDER` > command line `+cl_game_folder` > cfg > Steam. That is Source's order: TF2's shipped `cfg/valve.rc`
+runs `exec autoexec.cfg` and then `stuffcmds`, which executes the command line's `+` commands, so the later reader
+sees the command line's value (read from shipped game data, `game-file cfg/valve.rc`). The caller asked for this;
+the earlier note had filed it as `TF2_FOLDER`'s job, which made a Source-syntax launch option silently do nothing.
+Also: a folder picked at startup reloads the player's config, and the menu's shortcut labels are now redone from
+it (`ViewerMenu.ApplyBindings`); they had kept the keys from before the read.

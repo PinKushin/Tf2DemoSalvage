@@ -192,8 +192,6 @@ internal sealed class ViewerMenu : IDisposable
     {
         ArgumentNullException.ThrowIfNull(bindings);
 
-        Keys Shortcut(ViewerAction action) => KeyNames.Resolve(bindings.KeyFor(action));
-
         Dictionary<TextureQuality, ToolStripMenuItem> textureQualityItems = [];
 
         TextureQualityItems = textureQualityItems;
@@ -210,8 +208,8 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.OpenDemoItemId,
             AccessibleName = "Open demo",
-            ShortcutKeys = Shortcut(ViewerAction.OpenDemo),
         };
+        Bind(open, ViewerAction.OpenDemo, bindings);
         open.Click += (_, _) => actions.OpenDemo();
 
         ToolStripMenuItem export = new("&Export assembly...")
@@ -249,9 +247,9 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.FullScreenItemId,
             AccessibleName = MainForm.FullScreenItemName,
-            ShortcutKeys = Shortcut(ViewerAction.FullScreen),
             CheckOnClick = true,
         };
+        Bind(FullScreen, ViewerAction.FullScreen, bindings);
         FullScreen.CheckedChanged += (_, _) => actions.SetFullScreen(FullScreen.Checked);
 
         // **Both modes offered, because neither is right for everyone.** Borderless always works
@@ -326,10 +324,10 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.SurfaceColoursItemId,
             CheckOnClick = true,
-            ShortcutKeys = Shortcut(ViewerAction.SurfaceColours),
         };
 
-        SurfaceColours.CheckedChanged += (_, _) => actions.SetSurfaceColours(SurfaceColours.Checked);
+        Bind(SurfaceColours, ViewerAction.SurfaceColours, bindings);
+        SurfaceColours.CheckedChanged +=(_, _) => actions.SetSurfaceColours(SurfaceColours.Checked);
 
         // **A menu item as well as the cvar, because a cvar nobody can find is a cvar nobody uses.**
         // The owner's words are the requirement: "we need a fps overlay too, we dont have one so i
@@ -351,14 +349,14 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.FrameRateItemId,
             CheckOnClick = true,
             Checked = settings.ShowFrameRate != 0,
-            ShortcutKeys = Shortcut(ViewerAction.FrameRate),
             AccessibleName = "Frame rate",
             AccessibleDescription =
                 "Draws TF2's own frame rate meter in the top right: the average, the worst and best " +
                 "single frame in brackets, and how long this frame took.",
         };
 
-        FrameRate.CheckedChanged += (_, _) => actions.SetFrameRateMeter(FrameRate.Checked);
+        Bind(FrameRate, ViewerAction.FrameRate, bindings);
+        FrameRate.CheckedChanged +=(_, _) => actions.SetFrameRateMeter(FrameRate.Checked);
 
         // **Valve's `cl_showpos`, drawn by the same panel and therefore next to it in the menu.**
         // Added on the owner's direction as an INSTRUMENT rather than as a feature (D123): *"we
@@ -374,14 +372,14 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.PositionReadoutItemId,
             CheckOnClick = true,
             Checked = settings.ShowPosition != 0,
-            ShortcutKeys = Shortcut(ViewerAction.PositionReadout),
             AccessibleName = "Position",
             AccessibleDescription =
                 "Draws TF2's own position readout under the frame rate: the camera's coordinates, " +
                 "the direction it faces, and the watched player's speed.",
         };
 
-        PositionReadout.CheckedChanged += (_, _) =>
+        Bind(PositionReadout, ViewerAction.PositionReadout, bindings);
+        PositionReadout.CheckedChanged +=(_, _) =>
             actions.SetPositionReadout(PositionReadout.Checked);
 
         // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
@@ -398,14 +396,14 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.WireframeItemId,
             CheckOnClick = true,
             Checked = false,
-            ShortcutKeys = Shortcut(ViewerAction.Wireframe),
             AccessibleName = "Wireframe",
             AccessibleDescription =
                 "Draws every surface as edges only, so geometry that never reached the screen can " +
                 "be told apart from geometry that is drawn but invisible.",
         };
 
-        Wireframe.CheckedChanged += (_, _) => actions.SetWireframe(Wireframe.Checked);
+        Bind(Wireframe, ViewerAction.Wireframe, bindings);
+        Wireframe.CheckedChanged +=(_, _) => actions.SetWireframe(Wireframe.Checked);
 
         // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
         // reflection is ADDED to an opaque surface, so a prop whose envmap term dominates draws in
@@ -482,9 +480,9 @@ internal sealed class ViewerMenu : IDisposable
             ToolStripMenuItem item = new(label)
             {
                 Name = MainForm.FullbrightItemId + chosen,
-                ShortcutKeys = Shortcut(action),
                 Checked = chosen == Fullbright.Off,
             };
+            Bind(item, action, bindings);
 
             item.Click += (_, _) => actions.SetFullbright(chosen);
 
@@ -593,8 +591,8 @@ internal sealed class ViewerMenu : IDisposable
             {
                 Name = MainForm.DebugMenuItemId + which,
                 CheckOnClick = true,
-                ShortcutKeys = Shortcut(bound),
             };
+            Bind(item, bound, bindings);
 
             item.CheckedChanged += (sender, _) =>
             {
@@ -625,10 +623,10 @@ internal sealed class ViewerMenu : IDisposable
         ToolStripMenuItem screenshot = new("Save a &screenshot")
         {
             Name = MainForm.ScreenshotItemId,
-            ShortcutKeyDisplayString = bindings.KeyFor(ViewerAction.Screenshot),
             AccessibleName = MainForm.ScreenshotItemName,
             AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
         };
+        Bind(screenshot, ViewerAction.Screenshot, bindings, printedOnly: true);
 
         screenshot.Click += (_, _) => actions.Screenshot();
 
@@ -700,6 +698,51 @@ internal sealed class ViewerMenu : IDisposable
             }
 
             Strip.Items.Add(hudMenu);
+        }
+    }
+
+    /// <summary>Each item's key, and whether the menu only prints it rather than registering it.</summary>
+    private readonly List<(ToolStripMenuItem Item, ViewerAction Action, bool PrintedOnly)> _shortcuts = [];
+
+    /// <summary>Sets every item's shortcut from the binding table (B214, D101).</summary>
+    /// <param name="bindings">Which key performs which action.</param>
+    /// <remarks>
+    /// **Called again whenever the player's config is reloaded** (D210 follow-up): a TF2 folder picked at
+    /// startup reads the player's binds after this menu was built, and a menu built once kept printing
+    /// the keys from before.
+    /// </remarks>
+    public void ApplyBindings(KeyBindings bindings)
+    {
+        ArgumentNullException.ThrowIfNull(bindings);
+
+        foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
+        {
+            SetKey(item, action, printedOnly, bindings);
+        }
+    }
+
+    /// <summary>Records an item's action and sets its key now, before the item joins a menu.</summary>
+    /// <remarks>
+    /// **Set at construction, not by <see cref="ApplyBindings"/> after the strip is assembled.** Setting
+    /// <c>ShortcutKeys</c> on an item that already has an owner hung every Viewer3D test that loads a
+    /// demo on a form never shown (B498): the load's hand-back to the UI thread waited on a thread with
+    /// no message loop. Before an owner exists it is a plain property write, as it always was.
+    /// </remarks>
+    private void Bind(ToolStripMenuItem item, ViewerAction action, KeyBindings bindings, bool printedOnly = false)
+    {
+        _shortcuts.Add((item, action, printedOnly));
+        SetKey(item, action, printedOnly, bindings);
+    }
+
+    private static void SetKey(ToolStripMenuItem item, ViewerAction action, bool printedOnly, KeyBindings bindings)
+    {
+        if (printedOnly)
+        {
+            item.ShortcutKeyDisplayString = bindings.KeyFor(action);
+        }
+        else
+        {
+            item.ShortcutKeys = KeyNames.Resolve(bindings.KeyFor(action));
         }
     }
 
