@@ -1,6 +1,16 @@
-# Tf2DemoSalvage 0.1.0-beta.28
+# Tf2DemoSalvage 0.1.0-beta.29
 
-## Changes since 0.1.0-beta.27
+## Changes since 0.1.0-beta.28
+
+- **A script's waves no longer repeat until every wave has played.** The game deals a sound script's waves like a
+  deck, shared by every sound that names that script; the viewer now does the same (B503).
+- **Within a tick, sounds play in the game's frame order:** HUD sounds, medigun patches, animation events and
+  footsteps, physics impacts and friction, then temp entities in the order they arrived (B505).
+- **Seeking follows the game's own skip.** Unreliable temp entities (explosions, impacts) in skipped ticks no
+  longer fire or deal a wave, and the deck is kept, not rebuilt (B504).
+- **Every wave of a script a demo uses is precached,** so a sound's first play no longer hitches (B503).
+
+## Changes in 0.1.0-beta.28
 
 - **Game sound scripts are read as the game reads them.** A script's volume, pitch and sound level are parsed and
   stored the way the game's sound system does, so a few shipped scripts now play at a slightly different volume
@@ -305,6 +315,10 @@ Each claim below is a measurement, not an expectation.
   this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
   control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
   ear in a played demo.
+- **Wave deck, frame order and skip** (beta.29): synthetic tests with exact values cover the deck, the
+  within-tick order and the skip; on the f12 demo's 2,629 blasts in 876 three-wave blocks, each block is a
+  permutation of its waves. Each part was reverted alone and reddened its test. Settled in the game's engine
+  binary and published source (B503, B504, B505). Not yet checked by ear in a played demo.
 - **Sound script values and draw order** (beta.28): synthetic tests with exact values cover the narrowed volume,
   pitch and sound level, the draw order, the per-foot footstep cache, the medigun pitch and the friction sound's
   channel and volume; a shipped script's volume is checked against the game's stored value. Each part was reverted
@@ -332,8 +346,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Trigger soundscape limits (B483):** the camera has no body, so a view can enter a trigger up to 24 units
   later than a player would; the Enable and Disable inputs are not recorded in a demo, so a trigger the map turns
   off mid-match is not followed.
-- **Sound waves can repeat (B503):** the game deals a script's waves like a deck and never repeats one until all
-  have played; the viewer picks each at random, so the same wave can come twice in a row.
+- **Sound wave draws are approximated (B503):** the deck is dealt as the game does, but the game's random stream
+  cannot be reproduced, so each sound's random draw is the viewer's own.
+- **Seeking skips two things the game may also skip (B504):** HUD sounds and animation-event sounds during a skip
+  are unread in the game's code, so the viewer plays none for skipped ticks.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
