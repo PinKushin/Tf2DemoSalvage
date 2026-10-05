@@ -232,6 +232,26 @@ public sealed class CModelPanelConformanceTests
             .ShouldBe("Pyro", "INVADERS_ARE_PYRO: BLU is the pyros (:138-140)");
     }
 
+    /// <remarks>
+    /// `CParticleCollection::Init` gives an unseeded collection `(int)this + Plat_MSTime()` (B469), so two panels' slams
+    /// never draw alike; D136's stand-in is a distinct, reproducible, non-zero seed per created collection (B490).
+    /// </remarks>
+    [Test]
+    public void ParticlePanel_TwoEffectsOfOneSystem_AreSeededDistinctlyAndNonZero()
+    {
+        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase) { ["versus_door_slam"] = Slam() };
+        TfParticlePanel.Effect first = new("versus_door_slam");
+        TfParticlePanel.Effect second = new("versus_door_slam");
+
+        first.SetParticleSystem("versus_door_slam", systems, _ => null);
+        second.SetParticleSystem("versus_door_slam", systems, _ => null);
+
+        int a = first.System.ShouldNotBeNull().Particles.Seed;
+        int b = second.System.ShouldNotBeNull().Particles.Seed;
+
+        (a != 0, b != 0, a != b).ShouldBe((true, true, true));
+    }
+
     [Test]
     public void ParticlePanel_TheResBlock_PlacesTheSlamAtTheCentreUnstartedUntilStart0()
     {

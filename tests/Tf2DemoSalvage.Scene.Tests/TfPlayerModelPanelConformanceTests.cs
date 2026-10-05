@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 using System.Text;
 
@@ -235,6 +236,26 @@ public sealed class TfPlayerModelPanelConformanceTests
         panel.ParticleSystemNames[8].ShouldBe("killstreak_t0_lvl1_flash", "SYSTEM_EYESPARK_RIGHT: sparks with a non-zero color 1 (:1759)");
         panel.ParticleSystemNames[5].ShouldBeNull("no eyeglow_L on this model (:1732)");
         surface.Particles.ShouldHaveSingleItem().ShouldNotBeEmpty("PostPaint3D renders them after the models (basemodel_panel.cpp:904-912)");
+    }
+
+    /// <remarks>
+    /// `CParticleCollection::Init` gives an unseeded collection `(int)this + Plat_MSTime()` (B469), so no two of a panel's
+    /// collections draw alike. D136's stand-in is a distinct, reproducible, non-zero seed per created collection (B490).
+    /// </remarks>
+    [Test]
+    public void CreateParticleData_TwoCollections_AreSeededDistinctlyAndNonZero()
+    {
+        (TfPlayerModelPanel panel, _) = Panel(ScoutModel, Scattergun);
+        GiveParticles(panel, "killstreak_t1_lvl1", "killstreak_t0_lvl1_flash");
+        panel.SetToPlayerClass(1);
+        panel.SetEyeGlowEffect("killstreak_t1_lvl1", Vector3.One, Vector3.UnitX, forceUpdate: true, playSparks: true);
+        panel.Paint(new VguiModelPanelConformanceTests.RecordingModelSurface(), VguiModelPanelConformanceTests.Context());
+
+        int[] seeds = [.. panel.ParticleList.Select(data => data.Effect.Particles.Seed)];
+
+        seeds.Length.ShouldBe(2);
+        seeds.ShouldAllBe(seed => seed != 0);
+        seeds[0].ShouldNotBe(seeds[1]);
     }
 
     [Test]
