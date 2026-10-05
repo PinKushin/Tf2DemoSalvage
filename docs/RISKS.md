@@ -35340,7 +35340,11 @@ runs every initializer on them, then `InitParticleAttributes` and `CopyInitialAt
 `ParticleSimulateConformanceTests.Step_TheFirstStep_CreatesTheInitialParticlesUpToTheCap` and
 `…Step_AZeroFirstStep_StillCreatesTheInitialParticles`. Both were red without it; removing the `dt == 0` guard reddened the
 first with a NaN position. The arm's value (1 rather than 0) is equivalent, because the first frame has just set the
-previous points to the present ones. **Not built:** `SimulateFirstFrame`'s pre-emitter operators
+previous points to the present ones. **Output level, for B490-B496 together:**
+`RocketTrailOutputTests.Update_ARocketsFirstTickFromARealDemo_DrawsItsInitialPuffOnTheRocket` runs z1800's rocket 573
+through `ParticleEffects` with the installed `rockettrail` (which declares `emission_rate 150`, not the 128 older notes
+quote). It asserts three puffs on the first tick, aged 0.015, 0.0075 and 0, the initial one within two units of the
+rocket, and at least 18 corners reaching the batches. Zeroing `initial_particles` reddened it. **Not built:** `SimulateFirstFrame`'s pre-emitter operators
 (`ShouldRunBeforeEmitters`: `C_OP_RemapSpeedtoCP`, `C_OP_SetControlPointPositions`, `…ToCenter`, `…ToPlayer`), none
 of which this project implements.
 
