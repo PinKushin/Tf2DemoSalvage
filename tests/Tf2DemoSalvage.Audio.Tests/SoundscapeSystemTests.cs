@@ -141,6 +141,46 @@ public sealed class SoundscapeSystemTests
         sink.Played.ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The trigger's touch reaches the mixer** (B483): a triggerable 9,000 units off with a 1-unit radius cannot win the
+    /// contest, so only its trigger can make it current. Touching starts its loop; the control, the same map with no
+    /// touch test supplied, starts nothing.
+    /// </remarks>
+    [Test]
+    public void Update_InsideATriggerOfAFarTriggerable_StartsItsLoop()
+    {
+        Sink touched = new();
+        Sink control = new();
+
+        SoundscapeSystem system = Triggered();
+        system.Inside = (_, _) => true;
+        system.Update(touched, Origin, Right, now: 1d);
+
+        Triggered().Update(control, Origin, Right, now: 1d);
+
+        touched.Played.ShouldHaveSingleItem();
+        control.Played.ShouldBeEmpty();
+    }
+
+    private static SoundscapeSystem Triggered()
+    {
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Placements = SoundscapePlacements.From(
+            Tf2DemoSalvage.Content.Bsp.BspEntities.Parse(global::System.Text.Encoding.UTF8.GetBytes(
+                "{\n\"classname\" \"env_soundscape_triggerable\"\n\"targetname\" \"far\"\n\"soundscape\" \"test.room\"\n" +
+                "\"origin\" \"9000 0 0\"\n\"radius\" \"1\"\n}\n" +
+                "{\n\"classname\" \"trigger_soundscape\"\n\"model\" \"*1\"\n\"soundscape\" \"far\"\n}\n")),
+            system.Catalog!,
+            models:
+            [
+                new(default, default, default, 0, 0, 0),
+                new(default, default, default, 7, 0, 0),
+            ]);
+
+        return system;
+    }
+
     private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null)
     {
         SoundscapeCatalog catalog = SoundscapeCatalog.Load(path => path switch

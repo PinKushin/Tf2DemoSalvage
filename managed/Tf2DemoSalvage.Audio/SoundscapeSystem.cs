@@ -54,6 +54,7 @@ public sealed class SoundscapeSystem(
         Leaves = null;
         Visibility = null;
         LineOfSight = null;
+        Inside = null;
 
         Clear();
     }
@@ -127,6 +128,36 @@ public sealed class SoundscapeSystem(
     {
         _voices.Clear();
         _mixer.Clear();
+        _touches.Clear();
+    }
+
+    /// <summary>Whether the listener at a point touches a trigger's brush, or null before a map is read.</summary>
+    /// <remarks>Supplied by whoever holds the level, like <see cref="LineOfSight"/>: the brush is the map's (B483).</remarks>
+    public Func<SoundscapeTrigger, (float X, float Y, float Z), bool>? Inside { get; set; }
+
+    private readonly SoundscapeTouches _touches = new();
+
+    /// <summary>Whether a point is inside a trigger's brush: a point trace from its own head node that starts solid.</summary>
+    /// <param name="leaves">The map's tree, which holds every brush model's subtree.</param>
+    /// <param name="trigger">The trigger.</param>
+    /// <param name="point">The listener.</param>
+    /// <returns>Whether it touches.</returns>
+    /// <remarks>
+    /// The brush model is placed at the trigger's origin and is not rotated, so the point moves into its frame by the
+    /// origin alone. Every contents bit counts: a trigger touches whatever its brushes are made of.
+    ///
+    /// **The engine touches with the player's HULL; this with a point**, because the viewer's listener is a camera with
+    /// no body. A real player enters a trigger up to a hull's half-width (24 units) sooner (B483).
+    /// </remarks>
+    public static bool Touches(BspLeafTree leaves, SoundscapeTrigger trigger, (float X, float Y, float Z) point)
+    {
+        ArgumentNullException.ThrowIfNull(leaves);
+
+        float x = point.X - trigger.X;
+        float y = point.Y - trigger.Y;
+        float z = point.Z - trigger.Z;
+
+        return leaves.Trace(x, y, z, x, y, z, 0f, trigger.HeadNode, mask: -1).StartSolid;
     }
 
     /// <summary>Chooses, fades and plays the map's ambience for one frame.</summary>
@@ -189,12 +220,19 @@ public sealed class SoundscapeSystem(
     /// <summary>Picks the soundscape that reaches the listener, and says when it changes.</summary>
     private void Choose(SoundscapePlacements placements, (float X, float Y, float Z) listener)
     {
+        // **Touches before the contest, as the server orders them**: trigger touches run in entity physics, and
+        // `CSoundscapeSystem::FrameUpdatePostEntityThink` after every entity has thought (`soundscape_system.cpp:296`),
+        // starting from whatever the touches wrote (B483).
+        SoundscapePlacement? current = Inside is { } inside
+            ? placements.Touch(_touches, trigger => inside(trigger, listener), _mixer.Current)
+            : _mixer.Current;
+
         SoundscapePlacement? chosen = placements.Choose(
             listener.X,
             listener.Y,
             listener.Z,
             (from, to) => LineOfSight is not { } clear || clear(from, to),
-            _mixer.Current,
+            current,
 
             // **The listener is the camera, which is already at eye height** — the engine tests at
             // `EarPosition()` rather than at a player's origin, and a floor-level point resolves

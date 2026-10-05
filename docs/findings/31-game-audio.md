@@ -1034,3 +1034,33 @@ the rest (B482). No installed map exercises it; it is listed for the same reason
 starts one only for an entity and an index it knows. Params that name neither — a masterless proxy winning, a player
 leaving the last trigger — change nothing that is sounding. This project read "no soundscape" as "fade to silence"
 twice, for an unknown index (B463) and then for no entity (B484).
+
+## Triggerable soundscapes: two halves, and a touch order only a recording could settle (B483)
+
+*Read, published source, 2026-10-05.* **An `env_soundscape_triggerable` is set two ways, and the viewer had neither.**
+It is a `CEnvSoundscape`, so it sits in the server's list and contends by radius like any other — its empty `Think`
+override stops nothing, because the contest runs from `FrameUpdatePostEntityThink`, not from thinks. And each
+`trigger_soundscape` that names it (the FIRST entity of the name, and only if that is a triggerable) hands it the
+player's touches: a start puts it at the head of `m_hTriggerSoundscapeList` and writes its params; an end removes it
+and lets the new head write, or with the list empty writes `entIndex = 0`. Touches are edges: standing inside writes
+nothing, so the radius contest can take over inside a trigger and keep it.
+
+**What reaches a client is only the result.** The list and the touch state are server members; the client receives the
+`audioparams_t` they produce, in `DT_LocalPlayerExclusive`, so a POV demo carries it for the recorder and a SourceTV
+demo for nobody. The viewer listens at its camera, so — as for the radius contest (B173) — it plays the server's part:
+the trigger brushes come from the map (each `*N`'s own subtree, placed at the trigger's origin), and the touch is a point
+test at the listener. *Not reproducible:* the engine touches with the player's hull, which a camera does not have; the
+Enable/Disable inputs, which are entity I/O.
+
+*Measured, differential, 2026-10-05.* **The order of starts and ends is not in the published source, and it decides the
+answer.** A recording made through the tf2 MCP on koth_lakeside_final (all six of its soundscapes are triggerables)
+`setpos`'d the soldier from a spot inside both the Wood trigger and a thin Outside trigger into a SECOND Outside
+trigger. The server wrote `entIndex 0`, not Outside. Only one order produces that: every start first (the new Outside
+heads the list), then the ends (the old Outside's `FindAndRemove` takes the SAME triggerable out; Wood's end empties the
+list). Map order, one transition at a time, ends in Outside. The first version of this fix did that, and the demo
+caught it — the synthetic tests, written from the reading, all passed.
+
+**The recorded view origin is the player's origin, not the eye.** `soundscape_dumpclient` printed the same z as the
+demo's view origin while `getpos` printed 68 more; treated as the ear, it put the listener 20 units below the bottom of
+the Wood trigger, and the replay left a trigger the server never left. A measurement of an instrument, not of the
+engine — recorded because it was the first reading and it was wrong.

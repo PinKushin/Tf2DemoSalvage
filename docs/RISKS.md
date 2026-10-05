@@ -35213,7 +35213,7 @@ left unset, and a short origin dropped whole — reddened each, restored by the 
 `CEnvSoundscape`'s constructor never sets it; `Radius` reads a missing or unparseable key as -1, unlimited. What the
 engine's allocation leaves there was not read. The census found no soundscape entity without the key.
 
-## B483 — an `env_soundscape_triggerable` contends by radius like any soundscape, and is never placed — OPEN 2026-10-04
+## B483 — an `env_soundscape_triggerable` contends by radius like any soundscape, and is never placed — FIXED 2026-10-05
 
 **Read, published source.** The triggerable is a `CEnvSoundscape` (`soundscape.h:93`), so its constructor lists it in
 the soundscape system (`soundscape.cpp:108`) and `FrameUpdatePostEntityThink` runs `UpdateForPlayer` on it with every
@@ -35222,6 +35222,25 @@ contest is not a think. On top of that, `trigger_soundscape` writes its params o
 list, or `entIndex = 0`, on end touch (`:417-458`). `SoundscapePlacements` places neither half: B481 holds a
 triggerable only as a proxy's master. 71 on the installed maps. Fixing it needs the trigger volumes and per-tick touch
 state as well as the radius half, and a `entIndex = 0` that the mixer now answers the engine's way (B484).
+
+**Fix:** triggerables are placed in the contest in map order (so `Id + 1` is the server's `m_soundscapeEntityId`);
+each `trigger_soundscape` linked to a triggerable carries its brush's head node and origin
+(`SoundscapePlacements.Triggers`); `SoundscapePlacements.Touch` keeps the listener's touch set and trigger list
+(`SoundscapeTouches`) and runs every start, then every end, before the contest; `SoundscapeSystem.Touches` is a point
+test against the brush's own subtree, wired in `LevelSystems`. Start-before-end is *measured*, not read: a koth_lakeside
+POV recorded through the tf2 MCP (`tf2-2026-pov-koth_lakeside-triggers.dem`, lcor) left the server at `entIndex 0` where
+map order gives Outside — `docs/findings/31-game-audio.md`. Tests: `SoundscapeTriggerConformanceTests` (eight, one on
+the installed koth_lakeside_final), `Update_InsideATriggerOfAFarTriggerable_StartsItsLoop`, and the corpus
+differential `Touch_TheRecordersEyeOnKothLakeside_NamesTheEntityTheServerWrote`, which matches every recorded
+`entIndex`. Sabotaged one at a time and each reddened its test: touch not wired, map-order ends (also the corpus
+test), link without the triggerable cast, triggerables unplaced, `StartDisabled` ignored, end always empty, level
+instead of edge, brush not offset by the trigger origin.
+
+**Not reproduced:** the player's hull (a camera has none — a player enters up to 24 units sooner); Enable/Disable
+inputs; the engine's order within each pass (map order is taken). **Not checked:** an `env_soundscape` with no `radius`
+key reads as -1 (unlimited) here; the server's `m_flRadius` is never initialised, so it is whatever the entity
+allocator leaves — zero if it clears, which would make such an entity never win. Every soundscape on koth_lakeside
+carries the key.
 
 ## B484 — params naming no entity faded every loop out; the client starts nothing and the loops play on — FIXED 2026-10-04
 

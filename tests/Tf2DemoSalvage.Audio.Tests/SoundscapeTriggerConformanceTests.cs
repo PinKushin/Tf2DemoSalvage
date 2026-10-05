@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Audio;
@@ -161,6 +162,80 @@ public sealed class SoundscapeTriggerConformanceTests
 
         placements.Touch(touches, trigger => trigger.HeadNode == 11, placements.Placements[1])
             .ShouldNotBeNull().Name.ShouldBe("test.first", "the outer is the head again");
+    }
+
+    /// <remarks>
+    /// **Every start before any end**, measured on the koth_lakeside recording (B483): from inside an Outside trigger
+    /// and the Wood one, a teleport into a SECOND Outside trigger left the server at <c>entIndex 0</c>. Starts first:
+    /// the new Outside start heads the list; the old Outside end removes that same triggerable (<c>FindAndRemove</c>,
+    /// <c>soundscape.cpp:440</c>), leaving Wood; Wood's end empties it. In map order instead, the listener ends in
+    /// Outside.
+    /// </remarks>
+    [Test]
+    public void Touch_EnteringASecondTriggerOfALeftTriggerable_EndsWithNoEntity()
+    {
+        SoundscapePlacements placements = SoundscapePlacements.From(
+            Entities(
+                Triggerable("outside", "test.first") + Triggerable("wood", "test.second") +
+                Trigger("*1", "outside") + Trigger("*2", "wood") + Trigger("*3", "outside")),
+            Catalog,
+            models: [.. Models, new BspModel(default, default, default, 33, 0, 0)]);
+        SoundscapeTouches touches = new();
+
+        placements.Touch(touches, trigger => trigger.HeadNode is 11 or 22, current: null)
+            .ShouldNotBeNull().Name.ShouldBe("test.second", "Wood's start came after Outside's");
+
+        placements.Touch(touches, trigger => trigger.HeadNode == 33, placements.Placements[1]).ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **The output-level check, on koth_lakeside_final, whose ambience is all triggerables.** Through the production
+    /// path — the level's catalog, <see cref="SoundscapePlacements.From"/> with the map's own tree and models, and
+    /// <see cref="SoundscapeSystem.Touches"/> on each brush — a listener at the centre of a trigger's brush is inside it
+    /// and one 64 units above the brush is not (the control), and entering writes the triggerable whose soundscape the
+    /// mixer then starts.
+    /// </remarks>
+    [Test]
+    public void Touch_KothLakeside_EachTriggerWritesItsTriggerable()
+    {
+        byte[] bytes = System.IO.File.ReadAllBytes(
+            Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/koth_lakeside_final.bsp"));
+        SoundscapeCatalog catalog = SoundscapeCatalog.ForLevel(
+            Tf2DemoSalvage.Content.Assets.PakFile.ReadFrom(bytes),
+            Tf2DemoSalvage.Content.Assets.GameArchives.Open(Tf2DemoSalvage.SdkReference.GameInstall.Require()).Read,
+            "koth_lakeside_final");
+        IReadOnlyList<BspEntity> entities = BspEntities.ReadFrom(bytes);
+        BspLeafTree leaves = BspLeafTree.Read(bytes);
+        IReadOnlyList<BspModel> models = BspModels.Read(bytes);
+        SoundscapePlacements placements = SoundscapePlacements.From(entities, catalog, leaves, models);
+
+        placements.Triggers.Count.ShouldBe(29, "every trigger_soundscape on the map names a triggerable");
+        int started = 0;
+
+        foreach (SoundscapeTrigger trigger in placements.Triggers)
+        {
+            BspModel model = models.Single(candidate => candidate.HeadNode == trigger.HeadNode);
+            (float X, float Y, float Z) centre = (
+                trigger.X + ((model.Minimum.X + model.Maximum.X) / 2),
+                trigger.Y + ((model.Minimum.Y + model.Maximum.Y) / 2),
+                trigger.Z + ((model.Minimum.Z + model.Maximum.Z) / 2));
+            (float X, float Y, float Z) above = (centre.X, centre.Y, trigger.Z + model.Maximum.Z + 64);
+
+            SoundscapeSystem.Touches(leaves, trigger, above).ShouldBeFalse($"the control: above trigger {trigger.Id}");
+            SoundscapeSystem.Touches(leaves, trigger, centre).ShouldBeTrue($"inside trigger {trigger.Id}");
+
+            SoundscapePlacement current = placements.Touch(
+                new SoundscapeTouches(), candidate => candidate.Id == trigger.Id, current: null).ShouldNotBeNull();
+
+            current.Id.ShouldBe(trigger.Soundscape);
+            Soundscape script = catalog.At(current.Index).ShouldNotBeNull($"{current.Name} resolves");
+
+            SoundscapeMixer mixer = new();
+            mixer.MoveTo(current, script);
+            started += mixer.Advance(0f).Count > 0 ? 1 : 0;
+        }
+
+        started.ShouldBeGreaterThan(0, "at least one entered soundscape starts its loops");
     }
 
     /// <remarks>
