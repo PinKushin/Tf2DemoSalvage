@@ -2296,6 +2296,30 @@ public sealed class DemoTimeline
         IReadOnlyList<SceneRagdoll>? corpses = null) =>
         new(frames ?? [], tracks) { Corpses = corpses ?? [] };
 
+    /// <summary>A point-of-view timeline with the recorder's input, for tests that drive prediction (B501).</summary>
+    /// <param name="frames">The recorder's networked state; entity 1 is the recorder.</param>
+    /// <param name="flagLayout">The `m_fFlags` list the demo was written with.</param>
+    /// <param name="commands">The recorded usercmds.</param>
+    /// <param name="acknowledgements">Each packet's tick and the last command it acknowledges.</param>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>The timeline.</returns>
+    /// <remarks>Same seam as <see cref="ForTracks"/>: a way to ask a question, not to build a timeline.</remarks>
+    internal static DemoTimeline ForRecorder(
+        List<TimelineFrame> frames,
+        PlayerFlagLayout flagLayout,
+        IReadOnlyList<RecordedUserCommand> commands,
+        IReadOnlyList<(int Tick, int Acknowledged)> acknowledgements,
+        float intervalPerTick) =>
+        new(frames)
+        {
+            RecorderEntityIndex = 1,
+            MaxClients = 24,
+            FlagLayout = flagLayout,
+            UserCommands = commands,
+            PacketAcknowledgements = acknowledgements,
+            IntervalPerTick = intervalPerTick,
+        };
+
     /// <summary>A timeline whose tracks are PLAYERS, with one frame naming them.</summary>
     /// <param name="tracks">The tracks, which go in the player list rather than the prop list.</param>
     /// <param name="players">The players that frame carries, matched to the tracks by entity.</param>
