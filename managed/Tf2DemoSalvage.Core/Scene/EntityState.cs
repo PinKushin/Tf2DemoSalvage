@@ -2479,8 +2479,8 @@ public sealed partial class EntityState
     /// So a caller must handle absence rather than assume: on a POV demo this is null for every
     /// player but one, and the animation falls back to what speed alone can say.
     ///
-    /// Bits from <c>const.h</c>: <c>FL_ONGROUND</c> 1, <c>FL_DUCKING</c> 2, <c>FL_ANIMDUCKING</c> 4,
-    /// <c>FL_INWATER</c> 512.
+    /// Bits from <c>const.h</c>: <c>FL_ONGROUND</c> 1 and <c>FL_DUCKING</c> 2 in every era; the rest depend on which list
+    /// the demo was written with — <see cref="PlayerFlagLayout"/>.
     /// </remarks>
     public int? Flags() => Integer($"{BasePlayerTable}.{FlagsProperty}");
 

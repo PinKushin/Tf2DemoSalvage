@@ -183,20 +183,13 @@ public static class PlayerActivityState
     public const int OnGround = 1 << 0;
 
     /// <summary>Fully crouched — <c>FL_DUCKING</c>.</summary>
-    public const int Ducking = 1 << 1;
-
-    /// <summary>
-    /// Crouching or standing up, possibly mid-transition — <c>FL_ANIMDUCKING</c>.
-    /// </summary>
     /// <remarks>
-    /// Not used for the activity, and recorded so nobody reaches for it thinking it is the crouch
-    /// flag. <c>const.h</c> spells the combination out: fully ducked is both flags, and
-    /// <c>FL_DUCKING</c> without this one means previously ducked and now standing up.
+    /// <c>FL_ONGROUND</c> and <c>FL_DUCKING</c> are the only bits both <c>const.h</c> lists agree on; every other bit
+    /// moved when <c>FL_ANIMDUCKING</c> took <c>1&lt;&lt;2</c>, so it is read through <see cref="PlayerFlagLayout"/>.
+    /// The unused <c>AnimDucking</c> and <c>InWater</c> constants that stood here were removed (B501): <c>InWater</c> held
+    /// the orangebox <c>1&lt;&lt;9</c>, which is <c>FL_FAKECLIENT</c> in a current demo.
     /// </remarks>
-    public const int AnimDucking = 1 << 2;
-
-    /// <summary>Standing in water — <c>FL_INWATER</c>.</summary>
-    public const int InWater = 1 << 9;
+    public const int Ducking = 1 << 1;
 
     /// <summary>Chooses the activity for a player's body.</summary>
     /// <param name="flags">The player's <c>m_fFlags</c>.</param>

@@ -29,9 +29,6 @@ public sealed class Footsteps
     private const int OnGround = 1 << 0;
     private const int Ducking = 1 << 1;
 
-    /// <summary>`FL_FROZEN | FL_ATCONTROLS` in the TF branch of `const.h` (`1 &lt;&lt; 6`, `1 &lt;&lt; 7`).</summary>
-    private const int Frozen = (1 << 6) | (1 << 7);
-
     private const int Taunting = 7;
     private const int HalloweenKart = 82;
 
@@ -72,13 +69,15 @@ public sealed class Footsteps
         IReadOnlyDictionary<string, SoundScriptEntry> scripts,
         PlayerFlagLayout? layout = null)
     {
-        _ = layout;
         ArgumentNullException.ThrowIfNull(named);
         ArgumentNullException.ThrowIfNull(scripts);
 
         int flags = player.Flags ?? 0;
 
-        if (player.Conditions.Has(Taunting) || player.Conditions.Has(HalloweenKart) || (flags & Frozen) != 0)
+        // `GetFlags() & (FL_FROZEN|FL_ATCONTROLS)` (baseplayer_shared.cpp:530), in the list the demo was written with.
+        PlayerFlagLayout bits = layout ?? PlayerFlagLayout.Current;
+
+        if (player.Conditions.Has(Taunting) || player.Conditions.Has(HalloweenKart) || (flags & (bits.Frozen | bits.AtControls)) != 0)
         {
             return null;
         }

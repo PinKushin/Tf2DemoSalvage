@@ -15,8 +15,8 @@ public readonly record struct PlayerFlagLayout(int WaterJump, int Frozen, int At
     /// <summary>The list with `FL_ANIMDUCKING (1&lt;&lt;2)` (source-sdk-2013 const.h:148-163).</summary>
     public static PlayerFlagLayout Current { get; } = new(1 << 3, 1 << 6, 1 << 7, 1 << 10);
 
-    /// <summary>The orangebox list.</summary>
-    public static PlayerFlagLayout OrangeBox { get; } = Current with { Frozen = 1 << 5 };
+    /// <summary>The orangebox list (hl2sdk `orangebox` public/const.h): nine player bits, no `FL_ANIMDUCKING`.</summary>
+    public static PlayerFlagLayout OrangeBox { get; } = new(1 << 2, 1 << 5, 1 << 6, 1 << 9);
 
     /// <summary>The layout the schema's `DT_BasePlayer.m_fFlags` width declares — <see cref="PlayerFlags"/>.</summary>
     /// <param name="schema">The demo's schema.</param>
