@@ -209,7 +209,7 @@ internal sealed class ViewerMenu : IDisposable
             Name = MainForm.OpenDemoItemId,
             AccessibleName = "Open demo",
         };
-        _shortcuts.Add((open, ViewerAction.OpenDemo, false));
+        Bind(open, ViewerAction.OpenDemo, bindings);
         open.Click += (_, _) => actions.OpenDemo();
 
         ToolStripMenuItem export = new("&Export assembly...")
@@ -249,7 +249,7 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = MainForm.FullScreenItemName,
             CheckOnClick = true,
         };
-        _shortcuts.Add((FullScreen, ViewerAction.FullScreen, false));
+        Bind(FullScreen, ViewerAction.FullScreen, bindings);
         FullScreen.CheckedChanged += (_, _) => actions.SetFullScreen(FullScreen.Checked);
 
         // **Both modes offered, because neither is right for everyone.** Borderless always works
@@ -326,7 +326,7 @@ internal sealed class ViewerMenu : IDisposable
             CheckOnClick = true,
         };
 
-        _shortcuts.Add((SurfaceColours, ViewerAction.SurfaceColours, false));
+        Bind(SurfaceColours, ViewerAction.SurfaceColours, bindings);
         SurfaceColours.CheckedChanged +=(_, _) => actions.SetSurfaceColours(SurfaceColours.Checked);
 
         // **A menu item as well as the cvar, because a cvar nobody can find is a cvar nobody uses.**
@@ -355,7 +355,7 @@ internal sealed class ViewerMenu : IDisposable
                 "single frame in brackets, and how long this frame took.",
         };
 
-        _shortcuts.Add((FrameRate, ViewerAction.FrameRate, false));
+        Bind(FrameRate, ViewerAction.FrameRate, bindings);
         FrameRate.CheckedChanged +=(_, _) => actions.SetFrameRateMeter(FrameRate.Checked);
 
         // **Valve's `cl_showpos`, drawn by the same panel and therefore next to it in the menu.**
@@ -378,7 +378,7 @@ internal sealed class ViewerMenu : IDisposable
                 "the direction it faces, and the watched player's speed.",
         };
 
-        _shortcuts.Add((PositionReadout, ViewerAction.PositionReadout, false));
+        Bind(PositionReadout, ViewerAction.PositionReadout, bindings);
         PositionReadout.CheckedChanged +=(_, _) =>
             actions.SetPositionReadout(PositionReadout.Checked);
 
@@ -402,7 +402,7 @@ internal sealed class ViewerMenu : IDisposable
                 "be told apart from geometry that is drawn but invisible.",
         };
 
-        _shortcuts.Add((Wireframe, ViewerAction.Wireframe, false));
+        Bind(Wireframe, ViewerAction.Wireframe, bindings);
         Wireframe.CheckedChanged +=(_, _) => actions.SetWireframe(Wireframe.Checked);
 
         // **`mat_specular`, and it is a diagnostic before it is a preference.** A cubemap
@@ -482,7 +482,7 @@ internal sealed class ViewerMenu : IDisposable
                 Name = MainForm.FullbrightItemId + chosen,
                 Checked = chosen == Fullbright.Off,
             };
-            _shortcuts.Add((item, action, false));
+            Bind(item, action, bindings);
 
             item.Click += (_, _) => actions.SetFullbright(chosen);
 
@@ -592,7 +592,7 @@ internal sealed class ViewerMenu : IDisposable
                 Name = MainForm.DebugMenuItemId + which,
                 CheckOnClick = true,
             };
-            _shortcuts.Add((item, bound, false));
+            Bind(item, bound, bindings);
 
             item.CheckedChanged += (sender, _) =>
             {
@@ -626,7 +626,7 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = MainForm.ScreenshotItemName,
             AccessibleDescription = "Writes a picture of the viewport beside the viewer's log.",
         };
-        _shortcuts.Add((screenshot, ViewerAction.Screenshot, true));
+        Bind(screenshot, ViewerAction.Screenshot, bindings, printedOnly: true);
 
         screenshot.Click += (_, _) => actions.Screenshot();
 
@@ -699,8 +699,6 @@ internal sealed class ViewerMenu : IDisposable
 
             Strip.Items.Add(hudMenu);
         }
-
-        ApplyBindings(bindings);
     }
 
     /// <summary>Each item's key, and whether the menu only prints it rather than registering it.</summary>
@@ -719,14 +717,32 @@ internal sealed class ViewerMenu : IDisposable
 
         foreach ((ToolStripMenuItem item, ViewerAction action, bool printedOnly) in _shortcuts)
         {
-            if (printedOnly)
-            {
-                item.ShortcutKeyDisplayString = bindings.KeyFor(action);
-            }
-            else
-            {
-                item.ShortcutKeys = KeyNames.Resolve(bindings.KeyFor(action));
-            }
+            SetKey(item, action, printedOnly, bindings);
+        }
+    }
+
+    /// <summary>Records an item's action and sets its key now, before the item joins a menu.</summary>
+    /// <remarks>
+    /// **Set at construction, not by <see cref="ApplyBindings"/> after the strip is assembled.** Setting
+    /// <c>ShortcutKeys</c> on an item that already has an owner hung every Viewer3D test that loads a
+    /// demo on a form never shown (B498): the load's hand-back to the UI thread waited on a thread with
+    /// no message loop. Before an owner exists it is a plain property write, as it always was.
+    /// </remarks>
+    private void Bind(ToolStripMenuItem item, ViewerAction action, KeyBindings bindings, bool printedOnly = false)
+    {
+        _shortcuts.Add((item, action, printedOnly));
+        SetKey(item, action, printedOnly, bindings);
+    }
+
+    private static void SetKey(ToolStripMenuItem item, ViewerAction action, bool printedOnly, KeyBindings bindings)
+    {
+        if (printedOnly)
+        {
+            item.ShortcutKeyDisplayString = bindings.KeyFor(action);
+        }
+        else
+        {
+            item.ShortcutKeys = KeyNames.Resolve(bindings.KeyFor(action));
         }
     }
 

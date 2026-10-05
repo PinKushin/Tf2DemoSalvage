@@ -35460,3 +35460,11 @@ shortcut from the reloaded table.
 `GameFolderUiTests.StartupPicker_ATf2FolderWithItsOwnBinds_RelabelsTheMenuShortcuts` (the picked folder's autoexec
 binds F9 to `screenshot`; asserts the View menu item's accelerator reads F9). **Sabotaged:** with the live-value hookup
 removed the first logs `not found`; with `ApplyBindings` not called after the reload the second reads `F5`.
+
+**A wrong turn worth keeping:** the first version set every shortcut in one `ApplyBindings` pass at the end of the
+`ViewerMenu` constructor, after the items had joined their menus. Every Viewer3D test that loads a demo on a form that
+is never shown then hung (`LoadDemoAsync_ADemo_LoadsItAndSaysSo` alone, reproducibly; bisected by disabling the pass,
+which made it pass in 15 s): setting `ShortcutKeys` on an OWNED item evidently gives the form a handle, so the load's
+hand-back to the UI thread waits on a test thread with no message loop. Keys are now set as each item is built
+(`ViewerMenu.Bind`), before it has an owner, as the old initializers did; only the reload re-applies them, on a
+shown form. Mechanism inferred from the bisection, not traced in the WinForms source.
