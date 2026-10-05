@@ -804,6 +804,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// </remarks>
     public bool WalksEvents { get; set; } = true;
 
+    /// <summary>Whether a pose only advances cycles and walks events — a skip's frame, which draws nothing (B504).</summary>
+    public bool SimulatesOnly { get; set; }
+
     /// <summary>Brings every entity's animation state up to date, before any bones are built.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="seconds">Demo time, for advancing cycles.</param>
@@ -968,6 +971,19 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // nothing between them.
             (posed.Frame, posed.FrameFraction) = StudioSequences.FrameAt(
                 phase, skinned.Frames(sequence), skinned.Loops(sequence));
+
+            // **A frame that draws nothing stops here** (B504): what follows — layers, transitions, IK, the barrel, the duck
+            // jump — is `SetupBones`' input, and the engine builds bones only for what it draws. `C_BaseAnimating::Simulate`
+            // advances the cycle and walks the events, which is all a skip's frame needs.
+            if (SimulatesOnly)
+            {
+                if (fireEvents && WalksEvents && _walked.Add(prop.EntityIndex))
+                {
+                    AnimationEvents(prop, skinned, sequence, phase);
+                }
+
+                continue;
+            }
 
             // **`MaintainSequenceTransitions` first, then `AccumulateLayers`**, which is the order
             // `StandardBlendingRules` runs them in (`c_baseanimating.cpp:1957`) — and the order

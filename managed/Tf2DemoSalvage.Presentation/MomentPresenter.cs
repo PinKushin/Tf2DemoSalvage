@@ -137,6 +137,9 @@ public sealed class MomentPresenter
     /// </remarks>
     public float LastInterval { get; private set; }
 
+    /// <summary>What the last <see cref="Show"/> spent sampling, and its build's phases, in stopwatch ticks.</summary>
+    public (long Sampled, MomentPhases Built) LastBuild => (_sampled, _built);
+
     /// <summary>The most recent rebuild-cost line, or null before one has been produced.</summary>
     /// <remarks>For <c>--measure</c>. Read and cleared by the caller so a line is printed once.</remarks>
     public string? LastCost { get; set; }

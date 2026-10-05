@@ -222,6 +222,9 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The map's static props drawn as models every moment, set when a map is read (B426).</summary>
     public IReadOnlyList<SceneProp> StaticProps { get; set; } = [];
 
+    /// <summary>Whether a moment is built for simulation alone — a skip's frame (B504) — and so holds entities only.</summary>
+    public bool EntitiesOnly { get; set; }
+
     /// <summary>How a player is dressed, set once the game's archives are open.</summary>
     public IPlayerAppearance Appearance { get; set; } = NoAppearance.Instance;
 
@@ -317,8 +320,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         _drawn.Clear();
         _drawn.AddRange(props);
 
-        // The map's unbaked static props, drawn as models (B426, `engine.dll` `0x1800f1bd0`).
-        _drawn.AddRange(StaticProps);
+        // The map's unbaked static props, drawn as models (B426, `engine.dll` `0x1800f1bd0`) — not entities, so a frame that
+        // only simulates (a skip's, B504) leaves them out: `SimulateEntities` walks the client entity list, which a
+        // `CStaticProp` is never on.
+        if (!EntitiesOnly)
+        {
+            _drawn.AddRange(StaticProps);
+        }
 
         // **A weapon's model comes from its ITEM, and some weapons network no model index at all.**
         // `CEconEntity::SetModel` resolves `pItem->GetPlayerDisplayModel( iClass, team )` —

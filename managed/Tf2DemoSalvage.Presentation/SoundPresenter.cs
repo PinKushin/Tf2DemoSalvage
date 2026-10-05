@@ -175,6 +175,9 @@ public sealed class SoundPresenter(
     /// <param name="skip">The skip's frames.</param>
     public void Skipped(SoundSkip skip) => _skip = skip;
 
+    /// <summary>The waves the last skip dealt, in order, hashed — logged so two builds' skips can be compared exactly.</summary>
+    private ulong _skipDealt;
+
     /// <summary>The frames of the skip the next update lands on, or null.</summary>
     private SoundSkip? _skip;
 
@@ -401,6 +404,8 @@ public sealed class SoundPresenter(
         int after = from is { } at && at <= to ? at : int.MinValue;
         int dealt = 0;
 
+        _skipDealt = SequenceHash.Empty;
+
         // The client's frames during the skip, handed over by the view as it built the moment — which this update may reach a
         // tick or two later; one beyond it, or behind where playback was, is not this skip's. Without them, one frame.
         // The landing frame — the batch that reaches the target — closes the list; its own sounds come through `Emit`.
@@ -441,7 +446,7 @@ public sealed class SoundPresenter(
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"wave deck: a skip to tick {to} from {(after == int.MinValue ? "the start" : after.ToString(CultureInfo.InvariantCulture))} " +
-                $"over {frames.Count} frames dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"over {frames.Count} frames dealt {dealt} script sounds (sequence {_skipDealt:x16}) in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
     }
 
     /// <summary>Deals one skip frame: its temp entities' sounds and the sounds the client made in it, in the frame's order.</summary>
@@ -456,7 +461,7 @@ public sealed class SoundPresenter(
         {
             if (sound.WaveDraw is { Emitted: true } && Deals(sound))
             {
-                Dealt(sound);
+                _skipDealt = SequenceHash.Add(_skipDealt, Dealt(sound).Name);
                 dealt++;
             }
         }

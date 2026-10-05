@@ -35780,6 +35780,24 @@ frame every 100, `IsSkip` at `>=`, the paint not left out, the skip used for a t
 test. **Not sabotaged:** the viewer's wiring (`ReplaySkip`, `WalksEvents`), which is a window and is checked by the log
 counts above rather than by a test.
 
+**Faster by doing less of what the engine's skip frame does not do (2026-10-05).** Profiled per phase in the skip log
+(HUD, sample, draw list, models, simulate, the rest of the pose), one skip frame did two things no engine frame does
+for an undrawn entity: it put the map's **1,353 static props** into the simulated list — a `CStaticProp` is never on the
+client entity list `SimulateEntities` walks — and it built every entity's **bone-setup inputs** (layers, transitions,
+IK, locks, barrel, duck jump), which the engine computes only in `SetupBones` for what it draws, and a skip frame here
+draws nothing. `MomentScene.EntitiesOnly` and `EntityModelSet.SimulatesOnly` cut both during a skip; the cycle advance
+and the event walk are untouched. **Identical output, by logged comparison:** the skip logs a hash of every HUD sound
+and crossed event in order, and the presenter one of every wave it dealt (`SequenceHash`) — before and after, on f12
+without autoplay (so the forward skip starts from the same place): forward `9d56c3a5ef032156` / dealt
+`15bee84c5563ba43`, back `2d6efaf34bb4b25e` / dealt `d559fabd7dbcd16b`, both runs alike, and a sabotaged walk (half the
+cycle) changed both event hashes. **Measured:** forward 909 frames, 5,758 and 5,823 ms before (6.3–6.4 ms a frame) →
+3,807–4,283 ms after (4.2–4.7 ms), of which ~0.9–1.0 s is the first read of models the skip meets, paid once; back 505
+frames, 1,657 and 1,698 ms (3.3 ms) → 783–899 ms (1.6–1.8 ms). *Interpolated:* the forward frames' higher remainder
+(sampling, draw list, pose rest) is taken to be first-use cost, since the back skip runs the same frames warm. *A cost:*
+a skip no longer carries transitions across it, so the landing frame blends from the sequence seen before the seek, as
+every seek did before B504. Tests: `MomentSceneTests.Build_EntitiesOnly_LeavesTheStaticPropsOut` (sabotaged: the
+static props kept — reddened), `SequenceHashTests`.
+
 ## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
 
 **Fixed, published source and disassembly.** `CHLClient::OnRenderStart` (`cdll_client_int.cpp:2137-2255`) orders a

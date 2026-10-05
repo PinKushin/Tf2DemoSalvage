@@ -5302,7 +5302,19 @@ internal class MainForm : Form, IFrameSteps
         int walked = 0;
         int steps = 0;
 
+        // What the frames made, in order — every HUD sound and every crossed event — so two builds compare exactly.
+        ulong events = SequenceHash.Empty;
+        long hudTicks = 0;
+        long buildTicks = 0;
+        long poseTicks = 0;
+        long simulatedBefore = _models.SimulateTicks;
+        long sampleTicks = 0;
+        long drawListTicks = 0;
+        long modelTicks = 0;
+
         _models.HoldsCorpses = true;
+        _moment.EntitiesOnly = true;
+        _models.SimulatesOnly = true;
 
         try
         {
@@ -5313,16 +5325,31 @@ internal class MainForm : Form, IFrameSteps
                 _skipFrameSounds = live;
                 _skipFrameTick = through;
 
+                long phase = Stopwatch.GetTimestamp();
+
                 if (hud)
                 {
                     SkipHudFrame(timeline, through);
                 }
 
+                hudTicks += Stopwatch.GetTimestamp() - phase;
                 _skipFrameSounds = null;
                 heard += live.Count;
 
+                foreach (SceneSound made in live)
+                {
+                    events = SequenceHash.Add(events, made.Name);
+                }
+
+                phase = Stopwatch.GetTimestamp();
                 ShowOnly(through);
+                buildTicks += Stopwatch.GetTimestamp() - phase;
+                sampleTicks += _moments.LastBuild.Sampled;
+                drawListTicks += _moments.LastBuild.Built.DrawList;
+                modelTicks += _moments.LastBuild.Built.Models;
+                phase = Stopwatch.GetTimestamp();
                 _moments.PoseNow(ViewFrustum.Nothing);
+                poseTicks += Stopwatch.GetTimestamp() - phase;
                 _firedEvents.Clear();
                 _models.TakeFiredEvents(_firedEvents);
 
@@ -5331,6 +5358,7 @@ internal class MainForm : Form, IFrameSteps
                 foreach (FiredAnimationEvent fired in _firedEvents)
                 {
                     steps += fired.Event.Id == FootstepEvent ? 1 : 0;
+                    events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
 
                     if (fired.Event.Id == PlaySoundEvent &&
                         EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
@@ -5347,6 +5375,8 @@ internal class MainForm : Form, IFrameSteps
         {
             _skipFrameSounds = null;
             _models.HoldsCorpses = false;
+            _moment.EntitiesOnly = false;
+            _models.SimulatesOnly = false;
         }
 
         _sound.Skipped(new SoundSkip(from, target, frames));
@@ -5356,7 +5386,11 @@ internal class MainForm : Form, IFrameSteps
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"skip: to {target} from {(back ? "the start" : from!.Value.ToString(CultureInfo.InvariantCulture))} in {frames.Count} frames " +
-                $"made {heard} HUD and {crossed} animation script sounds (of {walked} animation events, {steps} of them footsteps, which only read){(hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms"));
+                $"made {heard} HUD and {crossed} animation script sounds (of {walked} animation events, {steps} of them footsteps, which only read){(hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
+                $"(hud {Ms(hudTicks):0}, build {Ms(buildTicks):0} (sample {Ms(sampleTicks):0}, drawlist {Ms(drawListTicks):0}, models {Ms(modelTicks):0}), pose {Ms(poseTicks):0} of which simulate {Ms(_models.SimulateTicks - simulatedBefore):0}; " +
+                $"last frame {_moment.Drawn.Count} drawn, {_moment.StaticProps.Count} static; sequence {events:x16})"));
+
+        static double Ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     }
 
     /// <summary>One skip frame of the HUD: its batch's game events and user messages, heard and not painted.</summary>
