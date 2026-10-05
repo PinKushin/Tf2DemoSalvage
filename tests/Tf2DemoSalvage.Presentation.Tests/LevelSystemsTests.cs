@@ -242,6 +242,32 @@ public sealed class LevelSystemsTests
         sounds.Read.ShouldNotBeNull("Install must do OpenGame's work, not merely remember the content");
     }
 
+    /// <remarks>
+    /// **The output-level check for B485, on the map that found it.** pl_venice ships its wind gusts only in its pakfile;
+    /// the engine opens every sound through the <c>"GAME"</c> path, whose head is that pakfile. After the install alone
+    /// the wave does not open (the control); after the LEVEL is loaded through the production path, it decodes.
+    /// </remarks>
+    [Test]
+    public void Load_PlVenice_HandsTheSoundCacheTheLevelsPakfile()
+    {
+        const string Gust = "ambient/venice_wind_gust_01.mp3";
+        byte[] bsp = System.IO.File.ReadAllBytes(Tf2DemoSalvage.SdkReference.GameInstall.RequireFile("maps/pl_venice.bsp"));
+        SoundCache sounds = new(NullLogger.Instance);
+        SoundscapeSystem soundscape = Soundscape();
+        LevelSystems systems = new(
+            Scene(), new EntityModelSet(), sounds, soundscape,
+            new SoundPresenter(soundscape, new ActiveLoops(), _ => null, NullLogger.Instance),
+            Appearances(), NullLoggerFactory.Instance);
+        GameContent game = systems.Install(() => Tf2DemoSalvage.SdkReference.GameInstall.Require());
+
+        new SoundCache(NullLogger.Instance) { Read = game.Archives.Read }.Sample(Gust)
+            .ShouldBeNull("the control: the install alone does not ship it");
+
+        systems.Load(bsp, game, timeline: null, textureQuality: 64, "pl_venice");
+
+        sounds.Sample(Gust).ShouldNotBeNull("the level's pakfile is read ahead of the install").FrameCount.ShouldBeGreaterThan(0);
+    }
+
     /// <summary>A fresh appearance holder, which these tests never read.</summary>
     private static PlayerAppearances Appearances() => new(NullLogger.Instance);
 

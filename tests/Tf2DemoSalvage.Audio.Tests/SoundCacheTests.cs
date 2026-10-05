@@ -185,7 +185,7 @@ public sealed class SoundCacheTests
     private static byte[] OneSample => WaveBytes(16, 1, 22050, [0x01, 0x00]);
 
     /// <summary>A minimal RIFF/WAVE file, written by hand from the format rather than our reader.</summary>
-    private static byte[] WaveBytes(int bits, int channels, int rate, byte[] data)
+    internal static byte[] WaveBytes(int bits, int channels, int rate, byte[] data)
     {
         int blockAlign = channels * ((bits + 7) / 8);
         List<byte> file = [];

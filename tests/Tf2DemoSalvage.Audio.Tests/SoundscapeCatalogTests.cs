@@ -232,21 +232,8 @@ public sealed class SoundscapeCatalogTests
     }
 
     /// <summary>A zip of the given text files, as a map's pakfile holds them.</summary>
-    private static byte[] Zip(Dictionary<string, string> files)
-    {
-        using System.IO.MemoryStream stream = new();
-
-        using (System.IO.Compression.ZipArchive archive = new(stream, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
-        {
-            foreach ((string path, string text) in files)
-            {
-                using System.IO.Stream entry = archive.CreateEntry(path).Open();
-                entry.Write(Encoding.UTF8.GetBytes(text));
-            }
-        }
-
-        return stream.ToArray();
-    }
+    private static byte[] Zip(Dictionary<string, string> files) =>
+        PakZip.Of(files.ToDictionary(file => file.Key, file => Encoding.UTF8.GetBytes(file.Value)));
 
     [Test]
     public void Load_WithNoManifest_IsAnEmptyCatalogRatherThanAnError()
