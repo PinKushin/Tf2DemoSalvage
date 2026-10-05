@@ -274,7 +274,9 @@ public sealed class CModelPanelConformanceTests
         viewport.Think(viewport.State with { RealTime = 10.5f });
         slam.Think();
 
-        effect.System.ShouldNotBeNull().Particles.Count.ShouldBe(33, "66 a second for half a second, on engine->Time()");
+        // Half a second on engine->Time() is five 0.1 sub-steps (B492); each adds ( curtime − ( curtime − dt ) ) · 66 in
+        // float, and the five sum to a hair under 33, so the floor emits 32 — the engine's own float arithmetic.
+        effect.System.ShouldNotBeNull().Particles.Count.ShouldBe(32, "66 a second for half a second, in five sub-steps");
     }
 
     [Test]

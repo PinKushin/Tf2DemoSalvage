@@ -35328,6 +35328,23 @@ distinct per collection as the pointer is, and repeats given the same creation o
 panel's first creation and at `CreateParticleData`, both reddened. **Not covered by a test:** the loop's remake, the
 same one-argument change.
 
+## B492 — a particle step ran whole; the engine cuts it into sub-steps of the definition's maximum time step — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::Simulate` (`particles.obj`) runs emit and operate in
+sub-steps of `m_flMaximumTimeStep` ("maximum time step", default 0.1), at most ten a call. While the collection's
+simulated-frame count is within "minimum rendered frames", it clamps the call to the time left before "maximum sim tick
+rate" (`m_flMaximumSimTime`), but never below "minimum sim tick rate". Children cut the parent's whole step themselves.
+Findings 58 quotes the loop. `ParticleEffect` ran every call as one step, so a HUD panel's real-time half second, or a
+viewer frame after a stall, was one integration of any length. B470 filed it under the name "maximum sim tick", which
+is in fact the sim-time clamp.
+
+**Fix:** `ParticleEffect.Simulate` cuts the call and runs `SubStep` per piece; the previous control points still move
+once per call. Tests: `ParticleSimulateConformanceTests` (6) — three sub-steps by default, a declared step, the ten-step
+cap, the maximum sim time on the first frame only, the minimum past it, a child's own step. Sabotaged: the sub-step size,
+the ten-step cap and the sim-time clamp each reddened their tests. **Tests changed by it:** `ParticleCreationTimeConformanceTests`'
+systems now declare a one-second step, so each quarter-second case still reads one emission. The slam in
+`CModelPanelConformanceTests` emits 32 for half a second, not 33, because five float sub-steps sum just under 33.
+
 ## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)

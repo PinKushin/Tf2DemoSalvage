@@ -368,8 +368,18 @@ public sealed class ParticleEffect
     /// </code>
     /// **Emit, operate, reap.** A particle born this step is operated on this step, so it never appears at its raw spawn
     /// state; reaping last means one that died this step is gone before anything draws it. **A paused step simulates
-    /// nothing**, not even the previous positions, so the step after it lerps from where the last real one ended. Not
-    /// built: the sub-steps a step longer than the definition's `maximum sim tick rate` is split into.
+    /// nothing**, not even the previous positions, so the step after it lerps from where the last real one ended.
+    ///
+    /// **One call is several sub-steps** (B492), each its own `m_flDt`, read in the same function:
+    /// <code>
+    /// step = "maximum time step" &gt; 0 ? it : 0.1
+    /// if ( "maximum sim tick rate" != 0 and frames ≤ "minimum rendered frames" ):
+    ///     if ( curtime + dt &gt; maximum ):  dt = max( maximum − curtime, "minimum sim tick rate" );   frames++
+    /// left = min( dt, step · 10 );  while ( left &gt; 0 ):  m_flDt = min( left, step );  left −= m_flDt;  emit, operate
+    /// </code>
+    /// The previous control points are not updated between sub-steps, only after the call, so a sub-step lerps from the
+    /// call's start across a window one sub-step wide — the engine's arithmetic, reproduced rather than tidied. Children
+    /// are given the whole step and cut it themselves.
     /// </remarks>
     private void Simulate(float seconds, bool emit)
     {
@@ -384,6 +394,59 @@ public sealed class ParticleEffect
             return;
         }
 
+        float step = ParticleSystems.Declared(System, "maximum time step", 0d) is var declared and > 0d
+            ? (float)declared
+            : DefaultMaximumStep;
+        float span = Clamped(seconds);
+        float left = MathF.Min(span, step * MaximumSteps);
+
+        while (left > 0f)
+        {
+            float sub = MathF.Min(left, step);
+
+            left -= sub;
+            SubStep(sub, emit);
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.Simulate(seconds, emit);
+        }
+
+        RememberPoints();
+    }
+
+    /// <summary>`m_flMaximumTimeStep`'s default, `"0.1"` in the unpack table and `0x3dcccccd` in `Simulate`.</summary>
+    private const float DefaultMaximumStep = 0.1f;
+
+    /// <summary>The `10.0f` a call's simulated span is capped at, in maximum steps.</summary>
+    private const float MaximumSteps = 10f;
+
+    /// <summary>`m_nSimulatedFrames`: the calls the maximum sim time has clamped.</summary>
+    private int _simulatedFrames;
+
+    /// <summary>The first frames' clamp to `maximum sim tick rate` (`m_flMaximumSimTime`), as `Simulate` applies it.</summary>
+    private float Clamped(float seconds)
+    {
+        float maximum = (float)ParticleSystems.Declared(System, "maximum sim tick rate", 0d);
+
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flMaximumSimTime != 0` test
+        if (maximum == 0f || _simulatedFrames > (int)ParticleSystems.Declared(System, "minimum rendered frames", 0d))
+#pragma warning restore S1244
+        {
+            return seconds;
+        }
+
+        _simulatedFrames++;
+
+        return maximum < Particles.Age + seconds
+            ? MathF.Max(maximum - Particles.Age, (float)ParticleSystems.Declared(System, "minimum sim tick rate", 0d))
+            : seconds;
+    }
+
+    /// <summary>One sub-step: the clock, emission, every operator, the reap.</summary>
+    private void SubStep(float seconds, bool emit)
+    {
         Particles.Tick(seconds);
 
         if (emit)
@@ -417,13 +480,6 @@ public sealed class ParticleEffect
         }
 
         Particles.Reap();
-
-        foreach (ParticleEffect child in Children)
-        {
-            child.Simulate(seconds, emit);
-        }
-
-        RememberPoints();
     }
 
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>

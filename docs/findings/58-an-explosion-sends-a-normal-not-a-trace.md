@@ -532,6 +532,28 @@ Plat_MSTime()`, distinct for every live collection. A seed of 0 made two panels'
 which the engine never does. The panels now take `ParticleEffects.NextCreatedSeed()`, the creation count through the same
 hash `SeedFor` uses: distinct like the pointer, and repeatable given the same order of creation (B490).
 
+**One `Simulate` call is several steps.** The loop in `?Simulate@CParticleCollection@@QEAAXM_N@Z`:
+
+```
+step = def+0x204 > 0 ? def+0x204 : 0.1                 ; m_flMaximumTimeStep, "maximum time step"
+if ( def+0x208 != 0 and [this+0x2728] <= def+0x210 )   ; m_flMaximumSimTime "maximum sim tick rate", m_nMinimumFrames
+    if ( def+0x208 < curtime + dt )  dt = max( def+0x208 − curtime, def+0x20c )   ; "minimum sim tick rate"
+    [this+0x2728]++
+left = min( dt, step · 10 )
+do { m_flDt = min( left, step ); left −= m_flDt; m_flCurTime += m_flDt;
+     pre-emitter operators; emitters + InitializeNewParticles; operators } while ( left > 0 )
+children: Simulate( dt );  m_flPreviousDt = dt;  UpdatePrevControlPoints
+```
+
+The unpack table names the fields: the strings `maximum time step`, `0.1`, `maximum sim tick rate`, `minimum sim tick rate`
+and `minimum rendered frames` sit in that order beside the `CParticleSystemDefinition` members `particles.h:2228-2233`
+declares. **The name misleads:** "maximum sim tick rate" is a TIME, the most a new collection simulates before it is
+drawn, and not a rate. The sub-step size is "maximum time step". The previous control points move only after the whole
+call, so each sub-step's `GetControlPointAtTime` lerps from the call's start across a window one sub-step wide. That
+is what the engine computes, so it is reproduced. Two results of the float arithmetic are reproduced as well: a declared
+0.05 is just over a twentieth, so a quarter second takes six sub-steps, not five; and half a second at 66 a second in
+five 0.1 sub-steps emits 32 particles, not 33 (B492).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer

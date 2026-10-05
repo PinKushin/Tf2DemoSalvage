@@ -772,6 +772,9 @@ public static class ParticleSystems
     /// <returns>The cap, unbounded when undeclared.</returns>
     internal static int MaxParticles(ParticleSystem system) => (int)Number(system, "max_particles", int.MaxValue);
 
+    /// <summary>A number the definition itself declares, or <paramref name="otherwise"/> when it does not.</summary>
+    internal static double Declared(ParticleSystem system, string named, double otherwise) => Number(system, named, otherwise);
+
     /// <summary>A number the definition declares, or a default when it does not.</summary>
     private static double Number(ParticleSystem system, string named, double otherwise) =>
         system.Parameters.TryGetValue(named, out DmxValue value) &&

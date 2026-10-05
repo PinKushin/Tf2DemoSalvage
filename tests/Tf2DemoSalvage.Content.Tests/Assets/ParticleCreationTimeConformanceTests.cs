@@ -192,7 +192,12 @@ public sealed class ParticleCreationTimeConformanceTests
     private static float[] Born(ParticleEffect effect) =>
         [.. Enumerable.Range(0, effect.Particles.Count).Select(index => effect.Particles.Born[index])];
 
-    private static readonly Dictionary<string, DmxValue> Empty = new(StringComparer.Ordinal);
+    /// <summary>
+    /// `maximum time step` 1, so a quarter-second call is one sub-step and each case reads one emission. At the default
+    /// 0.1 the call is cut in three (B492), which `ParticleSimulateConformanceTests` covers.
+    /// </summary>
+    private static Dictionary<string, DmxValue> OneSubStep() =>
+        new(StringComparer.Ordinal) { ["maximum time step"] = new DmxValue(DmxAttributeType.Real, 1d) };
 
     /// <summary>Ten seconds of life, so nothing is reaped while a case runs.</summary>
     private static ParticleFunction TenSeconds() =>
@@ -220,7 +225,7 @@ public sealed class ParticleCreationTimeConformanceTests
                 }));
         }
 
-        Dictionary<string, DmxValue> definition = new(StringComparer.Ordinal);
+        Dictionary<string, DmxValue> definition = OneSubStep();
 
         if (maxParticles is { } cap)
         {
@@ -260,5 +265,5 @@ public sealed class ParticleCreationTimeConformanceTests
             [],
             [],
             [],
-            Empty);
+            OneSubStep());
 }

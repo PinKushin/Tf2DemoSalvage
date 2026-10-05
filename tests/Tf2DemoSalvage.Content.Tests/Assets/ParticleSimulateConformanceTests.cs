@@ -92,19 +92,20 @@ public sealed class ParticleSimulateConformanceTests
 
     /// <remarks>
     /// A child runs its own `Simulate( dt )` with the parent's whole step, so a child declaring a shorter maximum step cuts
-    /// the same call more finely.
+    /// the same call more finely. A sixteenth, because it is exact: a declared 0.05 is a float just above a twentieth,
+    /// so five of them fall short of a quarter and the engine's `left` loop runs a sixth, tiny one.
     /// </remarks>
     [Test]
     public void Step_AChildWithItsOwnMaximumTimeStep_CutsTheWholeStepItself()
     {
-        ParticleSystem child = Defined(("maximum time step", 0.05d)) with { Name = "child" };
+        ParticleSystem child = Defined(("maximum time step", 0.0625d)) with { Name = "child" };
         ParticleSystem parent = Defined(("maximum time step", 1d)) with { Children = ["child"] };
 
         ParticleEffect effect = new(parent, new Dictionary<string, ParticleSystem>(StringComparer.OrdinalIgnoreCase) { ["child"] = child });
 
         effect.Step(ParticleControlPoint.Unset, 0.25f);
 
-        (effect.Particles.Steps, effect.Children[0].Particles.Steps).ShouldBe((1, 5));
+        (effect.Particles.Steps, effect.Children[0].Particles.Steps).ShouldBe((1, 4));
     }
 
     /// <summary>A system with no functions whose definition declares <paramref name="declared"/>.</summary>
