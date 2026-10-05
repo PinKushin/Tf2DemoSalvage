@@ -9540,3 +9540,20 @@ linux port, and web port"*, and *"linux was NOT the plan from the start, it came
 realized the testing box was only linux and so cross platform was really a requirement not just a nice have."* So
 D3D remains the first renderer because it is the API TF2 itself renders through, which matters most for parity on
 old clients; the early Windows-only choice costs a little extra time on the Linux and web ports, accepted.
+
+## D210 — users never touch environment variables: a folder picker, and user settings live in the viewer's cfg (2026-10-04)
+
+The owner: *"we need to make a folder picker if we dont find the steam and tf folders too, users should never have
+to fuck with env variables, they should have a UI to change it and it should probably live in a cfg file. all env
+vars and launch options probably should be made part of our own cfg too, if they are not solely dev and debug stuff,
+which i think a lot is"*.
+
+So:
+
+- **When the TF2 install is not found** (Steam registry, library list), the viewer offers a folder picker for the `tf`
+  folder, and a menu item changes it later. The choice is saved in the viewer's own cfg
+  (`%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`, the file `ViewerSettings` already writes), as a ConVar-style line.
+- **`TF2_FOLDER` stays as an override for scripts and CI**, but no user path requires it.
+- **Every environment variable and launch option gets sorted** into user-facing or dev/debug. User-facing ones
+  become cfg settings with UI where it makes sense. Dev and debug ones (`--measure`, `--shot`, `TF2VIEW_CAMERA` and
+  similar) stay as they are. The owner expects most to be dev/debug; the sort is recorded where the setting is read.
