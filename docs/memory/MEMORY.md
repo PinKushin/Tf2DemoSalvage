@@ -66,6 +66,7 @@
 - [Ask which input differs before bisecting](ask-which-input-differs-before-bisecting.md); [the first step of a sequence is not the culprit](the-first-step-of-a-sequence-is-not-the-culprit.md).
 - [The f12 demo is the parity reference](the-f12-demo-is-the-parity-reference.md) — announce demo changes; [compare with the same camera](compare-with-the-same-camera.md).
 - [The game folder is the user's](the-game-folder-is-the-users-to-provide.md) — a missing install errors; [modern TF2 is not a stock reference](modern-tf2-is-not-a-stock-reference.md).
+- [Rewind is ours; parity first](rewind-is-ours-parity-first.md) — checkpoints restore instant rewind after parity.
 - [Runner migration notices are not defects](runner-migration-notices-are-not-defects.md) — never pin runners; stay current.
 - [CI is the machine without TF2](ci-is-the-machine-without-tf2.md) — read CI before pushing; [CI gates are soft for now](ci-gates-are-soft-for-now.md) (D195).
 - [No hardcoded controls](no-hardcoded-controls-ever.md) — D101; every key via the config.
