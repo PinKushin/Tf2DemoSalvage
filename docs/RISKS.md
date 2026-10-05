@@ -35700,7 +35700,7 @@ deal (`EmitSoundByHandle`); footsteps, physics impacts, friction and patches onl
 global stream's position — `FX_FireBullets` reseeds it per bullet from the TE's seed (`tf_fx_shared.cpp:310`), but
 every client `RandomInt`/`RandomFloat` between (`ClientAdjustStartSoundParams`, `c_tf_player.cpp:11663`, among others)
 consumes from it, so each sound keeps its own seeded stream; only the draw is interpolated, never the deal.
-Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13 at this fix; 21 with
+Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13 at this fix; 24 with
 B504/B505),
 `MedigunSoundsConformanceTests.For_OneHeal_ReadsEveryWaveWithoutDealing`; output level:
 `CorpusScriptWaveDeckTests` — f12's 2,629 blasts in 876 three-wave blocks, each a permutation. **Sabotaged:** no clear,
@@ -35737,11 +35737,22 @@ skip forward from midway, skip back from the start without rewinding, a read not
 .Record_AReliableEffect_IsMarkedReliable`. **Sabotaged:** dealing unreliable sounds, a skip forward from the start, a
 skip back from playback's tick, a skip that clears the deck, reliability not stamped — each reddened its test.
 
-**Still open:** two parts of a skip were not read. (1) Game events (HUD sounds, emitted, so they deal) are parsed
-during a skip; whether `ProcessGameEvent` has a skip test of its own is unread, and our HUD emits nothing for skipped
-ticks. (2) Whether frames render during a skip — `OnRenderStart` runs the simulation phase where animation-event sounds
-and footsteps are made — is unread; ours make none for skipped ticks. Both are reads of engine.dll's host frame and
-`ProcessGameEvent`; neither changes f12's deck unless a HUD or animation sound shares a script with a later emission.
+**Read 2026-10-05, disassembly — both open questions are settled, and both answers are "yes, it deals":**
+(1) **Game events fire during a skip.** `CClientState::ProcessGameEvent` (FUN_1801f9510) unserializes and fires with
+no skip test, and the client's only `IsSkippingPlayback` callers are `C_TFRagdoll` and three main-menu panels (clangd,
+SDK) — so every HUD sound a skipped event asks for is emitted, and deals. (2) **Client frames run during a skip, one
+per batch of at most 99 packets.** `CDemoPlayer::ReadPacket` (FUN_180072ee0) lifts its "not yet" tick gate while
+skipping and instead counts packets, returning null at the 100th; `_Host_RunFrame` (FUN_1801a4570) calls
+`_Host_RunFrame_Client` (FUN_1801a5860, → `CL_ReadPackets` FUN_18008d1f0) once per tick it accumulated — and once even
+with none, when skipping — then `_Host_RunFrame_Render` (FUN_1801a5d30 → `SCR_UpdateScreen` FUN_1800e8b40), which has
+no skip test. Only `CL_RunPrediction` (FUN_180092710) is skipped. So `OnRenderStart` simulates (`DoAnimationEvents`,
+which fires every event between the previous frame's cycle and this one's, one loop at most) and fires the queued
+temp entities every 99 × max(1, ticks accumulated) packets — a count that depends on how long each host frame took.
+**Not implemented, and why:** reproducing (1) needs the HUD run over every skipped event (from the demo's start for a
+skip back), its state included — streaks, meters and chat decide their own sounds — where the HUD now replays a
+window silently; (2) needs every model posed and its events crossed at each batch boundary, and the boundaries are
+wall-clock dependent, so only "99 packets per frame" (a host frame shorter than a tick) could be modelled. Ours deal
+neither for skipped ticks. The frame-order half (3) is fixed: see B505.
 
 ## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
 
@@ -35756,5 +35767,11 @@ presenter order a tick by it. Tests: `EffectFeedsTests.Record_ThreeEffectsAndOne
 `ScriptWaveDeckConformanceTests` (two temp entities in stream order, an animation event before a blast, the producers'
 stamps), `ExplosionSoundsTests.Merged_TwoEffectsOnOneTick_TakeTheClientsOrder`. **Sabotaged:** a constant stamp, the
 merge by tick alone, the explosion's place dropped, the simulate phase moved after the temp entities — each reddened
-its test. *Interpolated:* a frame is taken to be one tick; the engine can play several ticks' packets in one frame, which
-would put one tick's temp entities after the next tick's game events.
+its test. **The frame is now the engine's, not a tick (2026-10-05, disassembly):** `_Host_RunFrame` (FUN_1801a4570)
+parses every tick a frame crossed (`_Host_RunFrame_Client` once per tick) before rendering once, so the presenter
+orders one `Update`'s sounds phase first, then tick — a later tick's HUD sound deals before an earlier tick's blast,
+and the frame's temp entities fire in queue order after its simulation (`SoundPresenter.InFrameOrder`). Tests:
+`ScriptWaveDeckConformanceTests.Update_OneFrameOverABlastThenAHudSoundOnTheNextTick_DealsTheHudSoundFirst`, its
+one-tick-per-frame control, `…OneFrameOverTwoTicksOfTempEntities_DealsThemInQueueOrder`. **Sabotaged:** tick before
+phase reddened both multi-tick tests. *Interpolated, and untested:* a tie of phase and tick keeps the schedule first —
+a server sound and a HUD sound both made during one parse, whose real order is the packet's.

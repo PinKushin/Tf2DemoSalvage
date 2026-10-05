@@ -341,6 +341,67 @@ public sealed class ScriptWaveDeckConformanceTests
         sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
     }
 
+    /// <remarks>
+    /// **A frame that crosses several ticks parses every tick's packet before it renders once** (B505, B504). `_Host_RunFrame`
+    /// (engine.dll FUN_1801a4570) calls `_Host_RunFrame_Client` (FUN_1801a5860) → `CL_ReadPackets` once per tick it crossed
+    /// — each firing that tick's game events as it parses — and `_Host_RunFrame_Render` once after the loop, where
+    /// `OnRenderStart` simulates and `FireEvents` fires everything queued. So a HUD sound on the later tick deals before a
+    /// blast on the earlier one.
+    /// </remarks>
+    [Test]
+    public void Update_OneFrameOverABlastThenAHudSoundOnTheNextTick_DealsTheHudSoundFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) }]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
+    }
+
+    /// <remarks>The control for the test above: one tick per frame, and the blast's frame comes first.</remarks>
+    [Test]
+    public void Update_ABlastThenAHudSoundOnTheNextFrame_DealsTheBlastFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) }]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Update(sink, 20, Listener, Right, now: 0.015d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(0, "a.wav"), (9, "b.wav")]);
+    }
+
+    /// <remarks>Within the frame's temp entities, the queue's order: an earlier tick's before a later tick's.</remarks>
+    [Test]
+    public void Update_OneFrameOverTwoTicksOfTempEntities_DealsThemInQueueOrder()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([
+            Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) },
+            Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 2, 0) },
+        ]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 7, Order = new ClientSoundOrder(ClientSoundPhase.Simulate, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(7, "a.wav"), (0, "b.wav"), (9, "c.wav")]);
+    }
+
     [Test]
     public void Producers_EachSound_IsStampedWithItsPlaceInOnRenderStart()
     {

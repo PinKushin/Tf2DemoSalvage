@@ -1148,8 +1148,23 @@ seek, only skip — `SkipToTick` (FUN_180073b10) reads ahead, and for a target b
 from the start — and during a skip `svc_TempEntities` queueing (FUN_1801f9bc0) throws away every UNRELIABLE message
 before queueing it. Explosions and impacts are unreliable. So a skip deals almost nothing, and the flags, which live in
 soundemittersystem.dll, are never rewound: a skip back keeps the deck playing left. On f12 a skip to 90,006 now deals
-**0** sounds — not one reliable temp entity in the match carries a script sound. What remains unread is whether game
-events (HUD sounds) and client frames (animation events, footsteps) run during a skip.
+**0** sounds — not one reliable temp entity in the match carries a script sound.
+
+**And a skip is not silent otherwise — it is fast playback with the clock taken off** (disassembly, 2026-10-05,
+B504). Game events fire: `ProcessGameEvent` (FUN_1801f9510) has no skip test, and on the client side only the ragdoll
+and three menu panels ever ask `IsSkippingPlayback`. Frames render: `CDemoPlayer::ReadPacket` drops its "is this packet
+due yet" gate while skipping and caps a read loop at 99 packets instead, `_Host_RunFrame` reads packets at least once a
+frame while skipping, and `_Host_RunFrame_Render` has no skip test at all — only prediction is switched off. So every
+99 packets or so the client simulates (animation events crossing whatever cycle jumped) and fires its queue; how many
+packets exactly depends on how long the previous host frame took. The expectation going in was the reverse — that a
+skip was a parse with nothing drawn — and the packet cap is what kills it: a skip that never rendered would not need
+one. Neither half is reproduced here yet (B504 lists why).
+
+**One frame, several ticks.** The same host frame settles B505's interpolation: `_Host_RunFrame` calls
+`_Host_RunFrame_Client` once per tick it accumulated, each parsing its packet and firing its game events, and renders
+once afterwards. A frame that crosses two ticks therefore makes the second tick's HUD sounds before the first tick's
+temp entities, so the order within a frame is phase first and tick second; one tick per frame is the special case the
+first version assumed.
 
 **Within a tick, the order is `OnRenderStart`'s (B505).** The client's frame is published (`cdll_client_int.cpp:2137-2255`):
 game events during the parse, then data-changed callbacks, entity simulation (animation events and footsteps), physics,

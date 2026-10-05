@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -291,21 +292,16 @@ public sealed class SoundPresenter(
             starting = schedule.LiveAt(tick);
         }
 
-        // **Scheduled and emitted sounds are dealt in ONE tick order**, the scheduled first on a tie, because a script's
-        // waves are one deck whoever emits them (B503) — and before the camera gate, since `GetParametersForSoundEx` deals
-        // in `EmitSoundByHandle` before the engine decides anything about audibility.
+        // **Scheduled and emitted sounds are dealt in ONE order, the frame's**, because a script's waves are one deck whoever
+        // emits them (B503) — and before the camera gate, since `GetParametersForSoundEx` deals in `EmitSoundByHandle`
+        // before the engine decides anything about audibility. The scheduled go first on a tie.
         List<SceneSound> emitted = schedule.Jumped ? [] : _emitted;
-        int fromSchedule = 0;
-        int fromEmitted = 0;
 
-        while (fromSchedule < starting.Count || fromEmitted < emitted.Count)
+        foreach ((SceneSound next, bool scheduled) in InFrameOrder(starting, emitted))
         {
-            bool scheduled = fromEmitted == emitted.Count ||
-                (fromSchedule < starting.Count && ExplosionSounds.Precedes(starting[fromSchedule], emitted[fromEmitted]));
-
             if (scheduled)
             {
-                SceneSound sound = reestablishing ? Reestablished(starting[fromSchedule++]) : Dealt(starting[fromSchedule++]);
+                SceneSound sound = reestablishing ? Reestablished(next) : Dealt(next);
 
                 if (InRange(sound, listener))
                 {
@@ -315,7 +311,7 @@ public sealed class SoundPresenter(
                 continue;
             }
 
-            SceneSound live = Dealt(emitted[fromEmitted++]);
+            SceneSound live = Dealt(next);
 
             if (InRange(live, listener))
             {
@@ -341,6 +337,38 @@ public sealed class SoundPresenter(
             looped - reclaimed,
             soundscaped - looped,
             Stopwatch.GetTimestamp() - soundscaped);
+    }
+
+    /// <summary>One frame's sounds in the order the client makes them: phase first, then tick, then place (B505).</summary>
+    /// <param name="scheduled">The schedule's sounds this frame crossed, in tick order.</param>
+    /// <param name="emitted">The sounds the client emitted this frame, in tick order.</param>
+    /// <returns>Each sound, and whether it came from the schedule; a scheduled one first on a tie.</returns>
+    /// <remarks>
+    /// **A frame that crosses several ticks parses every one of them before it renders once.** `_Host_RunFrame` (engine.dll
+    /// FUN_1801a4570) calls `_Host_RunFrame_Client` (FUN_1801a5860) → `CL_ReadPackets` once per tick it crossed, and each
+    /// parse fires its game events then and queues its temp entities; `_Host_RunFrame_Render` (FUN_1801a5d30) runs once
+    /// after the loop, and in it `OnRenderStart` simulates and then `FireEvents` (FUN_1800905d0) fires the whole queue. So
+    /// a later tick's HUD sound precedes an earlier tick's blast, and the phase outranks the tick. With one tick per frame
+    /// this is the tick order it replaced.
+    /// </remarks>
+    private static IEnumerable<(SceneSound Sound, bool Scheduled)> InFrameOrder(IReadOnlyList<SceneSound> scheduled, List<SceneSound> emitted)
+    {
+        List<(SceneSound Sound, bool Scheduled)> frame = new(scheduled.Count + emitted.Count);
+
+        foreach (SceneSound sound in scheduled)
+        {
+            frame.Add((sound, true));
+        }
+
+        foreach (SceneSound sound in emitted)
+        {
+            frame.Add((sound, false));
+        }
+
+        // `OrderBy` is stable, so a tie keeps the schedule first. *Interpolated, and untested:* a true tie is two sounds of
+        // one phase on one tick — a server sound and a HUD sound, both during the parse — whose real order is the packet's,
+        // which neither list carries.
+        return frame.OrderBy(static entry => (entry.Sound.Order.Phase, entry.Sound.Tick, entry.Sound.Order.TempEntity, entry.Sound.Order.Within));
     }
 
     /// <summary>What `demo_gototick` does to the deck: deals the scheduled sounds its skip still fires (B504).</summary>
