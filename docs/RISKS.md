@@ -35615,3 +35615,5 @@ seam like `ForTracks`) in an empty world — `1<<2` declined, `1<<3` (on a train
 ticks; `FootstepWiringTests` calls `MainForm.Footstep`, the static `StepAnimationSounds` now routes through — a nine-bit
 `FL_CLIENT` stepper sounds, an eleven-bit `1<<7` one is silent. **Sabotaged:** the current layout in `PredictFrom` (both
 prediction tests red); the current layout in `MainForm.Footstep` (the nine-bit footstep red). No wiring bug found.
+`Footsteps.Step`'s layout is now REQUIRED (it defaulted to the current list, which is how a missed argument compiled);
+it was the only optional `PlayerFlagLayout` parameter in `managed/`.

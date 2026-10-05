@@ -6768,8 +6768,8 @@ internal class MainForm : Form, IFrameSteps
         StepSurface? ground,
         Func<string, StepSurface?> named,
         IReadOnlyDictionary<string, SoundScriptEntry> scripts,
-        DemoTimeline? timeline) =>
-        footsteps.Step(tick, stepper, ground, named, scripts, timeline?.FlagLayout);
+        DemoTimeline timeline) =>
+        footsteps.Step(tick, stepper, ground, named, scripts, timeline.FlagLayout);
 
     /// <summary>The sounds this frame's animation events make: `C_BaseAnimating::FireEvent` and TF2's footstep (B172).</summary>
     /// <remarks>
@@ -6820,7 +6820,7 @@ internal class MainForm : Form, IFrameSteps
                 case FootstepEvent:
                     ScenePlayer? stepper = Stepper(fired.EntityIndex);
                     StepSurface? ground = stepper is { } p ? GroundSurface(p) : null;
-                    SceneSound? step = stepper is { } q ? Footstep(_footsteps, tick, q, ground, NamedSurface, scripts.Entries, _timeline) : null;
+                    SceneSound? step = stepper is { } q && _timeline is { } shown ? Footstep(_footsteps, tick, q, ground, NamedSurface, scripts.Entries, shown) : null;
 
                     if (step is { } played)
                     {

@@ -27,7 +27,7 @@ public sealed class FootstepsConformanceTests
     public void Step_RunningOnConcrete_IsTheRightFootFromThePlayerAtHalfVolume()
     {
         // 350 is past 0.8 × 400, a run: `fvol = 0.5`.
-        SceneSound step = new Footsteps().Step(100, Player(speed: 350f), Concrete, NoWater, Scripts()).ShouldNotBeNull();
+        SceneSound step = new Footsteps().Step(100, Player(speed: 350f), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current).ShouldNotBeNull();
 
         step.ShouldBe(new SceneSound(
             Tick: 100,
@@ -49,29 +49,29 @@ public sealed class FootstepsConformanceTests
     {
         Footsteps footsteps = new();
 
-        footsteps.Step(100, Player(speed: 350f), Concrete, NoWater, Scripts())!.Value.Name.ShouldBe("player/footsteps/concrete_right.wav");
-        footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, Scripts())!.Value.Name.ShouldBe("player/footsteps/concrete_left.wav");
+        footsteps.Step(100, Player(speed: 350f), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current)!.Value.Name.ShouldBe("player/footsteps/concrete_right.wav");
+        footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current)!.Value.Name.ShouldBe("player/footsteps/concrete_left.wav");
     }
 
     [Test]
     public void Step_WalkingOnDirt_IsAQuarterVolume()
     {
         // 200 is between 0.3 and 0.8 of 400: a walk, `fvol = 0.25` on dirt.
-        new Footsteps().Step(100, Player(speed: 200f), Dirt, NoWater, Scripts())!.Value.Volume.ShouldBe(0.25f);
+        new Footsteps().Step(100, Player(speed: 200f), Dirt, NoWater, Scripts(), PlayerFlagLayout.Current)!.Value.Volume.ShouldBe(0.25f);
     }
 
     [Test]
     public void Step_DuckedAndRunning_IsLoweredTo65Percent()
     {
         // Ducked, a run starts at 0.3 × 400 = 120; 0.5 × 0.65.
-        new Footsteps().Step(100, Player(speed: 150f, flags: OnGround | Ducking), Concrete, NoWater, Scripts())!
+        new Footsteps().Step(100, Player(speed: 150f, flags: OnGround | Ducking), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current)!
             .Value.Volume.ShouldBe(0.325f, 1e-6f);
     }
 
     [Test]
     public void Step_SlowerThanAWalk_IsSilent()
     {
-        new Footsteps().Step(100, Player(speed: 110f), Concrete, NoWater, Scripts()).ShouldBeNull();
+        new Footsteps().Step(100, Player(speed: 110f), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current).ShouldBeNull();
     }
 
     /// <remarks>
@@ -96,7 +96,7 @@ public sealed class FootstepsConformanceTests
     [Test]
     public void Step_InTheAir_IsSilent()
     {
-        new Footsteps().Step(100, Player(speed: 350f, flags: 0), Concrete, NoWater, Scripts()).ShouldBeNull();
+        new Footsteps().Step(100, Player(speed: 350f, flags: 0), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current).ShouldBeNull();
     }
 
     [Test]
@@ -104,7 +104,7 @@ public sealed class FootstepsConformanceTests
     {
         StepSurface water = new('S', "Water.StepLeft", "Water.StepRight");
 
-        new Footsteps().Step(100, Player(speed: 350f) with { WaterLevel = 1 }, Concrete, name => name == "water" ? water : null, Scripts())!
+        new Footsteps().Step(100, Player(speed: 350f) with { WaterLevel = 1 }, Concrete, name => name == "water" ? water : null, Scripts(), PlayerFlagLayout.Current)!
             .Value.Name.ShouldBe("player/footsteps/water_right.wav");
     }
 
