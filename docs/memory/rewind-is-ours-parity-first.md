@@ -13,6 +13,10 @@ Owner, 2026-10-05: *"we get 100% parity, then we worry about optimizing for out 
 meant the reqind is better than valve, becaiuse it is"*; *"before the hud work and this latest work we could go
 backwards completely fine because wwe preload most things"*.
 
-**How to apply:** after parity, checkpoint HUD + wave-deck (+ any skip-replayed state) so a rewind resumes from
+Owner: *"everything we are doing now is real computation, simulation, and emulation"* - the demo's data is decoded;
+remaining work is client-side simulation, and every new stateful system re-breaks instant seek.
+
+**How to apply:** design the checkpoint as ONE store every simulated system registers its state with (snapshot/
+restore), so a new system inherits rewind by registering; demo-read-only systems need none. After parity, checkpoint HUD + wave-deck (+ any skip-replayed state) so a rewind resumes from
 the nearest checkpoint with output identical to the full replay. Forward skip frames must cost what the engine's do
 (it runs 1000+ fps), not 6 ms. See [[valve-parity-is-the-first-principle]], [[a-deck-is-dealt-at-play-time]].
