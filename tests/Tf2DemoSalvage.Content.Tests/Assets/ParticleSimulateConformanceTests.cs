@@ -207,6 +207,56 @@ public sealed class ParticleSimulateConformanceTests
                 ["maximum time step"] = new DmxValue(DmxAttributeType.Real, 1d),
             });
 
+    /// <remarks>
+    /// `CParticleCollection::SimulateFirstFrame` (`particles.obj`, B491): before the first step, with `m_flDt` 0, it
+    /// creates `min( initial_particles, m_nMaxAllowedParticles )` particles and runs every initializer on them. `dt` 0
+    /// makes `GetControlPointAtTime` return `m_Position`, so they are placed on the point as it is now, born at time 0.
+    /// </remarks>
+    [Test]
+    public void Step_TheFirstStep_CreatesTheInitialParticlesUpToTheCap()
+    {
+        ParticleEffect effect = new(Initial(initial: 3d, cap: 2d));
+
+        effect.Step(Oriented(new Vector3(5f, 0f, 0f)), 0.01f);
+
+        (effect.Particles.Count, effect.Particles.PositionOf(0).X, effect.Particles.PositionOf(1).X, effect.Particles.Born[1])
+            .ShouldBe((2, 5f, 5f, 0f));
+    }
+
+    /// <remarks>`SimulateFirstFrame` runs before the `dt &gt;= 1e-22` test, so a zero first step still creates them (B491).</remarks>
+    [Test]
+    public void Step_AZeroFirstStep_StillCreatesTheInitialParticles()
+    {
+        ParticleEffect effect = new(Initial(initial: 2d, cap: 10d));
+
+        effect.Step(Oriented(Vector3.Zero), 0f);
+        effect.Step(Oriented(Vector3.Zero), 0.01f);
+
+        effect.Particles.Count.ShouldBe(2, "created once, on the first frame only");
+    }
+
+    /// <summary>No emitter; <paramref name="initial"/> initial particles under a cap of <paramref name="cap"/>, living ten seconds.</summary>
+    private static ParticleSystem Initial(double initial, double cap) =>
+        new(
+            "initial",
+            [],
+            [
+                new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 10d),
+                    ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 10d),
+                }),
+                new ParticleFunction("Position Within Sphere Random", "place", new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+            ],
+            [],
+            [],
+            [],
+            new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["initial_particles"] = new DmxValue(DmxAttributeType.Whole, initial),
+                ["max_particles"] = new DmxValue(DmxAttributeType.Whole, cap),
+            });
+
     /// <summary>A valid frame at <paramref name="at"/>.</summary>
     private static ParticleControlPoint Oriented(Vector3 at) => new(at, Vector3.UnitX, -Vector3.UnitY, Vector3.UnitZ);
 
