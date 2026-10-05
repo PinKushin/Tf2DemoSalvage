@@ -18,9 +18,8 @@ namespace Tf2DemoSalvage.Audio.Tests;
 /// <c>CSoundEmitterSystem::LevelInitPreEntity</c> (<c>SoundEmitterSystem.cpp:258-315</c>) then adds the level's own
 /// script with <c>AddSoundOverrides</c> — <c>maps/&lt;map&gt;_level_sounds.txt</c>, or on a map whose name holds
 /// <c>mvm</c> four fixed MvM scripts — and <c>LevelShutdownPostEntity</c> calls <c>ClearSoundOverrides</c> (<c>:333-336</c>).
-/// **That an override REPLACES a stock entry of the same name is read from the interface's comment, not its code**
-/// (<c>isoundemittersystembase.h:257</c>, "override sound scripts for the mod with level specific overrides"); the
-/// implementation is in the closed <c>soundemittersystem.dll</c>.
+/// **That an override REPLACES an entry of the same name is settled in disassembly** of the closed
+/// <c>soundemittersystem.dll</c> — see <see cref="ForLevel_ANameInTwoMvmScripts_IsTheLaterScripts"/>.
 /// </remarks>
 public sealed class SoundPakfileConformanceTests
 {
@@ -109,6 +108,7 @@ public sealed class SoundPakfileConformanceTests
     /// </remarks>
     [TestCase("workshop/cp_foo.ugc123456", "maps/cp_foo_level_sounds.txt")]
     [TestCase("workshop\\cp_foo.ugc1", "maps/cp_foo_level_sounds.txt")]
+    [TestCase("workshop/cp.foo.ugc1", "maps/cp_level_sounds.txt")] // the only shape where the .ugc cut is visible past Q_StripExtension
     [TestCase("cp_foo", "maps/cp_foo_level_sounds.txt")]
     [TestCase("cp_foo_rc1.bsp", "maps/cp_foo_rc1_level_sounds.txt")]
     [TestCase("cp_workshop/cp_foo.ugc1", "maps/cp_workshop/cp_foo_level_sounds.txt")]

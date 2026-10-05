@@ -160,10 +160,11 @@ public sealed class SoundScriptCatalog
     /// <c>AddSoundOverrides</c>. <c>LevelShutdownPostEntity</c> is <c>ClearSoundOverrides()</c> (<c>:333-336</c>), which
     /// is why this returns a new catalog rather than changing the install's.
     ///
-    /// **A level's entry REPLACES a stock one of the same name — read from the interface comment, not the code**
-    /// (<c>isoundemittersystembase.h:257</c>, "override sound scripts … with level specific overrides"); the
-    /// implementation is in the closed <c>soundemittersystem.dll</c>. <c>GetCleanMapName</c>'s workshop-name stripping
-    /// is not reproduced: a demo names a stock map by its plain name.
+    /// **A level's entry REPLACES one of the same name, whole — settled in disassembly** (<c>soundemittersystem.dll</c>
+    /// x64, <c>AddSoundsFromFile</c> at <c>180004870</c>): with the override flag, the name's dict slot is overwritten
+    /// with a freshly parsed entry (<c>180004b58</c>) whether the old one was stock or an earlier override
+    /// (<c>180004a14</c>), so the last script to name a sound wins. Without the flag a repeat is dropped, which is
+    /// <see cref="Load"/>'s first-wins.
     /// </remarks>
     public SoundScriptCatalog ForLevel(Func<string, byte[]?> read, string mapName)
     {
@@ -172,8 +173,7 @@ public sealed class SoundScriptCatalog
 
         Dictionary<string, SoundScriptEntry> entries = new(_entries, StringComparer.OrdinalIgnoreCase);
         List<string> scripts = [.. _scripts];
-        // The engine lowercases the name (`Q_strlower`) and matches with `V_stristr`; the readers fold case themselves.
-        string map = "maps/" + mapName;
+        string map = CleanMapName("maps/" + mapName);
 
         string[] overrides = map.Contains("mvm", StringComparison.OrdinalIgnoreCase)
             ?
@@ -183,7 +183,7 @@ public sealed class SoundScriptCatalog
                 "scripts/game_sounds_vo_mvm.txt",
                 "scripts/game_sounds_vo_mvm_mighty.txt",
             ]
-            : [map + "_level_sounds.txt"];
+            : [StripExtension(map) + "_level_sounds.txt"];
 
         foreach (string path in overrides)
         {
@@ -201,6 +201,35 @@ public sealed class SoundScriptCatalog
         }
 
         return new SoundScriptCatalog(entries, scripts);
+    }
+
+    /// <summary><c>GetCleanMapName</c>, TF's branch (<c>util_shared.cpp:1631-1674</c>).</summary>
+    /// <remarks>
+    /// <c>maps/workshop/&lt;name&gt;.ugc&lt;id&gt;</c> becomes <c>maps/&lt;name&gt;</c>. The engine runs <c>Q_FixSlashes</c>
+    /// and <c>Q_strlower</c> first and then compares case-sensitively against either separator; comparing without case
+    /// over both separators here is the same test. Paths come back with <c>/</c>, which every reader here takes.
+    /// </remarks>
+    private static string CleanMapName(string map)
+    {
+        string fixedSlashes = map.Replace('\\', '/');
+
+        if (!fixedSlashes.StartsWith("maps/workshop/", StringComparison.OrdinalIgnoreCase))
+        {
+            return fixedSlashes;
+        }
+
+        string clean = "maps/" + fixedSlashes["maps/workshop/".Length..];
+        int ugc = clean.IndexOf(".ugc", StringComparison.OrdinalIgnoreCase);
+
+        return ugc < 0 ? clean : clean[..ugc];
+    }
+
+    /// <summary><c>Q_StripExtension</c>: drops the last <c>.</c> and what follows, when it is in the file name.</summary>
+    private static string StripExtension(string path)
+    {
+        int dot = path.LastIndexOf('.');
+
+        return dot > path.LastIndexOf('/') ? path[..dot] : path;
     }
 
     /// <summary>The script paths a manifest names, in order.</summary>

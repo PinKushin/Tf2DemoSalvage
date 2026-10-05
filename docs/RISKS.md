@@ -35256,12 +35256,21 @@ hands it to the soundscape catalog, to `SoundCache.Level` (which also forgets ev
 `SoundScriptCatalog.ForLevel`, which lays the level's own scripts over the install's per
 `CSoundEmitterSystem::LevelInitPreEntity` (`SoundEmitterSystem.cpp:258-306`): `maps/<map>_level_sounds.txt`, or the
 four MvM scripts on a map named `mvm`. A new catalog per level stands in for `ClearSoundOverrides` (`:333-336`).
-**Interpolated:** an override REPLACES a stock entry of the same name — from `isoundemittersystembase.h:257`'s comment;
-the code is closed. Tests: `SoundPakfileConformanceTests` (synthetic: shadow, extend, forget, override, MvM order) and
+The script name goes through a port of `GetCleanMapName` (`util_shared.cpp:1631-1674`: `maps/workshop/<x>.ugc<id>` →
+`maps/<x>`) and `Q_StripExtension`, so a workshop map finds its script. **Disassembly** (`soundemittersystem.dll` x64,
+`AddSoundsFromFile` at `180004870`; Ghidra project `D:\ghidra-proj\tf2soundemitter`): with the override flag an existing
+name's slot is overwritten by a freshly parsed entry (`180004b58`), whether the old entry was stock or an earlier
+override (`180004a14`, the DevMsg's "duplicated replacements"), so the last script wins and nothing is merged; without
+the flag a repeat is dropped unless refreshing. The code already did this; the earlier "interpolated from the header
+comment" is superseded. Tests: `SoundPakfileConformanceTests` (synthetic: shadow, extend, forget, override, MvM order) and
 `LevelSystemsTests.Load_PlVenice_HandsTheSoundCacheTheLevelsPakfile` (pl_venice's pakfile-only wind gust: absent
 through the install, decoded after the load). Sabotage, each restored by the inverse edit: install-first order
 (reddened the shadow test and the B465 soundscape test), no cache clear (the forget test), `TryAdd` for the override
 (the override test), a case-sensitive `mvm` match (the MvM test), the cache handed the install in `Load` (pl_venice).
+Then for the port: no workshop strip (the three workshop cases), no `.ugc` cut (only `workshop/cp.foo.ugc1` — every
+other name loses `.ugc…` to `Q_StripExtension` anyway, so that case was added to give the cut a test that can fail),
+no `Q_StripExtension` (`.bsp`, a non-workshop `.ugc`, and the dotted workshop case), `TryAdd` again (the later-override
+test as well).
 
 ## B486 — `CStdlib` was not the runtime: no inf or nan, .NET's white space, zero on overflow; two private copies held what it lacked — FIXED 2026-10-04
 
