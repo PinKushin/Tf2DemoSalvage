@@ -14,6 +14,9 @@ relative lcor path from a worktree opens the viewer with no demo, and the run lo
 Use the main checkout's absolute path:
 `C:/Users/pinku/source/repos/PinKushin/Tf2DemoSalvage/tools/corpus/local/<demo>`.
 
+**Since 2026-10-05 that path is itself a junction to `F:\Tf2DemoSalvage-lcor`** (35 GB moved off C:, owner: "yea that
+needs done"). Data lives on F:; the C: path keeps working. Never delete through it.
+
 **Why:** a 90-second f12 measurement ran with no demo loaded (2026-09-22); the owner noticed on
 screen.
 
