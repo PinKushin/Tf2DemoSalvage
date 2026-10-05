@@ -1,6 +1,16 @@
-# Tf2DemoSalvage 0.1.0-beta.26
+# Tf2DemoSalvage 0.1.0-beta.27
 
-## Changes since 0.1.0-beta.25
+## Changes since 0.1.0-beta.26
+
+- **Soundscapes switched by map triggers now play.** A `trigger_soundscape` volume linked to an
+  `env_soundscape_triggerable` changes the ambience when you enter or leave it, as in the game (71 such
+  soundscapes on the installed maps) (B483).
+- **First person on the recording player plays the soundscape the demo recorded,** exactly, tick by tick. The
+  free camera, other players and SourceTV views still work the soundscape out from the camera position (B483).
+- **A soundscape with no `radius` key now has radius 0 and never wins,** as in the game's own code. Ambience that
+  used to play on some maps because of that missing key may now be silent (B483).
+
+## Changes in 0.1.0-beta.26
 
 - **Sounds a map ships in its own file now play.** Ambience, water and the like that live only inside the map
   (pl_venice has 35) were silent; the viewer now looks in the map first and then in your install, as the game
@@ -278,6 +288,11 @@ Each claim below is a measurement, not an expectation.
   one, the MvM script order and workshop name cleaning; pl_venice's own wind sound is absent through the install
   and decodes once the map's file is read. Override order was settled by reading the game's sound-emitter
   binary (B485). Not yet checked by ear in a played demo.
+- **Trigger soundscapes and recorded soundscape** (beta.27): synthetic tests with exact values cover trigger
+  entry and exit, and the recorded parameters replacing the simulation; against a koth_lakeside POV recorded for
+  this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
+  control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
+  ear in a played demo.
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -297,6 +312,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
   game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
   time, it stays at 0.75.
+- **Trigger soundscape limits (B483):** the camera has no body, so a view can enter a trigger up to 24 units
+  later than a player would; the Enable and Disable inputs are not recorded in a demo, so a trigger the map turns
+  off mid-match is not followed.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
