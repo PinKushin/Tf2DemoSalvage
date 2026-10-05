@@ -554,6 +554,13 @@ is what the engine computes, so it is reproduced. Two results of the float arith
 0.05 is just over a twentieth, so a quarter second takes six sub-steps, not five; and half a second at 66 a second in
 five 0.1 sub-steps emits 32 particles, not 33 (B492).
 
+**The first frame makes particles of its own.** `SimulateFirstFrame` sets `m_flDt = 0` and `m_flPreviousDt = 0.05`,
+copies the control points to their previous positions, runs the operators that ask to run before the emitters, and then
+creates `min( def+8, [this+100] )` particles — `m_nInitialParticles`, "initial_particles", against
+`m_nMaxAllowedParticles` — and runs every initializer on them. It runs before `Simulate`'s `dt` test, so a zero first
+step makes them too. `rockettrail` declares `initial_particles 1`, so every rocket's trail starts with one puff before
+its emitter has emitted. This port created none (B491).
+
 **A particle's launch speed is scaled by the PREVIOUS call's length.** `C_INIT_CreateWithinSphere` and
 `C_INIT_MoveBetweenPoints` both write `PREV_XYZ = XYZ − velocity · *(collection + 0x40)`, and +0x40 is `m_flPreviousDt`.
 The constructor and `SimulateFirstFrame` set it to `0x3d4ccccd`, 0.05, and `Simulate` stores the call's whole `dt` there

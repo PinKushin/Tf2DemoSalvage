@@ -35328,6 +35328,22 @@ distinct per collection as the pointer is, and repeats given the same creation o
 panel's first creation and at `CreateParticleData`, both reddened. **Not covered by a test:** the loop's remake, the
 same one-argument change.
 
+## B491 — `initial_particles` was never created; `SimulateFirstFrame` makes them before the first step — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::SimulateFirstFrame` (`particles.obj`) runs before
+`Simulate`'s `dt` test. With `m_flDt` 0 it creates `min( m_nInitialParticles, m_nMaxAllowedParticles )` particles and
+runs every initializer on them, then `InitParticleAttributes` and `CopyInitialAttributeValues`. `rockettrail` declares
+`initial_particles 1`.
+
+**Fix:** `ParticleEffect.CreateInitial` on the first frame, through the same spawn as the emitters. `SpawnAt` takes
+`GetControlPointAtTime`'s `dt == 0` arm, the present position. Tests:
+`ParticleSimulateConformanceTests.Step_TheFirstStep_CreatesTheInitialParticlesUpToTheCap` and
+`…Step_AZeroFirstStep_StillCreatesTheInitialParticles`. Both were red without it; removing the `dt == 0` guard reddened the
+first with a NaN position. The arm's value (1 rather than 0) is equivalent, because the first frame has just set the
+previous points to the present ones. **Not built:** `SimulateFirstFrame`'s pre-emitter operators
+(`ShouldRunBeforeEmitters`: `C_OP_RemapSpeedtoCP`, `C_OP_SetControlPointPositions`, `…ToCenter`, `…ToPlayer`), none
+of which this project implements.
+
 ## B492 — a particle step ran whole; the engine cuts it into sub-steps of the definition's maximum time step — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `CParticleCollection::Simulate` (`particles.obj`) runs emit and operate in

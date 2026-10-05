@@ -387,6 +387,7 @@ public sealed class ParticleEffect
         {
             RememberPoints();
             _previousSet = true;
+            CreateInitial();
         }
 
         if (seconds < ShortestStep)
@@ -415,6 +416,24 @@ public sealed class ParticleEffect
 
         Particles.EndCall(seconds);
         RememberPoints();
+    }
+
+    /// <summary>`SimulateFirstFrame`'s particles: `min( initial_particles, m_nMaxAllowedParticles )`, every initializer run (B491).</summary>
+    /// <remarks>
+    /// Created before the first step with `m_flDt` still 0, so `GetControlPointAtTime` gives each the point's present
+    /// position, and dated to the collection's present, 0. *Not built:* the operators `SimulateFirstFrame` runs first,
+    /// those that ask to run before the emitters (`ShouldRunBeforeEmitters`); no operator this project implements does.
+    /// </remarks>
+    private void CreateInitial()
+    {
+        int count = Math.Min(
+            (int)ParticleSystems.Declared(System, "initial_particles", 0d),
+            ParticleSystems.MaxParticles(System) - Particles.Count);
+
+        for (int made = 0; made < count; made++)
+        {
+            SpawnAt(Particles.Age);
+        }
     }
 
     /// <summary>`m_flMaximumTimeStep`'s default, `"0.1"` in the unpack table and `0x3dcccccd` in `Simulate`.</summary>
@@ -635,14 +654,19 @@ public sealed class ParticleEffect
     /// f = ( dt − ( curtime − t ) ) / dt,  0 when that is ≤ 0, and not clamped above
     /// ( m_Position − m_PrevPosition ) · f + m_PrevPosition
     /// </code>
-    /// The `dt == 0` arm serves only `SimulateFirstFrame`'s initial particles, which this project does not create; every
-    /// emission here happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
+    /// The `dt == 0` arm serves `SimulateFirstFrame`'s initial particles (B491), created before any step; every other
+    /// emission happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
     /// current one: `GetControlPointTransformAtTime` puts the lerped position under the point's present axes.
     /// </remarks>
     private void SpawnAt(float born)
     {
         float dt = Particles.LastStep;
-        float along = MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
+
+        // The arm's VALUE is unobservable: on the first frame the previous points were just set to the present ones. What
+        // it prevents is 0 / 0, a NaN position.
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flDt == 0` arm
+        float along = dt == 0f ? 1f : MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
+#pragma warning restore S1244
 
         _spawnPoints.Clear();
 
