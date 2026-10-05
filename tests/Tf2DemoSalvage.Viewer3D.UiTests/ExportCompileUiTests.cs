@@ -126,6 +126,45 @@ public sealed class ExportCompileUiTests
     }
 
     [Test]
+    public void FillDialog_ForegroundTakenByAnotherAppAfterItOpens_StillExports()
+    {
+        // The control for the 2026-10-04 flake: another app held the foreground when the dialog
+        // opened, and the name box never became enabled holding its default.
+        string text = Path.Combine(_folder, "z1800.txt");
+        Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
+
+        // Already up before the click, so it can take the foreground the instant the dialog is asked for.
+        using System.Diagnostics.Process other = System.Diagnostics.Process.Start(
+            "powershell.exe",
+            "-NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
+            + "[System.Windows.Forms.Application]::Run((New-Object System.Windows.Forms.Form))\"");
+        try
+        {
+            Retry.WhileFalse(
+                    () =>
+                    {
+                        other.Refresh();
+                        return other.MainWindowHandle != IntPtr.Zero;
+                    },
+                    DialogTimeout)
+                .Success.ShouldBeTrue("the stand-in app never showed a window");
+
+            int exported = _viewer.Count("] Exported ");
+            _viewer.Click(MainForm.ExportButtonId);
+            ViewerApplication.TakeForeground(other.MainWindowHandle);
+            Retry.WhileFalse(() => ViewerApplication.ForegroundProcessId() == (uint)other.Id, DialogTimeout)
+                .Success.ShouldBeTrue("the stand-in app did not take the foreground: " + Focused());
+
+            FillDialog(text, "z1800.txt");
+            WaitForOutcome("Exported", exported).ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
+        }
+        finally
+        {
+            other.Kill();
+        }
+    }
+
+    [Test]
     public void FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking()
     {
         // **What a screen reader does**: expand File through UI Automation, invoke Export, cancel.
@@ -206,6 +245,20 @@ public sealed class ExportCompileUiTests
         System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         void Mark(string what) => Timeline.Enqueue($"{clock.ElapsedMilliseconds,6} ms  {what}");
         Mark($"dialog '{dialog.Properties.Name.ValueOrDefault}' found");
+
+        // **The dialog takes the foreground itself, as Click does for the viewer.** Another app can
+        // be in front when it opens (a Copilot window was, in the 2026-10-04 flake), and UIA's
+        // SetFocus on the name box does not pull the foreground back, so the keystrokes below would
+        // go to that app. Verified, never assumed: a dialog that will not come forward fails here,
+        // by name, rather than as an unfocused name box.
+        if (!_viewer.HasFocus())
+        {
+            ViewerApplication.TakeForeground(new IntPtr(dialog.Properties.NativeWindowHandle.Value.ToInt64()));
+        }
+
+        Retry.WhileFalse(_viewer.HasFocus, DialogTimeout).Success
+            .ShouldBeTrue("the file dialog did not come to the foreground: " + Focused());
+        Mark("dialog holds the foreground");
 
         string stem = Path.GetFileNameWithoutExtension(defaultName);
         AutomationElement? name = Retry.WhileNull(

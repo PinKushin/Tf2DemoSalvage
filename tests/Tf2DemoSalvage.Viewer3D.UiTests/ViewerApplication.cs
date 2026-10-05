@@ -689,9 +689,13 @@ internal sealed partial class ViewerApplication : IDisposable
     /// while it runs. The caller still verifies afterwards and refuses to send the keystroke if it
     /// did not work, so a failure here costs a failed test and never a key in someone's window.
     /// </remarks>
-    private void TakeForeground()
+    private void TakeForeground() =>
+        TakeForeground(new IntPtr(Window.Properties.NativeWindowHandle.Value.ToInt64()));
+
+    /// <summary>Takes the foreground for any window handle, by the means described above.</summary>
+    /// <param name="window">The native window to bring forward.</param>
+    public static void TakeForeground(IntPtr window)
     {
-        IntPtr window = new(Window.Properties.NativeWindowHandle.Value.ToInt64());
         IntPtr foreground = GetForegroundWindow();
 
         uint theirs = GetWindowThreadProcessId(foreground, IntPtr.Zero);
