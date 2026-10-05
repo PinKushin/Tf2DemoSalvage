@@ -67,6 +67,12 @@ Owner, on an opus agent launched to add gcor specimens for new protocols: *"addi
 haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
 if a decode actually fails and needs diagnosis — spawn that separately when it happens.
 
+## 2026-10-05: small bugs go to sonnet
+Owner: *"The small bugs can probably use sonnet though, if they are actually small."* A bug whose fix is known and
+local (one method, a constant, a wiring edit, a missing test) = bounded-task (sonnet). Opus stays for engine reads with
+an unknown answer, disassembly, multi-file design. Follow-up rounds on an opus branch that are small fixes still go to
+the same opus agent (context already paid).
+
 ## 2026-10-04: user-facing docs follow as a separate sonnet agent
 Owner, on D210 (folder picker/cfg): *"the agent that fixes this will need to update docs or you will need to run doc
 subagents for them, the second is probably the better idea"*. Implementer (opus) does code + tests + RISKS/findings
