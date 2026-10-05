@@ -562,6 +562,11 @@ particle launched at v moves v · dt in its first sub-step, whatever the call be
 initializer by the sub-step and kept `PreviousStep` as the sub-step before, 0 at first, and the movement skipped the
 ratio at 0. That agreed for one step at a constant rate and drifted wherever the rate changed (B494).
 
+**A burst at its cap still owes the rest.** `C_OP_InstantaneousEmitter::Emit` takes `share = min( owed, maximum
+emission per frame )`, emits `min( share, max_particles − active, num_to_emit · g_nParticle_Multiplier )`, and stores
+`owed − share`. The cap loses only the part of the share it refused, and later steps still emit the rest when room frees.
+This port zeroed the debt the first time a spawn was refused, which ended a large blast early in a busy collection (B493).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer

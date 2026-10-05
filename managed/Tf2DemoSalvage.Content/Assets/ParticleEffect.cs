@@ -639,7 +639,7 @@ public sealed class ParticleEffect
     /// emission here happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
     /// current one: `GetControlPointTransformAtTime` puts the lerped position under the point's present axes.
     /// </remarks>
-    private int SpawnAt(float born)
+    private void SpawnAt(float born)
     {
         float dt = Particles.LastStep;
         float along = MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
@@ -655,7 +655,7 @@ public sealed class ParticleEffect
         }
 
         // The velocity initializers scale by `m_flPreviousDt`, not by this sub-step (B494).
-        return ParticleSystems.Spawn(System, Particles, _spawnPoints[0], DefaultLifetime, Particles.PreviousStep, _spawnPoints, _sheet, born);
+        ParticleSystems.Spawn(System, Particles, _spawnPoints[0], DefaultLifetime, Particles.PreviousStep, _spawnPoints, _sheet, born);
     }
 
     /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
@@ -684,8 +684,8 @@ public sealed class ParticleEffect
     ///
     /// **`C_OP_InstantaneousEmitter::Emit`, read in the disassembly of `builtin_particle_emitters.obj` (B470)**: every
     /// particle's `CREATION_TIME` is the start time — the context's start is 0 — however many steps the per-frame cap
-    /// spreads the burst over. *Not reproduced, and filed with B470:* at `max_particles` the engine drops only the refused
-    /// part of the step's share and keeps owing the rest, where this stops owing at all.
+    /// spreads the burst over. At `max_particles` only the refused part of the step's share is dropped, and the rest of
+    /// the count stays owed: `share = min( owed, per frame )`, `emitted = min( share, room )`, `owed −= share` (B493).
     /// </remarks>
     private void EmitBurst(ParticleFunction emitter)
     {
@@ -712,23 +712,17 @@ public sealed class ParticleEffect
                 : ParticleRandom.Whole(Particles.Seed, Particles.Count, BurstCountChannel, least, count);
         }
 
-        int allowed = (int)emitter.Number("maximum emission per frame", int.MaxValue);
-        int born = 0;
+        // `C_OP_InstantaneousEmitter::Emit` (B493): the step's share is taken off what is owed whether or not it fits;
+        // only the part of it the cap refuses is lost, and the rest stays owed.
+        int share = Math.Min(owed, (int)emitter.Number("maximum emission per frame", int.MaxValue));
+        int fits = Math.Min(share, ParticleSystems.MaxParticles(System) - Particles.Count);
 
-        while (born < allowed && owed > 0)
+        for (int born = 0; born < fits; born++)
         {
-            if (SpawnAt(start) < 0)
-            {
-                // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
-                owed = 0;
-                break;
-            }
-
-            born++;
-            owed--;
+            SpawnAt(start);
         }
 
-        _bursts[emitter] = owed;
+        _bursts[emitter] = owed - Math.Max(share, 0);
     }
 
     /// <summary>What each burst emitter still owes, so it fires once rather than every step.</summary>

@@ -35345,6 +35345,17 @@ the ten-step cap and the sim-time clamp each reddened their tests. **Tests chang
 systems now declare a one-second step, so each quarter-second case still reads one emission. The slam in
 `CModelPanelConformanceTests` emits 32 for half a second, not 33, because five float sub-steps sum just under 33.
 
+## B493 — a burst at `max_particles` stopped owing entirely; the engine drops only the refused part of the step's share — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_OP_InstantaneousEmitter::Emit` (`builtin_particle_emitters.obj`):
+`share = min( owed, per frame )`, `emitted = min( share, room, num_to_emit · g_nParticle_Multiplier )`, `owed −= share`.
+B470 filed the divergence: `EmitBurst` set the debt to 0 at the first refused spawn.
+
+**Fix:** `EmitBurst` takes the share, emits what fits and subtracts the whole share.
+`ParticleSimulateConformanceTests.Step_ABurstAtItsCap_KeepsOwingWhatItsShareDidNotCover` (four owed, two a frame, room for
+one: unfinished after the first step, finished after the second). Sabotaged to subtract only what was emitted, it reddened.
+**Not reproduced:** `g_nParticle_Multiplier`, which is 1 unless a detail setting changes it.
+
 ## B494 — the velocity initializers scaled by the step; the engine scales by `m_flPreviousDt`, 0.05 on the first call — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `C_INIT_CreateWithinSphere::InitNewParticlesScalar` and
