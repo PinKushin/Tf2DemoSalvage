@@ -3,6 +3,7 @@ using System.Collections.Generic;
 
 using Tf2DemoSalvage.Animation.Animating;
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Primitives;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Scene;
 
@@ -16,7 +17,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// PhysFrictionSound: energy &lt; 75 or either surface 'X' → nothing;  volume = (energy / 15500)²
 ///                    scraperough, or scrapesmooth when the struck surface's roughness is under this one's threshold
 ///                    volume ≤ 1/128, no free slot, or no script → nothing
-///                    no loop yet: start one (CHAN_BODY, from the entity) unless its script volume · volume ≤ 0.1
+///                    no loop yet: start a patch from the entity unless its script volume · volume ≤ 0.1 — the patch draws
+///                    again and plays on the SCRIPT's channel, not the CHAN_BODY asked for (`soundenvelope.cpp:372`)
 ///                    last update = last effect = now
 /// UpdateFrictionSounds, each frame after the simulation: a loop not updated in the last 0.1 s stops
 /// </code>
@@ -27,9 +29,6 @@ public sealed class PhysicsFrictionSounds
 {
     /// <summary>`m_current[8]`.</summary>
     private const int SlotCount = 8;
-
-    /// <summary>`CHAN_BODY`.</summary>
-    private const int BodyChannel = 4;
 
     /// <summary>`CCollisionEvent::Friction`'s floor.</summary>
     private const float QuietestFriction = 0.05f;
@@ -137,35 +136,50 @@ public sealed class PhysicsFrictionSounds
             ? sliding.Sounds.ScrapeSmooth
             : sliding.Sounds.ScrapeRough;
 
-        if (!(volume > QuietestVolume) || index < 0 || name is null)
+        if (!(volume > QuietestVolume) || index < 0 || name is null ||
+            !scripts.TryGetValue(name, out SoundScriptEntry entry) || entry.Waves.Count == 0)
         {
             return null;
         }
 
+        // `PhysFrictionSound`'s own `GetParametersForSound` (`physics.cpp:991`) draws first.
+        UniformRandomStream random = EntitySounds.Stream(tick, friction.Entity);
+        (float X, float Y, float Z) origin = at(friction.Entity, tick);
+        SceneSound parameters = ExplosionSounds.FromWorldAt(entry, random, tick, origin);
         SceneSound? started = null;
 
         if (_slots[index] is not { } playing)
         {
-            if (EntitySounds.Emit(tick, friction.Entity, name, at(friction.Entity, tick), scripts) is not { } sound ||
-                sound.Volume * volume <= QuietestStart)
+            if (parameters.Volume * volume <= QuietestStart)
             {
                 return null;
             }
 
-            started = sound with { Channel = BodyChannel, Volume = sound.Volume * volume };
-            playing = new Slot(friction.Entity, started.Value, time, time);
+            // `SoundCreate( …, CHAN_BODY, name, params.soundlevel )` → `CSoundPatch::Init` (`soundenvelope.cpp:353-381`)
+            // draws AGAIN and keeps that draw's wave, volume, soundlevel and channel — the script's channel replaces
+            // CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the patch's pitch and its volume, which
+            // `GetVolumeForEngine` multiplies by the script volume it kept.
+            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin);
+
+            started = patch with
+            {
+                EntityIndex = friction.Entity,
+                Volume = patch.Volume * (parameters.Volume * volume),
+                Pitch = parameters.Pitch,
+            };
+            playing = new Slot(friction.Entity, started.Value, patch.Volume, time, time);
         }
-        else if (EntitySounds.Emit(tick, friction.Entity, name, at(friction.Entity, tick), scripts) is { } drawn &&
-                 scripts.TryGetValue(name, out SoundScriptEntry entry))
+        else
         {
             // `SoundChangeVolume( params.volume · v )` and `SoundChangePitch( v · (high − low) + low )` on the loop already
-            // playing, sent as the engine's whole-percent pitch. *Not carried:* the 0.1 s ramp; the change is immediate.
+            // playing, sent as the engine's whole-percent pitch; the patch still multiplies by its kept script volume.
+            // *Not carried:* the 0.1 s ramp; the change is immediate.
             float pitch = (volume * (entry.Pitch.High - entry.Pitch.Low)) + entry.Pitch.Low;
 
             started = playing.Playing with
             {
                 Tick = tick,
-                Volume = drawn.Volume * volume,
+                Volume = playing.ScriptVolume * (parameters.Volume * volume),
                 Pitch = (int)pitch,
                 ChangesVolume = true,
                 ChangesPitch = true,
@@ -197,5 +211,6 @@ public sealed class PhysicsFrictionSounds
         return free;
     }
 
-    private sealed record Slot(int Entity, SceneSound Playing, double LastUpdate, double LastEffect);
+    /// <summary>A `friction_t` slot; <paramref name="ScriptVolume"/> is the patch's `m_flScriptVolume`.</summary>
+    private sealed record Slot(int Entity, SceneSound Playing, float ScriptVolume, double LastUpdate, double LastEffect);
 }

@@ -68,7 +68,7 @@ public static class MedigunSounds
                 int mode = beam.Item is { } item && weaponModeOf is not null ? weaponModeOf(item) : 0;
                 string heal = HealSounds[mode >= 0 && mode < HealSounds.Length ? mode : 0];
 
-                loop ??= EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts);
+                loop ??= Patch(EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts));
 
                 // The next target arriving as this one goes: healing never stopped.
                 if (index + 1 < ordered.Count && ordered[index + 1].Start == beam.End)
@@ -103,7 +103,7 @@ public static class MedigunSounds
 
                 sounds.Add(playing with { Tick = end, IsStop = true });
 
-                if (EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts) is { } detach)
+                if (Patch(EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts)) is { } detach)
                 {
                     sounds.Add(detach);
                 }
@@ -112,4 +112,14 @@ public static class MedigunSounds
 
         return [.. sounds.OrderBy(static sound => sound.Tick)];
     }
+
+    /// <summary>
+    /// `SoundCreate` then `controller.Play( patch, 1.f, 100.f )` (`tf_weapon_medigun.cpp:2061`, `:2327`): `CSoundPatch::Init`
+    /// (`soundenvelope.cpp:353-381`) keeps the script's wave, volume, soundlevel and channel, and the patch plays at its
+    /// own pitch.
+    /// </summary>
+    private static SceneSound? Patch(SceneSound? drawn) => drawn is { } sound ? sound with { Pitch = PatchPitch } : null;
+
+    /// <summary>The pitch both medigun patches are played at.</summary>
+    private const int PatchPitch = 100;
 }

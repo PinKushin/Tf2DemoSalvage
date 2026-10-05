@@ -1098,6 +1098,21 @@ SDK header only implies: `PITCH_LOW` 95, `PITCH_HIGH` 120 — neither of which t
 numbers, which survive the narrowing unchanged. `Weapon_CowMangler.Explode`'s `"0.95,1.0"` is now 1945/2048 to
 32758/32768. The soundlevel also became a draw, last of the three, which `ExplosionSounds` now takes.
 
-*Noted, not changed:* the wave pick in the same function draws from the emitter's OWN uniform stream (a vtable call on a
-global object, not the `RandomFloat` export the three values use), so one seeded stream for wave and values — as
-`ExplosionSounds` has — is not the engine's shape.
+### Correction: the wave is not on a second stream — it is drawn third, and dealt (B502, B503)
+
+*Disassembly, same day.* The first write-up of this section said the wave pick used *"the emitter's OWN uniform
+stream"*, because FUN_180005680 calls `RandomInt` through a vtable on a global object rather than the import the values
+use. Following the pointer killed that: the object at `0x18003b008` is a stream adaptor whose `RandomInt` slot
+(`0x180003c90`) is `mov ecx, edx; mov edx, r8d; jmp [RandomInt]` — the same vstdlib export. One stream. What WAS wrong
+was the order: the engine draws volume, pitch, wave, soundlevel, and `FromWorldAt` drew the wave first.
+
+The same function carries what the misreading hid: each wave has an `available` byte, the pick is among the available
+ones, and an EMITTED sound (`isbeingemitted`, every `EmitSoundByHandle`) clears the one it chose — a script's
+`rndwave` is dealt like a deck. That is state across every client emission in order, which this project's
+per-event seeded draws cannot hold; it is filed as B503 rather than half-built.
+
+Reading where each client sound takes its soundlevel turned up three more: a footstep name with one wave reuses its
+first parameters per foot (`m_StepSoundCache`); a sound PATCH (medigun loops, corpse scrapes) keeps the script's wave,
+volume, soundlevel and channel from its own `Init` draw but plays the pitch `Play` gives it; and a scrape draws twice,
+so its volume is the script volume twice over and its channel is the script's, not the `CHAN_BODY` the caller passed.
+All fixed under B502.

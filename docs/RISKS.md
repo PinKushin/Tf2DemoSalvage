@@ -35659,3 +35659,42 @@ ticks; `FootstepWiringTests` calls `MainForm.Footstep`, the static `StepAnimatio
 prediction tests red); the current layout in `MainForm.Footstep` (the nine-bit footstep red). No wiring bug found.
 `Footsteps.Step`'s layout is now REQUIRED (it defaulted to the current list, which is how a missed argument compiled);
 it was the only optional `PlayerFlagLayout` parameter in `managed/`.
+
+## B502 — client script sounds drew the wave first, re-drew a cached footstep, and played sound patches at the script's pitch and channel — FIXED 2026-10-05
+
+**Read, published source and disassembly, while closing B487.** Four divergences on the client's own script sounds:
+
+- **Draw order.** `GetParametersForSound` (`soundemittersystem.dll` FUN_180003370) draws volume, pitch, the wave, then
+  the soundlevel; `ExplosionSounds.FromWorldAt`, which every client emitter routes through, drew the wave first. The
+  wave pick (FUN_180005680) goes through an `IUniformRandomStream` whose `RandomInt` slot (0x180003c90) is a two-
+  instruction thunk to vstdlib's `RandomInt` export — the SAME stream as the values, not a separate one.
+- **Footstep cache.** `PlayStepSound` (`baseplayer_shared.cpp:693-713`) keeps `m_StepSoundCache[ nSide ]`: a step name
+  with one wave reuses its first `CSoundParameters` for that foot, so its pitch and soundlevel never redraw.
+- **Medigun patches.** `SoundCreate` → `CSoundPatch::Init` (`soundenvelope.cpp:353-381`) keeps the script's wave,
+  volume, soundlevel and channel, but `Play( patch, 1.f, 100.f )` (`tf_weapon_medigun.cpp:2061`, `:2327`) sets the
+  pitch: 100, not the script's draw.
+- **Friction patches.** Two draws — `PhysFrictionSound`'s own (`physics.cpp:991`) and `Init`'s. The loop plays Init's
+  wave, soundlevel and the SCRIPT's channel (Init replaces the `CHAN_BODY` the caller passed), at the first draw's
+  pitch, and at `m_flScriptVolume · m_volume` (`:469-472`) — the script volume twice over, which the start AND every
+  later `SoundChangeVolume` carry.
+
+Checked and already right: impacts, tracer whiz, HUD sounds and physics impacts take the script's soundlevel through
+`FromWorldAt` as the engine does (`vphysics_sound.h:66-75`); `SoundPresenter` consumes `SceneSound.SoundLevel`. Tests:
+`ExplosionSoundsTests.FromWorldAt_EveryRange_IsDrawnVolumePitchWaveSoundLevel`,
+`FootstepsConformanceTests.Step_ASingleWaveName_ReusesTheFootsFirstDraw` (control: `Step_ARandomWaveName_DrawsEachStep`),
+`MedigunSoundsConformanceTests.For_ARangedScriptPitch_PlaysThePatchPitch100`, and three in
+`PhysicsFrictionSoundsConformanceTests` (channel and volume, the two draws, the kept script volume). **Sabotaged:** each
+of the seven parts reverted alone reddened exactly its test.
+
+## B503 — a script's waves are not dealt without repeats: the engine's per-entry "available" flags are not kept — OPEN 2026-10-05
+
+**Read, disassembly.** FUN_180005680 picks among the waves whose `available` byte is set (resetting them all when none
+is), and `GetParametersForSoundEx( …, isbeingemitted = true )` — every `EmitSoundByHandle`
+(`SoundEmitterSystem.cpp:465`) — clears the chosen wave's flag. So an `rndwave` entry the client emits by script name
+(explosions, impacts, tracer whiz, HUD sounds) deals its waves like a deck, never repeating until all have played. The
+plain `GetParametersForSound` path (footsteps, physics impacts, friction, sound patches) reads the flags but never
+clears them. **Not fixed, and why:** the flags are one global state per entry, advanced in the order the client emits —
+here, explosions, impacts and medigun sounds are worked out for the whole demo at load while footsteps, whiz and HUD
+sounds are drawn live per tick, each from a stream seeded per event so a seek repeats them. Reproducing the deck needs
+every client emission in one tick-ordered pass with the deck as its state; a deck kept per producer would be a partial
+model that agrees with nothing. Gender filtering in the same function is moot for TF2's world sounds (`GENDER_NONE`).
