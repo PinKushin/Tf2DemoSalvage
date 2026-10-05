@@ -521,6 +521,16 @@ unless every pair of forward, right and up is within 0.1 of perpendicular (`part
 inverted 5..2. The burst emitter's count draw (`C_OP_InstantaneousEmitter::InitializeContextData`) likewise has no case
 for a minimum at or above `num_to_emit`.
 
+## The follow-ups: the step, the query stream and the unset point
+
+The 2026-10-04 audit's leftovers (B490-B496), each read again in the same objects. *Read in the disassembly; decompiler
+output used only for shape.*
+
+**An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
+control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
+port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer
+rotating by an unset point's frame moved its particle along the world's axes where the engine moves it nowhere (B496).
+
 ## What is not established
 
 - **How a stop matches layered static sounds** — B416. The layering itself is settled below.

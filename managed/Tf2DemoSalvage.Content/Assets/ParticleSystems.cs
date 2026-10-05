@@ -704,7 +704,7 @@ public static class ParticleSystems
 
         return points is not null && number > 0 && number < points.Count
             ? points[number]
-            : ParticleControlPoint.Unoriented(Vector3.Zero);
+            : ParticleControlPoint.Unset;
     }
 
     /// <summary>The attribute an initializer names its control point by; 0 when it leaves it out.</summary>

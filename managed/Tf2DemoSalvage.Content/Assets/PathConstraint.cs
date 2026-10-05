@@ -172,5 +172,5 @@ public static class PathConstraint
     }
 
     private static ParticleControlPoint Point(IReadOnlyList<ParticleControlPoint> points, int number) =>
-        number >= 0 && number < points.Count ? points[number] : ParticleControlPoint.Unoriented(Vector3.Zero);
+        number >= 0 && number < points.Count ? points[number] : ParticleControlPoint.Unset;
 }

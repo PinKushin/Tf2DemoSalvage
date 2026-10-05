@@ -283,8 +283,8 @@ public sealed class ParticleEffect
     /// <param name="point">Where it is, and which way it faces.</param>
     /// <remarks>
     /// **Passed down to every child**, as the engine's own walks `m_Children` (`particles.h:1595`). Points between
-    /// the last one set and this one are the origin, which is what an unset control point is, and their previous
-    /// position is the origin too, as <c>CParticleControlPoint</c>'s constructor leaves it.
+    /// the last one set and this one are <see cref="ParticleControlPoint.Unset"/> — the origin with zero axes, previous
+    /// position the origin too — as `CParticleCollection`'s constructor leaves every one (B496).
     ///
     /// **The position always lands; the orientation only when it is a frame** (B471). The engine sets them in two
     /// calls, and <c>SetControlPointOrientation</c> applies forward, right and up only when <c>|forward·up|</c>,
@@ -298,7 +298,7 @@ public sealed class ParticleEffect
 
         while (_points.Count <= number)
         {
-            _points.Add(ParticleControlPoint.Unoriented(Vector3.Zero));
+            _points.Add(ParticleControlPoint.Unset);
             _previous.Add(Vector3.Zero);
         }
 
@@ -326,7 +326,7 @@ public sealed class ParticleEffect
     /// <param name="number">Which one.</param>
     /// <returns>The control point.</returns>
     public ParticleControlPoint ControlPoint(int number) =>
-        number >= 0 && number < _points.Count ? _points[number] : ParticleControlPoint.Unoriented(Vector3.Zero);
+        number >= 0 && number < _points.Count ? _points[number] : ParticleControlPoint.Unset;
 
     /// <summary>Advances the effect one step, emitting at the declared rate.</summary>
     /// <param name="at">Where the emitter is — the rocket's own position — which is control point 0.</param>

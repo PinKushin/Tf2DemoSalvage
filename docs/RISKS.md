@@ -35313,3 +35313,19 @@ model 58) stopped its packet with *"Unrecognised message id 42 at bit 9202"* whe
 `log2(capacity) + 1`, 13 until the table is seen; reader and writer both use it. Test:
 `SkippableMessageTests.BspDecal_WithA2048ModelPrecache_ReadsTwelveModelBits`; output level:
 `CorpusTraceTests.EveryDemo_TracesWithoutAnUnreadableBlock` over the specimen, which is what found it.
+
+## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)
+loops the 64 control points and stores position, previous position, forward, up and right from `vec3_origin`. B471
+saw this in passing. `ParticleEffect` filled unset points, and both `ParticleSystems` and `PathConstraint` fell back for
+a missing one, with `ParticleControlPoint.Unoriented(Vector3.Zero)`, the identity. A local-space initializer on an unset
+point therefore moved its particle along world axes, and an invalid basis on a fresh point kept the identity rather
+than zero.
+
+**Fix:** `ParticleControlPoint.Unset` (all zero) at the three sites; `Unoriented` stays a caller's fallback. Tests:
+`ParticleEffectConformanceTests.ControlPoint_NeverSet_IsTheOriginWithZeroAxes`, `…SetControlPoint_ALaterPoint_LeavesTheGapWithZeroAxes`,
+`…SetControlPoint_AnInvalidBasisOnAFreshPoint_KeepsZeroAxes` and
+`ParticleInitializerConformanceTests.Spawn_PositionModifyOffsetRandomInLocalSpaceOnAnUnsetPoint_OffsetsNothing`. Sabotaged
+back to the identity at the fill and in `ParticleSystems`, three of them reddened; the untouched `ControlPoint` fallback
+keeps the fourth.
