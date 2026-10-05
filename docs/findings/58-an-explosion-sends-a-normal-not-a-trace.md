@@ -593,6 +593,18 @@ reading settled four details that were carried as guesses:
 
 A burst's count is drawn in `InitializeContextData` at `Init`, before any particle, so it is query 0 (B495).
 
+**`C_OP_PositionLock` was re-read and agrees, clause by clause** (`?Operate@C_OP_PositionLock@@…`,
+`builtin_particle_ops.obj`): the context's previous position is re-seeded whenever it is exactly the origin; delta is
+`( m_Position − previous ) · strength`; each particle's share is `min( curtime − CREATION_TIME, m_flDt ) / m_flDt`; the
+fade window applies only when `start_fadeout_min < 1`, drawing `pow( r, exponent·4 / 4 )` for both ends; the distance
+fade is `d / ( ( 1 − d ) · 3 + 1 )` with `d = min( 1, |pos + moved − cp| / range )`; lock rotation lerps position and
+`PREV_XYZ` toward `( current · previous⁻¹ ) · p`; and the context keeps the current position and transform. Three things
+differ, none of them a port error. **Operator strength** (the `param_3` multiplying delta, and the `1 − f · strength` of
+the windowless branch) is 1 here, because nothing in this project evaluates operator fades. That is a gap shared by
+every operator, filed in the list below. **`1 / LIFE_DURATION` is an `rcpps` approximation** in the engine and an exact
+division here; the difference is in the twelfth bit. **The window's two draws come from the global SIMD random stream**,
+`RandSIMD`, which no replay can reproduce, so they stay keyed by particle and step (D136).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer
