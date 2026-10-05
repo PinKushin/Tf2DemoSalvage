@@ -213,26 +213,130 @@ public sealed class ScriptWaveDeckConformanceTests
     }
 
     [Test]
-    public void Update_ASeekBackPastALiveEmission_KeepsItsDealButDropsLaterOnes()
+    public void Update_ASeekBack_DealsFromTheStartAgainOntoTheDeckPlayingLeft()
     {
-        SoundScriptEntry entry = Entry(channel:0, "a.wav", "b.wav", "c.wav");
+        // **The engine has no seek backwards: `demo_gototick` to an earlier tick RELOADS the demo and skips forward from
+        // its start** (engine.dll FUN_180073b10, "DemoPlayer: Reloading demo file"), and the flags live in
+        // soundemittersystem.dll, which a reload does not touch. So the deck is not rewound: the skip deals every emitted
+        // sound through the tick again, on top of what playing had already dealt.
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav", "b.wav", "c.wav");
 
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, entry);
-        presenter.Schedule = new SoundSchedule([Dealt(300, 0)]);
+        presenter.Schedule = new SoundSchedule([Dealt(100, 0), Dealt(200, 0)]);
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
-        presenter.Emit(Dealt(50, 0));
-        presenter.Update(new Silent(), 50, Listener, Right, now: 0.7d);
-        presenter.Emit(Dealt(100, 0));
         presenter.Update(new Silent(), 100, Listener, Right, now: 1.5d);
+        presenter.Update(new Silent(), 200, Listener, Right, now: 3d);
 
-        // Back to 60: the emission at 50 was played before it and stays dealt; the one at 100 is in its future.
-        presenter.Update(new Silent(), 60, Listener, Right, now: 2d);
-        presenter.Update(new Silent(), 180, Listener, Right, now: 3d);
-        presenter.Update(new Silent(), 300, Listener, Right, now: 4d);
+        // Back to 150: the skip from the start deals the sound at 100 again — c, the only wave left — emptying the deck,
+        // so the sound at 200 resets it and takes a.
+        presenter.Update(new Silent(), 150, Listener, Right, now: 4d);
+        presenter.Update(new Silent(), 200, Listener, Right, now: 5d);
 
-        played.ShouldBe(["a.wav", "b.wav", "b.wav"]);
+        played.ShouldBe(["a.wav", "b.wav", "a.wav"]);
+    }
+
+    /// <remarks>
+    /// **A skip deals what `CL_FireEvents` fires, and only that.** Every queued temp entity fires (engine.dll FUN_1800905d0
+    /// has no skipping test; `CHLClient::OnRenderStart` calls it, `cdll_client_int.cpp:2137-2255`), so an emitted sound in
+    /// the skipped ticks deals; a READ never changes which waves are available, so a skip has nothing to do for one.
+    /// </remarks>
+    [Test]
+    public void Update_ASeekPastAReadAndADeal_DealsOnlyTheEmittedOne()
+    {
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav", "b.wav", "c.wav");
+
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, entry);
+        presenter.Schedule = new SoundSchedule([Dealt(100, 1, emitted: false), Dealt(200, 1), Dealt(400, 1)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
+        presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        // The deal at 200 took b (1 mod 3); at 400, 1 mod 2 over a and c is c.
+        played.ShouldBe(["c.wav"]);
+    }
+
+    /// <remarks>
+    /// **`CHLClient::OnRenderStart` (`cdll_client_int.cpp:2137-2255`) fixes the order on one frame**: entities simulate
+    /// — animation events and footsteps, `C_BaseAnimating::Simulate` → `DoAnimationEvents` — then physics, then
+    /// `engine->FireEvents()` fires the temp entities in queue order. So on one tick an animation event deals first.
+    /// </remarks>
+    [Test]
+    public void Update_AnAnimationEventAndABlastOnOneTick_DealTheAnimationEventFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) }]);
+
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(20, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Simulate, 0, 0) });
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
+    }
+
+    /// <remarks>Two temp entities on one tick fire in the order the packet carried them (FUN_1800905d0).</remarks>
+    [Test]
+    public void Update_TwoTempEntityDealsOnOneTick_AreDealtInStreamOrder()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 9, 0) }]);
+
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(20, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 5, 0) });
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
+    }
+
+    [Test]
+    public void Producers_EachSound_IsStampedWithItsPlaceInOnRenderStart()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
+        {
+            [Script] = Entry(channel: 0, "a.wav", "b.wav"),
+            [TracerWhiz.Sound] = Entry(channel: 0, "a.wav", "b.wav") with { Name = TracerWhiz.Sound },
+        };
+
+        SceneSound blast = ExplosionSounds.For(
+            [new SceneExplosion(5, 0f, 0f, 0f, (0f, 0f, 1f), 22, SceneExplosion.NoEntity, SceneExplosion.NoCustomParticle) { TempEntity = 7 }],
+            static _ => Script,
+            scripts).ShouldHaveSingleItem();
+
+        SceneSound impact = ImpactSounds.For(
+            new BulletLanding(5, (0f, 0f, 0f), Script, Ricochets: false) { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2) },
+            seed: 1,
+            scripts).ShouldHaveSingleItem();
+
+        SceneSound whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts, new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2)).ShouldNotBeNull();
+        SceneSound hud = HudSounds.Emit(5, Script, scripts).ShouldNotBeNull();
+
+        (blast.Order, impact.Order, whiz.Order, hud.Order).ShouldBe((
+            new ClientSoundOrder(ClientSoundPhase.TempEntities, 7, 0),
+            new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2),
+            new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2),
+            new ClientSoundOrder(ClientSoundPhase.Network, 0, 0)));
+    }
+
+    /// <remarks>
+    /// **`PrecacheScriptSound` precaches every wave of the script** (`SoundEmitterSystem.cpp:367-370`,
+    /// `InternalPrecacheWaves`), not the one a draw will pick — so a dealt wave is never a first-use decode.
+    /// </remarks>
+    [Test]
+    public void ScriptWaves_DealtSounds_NameEveryWaveOfTheirScriptsOnce()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = Entry(channel: 0, "a.wav", "b.wav", "c.wav") };
+
+        DemoSounds.ScriptWaves([Dealt(10, 0), Dealt(20, 1), new SceneSound(30, "demo.wav", 1, 0, 0, 1f, 75, 100, 0f, 0f, 0f, 0f)], scripts)
+            .ShouldBe(["a.wav", "b.wav", "c.wav"]);
     }
 
     private static readonly (float X, float Y, float Z) Listener = (0f, 0f, 0f);

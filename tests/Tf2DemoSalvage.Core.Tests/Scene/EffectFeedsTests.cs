@@ -34,6 +34,24 @@ public sealed class EffectFeedsTests
         Counts(feeds).ShouldBe(new int[7]);
     }
 
+    /// <remarks>
+    /// **`CL_FireEvents` fires the queue in the order it was filled** (engine.dll FUN_1800905d0 walks the event list,
+    /// gated only by the signon state and each event's fire delay) — so a temp entity's place among ALL of them, the ones
+    /// no feed takes included, is the order its sounds are emitted in on one frame (B505).
+    /// </remarks>
+    [Test]
+    public void Record_ThreeEffectsAndOneNoFeedTakes_StampsEachTakenWithItsPlaceInTheStream()
+    {
+        EffectFeeds feeds = new();
+
+        feeds.Record(ExplosionFeed.EventClassName, Effect(), 10, _ => false, _ => null);
+        feeds.Record("CTEPlayerAnimEvent", Effect(), 10, _ => false, _ => null);
+        feeds.Record(ShotFeed.EventClassName, Effect(), 10, _ => false, _ => null);
+        feeds.Record(EffectDispatchFeed.EventClassName, Effect(), 10, _ => false, _ => null);
+
+        (feeds.Explosions.All[0].TempEntity, feeds.Shots.All[0].TempEntity, feeds.Dispatches.All[0].TempEntity).ShouldBe((1, 3, 4));
+    }
+
     private static int[] Counts(EffectFeeds feeds) =>
     [
         feeds.Explosions.All.Count, feeds.Shots.All.Count, feeds.Decals.All.Count, feeds.Blood.All.Count,

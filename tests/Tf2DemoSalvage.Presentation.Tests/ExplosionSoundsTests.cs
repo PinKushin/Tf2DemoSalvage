@@ -122,6 +122,16 @@ public sealed class ExplosionSoundsTests
             .ShouldBe(["blast5", "demo10", "demo20", "blast20", "demo30", "blast40"]);
     }
 
+    /// <remarks>Within a tick the client's own sounds keep `OnRenderStart`'s order, temp entities by their place (B505).</remarks>
+    [Test]
+    public void Merged_TwoEffectsOnOneTick_TakeTheClientsOrder()
+    {
+        SceneSound late = Sound(20, "late") with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 9, 0) };
+        SceneSound early = Sound(20, "early") with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 4, 0) };
+
+        ExplosionSounds.Merged([late], [early]).Select(sound => sound.Name).ShouldBe(["early", "late"]);
+    }
+
     private static SceneExplosion Blast(int tick = 1, float x = 0f, float y = 0f, float z = 0f) =>
         new(tick, x, y, z, (0f, 0f, 1f), WeaponId: 22, Entity: SceneExplosion.NoEntity, SceneExplosion.NoCustomParticle);
 
