@@ -30,9 +30,6 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 [TestFixture]
 public sealed class ExportCompileUiTests
 {
-    private static readonly System.Globalization.CultureInfo Invariant =
-        System.Globalization.CultureInfo.InvariantCulture;
-
     private static readonly TimeSpan DialogTimeout = TimeSpan.FromSeconds(15);
 
     /// <summary>z1800 is 30 MB of text; a minute is generous on any machine this runs on.</summary>
@@ -151,6 +148,12 @@ public sealed class ExportCompileUiTests
 
             int exported = _viewer.Count("] Exported ");
             _viewer.Click(MainForm.ExportButtonId);
+            // **After the dialog exists, never straight after the click.** Click returns once the input
+            // is queued; stealing the foreground before the viewer handles the button-up deactivates
+            // it mid-press, WinForms cancels the click, and no dialog ever opens (2026-10-04: Export
+            // held focus, the status bar still named the previous compile, 1 run in 6).
+            Retry.WhileNull(Dialog, DialogTimeout, ignoreException: true).Result
+                .ShouldNotBeNull("the Export click opened no dialog before the foreground was taken");
             ViewerApplication.TakeForeground(other.MainWindowHandle);
             Retry.WhileFalse(() => ViewerApplication.ForegroundProcessId() == (uint)other.Id, DialogTimeout)
                 .Success.ShouldBeTrue("the stand-in app did not take the foreground: " + Focused());
@@ -261,13 +264,26 @@ public sealed class ExportCompileUiTests
         Mark("dialog holds the foreground");
 
         string stem = Path.GetFileNameWithoutExtension(defaultName);
+        // Every poll's view of every Edit in the dialog, plus who holds the foreground, logged when it
+        // changes: a timeout then shows which box was seen and in what state, not just that none fit.
+        string seen = string.Empty;
         AutomationElement? name = Retry.WhileNull(
-            () => dialog.FindFirstDescendant(search => search
-                .ByControlType(ControlType.Edit).And(search.ByName("File name:"))) is { IsEnabled: true } edit
-                && (edit.Patterns.Value.Pattern.Value.ValueOrDefault ?? string.Empty)
-                    .StartsWith(stem, StringComparison.OrdinalIgnoreCase)
-                ? edit
-                : null,
+            () =>
+            {
+                string now = $"fg pid={ViewerApplication.ForegroundProcessId()}; edits: {Edits(dialog)}";
+                if (now != seen)
+                {
+                    seen = now;
+                    Mark("poll " + now);
+                }
+
+                return dialog.FindFirstDescendant(search => search
+                    .ByControlType(ControlType.Edit).And(search.ByName("File name:"))) is { IsEnabled: true } edit
+                    && (edit.Patterns.Value.Pattern.Value.ValueOrDefault ?? string.Empty)
+                        .StartsWith(stem, StringComparison.OrdinalIgnoreCase)
+                    ? edit
+                    : null;
+            },
             DialogTimeout).Result;
         name.ShouldNotBeNull($"the file dialog's name box never became enabled holding '{stem}':\n" + DescribeWindows());
         Mark("name boxes: " + string.Join("; ", Array.ConvertAll(
@@ -316,6 +332,35 @@ public sealed class ExportCompileUiTests
         closed.ShouldBeTrue($"the dialog stayed open after OK with '{typed}' in its name box:\n" + DescribeWindows());
     }
 
+    /// <summary>
+    /// Every Edit under the dialog but the folder view's per-file cells (ids "System.*"): name, id,
+    /// enabled, offscreen, value. Save's name box is id 1001, Open's the edit inside its combo, 1148.
+    /// </summary>
+    private static string Edits(AutomationElement dialog) => Uia(() => string.Join(" | ", Array.ConvertAll(
+        Array.FindAll(dialog.FindAllDescendants(search => search.ByControlType(ControlType.Edit)),
+            edit => !Uia(() => edit.Properties.AutomationId.ValueOrDefault ?? string.Empty)
+                .StartsWith("System.", StringComparison.Ordinal)),
+        edit => Uia(() => $"'{edit.Properties.Name.ValueOrDefault}' id={edit.Properties.AutomationId.ValueOrDefault} "
+            + $"enabled={edit.Properties.IsEnabled.ValueOrDefault} offscreen={edit.Properties.IsOffscreen.ValueOrDefault} "
+            + $"value='{(edit.Patterns.Value.IsSupported ? edit.Patterns.Value.Pattern.Value.ValueOrDefault : "<no ValuePattern>")}'"))));
+
+    /// <summary>
+    /// One UIA read for a diagnostic, its failure reported in place: an element can vanish between
+    /// being listed and being read (0x80040201, an event/element no longer available), and a report
+    /// that throws on it hides everything else it would have said.
+    /// </summary>
+    private static string Uia(Func<string> read)
+    {
+        try
+        {
+            return read();
+        }
+        catch (System.Runtime.InteropServices.COMException error)
+        {
+            return $"<UIA error 0x{error.HResult:X8}: {error.Message.Trim()}>";
+        }
+    }
+
     /// <summary>The dialog's toolbar names, which include "Address: &lt;folder&gt;" once it has navigated.</summary>
     private static string Address(AutomationElement dialog) => string.Join(" | ", Array.ConvertAll(
         dialog.FindAllDescendants(search => search.ByControlType(ControlType.ToolBar)),
@@ -344,40 +389,39 @@ public sealed class ExportCompileUiTests
         int viewer = _viewer.Window.Properties.ProcessId.Value;
         foreach (AutomationElement window in _viewer.Window.Automation.GetDesktop().FindAllChildren())
         {
-            int pid = window.Properties.ProcessId.ValueOrDefault;
-            report.Append(pid == viewer ? "  * " : "    ")
-                .Append(Invariant, $"{window.Properties.ClassName.ValueOrDefault} '{window.Properties.Name.ValueOrDefault}' ")
-                .AppendLine(Invariant, $"pid={pid} enabled={window.Properties.IsEnabled.ValueOrDefault}");
-            if (window.Properties.ClassName.ValueOrDefault == "#32770")
+            report.Append(Uia(() => window.Properties.ProcessId.ValueOrDefault == viewer ? "  * " : "    ")).AppendLine(Uia(() =>
+                $"{window.Properties.ClassName.ValueOrDefault} '{window.Properties.Name.ValueOrDefault}' "
+                + $"pid={window.Properties.ProcessId.ValueOrDefault} enabled={window.Properties.IsEnabled.ValueOrDefault}"));
+            if (Uia(() => window.Properties.ClassName.ValueOrDefault ?? string.Empty) == "#32770")
             {
-                foreach (AutomationElement text in window.FindAllDescendants(search => search
-                    .ByControlType(ControlType.Text)))
-                {
-                    report.AppendLine(Invariant, $"        text: {text.Properties.Name.ValueOrDefault}");
-                }
+                report.AppendLine("        edits: " + Edits(window));
+                report.AppendLine(Uia(() => string.Join(Environment.NewLine, Array.ConvertAll(
+                    window.FindAllDescendants(search => search.ByControlType(ControlType.Text)),
+                    text => "        text: " + Uia(() => text.Properties.Name.ValueOrDefault ?? string.Empty)))));
             }
         }
 
         // UIA parents an owned window under its owner, so a box the dialog raised is the dialog's
         // child, not a desktop window — two levels down covers a message box over the file dialog.
-        foreach (AutomationElement child in _viewer.Window.FindAllChildren(search => search.ByClassName("#32770")))
+        report.AppendLine(Uia(() =>
         {
-            report.AppendLine(Invariant,
-                $"  viewer child dialog '{child.Properties.Name.ValueOrDefault}' enabled={child.Properties.IsEnabled.ValueOrDefault}");
-            foreach (AutomationElement inner in child.FindAllChildren())
+            System.Text.StringBuilder owned = new();
+            foreach (AutomationElement child in _viewer.Window.FindAllChildren(search => search.ByClassName("#32770")))
             {
-                report.AppendLine(Invariant,
-                    $"      {inner.Properties.ClassName.ValueOrDefault} '{inner.Properties.Name.ValueOrDefault}' enabled={inner.Properties.IsEnabled.ValueOrDefault}");
-                if (inner.Properties.ClassName.ValueOrDefault == "#32770")
-                {
-                    foreach (AutomationElement text in inner.FindAllChildren())
-                    {
-                        report.AppendLine(Invariant,
-                            $"          {text.Properties.ClassName.ValueOrDefault} '{text.Properties.Name.ValueOrDefault}'");
-                    }
-                }
+                owned.AppendLine(Uia(() =>
+                    $"  viewer child dialog '{child.Properties.Name.ValueOrDefault}' enabled={child.Properties.IsEnabled.ValueOrDefault}"));
+                owned.AppendLine("      edits: " + Edits(child));
+                owned.AppendLine(Uia(() => string.Join(Environment.NewLine, Array.ConvertAll(child.FindAllChildren(), inner =>
+                    Uia(() => $"      {inner.Properties.ClassName.ValueOrDefault} '{inner.Properties.Name.ValueOrDefault}' "
+                        + $"enabled={inner.Properties.IsEnabled.ValueOrDefault}"
+                        + (inner.Properties.ClassName.ValueOrDefault == "#32770"
+                            ? string.Concat(Array.ConvertAll(inner.FindAllChildren(), text => Environment.NewLine
+                                + "          " + Uia(() => $"{text.Properties.ClassName.ValueOrDefault} '{text.Properties.Name.ValueOrDefault}'")))
+                            : string.Empty))))));
             }
-        }
+
+            return owned.ToString();
+        }));
 
         // Without the per-frame render lines, which otherwise fill any tail.
         report.AppendLine("viewer log tail (render lines left out):");
