@@ -24,7 +24,9 @@ public sealed class ExplosionSoundsTests
             static _ => "Test.Explode",
             Scripts(Entry("Test.Explode", channel: 1, level: 95, ")weapons/explode1.wav"))).ShouldHaveSingleItem();
 
-        sound.ShouldBe(new SceneSound(
+        sound.WaveDraw.ShouldNotBeNull().Script.ShouldBe("Test.Explode");
+
+        (sound with { WaveDraw = null }).ShouldBe(new SceneSound(
             Tick: 100,
             Name: ")weapons/explode1.wav",
             SoundNumber: ExplosionSounds.NotPrecached,

@@ -40,6 +40,6 @@ public static class HudSounds
         UniformRandomStream random = new();
         random.SetSeed(ImpactSounds.SeedFor((tick * 131) + scriptName.GetHashCode(StringComparison.Ordinal)));
 
-        return ExplosionSounds.FromWorldAt(entry, random, tick, (0f, 0f, 0f)) with { EntityIndex = FromLocalPlayer };
+        return ExplosionSounds.FromWorldAt(entry, random, tick, (0f, 0f, 0f), emitted: true) with { EntityIndex = FromLocalPlayer };
     }
 }

@@ -30,10 +30,10 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         ScriptWaveDeck deck = new();
 
-        int[] dealt = [deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 0, emitted: true)];
+        int[] dealt = [deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 0, emitted: true), deck.Pick(Script, 3, 2, emitted: true)];
 
-        // The fourth finds nothing available, so every flag is set again and it deals from all three.
-        dealt.ShouldBe([0, 1, 2, 0]);
+        // The fourth finds nothing available, so every flag is set again and its draw of 2 picks from all three.
+        dealt.ShouldBe([0, 1, 2, 2]);
     }
 
     [Test]
@@ -154,12 +154,14 @@ public sealed class ScriptWaveDeckConformanceTests
 
         presenter.Schedule = new SoundSchedule([Dealt(10, 0), Dealt(30, 0)]);
 
-        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
-        presenter.Emit(Dealt(20, 0));
-        presenter.Update(new Silent(), 40, Listener, Right, now: 0.6d);
+        Silent sink = new();
 
-        // Dealt 10, 20, 30 — the emitted one second. Scheduled first would have given it c.
-        played.ShouldBe(["a.wav", "b.wav", "c.wav"]);
+        presenter.Update(sink, 0, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(20, 0) with { EntityIndex = 9 });
+        presenter.Update(sink, 40, Listener, Right, now: 0.6d);
+
+        // Dealt 10, 20, 30 — the emitted one (entity 9) second. Scheduled first would have given it c, last.
+        sink.Started.ShouldBe([(0, "a.wav"), (9, "b.wav"), (0, "c.wav")]);
     }
 
     [Test]
@@ -171,13 +173,14 @@ public sealed class ScriptWaveDeckConformanceTests
 
         SceneSound loop = Dealt(20, 0, emitted: false) with { EntityIndex = 5, Channel = 6 };
 
-        presenter.Schedule = new SoundSchedule([Dealt(10, 0), loop, loop with { Tick = 30, IsStop = true }]);
+        presenter.Schedule = new SoundSchedule([Dealt(10, 0), loop, Dealt(25, 0), loop with { Tick = 30, IsStop = true }]);
 
         presenter.Update(sink, 0, Listener, Right, now: 0d);
         presenter.Update(sink, 40, Listener, Right, now: 0.6d);
 
-        // The deal at 10 took a; the patch read the deck and found only b; its stop names b, not a fresh pick.
-        played.ShouldBe(["a.wav", "b.wav", "b.wav"]);
+        // The deal at 10 took a; the patch read the deck and found only b; the deal at 25 took b, emptying the deck — so
+        // a fresh pick at 30 would reset it and find a. The stop names b, the wave its start is playing.
+        played.ShouldBe(["a.wav", "b.wav", "b.wav", "b.wav"]);
         sink.Silenced.ShouldBe(["b.wav"]);
     }
 
@@ -245,8 +248,8 @@ public sealed class ScriptWaveDeckConformanceTests
     private static SoundScriptEntry Entry(int channel, params string[] waves) =>
         new(Script, channel,new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), waves);
 
-    /// <summary>One sample per wave name, so a sample handed to the sink says which wave it was.</summary>
-    private static readonly Dictionary<SoundSample, string> NameOf = new(ReferenceEqualityComparer.Instance);
+    /// <summary>One sample per wave name — its own array, which is what its equality compares — so a sample says its wave.</summary>
+    private static readonly Dictionary<SoundSample, string> NameOf = [];
 
     private static readonly Dictionary<string, SoundSample> SampleFor = new(StringComparer.Ordinal);
 
@@ -254,7 +257,7 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         lock (NameOf)
         {
-            if (!SampleFor.TryGetValue(name, out SoundSample? sample))
+            if (!SampleFor.TryGetValue(name, out SoundSample sample))
             {
                 sample = new SoundSample(SampleRate: 22050, Channels: 1, Samples: new float[] { 0.5f });
                 SampleFor[name] = sample;
@@ -299,10 +302,10 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         public List<string> Silenced { get; } = [];
 
-        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
-        {
-            // Starts are recorded by the presenter's sample lookup.
-        }
+        public List<(int Entity, string Wave)> Started { get; } = [];
+
+        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
+            Started.Add((entity, NameOf[sample]));
 
         public bool SetGain(int entity, int channel, float gain) => false;
 

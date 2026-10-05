@@ -6810,7 +6810,7 @@ internal class MainForm : Form, IFrameSteps
                         ? (point.At.X, point.At.Y, point.At.Z)
                         : fired.Origin;
 
-                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries) is { } sound)
+                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries, emitted: true) is { } sound)
                     {
                         _sound.Emit(sound);
                     }

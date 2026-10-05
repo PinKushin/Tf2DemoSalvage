@@ -132,7 +132,18 @@ public sealed class SoundPresenter(
     private readonly Dictionary<(int Entity, int Channel), bool> _audible = [];
 
     /// <summary>Which sounds are due as playback moves, or null before a demo is opened.</summary>
-    public SoundSchedule? Schedule { get; set; }
+    public SoundSchedule? Schedule
+    {
+        get => _schedule;
+        set
+        {
+            // Another demo's emissions are not this one's history.
+            _schedule = value;
+            _emittedDeals.Clear();
+        }
+    }
+
+    private SoundSchedule? _schedule;
 
     /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
     /// <remarks>
@@ -143,6 +154,15 @@ public sealed class SoundPresenter(
 
     /// <summary>Sounds the client emitted since the last pass, started by the next.</summary>
     private readonly List<SceneSound> _emitted = [];
+
+    /// <summary>Every script's wave flags, as the sounds played so far left them (B503).</summary>
+    private readonly ScriptWaveDeck _deck = new();
+
+    /// <summary>The wave each script draw was dealt, for the stop or change that names it.</summary>
+    private readonly Dictionary<ScriptWaveDraw, string> _dealtWaves = [];
+
+    /// <summary>The emitted sounds this playback has dealt, in order, which a seek cannot find in the schedule.</summary>
+    private readonly List<(int Tick, ScriptWaveDraw Draw)> _emittedDeals = [];
 
     /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
     /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
@@ -214,6 +234,11 @@ public sealed class SoundPresenter(
 
         IReadOnlyList<SceneSound> starting = schedule.Advance(tick);
 
+        if (schedule.Repositioned)
+        {
+            Redeal(schedule, tick);
+        }
+
         // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
         // just left, and letting them finish plays the old place over the new one. The loops go with
         // them: those voices no longer exist, so following them would re-attenuate nothing.
@@ -263,34 +288,51 @@ public sealed class SoundPresenter(
             starting = schedule.LiveAt(tick);
         }
 
-        foreach (SceneSound sound in starting)
+        // **Scheduled and emitted sounds are dealt in ONE tick order**, the scheduled first on a tie, because a script's
+        // waves are one deck whoever emits them (B503) — and before the camera gate, since `GetParametersForSoundEx` deals
+        // in `EmitSoundByHandle` before the engine decides anything about audibility.
+        List<SceneSound> emitted = schedule.Jumped ? [] : _emitted;
+        int fromSchedule = 0;
+        int fromEmitted = 0;
+
+        while (fromSchedule < starting.Count || fromEmitted < emitted.Count)
         {
-            if (!InRange(sound, listener))
+            bool scheduled = fromEmitted == emitted.Count ||
+                (fromSchedule < starting.Count && starting[fromSchedule].Tick <= emitted[fromEmitted].Tick);
+
+            if (scheduled)
             {
+                // A re-established loop was dealt by `Redeal`; it is named, not dealt again.
+                SceneSound sound = reestablishing ? Named(starting[fromSchedule++]) : Dealt(starting[fromSchedule++]);
+
+                if (InRange(sound, listener))
+                {
+                    Start(output, sound, listener, right, reestablishing);
+                }
+
                 continue;
             }
 
-            Start(output, sound, listener, right, reestablishing);
-        }
+            SceneSound live = Dealt(emitted[fromEmitted++]);
 
-        if (!schedule.Jumped)
-        {
-            foreach (SceneSound sound in _emitted)
+            if (live.WaveDraw is { } draw && Deals(live))
             {
-                if (InRange(sound, listener))
-                {
-                    Start(output, sound, listener, right, reestablishing: false);
-                }
-                else if (audio.IsEnabled(LogLevel.Debug))
-                {
-                    // Beyond its own camera gate — `ImpactCallback`'s 1024 — so it never starts at all.
-                    audio.LogDebug(
-                        "{Message}",
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"sound out of range tick {sound.Tick} {sound.Name} at ({sound.OriginX:0} {sound.OriginY:0} {sound.OriginZ:0}), " +
-                            $"listener ({listener.X:0} {listener.Y:0} {listener.Z:0})"));
-                }
+                _emittedDeals.Add((live.Tick, draw));
+            }
+
+            if (InRange(live, listener))
+            {
+                Start(output, live, listener, right, reestablishing: false);
+            }
+            else if (audio.IsEnabled(LogLevel.Debug))
+            {
+                // Beyond its own camera gate — `ImpactCallback`'s 1024 — so it never starts at all.
+                audio.LogDebug(
+                    "{Message}",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"sound out of range tick {live.Tick} {live.Name} at ({live.OriginX:0} {live.OriginY:0} {live.OriginZ:0}), " +
+                        $"listener ({listener.X:0} {listener.Y:0} {listener.Z:0})"));
             }
         }
 
@@ -303,6 +345,88 @@ public sealed class SoundPresenter(
             soundscaped - looped,
             Stopwatch.GetTimestamp() - soundscaped);
     }
+
+    /// <summary>
+    /// The deck as playing from the start to <paramref name="tick"/> left it: every scheduled sound through the tick and
+    /// every emitted one this playback has played before it, dealt again in the order <see cref="Update"/> deals them (B503).
+    /// </summary>
+    /// <remarks>
+    /// **A seek must not change what is heard after it**: the engine's flags are the result of every emission before, so
+    /// the state a seek lands in is recomputed from the demo rather than carried from wherever playback was. Emitted
+    /// sounds after the tick belong to a future this playback has left, and their own producers emit them again.
+    /// </remarks>
+    private void Redeal(SoundSchedule schedule, int tick)
+    {
+        long began = Stopwatch.GetTimestamp();
+
+        _deck.Clear();
+        _dealtWaves.Clear();
+        _emittedDeals.RemoveAll(deal => deal.Tick > tick);
+
+        int fromEmitted = 0;
+        int dealt = 0;
+
+        foreach (SceneSound sound in schedule.Through(tick))
+        {
+            while (fromEmitted < _emittedDeals.Count && _emittedDeals[fromEmitted].Tick < sound.Tick)
+            {
+                Deal(_emittedDeals[fromEmitted++].Draw);
+                dealt++;
+            }
+
+            if (Dealt(sound).WaveDraw is not null)
+            {
+                dealt++;
+            }
+        }
+
+        for (; fromEmitted < _emittedDeals.Count; fromEmitted++)
+        {
+            Deal(_emittedDeals[fromEmitted].Draw);
+            dealt++;
+        }
+
+        audio.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"wave deck: redealt {dealt} script sounds through tick {tick} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+    }
+
+    /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
+    private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;
+
+    /// <summary>A script sound with the wave the deck gives it now; anything else as it is.</summary>
+    private SceneSound Dealt(SceneSound sound)
+    {
+        if (!Deals(sound))
+        {
+            return Named(sound);
+        }
+
+        return sound.WaveDraw is { } draw && Deal(draw) is { } wave ? sound with { Name = wave } : sound;
+    }
+
+    /// <summary>Picks a script's wave against the deck, remembering it for the stop or change that names it later.</summary>
+    private string? Deal(ScriptWaveDraw draw)
+    {
+        if (Scripts?.Entries.TryGetValue(draw.Script, out SoundScriptEntry entry) != true || entry.Waves.Count == 0)
+        {
+            return null;
+        }
+
+        string wave = entry.Waves[_deck.Pick(draw.Script, entry.Waves.Count, draw.Draw, draw.Emitted)];
+        _dealtWaves[draw] = wave;
+
+        return wave;
+    }
+
+    /// <summary>
+    /// A stop, a change, or a re-established loop, named as the start it belongs to was dealt — `CSoundPatch` and
+    /// `S_AlterChannel` act on the wave already playing, and pick nothing.
+    /// </summary>
+    private SceneSound Named(SceneSound sound) =>
+        sound.WaveDraw is { } draw && _dealtWaves.TryGetValue(draw, out string? wave) ? sound with { Name = wave } : sound;
 
     /// <summary>Re-attenuates every tracked loop to where the listener now stands.</summary>
     private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener)

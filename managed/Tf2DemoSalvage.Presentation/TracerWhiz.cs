@@ -50,7 +50,7 @@ public static class TracerWhiz
 
         UniformRandomStream random = new();
         random.SetSeed(ImpactSounds.SeedFor(tick));
-        return ExplosionSounds.FromWorldAt(entry, random, tick, at);
+        return ExplosionSounds.FromWorldAt(entry, random, tick, at, emitted: true);
     }
 
     /// <summary>Whether a tracer from <paramref name="start"/> to <paramref name="end"/> passes close enough to whiz.</summary>

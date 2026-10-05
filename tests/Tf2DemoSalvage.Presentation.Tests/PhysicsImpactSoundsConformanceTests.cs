@@ -26,7 +26,10 @@ public sealed class PhysicsImpactSoundsConformanceTests
     {
         SceneSound sound = PhysicsImpactSounds.For(100, Impact("flesh", "default", volume: 0.5f), Surfaces, Scripts()).ShouldNotBeNull();
 
-        sound.ShouldBe(new SceneSound(100, "physics/flesh/hard.wav", ExplosionSounds.NotPrecached, 0, 6, 0.4f, 75, 100, 0f, 1f, 2f, 3f));
+        (sound with { WaveDraw = null }).ShouldBe(new SceneSound(100, "physics/flesh/hard.wav", ExplosionSounds.NotPrecached, 0, 6, 0.4f, 75, 100, 0f, 1f, 2f, 3f));
+
+        // `PlayImpactSounds` resolves the script through a plain `GetParametersForSound` (`vphysics_sound.h:61`): a read (B503).
+        sound.WaveDraw.ShouldNotBeNull().Emitted.ShouldBeFalse();
     }
 
     [Test]

@@ -35686,15 +35686,56 @@ Checked and already right: impacts, tracer whiz, HUD sounds and physics impacts 
 `PhysicsFrictionSoundsConformanceTests` (channel and volume, the two draws, the kept script volume). **Sabotaged:** each
 of the seven parts reverted alone reddened exactly its test.
 
-## B503 — a script's waves are not dealt without repeats: the engine's per-entry "available" flags are not kept — OPEN 2026-10-05
+## B503 — a script's waves are not dealt without repeats: the engine's per-entry "available" flags are not kept — FIXED 2026-10-05
+
+**Fixed:** the wave is picked when the sound PLAYS, not when it is built. Every client script sound carries a
+`ScriptWaveDraw` (its script, the generator's raw number at the wave's slot, and `isbeingemitted`), and
+`SoundPresenter` deals it against one `ScriptWaveDeck` — FUN_180005680's rule exactly — in a single tick order over the
+scheduled sounds (explosions, server impacts, medigun patches) and the live ones (client bullet impacts, whiz, HUD,
+animation events, footsteps, physics impacts, friction), scheduled first on a tie. A stop or volume/pitch change names
+the wave its start was dealt. A seek redeals from the start: every scheduled sound through the tick plus every live
+deal this playback made before it — measured on f12 at tick 90,006, 4,601 script sounds in 17.2 ms. Emitted producers
+deal (`EmitSoundByHandle`); footsteps, physics impacts, friction and patches only read. **Not reproduced, and why:** the
+global stream's position — `FX_FireBullets` reseeds it per bullet from the TE's seed (`tf_fx_shared.cpp:310`), but
+every client `RandomInt`/`RandomFloat` between (`ClientAdjustStartSoundParams`, `c_tf_player.cpp:11663`, among others)
+consumes from it, so each sound keeps its own seeded stream; only the draw is interpolated, never the deal. Residuals
+filed: B504 (a forward seek cannot know live emissions it skipped), B505 (within-tick order across the two lists).
+Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13),
+`MedigunSoundsConformanceTests.For_OneHeal_ReadsEveryWaveWithoutDealing`; output level:
+`CorpusScriptWaveDeckTests` — f12's 2,629 blasts in 876 three-wave blocks, each a permutation. **Sabotaged:** no clear,
+all-waves indexing, no reset, schedule-before-live, no redeal, no live ledger, no truncation, stops dealt fresh,
+producer flags flipped, the raw draw replaced by `RandomInt( 0, n - 1 )`, and the presenter not dealing — each reddened
+its test (the last only the corpus test).
 
 **Read, disassembly.** FUN_180005680 picks among the waves whose `available` byte is set (resetting them all when none
 is), and `GetParametersForSoundEx( …, isbeingemitted = true )` — every `EmitSoundByHandle`
 (`SoundEmitterSystem.cpp:465`) — clears the chosen wave's flag. So an `rndwave` entry the client emits by script name
 (explosions, impacts, tracer whiz, HUD sounds) deals its waves like a deck, never repeating until all have played. The
 plain `GetParametersForSound` path (footsteps, physics impacts, friction, sound patches) reads the flags but never
-clears them. **Not fixed, and why:** the flags are one global state per entry, advanced in the order the client emits —
-here, explosions, impacts and medigun sounds are worked out for the whole demo at load while footsteps, whiz and HUD
-sounds are drawn live per tick, each from a stream seeded per event so a seek repeats them. Reproducing the deck needs
-every client emission in one tick-ordered pass with the deck as its state; a deck kept per producer would be a partial
-model that agrees with nothing. Gender filtering in the same function is moot for TF2's world sounds (`GENDER_NONE`).
+clears them. **Filed as not fixed, and why (superseded by the fix above):** the flags are one global state per entry,
+advanced in the order the client emits — here, explosions, impacts and medigun sounds are worked out for the whole demo
+at load while footsteps, whiz and HUD sounds are drawn live per tick, each from a stream seeded per event so a seek
+repeats them. Reproducing the deck needs every client emission in one tick-ordered pass with the deck as its state; a
+deck kept per producer would be a partial model that agrees with nothing. Gender filtering in the same function is moot
+for TF2's world sounds (`GENDER_NONE`).
+
+## B504 — a forward seek redeals without the live script sounds of the ticks it skipped — OPEN 2026-10-05
+
+**Found closing B503.** `SoundPresenter.Redeal` rebuilds the wave deck from every SCHEDULED sound through the tick and
+every LIVE deal this playback has made. The live producers — client bullet impacts (`StruckEnd` poses the hit
+players), the tracer whiz (`TracerWhiz.Hears` tests the CAMERA), HUD sounds and animation-event sounds — exist only
+for ticks the viewer actually stepped, so a seek forward past ticks never played deals as if those emissions never
+happened. Seek-back and straight play are exact. Closing it means producing those emissions without playing: the
+impacts and animation events need every player posed over the skipped span (the decal replay already does this for a
+bounded window, `ReplayModelDecals`); the whiz depends on the camera path, which a seek has none of — in the engine
+too, where `demo_gototick` replays with whatever view it has. Measure first how many live deals share a script with a
+scheduled one on a real match; only those can move a later wave.
+
+## B505 — within a tick, scheduled and live script sounds of one script are dealt scheduled-first, not in TE order — OPEN 2026-10-05
+
+**Found closing B503, interpolated.** The engine fires temp entities in the order `svc_TempEntities` carried them
+(`CL_FireEvents`), so a server-dispatched impact and a client `FireBullets` impact on one tick deal one script's deck
+in packet order. Our two lists (the load-time schedule and the live emissions) do not carry their TE's place in the
+packet, so `SoundPresenter.Update` and `Redeal` put the scheduled first on a tie. Only a shared script on one tick is
+affected — in practice the surface `BulletImpact` sounds. Fix: carry each TE's message index into `SceneSound` and
+order a tie by it.

@@ -78,13 +78,13 @@ public static class ImpactSounds
         if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
             scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
+            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true) with { AudibleWithin = AudibleWithin });
         }
 
         if (landing.ImpactSound is { } name &&
             scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At) with { AudibleWithin = AudibleWithin });
+            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true) with { AudibleWithin = AudibleWithin });
         }
 
         return sounds;

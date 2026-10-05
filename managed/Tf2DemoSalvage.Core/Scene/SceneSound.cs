@@ -78,4 +78,11 @@ public readonly record struct SceneSound(
 
     /// <summary>`SND_CHANGE_PITCH`: changes the pitch of this sound where it already plays.</summary>
     public bool ChangesPitch { get; init; }
+
+    /// <summary>
+    /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
+    /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,
+    /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.
+    /// </summary>
+    public ScriptWaveDraw? WaveDraw { get; init; }
 }

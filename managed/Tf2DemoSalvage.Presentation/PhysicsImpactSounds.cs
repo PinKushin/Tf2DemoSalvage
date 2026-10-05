@@ -49,7 +49,7 @@ public static class PhysicsImpactSounds
             name = soft;
         }
 
-        return EntitySounds.Emit(tick, ExplosionSounds.FromWorld, name, (impact.Origin.X, impact.Origin.Y, impact.Origin.Z), scripts)
+        return EntitySounds.Emit(tick, ExplosionSounds.FromWorld, name, (impact.Origin.X, impact.Origin.Y, impact.Origin.Z), scripts, emitted: false)
             is { } drawn
             ? drawn with { Channel = StaticChannel, Volume = drawn.Volume * MathF.Min(impact.Volume, 1f) }
             : null;

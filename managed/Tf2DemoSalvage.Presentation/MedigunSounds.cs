@@ -68,7 +68,7 @@ public static class MedigunSounds
                 int mode = beam.Item is { } item && weaponModeOf is not null ? weaponModeOf(item) : 0;
                 string heal = HealSounds[mode >= 0 && mode < HealSounds.Length ? mode : 0];
 
-                loop ??= Patch(EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts));
+                loop ??= Patch(EntitySounds.Emit(beam.Start, beam.Medigun, heal, at(source, beam.Start), scripts, emitted: false));
 
                 // The next target arriving as this one goes: healing never stopped.
                 if (index + 1 < ordered.Count && ordered[index + 1].Start == beam.End)
@@ -103,7 +103,7 @@ public static class MedigunSounds
 
                 sounds.Add(playing with { Tick = end, IsStop = true });
 
-                if (Patch(EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts)) is { } detach)
+                if (Patch(EntitySounds.Emit(end, beam.Medigun, Detach, at(source, end), scripts, emitted: false)) is { } detach)
                 {
                     sounds.Add(detach);
                 }

@@ -145,7 +145,7 @@ public sealed class PhysicsFrictionSounds
         // `PhysFrictionSound`'s own `GetParametersForSound` (`physics.cpp:991`) draws first.
         UniformRandomStream random = EntitySounds.Stream(tick, friction.Entity);
         (float X, float Y, float Z) origin = at(friction.Entity, tick);
-        SceneSound parameters = ExplosionSounds.FromWorldAt(entry, random, tick, origin);
+        SceneSound parameters = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false);
         SceneSound? started = null;
 
         if (_slots[index] is not { } playing)
@@ -159,7 +159,7 @@ public sealed class PhysicsFrictionSounds
             // draws AGAIN and keeps that draw's wave, volume, soundlevel and channel — the script's channel replaces
             // CHAN_BODY. `Play( patch, params.volume · v, params.pitch )` then sets the patch's pitch and its volume, which
             // `GetVolumeForEngine` multiplies by the script volume it kept.
-            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin);
+            SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, tick, origin, emitted: false);
 
             started = patch with
             {
