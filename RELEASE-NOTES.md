@@ -1,6 +1,16 @@
-# Tf2DemoSalvage 0.1.0-beta.29
+# Tf2DemoSalvage 0.1.0-beta.30
 
-## Changes since 0.1.0-beta.28
+## Changes since 0.1.0-beta.29
+
+- **A seek now replays the game's skip, silently.** HUD sounds and animation-event sounds in the skipped ticks
+  count toward a script's no-repeat wave deck, as in TF2, so the waves you hear after a seek match what the game
+  would play (B504).
+- **Seeks are slower, and that is the cost of the above.** On the f12 demo, seeking forward to tick 90,006 takes
+  about 4 s longer, and rewinding to tick 50,000 about 0.9 s longer. TF2 itself restarts the demo and
+  fast-forwards on a rewind.
+- **Within a frame that covers several ticks, sounds follow the game's order** (B505).
+
+## Changes in 0.1.0-beta.29
 
 - **A script's waves no longer repeat until every wave has played.** The game deals a sound script's waves like a
   deck, shared by every sound that names that script; the viewer now does the same (B503).
@@ -315,6 +325,9 @@ Each claim below is a measurement, not an expectation.
   this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
   control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
   ear in a played demo.
+- **Skip replay and multi-tick frame order** (beta.30): HUD and animation-event sounds in skipped ticks deal the
+  wave deck as the engine's skip does; timings measured on the f12 demo (forward to tick 90,006 about +4 s,
+  rewind to tick 50,000 about +0.9 s). Not yet checked by ear in a played demo (B504, B505).
 - **Wave deck, frame order and skip** (beta.29): synthetic tests with exact values cover the deck, the
   within-tick order and the skip; on the f12 demo's 2,629 blasts in 876 three-wave blocks, each block is a
   permutation of its waves. Each part was reverted alone and reddened its test. Settled in the game's engine
@@ -348,8 +361,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   off mid-match is not followed.
 - **Sound wave draws are approximated (B503):** the deck is dealt as the game does, but the game's random stream
   cannot be reproduced, so each sound's random draw is the viewer's own.
-- **Seeking skips two things the game may also skip (B504):** HUD sounds and animation-event sounds during a skip
-  are unread in the game's code, so the viewer plays none for skipped ticks.
+- **Seeks are slower than before (B504):** forward seeks replay the skipped ticks, and a rewind restarts from
+  the beginning, as the game does. Faster rewind through checkpoints is planned.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
