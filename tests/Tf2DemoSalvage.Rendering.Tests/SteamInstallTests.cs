@@ -140,6 +140,45 @@ public sealed class SteamInstallTests
         steam.GameFolder().ShouldBe(expected);
     }
 
+    // **D210: a folder the user picked is validated before it is saved.** The recogniser is the one
+    // `GameInstall` uses — `tf2_textures_dir.vpk` — because Steam keeps a library directory for a game
+    // that has been uninstalled, so the folder merely existing proves nothing.
+    [Test]
+    public void AsGameFolder_TfFolderHoldingTheTexturesVpk_IsThatFolder()
+    {
+        SteamInstall.AsGameFolder(@"G:\TF2\tf", path => path == @"G:\TF2\tf\tf2_textures_dir.vpk")
+            .ShouldBe(@"G:\TF2\tf");
+    }
+
+    [Test]
+    public void AsGameFolder_TheTeamFortress2FolderAboveIt_IsItsTfFolder()
+    {
+        // The folder a person sees in Steam's "Browse local files" is the one above tf/; taking it
+        // rather than refusing it is the picker meeting the user where the obvious click lands.
+        SteamInstall.AsGameFolder(@"G:\TF2", path => path == @"G:\TF2\tf\tf2_textures_dir.vpk")
+            .ShouldBe(@"G:\TF2\tf");
+    }
+
+    [Test]
+    public void AsGameFolder_AFolderWithoutTheVpk_IsNull()
+    {
+        SteamInstall.AsGameFolder(@"G:\Pictures", _ => false).ShouldBeNull();
+    }
+
+    [Test]
+    public void ChosenFolder_EnvironmentAndConfigBothSet_IsTheEnvironment()
+    {
+        // TF2_FOLDER stays the override for scripts and CI (D210); the cfg is the user's path.
+        SteamInstall.ChosenFolder(@"E:\ci\tf", @"G:\TF2\tf").ShouldBe(@"E:\ci\tf");
+    }
+
+    [Test]
+    public void ChosenFolder_OnlyConfigSet_IsTheConfig()
+    {
+        SteamInstall.ChosenFolder(null, @"G:\TF2\tf").ShouldBe(@"G:\TF2\tf");
+        SteamInstall.ChosenFolder(string.Empty, @"G:\TF2\tf").ShouldBe(@"G:\TF2\tf");
+    }
+
     /// <summary>A Steam root whose first library is empty and whose second holds TF2.</summary>
     private string SteamWithTf2InSecondLibrary(out string tfFolder)
     {

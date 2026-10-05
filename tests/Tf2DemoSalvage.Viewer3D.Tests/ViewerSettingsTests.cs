@@ -387,6 +387,50 @@ public sealed class ViewerSettingsTests
     }
 
     [Test]
+    public void Parse_AGameFolder_KeepsThePathAsWritten()
+    {
+        // D210: the folder the picker chose lives here, not in an environment variable.
+        ViewerSettings.Parse("cl_game_folder \"G:\\My Games\\Team Fortress 2\\tf\"")
+            .GameFolder.ShouldBe("G:\\My Games\\Team Fortress 2\\tf");
+
+        // The control: absent is null, which means "detect it", not an empty path.
+        ViewerSettings.Parse("fps_max 60").GameFolder.ShouldBeNull();
+    }
+
+    [Test]
+    public void Write_AChosenGameFolder_ParsesBackToIt()
+    {
+        ViewerSettings chosen = new() { GameFolder = "G:\\My Games\\Team Fortress 2\\tf" };
+
+        ViewerSettings.Parse(chosen.Write()).GameFolder.ShouldBe(chosen.GameFolder);
+
+        // Unchosen is written commented out, like every other default.
+        new ViewerSettings().Write().ShouldContain("// cl_game_folder ");
+    }
+
+    [Test]
+    public void Parse_GameFolderAskZero_TurnsTheStartupPickerOff()
+    {
+        new ViewerSettings().AskForGameFolder.ShouldBeTrue();
+        ViewerSettings.Parse("cl_game_folder_ask 0").AskForGameFolder.ShouldBeFalse();
+        ViewerSettings.Parse(new ViewerSettings { AskForGameFolder = false }.Write())
+            .AskForGameFolder.ShouldBeFalse("a declined picker must stay declined across a save");
+    }
+
+    [Test]
+    public void ShouldAskForGameFolder_NothingFound_AsksOnlyWhenAllowedAndWatched()
+    {
+        ViewerSettings asking = new();
+
+        asking.ShouldAskForGameFolder(found: null, headless: false).ShouldBeTrue();
+
+        // Each condition alone suppresses it: a found install, a headless run, a declined picker.
+        asking.ShouldAskForGameFolder(found: @"G:\TF2\tf", headless: false).ShouldBeFalse();
+        asking.ShouldAskForGameFolder(found: null, headless: true).ShouldBeFalse();
+        (asking with { AskForGameFolder = false }).ShouldAskForGameFolder(found: null, headless: false).ShouldBeFalse();
+    }
+
+    [Test]
     public void Parse_OneCommandOntoExistingSettings_LeavesTheOthersAlone()
     {
         // **This is what makes `+command value` safe as a launch option.** Parsing a single command

@@ -345,6 +345,12 @@ internal sealed partial class ViewerApplication : IDisposable
             // carrying it for everybody — the same reasoning as the capture folder above.
             "+developer",
             "1",
+
+            // **No startup folder picker (D210).** CI has no TF2, so the viewer would open a modal
+            // "where is TF2?" dialog over every test. The picker itself is driven through the File
+            // menu by GameFolderUiTests, which this does not affect.
+            "+" + ViewerSettings.AskForGameFolderCommand,
+            "0",
         ];
 
         // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and
