@@ -148,6 +148,90 @@ public sealed class SoundScriptCatalog
         return new SoundScriptCatalog(entries, scripts);
     }
 
+    /// <summary>This catalog with a level's own scripts added over it.</summary>
+    /// <param name="read">The level's search path — its pakfile ahead of the install (B485).</param>
+    /// <param name="mapName">The level's name, without path or extension.</param>
+    /// <returns>A new catalog; this one, the install's, is untouched.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="read"/> or <paramref name="mapName"/> is null.</exception>
+    /// <remarks>
+    /// **<c>CSoundEmitterSystem::LevelInitPreEntity</c>, TF2's branch** (<c>SoundEmitterSystem.cpp:258-306</c>): on a map
+    /// whose lowercased <c>maps/&lt;name&gt;</c> holds <c>mvm</c>, the four MvM scripts in that order; otherwise
+    /// <c>maps/&lt;name&gt;_level_sounds.txt</c> — each only when <c>FileExists( …, "GAME" )</c>, and each through
+    /// <c>AddSoundOverrides</c>. <c>LevelShutdownPostEntity</c> is <c>ClearSoundOverrides()</c> (<c>:333-336</c>), which
+    /// is why this returns a new catalog rather than changing the install's.
+    ///
+    /// **A level's entry REPLACES one of the same name, whole — settled in disassembly** (<c>soundemittersystem.dll</c>
+    /// x64, <c>AddSoundsFromFile</c> at <c>180004870</c>): with the override flag, the name's dict slot is overwritten
+    /// with a freshly parsed entry (<c>180004b58</c>) whether the old one was stock or an earlier override
+    /// (<c>180004a14</c>), so the last script to name a sound wins. Without the flag a repeat is dropped, which is
+    /// <see cref="Load"/>'s first-wins.
+    /// </remarks>
+    public SoundScriptCatalog ForLevel(Func<string, byte[]?> read, string mapName)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(mapName);
+
+        Dictionary<string, SoundScriptEntry> entries = new(_entries, StringComparer.OrdinalIgnoreCase);
+        List<string> scripts = [.. _scripts];
+        string map = CleanMapName("maps/" + mapName);
+
+        string[] overrides = map.Contains("mvm", StringComparison.OrdinalIgnoreCase)
+            ?
+            [
+                "scripts/mvm_level_sounds.txt",
+                "scripts/mvm_level_sound_tweaks.txt",
+                "scripts/game_sounds_vo_mvm.txt",
+                "scripts/game_sounds_vo_mvm_mighty.txt",
+            ]
+            : [StripExtension(map) + "_level_sounds.txt"];
+
+        foreach (string path in overrides)
+        {
+            if (read(path) is not { } script)
+            {
+                continue;
+            }
+
+            scripts.Add(path);
+
+            foreach ((string name, SoundScriptEntry entry) in SoundScript.Read(script))
+            {
+                entries[name] = entry;
+            }
+        }
+
+        return new SoundScriptCatalog(entries, scripts);
+    }
+
+    /// <summary><c>GetCleanMapName</c>, TF's branch (<c>util_shared.cpp:1631-1674</c>).</summary>
+    /// <remarks>
+    /// <c>maps/workshop/&lt;name&gt;.ugc&lt;id&gt;</c> becomes <c>maps/&lt;name&gt;</c>. The engine runs <c>Q_FixSlashes</c>
+    /// and <c>Q_strlower</c> first and then compares case-sensitively against either separator; comparing without case
+    /// over both separators here is the same test. Paths come back with <c>/</c>, which every reader here takes.
+    /// </remarks>
+    private static string CleanMapName(string map)
+    {
+        string fixedSlashes = map.Replace('\\', '/');
+
+        if (!fixedSlashes.StartsWith("maps/workshop/", StringComparison.OrdinalIgnoreCase))
+        {
+            return fixedSlashes;
+        }
+
+        string clean = "maps/" + fixedSlashes["maps/workshop/".Length..];
+        int ugc = clean.IndexOf(".ugc", StringComparison.OrdinalIgnoreCase);
+
+        return ugc < 0 ? clean : clean[..ugc];
+    }
+
+    /// <summary><c>Q_StripExtension</c>: drops the last <c>.</c> and what follows, when it is in the file name.</summary>
+    private static string StripExtension(string path)
+    {
+        int dot = path.LastIndexOf('.');
+
+        return dot > path.LastIndexOf('/') ? path[..dot] : path;
+    }
+
     /// <summary>The script paths a manifest names, in order.</summary>
     /// <remarks>
     /// Comments are the <see cref="KeyValuesReader"/>'s job, and it drops them — which is what keeps

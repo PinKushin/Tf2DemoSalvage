@@ -34,6 +34,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Presentation\Tf2DemoSalvage.Presentation.csproj" />
+
+    <!-- GameInstall, for the output-level check that loads a shipped map (B485). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
   </ItemGroup>
 
 </Project>

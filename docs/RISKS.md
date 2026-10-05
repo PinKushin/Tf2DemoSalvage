@@ -35241,7 +35241,7 @@ audible changes today; it is the branch B483's end-touch will reach.
 restart that reclaims the loop where it stands); `Ended_…` now fades through a soundscape with no loops, which is what
 `StartNewSoundscape` does. Sabotage — a fade on a null placement — reddened it; restored by the inverse edit.
 
-## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — OPEN 2026-10-04
+## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — FIXED 2026-10-05
 
 **Measured while closing B465** (`pak` probe): pl_venice's pakfile carries 35 entries under `sound/` — canal water,
 flies, rodents — and `LevelSystems.OpenGame` sets `SoundCache.Read = game.Archives.Read`, once per install. Any sound
@@ -35250,6 +35250,27 @@ that lives only in a map's pakfile, whether a soundscape loop, a `playrandom` wa
 mounted at its head. The fix needs the cache to read per level — and to forget what it decoded from the previous map's
 pakfile, since a stock path can be shadowed by one map and not the next. koth_lazarus ships no sounds, so B465's
 output-level test does not reach this.
+
+**Fix:** `PakFile.AheadOf(install)` is the level's `"GAME"` path, in one place; `LevelSystems.Load` builds it once and
+hands it to the soundscape catalog, to `SoundCache.Level` (which also forgets every earlier decode), and to
+`SoundScriptCatalog.ForLevel`, which lays the level's own scripts over the install's per
+`CSoundEmitterSystem::LevelInitPreEntity` (`SoundEmitterSystem.cpp:258-306`): `maps/<map>_level_sounds.txt`, or the
+four MvM scripts on a map named `mvm`. A new catalog per level stands in for `ClearSoundOverrides` (`:333-336`).
+The script name goes through a port of `GetCleanMapName` (`util_shared.cpp:1631-1674`: `maps/workshop/<x>.ugc<id>` →
+`maps/<x>`) and `Q_StripExtension`, so a workshop map finds its script. **Disassembly** (`soundemittersystem.dll` x64,
+`AddSoundsFromFile` at `180004870`; Ghidra project `D:\ghidra-proj\tf2soundemitter`): with the override flag an existing
+name's slot is overwritten by a freshly parsed entry (`180004b58`), whether the old entry was stock or an earlier
+override (`180004a14`, the DevMsg's "duplicated replacements"), so the last script wins and nothing is merged; without
+the flag a repeat is dropped unless refreshing. The code already did this; the earlier "interpolated from the header
+comment" is superseded. Tests: `SoundPakfileConformanceTests` (synthetic: shadow, extend, forget, override, MvM order) and
+`LevelSystemsTests.Load_PlVenice_HandsTheSoundCacheTheLevelsPakfile` (pl_venice's pakfile-only wind gust: absent
+through the install, decoded after the load). Sabotage, each restored by the inverse edit: install-first order
+(reddened the shadow test and the B465 soundscape test), no cache clear (the forget test), `TryAdd` for the override
+(the override test), a case-sensitive `mvm` match (the MvM test), the cache handed the install in `Load` (pl_venice).
+Then for the port: no workshop strip (the three workshop cases), no `.ugc` cut (only `workshop/cp.foo.ugc1` — every
+other name loses `.ugc…` to `Q_StripExtension` anyway, so that case was added to give the cut a test that can fail),
+no `Q_StripExtension` (`.bsp`, a non-workshop `.ugc`, and the dotted workshop case), `TryAdd` again (the later-override
+test as well).
 
 ## B486 — `CStdlib` was not the runtime: no inf or nan, .NET's white space, zero on overflow; two private copies held what it lacked — FIXED 2026-10-04
 

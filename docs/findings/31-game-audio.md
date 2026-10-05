@@ -984,7 +984,24 @@ index order are the parts worth keeping: the map's entries are numbered after al
 the server, so a demo's index means the same on each.
 
 The same pass found the wave reader has the same blind spot one level down — pl_venice carries 35 sounds in its pakfile
-and the sound cache never looks there (B485, open).
+and the sound cache never looks there (B485).
+
+*Read, published source, 2026-10-05.* **The fix was not only the waves.** `CSoundEmitterSystem::LevelInitPreEntity`
+(`SoundEmitterSystem.cpp:258-306`) also lays a level's own sound SCRIPT over the install's, through the same `"GAME"`
+path: `maps/<map>_level_sounds.txt`, or — TF2's branch, on any map whose name holds `mvm` — four fixed MvM scripts,
+`mvm_level_sounds.txt` first. That explains a detail found earlier and left unexplained: those MvM scripts are the ones
+Valve commented out of `game_sounds_manifest.txt`, because they are loaded per level, not per install.
+`LevelShutdownPostEntity` is `ClearSoundOverrides()`, so the overrides belong to one level. **What "override" means was
+first interpolated from the interface's comment** (`isoundemittersystembase.h:257`) and then *settled in disassembly*
+(`soundemittersystem.dll` x64, `AddSoundsFromFile` at `180004870`): the file is walked key by key, and with the override
+flag a name already present gets a freshly parsed entry stored over its slot (`180004b58`) — whole, not merged. Before
+that, if the old entry was not itself an override, it is pushed onto a restore list (`180004a1e`); if it was, only the
+"duplicated replacements" count moves (`180004b05`). So the last override script to name a sound wins, and the stock
+entry comes back at shutdown — the DevMsg strings name all three counts. Without the flag a repeat is skipped, which is
+why the manifest is first-wins. The level name goes through `GetCleanMapName` first (`util_shared.cpp:1631-1674`), which
+turns `maps/workshop/<x>.ugc<id>` into `maps/<x>`, so a workshop copy of a map reads the stock name's script. *Measured:* pl_venice's
+`ambient/venice_wind_gust_01.mp3` does not open through the install and decodes once the level is loaded; pl_venice
+ships no `_level_sounds.txt`, and no census of installed maps was taken.
 
 *Read, published source and the C standard, 2026-10-04.* **`atof` returns a double**, and that is not pedantry here:
 `ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so

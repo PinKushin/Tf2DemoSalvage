@@ -66,6 +66,9 @@ public sealed class LevelSystems
     /// </remarks>
     private GameContent? _game;
 
+    /// <summary>The install's sound scripts, which each level's overrides are laid over and cleared from (B485).</summary>
+    private SoundScriptCatalog? _installScripts;
+
     /// <summary>Binds the systems that will be told about levels.</summary>
     /// <param name="moment">The scene rebuilt for each tick; Valve's client leaf system.</param>
     /// <param name="models">The packed entity geometry; Valve's <c>modelinfo</c>, not a system.</param>
@@ -151,9 +154,10 @@ public sealed class LevelSystems
             : SoundscapeCatalog.Load(game.Archives.Read);
 
         // The same rule for the emitter's soundscripts: null when there are no archives, not empty.
-        _sound.Scripts = game.Archives.IsEmpty
+        _installScripts = game.Archives.IsEmpty
             ? null
             : SoundScriptCatalog.Load(game.Archives.Read);
+        _sound.Scripts = _installScripts;
 
         // **The install is half of the player appearance and this is when it arrives.** The other
         // half is the demo, which `DemoSystems.Open` supplies — two lifetimes, so two setters, and
@@ -262,7 +266,15 @@ public sealed class LevelSystems
         // **The catalog is the LEVEL's, rebuilt with the map's name** (B465): `C_SoundscapeSystem::LevelInitPreEntity`
         // is `Shutdown(); Init();` (`c_soundscape.cpp:99-102`), and `Init` appends the map's own script, read with its
         // pakfile mounted first. Before the placements, which resolve their names against it.
-        _soundscape.Catalog = game.Archives.IsEmpty ? null : LevelCatalog(bytes, game, mapName);
+        Func<string, byte[]?> levelRead = LevelRead(bytes, game, mapName);
+
+        _soundscape.Catalog = game.Archives.IsEmpty ? null : SoundscapeCatalog.Load(levelRead, mapName);
+
+        // **Sounds and level sound scripts through the same path** (B485): every wave opens through `"GAME"`, and
+        // `CSoundEmitterSystem::LevelInitPreEntity` adds the map's overrides over the install's scripts
+        // (`SoundEmitterSystem.cpp:258-306`), cleared again at `LevelShutdownPostEntity`.
+        _sounds.Level(levelRead);
+        _sound.Scripts = _installScripts?.ForLevel(levelRead, mapName);
 
         _soundscape.Placements = _soundscape.Catalog is { } loaded
             ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
@@ -291,23 +303,22 @@ public sealed class LevelSystems
         return map;
     }
 
-    /// <summary>The soundscape catalog for one level, through its pakfile first.</summary>
+    /// <summary>The level's <c>"GAME"</c> search path: its pakfile, then the install (B465, B485).</summary>
     /// <remarks>
-    /// **A malformed pakfile costs the map's own soundscapes, not the level** — the same trade every other pakfile
-    /// reader here makes. It is reported, and the catalog falls back to the install with the map's name, which still
-    /// finds a script the install ships for it.
+    /// **A malformed pakfile costs the map's own content, not the level** — the same trade every other pakfile reader
+    /// here makes. It is reported, and the level reads the install alone.
     /// </remarks>
-    private SoundscapeCatalog LevelCatalog(ReadOnlyMemory<byte> bytes, GameContent game, string mapName)
+    private Func<string, byte[]?> LevelRead(ReadOnlyMemory<byte> bytes, GameContent game, string mapName)
     {
         try
         {
-            return SoundscapeCatalog.ForLevel(PakFile.ReadFrom(bytes), game.Archives.Read, mapName);
+            return PakFile.ReadFrom(bytes).AheadOf(game.Archives.Read);
         }
         catch (InvalidDataException failure)
         {
-            _audio.LogWarning(failure, "reading {Map}'s pakfile for its soundscapes; the install's alone are used", mapName);
+            _audio.LogWarning(failure, "reading {Map}'s pakfile; the install's sounds and scripts alone are used", mapName);
 
-            return SoundscapeCatalog.Load(game.Archives.Read, mapName);
+            return game.Archives.Read;
         }
     }
 

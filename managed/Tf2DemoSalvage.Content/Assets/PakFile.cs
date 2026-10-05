@@ -153,6 +153,22 @@ public sealed class PakFile
         return _entries.ContainsKey(Normalise(path));
     }
 
+    /// <summary>The level's <c>"GAME"</c> search path: this pakfile first, then <paramref name="game"/>.</summary>
+    /// <param name="game">Opens a file from the install, or answers null when absent.</param>
+    /// <returns>A reader that tries this pakfile, then the install.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="game"/> is null.</exception>
+    /// <remarks>
+    /// **One place for the order, because every per-level reader needs the same one** (B465 soundscapes, B485 sounds
+    /// and level sound scripts): the engine mounts the loaded map's pakfile at the head of <c>"GAME"</c>, so a file the
+    /// map ships shadows the install's copy and a file only the map ships extends it.
+    /// </remarks>
+    public Func<string, byte[]?> AheadOf(Func<string, byte[]?> game)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+
+        return path => ReadFile(path) ?? game(path);
+    }
+
     /// <summary>Extracts a file.</summary>
     /// <param name="path">Path inside the zip.</param>
     /// <returns>The file's bytes, or null if it is not there.</returns>
