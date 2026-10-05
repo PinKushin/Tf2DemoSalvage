@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.22
+# Tf2DemoSalvage 0.1.0-beta.23
 
-## Changes since 0.1.0-beta.21
+## Changes since 0.1.0-beta.22
+
+- **`+cl_game_folder <path>` on the command line** sets the TF2 `tf` folder for that run only, without saving
+  it. Order of precedence: `TF2_FOLDER`, then `+cl_game_folder`, then `settings.cfg`, then Steam detection (B498).
+- **Menu shortcut labels follow your config after the startup folder pick:** picking the TF2 folder at startup
+  reloads your TF2 config, and the menu now shows its keys rather than the defaults (B498).
+
+## Changes in 0.1.0-beta.22
 
 - **Pick your TF2 folder from the viewer; no environment variables.** When the viewer cannot find TF2 through
   Steam, it opens a folder picker at startup for your `tf` folder (the folder above it also works). **File > TF2
@@ -226,6 +233,8 @@ Each claim below is a measurement, not an expectation.
 - **The TF2 folder picker and File > TF2 folder... menu item** are covered by unit tests of the folder
   precedence and validation and by the UI suite, which now runs on its own settings file and never touches
   yours (B497).
+- **`+cl_game_folder` and menu shortcut relabeling** (beta.23) are covered by a command-line UI test and unit
+  tests (B498).
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -260,7 +269,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
   needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
-  models, materials or sounds — and no demos. The viewer reads them from your install (found through the Steam folder Steam records in the registry, then its library list, so Steam on another drive works; a `tf` folder you pick in the viewer, saved as `cl_game_folder`, takes over from that, and `TF2_FOLDER` beats both, for scripts) and, if it
+  models, materials or sounds — and no demos. The viewer reads them from your install (found through the Steam folder Steam records in the registry, then its library list, so Steam on another drive works; a `tf` folder you pick in the viewer, saved as `cl_game_folder`, takes over from that, `+cl_game_folder <path>` on the command line beats the saved one for a single run, and `TF2_FOLDER` beats all of them, for scripts) and, if it
   cannot find one, asks you to pick the folder, or if you cancel, plays the demo without the game's maps and models. The command-line tool needs only the demo.
 
 ## Licences
