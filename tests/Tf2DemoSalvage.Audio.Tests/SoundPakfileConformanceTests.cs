@@ -102,6 +102,51 @@ public sealed class SoundPakfileConformanceTests
         asked.ShouldNotContain("maps/mvm_test_level_sounds.txt");
     }
 
+    /// <remarks>
+    /// **<c>GetCleanMapName</c>** (<c>util_shared.cpp:1631-1674</c>, TF branch): a <c>maps/workshop/</c> name loses the
+    /// <c>workshop/</c> and everything from <c>.ugc</c>, so a workshop map reads the same script name a stock copy would.
+    /// Either separator — <c>Q_FixSlashes</c> runs first. Then <c>Q_StripExtension</c> drops a trailing extension.
+    /// </remarks>
+    [TestCase("workshop/cp_foo.ugc123456", "maps/cp_foo_level_sounds.txt")]
+    [TestCase("workshop\\cp_foo.ugc1", "maps/cp_foo_level_sounds.txt")]
+    [TestCase("cp_foo", "maps/cp_foo_level_sounds.txt")]
+    [TestCase("cp_foo_rc1.bsp", "maps/cp_foo_rc1_level_sounds.txt")]
+    [TestCase("cp_workshop/cp_foo.ugc1", "maps/cp_workshop/cp_foo_level_sounds.txt")]
+    public void ForLevel_AMapName_ReadsTheLevelScriptOfItsCleanName(string mapName, string script)
+    {
+        List<string> asked = [];
+
+        SoundScriptCatalog.Load(Text([])).ForLevel(
+            path =>
+            {
+                asked.Add(path);
+                return null;
+            },
+            mapName);
+
+        asked.ShouldBe([script]);
+    }
+
+    /// <remarks>
+    /// **Disassembly** (<c>soundemittersystem.dll</c> x64, <c>CSoundEmitterSystemBase::AddSoundsFromFile</c> at
+    /// <c>180004870</c>): with the override flag set, a name already present is parsed into a NEW entry stored over the
+    /// slot (<c>180004b58</c>) whether the old one was stock or itself an override (<c>180004a14</c>, the "duplicated
+    /// replacements" count) — so a later override script's entry wins over an earlier one's.
+    /// </remarks>
+    [Test]
+    public void ForLevel_ANameInTwoMvmScripts_IsTheLaterScripts()
+    {
+        SoundScriptCatalog level = SoundScriptCatalog.Load(Text([])).ForLevel(
+            Text(new()
+            {
+                ["scripts/mvm_level_sounds.txt"] = Entry("MVM.Shared", "first.wav"),
+                ["scripts/game_sounds_vo_mvm.txt"] = Entry("MVM.Shared", "later.wav"),
+            }),
+            "mvm_test");
+
+        level.Resolve("MVM.Shared").Waves.ShouldBe(["sound/later.wav"]);
+    }
+
     /// <summary>The map's pakfile: its own copy of the shared wave and one only it has, both at 11025 Hz.</summary>
     private static PakFile Pak() => PakFile.Read(PakZip.Of(new()
     {
