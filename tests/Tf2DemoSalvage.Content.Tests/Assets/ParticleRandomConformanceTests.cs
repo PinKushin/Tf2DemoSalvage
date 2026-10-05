@@ -85,7 +85,7 @@ public sealed class ParticleRandomConformanceTests
 
         for (int particle = 0; particle < 512; particle++)
         {
-            float drawn = ParticleRandom.Between(0, particle, ParticleSystems.LifetimeDraw, 0.8f, 1.2f);
+            float drawn = ParticleRandom.Between(0, particle, 0, 0.8f, 1.2f);
 
             drawn.ShouldBeInRange(0.8f, 1.2f);
 

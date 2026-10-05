@@ -35387,6 +35387,27 @@ what `ParticleEffect` hands the initializers. Tests: `ParticleSimulateConformanc
 instead reddened the three launch tests; dropping `EndCall` together with a zero start reddened all five. **Tests changed:**
 two `MovementBasic` cases on a bare store now record a previous call of their own length, as a collection mid-run has.
 
+## B495 — initializers keyed their draws by particle id; a seeded collection draws `m_nRandomSeed + m_nRandomQueryCount++` — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** every `InitNewParticlesScalar` in `builtin_initializers.obj` indexes the table
+with the collection's query count (+0x2740) plus its seed (+0x2744) and increments the count. On a seeded collection,
+`SimulateFirstFrame` and `InitializeNewParticles` (`particles.obj`) run each initializer that is not scrub-safe once per
+new particle, initializer by initializer, over each emitter call's batch. `C_OP_InstantaneousEmitter::InitializeContextData`
+draws the count at `Init`. Per-initializer draw counts are tabulated in `ParticleQueryConformanceTests` and findings 58. Our
+port keyed by `PARTICLE_ID` plus a constant per initializer, spawned particle-major, drew the sphere's local speed once
+for all three axes, ignored the four `*_random_exponent`s, and drew the burst count at first emission.
+
+**Fix:** `ParticleStore.Query()` is the count. `ParticleSystems.Birth` adds a particle and `ParticleSystems.Initialize`
+runs initializer-major over a batch. `ParticleEffect` births each emitter call's particles and then initializes them, and
+draws burst counts in its constructor. The per-initializer draw constants are gone. Tests: `ParticleQueryConformanceTests`
+(4): initializer-major order, the count first, three local-speed draws, the offset's doubled seed. They were red by
+compile failure (no query count). Sabotaged: particle-major order, one local-speed draw, the offset without the second
+seed, and a fixed count index each reddened its test. **Tests changed:** three that named a removed draw constant now
+name the query. **Not built:** the unseeded block path; "randomly distribute to highest supplied Control Point";
+`InitMultipleOverride`'s second pass; `InitializeContextData` of operators other than the burst, whose draws are unread.
+**The table's contents are still this project's own** (`ParticleRandom`), so this matches the ORDER and the indices, not the
+values.
+
 ## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)

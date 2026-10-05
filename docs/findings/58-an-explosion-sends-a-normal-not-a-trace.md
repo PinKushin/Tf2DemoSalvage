@@ -574,6 +574,25 @@ emission per frame )`, emits `min( share, max_particles − active, num_to_emit 
 `owed − share`. The cap loses only the part of the share it refused, and later steps still emit the rest when room frees.
 This port zeroed the debt the first time a spawn was refused, which ended a large blast early in a busy collection (B493).
 
+**A seeded collection's initializers draw from a stream, not by particle.** Each `InitNewParticlesScalar` in
+`builtin_initializers.obj` reads `[collection+0x2740]`, the query count, stores it plus one, and indexes
+`s_pRandomFloats[ ( [collection+0x2744] + count ) & 0xfff ]`, which is the inline `RandomFloat( m_nRandomQueryCount++, … )`.
+On a seeded collection, `SimulateFirstFrame` and `InitializeNewParticles` call every initializer that is not scrub-safe
+as `InitNewParticlesScalar( i, 1 )` for each new particle, one initializer at a time. So the order of draws is
+initializer-major over each emitter's batch. B469's port keyed every draw by `PARTICLE_ID` plus a per-initializer
+constant, the four-wide block path, which the unseeded client uses and which a seeded collection never takes. The same
+reading settled four details that were carried as guesses:
+
+- **`Color Random` is one draw for all three channels**, as the port had *interpolated*.
+- **The sphere's local speed is three draws**, one per axis; the port took one for all three. Its outward speed draws
+  only when `speed_max` > 0, so a system without one shifts every later draw by one.
+- **`Position Modify Offset Random` counts the seed twice**: `RandomVector( query, … )` computes `seed + query` and calls
+  `RandomFloat`, which adds the seed again — `uVar1 = query + seed · 2` in the disassembly. A Valve bug, reproduced.
+- **`Lifetime`, `Radius`, `Alpha` and `Rotation Random` are `RandomFloatExp`**, with `lifetime_random_exponent`,
+  `radius_random_exponent`, `alpha_random_exponent` and `rotation_random_exponent` (names from the unpack strings, default 1).
+
+A burst's count is drawn in `InitializeContextData` at `Init`, before any particle, so it is query 0 (B495).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer

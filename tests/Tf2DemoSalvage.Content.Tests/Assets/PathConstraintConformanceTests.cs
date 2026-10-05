@@ -140,7 +140,8 @@ public sealed class PathConstraintConformanceTests
             seconds: 0.1f,
             points: [Start, End]);
 
-        float t = ParticleRandom.Sample(0, 0, ParticleSystems.AlongPathDraw);
+        // A fresh collection's first query (B495).
+        float t = ParticleRandom.Sample(0, 0, 0);
 
         particles.PositionOf(0).ShouldBe(new Vector3(100f * t, 0f, 0f));
         particles.Previous[0].ShouldBe(particles.PositionOf(0));

@@ -202,7 +202,7 @@ public sealed class ParticleEffectConformanceTests
 
     /// <remarks>
     /// **The seed is in every index** (`particles.h:1791`, B469): a seeded collection's first particle draws `Lifetime
-    /// Random` from the entry the seed moves it to, which is the seed-0 draw at an offset larger by the seed.
+    /// Random` from the entry the seed moves it to — its first query (B495), so the seed-0 table at index 500.
     /// </remarks>
     [Test]
     public void Step_ASeededEffect_DrawsAtTheSeededIndex()
@@ -211,7 +211,7 @@ public sealed class ParticleEffectConformanceTests
 
         effect.Step(ParticleControlPoint.Unoriented(Vector3.Zero), seconds: 0.25f);
 
-        effect.Particles.LifetimeOf(0).ShouldBe(ParticleRandom.Between(0, 0, ParticleSystems.LifetimeDraw + 500, 10f, 110f));
+        effect.Particles.LifetimeOf(0).ShouldBe(ParticleRandom.Between(0, 500, 0, 10f, 110f));
     }
 
     /// <remarks>

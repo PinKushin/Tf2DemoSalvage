@@ -199,29 +199,105 @@ public static class ParticleSystems
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(into);
 
+        int index = Birth(system, into, point.At, lives, born);
+
+        if (index >= 0)
+        {
+            Initialize(system, into, index, 1, _ => (point, points), seconds, sheet);
+        }
+
+        return index;
+    }
+
+    /// <summary>Adds one particle with the definition's constant attributes and no initializer run yet.</summary>
+    /// <returns>Its index, or -1 at <c>max_particles</c>.</returns>
+    internal static int Birth(ParticleSystem system, ParticleStore into, Vector3 at, float lives, float? born)
+    {
         if (into.Count >= MaxParticles(system))
         {
             return -1;
         }
 
-        int index = into.Add(point.At, lives, born);
-        int seed = into.Seed;
+        int index = into.Add(at, lives, born);
 
         into.Resize(index, (float)Number(system, "radius", 1d));
 
-        // **The initializers run HERE, at birth, and never again.** That is what makes them
-        // initializers rather than operators — `Sequence Random` drawn every frame would flicker one
-        // particle between four animations, and `Lifetime Random` drawn every frame would mean a
-        // particle whose death kept moving.
+        return index;
+    }
+
+    /// <summary>
+    /// Runs every initializer over a batch of new particles — `CParticleCollection::InitializeNewParticles` on a seeded
+    /// collection (B495).
+    /// </summary>
+    /// <param name="system">The definition.</param>
+    /// <param name="into">The store.</param>
+    /// <param name="first">The batch's first index.</param>
+    /// <param name="count">How many.</param>
+    /// <param name="pointsOf">Each particle's control points at its creation time: point 0, and every point by number.</param>
+    /// <param name="seconds">`m_flPreviousDt`, which the velocity initializers scale by (B494).</param>
+    /// <param name="sheet">The material's sheet, or null.</param>
+    /// <remarks>
+    /// **Initializer by initializer, each over the whole batch.** A seeded ("scrubbable") collection runs every
+    /// initializer that is not scrub-safe through `InitNewParticlesScalar( i, 1 )` for each new particle in turn
+    /// (`SimulateFirstFrame` and `InitializeNewParticles`, `particles.obj`), and each scalar initializer draws from the
+    /// collection's running query count, `s_pRandomFloats[ ( m_nRandomSeed + m_nRandomQueryCount++ ) &amp; 0xfff ]`
+    /// (`builtin_initializers.obj`). So the ORDER of the draws is initializer-major, and a particle's numbers depend on
+    /// how many draws came before it — not on its id, which the four-wide block path keys by and a seeded collection
+    /// does not take. Every collection here is seeded in production, so this is the only path built.
+    ///
+    /// **The initializers run HERE, at birth, and never again.** That is what makes them initializers rather than
+    /// operators — `Sequence Random` drawn every frame would flicker one particle between four animations.
+    /// </remarks>
+    internal static void Initialize(
+        ParticleSystem system,
+        ParticleStore into,
+        int first,
+        int count,
+        Func<int, (ParticleControlPoint Point, IReadOnlyList<ParticleControlPoint>? Points)> pointsOf,
+        float seconds,
+        IReadOnlyList<SheetSequence>? sheet)
+    {
         foreach (ParticleFunction one in system.Initializers)
         {
-            switch (one.Function)
+            for (int index = first; index < first + count; index++)
             {
+                (ParticleControlPoint point, IReadOnlyList<ParticleControlPoint>? points) = pointsOf(index);
+
+                InitializeOne(one, into, index, point, points, seconds, sheet);
+            }
+        }
+
+        // **`CopyInitialAttributeValues` runs after EVERY initializer** (`particles.h:1265`), so the spawn values an operator
+        // scales from are the final ones. `muzzle_shotgun_flash` remaps its radius after `Radius Random`, and a copy taken
+        // inside that initializer kept 32 while the particle was 8.
+        for (int index = first; index < first + count; index++)
+        {
+            into.RadiusAtBirth[index] = into.Radius[index];
+            into.TintAtBirth[index] = into.Tint[index];
+            into.AlphaAtBirth[index] = into.Alpha[index];
+        }
+    }
+
+    /// <summary>One initializer's `InitNewParticlesScalar( index, 1 )`, each draw the next of the collection's queries (B495).</summary>
+    private static void InitializeOne(
+        ParticleFunction one,
+        ParticleStore into,
+        int index,
+        ParticleControlPoint point,
+        IReadOnlyList<ParticleControlPoint>? points,
+        float seconds,
+        IReadOnlyList<SheetSequence>? sheet)
+    {
+        int seed = into.Seed;
+
+        switch (one.Function)
+            {
+                // `C_INIT_RandomSequence`: one `RandomInt`.
                 case "Sequence Random":
                     into.Sequence[index] = ParticleRandom.Whole(
                         seed,
-                        into.Id[index],
-                        SequenceDraw,
+                        into.Query(),
+                        0,
                         (int)one.Number("sequence_min", 0d),
                         (int)one.Number("sequence_max", 0d));
 
@@ -233,15 +309,12 @@ public static class ParticleSystems
                 // The comment that justified the midpoint said the two bounds were equal; the file
                 // says otherwise, which is `docs/memory/nothing-is-closed.md#a-valve-comment-can-be-stale` applied to
                 // our own.
+                // `C_INIT_RandomLifeTime`: one `RandomFloatExp` with `lifetime_random_exponent` (B495).
                 case "Lifetime Random":
-                    float least = (float)one.Number("lifetime_min", lives);
+                    float least = (float)one.Number("lifetime_min", into.Lifetime[index]);
 
-                    into.Lifetime[index] = ParticleRandom.Between(
-                        seed,
-                        into.Id[index],
-                        LifetimeDraw,
-                        least,
-                        (float)one.Number("lifetime_max", least));
+                    into.Lifetime[index] = DrawExp(
+                        into, least, (float)one.Number("lifetime_max", least), (float)one.Number("lifetime_random_exponent", 1d));
 
                     break;
 
@@ -251,16 +324,14 @@ public static class ParticleSystems
                 // untinted. `TINT_RGB` is 0..255 per channel, which is the unit the file states them
                 // in.
                 //
-                // *Interpolated:* that ONE draw lerps the whole colour rather than three
-                // independent ones. The initializers ship only in the binary. A single factor keeps
-                // every result on the line between the two colours an artist chose, where per
-                // channel would put muddy mixes between them; the endpoints are identical either
-                // way, so this is falsifiable by disassembling `particles.lib`.
+                // **ONE draw lerps the whole colour**, read in `C_INIT_RandomColor::InitNewParticlesScalar`
+                // (`builtin_initializers.obj`, B495): a single `m_nRandomQueryCount++` entry multiplies all three channel
+                // spans. This was carried as *interpolated* until that read. Its tint-from-lighting blend is not built.
                 case "Color Random":
                     Vector4 from = one.Vector("color1", new Vector4(255f, 255f, 255f, 255f));
                     Vector4 to = one.Vector("color2", from);
 
-                    float along = ParticleRandom.Sample(seed, into.Id[index], ColourDraw);
+                    float along = ParticleRandom.Sample(seed, into.Query(), 0);
 
                     into.Tint[index] = new Vector3(
                         from.X + ((to.X - from.X) * along),
@@ -277,12 +348,8 @@ public static class ParticleSystems
                 case "Alpha Random":
                     float dimmest = (float)one.Number("alpha_min", 255d);
 
-                    into.Alpha[index] = ParticleRandom.Between(
-                        seed,
-                        into.Id[index],
-                        AlphaDraw,
-                        dimmest,
-                        (float)one.Number("alpha_max", dimmest)) / 255f;
+                    into.Alpha[index] = DrawExp(
+                        into, dimmest, (float)one.Number("alpha_max", dimmest), (float)one.Number("alpha_random_exponent", 1d)) / 255f;
 
                     into.AlphaAtBirth[index] = into.Alpha[index];
 
@@ -296,12 +363,8 @@ public static class ParticleSystems
                 case "Radius Random":
                     float smallest = (float)one.Number("radius_min", 1d);
 
-                    into.Resize(index, ParticleRandom.Between(
-                        seed,
-                        into.Id[index],
-                        RadiusDraw,
-                        smallest,
-                        (float)one.Number("radius_max", smallest)));
+                    into.Resize(index, DrawExp(
+                        into, smallest, (float)one.Number("radius_max", smallest), (float)one.Number("radius_random_exponent", 1d)));
 
                     break;
 
@@ -324,13 +387,13 @@ public static class ParticleSystems
                     float initial = (float)one.Number("rotation_initial", 0d);
                     float turnedLeast = (float)one.Number("rotation_offset_min", 0d);
 
+                    // `CGeneralRandomRotation`: one `RandomFloatExp` with `rotation_random_exponent`, plus the initial (B495).
                     into.Rotation[index] = float.DegreesToRadians(
-                        initial + ParticleRandom.Between(
-                            seed,
-                            into.Id[index],
-                            RotationDraw,
+                        DrawExp(
+                            into,
                             turnedLeast,
-                            (float)one.Number("rotation_offset_max", turnedLeast)));
+                            (float)one.Number("rotation_offset_max", turnedLeast),
+                            (float)one.Number("rotation_random_exponent", 1d)) + initial);
 
                     break;
 
@@ -350,11 +413,7 @@ public static class ParticleSystems
                 case "Trail Length Random":
                     float shortest = (float)one.Number("length_min", ParticleStore.DefaultTrailLength);
                     float longest = (float)one.Number("length_max", ParticleStore.DefaultTrailLength);
-                    float exponent = (float)one.Number("length_random_exponent", 1d);
-
-                    into.TrailLength[index] =
-                        (MathF.Pow(ParticleRandom.Sample(seed, into.Id[index], TrailLengthDraw), exponent) *
-                         (longest - shortest)) + shortest;
+                    into.TrailLength[index] = DrawExp(into, shortest, longest, (float)one.Number("length_random_exponent", 1d));
 
                     break;
 
@@ -393,17 +452,11 @@ public static class ParticleSystems
                 default:
                     break;
             }
-        }
-
-        // **`CopyInitialAttributeValues` runs after EVERY initializer** (`particles.h:1265`), so the spawn values an operator
-        // scales from are the final ones. `muzzle_shotgun_flash` remaps its radius after `Radius Random`, and a copy taken
-        // inside that initializer kept 32 while the particle was 8.
-        into.RadiusAtBirth[index] = into.Radius[index];
-        into.TintAtBirth[index] = into.Tint[index];
-        into.AlphaAtBirth[index] = into.Alpha[index];
-
-        return index;
     }
+
+    /// <summary>`RandomFloatExp( m_nRandomQueryCount++, least, most, exponent )`: one draw raised to the exponent, then lerped.</summary>
+    private static float DrawExp(ParticleStore into, float least, float most, float exponent) =>
+        (MathF.Pow(ParticleRandom.Sample(into.Seed, into.Query(), 0), exponent) * (most - least)) + least;
 
     /// <summary>`C_INIT_RemapScalar::InitNewParticlesScalar`, read out of `particles.lib` — <see cref="RemapScalar"/>'s line, at birth.</summary>
     /// <remarks>
@@ -488,11 +541,11 @@ public static class ParticleSystems
     /// initializer multiplies local Y by <c>m_RightVector</c> directly (<c>0x107bb325</c>). It is
     /// not the matrix <see cref="Offset"/> goes through, whose local Y is left.
     ///
-    /// *Interpolated:* that `distance_min` and `distance_max` bound the sample's RADIUS rather than
-    /// replacing it — the initializers ship only in the binary. With `distance_min = 0`, which is
-    /// what `rockettrail` declares, the two readings are identical, so this cannot be wrong on the
-    /// effect it was written for. `distance_bias` is applied per axis to the direction, and is
-    /// `(1 1 1)` here.
+    /// **`distance_min` and `distance_max` lerp by the sample's radius**, read in `C_INIT_CreateWithinSphere::
+    /// InitNewParticlesScalar` (`builtin_initializers.obj`, B495): `( max − min ) · radius + min`. `distance_bias` is
+    /// applied per axis to the direction. **The draws, in order:** one query for the sphere vector, one for the outward
+    /// speed only when `speed_max` &gt; 0, then one per local axis. *Not built:* "randomly distribute to highest supplied
+    /// Control Point", which draws first, and the retry loop against the controlling object.
     /// </remarks>
     private static void Place(
         ParticleFunction one,
@@ -501,7 +554,7 @@ public static class ParticleSystems
         ParticleControlPoint point,
         float seconds)
     {
-        (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Seed, into.Id[index], PositionDraw);
+        (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Seed, into.Query(), 0);
 
         Vector4 bias = one.Vector("distance_bias", new Vector4(1f, 1f, 1f, 0f));
 
@@ -523,21 +576,22 @@ public static class ParticleSystems
         float speedMost = (float)one.Number("speed_max", 0d);
 
         float speed = speedMost > 0f
-            ? ((speedMost - speedLeast) *
-               MathF.Pow(
-                   ParticleRandom.Sample(into.Seed, into.Id[index], SpeedDraw),
-                   (float)one.Number("speed_random_exponent", 1d))) + speedLeast
+            ? DrawExp(into, speedLeast, speedMost, (float)one.Number("speed_random_exponent", 1d))
             : 0f;
 
         Vector4 localLeast = one.Vector("speed_in_local_coordinate_system_min", default);
         Vector4 localMost = one.Vector("speed_in_local_coordinate_system_max", localLeast);
 
-        float along = ParticleRandom.Sample(into.Seed, into.Id[index], LocalSpeedDraw);
+        // **Three draws, one per axis** (B495): `RandomFloat( m_nRandomQueryCount++, … )` three times over the local speed's
+        // three bounds. This port drew once for all three before that read.
+        float x = ParticleRandom.Sample(into.Seed, into.Query(), 0);
+        float y = ParticleRandom.Sample(into.Seed, into.Query(), 0);
+        float z = ParticleRandom.Sample(into.Seed, into.Query(), 0);
 
         Vector3 local = new(
-            localLeast.X + ((localMost.X - localLeast.X) * along),
-            localLeast.Y + ((localMost.Y - localLeast.Y) * along),
-            localLeast.Z + ((localMost.Z - localLeast.Z) * along));
+            ((localMost.X - localLeast.X) * x) + localLeast.X,
+            ((localMost.Y - localLeast.Y) * y) + localLeast.Y,
+            ((localMost.Z - localLeast.Z) * z) + localLeast.Z);
 
         Vector3 velocity = (outward * speed)
             + (point.Forward * local.X)
@@ -581,13 +635,16 @@ public static class ParticleSystems
             most *= radius;
         }
 
-        int id = into.Id[index];
+        // **One query for three entries, and the seed counted TWICE** (B495): `RandomVector( m_nRandomQueryCount++, min, max )`
+        // computes `nBaseId = seed + id` and hands it to `RandomFloat`, which adds the seed again — the disassembly's
+        // `uVar1 = query + seed · 2`. A Valve bug, reproduced: a seed shifts this draw twice as far as any other.
         int seed = into.Seed;
+        int twice = unchecked(seed + into.Query());
 
         Vector3 offset = new(
-            ((most.X - least.X) * ParticleRandom.Sample(seed, id, OffsetDraw)) + least.X,
-            ((most.Y - least.Y) * ParticleRandom.Sample(seed, id, OffsetDraw + 1)) + least.Y,
-            ((most.Z - least.Z) * ParticleRandom.Sample(seed, id, OffsetDraw + 2)) + least.Z);
+            ((most.X - least.X) * ParticleRandom.Sample(seed, twice, 0)) + least.X,
+            ((most.Y - least.Y) * ParticleRandom.Sample(seed, twice, 1)) + least.Y,
+            ((most.Z - least.Z) * ParticleRandom.Sample(seed, twice, 2)) + least.Z);
 
         if (one.Number("offset in local space 0/1", 0d) != 0d)
         {
@@ -624,14 +681,13 @@ public static class ParticleSystems
     {
         const float Epsilon = 1.1920929E-7f;
 
-        int id = into.Id[index];
-
         Vector3 target = end.At;
         float spread = (float)one.Number("end spread", 0d);
 
+        // A query for the spread only when there is one, then one for the speed (B495).
         if (spread > 0f)
         {
-            target += ParticleRandom.InUnitSphere(into.Seed, id, SpreadDraw).Point * spread;
+            target += ParticleRandom.InUnitSphere(into.Seed, into.Query(), 0).Point * spread;
         }
 
         Vector3 start = into.Position[index];
@@ -649,7 +705,7 @@ public static class ParticleSystems
         }
 
         float least = (float)one.Number("minimum speed", 1d);
-        float speed = (((float)one.Number("maximum speed", 1d) - least) * ParticleRandom.Sample(into.Seed, id, MoveSpeedDraw)) + least;
+        float speed = (((float)one.Number("maximum speed", 1d) - least) * ParticleRandom.Sample(into.Seed, into.Query(), 0)) + least;
 
         into.Lifetime[index] = distance / (speed + Epsilon);
         into.Previous[index] = into.Position[index] - (delta * (speed / distance) * seconds);
@@ -674,25 +730,23 @@ public static class ParticleSystems
         int seed = into.Seed;
         (Vector3 start, Vector3 mid, Vector3 end) = PathConstraint.PathValues(one, points, seed);
 
-        int id = into.Id[index];
-        float t = ParticleRandom.Sample(seed, id, AlongPathDraw);
+        // **Four entries for two queries** (B495): `t` reads the first query; the jitter is a `RandomVector` on the second,
+        // which reads that entry and the two after it — the second jitter entry is the third query's, and so on.
+        int query = into.Query();
+        int jitterQuery = into.Query();
+        float t = ParticleRandom.Sample(seed, query, 0);
         float spread = (float)one.Number("maximum distance", 0d);
 
         Vector3 a = start + ((mid - start) * t);
         Vector3 b = mid + ((end - mid) * t);
         Vector3 jitter = new(
-            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 1)) - spread,
-            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 2)) - spread,
-            (2f * spread * ParticleRandom.Sample(seed, id, AlongPathDraw + 3)) - spread);
+            (2f * spread * ParticleRandom.Sample(seed, jitterQuery, 0)) - spread,
+            (2f * spread * ParticleRandom.Sample(seed, jitterQuery, 1)) - spread,
+            (2f * spread * ParticleRandom.Sample(seed, jitterQuery, 2)) - spread);
 
         into.Position[index] = a + ((b - a) * t) + jitter;
         into.Previous[index] = into.Position[index];
     }
-
-    /// <summary>
-    /// Where <c>Position Along Path Random</c>'s four draws start — this entry and the three after it.
-    /// </summary>
-    public const int AlongPathDraw = 3328;
 
     /// <summary>Control point <paramref name="number"/>, or the origin when it is unset.</summary>
     private static ParticleControlPoint ControlPoint(
@@ -710,63 +764,6 @@ public static class ParticleSystems
 
     /// <summary>The attribute an initializer names its control point by; 0 when it leaves it out.</summary>
     private const string ControlPointNumber = "control_point_number";
-
-    /// <summary>Which table entry <c>move particles between 2 control points</c> draws its speed from.</summary>
-    public const int MoveSpeedDraw = 1792;
-
-    /// <summary>Where its end-spread sphere sample starts — this entry and the two after it.</summary>
-    public const int SpreadDraw = 2304;
-
-    /// <summary>
-    /// Which table entry <c>Sequence Random</c> reads — an arbitrary constant that only has to
-    /// differ from every other draw's, per <see cref="ParticleRandom.Sample"/>.
-    /// </summary>
-    private const int SequenceDraw = 0;
-
-    /// <summary>Which table entry <c>Lifetime Random</c> reads.</summary>
-    public const int LifetimeDraw = 1024;
-
-    /// <summary>Which table entry <c>Color Random</c> reads.</summary>
-    public const int ColourDraw = 2048;
-
-    /// <summary>Which table entry <c>Alpha Random</c> reads.</summary>
-    public const int AlphaDraw = 3072;
-
-    /// <summary>Which table entry <c>Rotation Random</c> reads.</summary>
-    public const int RotationDraw = 512;
-
-    /// <summary>
-    /// Where the sphere sample starts — it takes THIS entry and the two after it, per
-    /// <c>RandomVector</c>'s own convention, so nothing else may claim 1537 or 1538.
-    /// </summary>
-    public const int PositionDraw = 1536;
-
-    /// <summary>Which table entry the outward speed reads.</summary>
-    public const int SpeedDraw = 2560;
-
-    /// <summary>Which table entry the local-frame speed reads.</summary>
-    public const int LocalSpeedDraw = 3584;
-
-    /// <summary>Which table entry <c>Radius Random</c> reads.</summary>
-    public const int RadiusDraw = 256;
-
-    /// <summary>
-    /// Where <c>Position Modify Offset Random</c>'s three draws start — this entry and the two after it, so nothing
-    /// else may claim 1281 or 1282.
-    /// </summary>
-    public const int OffsetDraw = 1280;
-
-    /// <summary>Which table entry <c>Trail Length Random</c> reads.</summary>
-    /// <remarks>
-    /// **The engine does not key this draw by particle**: `C_INIT_RandomTrailLength`'s scalar path indexes the table
-    /// with <c>( m_nRandomSeed + m_nRandomQueryCount++ ) &amp; 0xfff</c> — the collection's running query count at
-    /// <c>+0x1fe8</c> — where the other initializers here are keyed by <c>PARTICLE_ID</c> as `ParticleRandom`
-    /// describes. It is keyed by particle here too, because the table's CONTENTS are this project's own rather than
-    /// Valve's (`ParticleRandom`'s remarks), so no per-particle value could match whichever index were used; the
-    /// distribution is what can be matched, and particle keying keeps a seek reproducible. <c>m_nRandomSeed</c> varies per
-    /// instance — <c>(int)this + Plat_MSTime()</c> for an unseeded collection — and is in this index too (B469).
-    /// </remarks>
-    public const int TrailLengthDraw = 768;
 
     /// <summary>`max_particles`, the collection's size — what an emitter's room is measured against.</summary>
     /// <param name="system">The definition.</param>

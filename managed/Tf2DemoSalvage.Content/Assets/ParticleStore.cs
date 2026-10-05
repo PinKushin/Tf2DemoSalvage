@@ -151,6 +151,17 @@ public sealed class ParticleStore
     /// <summary>The collection's <c>m_nRandomSeed</c>, which every draw's index starts from (B469).</summary>
     public int Seed { get; init; }
 
+    /// <summary>How many draws the collection has made — `m_nRandomQueryCount` (+0x2740), 0 from the constructor (B495).</summary>
+    public int Queries { get; private set; }
+
+    /// <summary>`m_nRandomQueryCount++`: the next draw's sample id, which <see cref="ParticleRandom"/> adds the seed to.</summary>
+    /// <returns>The count before it advances.</returns>
+    /// <remarks>
+    /// **Per collection and part of its state**, so a collection replayed from its start, as a seek does, draws the same
+    /// numbers in the same order.
+    /// </remarks>
+    public int Query() => Queries++;
+
     /// <summary>How long the system has been running, in seconds.</summary>
     public float Age { get; private set; }
 

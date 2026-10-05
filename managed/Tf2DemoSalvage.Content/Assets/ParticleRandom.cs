@@ -20,11 +20,13 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// int nRand = (int)flRand + nMin;                                  // particles.h:1779
 /// </code>
 ///
-/// **The sample id is the PARTICLE's id plus a per-operator offset**, which the four-wide overload
-/// spells out — <c>s_pRandomFloats[ ( nOfs + ParticleID.m_nValue[0] ) &amp; RANDOM_FLOAT_MASK ]</c>
-/// with <c>nOfs = m_nRandomSeed + nRandomSampleOffset</c> (`particles.h:1797-1804`). So a given
-/// particle's draw is a pure function of its id and its collection's seed: it does not depend on how
-/// many particles were born before it, on frame rate, or on the order operators ran in.
+/// **Two ways to pick the sample id, and the initializers here take the second.** The four-wide overload keys by the
+/// PARTICLE — <c>s_pRandomFloats[ ( nOfs + ParticleID.m_nValue[0] ) &amp; RANDOM_FLOAT_MASK ]</c>
+/// with <c>nOfs = m_nRandomSeed + nRandomSampleOffset</c> (`particles.h:1797-1804`) — and serves the block initializers of
+/// an unseeded collection. A seeded collection runs every initializer through its scalar body, and those draw
+/// <c>RandomFloat( m_nRandomQueryCount++, … )</c> (`particles.h:1848-1882`): the sample id is the collection's running
+/// query count, so a particle's numbers depend on every draw before it (B495, `ParticleStore.Query`). Every argument here
+/// called <c>particle</c> is whichever id the caller's path uses.
 ///
 /// **The collection's seed is in every index** (B469), so every function here takes it. It was left
 /// out for months, under a remark that the scheme "needs no seed argument", and every instance of a
