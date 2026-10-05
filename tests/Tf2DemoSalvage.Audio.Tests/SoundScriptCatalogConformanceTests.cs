@@ -142,7 +142,7 @@ public sealed class SoundScriptCatalogConformanceTests
 
         sound.FromScript.ShouldBeTrue();
         sound.Channel.ShouldBe(1, "CHAN_WEAPON");
-        sound.SoundLevel.ShouldBe(95);
+        sound.SoundLevel.ShouldBe(new SoundRange(95f, 95f));
         sound.Pitch.High.ShouldBe(105f);
         sound.Waves.Count.ShouldBe(1);
         sound.Waves[0].ShouldBe("sound/weapons/shotgun_shoot.wav");
@@ -163,7 +163,7 @@ public sealed class SoundScriptCatalogConformanceTests
 
         sound.FromScript.ShouldBeFalse();
         sound.Channel.ShouldBe(0, "CHAN_AUTO");
-        sound.SoundLevel.ShouldBe(75, "SNDLVL_NORM");
+        sound.SoundLevel.ShouldBe(new SoundRange(75f, 75f), "SNDLVL_NORM");
         sound.Volume.Low.ShouldBe(1f, "VOL_NORM");
         sound.Pitch.Low.ShouldBe(100f, "PITCH_NORM");
         sound.Waves.Count.ShouldBe(1);

@@ -124,7 +124,7 @@ public sealed class FootstepsConformanceTests
                 string name = $"{surface}.Step{foot}";
                 string wave = $"player/footsteps/{file}_{side}.wav";
 
-                scripts[name] = new SoundScriptEntry(name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), 75, [wave]);
+                scripts[name] = new SoundScriptEntry(name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), new SoundRange(75f, 75f),[wave]);
             }
         }
 

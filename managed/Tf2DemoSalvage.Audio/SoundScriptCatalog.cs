@@ -34,7 +34,7 @@ public readonly record struct ResolvedSound(
     int Channel,
     SoundRange Volume,
     SoundRange Pitch,
-    int SoundLevel,
+    SoundRange SoundLevel,
     bool FromScript);
 
 /// <summary>
@@ -318,9 +318,9 @@ public sealed class SoundScriptCatalog
             path,
             parsed.Characters,
             SoundScript.AutoChannel,
-            new SoundRange(SoundScript.NormalVolume, SoundScript.NormalVolume),
-            new SoundRange(SoundScript.NormalPitch, SoundScript.NormalPitch),
-            SoundScript.NormalSoundLevel,
+            SoundScript.Normal.Volume,
+            SoundScript.Normal.Pitch,
+            SoundScript.Normal.SoundLevel,
             FromScript: false);
     }
 

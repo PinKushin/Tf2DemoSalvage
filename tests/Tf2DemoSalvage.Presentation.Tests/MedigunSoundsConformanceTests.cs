@@ -67,9 +67,9 @@ public sealed class MedigunSoundsConformanceTests
 
     private static Dictionary<string, SoundScriptEntry> Scripts() => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["WeaponMedigun.HealingWorld"] = new("WeaponMedigun.HealingWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/medigun_heal.wav"]),
-        ["WeaponMedigun.HealingDetachWorld"] = new("WeaponMedigun.HealingDetachWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/medigun_heal_detach.wav"]),
-        ["Weapon_Quick_Fix.Healing"] = new("Weapon_Quick_Fix.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/quick_fix_heal.wav"]),
-        ["WeaponMedigun_Vaccinator.Healing"] = new("WeaponMedigun_Vaccinator.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/vaccinator_heal.wav"]),
+        ["WeaponMedigun.HealingWorld"] = new("WeaponMedigun.HealingWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/medigun_heal.wav"]),
+        ["WeaponMedigun.HealingDetachWorld"] = new("WeaponMedigun.HealingDetachWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/medigun_heal_detach.wav"]),
+        ["Weapon_Quick_Fix.Healing"] = new("Weapon_Quick_Fix.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/quick_fix_heal.wav"]),
+        ["WeaponMedigun_Vaccinator.Healing"] = new("WeaponMedigun_Vaccinator.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/vaccinator_heal.wav"]),
     };
 }

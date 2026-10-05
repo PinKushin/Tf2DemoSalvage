@@ -34,7 +34,7 @@ public sealed class SoundPresenterEmittedTests
             new Dictionary<string, SoundScriptEntry>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Test.Explode"] = new(
-                    "Test.Explode", Channel: 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), SoundLevel: 95, [Wave]),
+                    "Test.Explode", Channel: 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), SoundLevel: new SoundRange(95f, 95f), [Wave]),
             });
 
         presenter.Schedule = new SoundSchedule(ExplosionSounds.Merged([], emitted));
@@ -107,7 +107,7 @@ public sealed class SoundPresenterEmittedTests
             new Dictionary<string, SoundScriptEntry>(StringComparer.OrdinalIgnoreCase)
             {
                 ["Test.Impact"] = new(
-                    "Test.Impact", Channel: 0, new SoundRange(1f, 1f), new SoundRange(100f, 100f), SoundLevel: 95, [Wave]),
+                    "Test.Impact", Channel: 0, new SoundRange(1f, 1f), new SoundRange(100f, 100f), SoundLevel: new SoundRange(95f, 95f), [Wave]),
             }).ShouldHaveSingleItem();
 
     /// <summary>Records what was played and ignores the rest.</summary>

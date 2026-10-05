@@ -47,7 +47,7 @@ public sealed class StepGateProbe : IProbe
     {
         ArgumentNullException.ThrowIfNull(timeline);
 
-        SoundScriptEntry entry = new(Left, 0, new SoundRange(1f, 1f), new SoundRange(100f, 100f), 75, ["player/footsteps/concrete1.wav"]);
+        SoundScriptEntry entry = new(Left, 0, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f),["player/footsteps/concrete1.wav"]);
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase)
         {
             [Left] = entry,

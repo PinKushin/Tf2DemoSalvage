@@ -81,8 +81,11 @@ public static class ExplosionSounds
         // `CSoundParameters::pitch` is an int, so the float draw truncates on assignment.
         int pitch = (int)random.RandomFloat(entry.Pitch.Low, entry.Pitch.High);
 
+        // And the soundlevel last, the same way (`GetParametersForSound`, FUN_180003370 — B487).
+        int soundLevel = (int)random.RandomFloat(entry.SoundLevel.Low, entry.SoundLevel.High);
+
         return new SceneSound(
-            tick, wave, NotPrecached, FromWorld, entry.Channel, volume, entry.SoundLevel, pitch, DelaySeconds: 0f, at.X, at.Y, at.Z);
+            tick, wave, NotPrecached, FromWorld, entry.Channel, volume, soundLevel, pitch, DelaySeconds: 0f, at.X, at.Y, at.Z);
     }
 
     /// <summary>Two tick-ordered sound lists as one, the demo's own first where they share a tick.</summary>

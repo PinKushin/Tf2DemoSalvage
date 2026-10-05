@@ -61,6 +61,6 @@ public sealed class ImpactSoundsConformanceTests
     private static Dictionary<string, SoundScriptEntry> Scripts(params string[] names) =>
         names.ToDictionary(
             name => name,
-            name => new SoundScriptEntry(name, 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), 75, [name + ".wav"]),
+            name => new SoundScriptEntry(name, 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f),[name + ".wav"]),
             StringComparer.OrdinalIgnoreCase);
 }

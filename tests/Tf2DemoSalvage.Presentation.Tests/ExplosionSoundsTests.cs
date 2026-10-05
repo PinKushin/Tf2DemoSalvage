@@ -71,7 +71,7 @@ public sealed class ExplosionSoundsTests
     public void For_RangedVolumeAndPitch_DrawWithinThem()
     {
         SoundScriptEntry ranged = new(
-            "Test.Explode", 1, new SoundRange(0.5f, 0.75f), new SoundRange(90f, 110f), 95, ["a.wav"]);
+            "Test.Explode", 1, new SoundRange(0.5f, 0.75f), new SoundRange(90f, 110f), new SoundRange(95f, 95f), ["a.wav"]);
 
         IReadOnlyList<SceneSound> sounds = ExplosionSounds.For(
             [.. Enumerable.Range(0, 64).Select(tick => Blast(tick: tick))],
@@ -81,6 +81,30 @@ public sealed class ExplosionSoundsTests
         sounds.ShouldAllBe(sound => sound.Volume >= 0.5f && sound.Volume <= 0.75f);
         sounds.ShouldAllBe(sound => sound.Pitch >= 90 && sound.Pitch <= 110);
         sounds.Select(sound => sound.Pitch).Distinct().Count().ShouldBeGreaterThan(5);
+    }
+
+    /// <remarks>
+    /// B487: `GetParametersForSound` (soundemittersystem.dll FUN_180003370) draws the soundlevel as well, LAST,
+    /// `(int)RandomFloat( start, start + range )` — so "80, 90" is a draw, not a fixed 75 or 80.
+    /// </remarks>
+    [Test]
+    public void FromWorldAt_ARangedSoundLevel_IsTheDrawAfterThePitch()
+    {
+        SoundScriptEntry ranged = new(
+            "Test.Explode", 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(80f, 90f), ["a.wav"]);
+
+        Tf2DemoSalvage.Core.Primitives.UniformRandomStream expected = new();
+        expected.SetSeed(7);
+        expected.RandomInt(0, 0);
+        expected.RandomFloat(1f, 1f);
+        expected.RandomFloat(100f, 100f);
+        int level = (int)expected.RandomFloat(80f, 90f);
+
+        Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = new();
+        random.SetSeed(7);
+
+        ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f)).SoundLevel.ShouldBe(level);
+        level.ShouldBeInRange(80, 89);
     }
 
     [Test]
@@ -97,7 +121,7 @@ public sealed class ExplosionSoundsTests
         new(tick, x, y, z, (0f, 0f, 1f), WeaponId: 22, Entity: SceneExplosion.NoEntity, SceneExplosion.NoCustomParticle);
 
     private static SoundScriptEntry Entry(string name, int channel, int level, params string[] waves) =>
-        new(name, channel, new SoundRange(1f, 1f), new SoundRange(100f, 100f), level, waves);
+        new(name, channel, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(level, level), waves);
 
     private static Dictionary<string, SoundScriptEntry> Scripts(params SoundScriptEntry[] entries) =>
         entries.ToDictionary(entry => entry.Name, StringComparer.OrdinalIgnoreCase);

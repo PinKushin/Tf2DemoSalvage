@@ -35330,7 +35330,13 @@ restored by the inverse edit: .NET's NaN (reddened both the CStdlib test and the
 vphysics path is proved to route through it), a wrapping cast, .NET white space, and the collision pair's second
 `atoi` given the comma — each reddened its tests.
 
-## B487 — a soundscript's volume, pitch and numeric soundlevel are read as ordered numbers with fallbacks, not as `ReadInterval` — OPEN 2026-10-04
+## B487 — a soundscript's volume, pitch and numeric soundlevel are read as ordered numbers with fallbacks, not as `ReadInterval` — FIXED 2026-10-05
+
+**Fixed:** `SoundScript.Volume`/`Pitch`/`SoundLevelRange` read the name or `Interval.Read`, narrowed as the x64
+`soundemittersystem.dll` stores it (pitch `uint8`, soundlevel `uint16` via `cvttss2si`; volume through a truncating
+`float16`), and a `SoundRange` is now the two bounds `GetParametersForSound` passes `RandomFloat`. `PITCH_LOW` 95 and
+`PITCH_HIGH` 120 are known; the soundlevel is a range, drawn last. Account: `docs/findings/31-game-audio.md` (B487).
+Tests: `SoundScriptIntervalConformanceTests`; output level: its `Read_TheCowManglerExplosionTf2Ships_HasItsVolumeAsHalves`.
 
 **Read, published source, while fixing B480** (`SoundParametersInternal.cpp:498-550`). `VolumeFromString`,
 `PitchFromString` and `SoundLevelFromString` take the named constant, else `FromInterval( ReadInterval( sz ) )` —

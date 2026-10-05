@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -108,10 +109,11 @@ public sealed class SoundScriptIntervalConformanceTests
     [Test]
     public void Read_TheCowManglerExplosionTf2Ships_HasItsVolumeAsHalves()
     {
-        // **Output level, on a shipped entry.** `game_sounds_weapons*.txt` writes
-        //     "Weapon_CowMangler.Explode" { "volume" "0.665000, 0.700000" ... }
-        // start (float)0.665 halves to 1361/2048; range 0.7 - 0.66500002 = 0.03499998 halves to 1146/32768; the
-        // engine's upper bound is their float sum, 22922/32768. The old reader gave 0.665 and 0.7.
+        // **Output level, on a shipped entry, through the manifest-built catalog the viewer resolves with.** The
+        // script it loads writes
+        //     "Weapon_CowMangler.Explode" { "volume" "0.95,1.0" ... "pitch" "95, 100" }
+        // start (float)0.95 halves to 1945/2048; range 1.0 - 0.94999999 = 0.05000001 halves to 1638/32768; the
+        // engine's upper bound is their float sum, 32758/32768. The old reader gave 0.95 and 1.0.
         if (GameInstall.Vpk("tf2_misc") is not { } directory)
         {
             Assert.Ignore(GameInstall.Missing);
@@ -119,23 +121,12 @@ public sealed class SoundScriptIntervalConformanceTests
         }
 
         VpkArchive archive = VpkArchive.Open(directory);
+        SoundScriptCatalog catalog = SoundScriptCatalog.Load(path => archive.ReadFile(path.ToUpperInvariant()));
 
-        SoundScriptEntry? found = null;
+        SoundScriptEntry entry = catalog.Entries["Weapon_CowMangler.Explode"];
 
-        foreach (string path in archive.Paths.Where(
-            p => p.Contains("GAME_SOUNDS", StringComparison.OrdinalIgnoreCase)
-              && p.EndsWith(".TXT", StringComparison.OrdinalIgnoreCase)))
-        {
-            if (archive.ReadFile(path) is { } bytes
-                && SoundScript.Read(bytes).TryGetValue("Weapon_CowMangler.Explode", out SoundScriptEntry entry))
-            {
-                found = entry;
-            }
-        }
-
-        found.ShouldNotBeNull("the entry ships in a game_sounds script");
-        found.Value.Volume.Low.ShouldBe(1361f / 2048f);
-        found.Value.Volume.High.ShouldBe(22922f / 32768f);
+        entry.Volume.ShouldBe(new SoundRange(1945f / 2048f, 32758f / 32768f));
+        entry.Pitch.ShouldBe(new SoundRange(95f, 100f), "the control: whole numbers survive the byte unchanged");
     }
 
     private static SoundScriptEntry Entry(string key, string value)

@@ -50,7 +50,7 @@ public sealed class FootstepWiringTests
             string name = $"Concrete.Step{foot}";
 
             scripts[name] = new SoundScriptEntry(
-                name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), 75, [$"player/footsteps/concrete_{side}.wav"]);
+                name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), new SoundRange(75f, 75f),[$"player/footsteps/concrete_{side}.wav"]);
         }
 
         return scripts;

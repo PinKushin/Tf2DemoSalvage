@@ -7,9 +7,12 @@ using Tf2DemoSalvage.Core.Primitives;
 
 namespace Tf2DemoSalvage.Audio;
 
-/// <summary>A value a soundscript may state as a single number or as a range.</summary>
-/// <param name="Low">The low end, or the only value.</param>
-/// <param name="High">The high end; equal to <paramref name="Low"/> when one number was given.</param>
+/// <summary>A value a soundscript may state as a single number or as a range: the two bounds <c>RandomFloat</c> is drawn between.</summary>
+/// <param name="Low">The stored start, or the only value.</param>
+/// <param name="High">
+/// The stored start plus the stored range — NOT necessarily above <paramref name="Low"/>, and for a descending
+/// pair wrapped through the storage type (B487, <see cref="SoundScript"/>).
+/// </param>
 /// <remarks>
 /// **Ranges are ordinary in shipped scripts, not an exotic case.** <c>"pitch" "90, 110"</c> means the
 /// engine picks per play, which is what stops a repeated sound sounding mechanical. A reader taking
@@ -19,7 +22,7 @@ namespace Tf2DemoSalvage.Audio;
 public readonly record struct SoundRange(float Low, float High)
 {
     /// <summary>Whether the script gave a range rather than one value.</summary>
-    public bool Varies => High > Low;
+    public bool Varies => MathF.Abs(High - Low) > 0f;
 
     /// <summary>The midpoint, for a caller that does not want to choose.</summary>
     public float Middle => (Low + High) / 2f;
@@ -30,7 +33,7 @@ public readonly record struct SoundRange(float Low, float High)
 /// <param name="Channel">Which channel it occupies; <c>CHAN_AUTO</c> when unstated.</param>
 /// <param name="Volume">Volume, 0 to 1. <c>VOL_NORM</c> is 1.</param>
 /// <param name="Pitch">Pitch percentage; <c>PITCH_NORM</c> is 100.</param>
-/// <param name="SoundLevel">The <c>soundlevel_t</c> that decides attenuation.</param>
+/// <param name="SoundLevel">The <c>soundlevel_t</c> that decides attenuation, drawn per play like the pitch.</param>
 /// <param name="Waves">
 /// Every wave the entry names. One for a plain <c>wave</c>, several for an <c>rndwave</c> block.
 /// </param>
@@ -46,7 +49,7 @@ public readonly record struct SoundScriptEntry(
     int Channel,
     SoundRange Volume,
     SoundRange Pitch,
-    int SoundLevel,
+    SoundRange SoundLevel,
     IReadOnlyList<string> Waves);
 
 /// <summary>
@@ -138,9 +141,9 @@ public static class SoundScript
 
         string? name = null;
         int channel = AutoChannel;
-        SoundRange volume = new(NormalVolume, NormalVolume);
-        SoundRange pitch = new(NormalPitch, NormalPitch);
-        int soundLevel = NormalSoundLevel;
+        SoundRange volume = Normal.Volume;
+        SoundRange pitch = Normal.Pitch;
+        SoundRange soundLevel = Normal.SoundLevel;
         List<string> waves = [];
 
         void Flush()
@@ -153,9 +156,9 @@ public static class SoundScript
 
             name = null;
             channel = AutoChannel;
-            volume = new SoundRange(NormalVolume, NormalVolume);
-            pitch = new SoundRange(NormalPitch, NormalPitch);
-            soundLevel = NormalSoundLevel;
+            volume = Normal.Volume;
+            pitch = Normal.Pitch;
+            soundLevel = Normal.SoundLevel;
             waves = [];
         }
 
@@ -185,15 +188,15 @@ public static class SoundScript
                     break;
 
                 case "VOLUME" when value is not null:
-                    volume = Range(value, NormalVolume, "VOL_NORM");
+                    volume = Volume(value);
                     break;
 
                 case "PITCH" when value is not null:
-                    pitch = Range(value, NormalPitch, "PITCH_NORM");
+                    pitch = Pitch(value);
                     break;
 
                 case "SOUNDLEVEL" when value is not null:
-                    soundLevel = SoundLevel(value);
+                    soundLevel = SoundLevelRange(value);
                     break;
 
                 case "WAVE" when value is not null:
@@ -271,33 +274,107 @@ public static class SoundScript
             : NormalSoundLevel;
     }
 
-    /// <summary>Parses a value that may be one number, a range, or a named constant.</summary>
-    private static SoundRange Range(string value, float fallback, string normalName)
+    /// <summary>What an entry, or a raw path with no entry, plays at when it states nothing: <c>CSoundParameters</c>' constructor.</summary>
+    public static (SoundRange Volume, SoundRange Pitch, SoundRange SoundLevel) Normal { get; } =
+        (new(NormalVolume, NormalVolume), new(NormalPitch, NormalPitch), new(NormalSoundLevel, NormalSoundLevel));
+
+    // **B487: `CSoundParametersInternal::*FromString` (`SoundParametersInternal.cpp:498-550`), the storage narrowing
+    // settled in the x64 `soundemittersystem.dll`.** A name, else `FromInterval( ReadInterval( sz ) )` — atof of the
+    // first two comma tokens as start and range, never ordered and never refused — narrowed into the field's type:
+    // pitch `uint8` and soundlevel `uint16` through `cvttss2si` (FUN_180007150, FUN_1800072b0), volume through
+    // `ConvertFloatTo16bits` (FUN_180006ee0). `GetParametersForSound` (FUN_180003370) then draws
+    // `RandomFloat( start, start + range )` over the stored values, so a SoundRange holds exactly those two bounds.
+    // Names compare the raw value, as `Q_strcasecmp` does: no trimming.
+
+    /// <summary><c>VolumeFromString</c>: <c>VOL_NORM</c>, else the interval as two halves.</summary>
+    internal static SoundRange Volume(string value)
     {
-        string text = value.Trim();
-
-        if (text.Equals(normalName, StringComparison.OrdinalIgnoreCase))
+        if (value.Equals("VOL_NORM", StringComparison.OrdinalIgnoreCase))
         {
-            return new SoundRange(fallback, fallback);
+            return Normal.Volume;
         }
 
-        int comma = text.IndexOf(',', StringComparison.Ordinal);
+        Interval read = Interval.Read(value);
+        float start = Half(read.Start);
 
-        if (comma < 0)
+        return new SoundRange(start, start + Half(read.Range));
+    }
+
+    /// <summary><c>PitchFromString</c>: the three names (0x64, 0x5f, 0x78 in the disassembly), else the interval as bytes.</summary>
+    internal static SoundRange Pitch(string value)
+    {
+        int? named = value.ToUpperInvariant() switch
         {
-            return float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out float one)
-                ? new SoundRange(one, one)
-                : new SoundRange(fallback, fallback);
+            "PITCH_NORM" => NormalPitch,
+            "PITCH_LOW" => 95,
+            "PITCH_HIGH" => 120,
+            _ => null,
+        };
+
+        if (named is { } pitch)
+        {
+            return new SoundRange(pitch, pitch);
         }
 
-        bool low = float.TryParse(
-            text[..comma], NumberStyles.Float, CultureInfo.InvariantCulture, out float lowValue);
+        Interval read = Interval.Read(value);
+        byte start = unchecked((byte)CStdlib.Truncate(read.Start));
 
-        bool high = float.TryParse(
-            text[(comma + 1)..], NumberStyles.Float, CultureInfo.InvariantCulture, out float highValue);
+        return new SoundRange(start, start + unchecked((byte)CStdlib.Truncate(read.Range)));
+    }
 
-        return low && high
-            ? new SoundRange(Math.Min(lowValue, highValue), Math.Max(lowValue, highValue))
-            : new SoundRange(fallback, fallback);
+    /// <summary><c>SoundLevelFromString</c>: a <c>SNDLVL_</c> name through <see cref="SoundLevel"/>, else the interval as <c>uint16</c>s.</summary>
+    internal static SoundRange SoundLevelRange(string value)
+    {
+        if (value.StartsWith(SoundLevelPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            int level = SoundLevel(value);
+
+            return new SoundRange(level, level);
+        }
+
+        Interval read = Interval.Read(value);
+        ushort start = unchecked((ushort)CStdlib.Truncate(read.Start));
+
+        return new SoundRange(start, start + unchecked((ushort)CStdlib.Truncate(read.Range)));
+    }
+
+    /// <summary>
+    /// A float stored in Valve's <c>float16</c> and read back: <c>ConvertFloatTo16bits</c> then
+    /// <c>Convert16bitFloatTo32bits</c> (<c>mathlib/compressed_vector.h:368-495</c>).
+    /// </summary>
+    /// <remarks>
+    /// **Not <see cref="System.Half"/>, which rounds**: Valve's conversion TRUNCATES the mantissa, flushes a float
+    /// denormal and NaN to zero, and saturates at 65504 where IEEE would give infinity.
+    /// </remarks>
+    internal static float Half(float value)
+    {
+        const float MostHalf = 65504f;
+
+        float clamped = Math.Clamp(value, -MostHalf, MostHalf);
+        uint bits = BitConverter.SingleToUInt32Bits(clamped);
+        uint sign = bits & 0x8000_0000u;
+        int biased = (int)((bits >> 23) & 0xFF);
+        uint mantissa = bits & 0x7F_FFFFu;
+
+        if (biased == 0 || float.IsNaN(value))
+        {
+            return BitConverter.UInt32BitsToSingle(sign);
+        }
+
+        int exponent = biased - 127;
+
+        if (exponent < -14)
+        {
+            // The half denormal branch: `exp_val = -14 - exponent`, kept only below 11, then widened back as
+            // mantissa / 1024 * 2^-14.
+            int shift = -14 - exponent;
+            int halfMantissa = shift is > 0 and < 11 ? (1 << (10 - shift)) + (int)(mantissa >> (13 + shift)) : 0;
+            float magnitude = halfMantissa / 1024f * (1f / 16384f);
+
+            return sign != 0 ? -magnitude : magnitude;
+        }
+
+        // Inside the clamp a normal float's exponent is at most 15, so the regular branch: ten mantissa bits kept.
+        return BitConverter.UInt32BitsToSingle(sign | (bits & 0x7F80_0000u) | (mantissa & 0x7F_E000u));
     }
 }

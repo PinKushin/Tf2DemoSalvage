@@ -129,6 +129,12 @@ public static class CStdlib
         return double.Parse(text[start..at], NumberStyles.Float, CultureInfo.InvariantCulture);
     }
 
+    /// <summary>C's float-to-int conversion as MSVC compiles it, <c>cvttss2si</c>: toward zero, and <c>0x80000000</c> for NaN or anything out of range.</summary>
+    /// <param name="value">The float.</param>
+    /// <returns>The int.</returns>
+    public static int Truncate(float value) =>
+        float.IsNaN(value) || value >= 2147483648f || value < -2147483648f ? int.MinValue : (int)value;
+
     /// <summary>Where C's <c>isspace</c> stops: space, <c>\t \n \v \f \r</c> — C11 7.4.1.10 in the "C" locale.</summary>
     private static int SkipSpace(ReadOnlySpan<char> text)
     {

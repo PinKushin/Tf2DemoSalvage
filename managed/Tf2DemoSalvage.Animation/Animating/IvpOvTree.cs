@@ -427,7 +427,7 @@ public sealed class IvpOvTree
     private static bool HasFraction(float single, int truncated) => Math.Abs(single - truncated) > 0f;
 
     /// <summary><c>CVTTSS2SI</c>: truncation, and <c>int.MinValue</c> for a NaN or anything an int cannot hold.</summary>
-    private static int Truncate(float value) => value is >= -2147483648f and < 2147483648f ? (int)value : int.MinValue;
+    private static int Truncate(float value) => Tf2DemoSalvage.Core.Primitives.CStdlib.Truncate(value);
 
     /// <summary>Whether a cell <paramref name="shift"/> levels up holds another: <c>x·2^d ≤ ix ≤ x·2^d + 2^(d+1) − 2</c> per axis.</summary>
     private static bool Contains(IvpOvCell outer, IvpOvCell inner, int shift) =>

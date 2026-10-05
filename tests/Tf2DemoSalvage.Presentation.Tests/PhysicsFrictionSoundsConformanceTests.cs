@@ -133,5 +133,5 @@ public sealed class PhysicsFrictionSoundsConformanceTests
     };
 
     private static SoundScriptEntry Entry(string name, string wave, SoundRange? pitch) =>
-        new(name, 1, new SoundRange(0.8f, 0.8f), pitch ?? new SoundRange(100f, 100f), 75, [wave]);
+        new(name, 1, new SoundRange(0.8f, 0.8f), pitch ?? new SoundRange(100f, 100f), new SoundRange(75f, 75f), [wave]);
 }

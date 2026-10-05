@@ -1076,3 +1076,28 @@ the recorder now plays those, tick for tick, and the simulation is kept for the 
 A zero radius fails both halves of `m_flRadius > range || m_flRadius == -1`. This project had read a missing key as -1,
 which made such an entity reach the whole map; the reading was a guess dressed as a default, and the test fixtures that
 omitted the key had quietly depended on it.
+
+## A soundscript range is the storage type's, not the script's (B487)
+
+*Read from published source, then settled in disassembly, 2026-10-05.* `CSoundParametersInternal::VolumeFromString`,
+`PitchFromString` and `SoundLevelFromString` (`SoundParametersInternal.cpp:498-550`) take a name or
+`FromInterval( ReadInterval( sz ) )` — the same `atof`-of-tokens start and range soundscapes use (B462). Our reader had
+sorted the pair and fallen back to the default on anything `TryParse` refused, and read a numeric soundlevel as one
+integer. That was the whole of B487 as filed; the SDK says nothing more, because `FromInterval` is a plain assignment
+and **what it does is decided by the field types**: `pitch_interval_t` is `uint8`, `soundlevel_interval_t` `uint16`,
+`volume_interval_t` Valve's `float16`.
+
+The x64 `soundemittersystem.dll` shows each narrowing: pitch and soundlevel are `CVTTSS2SI` into a 32-bit register, then a
+byte or a word store; volume goes through `ConvertFloatTo16bits`, which **truncates** the mantissa rather than rounding.
+`GetParametersForSound` then calls `RandomFloat( start, start + range )` over the stored, unsigned values summed as ints.
+So a descending `"pitch" "110,90"` is not 90–110: its range of −20 is the byte 236 and the engine draws 110–346; a
+soundlevel `"90,80"` draws 90–65616. A volume of `0.7` plays at 0.69970703125. The same disassembly gave the names the
+SDK header only implies: `PITCH_LOW` 95, `PITCH_HIGH` 120 — neither of which the reader had known.
+
+**On the shipped scripts it changes only the volumes** — every shipped pitch and soundlevel range is ascending whole
+numbers, which survive the narrowing unchanged. `Weapon_CowMangler.Explode`'s `"0.95,1.0"` is now 1945/2048 to
+32758/32768. The soundlevel also became a draw, last of the three, which `ExplosionSounds` now takes.
+
+*Noted, not changed:* the wave pick in the same function draws from the emitter's OWN uniform stream (a vtable call on a
+global object, not the `RandomFloat` export the three values use), so one seeded stream for wave and values — as
+`ExplosionSounds` has — is not the engine's shape.
