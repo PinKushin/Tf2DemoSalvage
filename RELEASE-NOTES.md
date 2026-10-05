@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.20
+# Tf2DemoSalvage 0.1.0-beta.21
 
-## Changes since 0.1.0-beta.19
+## Changes since 0.1.0-beta.20
+
+- **Particles behave as in TF2:** effects start with their initial particles, long frames are simulated in the
+  game's smaller steps, a burst that hits its particle limit keeps the rest for later, and random values are drawn
+  in the game's order. HUD particle and model panels each get their own randomness.
+
+## Changes in 0.1.0-beta.20
 
 - **Demos from late 2011 to early 2013 decode:** protocols 18, 19, 21 and 22, the era of the ESEA Season 10 to 12
   LANs and Insomnia 46, now decode correctly. Their sounds and decals were misread before.
