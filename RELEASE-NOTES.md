@@ -1,6 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.21
+# Tf2DemoSalvage 0.1.0-beta.22
 
-## Changes since 0.1.0-beta.20
+## Changes since 0.1.0-beta.21
+
+- **Pick your TF2 folder from the viewer; no environment variables.** When the viewer cannot find TF2 through
+  Steam, it opens a folder picker at startup for your `tf` folder (the folder above it also works). **File > TF2
+  folder...** changes it later; a demo already open keeps its game files until the next start. The choice is saved
+  as `cl_game_folder` in `%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`, in TF2's own config syntax. Cancelling the
+  picker saves `cl_game_folder_ask 0`, so you are not asked again on every launch. `TF2_FOLDER` still overrides
+  everything, for scripts.
+- **Screenshot folder:** `cl_screenshot_folder` in `settings.cfg` sets where screenshots go. The
+  `TF2VIEW_CAPTURE_FOLDER` environment variable, which nothing read, is gone from `--help`.
+
+## Changes in 0.1.0-beta.21
 
 - **Particles behave as in TF2:** effects start with their initial particles, long frames are simulated in the
   game's smaller steps, a burst that hits its particle limit keeps the rest for later, and random values are drawn
@@ -178,7 +189,9 @@ does not grow with the demo's size: 44 to 51 MB for demos of 9 MB, 1.3 GB and 2 
 
 Open a demo from the window, or pass it on the command line. `tf2demoview --help` lists every flag and
 environment variable. Your own TF2 config (`.cfg`, or a mastercomfig-style `.vpk`) works as-is for
-key bindings; commands the viewer does not implement are ignored rather than rejected.
+key bindings; commands the viewer does not implement are ignored rather than rejected. The viewer's own
+settings (TF2 folder, screenshot folder, chosen HUD) live in `%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`;
+environment variables are for scripts and debugging only.
 
 The File menu also has **Export assembly** (the open demo as text) and **Compile assembly** (text back
 to a byte-identical demo), the same as the command-line tool's `-a` and `-c`.
@@ -210,6 +223,9 @@ Each claim below is a measurement, not an expectation.
   the post-fix pass count is not yet measured.
 - **Text round-trips to the identical file.** A demo decompiled to assembly and compiled back
   reproduces the original bytes, held by the test suite for every era above.
+- **The TF2 folder picker and File > TF2 folder... menu item** are covered by unit tests of the folder
+  precedence and validation and by the UI suite, which now runs on its own settings file and never touches
+  yours (B497).
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -227,11 +243,12 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   saying so (B24).
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
-- **Sounds a map ships in its own files do not play** (pl_venice has 35) (B485).
+- **Sounds a map ships in its own files do not play** (pl_venice has 35) (B485). A map's own ambience *script*
+  does play (beta.19).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
+- **Part of the rope model is not ported:** impulses, rope shaking, holiday lights (B478).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
-- **The 3D skybox is drawn without its scale transform** (B152).
 - **Demos recorded in late June 2011 were malformed by the game itself** and may not decode (B144).
 - **The first-person camera's movement differs slightly from the game's** in velocity and feet yaw
   (B450).
@@ -243,8 +260,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
   needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
-  models, materials or sounds — and no demos. The viewer reads them from your install (found through the Steam folder Steam records in the registry, then its library list, so Steam on another drive works; setting `TF2_FOLDER` to a `tf` folder overrides that for maps, models, materials, sounds and configs alike) and, if it
-  cannot find one, says so and plays the demo without the game's maps and models. The command-line tool needs only the demo.
+  models, materials or sounds — and no demos. The viewer reads them from your install (found through the Steam folder Steam records in the registry, then its library list, so Steam on another drive works; a `tf` folder you pick in the viewer, saved as `cl_game_folder`, takes over from that, and `TF2_FOLDER` beats both, for scripts) and, if it
+  cannot find one, asks you to pick the folder, or if you cancel, plays the demo without the game's maps and models. The command-line tool needs only the demo.
 
 ## Licences
 

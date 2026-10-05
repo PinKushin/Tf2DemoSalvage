@@ -1,13 +1,9 @@
 # TF2 Demo Parser — Architecture & Roadmap
 
-Status: implementation under way (updated 2026-08-09). **Phase 1 is substantially built** — the
-container, the text dump, the Quake-style trace, JSON Lines, the CLI, the network message layer,
-the embedded entity schema, schema flattening, `svc_PacketEntities` decoding and cross-tick
-entity state all work against real demos, across two eras (network protocol 15 and 24).
-What remains for Phase 1: a compiler from the text output back to a `.dem`, which is what would
-actually prove the decode is lossless. Every message body the corpus contains is now decoded.
-`README.md` has the per-layer status and is kept current; this file remains the plan rather than
-the report.
+Status (updated 2026-10-05, public beta 0.1.0-beta.22): **Phase 1 is done and Phase 2/3 is a public beta** —
+decode, text compile (byte-identical round trip), CLI and the 3D viewer ship in a release zip.
+`README.md` has the per-layer status and `RELEASE-NOTES.md` the shipped changes and known gaps; both are kept
+current each release. This file remains the plan rather than the report.
 
 Originally locked for initial implementation (2026-08-07). See `docs/DECISIONS.md` in the repo for the ADR-style record of every choice below.
 
@@ -65,7 +61,7 @@ any viewer.
 
 **Status.** Container, text dump, trace, JSON Lines, CLI, every net message the corpus contains,
 `dem_datatables`, string tables, entity decode with baselines, and the normalized event stream are
-done. Every demo in the corpus decodes end to end across five protocols — 11, 14, 15, 16, 24 —
+done. Every demo in the corpus decodes end to end across nine protocols (which, and which have no specimen: `docs/TIMELINE.md`) —
 with the one documented exception of a SourceTV recording whose schema the *writer* truncated
 (`RISKS.md` B24).
 
