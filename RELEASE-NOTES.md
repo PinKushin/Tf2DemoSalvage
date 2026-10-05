@@ -1,6 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.24
+# Tf2DemoSalvage 0.1.0-beta.25
 
-## Changes since 0.1.0-beta.23
+## Changes since 0.1.0-beta.24
+
+- **The crosshair hides when TF2 hides it:** during an active minigame, under the match summary, while the
+  player is frozen, and during the countdown before a competitive or casual round. The Ambassador's crosshair
+  now scales as in TF2: 0.75 at rest, 2.5 times after a shot, shrinking back over half a second. Approximations
+  are listed under *Known gaps* (B500).
+- **Footsteps now play in 2007-2009 demos.** They were silent for every player in those demos, because the game
+  changed its player flag bits between builds and the viewer read the later layout. The viewer now takes the
+  bits from each demo's own schema. The same fix corrects the first-person water-jump prediction in old demos
+  (B501).
+
+## Changes in 0.1.0-beta.24
 
 - **A file that is not a demo now fails fast, with the reason.** The header is checked first, as TF2 does, and
   the message reads `<file> has invalid demo header ID.` A Git LFS pointer (a demo cloned without `git lfs
@@ -247,6 +258,10 @@ Each claim below is a measurement, not an expectation.
 - **Non-demo input** (beta.24): an empty file, a Git LFS pointer and an unrelated file are each refused with the
   header-ID message, and a truncated real header still opens; covered by unit tests and by the headless `--shot`
   exit code (B499).
+- **Crosshair hiding and footsteps in old demos** (beta.25): the hide conditions, the frozen flag in 9-, 11- and
+  32-bit flag layouts and the Ambassador scale are covered by synthetic tests with exact values; footsteps in
+  the 2008 SourceTV and 2009 POV specimens went from 0 to thousands of steps, with the 2013 specimen unchanged
+  as control (B500, B501).
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -262,6 +277,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
+- **Crosshair approximations (B500):** the match-summary and minigame hides are verified only on synthetic data,
+  because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
+  game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
+  time, it stays at 0.75.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Sounds a map ships in its own files do not play** (pl_venice has 35) (B485). A map's own ambience *script*
