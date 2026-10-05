@@ -953,6 +953,9 @@ internal class MainForm : Form, IFrameSteps
         _launch = LaunchOptionsReader.Read(initialPaths, _settings, _log);
 
         _settings = _launch.Settings;
+
+        // Detection reads the live cl_game_folder, so `+cl_game_folder` beats the cfg as in Source (D210).
+        SteamInstall.ConfiguredFolder = () => _settings.GameFolder;
         _spectator.Spectating = _launch.Spectate;
 
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
@@ -9131,9 +9134,8 @@ internal class MainForm : Form, IFrameSteps
     /// and a dialog on every launch would be nagging. The menu entry still works.
     /// </param>
     /// <remarks>
-    /// **The choice is read back through the cfg, not handed over in memory**: <c>SteamInstall.Machine</c>
-    /// reads <c>cl_game_folder</c> on every lookup, so a save that fails is a choice that did not happen,
-    /// and the status says so. Archives already opened stay open, so after a demo has loaded the new
+    /// **Detection reads the live <c>cl_game_folder</c>** (<c>SteamInstall.ConfiguredFolder</c>), so the
+    /// choice applies to this session even when the save fails; the status says it was not saved. Archives already opened stay open, so after a demo has loaded the new
     /// folder takes effect on the next start.
     /// </remarks>
     private void ChooseGameFolder(bool atStartup)
@@ -9184,9 +9186,11 @@ internal class MainForm : Form, IFrameSteps
         _log.LogInformation("{Message}", outcome);
 
         // Nothing has opened the archives yet, so the player's own config can be read from the new folder now.
+        // The menu was built from the bindings before this read, so its shortcuts are redone from the new ones.
         if (_game is null)
         {
             LoadUserConfig();
+            _menu.ApplyBindings(_bindings);
         }
     }
 
