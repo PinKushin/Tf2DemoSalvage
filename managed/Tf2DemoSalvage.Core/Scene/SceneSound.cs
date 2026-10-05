@@ -85,4 +85,13 @@ public readonly record struct SceneSound(
     /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.
     /// </summary>
     public ScriptWaveDraw? WaveDraw { get; init; }
+
+    /// <summary>For a sound the client emits itself, where on its tick's frame it is made (B505); default for the demo's own.</summary>
+    public ClientSoundOrder Order { get; init; }
+
+    /// <summary>
+    /// Whether a demo skip over its tick still makes it: a reliable temp entity's sound. An unreliable one is never queued
+    /// while the demo player skips (engine.dll FUN_1801f9bc0), so it never deals (B504).
+    /// </summary>
+    public bool DealtBySkip { get; init; }
 }

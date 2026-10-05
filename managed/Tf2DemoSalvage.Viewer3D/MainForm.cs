@@ -3027,7 +3027,7 @@ internal class MainForm : Form, IFrameSteps
                     // Same timing, same reason, and the audio path is where the cost actually
                     // landed once the model stalls were gone. **No emitted sounds yet**: those join
                     // the schedule in `Apply`, which precaches them itself.
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: []);
+                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], scripts: null);
 
                     return drawn;
                 }, _shutdown.Token).ConfigureAwait(false);
@@ -3425,7 +3425,7 @@ internal class MainForm : Form, IFrameSteps
 
         // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
         // so on the async path this finds the work already done.
-        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted);
+        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries);
 
         // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
         // bones come from its model.
@@ -4642,7 +4642,7 @@ internal class MainForm : Form, IFrameSteps
     private readonly List<ScenePlayer> _shotTargets = [];
 
     /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
-    private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye)
+    private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye, ClientSoundOrder order)
     {
         if (_replayingModelDecals || _sound.Scripts is not { } scripts)
         {
@@ -4666,7 +4666,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        if (TracerWhiz.SoundAt(tick, from, scripts.Entries) is { } whiz)
+        if (TracerWhiz.SoundAt(tick, from, scripts.Entries, order) is { } whiz)
         {
             _sound.Emit(whiz);
         }
@@ -4717,7 +4717,7 @@ internal class MainForm : Form, IFrameSteps
                     // was made in a stretch nobody heard.
                     if (tick - tracer.Tick <= 1)
                     {
-                        Whiz(tracer.Tick, path.From, path.To, eye);
+                        Whiz(tracer.Tick, path.From, path.To, eye, ShotOrder(tracer.Shot, tracer.Bullet));
                     }
                 }
 
@@ -5097,17 +5097,28 @@ internal class MainForm : Form, IFrameSteps
         {
             if (impact.FromServer && WorldLanding(impact, decals, surfaces) is { } landing)
             {
-                landings.Add(landing);
+                int dispatch = -1 - impact.Shot;
+
+                landings.Add(landing with
+                {
+                    Order = ShotOrder(impact.Shot, impact.Bullet),
+                    Reliable = dispatch < timeline.Dispatches.All.Count && timeline.Dispatches.All[dispatch].Reliable,
+                });
             }
         }
 
         foreach ((int _, SceneEffectDispatch hit) in ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name))
         {
             landings.Add(new BulletLanding(
-                hit.Tick, hit.Origin, surfaces.GetSurfaceData(hit.SurfaceProp)?.BulletImpactSound, hit.DamageType == Bullet));
+                hit.Tick, hit.Origin, surfaces.GetSurfaceData(hit.SurfaceProp)?.BulletImpactSound, hit.DamageType == Bullet)
+            {
+                Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, hit.TempEntity, 0),
+                Reliable = hit.Reliable,
+            });
         }
 
-        return [.. landings.OrderBy(static landing => landing.Tick)];
+        // Within a tick, the order `CL_FireEvents` fires their dispatches in (B505).
+        return [.. landings.OrderBy(static landing => landing.Tick).ThenBy(static landing => landing.Order)];
     }
 
     /// <summary>`DMG_BULLET` — the only damage type `ImpactCallback` offers the ricochet, which no TF gun has.</summary>
@@ -5132,6 +5143,31 @@ internal class MainForm : Form, IFrameSteps
             impact.DamageType == Bullet);
     }
 
+    /// <summary>
+    /// Where a bullet's sounds fall on its tick's frame: its temp entity's place in the stream — a client shot's
+    /// `CTEFireBullets`, or for a negative <paramref name="shot"/> the server's `CTEEffectDispatch` — then the pellet (B505).
+    /// </summary>
+    private ClientSoundOrder ShotOrder(int shot, int bullet)
+    {
+        int place = 0;
+        int dispatch = -1 - shot;
+
+        if (_timeline is not { } timeline)
+        {
+            place = 0;
+        }
+        else if (shot >= 0 && shot < timeline.Shots.All.Count)
+        {
+            place = timeline.Shots.All[shot].TempEntity;
+        }
+        else if (shot < 0 && dispatch < timeline.Dispatches.All.Count)
+        {
+            place = timeline.Dispatches.All[dispatch].TempEntity;
+        }
+
+        return new ClientSoundOrder(ClientSoundPhase.TempEntities, place, bullet);
+    }
+
     /// <summary>The shot whose pellets are landing now, and the impact sounds it has played.</summary>
     private readonly ShotSoundGroup _shotSounds = new();
 
@@ -5150,7 +5186,8 @@ internal class MainForm : Form, IFrameSteps
                 return;
             }
 
-            foreach (SceneSound sound in ImpactSounds.For(l, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
+            foreach (SceneSound sound in ImpactSounds.For(
+                l with { Order = ShotOrder(bullet.Shot, bullet.Bullet) }, ImpactSounds.SeedFor((bullet.Shot * 32) + bullet.Bullet), scripts.Entries))
             {
                 _sound.Emit(sound);
             }
@@ -6810,7 +6847,7 @@ internal class MainForm : Form, IFrameSteps
                         ? (point.At.X, point.At.Y, point.At.Z)
                         : fired.Origin;
 
-                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries, emitted: true) is { } sound)
+                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
                     {
                         _sound.Emit(sound);
                     }

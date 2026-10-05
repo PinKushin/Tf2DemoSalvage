@@ -12,7 +12,14 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="At">Where the sound plays: the decal trace's end, or the server's origin when it met nothing.</param>
 /// <param name="ImpactSound">The struck surface's `bulletimpact` script name, or null when it declares none.</param>
 /// <param name="Ricochets">Whether `Impact` returned true for a `DMG_BULLET`, which offers the shrapnel ricochet.</param>
-public readonly record struct BulletLanding(int Tick, (float X, float Y, float Z) At, string? ImpactSound, bool Ricochets);
+public readonly record struct BulletLanding(int Tick, (float X, float Y, float Z) At, string? ImpactSound, bool Ricochets)
+{
+    /// <summary>Where on its tick's frame its temp entity fires (B505); its sounds carry it.</summary>
+    public ClientSoundOrder Order { get; init; }
+
+    /// <summary>Whether its temp entity came reliably, so a demo skip still fires it (B504).</summary>
+    public bool Reliable { get; init; }
+}
 
 /// <summary>The sounds a bullet makes where it lands — `ImpactCallback`'s (`tf_fx_impacts.cpp:51-134`), which no demo carries (B415).</summary>
 /// <remarks>
@@ -78,13 +85,23 @@ public static class ImpactSounds
         if (landing.Ricochets && random.RandomInt(1, 10) <= 3 &&
             scripts.TryGetValue(Shrapnel, out SoundScriptEntry bounce) && bounce.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true) with { AudibleWithin = AudibleWithin });
+            sounds.Add(ExplosionSounds.FromWorldAt(bounce, random, landing.Tick, landing.At, emitted: true) with
+            {
+                AudibleWithin = AudibleWithin,
+                Order = landing.Order,
+                DealtBySkip = landing.Reliable,
+            });
         }
 
         if (landing.ImpactSound is { } name &&
             scripts.TryGetValue(name, out SoundScriptEntry impact) && impact.Waves.Count > 0)
         {
-            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true) with { AudibleWithin = AudibleWithin });
+            sounds.Add(ExplosionSounds.FromWorldAt(impact, random, landing.Tick, landing.At, emitted: true) with
+            {
+                AudibleWithin = AudibleWithin,
+                Order = landing.Order,
+                DealtBySkip = landing.Reliable,
+            });
         }
 
         return sounds;

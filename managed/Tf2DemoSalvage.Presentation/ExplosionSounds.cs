@@ -62,7 +62,11 @@ public static class ExplosionSounds
 
             random.SetSeed(index);
 
-            sounds.Add(FromWorldAt(entry, random, blast.Tick, (blast.X, blast.Y, blast.Z), emitted: true));
+            sounds.Add(FromWorldAt(entry, random, blast.Tick, (blast.X, blast.Y, blast.Z), emitted: true) with
+            {
+                Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, blast.TempEntity, 0),
+                DealtBySkip = blast.Reliable,
+            });
         }
 
         return sounds;
@@ -101,7 +105,10 @@ public static class ExplosionSounds
         };
     }
 
-    /// <summary>Two tick-ordered sound lists as one, the demo's own first where they share a tick.</summary>
+    /// <summary>
+    /// Two tick-ordered sound lists as one: within a tick by <see cref="SceneSound.Order"/> — `OnRenderStart`'s phases, then
+    /// the temp entities' stream order (B505) — and the first list's first where both are equal.
+    /// </summary>
     /// <param name="demo">What the recording carried, in tick order.</param>
     /// <param name="effects">What the client emits itself, in tick order.</param>
     /// <returns>Both, in tick order.</returns>
@@ -123,11 +130,18 @@ public static class ExplosionSounds
         while (fromDemo < demo.Count || fromEffects < effects.Count)
         {
             bool takeDemo = fromEffects == effects.Count ||
-                (fromDemo < demo.Count && demo[fromDemo].Tick <= effects[fromEffects].Tick);
+                (fromDemo < demo.Count && Precedes(demo[fromDemo], effects[fromEffects]));
 
             merged.Add(takeDemo ? demo[fromDemo++] : effects[fromEffects++]);
         }
 
         return merged;
     }
+
+    /// <summary>Whether one sound is made no later than another: its tick, then its place on that tick's frame.</summary>
+    /// <param name="first">The sound asked about.</param>
+    /// <param name="second">The one it is compared with.</param>
+    /// <returns>True when <paramref name="first"/> goes first, or they are made together.</returns>
+    public static bool Precedes(SceneSound first, SceneSound second) =>
+        first.Tick != second.Tick ? first.Tick < second.Tick : first.Order <= second.Order;
 }

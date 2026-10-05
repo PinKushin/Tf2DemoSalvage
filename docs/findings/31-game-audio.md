@@ -1141,11 +1141,21 @@ carries its draw, and the presenter — the one place both the schedule and the 
 deals it. A stop or a volume/pitch change names the wave its start was dealt, as `CSoundPatch` and `S_AlterChannel`
 act on the wave already playing.
 
-**Seeking is a redeal, not a carried state.** At a seek the deck is rebuilt from the demo: every scheduled sound
-through the tick, and every live deal this playback has made before it. On f12 at tick 90,006 that is 4,601 script
-sounds in 17.2 ms (the viewer's log, 2026-10-05), so no checkpointing is needed. What it cannot know is a live emission
-in ticks it never played (B504), and within one tick it puts the scheduled list first where the engine follows the
-temp-entity order (B505, interpolated).
+**Seeking — the first answer was the intuitive one, and wrong.** The first version rebuilt the deck at a seek "as if
+played to the tick": every scheduled sound through it, plus a ledger of live deals (4,601 sounds, 17.2 ms on f12). That
+is a property a viewer wants, not one the engine has. Reading `demo_gototick` settled it (B504): the engine cannot
+seek, only skip — `SkipToTick` (FUN_180073b10) reads ahead, and for a target behind it RELOADS the demo and reads ahead
+from the start — and during a skip `svc_TempEntities` queueing (FUN_1801f9bc0) throws away every UNRELIABLE message
+before queueing it. Explosions and impacts are unreliable. So a skip deals almost nothing, and the flags, which live in
+soundemittersystem.dll, are never rewound: a skip back keeps the deck playing left. On f12 a skip to 90,006 now deals
+**0** sounds — not one reliable temp entity in the match carries a script sound. What remains unread is whether game
+events (HUD sounds) and client frames (animation events, footsteps) run during a skip.
+
+**Within a tick, the order is `OnRenderStart`'s (B505).** The client's frame is published (`cdll_client_int.cpp:2137-2255`):
+game events during the parse, then data-changed callbacks, entity simulation (animation events and footsteps), physics,
+and last `FireEvents`, which walks the temp-entity queue in arrival order. The timeline now numbers every temp entity
+by its place in the stream, so a server dispatch and a client shot on one tick deal one impact script's deck in the
+order the packet carried them. The first version had put the load-time list first on a tie, which was an assumption.
 
 **The global stream is not reproducible, and reading why settles it.** `FX_FireBullets` reseeds vstdlib's stream for
 every bullet from the TE's own seed (`tf_fx_shared.cpp:310`, `++iSeed` per pellet), which looks like a foothold — but

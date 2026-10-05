@@ -38,8 +38,10 @@ public static class TracerWhiz
     /// <param name="tick">When the tracer is made.</param>
     /// <param name="at">The tracer's start.</param>
     /// <param name="scripts">Every soundscript entry the game loaded, by name.</param>
+    /// <param name="order">Its shot's temp entity and bullet: `FX_TracerSound` runs inside `FX_FireBullets` (B505).</param>
     /// <returns>The sound, or null when the script is not loaded.</returns>
-    public static SceneSound? SoundAt(int tick, (float X, float Y, float Z) at, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+    public static SceneSound? SoundAt(
+        int tick, (float X, float Y, float Z) at, IReadOnlyDictionary<string, SoundScriptEntry> scripts, ClientSoundOrder order)
     {
         ArgumentNullException.ThrowIfNull(scripts);
 
@@ -50,7 +52,7 @@ public static class TracerWhiz
 
         UniformRandomStream random = new();
         random.SetSeed(ImpactSounds.SeedFor(tick));
-        return ExplosionSounds.FromWorldAt(entry, random, tick, at, emitted: true);
+        return ExplosionSounds.FromWorldAt(entry, random, tick, at, emitted: true) with { Order = order };
     }
 
     /// <summary>Whether a tracer from <paramref name="start"/> to <paramref name="end"/> passes close enough to whiz.</summary>

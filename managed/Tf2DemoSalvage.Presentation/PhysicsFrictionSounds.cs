@@ -164,6 +164,7 @@ public sealed class PhysicsFrictionSounds
             started = patch with
             {
                 EntityIndex = friction.Entity,
+                Order = new ClientSoundOrder(ClientSoundPhase.Physics, 0, 0),
                 Volume = patch.Volume * (parameters.Volume * volume),
                 Pitch = parameters.Pitch,
             };

@@ -35692,15 +35692,16 @@ of the seven parts reverted alone reddened exactly its test.
 `ScriptWaveDraw` (its script, the generator's raw number at the wave's slot, and `isbeingemitted`), and
 `SoundPresenter` deals it against one `ScriptWaveDeck` — FUN_180005680's rule exactly — in a single tick order over the
 scheduled sounds (explosions, server impacts, medigun patches) and the live ones (client bullet impacts, whiz, HUD,
-animation events, footsteps, physics impacts, friction), scheduled first on a tie. A stop or volume/pitch change names
-the wave its start was dealt. A seek redeals from the start: every scheduled sound through the tick plus every live
-deal this playback made before it — measured on f12 at tick 90,006, 4,601 script sounds in 17.2 ms. Emitted producers
+animation events, footsteps, physics impacts, friction), ordered within a tick as the client is (B505). A stop or
+volume/pitch change names the wave its start was dealt. A seek does to the deck what `demo_gototick` does (B504) —
+*the first version here redealt "as if played to the tick", which the engine does not do; corrected the same day*,
+and every wave of a dealt script is precached as `PrecacheScriptSound` does (f12: 561 → 564 decoded). Emitted producers
 deal (`EmitSoundByHandle`); footsteps, physics impacts, friction and patches only read. **Not reproduced, and why:** the
 global stream's position — `FX_FireBullets` reseeds it per bullet from the TE's seed (`tf_fx_shared.cpp:310`), but
 every client `RandomInt`/`RandomFloat` between (`ClientAdjustStartSoundParams`, `c_tf_player.cpp:11663`, among others)
-consumes from it, so each sound keeps its own seeded stream; only the draw is interpolated, never the deal. Residuals
-filed: B504 (a forward seek cannot know live emissions it skipped), B505 (within-tick order across the two lists).
-Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13),
+consumes from it, so each sound keeps its own seeded stream; only the draw is interpolated, never the deal.
+Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13 at this fix; 21 with
+B504/B505),
 `MedigunSoundsConformanceTests.For_OneHeal_ReadsEveryWaveWithoutDealing`; output level:
 `CorpusScriptWaveDeckTests` — f12's 2,629 blasts in 876 three-wave blocks, each a permutation. **Sabotaged:** no clear,
 all-waves indexing, no reset, schedule-before-live, no redeal, no live ledger, no truncation, stops dealt fresh,
@@ -35719,23 +35720,41 @@ repeats them. Reproducing the deck needs every client emission in one tick-order
 deck kept per producer would be a partial model that agrees with nothing. Gender filtering in the same function is moot
 for TF2's world sounds (`GENDER_NONE`).
 
-## B504 — a forward seek redeals without the live script sounds of the ticks it skipped — OPEN 2026-10-05
+## B504 — a seek dealt the wave deck as "played to the tick", which is not what the engine's skip does — PARTLY FIXED 2026-10-05
 
-**Found closing B503.** `SoundPresenter.Redeal` rebuilds the wave deck from every SCHEDULED sound through the tick and
-every LIVE deal this playback has made. The live producers — client bullet impacts (`StruckEnd` poses the hit
-players), the tracer whiz (`TracerWhiz.Hears` tests the CAMERA), HUD sounds and animation-event sounds — exist only
-for ticks the viewer actually stepped, so a seek forward past ticks never played deals as if those emissions never
-happened. Seek-back and straight play are exact. Closing it means producing those emissions without playing: the
-impacts and animation events need every player posed over the skipped span (the decal replay already does this for a
-bounded window, `ReplayModelDecals`); the whiz depends on the camera path, which a seek has none of — in the engine
-too, where `demo_gototick` replays with whatever view it has. Measure first how many live deals share a script with a
-scheduled one on a real match; only those can move a later wave.
+**Fixed, disassembly.** The engine cannot seek; `CDemoPlayer::SkipToTick` (engine.dll FUN_180073b10) reads ahead from
+where it is, and a target behind it RELOADS the demo and reads ahead from its start. While skipping, the
+`svc_TempEntities` queueing (FUN_1801f9bc0) returns before queueing any UNRELIABLE message — it asks the demo player's
+vtable slot +0x48, the skip test `CDemoPlayer::ReadPacket` (FUN_180072ee0) asks of itself — so an explosion or an
+impact in the skipped ticks never fires and never deals; a reliable message (a zero count) is queued and
+`CL_FireEvents` (FUN_1800905d0) fires it, with no skip test. The flags are never reset: they live in
+soundemittersystem.dll, untouched by a demo reload. So `SoundPresenter.Skip` keeps the deck, deals only the scheduled
+sounds of RELIABLE temp entities in the skipped ticks (from the start for a skip back), and replays nothing else. The
+first B503 version cleared the deck and redealt everything through the tick plus a ledger of live deals; both are
+gone. Measured on f12 (viewer log, 2026-10-05): a skip to 90,006 deals **0** sounds — the match has no reliable temp
+entity with a script sound — in 9.1 ms. Tests: `ScriptWaveDeckConformanceTests` (unreliable skipped, reliable dealt,
+skip forward from midway, skip back from the start without rewinding, a read not replayed), `EffectFeedsTests
+.Record_AReliableEffect_IsMarkedReliable`. **Sabotaged:** dealing unreliable sounds, a skip forward from the start, a
+skip back from playback's tick, a skip that clears the deck, reliability not stamped — each reddened its test.
 
-## B505 — within a tick, scheduled and live script sounds of one script are dealt scheduled-first, not in TE order — OPEN 2026-10-05
+**Still open:** two parts of a skip were not read. (1) Game events (HUD sounds, emitted, so they deal) are parsed
+during a skip; whether `ProcessGameEvent` has a skip test of its own is unread, and our HUD emits nothing for skipped
+ticks. (2) Whether frames render during a skip — `OnRenderStart` runs the simulation phase where animation-event sounds
+and footsteps are made — is unread; ours make none for skipped ticks. Both are reads of engine.dll's host frame and
+`ProcessGameEvent`; neither changes f12's deck unless a HUD or animation sound shares a script with a later emission.
 
-**Found closing B503, interpolated.** The engine fires temp entities in the order `svc_TempEntities` carried them
-(`CL_FireEvents`), so a server-dispatched impact and a client `FireBullets` impact on one tick deal one script's deck
-in packet order. Our two lists (the load-time schedule and the live emissions) do not carry their TE's place in the
-packet, so `SoundPresenter.Update` and `Redeal` put the scheduled first on a tie. Only a shared script on one tick is
-affected — in practice the surface `BulletImpact` sounds. Fix: carry each TE's message index into `SceneSound` and
-order a tie by it.
+## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
+
+**Fixed, published source and disassembly.** `CHLClient::OnRenderStart` (`cdll_client_int.cpp:2137-2255`) orders a
+frame: game events fire while the packet is parsed (HUD sounds); then `ProcessOnDataChangedEvents` (medigun patches),
+`SimulateEntities` (`C_BaseAnimating::Simulate` → `DoAnimationEvents`: animation-event sounds, footsteps),
+`PhysicsSimulate` (physics impacts, friction), and last `engine->FireEvents()`, which fires the temp entities in the
+order they were queued (FUN_1800905d0 walks its list, gated only by signon state and fire delay). Every client sound
+now carries a `ClientSoundOrder` (phase, its temp entity's 1-based place among ALL the demo's, its place within that
+one); `EffectFeeds` stamps each explosion, shot and dispatch with its place, and `ExplosionSounds.Merged` and the
+presenter order a tick by it. Tests: `EffectFeedsTests.Record_ThreeEffectsAndOneNoFeedTakes_…`,
+`ScriptWaveDeckConformanceTests` (two temp entities in stream order, an animation event before a blast, the producers'
+stamps), `ExplosionSoundsTests.Merged_TwoEffectsOnOneTick_TakeTheClientsOrder`. **Sabotaged:** a constant stamp, the
+merge by tick alone, the explosion's place dropped, the simulate phase moved after the temp entities — each reddened
+its test. *Interpolated:* a frame is taken to be one tick; the engine can play several ticks' packets in one frame, which
+would put one tick's temp entities after the next tick's game events.

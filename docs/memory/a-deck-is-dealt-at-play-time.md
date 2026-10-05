@@ -15,5 +15,11 @@ and `SoundPresenter` deals it against one `ScriptWaveDeck` in tick order.
 `RandomInt( 0, int.MaxValue - 1 )` returns the raw value and `raw % count` is the engine's pick over whatever count
 is available later — the soundlevel draw after it is unaffected.
 
-**How to apply:** a seek REDEALS (schedule through the tick + this playback's live deals before it; ~17 ms on f12)
-rather than carrying state. A stop/change names its start's dealt wave, never a fresh pick. Residuals: B504, B505.
+**How to apply:** a seek does what `demo_gototick` does, NOT "play to T" (B504, corrected same day): deck never
+rewound (flags live in soundemittersystem.dll); skip deals only RELIABLE temp entities' sounds (FUN_1801f9bc0 drops
+unreliable ones while skipping) — f12: 0. Within a tick: `OnRenderStart` order + temp-entity stream place (B505,
+`ClientSoundOrder`). A stop/change names its start's dealt wave, never a fresh pick. Every wave of a dealt script is
+precached (`InternalPrecacheWaves`).
+
+**Why the correction matters:** "seek == play to T" is a viewer's wish; the engine has no seek. Read the engine's skip
+before designing seek semantics for engine state.

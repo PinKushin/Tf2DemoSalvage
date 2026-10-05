@@ -137,13 +137,17 @@ public sealed class SoundPresenter(
         get => _schedule;
         set
         {
-            // Another demo's emissions are not this one's history.
+            // A new demo plays from its start. The deck is NOT cleared: its flags live in soundemittersystem.dll for the
+            // life of the process, across demos and maps alike (B504).
             _schedule = value;
-            _emittedDeals.Clear();
+            _playedTo = null;
         }
     }
 
     private SoundSchedule? _schedule;
+
+    /// <summary>The last tick a pass reached, or null before the first pass of a schedule.</summary>
+    private int? _playedTo;
 
     /// <summary>The soundscripts the game loaded, or null until an install is opened.</summary>
     /// <remarks>
@@ -160,9 +164,6 @@ public sealed class SoundPresenter(
 
     /// <summary>The wave each script draw was dealt, for the stop or change that names it.</summary>
     private readonly Dictionary<ScriptWaveDraw, string> _dealtWaves = [];
-
-    /// <summary>The emitted sounds this playback has dealt, in order, which a seek cannot find in the schedule.</summary>
-    private readonly List<(int Tick, ScriptWaveDraw Draw)> _emittedDeals = [];
 
     /// <summary>Plays a sound the client decides as playback reaches it, such as its own bullet's impact (B415).</summary>
     /// <param name="sound">The sound, started at the next <see cref="Update"/> if its camera gate allows.</param>
@@ -236,8 +237,10 @@ public sealed class SoundPresenter(
 
         if (schedule.Repositioned)
         {
-            Redeal(schedule, tick);
+            Skip(schedule, _playedTo, tick);
         }
+
+        _playedTo = tick;
 
         // **A seek silences what is in flight.** Those sounds belong to the moment the viewer has
         // just left, and letting them finish plays the old place over the new one. The loops go with
@@ -298,12 +301,11 @@ public sealed class SoundPresenter(
         while (fromSchedule < starting.Count || fromEmitted < emitted.Count)
         {
             bool scheduled = fromEmitted == emitted.Count ||
-                (fromSchedule < starting.Count && starting[fromSchedule].Tick <= emitted[fromEmitted].Tick);
+                (fromSchedule < starting.Count && ExplosionSounds.Precedes(starting[fromSchedule], emitted[fromEmitted]));
 
             if (scheduled)
             {
-                // A re-established loop was dealt by `Redeal`; it is named, not dealt again.
-                SceneSound sound = reestablishing ? Named(starting[fromSchedule++]) : Dealt(starting[fromSchedule++]);
+                SceneSound sound = reestablishing ? Reestablished(starting[fromSchedule++]) : Dealt(starting[fromSchedule++]);
 
                 if (InRange(sound, listener))
                 {
@@ -314,11 +316,6 @@ public sealed class SoundPresenter(
             }
 
             SceneSound live = Dealt(emitted[fromEmitted++]);
-
-            if (live.WaveDraw is { } draw && Deals(live))
-            {
-                _emittedDeals.Add((live.Tick, draw));
-            }
 
             if (InRange(live, listener))
             {
@@ -346,52 +343,50 @@ public sealed class SoundPresenter(
             Stopwatch.GetTimestamp() - soundscaped);
     }
 
-    /// <summary>
-    /// The deck as playing from the start to <paramref name="tick"/> left it: every scheduled sound through the tick and
-    /// every emitted one this playback has played before it, dealt again in the order <see cref="Update"/> deals them (B503).
-    /// </summary>
+    /// <summary>What `demo_gototick` does to the deck: deals the scheduled sounds its skip still fires (B504).</summary>
+    /// <param name="schedule">The demo's sounds.</param>
+    /// <param name="from">Where playback was, or null when it was nowhere (the demo just opened).</param>
+    /// <param name="to">The tick sought to.</param>
     /// <remarks>
-    /// **A seek must not change what is heard after it**: the engine's flags are the result of every emission before, so
-    /// the state a seek lands in is recomputed from the demo rather than carried from wherever playback was. Emitted
-    /// sounds after the tick belong to a future this playback has left, and their own producers emit them again.
+    /// **The engine cannot seek; it skips.** `CDemoPlayer::SkipToTick` (engine.dll FUN_180073b10) reads ahead from where
+    /// it is, and a target behind it first RELOADS the demo and reads ahead from its start. While it skips,
+    /// `svc_TempEntities` queueing (FUN_1801f9bc0) drops every UNRELIABLE message before queueing it — the demo player's
+    /// skip test, vtable +0x48, the slot `CDemoPlayer::ReadPacket` asks of itself — so an explosion or an impact in the
+    /// skipped ticks never fires and never deals. A reliable one (a zero count) is queued, and `CL_FireEvents`
+    /// (FUN_1800905d0) fires it with no skipping test; `EmitSoundByHandle` → `GetParametersForSoundEx`
+    /// (`SoundEmitterSystem.cpp:465`) has none either. Nothing resets the flags: they live in soundemittersystem.dll,
+    /// which a demo reload does not touch, so a skip back deals the start's reliable sounds AGAIN on top of whatever
+    /// playing dealt. A read deals nothing a later pick could see, so it is not replayed.
     /// </remarks>
-    private void Redeal(SoundSchedule schedule, int tick)
+    private void Skip(SoundSchedule schedule, int? from, int to)
     {
         long began = Stopwatch.GetTimestamp();
-
-        _deck.Clear();
-        _dealtWaves.Clear();
-        _emittedDeals.RemoveAll(deal => deal.Tick > tick);
-
-        int fromEmitted = 0;
+        int after = from is { } at && at <= to ? at : int.MinValue;
         int dealt = 0;
 
-        foreach (SceneSound sound in schedule.Through(tick))
+        foreach (SceneSound sound in schedule.Through(to))
         {
-            while (fromEmitted < _emittedDeals.Count && _emittedDeals[fromEmitted].Tick < sound.Tick)
+            if (sound.Tick > after && sound.DealtBySkip && sound.WaveDraw is { Emitted: true } && Deals(sound))
             {
-                Deal(_emittedDeals[fromEmitted++].Draw);
+                Dealt(sound);
                 dealt++;
             }
-
-            if (Dealt(sound).WaveDraw is not null)
-            {
-                dealt++;
-            }
-        }
-
-        for (; fromEmitted < _emittedDeals.Count; fromEmitted++)
-        {
-            Deal(_emittedDeals[fromEmitted].Draw);
-            dealt++;
         }
 
         audio.LogInformation(
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"wave deck: redealt {dealt} script sounds through tick {tick} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"wave deck: a skip to tick {to} from {(after == int.MinValue ? "the start" : after.ToString(CultureInfo.InvariantCulture))} " +
+                $"dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
     }
+
+    /// <summary>
+    /// A loop re-established after a skip: named as its start was dealt if the skip dealt it, else read now — a patch the
+    /// skip re-created reads the deck as it is (`CSoundPatch::Init`).
+    /// </summary>
+    private SceneSound Reestablished(SceneSound sound) =>
+        sound.WaveDraw is { } draw && _dealtWaves.ContainsKey(draw) ? Named(sound) : Dealt(sound);
 
     /// <summary>Whether a sound picks a wave when it plays — a start — rather than naming one its start picked.</summary>
     private static bool Deals(SceneSound sound) => !sound.IsStop && !sound.ChangesVolume && !sound.ChangesPitch;

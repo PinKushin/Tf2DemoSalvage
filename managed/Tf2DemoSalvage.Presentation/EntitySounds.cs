@@ -19,16 +19,27 @@ public static class EntitySounds
     /// True for `EmitSound` by script name, which deals the wave; false for a plain `GetParametersForSound` — a footstep,
     /// a physics impact, a sound patch — which only reads the deck (B503).
     /// </param>
+    /// <param name="phase">Where on the client's frame it is made (B505).</param>
     /// <returns>The sound, or null when no script declares the name — `GetParametersForSound` fails and nothing plays.</returns>
     public static SceneSound? Emit(
-        int tick, int entity, string name, (float X, float Y, float Z) at, IReadOnlyDictionary<string, SoundScriptEntry> scripts, bool emitted)
+        int tick,
+        int entity,
+        string name,
+        (float X, float Y, float Z) at,
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
+        bool emitted,
+        ClientSoundPhase phase)
     {
         if (scripts is null || !scripts.TryGetValue(name, out SoundScriptEntry entry) || entry.Waves.Count == 0)
         {
             return null;
         }
 
-        return ExplosionSounds.FromWorldAt(entry, Stream(tick, entity), tick, at, emitted) with { EntityIndex = entity };
+        return ExplosionSounds.FromWorldAt(entry, Stream(tick, entity), tick, at, emitted) with
+        {
+            EntityIndex = entity,
+            Order = new ClientSoundOrder(phase, 0, 0),
+        };
     }
 
     /// <summary>The stream an entity's sounds at a tick draw from.</summary>
