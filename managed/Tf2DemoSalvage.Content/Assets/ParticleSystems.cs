@@ -155,7 +155,8 @@ public static class ParticleSystems
     /// <param name="seconds">
     /// How long this step is, which an initializer that gives a particle SPEED needs: Verlet stores
     /// no velocity, so a speed is written as how far behind the particle its previous position is
-    /// put. The engine's own initializers read the collection's step for the same reason.
+    /// put. The engine's sphere and move-between initializers scale by the collection's `m_flPreviousDt`, the previous
+    /// `Simulate` call's whole length (0.05 before any), which is what `ParticleEffect` passes (B494).
     /// </param>
     /// <param name="points">
     /// Every control point the effect has, by number, where an initializer reads one other than

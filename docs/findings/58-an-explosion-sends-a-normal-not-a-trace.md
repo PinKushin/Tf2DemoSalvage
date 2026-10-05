@@ -554,6 +554,14 @@ is what the engine computes, so it is reproduced. Two results of the float arith
 0.05 is just over a twentieth, so a quarter second takes six sub-steps, not five; and half a second at 66 a second in
 five 0.1 sub-steps emits 32 particles, not 33 (B492).
 
+**A particle's launch speed is scaled by the PREVIOUS call's length.** `C_INIT_CreateWithinSphere` and
+`C_INIT_MoveBetweenPoints` both write `PREV_XYZ = XYZ − velocity · *(collection + 0x40)`, and +0x40 is `m_flPreviousDt`.
+The constructor and `SimulateFirstFrame` set it to `0x3d4ccccd`, 0.05, and `Simulate` stores the call's whole `dt` there
+after its children. `C_OP_BasicMovement` multiplies the carried gap by `dt / m_flPreviousDt`, so the two cancel: a
+particle launched at v moves v · dt in its first sub-step, whatever the call before it was. This port scaled the
+initializer by the sub-step and kept `PreviousStep` as the sub-step before, 0 at first, and the movement skipped the
+ratio at 0. That agreed for one step at a constant rate and drifted wherever the rate changed (B494).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer

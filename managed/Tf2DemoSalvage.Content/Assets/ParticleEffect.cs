@@ -413,6 +413,7 @@ public sealed class ParticleEffect
             child.Simulate(seconds, emit);
         }
 
+        Particles.EndCall(seconds);
         RememberPoints();
     }
 
@@ -548,7 +549,7 @@ public sealed class ParticleEffect
         {
             if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
             {
-                EmitBurst(emitter, seconds);
+                EmitBurst(emitter);
             }
             else if (string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
             {
@@ -619,7 +620,7 @@ public sealed class ParticleEffect
         for (int made = 0; made < count; made++)
         {
             born = MathF.Min(born, end);
-            SpawnAt(born, seconds);
+            SpawnAt(born);
             born += step;
         }
     }
@@ -638,7 +639,7 @@ public sealed class ParticleEffect
     /// emission here happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
     /// current one: `GetControlPointTransformAtTime` puts the lerped position under the point's present axes.
     /// </remarks>
-    private int SpawnAt(float born, float seconds)
+    private int SpawnAt(float born)
     {
         float dt = Particles.LastStep;
         float along = MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
@@ -653,7 +654,8 @@ public sealed class ParticleEffect
             _spawnPoints.Add(now with { At = ((now.At - then) * along) + then });
         }
 
-        return ParticleSystems.Spawn(System, Particles, _spawnPoints[0], DefaultLifetime, seconds, _spawnPoints, _sheet, born);
+        // The velocity initializers scale by `m_flPreviousDt`, not by this sub-step (B494).
+        return ParticleSystems.Spawn(System, Particles, _spawnPoints[0], DefaultLifetime, Particles.PreviousStep, _spawnPoints, _sheet, born);
     }
 
     /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
@@ -685,7 +687,7 @@ public sealed class ParticleEffect
     /// spreads the burst over. *Not reproduced, and filed with B470:* at `max_particles` the engine drops only the refused
     /// part of the step's share and keeps owing the rest, where this stops owing at all.
     /// </remarks>
-    private void EmitBurst(ParticleFunction emitter, float seconds)
+    private void EmitBurst(ParticleFunction emitter)
     {
         float start = (float)emitter.Number("emission_start_time", 0d);
 
@@ -715,7 +717,7 @@ public sealed class ParticleEffect
 
         while (born < allowed && owed > 0)
         {
-            if (SpawnAt(start, seconds) < 0)
+            if (SpawnAt(start) < 0)
             {
                 // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
                 owed = 0;

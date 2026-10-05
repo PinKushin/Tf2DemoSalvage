@@ -35345,6 +35345,21 @@ the ten-step cap and the sim-time clamp each reddened their tests. **Tests chang
 systems now declare a one-second step, so each quarter-second case still reads one emission. The slam in
 `CModelPanelConformanceTests` emits 32 for half a second, not 33, because five float sub-steps sum just under 33.
 
+## B494 — the velocity initializers scaled by the step; the engine scales by `m_flPreviousDt`, 0.05 on the first call — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_INIT_CreateWithinSphere::InitNewParticlesScalar` and
+`C_INIT_MoveBetweenPoints::InitNewParticlesScalar` (`builtin_initializers.obj`) scale `PREV_XYZ`'s offset by
+`*(collection + 0x40)`. That is `m_flPreviousDt`: 0.05 from the constructor and `SimulateFirstFrame`, then the whole `dt`
+of each `Simulate` call, stored after the children run (`particles.obj`). `C_OP_BasicMovement` divides by it. Ours passed
+the step to the initializers and kept `ParticleStore.PreviousStep` as the previous sub-step, starting at 0.
+
+**Fix:** `PreviousStep` starts at `FirstPreviousStep` (0.05), is set by `EndCall` with the call's whole step, and is
+what `ParticleEffect` hands the initializers. Tests: `ParticleSimulateConformanceTests.PreviousStep_BeforeAndAfterACall_…`,
+`…Step_ASphereSpeedOnTheFirstCall_…`, `…OnALaterCall_…`, `…Step_ATracerOnTheFirstCall_…` and
+`ParticleOperatorConformanceTests.MovementBasic_BeforeAnyCall_ScalesByTheFirstFramesTwentieth`. Sabotaged: the step passed
+instead reddened the three launch tests; dropping `EndCall` together with a zero start reddened all five. **Tests changed:**
+two `MovementBasic` cases on a bare store now record a previous call of their own length, as a collection mid-run has.
+
 ## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)
