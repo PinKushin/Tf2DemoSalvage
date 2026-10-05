@@ -108,6 +108,96 @@ public sealed class ParticleSimulateConformanceTests
         (effect.Particles.Steps, effect.Children[0].Particles.Steps).ShouldBe((1, 4));
     }
 
+    /// <remarks>
+    /// `m_flPreviousDt` (+0x40) is 0.05 from the constructor and `SimulateFirstFrame`, and `Simulate` sets it to the
+    /// call's WHOLE `dt` after the children run — not to a sub-step (B494).
+    /// </remarks>
+    [Test]
+    public void PreviousStep_BeforeAndAfterACall_IsTheFirstFramesTwentiethThenTheWholeCall()
+    {
+        ParticleEffect effect = new(Defined());
+        float before = effect.Particles.PreviousStep;
+
+        effect.Step(ParticleControlPoint.Unset, 0.25f);
+
+        (before, effect.Particles.PreviousStep).ShouldBe((0.05f, 0.25f));
+    }
+
+    /// <remarks>
+    /// `C_INIT_CreateWithinSphere::InitNewParticlesScalar` writes `PREV_XYZ = XYZ − velocity · m_flPreviousDt`
+    /// (`*(param_2 + 0x40)`, `builtin_initializers.obj`, B494). On the first call that is 0.05, whatever the step: ten units
+    /// a second down local Z puts the previous position half a unit above.
+    /// </remarks>
+    [Test]
+    public void Step_ASphereSpeedOnTheFirstCall_ScalesByTheTwentiethNotTheStep()
+    {
+        ParticleEffect effect = new(Launched("Position Within Sphere Random", startTime: 0d));
+
+        effect.Step(Oriented(Vector3.Zero), 1f / 66f);
+
+        (effect.Particles.PreviousOf(0) - effect.Particles.PositionOf(0)).Z.ShouldBe(0.5f, 1e-5f);
+    }
+
+    /// <remarks>A particle born in the second call takes the first call's whole step, 0.02, as `m_flPreviousDt`.</remarks>
+    [Test]
+    public void Step_ASphereSpeedOnALaterCall_ScalesByThePreviousCall()
+    {
+        ParticleEffect effect = new(Launched("Position Within Sphere Random", startTime: 0.025d));
+
+        effect.Step(Oriented(Vector3.Zero), 0.02f);
+        effect.Step(Oriented(Vector3.Zero), 0.01f);
+
+        (effect.Particles.PreviousOf(0) - effect.Particles.PositionOf(0)).Z.ShouldBe(10f * 0.02f, 1e-5f);
+    }
+
+    /// <remarks>`C_INIT_MoveBetweenPoints` scales its `PREV_XYZ` by `*(param_2 + 0x40)` too (B494).</remarks>
+    [Test]
+    public void Step_ATracerOnTheFirstCall_ScalesByTheTwentiethNotTheStep()
+    {
+        ParticleEffect effect = new(Launched("move particles between 2 control points", startTime: 0d));
+
+        effect.SetControlPoint(1, Oriented(new Vector3(1000f, 0f, 0f)));
+        effect.Step(Oriented(Vector3.Zero), 1f / 66f);
+
+        effect.Particles.PreviousOf(0).X.ShouldBe(-100f * 0.05f, 1e-4f);
+    }
+
+    /// <summary>A valid frame at <paramref name="at"/>.</summary>
+    private static ParticleControlPoint Oriented(Vector3 at) => new(at, Vector3.UnitX, -Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>
+    /// One particle at <paramref name="startTime"/>, launched by <paramref name="initializer"/>: a sphere of radius 0 with
+    /// ten units a second down local Z, or a tracer at 100 a second toward control point 1. No operators, so nothing moves it after.
+    /// </summary>
+    private static ParticleSystem Launched(string initializer, double startTime) =>
+        new(
+            "launched",
+            [
+                new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["num_to_emit"] = new DmxValue(DmxAttributeType.Whole, 1d),
+                    ["emission_start_time"] = new DmxValue(DmxAttributeType.Real, startTime),
+                }),
+            ],
+            [
+                new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 10d),
+                    ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 10d),
+                }),
+                new ParticleFunction(initializer, "launch", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["speed_in_local_coordinate_system_min"] = new DmxValue(DmxAttributeType.Vector3, Vector: new Vector4(0f, 0f, -10f, 0f)),
+                    ["speed_in_local_coordinate_system_max"] = new DmxValue(DmxAttributeType.Vector3, Vector: new Vector4(0f, 0f, -10f, 0f)),
+                    ["minimum speed"] = new DmxValue(DmxAttributeType.Real, 100d),
+                    ["maximum speed"] = new DmxValue(DmxAttributeType.Real, 100d),
+                }),
+            ],
+            [],
+            [],
+            [],
+            new Dictionary<string, DmxValue>(StringComparer.Ordinal));
+
     /// <summary>A system with no functions whose definition declares <paramref name="declared"/>.</summary>
     private static ParticleSystem Defined(params (string Name, double Value)[] declared)
     {
