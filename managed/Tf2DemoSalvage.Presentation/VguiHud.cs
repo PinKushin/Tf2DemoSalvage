@@ -129,12 +129,17 @@ public sealed class VguiHud
     /// Whether <c>+showscores</c> is currently held — `ShowPanel( PANEL_SCOREBOARD, ... )`'s argument, decided by the
     /// view from <see cref="ConfigConsole.IsHeld"/> rather than read here.
     /// </param>
+    /// <param name="paint">
+    /// False for a frame `demo_gototick` renders while skipping (B504), whose events and think run but whose picture is
+    /// never shown here: its layout and paint are left out.
+    /// </param>
     public void Frame(
         HudState state,
         IReadOnlyList<HudGameEvent>? events = null,
         bool reset = false,
         IReadOnlyList<Core.Scene.SceneUserMessage>? userMessages = null,
-        bool showScoreboard = false)
+        bool showScoreboard = false,
+        bool paint = true)
     {
         // **No `ClientScheme.res`, no HUD.** An install with no files opens as an empty `GameContent`, not a null one, and
         // an empty scheme's `Panel.BgColor` falls back to opaque white, so the viewport panel painted the whole screen
@@ -300,6 +305,11 @@ public sealed class VguiHud
         {
             Scoreboard.UpdateTeamInfo(state);
             Scoreboard.UpdatePlayerList(state.ScoreboardPlayers, state.Names, state.LocalIndex);
+        }
+
+        if (!paint)
+        {
+            return;
         }
 
         VguiLayout.SolveTraverse(Viewport, _context);

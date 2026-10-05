@@ -341,6 +341,166 @@ public sealed class ScriptWaveDeckConformanceTests
         sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
     }
 
+    /// <remarks>
+    /// **A frame that crosses several ticks parses every tick's packet before it renders once** (B505, B504). `_Host_RunFrame`
+    /// (engine.dll FUN_1801a4570) calls `_Host_RunFrame_Client` (FUN_1801a5860) → `CL_ReadPackets` once per tick it crossed
+    /// — each firing that tick's game events as it parses — and `_Host_RunFrame_Render` once after the loop, where
+    /// `OnRenderStart` simulates and `FireEvents` fires everything queued. So a HUD sound on the later tick deals before a
+    /// blast on the earlier one.
+    /// </remarks>
+    [Test]
+    public void Update_OneFrameOverABlastThenAHudSoundOnTheNextTick_DealsTheHudSoundFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) }]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(9, "a.wav"), (0, "b.wav")]);
+    }
+
+    /// <remarks>The control for the test above: one tick per frame, and the blast's frame comes first.</remarks>
+    [Test]
+    public void Update_ABlastThenAHudSoundOnTheNextFrame_DealsTheBlastFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) }]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Update(sink, 20, Listener, Right, now: 0.015d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(0, "a.wav"), (9, "b.wav")]);
+    }
+
+    /// <remarks>Within the frame's temp entities, the queue's order: an earlier tick's before a later tick's.</remarks>
+    [Test]
+    public void Update_OneFrameOverTwoTicksOfTempEntities_DealsThemInQueueOrder()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        Silent sink = new();
+
+        presenter.Schedule = new SoundSchedule([
+            Dealt(20, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) },
+            Dealt(21, 0) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 2, 0) },
+        ]);
+
+        presenter.Update(sink, 19, Listener, Right, now: 0d);
+        presenter.Emit(Dealt(21, 0) with { EntityIndex = 7, Order = new ClientSoundOrder(ClientSoundPhase.Simulate, 0, 0) });
+        presenter.Update(sink, 21, Listener, Right, now: 0.03d);
+
+        sink.Started.ShouldBe([(7, "a.wav"), (0, "b.wav"), (9, "c.wav")]);
+    }
+
+    /// <remarks>
+    /// **A skip renders a frame per batch of packets, and each frame keeps the frame's order** (B504): a temp entity in the
+    /// first batch fires at that batch's render, before a later batch's game events parse. Draw 0 is the blast's, draw 1
+    /// the HUD sound's and the one at 400's: blast first leaves b for it, HUD first — or no HUD sound — leaves c.
+    /// </remarks>
+    [Test]
+    public void Update_ASkipWhoseHudSoundIsInALaterFrame_DealsTheEarlierFramesBlastFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        presenter.Schedule = new SoundSchedule([ReliableBlast(100, 0), Dealt(400, 1)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Skipped(new SoundSkip(0, 350, [new SkipFrame(120, []), new SkipFrame(350, [HudSound(300, 1)])]));
+        presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
+        presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        played.ShouldBe(["b.wav"]);
+    }
+
+    /// <remarks>One batch: its game events parse before its render fires the blast, though the blast's tick is earlier.</remarks>
+    [Test]
+    public void Update_ASkipFrameWithABlastAndALaterHudSound_DealsTheHudSoundFirst()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        presenter.Schedule = new SoundSchedule([ReliableBlast(100, 0), Dealt(400, 0)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Skipped(new SoundSkip(0, 350, [new SkipFrame(350, [HudSound(300, 1)])]));
+        presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
+        presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        played.ShouldBe(["c.wav"]);
+    }
+
+    /// <remarks>An animation event a skip frame crosses is emitted, so it deals (`AE_CL_PLAYSOUND`, `EmitSound`).</remarks>
+    [Test]
+    public void Update_ASkipFrameWithAnAnimationSound_DealsIt()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        presenter.Schedule = new SoundSchedule([Dealt(400, 0)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Skipped(new SoundSkip(0, 350, [new SkipFrame(350, [Dealt(350, 0) with { Order = new ClientSoundOrder(ClientSoundPhase.Simulate, 0, 0) }])]));
+        presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
+        presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        played.ShouldBe(["b.wav"], "the skip dealt a");
+    }
+
+    /// <remarks>
+    /// A skip's frames are handed as the view builds the moment, and the presenter may reach it a few ticks later — so a
+    /// skip to 300 lands on an update at 350, and one to a tick this update has not reached does not.
+    /// </remarks>
+    [TestCase(300, "b.wav")]
+    [TestCase(351, "a.wav")]
+    public void Update_ASkipHandedForATick_DealsOnlyWhenThisUpdateReachedIt(int to, string expected)
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        presenter.Schedule = new SoundSchedule([Dealt(400, 0)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Skipped(new SoundSkip(0, to, [new SkipFrame(to, [Dealt(to, 0)])]));
+        presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
+        presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        played.ShouldBe([expected]);
+    }
+
+    /// <remarks>
+    /// `CDemoPlayer::ReadPacket` (FUN_180072ee0) counts packets while skipping and returns null at the 100th, so a read
+    /// loop takes 99 and the frame renders; the batch that reaches the target is the frame the skip lands on, which the
+    /// viewer draws — and sounds — itself, so it is not one of the skip's.
+    /// </remarks>
+    [Test]
+    public void Frames_ASkipOf301Ticks_RendersEvery99BeforeTheTarget()
+    {
+        DemoSkip.Frames(1000, 1300).ShouldBe([1098, 1197, 1296]);
+        DemoSkip.Frames(1000, 1099).ShouldBe([1098]);
+        DemoSkip.Frames(1000, 1098).ShouldBe([]);
+    }
+
+    /// <remarks>The schedule's own rule for a seek — backwards, the first call, or past its catch-up — shared, not copied.</remarks>
+    [Test]
+    public void IsSkip_EachKindOfMove_IsTheSchedulesSeek()
+    {
+        (SoundSchedule.IsSkip(null, 5), SoundSchedule.IsSkip(100, 99), SoundSchedule.IsSkip(100, 233), SoundSchedule.IsSkip(100, 234))
+            .ShouldBe((true, true, false, true));
+    }
+
+    private static SceneSound ReliableBlast(int tick, int draw) =>
+        Reliable(tick, draw) with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 1, 0) };
+
+    private static SceneSound HudSound(int tick, int draw) =>
+        Dealt(tick, draw) with { EntityIndex = 9, Order = new ClientSoundOrder(ClientSoundPhase.Network, 0, 0) };
+
     [Test]
     public void Producers_EachSound_IsStampedWithItsPlaceInOnRenderStart()
     {

@@ -2606,7 +2606,14 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        ReplaySkip((int)tick);
         ReplayModelDecals((int)tick);
+        ShowOnly(tick);
+    }
+
+    /// <summary>Builds the scene at a moment, with no replay before it.</summary>
+    private void ShowOnly(double tick)
+    {
         _shownTick = tick;
 
         // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
@@ -5245,6 +5252,165 @@ internal class MainForm : Form, IFrameSteps
         now.PlayerClass != was.PlayerClass || (now.Conditions.IsStealthed && !was.Conditions.IsStealthed) ||
         now.DisguiseClass != was.DisguiseClass;
 
+    /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
+    private int? _skipShown;
+
+    /// <summary>The HUD sounds of the skip frame being run, or null outside a skip.</summary>
+    private List<SceneSound>? _skipFrameSounds;
+
+    /// <summary>The last tick of the skip frame being run.</summary>
+    private int _skipFrameTick;
+
+    /// <summary>
+    /// What `demo_gototick` makes on its way to a tick (B504): a frame per <see cref="DemoSkip.PacketsPerFrame"/> packets,
+    /// each hearing its batch's game events in the HUD and crossing its animation events, whose script sounds deal.
+    /// </summary>
+    /// <remarks>
+    /// **The engine renders while it skips** — `CDemoPlayer::ReadPacket` (engine.dll FUN_180072ee0) caps a read loop at 99
+    /// packets, and `_Host_RunFrame` (FUN_1801a4570) renders after it with no skip test, only prediction off. A skip back
+    /// reloads the demo and reads from its start (FUN_180073b10), and the HUD with it. Only the sounds that DEAL are kept:
+    /// the HUD's and `AE_CL_PLAYSOUND`'s; footsteps and physics read the deck and change nothing in it. The sounds go to
+    /// <see cref="SoundPresenter.Skipped"/>, which deals them with the skip's temp entities, frame by frame, unplayed.
+    /// **Interpolated:** one frame per 99 ticks — see <see cref="DemoSkip.Frames"/>.
+    /// </remarks>
+    private void ReplaySkip(int target)
+    {
+        if (_replayingModelDecals || _skipFrameSounds is not null)
+        {
+            return;
+        }
+
+        int? from = _skipShown;
+
+        _skipShown = target;
+
+        if (_timeline is not { } timeline || !SoundSchedule.IsSkip(from, target) || _sound.Scripts is not { } scripts)
+        {
+            return;
+        }
+
+        long began = Stopwatch.GetTimestamp();
+        bool back = from is not { } was || target < was;
+        int first = back ? timeline.FirstTick : from!.Value + 1;
+        IReadOnlyList<int> throughs = DemoSkip.Frames(first, Math.Max(first, target));
+        List<SkipFrame> frames = new(throughs.Count);
+        bool hud = _vguiHud is not null && _vguiHost is not null;
+        int heard = 0;
+        int crossed = 0;
+
+        // Every event the frames crossed, the instrument's control: none at all would mean no walk, not no sound.
+        int walked = 0;
+        int steps = 0;
+
+        // What the frames made, in order — every HUD sound and every crossed event — so two builds compare exactly.
+        ulong events = SequenceHash.Empty;
+        long hudTicks = 0;
+        long buildTicks = 0;
+        long poseTicks = 0;
+        long simulatedBefore = _models.SimulateTicks;
+        long sampleTicks = 0;
+        long drawListTicks = 0;
+        long modelTicks = 0;
+
+        _models.HoldsCorpses = true;
+        _moment.EntitiesOnly = true;
+        _models.SimulatesOnly = true;
+
+        try
+        {
+            foreach (int through in throughs)
+            {
+                List<SceneSound> live = [];
+
+                _skipFrameSounds = live;
+                _skipFrameTick = through;
+
+                long phase = Stopwatch.GetTimestamp();
+
+                if (hud)
+                {
+                    SkipHudFrame(timeline, through);
+                }
+
+                hudTicks += Stopwatch.GetTimestamp() - phase;
+                _skipFrameSounds = null;
+                heard += live.Count;
+
+                foreach (SceneSound made in live)
+                {
+                    events = SequenceHash.Add(events, made.Name);
+                }
+
+                phase = Stopwatch.GetTimestamp();
+                ShowOnly(through);
+                buildTicks += Stopwatch.GetTimestamp() - phase;
+                sampleTicks += _moments.LastBuild.Sampled;
+                drawListTicks += _moments.LastBuild.Built.DrawList;
+                modelTicks += _moments.LastBuild.Built.Models;
+                phase = Stopwatch.GetTimestamp();
+                _moments.PoseNow(ViewFrustum.Nothing);
+                poseTicks += Stopwatch.GetTimestamp() - phase;
+                _firedEvents.Clear();
+                _models.TakeFiredEvents(_firedEvents);
+
+                walked += _firedEvents.Count;
+
+                foreach (FiredAnimationEvent fired in _firedEvents)
+                {
+                    steps += fired.Event.Id == FootstepEvent ? 1 : 0;
+                    events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
+
+                    if (fired.Event.Id == PlaySoundEvent &&
+                        EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
+                    {
+                        live.Add(sound);
+                        crossed++;
+                    }
+                }
+
+                frames.Add(new SkipFrame(through, live));
+            }
+        }
+        finally
+        {
+            _skipFrameSounds = null;
+            _models.HoldsCorpses = false;
+            _moment.EntitiesOnly = false;
+            _models.SimulatesOnly = false;
+        }
+
+        _sound.Skipped(new SoundSkip(from, target, frames));
+
+        _audioLog.LogInformation(
+            "{Message}",
+            string.Create(
+                CultureInfo.InvariantCulture,
+                $"skip: to {target} from {(back ? "the start" : from!.Value.ToString(CultureInfo.InvariantCulture))} in {frames.Count} frames " +
+                $"made {heard} HUD and {crossed} animation script sounds (of {walked} animation events, {steps} of them footsteps, which only read){(hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
+                $"(hud {Ms(hudTicks):0}, build {Ms(buildTicks):0} (sample {Ms(sampleTicks):0}, drawlist {Ms(drawListTicks):0}, models {Ms(modelTicks):0}), pose {Ms(poseTicks):0} of which simulate {Ms(_models.SimulateTicks - simulatedBefore):0}; " +
+                $"last frame {_moment.Drawn.Count} drawn, {_moment.StaticProps.Count} static; sequence {events:x16})"));
+
+        static double Ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
+    }
+
+    /// <summary>One skip frame of the HUD: its batch's game events and user messages, heard and not painted.</summary>
+    private void SkipHudFrame(DemoTimeline timeline, int through)
+    {
+        if (_vguiHud is not { } hud)
+        {
+            return;
+        }
+
+        (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
+
+        hud.Frame(
+            HudStateAt(through),
+            HudEventFeed.Resolve(timeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks),
+            reset,
+            messages,
+            paint: false);
+    }
+
     /// <summary>
     /// After a seek, runs the scene forward over the ticks it skipped so their impacts land on the poses they met — what
     /// TF2 does, since it cannot seek at all: it replays the demo up to the tick (`demo_gototick`).
@@ -5276,6 +5442,9 @@ internal class MainForm : Form, IFrameSteps
         _replayingModelDecals = true;
         _models.HoldsCorpses = true;
         _moments.PlayersOnly = true;
+
+        // Ours, not the engine's: its poses must not move the animation-event walk (B504).
+        _models.WalksEvents = false;
 
         long began = Stopwatch.GetTimestamp();
 
@@ -5328,6 +5497,7 @@ internal class MainForm : Form, IFrameSteps
             _replayingModelDecals = false;
             _models.HoldsCorpses = false;
             _moments.PlayersOnly = false;
+            _models.WalksEvents = true;
         }
 
         _renderLog.LogInformation(
@@ -7765,6 +7935,36 @@ internal class MainForm : Form, IFrameSteps
         _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
         _clientConVars ??= ClientConVar;
 
+        HudState hudState = HudStateAt(hudTick);
+
+        _hudReplaying = hudReset;
+
+        try
+        {
+            _vguiHud.Frame(
+                hudState,
+                hudEvents,
+                hudReset,
+                hudMessages,
+                _console.IsHeld(ViewerAction.ShowScores));
+        }
+        finally
+        {
+            _hudReplaying = false;
+        }
+        _vguiTools.Frame(
+            _vguiClock.Elapsed.TotalSeconds,
+            _clock.LastFrameSeconds,
+            _settings.ShowFrameRate,
+            ReadPosition(),
+            _demo?.MapName);
+
+        return _vguiHost.List;
+    }
+
+    /// <summary>What the HUD reads at a tick: `CHud::IsHidden`'s state, the view's settings, and its camera.</summary>
+    private HudState HudStateAt(int hudTick)
+    {
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
         // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
@@ -7796,31 +7996,7 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        hudState = WithIdTraces(hudState, hudTick);
-
-        _hudReplaying = hudReset;
-
-        try
-        {
-            _vguiHud.Frame(
-                hudState,
-                hudEvents,
-                hudReset,
-                hudMessages,
-                _console.IsHeld(ViewerAction.ShowScores));
-        }
-        finally
-        {
-            _hudReplaying = false;
-        }
-        _vguiTools.Frame(
-            _vguiClock.Elapsed.TotalSeconds,
-            _clock.LastFrameSeconds,
-            _settings.ShowFrameRate,
-            ReadPosition(),
-            _demo?.MapName);
-
-        return _vguiHost.List;
+        return WithIdTraces(hudState, hudTick);
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
@@ -8061,12 +8237,23 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void PlayHudSound(string scriptName)
     {
-        if (_hudReplaying)
+        if (_hudReplaying || _sound.Scripts is not { } scripts)
         {
             return;
         }
 
-        if (_sound.Scripts is { } scripts && HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
+        // A skip frame's sound is dealt with the skip, never played (B504).
+        if (_skipFrameSounds is { } skipping)
+        {
+            if (HudSounds.Emit(_skipFrameTick, scriptName, scripts.Entries) is { } dealt)
+            {
+                skipping.Add(dealt);
+            }
+
+            return;
+        }
+
+        if (HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
         {
             _sound.Emit(sound);
         }

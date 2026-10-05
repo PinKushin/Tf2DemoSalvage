@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 
 using Microsoft.Extensions.Logging;
 
@@ -170,6 +171,16 @@ public sealed class SoundPresenter(
     /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
     public void Emit(SceneSound sound) => _emitted.Add(sound);
 
+    /// <summary>Hands over what the client made during a skip, for the next <see cref="Update"/> at its tick to deal (B504).</summary>
+    /// <param name="skip">The skip's frames.</param>
+    public void Skipped(SoundSkip skip) => _skip = skip;
+
+    /// <summary>The waves the last skip dealt, in order, hashed — logged so two builds' skips can be compared exactly.</summary>
+    private ulong _skipDealt;
+
+    /// <summary>The frames of the skip the next update lands on, or null.</summary>
+    private SoundSkip? _skip;
+
     /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
     /// <param name="sound">The sound.</param>
     /// <param name="listener">The camera.</param>
@@ -291,21 +302,16 @@ public sealed class SoundPresenter(
             starting = schedule.LiveAt(tick);
         }
 
-        // **Scheduled and emitted sounds are dealt in ONE tick order**, the scheduled first on a tie, because a script's
-        // waves are one deck whoever emits them (B503) — and before the camera gate, since `GetParametersForSoundEx` deals
-        // in `EmitSoundByHandle` before the engine decides anything about audibility.
+        // **Scheduled and emitted sounds are dealt in ONE order, the frame's**, because a script's waves are one deck whoever
+        // emits them (B503) — and before the camera gate, since `GetParametersForSoundEx` deals in `EmitSoundByHandle`
+        // before the engine decides anything about audibility. The scheduled go first on a tie.
         List<SceneSound> emitted = schedule.Jumped ? [] : _emitted;
-        int fromSchedule = 0;
-        int fromEmitted = 0;
 
-        while (fromSchedule < starting.Count || fromEmitted < emitted.Count)
+        foreach ((SceneSound next, bool scheduled) in InFrameOrder(starting, emitted))
         {
-            bool scheduled = fromEmitted == emitted.Count ||
-                (fromSchedule < starting.Count && ExplosionSounds.Precedes(starting[fromSchedule], emitted[fromEmitted]));
-
             if (scheduled)
             {
-                SceneSound sound = reestablishing ? Reestablished(starting[fromSchedule++]) : Dealt(starting[fromSchedule++]);
+                SceneSound sound = reestablishing ? Reestablished(next) : Dealt(next);
 
                 if (InRange(sound, listener))
                 {
@@ -315,7 +321,7 @@ public sealed class SoundPresenter(
                 continue;
             }
 
-            SceneSound live = Dealt(emitted[fromEmitted++]);
+            SceneSound live = Dealt(next);
 
             if (InRange(live, listener))
             {
@@ -343,6 +349,38 @@ public sealed class SoundPresenter(
             Stopwatch.GetTimestamp() - soundscaped);
     }
 
+    /// <summary>One frame's sounds in the order the client makes them: phase first, then tick, then place (B505).</summary>
+    /// <param name="scheduled">The schedule's sounds this frame crossed, in tick order.</param>
+    /// <param name="emitted">The sounds the client emitted this frame, in tick order.</param>
+    /// <returns>Each sound, and whether it came from the schedule; a scheduled one first on a tie.</returns>
+    /// <remarks>
+    /// **A frame that crosses several ticks parses every one of them before it renders once.** `_Host_RunFrame` (engine.dll
+    /// FUN_1801a4570) calls `_Host_RunFrame_Client` (FUN_1801a5860) → `CL_ReadPackets` once per tick it crossed, and each
+    /// parse fires its game events then and queues its temp entities; `_Host_RunFrame_Render` (FUN_1801a5d30) runs once
+    /// after the loop, and in it `OnRenderStart` simulates and then `FireEvents` (FUN_1800905d0) fires the whole queue. So
+    /// a later tick's HUD sound precedes an earlier tick's blast, and the phase outranks the tick. With one tick per frame
+    /// this is the tick order it replaced.
+    /// </remarks>
+    private static IEnumerable<(SceneSound Sound, bool Scheduled)> InFrameOrder(IReadOnlyList<SceneSound> scheduled, List<SceneSound> emitted)
+    {
+        List<(SceneSound Sound, bool Scheduled)> frame = new(scheduled.Count + emitted.Count);
+
+        foreach (SceneSound sound in scheduled)
+        {
+            frame.Add((sound, true));
+        }
+
+        foreach (SceneSound sound in emitted)
+        {
+            frame.Add((sound, false));
+        }
+
+        // `OrderBy` is stable, so a tie keeps the schedule first. *Interpolated, and untested:* a true tie is two sounds of
+        // one phase on one tick — a server sound and a HUD sound, both during the parse — whose real order is the packet's,
+        // which neither list carries.
+        return frame.OrderBy(static entry => (entry.Sound.Order.Phase, entry.Sound.Tick, entry.Sound.Order.TempEntity, entry.Sound.Order.Within));
+    }
+
     /// <summary>What `demo_gototick` does to the deck: deals the scheduled sounds its skip still fires (B504).</summary>
     /// <param name="schedule">The demo's sounds.</param>
     /// <param name="from">Where playback was, or null when it was nowhere (the demo just opened).</param>
@@ -356,7 +394,9 @@ public sealed class SoundPresenter(
     /// (FUN_1800905d0) fires it with no skipping test; `EmitSoundByHandle` → `GetParametersForSoundEx`
     /// (`SoundEmitterSystem.cpp:465`) has none either. Nothing resets the flags: they live in soundemittersystem.dll,
     /// which a demo reload does not touch, so a skip back deals the start's reliable sounds AGAIN on top of whatever
-    /// playing dealt. A read deals nothing a later pick could see, so it is not replayed.
+    /// playing dealt. A read deals nothing a later pick could see, so it is not replayed. **And the client renders while it
+    /// skips** — a frame per batch of packets — so the HUD and animation-event sounds the view made in each frame
+    /// (<see cref="Skipped"/>) deal with that frame's temp entities, in the frame's order (<see cref="InFrameOrder"/>).
     /// </remarks>
     private void Skip(SoundSchedule schedule, int? from, int to)
     {
@@ -364,13 +404,41 @@ public sealed class SoundPresenter(
         int after = from is { } at && at <= to ? at : int.MinValue;
         int dealt = 0;
 
+        _skipDealt = SequenceHash.Empty;
+
+        // The client's frames during the skip, handed over by the view as it built the moment — which this update may reach a
+        // tick or two later; one beyond it, or behind where playback was, is not this skip's. Without them, one frame.
+        // The landing frame — the batch that reaches the target — closes the list; its own sounds come through `Emit`.
+        List<SkipFrame> frames = _skip is { } skip && skip.To <= to && skip.To > after ? [.. skip.Frames] : [];
+
+        if (frames.Count == 0 || frames[^1].Through < to)
+        {
+            frames.Add(new SkipFrame(to, []));
+        }
+        List<SceneSound> fired = [];
+        int frame = 0;
+
+        _skip = null;
+
         foreach (SceneSound sound in schedule.Through(to))
         {
-            if (sound.Tick > after && sound.DealtBySkip && sound.WaveDraw is { Emitted: true } && Deals(sound))
+            if (sound.Tick <= after || !sound.DealtBySkip || sound.WaveDraw is not { Emitted: true } || !Deals(sound))
             {
-                Dealt(sound);
-                dealt++;
+                continue;
             }
+
+            // Every frame this sound's batch comes after renders first.
+            while (frame < frames.Count - 1 && sound.Tick > frames[frame].Through)
+            {
+                dealt += DealFrame(fired, frames[frame++]);
+            }
+
+            fired.Add(sound);
+        }
+
+        while (frame < frames.Count)
+        {
+            dealt += DealFrame(fired, frames[frame++]);
         }
 
         audio.LogInformation(
@@ -378,7 +446,29 @@ public sealed class SoundPresenter(
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"wave deck: a skip to tick {to} from {(after == int.MinValue ? "the start" : after.ToString(CultureInfo.InvariantCulture))} " +
-                $"dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"over {frames.Count} frames dealt {dealt} script sounds (sequence {_skipDealt:x16}) in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+    }
+
+    /// <summary>Deals one skip frame: its temp entities' sounds and the sounds the client made in it, in the frame's order.</summary>
+    /// <param name="fired">The temp entities' sounds the frame fires; emptied.</param>
+    /// <param name="frame">The frame.</param>
+    /// <returns>How many were dealt.</returns>
+    private int DealFrame(List<SceneSound> fired, SkipFrame frame)
+    {
+        int dealt = 0;
+
+        foreach ((SceneSound sound, _) in InFrameOrder(fired, [.. frame.Live]))
+        {
+            if (sound.WaveDraw is { Emitted: true } && Deals(sound))
+            {
+                _skipDealt = SequenceHash.Add(_skipDealt, Dealt(sound).Name);
+                dealt++;
+            }
+        }
+
+        fired.Clear();
+
+        return dealt;
     }
 
     /// <summary>

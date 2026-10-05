@@ -409,6 +409,24 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **A skip's frame simulates entities only** (B504): `SimulateEntities` walks the client entity list, and a
+    /// `CStaticProp` is never on it — so a moment built for one leaves the map's static props out of the list it poses.
+    /// </remarks>
+    [TestCase(false, 1)]
+    [TestCase(true, 0)]
+    public void Build_EntitiesOnly_LeavesTheStaticPropsOut(bool entitiesOnly, int drawn)
+    {
+        MomentScene scene = Posable();
+        scene.StaticProps =
+            [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/crate.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)];
+        scene.EntitiesOnly = entitiesOnly;
+
+        scene.Build([], [], Info());
+
+        scene.Drawn.Count.ShouldBe(drawn);
+    }
+
+    /// <remarks>
     /// **B425, the production route.** A Dragon's Fury fireball owned by the LOCAL player allocates a dlight in its
     /// `ClientThink` (`tf_projectile_dragons_fury.cpp:509-528`), which the next model draw ranks as a local light
     /// (`engine.dll` `0x1801b7a10`); anyone else's fireball lights nothing. `CL_DecayLights` runs after the frame is
