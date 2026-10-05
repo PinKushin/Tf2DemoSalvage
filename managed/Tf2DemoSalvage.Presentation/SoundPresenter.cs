@@ -171,6 +171,13 @@ public sealed class SoundPresenter(
     /// <remarks>A seek before that pass drops it, as it silences everything in flight.</remarks>
     public void Emit(SceneSound sound) => _emitted.Add(sound);
 
+    /// <summary>Hands over what the client made during a skip, for the next <see cref="Update"/> at its tick to deal (B504).</summary>
+    /// <param name="skip">The skip's frames.</param>
+    public void Skipped(SoundSkip skip) => _skip = skip;
+
+    /// <summary>The frames of the skip the next update lands on, or null.</summary>
+    private SoundSkip? _skip;
+
     /// <summary>Whether a sound's own camera gate lets it start — <see cref="SceneSound.AudibleWithin"/>, strictly within.</summary>
     /// <param name="sound">The sound.</param>
     /// <param name="listener">The camera.</param>
@@ -406,7 +413,7 @@ public sealed class SoundPresenter(
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"wave deck: a skip to tick {to} from {(after == int.MinValue ? "the start" : after.ToString(CultureInfo.InvariantCulture))} " +
-                $"dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"over {_skip?.Frames.Count ?? 0} frames dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
     }
 
     /// <summary>

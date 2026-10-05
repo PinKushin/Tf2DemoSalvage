@@ -81,6 +81,12 @@ public sealed class SoundSchedule
     /// </remarks>
     public bool Repositioned { get; private set; }
 
+    /// <summary>Whether moving playback from one tick to another is a seek rather than playback: <see cref="Advance"/>'s rule.</summary>
+    /// <param name="previous">Where playback was, or null when it was nowhere.</param>
+    /// <param name="tick">Where it is now.</param>
+    /// <returns>True for the first move, a move back, or one past <see cref="CatchUpTicks"/>.</returns>
+    public static bool IsSkip(int? previous, int tick) => false;
+
     /// <summary>Moves playback to a tick and answers what should start.</summary>
     /// <param name="tick">Where playback now is.</param>
     /// <returns>The sounds to start, in the order the server sent them.</returns>
