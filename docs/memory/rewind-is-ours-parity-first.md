@@ -16,6 +16,9 @@ backwards completely fine because wwe preload most things"*.
 Owner: *"everything we are doing now is real computation, simulation, and emulation"* - the demo's data is decoded;
 remaining work is client-side simulation, and every new stateful system re-breaks instant seek.
 
+**Miss to avoid:** the HUD work regressed instant rewind and nobody flagged it; the owner had to raise it (owner: "yes,
+that too"). When a change regresses an owner-visible capability, say so in the report the moment it lands.
+
 **How to apply:** design the checkpoint as ONE store every simulated system registers its state with (snapshot/
 restore), so a new system inherits rewind by registering; demo-read-only systems need none. After parity, checkpoint HUD + wave-deck (+ any skip-replayed state) so a rewind resumes from
 the nearest checkpoint with output identical to the full replay. Forward skip frames must cost what the engine's do
