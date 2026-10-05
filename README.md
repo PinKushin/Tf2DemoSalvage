@@ -29,8 +29,9 @@ The choice is saved as `cl_game_folder` in `%LOCALAPPDATA%\Tf2DemoSalvage\settin
 models, materials, sounds and configs all come from it. If you cancel the picker, the viewer asks no
 more on later launches (`cl_game_folder_ask 0`) and still plays the demo, without the game's maps and
 models; a map that is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
-No environment variable is needed; `TF2_FOLDER` exists as a script and CI override and beats the saved
-folder (`docs/DECISIONS.md` D210).
+No environment variable is needed. To try a folder for one run without saving it, start the viewer
+with `+cl_game_folder <path>`; `TF2_FOLDER` exists as a script and CI override and beats both the
+command-line value and the saved folder (`docs/DECISIONS.md` D210).
 
 **Keys.** Bindings from your TF2 config (`config.cfg`, `autoexec.cfg`, or a mastercomfig-style
 `.vpk`) are used as they are, and commands the viewer does not implement are ignored (D69).
