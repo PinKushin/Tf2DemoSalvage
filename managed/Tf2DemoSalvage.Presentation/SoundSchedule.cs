@@ -206,6 +206,17 @@ public sealed class SoundSchedule
         return still;
     }
 
+    /// <summary>Every sound at or before a tick, in order — what playing from the start to it has started.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>The sounds, lazily.</returns>
+    public IEnumerable<SceneSound> Through(int tick)
+    {
+        for (int index = 0; index < _sounds.Count && _sounds[index].Tick <= tick; index++)
+        {
+            yield return _sounds[index];
+        }
+    }
+
     /// <summary><c>CHAN_AUTO</c>: the engine picks, so the sound cannot be stopped or replaced.</summary>
     private const int AutoChannel = 0;
 

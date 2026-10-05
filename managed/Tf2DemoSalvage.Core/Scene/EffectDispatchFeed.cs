@@ -46,7 +46,14 @@ public readonly record struct SceneEffectDispatch(
     (float X, float Y, float Z) ColourOne = default,
     (float X, float Y, float Z) ColourTwo = default,
     bool HasControlPoint1 = false,
-    (float X, float Y, float Z) ControlPoint1 = default);
+    (float X, float Y, float Z) ControlPoint1 = default)
+{
+    /// <summary>Its 1-based place among every temp entity the demo carried — `CL_FireEvents`' order (B505); 0 when unknown.</summary>
+    public int TempEntity { get; init; }
+
+    /// <summary>Whether it came reliably (a zero count), which a demo skip still queues (B504).</summary>
+    public bool Reliable { get; init; }
+}
 
 /// <summary>Every `CTEEffectDispatch` a demo carries, in fire order, and the table naming them (B415).</summary>
 /// <remarks>
@@ -82,9 +89,11 @@ public sealed class EffectDispatchFeed
     /// <param name="className">The class the effect's id resolved to.</param>
     /// <param name="effect">The decoded effect.</param>
     /// <param name="tick">The tick its packet arrived on.</param>
+    /// <param name="tempEntity">Its place among all the demo's temp entities, or 0.</param>
+    /// <param name="reliable">Whether it came reliably.</param>
     /// <returns><c>true</c> when it was a dispatch and was recorded.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public bool Record(string className, DecodedTempEntity effect, int tick)
+    public bool Record(string className, DecodedTempEntity effect, int tick, int tempEntity = 0, bool reliable = false)
     {
         ArgumentNullException.ThrowIfNull(className);
         ArgumentNullException.ThrowIfNull(effect);
@@ -101,7 +110,7 @@ public sealed class EffectDispatchFeed
             fields.Read(property.Definition.Property.Name, property.Value);
         }
 
-        _effects.Add(fields.At(tick));
+        _effects.Add(fields.At(tick) with { TempEntity = tempEntity, Reliable = reliable });
 
         return true;
     }

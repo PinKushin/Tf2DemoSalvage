@@ -21,7 +21,8 @@ namespace Tf2DemoSalvage.Presentation;
 ///
 /// ***Interpolated:* the draws.** The engine takes them from its global random stream, whose state depends on every
 /// other draw the client made and is recorded nowhere. Each blast here is its own stream of Valve's generator, seeded
-/// by the blast's place in the recording, so a seek replays the same wave rather than a different one each time.
+/// by the blast's place in the recording, so a seek replays the same draws rather than different ones each time. The
+/// WAVE is not interpolated in the same way: it is dealt from the script's availability flags when it plays (B503).
 /// </remarks>
 public static class ExplosionSounds
 {
@@ -61,7 +62,11 @@ public static class ExplosionSounds
 
             random.SetSeed(index);
 
-            sounds.Add(FromWorldAt(entry, random, blast.Tick, (blast.X, blast.Y, blast.Z)));
+            sounds.Add(FromWorldAt(entry, random, blast.Tick, (blast.X, blast.Y, blast.Z), emitted: true) with
+            {
+                Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, blast.TempEntity, 0),
+                DealtBySkip = blast.Reliable,
+            });
         }
 
         return sounds;
@@ -72,23 +77,38 @@ public static class ExplosionSounds
     /// <param name="random">The stream the draws come from, already seeded.</param>
     /// <param name="tick">When it starts.</param>
     /// <param name="at">Where.</param>
-    /// <returns>The sound.</returns>
-    internal static SceneSound FromWorldAt(SoundScriptEntry entry, UniformRandomStream random, int tick, (float X, float Y, float Z) at)
+    /// <param name="emitted">
+    /// `isbeingemitted`: true for a sound emitted by script name (`EmitSoundByHandle`), which deals its wave; false for a
+    /// plain `GetParametersForSound`, which only reads the deck (B503).
+    /// </param>
+    /// <returns>The sound, its wave picked when it plays (<see cref="SceneSound.WaveDraw"/>).</returns>
+    internal static SceneSound FromWorldAt(
+        SoundScriptEntry entry, UniformRandomStream random, int tick, (float X, float Y, float Z) at, bool emitted)
     {
         // `GetParametersForSound` (soundemittersystem.dll FUN_180003370), in its order, from one stream: volume, pitch, the
-        // wave (FUN_180005680's `RandomInt( 0, n - 1 )` — through an `IUniformRandomStream` whose slot is a thunk to the
-        // same vstdlib export), then the soundlevel. `CSoundParameters::pitch` and `soundlevel` are ints, so those float
-        // draws truncate on assignment.
+        // wave (FUN_180005680's `RandomInt( 0, count - 1 )` over the AVAILABLE waves — through an `IUniformRandomStream`
+        // whose slot is a thunk to the same vstdlib export), then the soundlevel. `CSoundParameters::pitch` and
+        // `soundlevel` are ints, so those float draws truncate on assignment.
         float volume = random.RandomFloat(entry.Volume.Low, entry.Volume.High);
         int pitch = (int)random.RandomFloat(entry.Pitch.Low, entry.Pitch.High);
-        string wave = entry.Waves[random.RandomInt(0, entry.Waves.Count - 1)];
+
+        // The generator's own number, which `RandomInt( 0, count - 1 )` takes mod count: it is below 2^31 - 1, so a span of
+        // int.MaxValue keeps it whole. How many waves are available is known only when the sound plays (`ScriptWaveDeck`).
+        int draw = random.RandomInt(0, int.MaxValue - 1);
         int soundLevel = (int)random.RandomFloat(entry.SoundLevel.Low, entry.SoundLevel.High);
 
         return new SceneSound(
-            tick, wave, NotPrecached, FromWorld, entry.Channel, volume, soundLevel, pitch, DelaySeconds: 0f, at.X, at.Y, at.Z);
+            tick, entry.Waves[draw % entry.Waves.Count], NotPrecached, FromWorld, entry.Channel, volume, soundLevel, pitch,
+            DelaySeconds: 0f, at.X, at.Y, at.Z)
+        {
+            WaveDraw = new ScriptWaveDraw(entry.Name, draw, emitted),
+        };
     }
 
-    /// <summary>Two tick-ordered sound lists as one, the demo's own first where they share a tick.</summary>
+    /// <summary>
+    /// Two tick-ordered sound lists as one: within a tick by <see cref="SceneSound.Order"/> — `OnRenderStart`'s phases, then
+    /// the temp entities' stream order (B505) — and the first list's first where both are equal.
+    /// </summary>
     /// <param name="demo">What the recording carried, in tick order.</param>
     /// <param name="effects">What the client emits itself, in tick order.</param>
     /// <returns>Both, in tick order.</returns>
@@ -110,11 +130,18 @@ public static class ExplosionSounds
         while (fromDemo < demo.Count || fromEffects < effects.Count)
         {
             bool takeDemo = fromEffects == effects.Count ||
-                (fromDemo < demo.Count && demo[fromDemo].Tick <= effects[fromEffects].Tick);
+                (fromDemo < demo.Count && Precedes(demo[fromDemo], effects[fromEffects]));
 
             merged.Add(takeDemo ? demo[fromDemo++] : effects[fromEffects++]);
         }
 
         return merged;
     }
+
+    /// <summary>Whether one sound is made no later than another: its tick, then its place on that tick's frame.</summary>
+    /// <param name="first">The sound asked about.</param>
+    /// <param name="second">The one it is compared with.</param>
+    /// <returns>True when <paramref name="first"/> goes first, or they are made together.</returns>
+    public static bool Precedes(SceneSound first, SceneSound second) =>
+        first.Tick != second.Tick ? first.Tick < second.Tick : first.Order <= second.Order;
 }

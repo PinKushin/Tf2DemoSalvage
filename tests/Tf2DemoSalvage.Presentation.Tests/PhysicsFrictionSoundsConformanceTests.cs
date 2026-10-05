@@ -59,8 +59,8 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         SoundScriptEntry entry = scripts["Flesh.ScrapeRough"];
 
         Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = EntitySounds.Stream(100, Corpse);
-        SceneSound first = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100));
-        SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100));
+        SceneSound first = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100), emitted: false);
+        SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100), emitted: false);
         first.SoundLevel.ShouldNotBe(patch.SoundLevel, "the control: the two draws must differ for the test to tell them apart");
 
         SceneSound loop = new PhysicsFrictionSounds().Step(100, 1.0, [Scrape(7750f)], At, Surfaces, scripts).Single();

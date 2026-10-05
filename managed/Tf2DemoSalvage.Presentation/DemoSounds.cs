@@ -48,6 +48,7 @@ public static class DemoSounds
     /// <see cref="DemoSystems.AddEffectSounds(GameContent?, IReadOnlyList{BulletLanding})"/> — which
     /// the timeline cannot list because no demo message names it. Empty until the schedule has them.
     /// </param>
+    /// <param name="scripts">The loaded scripts, whose every wave a script sound may deal is precached; null for none.</param>
     /// <exception cref="ArgumentNullException">A collaborator is null.</exception>
     /// <remarks>
     /// **This was `MainForm.PrecacheSounds`** (B188, D90). Nothing about deciding which sounds a
@@ -80,7 +81,8 @@ public static class DemoSounds
         GameContent? game,
         SoundscapeSystem soundscape,
         ILogger audio,
-        IReadOnlyList<SceneSound> emitted)
+        IReadOnlyList<SceneSound> emitted,
+        IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
     {
         ArgumentNullException.ThrowIfNull(cache);
         ArgumentNullException.ThrowIfNull(soundscape);
@@ -107,7 +109,9 @@ public static class DemoSounds
             PrecacheResult result = cache.Precache(
                 ToPrecache(
                     timeline.SoundsToPrecache().Concat(
-                        emitted.Select(sound => sound.Name).Distinct(StringComparer.OrdinalIgnoreCase)),
+                        emitted.Select(sound => sound.Name)
+                            .Concat(ScriptWaves(emitted, scripts))
+                            .Distinct(StringComparer.OrdinalIgnoreCase)),
                     soundscape));
 
             // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
@@ -127,6 +131,31 @@ public static class DemoSounds
         {
             audio.LogWarning(failure, "precaching sounds");
         }
+    }
+
+    /// <summary>Every wave of every script the client sounds name — what `PrecacheScriptSound` precaches (B503).</summary>
+    /// <param name="sounds">The client's sounds.</param>
+    /// <param name="scripts">The loaded scripts, or null.</param>
+    /// <returns>Each wave once, in script then wave order.</returns>
+    /// <remarks>
+    /// `InternalPrecacheWaves` (`SoundEmitterSystem.cpp:351-374`) precaches EVERY wave of a script, not the one a draw will
+    /// pick: the pick is dealt at play time from the script's flags, so any of them may be the next.
+    /// </remarks>
+    public static IEnumerable<string> ScriptWaves(IEnumerable<SceneSound> sounds, IReadOnlyDictionary<string, SoundScriptEntry>? scripts)
+    {
+        ArgumentNullException.ThrowIfNull(sounds);
+
+        if (scripts is null)
+        {
+            return [];
+        }
+
+        return sounds
+            .Select(static sound => sound.WaveDraw?.Script)
+            .OfType<string>()
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .SelectMany(script => scripts.TryGetValue(script, out SoundScriptEntry entry) ? entry.Waves : [])
+            .Distinct(StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>The names to decode before playback, from the demo and from the map's ambience.</summary>

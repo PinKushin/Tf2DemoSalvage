@@ -30,7 +30,14 @@ public readonly record struct SceneShot(
     int Seed,
     float Spread,
     bool Critical,
-    ShotShooter? By);
+    ShotShooter? By)
+{
+    /// <summary>Its 1-based place among every temp entity the demo carried — `CL_FireEvents`' order (B505); 0 when unknown.</summary>
+    public int TempEntity { get; init; }
+
+    /// <summary>Whether it came reliably (a zero count), which a demo skip still queues (B504).</summary>
+    public bool Reliable { get; init; }
+}
 
 /// <summary>What the client knew about a shooter when their shot arrived.</summary>
 /// <param name="Team">`GetTeamNumber()`, which picks a tracer's `_red` or `_blue`.</param>

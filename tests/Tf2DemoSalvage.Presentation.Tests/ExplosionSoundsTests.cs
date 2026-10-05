@@ -24,7 +24,11 @@ public sealed class ExplosionSoundsTests
             static _ => "Test.Explode",
             Scripts(Entry("Test.Explode", channel: 1, level: 95, ")weapons/explode1.wav"))).ShouldHaveSingleItem();
 
-        sound.ShouldBe(new SceneSound(
+        sound.WaveDraw.ShouldNotBeNull().Script.ShouldBe("Test.Explode");
+
+        sound.Order.Phase.ShouldBe(ClientSoundPhase.TempEntities);
+
+        (sound with { WaveDraw = null, Order = default }).ShouldBe(new SceneSound(
             Tick: 100,
             Name: ")weapons/explode1.wav",
             SoundNumber: ExplosionSounds.NotPrecached,
@@ -105,7 +109,7 @@ public sealed class ExplosionSoundsTests
         Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = new();
         random.SetSeed(7);
 
-        SceneSound sound = ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f));
+        SceneSound sound = ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f), emitted: true);
 
         (sound.Volume, sound.Pitch, sound.Name, sound.SoundLevel).ShouldBe((volume, pitch, wave, level));
     }
@@ -118,6 +122,16 @@ public sealed class ExplosionSoundsTests
 
         ExplosionSounds.Merged(demo, effects).Select(sound => sound.Name)
             .ShouldBe(["blast5", "demo10", "demo20", "blast20", "demo30", "blast40"]);
+    }
+
+    /// <remarks>Within a tick the client's own sounds keep `OnRenderStart`'s order, temp entities by their place (B505).</remarks>
+    [Test]
+    public void Merged_TwoEffectsOnOneTick_TakeTheClientsOrder()
+    {
+        SceneSound late = Sound(20, "late") with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 9, 0) };
+        SceneSound early = Sound(20, "early") with { Order = new ClientSoundOrder(ClientSoundPhase.TempEntities, 4, 0) };
+
+        ExplosionSounds.Merged([late], [early]).Select(sound => sound.Name).ShouldBe(["early", "late"]);
     }
 
     private static SceneExplosion Blast(int tick = 1, float x = 0f, float y = 0f, float z = 0f) =>

@@ -3993,8 +3993,14 @@ public sealed class DemoTimeline
 
                 int fires = FireTick(tick, effect.DelaySeconds, interval, interpolation);
 
+                // A zero count is one effect sent reliably, the only kind a demo skip still queues (B504).
                 if (feeds.Record(
-                        className, effect, fires, index => IsPlayer(entities, index), index => Shooter(entities, index)))
+                        className,
+                        effect,
+                        fires,
+                        index => IsPlayer(entities, index),
+                        index => Shooter(entities, index),
+                        reliable: message.Count == 0))
                 {
                     continue;
                 }

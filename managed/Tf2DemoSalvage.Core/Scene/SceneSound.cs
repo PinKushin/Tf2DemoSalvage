@@ -78,4 +78,20 @@ public readonly record struct SceneSound(
 
     /// <summary>`SND_CHANGE_PITCH`: changes the pitch of this sound where it already plays.</summary>
     public bool ChangesPitch { get; init; }
+
+    /// <summary>
+    /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
+    /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,
+    /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.
+    /// </summary>
+    public ScriptWaveDraw? WaveDraw { get; init; }
+
+    /// <summary>For a sound the client emits itself, where on its tick's frame it is made (B505); default for the demo's own.</summary>
+    public ClientSoundOrder Order { get; init; }
+
+    /// <summary>
+    /// Whether a demo skip over its tick still makes it: a reliable temp entity's sound. An unreliable one is never queued
+    /// while the demo player skips (engine.dll FUN_1801f9bc0), so it never deals (B504).
+    /// </summary>
+    public bool DealtBySkip { get; init; }
 }

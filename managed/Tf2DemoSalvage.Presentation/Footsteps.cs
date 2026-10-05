@@ -170,7 +170,7 @@ public sealed class Footsteps
         {
             drawn = cached.Parameters with { Tick = tick, OriginX = player.X, OriginY = player.Y, OriginZ = player.Z };
         }
-        else if (EntitySounds.Emit(tick, player.EntityIndex, name, (player.X, player.Y, player.Z), scripts) is { } fresh)
+        else if (EntitySounds.Emit(tick, player.EntityIndex, name, (player.X, player.Y, player.Z), scripts, emitted: false, ClientSoundPhase.Simulate) is { } fresh)
         {
             drawn = fresh;
 

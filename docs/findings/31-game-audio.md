@@ -1116,3 +1116,50 @@ first parameters per foot (`m_StepSoundCache`); a sound PATCH (medigun loops, co
 volume, soundlevel and channel from its own `Init` draw but plays the pitch `Play` gives it; and a scrape draws twice,
 so its volume is the script volume twice over and its channel is the script's, not the `CHAN_BODY` the caller passed.
 All fixed under B502.
+
+## A script's waves are a deck, and the deck is dealt when the sound plays (B503)
+
+*Disassembly, then a design forced by it, 2026-10-05.* Reading FUN_180005680 whole: each wave is a 4-byte record whose
+byte 2 is its gender and byte 3 its `available` flag. The function lists, ascending, the waves whose gender matches and
+whose flag is set; when that list is empty it sets every matching wave's flag again and lists them all; it returns
+`list[ RandomInt( 0, count - 1 ) ]` (and falls back to `RandomInt( 0, n - 1 )` over everything only when no wave
+matches the gender, which TF2's `GENDER_NONE` sounds never hit). Its single caller, FUN_180003370, writes 0 to the
+picked wave's byte when its last argument is set — `isbeingemitted`, which `EmitSoundByHandle` passes and a plain
+`GetParametersForSound` does not. Two details matter that a summary would lose: a READ can still reset an empty deck
+(the reset is in the pick, not behind the flag), though the reset is invisible — any later pick on an empty deck resets
+it too; and the flags belong to the ENTRY, so an explosion, an impact and an animation event naming one script draw
+from one deck.
+
+**The first framing of the fix was a load-time pass, and it could not work.** The filed plan was one tick-ordered pass
+over every client emission, at load. But half the producers only exist during playback — a client bullet's impact
+needs the struck player posed, the whiz needs the camera — and a scheduled (server) impact can share a surface's
+`BulletImpact` script with a live (client) one. A wave baked at load is stale the moment a live emission of its script lands earlier. What does hold is
+the observation underneath: the vstdlib generator here (`UniformRandomStream.RandomInt`) is a plain modulo that always
+consumes one number, so a sound can carry the generator's RAW number at the wave's slot and be dealt later, against
+whatever the deck holds then, without disturbing the soundlevel drawn after it. So every client script sound now
+carries its draw, and the presenter — the one place both the schedule and the live emissions pass, in one tick order —
+deals it. A stop or a volume/pitch change names the wave its start was dealt, as `CSoundPatch` and `S_AlterChannel`
+act on the wave already playing.
+
+**Seeking — the first answer was the intuitive one, and wrong.** The first version rebuilt the deck at a seek "as if
+played to the tick": every scheduled sound through it, plus a ledger of live deals (4,601 sounds, 17.2 ms on f12). That
+is a property a viewer wants, not one the engine has. Reading `demo_gototick` settled it (B504): the engine cannot
+seek, only skip — `SkipToTick` (FUN_180073b10) reads ahead, and for a target behind it RELOADS the demo and reads ahead
+from the start — and during a skip `svc_TempEntities` queueing (FUN_1801f9bc0) throws away every UNRELIABLE message
+before queueing it. Explosions and impacts are unreliable. So a skip deals almost nothing, and the flags, which live in
+soundemittersystem.dll, are never rewound: a skip back keeps the deck playing left. On f12 a skip to 90,006 now deals
+**0** sounds — not one reliable temp entity in the match carries a script sound. What remains unread is whether game
+events (HUD sounds) and client frames (animation events, footsteps) run during a skip.
+
+**Within a tick, the order is `OnRenderStart`'s (B505).** The client's frame is published (`cdll_client_int.cpp:2137-2255`):
+game events during the parse, then data-changed callbacks, entity simulation (animation events and footsteps), physics,
+and last `FireEvents`, which walks the temp-entity queue in arrival order. The timeline now numbers every temp entity
+by its place in the stream, so a server dispatch and a client shot on one tick deal one impact script's deck in the
+order the packet carried them. The first version had put the load-time list first on a tie, which was an assumption.
+
+**The global stream is not reproducible, and reading why settles it.** `FX_FireBullets` reseeds vstdlib's stream for
+every bullet from the TE's own seed (`tf_fx_shared.cpp:310`, `++iSeed` per pellet), which looks like a foothold — but
+every client `RandomInt`/`RandomFloat` between two reseeds consumes from the same stream, `ClientAdjustStartSoundParams`
+(`c_tf_player.cpp:11663`) for every sound among them, and nothing records how many. So each sound keeps its own
+deterministic stream; the DRAW is interpolated, the deal is not. Measured on f12 through the presenter: the 2,629 blasts
+all play `BaseExplosionEffect.Sound`'s three waves, and each of the 876 consecutive triples is a permutation.

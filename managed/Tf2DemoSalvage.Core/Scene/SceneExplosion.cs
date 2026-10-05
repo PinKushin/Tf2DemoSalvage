@@ -50,6 +50,12 @@ public readonly record struct SceneExplosion(
     int ItemDefinition = SceneExplosion.NoItem,
     int WeaponSound = SceneExplosion.Special1)
 {
+    /// <summary>Its 1-based place among every temp entity the demo carried — `CL_FireEvents`' order (B505); 0 when unknown.</summary>
+    public int TempEntity { get; init; }
+
+    /// <summary>Whether it came reliably (a zero count), which a demo skip still queues (B504).</summary>
+    public bool Reliable { get; init; }
+
     /// <summary>`m_nDefID` when no item fired the blast — `C_TETFExplosion`'s constructor sets −1.</summary>
     public const int NoItem = -1;
 

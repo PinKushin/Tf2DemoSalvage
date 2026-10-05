@@ -29,10 +29,12 @@ public sealed class ShotFeed
     /// <param name="effect">The decoded effect.</param>
     /// <param name="tick">The demo tick its packet arrived on.</param>
     /// <param name="shooter">The player at an entity index as the client's list has them now, or null.</param>
+    /// <param name="tempEntity">Its place among all the demo's temp entities, or 0.</param>
+    /// <param name="reliable">Whether it came reliably.</param>
     /// <returns><c>true</c> when it was a shot and was recorded.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>An unsent field is the client's default: mode 0, not critical, player 0.</remarks>
-    public bool Record(string className, DecodedTempEntity effect, int tick, Func<int, ShotShooter?> shooter)
+    public bool Record(string className, DecodedTempEntity effect, int tick, Func<int, ShotShooter?> shooter, int tempEntity = 0, bool reliable = false)
     {
         ArgumentNullException.ThrowIfNull(className);
         ArgumentNullException.ThrowIfNull(effect);
@@ -73,7 +75,7 @@ public sealed class ShotFeed
         // `FX_FireBullets( NULL, m_iPlayer + 1, … )` — the wire carries the player one below the entity.
         int entity = player + 1;
 
-        _shots.Add(new SceneShot(tick, entity, origin, pitch, yaw, weapon, mode, seed, spread, critical, shooter(entity)));
+        _shots.Add(new SceneShot(tick, entity, origin, pitch, yaw, weapon, mode, seed, spread, critical, shooter(entity)) { TempEntity = tempEntity, Reliable = reliable });
 
         return true;
     }
