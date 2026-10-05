@@ -1,6 +1,18 @@
-# Tf2DemoSalvage 0.1.0-beta.27
+# Tf2DemoSalvage 0.1.0-beta.28
 
-## Changes since 0.1.0-beta.26
+## Changes since 0.1.0-beta.27
+
+- **Game sound scripts are read as the game reads them.** A script's volume, pitch and sound level are parsed and
+  stored the way the game's sound system does, so a few shipped scripts now play at a slightly different volume
+  (tiny differences) (B487).
+- **Sounds are drawn in the game's order.** For a script sound the viewer now picks volume, pitch, wave and sound
+  level in the order the game does (B502).
+- **A footstep with a single wave keeps its pitch and sound level per foot,** reusing the first draw as the game
+  does, instead of redrawing each step (B502).
+- **The medigun loop plays at pitch 100,** not the script's pitch (B502).
+- **The sound of a corpse sliding uses the script's channel and volume** (B502).
+
+## Changes in 0.1.0-beta.27
 
 - **Soundscapes switched by map triggers now play.** A `trigger_soundscape` volume linked to an
   `env_soundscape_triggerable` changes the ambience when you enter or leave it, as in the game (71 such
@@ -293,6 +305,11 @@ Each claim below is a measurement, not an expectation.
   this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
   control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
   ear in a played demo.
+- **Sound script values and draw order** (beta.28): synthetic tests with exact values cover the narrowed volume,
+  pitch and sound level, the draw order, the per-foot footstep cache, the medigun pitch and the friction sound's
+  channel and volume; a shipped script's volume is checked against the game's stored value. Each part was reverted
+  alone and reddened exactly its test. Settled in the game's sound-emitter binary and published source (B487,
+  B502). Not yet checked by ear in a played demo.
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -315,6 +332,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Trigger soundscape limits (B483):** the camera has no body, so a view can enter a trigger up to 24 units
   later than a player would; the Enable and Disable inputs are not recorded in a demo, so a trigger the map turns
   off mid-match is not followed.
+- **Sound waves can repeat (B503):** the game deals a script's waves like a deck and never repeats one until all
+  have played; the viewer picks each at random, so the same wave can come twice in a row.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
