@@ -78,19 +78,13 @@ public sealed record DemoHeader
     /// <exception cref="InvalidDataException">The file stamp is not <c>HL2DEMO</c>.</exception>
     public static DemoHeader Parse(ReadOnlySpan<byte> data)
     {
+        CheckStamp(data);
+
         if (data.Length < SizeBytes)
         {
             throw new EndOfStreamException(string.Create(
                 CultureInfo.InvariantCulture,
                 $"A demo header is {SizeBytes} bytes, but only {data.Length} are available."));
-        }
-
-        string stamp = ReadFixedText(data[..StampWidth]);
-        if (!string.Equals(stamp, ExpectedStamp, StringComparison.Ordinal))
-        {
-            throw new InvalidDataException(string.Create(
-                CultureInfo.InvariantCulture,
-                $"Expected the file stamp '{ExpectedStamp}' but found '{stamp}'."));
         }
 
         float seconds = BitConverter.ToSingle(data[1056..]);
@@ -126,6 +120,36 @@ public sealed record DemoHeader
             PlaybackFrames = frames,
             SignonLengthBytes = signon,
         };
+    }
+
+    /// <summary>Rejects a file that does not start with the demo stamp, however short it is.</summary>
+    /// <param name="data">The start of the file; any length.</param>
+    /// <exception cref="InvalidDataException">The bytes present contradict <c>HL2DEMO</c>.</exception>
+    /// <remarks>
+    /// **Before the length check, which is the engine's order**: <c>CDemoFile::Open</c> reports
+    /// <c>"%s has invalid demo header ID."</c> (string read from the shipped <c>engine.dll</c>). A short
+    /// file with the wrong stamp is not a truncated demo, and calling it one hid an LFS pointer behind
+    /// "only 130 bytes are available". A prefix of the stamp passes, so a truncated real demo still
+    /// reports its length.
+    /// </remarks>
+    public static void CheckStamp(ReadOnlySpan<byte> data)
+    {
+        ReadOnlySpan<byte> present = data[..Math.Min(data.Length, StampWidth)];
+        ReadOnlySpan<byte> expected = "HL2DEMO\0"u8;
+
+        if (present.SequenceEqual(expected[..present.Length]))
+        {
+            return;
+        }
+
+        string stamp = ReadFixedText(present);
+        string lfs = data.StartsWith("version https://git-lfs"u8)
+            ? " It is a Git LFS pointer, not the demo: run git lfs pull."
+            : string.Empty;
+
+        throw new InvalidDataException(string.Create(
+            CultureInfo.InvariantCulture,
+            $"invalid demo header ID: expected '{ExpectedStamp}' but found '{stamp}'.{lfs}"));
     }
 
     /// <summary>

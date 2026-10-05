@@ -1344,8 +1344,9 @@ internal class MainForm : Form, IFrameSteps
             }
             else if (initialPaths.Length == 1)
             {
-                _demoLog.LogWarning(
-                    "{Message}", $"{initialPaths[0]} is not a file that exists; nothing was opened");
+                string missing = $"{initialPaths[0]} is not a file that exists; nothing was opened";
+                _demoLog.LogWarning("{Message}", missing);
+                Shown += (_, _) => FailHeadless(missing);
             }
             else
             {
@@ -3075,8 +3076,47 @@ internal class MainForm : Form, IFrameSteps
     /// **Held in <see cref="Loading"/> by the <c>Shown</c> handler, never <c>async void</c>** — the owner's rule, and the
     /// playlist's pattern: *"we dont async void, we do pass back"*.
     /// </remarks>
-    public Task<DemoLoadResult> OpenCommandLineDemo() =>
-        _openOnShow is null ? NothingSelected : LoadDemoAsync(_openOnShow);
+    public async Task<DemoLoadResult> OpenCommandLineDemo()
+    {
+        if (_openOnShow is null)
+        {
+            return await NothingSelected.ConfigureAwait(true);
+        }
+
+        DemoLoadResult result = await LoadDemoAsync(_openOnShow).ConfigureAwait(true);
+
+        if (result.Outcome == DemoLoadOutcome.Failed)
+        {
+            FailHeadless(result.Message);
+        }
+
+        return result;
+    }
+
+    /// <summary>Whether this run was asked for a capture or a measurement rather than for a person.</summary>
+    private bool IsHeadless => _launch.ShotPath is not null || _launch.MeasureSeconds is not null;
+
+    /// <summary>Ends a headless run whose command-line demo cannot be opened: stderr, exit 1, close.</summary>
+    /// <param name="reason">What went wrong, naming the file.</param>
+    /// <remarks>
+    /// **The load failed in milliseconds and `--shot` then waited out its patience** — tens of thousands
+    /// of empty frames, minutes at 60 fps — before exiting ZERO with nothing written, and `--measure`
+    /// never ended at all, since no playback ever starts. Both wait on a demo; a load that has already
+    /// failed is not one that might still arrive. A person's window just shows the status line.
+    /// </remarks>
+    private void FailHeadless(string reason)
+    {
+        if (!IsHeadless)
+        {
+            return;
+        }
+
+        _log.LogError("{Message}", $"{reason}; the headless run stops");
+        Console.Error.WriteLine(reason);
+        Environment.ExitCode = 1;
+        _opening.TakeShotPath();
+        BeginInvoke(Close);
+    }
 
     /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>
     private void StopCorpseRecord()
@@ -9112,7 +9152,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void AskForGameFolderIfMissing()
     {
-        bool headless = _launch.ShotPath is not null || _launch.MeasureSeconds is not null;
+        bool headless = IsHeadless;
         string? found = _maps.GameFolder();
 
         // Logged before any dialog: the UI test's control that discovery really failed.
