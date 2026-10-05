@@ -151,6 +151,17 @@ public sealed class ParticleStore
     /// <summary>The collection's <c>m_nRandomSeed</c>, which every draw's index starts from (B469).</summary>
     public int Seed { get; init; }
 
+    /// <summary>How many draws the collection has made — `m_nRandomQueryCount` (+0x2740), 0 from the constructor (B495).</summary>
+    public int Queries { get; private set; }
+
+    /// <summary>`m_nRandomQueryCount++`: the next draw's sample id, which <see cref="ParticleRandom"/> adds the seed to.</summary>
+    /// <returns>The count before it advances.</returns>
+    /// <remarks>
+    /// **Per collection and part of its state**, so a collection replayed from its start, as a seek does, draws the same
+    /// numbers in the same order.
+    /// </remarks>
+    public int Query() => Queries++;
+
     /// <summary>How long the system has been running, in seconds.</summary>
     public float Age { get; private set; }
 
@@ -329,13 +340,24 @@ public sealed class ParticleStore
     public void Tick(float seconds)
     {
         Age += seconds;
-        PreviousStep = LastStep;
         LastStep = seconds;
         Steps++;
     }
 
-    /// <summary>The step before the last — the collection's `m_flPreviousDt`, which the integrator scales by; zero before a second step.</summary>
-    public float PreviousStep { get; private set; }
+    /// <summary>The collection's `m_flPreviousDt`, which the integrator and the velocity initializers scale by (B494).</summary>
+    /// <remarks>
+    /// **Not the sub-step before this one.** The constructor and `SimulateFirstFrame` store 0.05 (`0x3d4ccccd` at +0x40),
+    /// and `Simulate` stores the call's WHOLE `dt` once its sub-steps and children are done (`particles.obj`). So every
+    /// sub-step of a call reads the previous call's length, and the first call reads a twentieth.
+    /// </remarks>
+    public float PreviousStep { get; private set; } = FirstPreviousStep;
+
+    /// <summary>`m_flPreviousDt` before any call, `0x3d4ccccd`.</summary>
+    public const float FirstPreviousStep = 0.05f;
+
+    /// <summary>Records a finished `Simulate` call's whole length as `m_flPreviousDt`.</summary>
+    /// <param name="seconds">The call's `dt`.</param>
+    public void EndCall(float seconds) => PreviousStep = seconds;
 
     /// <summary>How many steps the clock has taken, which keys a draw the engine makes afresh every frame.</summary>
     public int Steps { get; private set; }

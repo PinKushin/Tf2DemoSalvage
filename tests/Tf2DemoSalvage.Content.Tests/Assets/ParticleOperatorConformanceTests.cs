@@ -34,10 +34,29 @@ public sealed class ParticleOperatorConformanceTests
 
         particles.Add(new Vector3(1f, 0f, 0f), lives: 10f);
 
+        // The previous call was this step's length, so `dt / m_flPreviousDt` is 1 (B494).
+        particles.EndCall(1f / 66f);
+
         // Place it as though it had already travelled one unit along x.
-        Step(particles, "Movement Basic", None, seconds: 0f, previous: new Vector3(0f, 0f, 0f));
+        Step(particles, "Movement Basic", None, seconds: 1f / 66f, previous: new Vector3(0f, 0f, 0f));
 
         particles.PositionOf(0).X.ShouldBe(2f, 0.0001d);
+    }
+
+    /// <remarks>
+    /// The carried step is scaled by `dt / m_flPreviousDt`, and a collection that has run no call has 0.05 there (B494): a
+    /// fortieth-of-a-second step carries half the gap.
+    /// </remarks>
+    [Test]
+    public void MovementBasic_BeforeAnyCall_ScalesByTheFirstFramesTwentieth()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(new Vector3(1f, 0f, 0f), lives: 10f);
+
+        Step(particles, "Movement Basic", None, seconds: 0.025f, previous: Vector3.Zero);
+
+        particles.PositionOf(0).X.ShouldBe(1.5f, 1e-5d);
     }
 
     [Test]
@@ -76,6 +95,7 @@ public sealed class ParticleOperatorConformanceTests
             ["drag"] = new DmxValue(DmxAttributeType.Real, Number: 0.1d),
         };
 
+        particles.EndCall(1f / 66f);
         Step(particles, "Movement Basic", drag, seconds: 1f / 66f, previous: Vector3.Zero);
 
         particles.PositionOf(0).X.ShouldBe(1f + MathF.Exp(MathF.Log(0.9f) * 29.999998f / 66f), 1e-5d);

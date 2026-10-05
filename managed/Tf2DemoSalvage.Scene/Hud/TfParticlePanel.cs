@@ -394,7 +394,7 @@ public sealed class TfParticlePanel : VguiEditablePanel
                 return;
             }
 
-            System = new ParticleEffect(system, systems, sheets);
+            System = new ParticleEffect(system, systems, sheets, ParticleEffects.NextCreatedSeed());
             Name = systemName;
 
             if (StartActivated)
@@ -460,7 +460,7 @@ public sealed class TfParticlePanel : VguiEditablePanel
                 // "Loop if we're supposed to".
                 if (Loop && Name.Length > 0 && !ForceStopped && systems is not null && systems.TryGetValue(Name, out ParticleSystem? again))
                 {
-                    System = new ParticleEffect(again, systems, sheets);
+                    System = new ParticleEffect(again, systems, sheets, ParticleEffects.NextCreatedSeed());
                     Emitting = true;
                 }
 

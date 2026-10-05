@@ -35313,3 +35313,117 @@ model 58) stopped its packet with *"Unrecognised message id 42 at bit 9202"* whe
 `log2(capacity) + 1`, 13 until the table is seen; reader and writer both use it. Test:
 `SkippableMessageTests.BspDecal_WithA2048ModelPrecache_ReadsTwelveModelBits`; output level:
 `CorpusTraceTests.EveryDemo_TracesWithoutAnUnreadableBlock` over the specimen, which is what found it.
+
+## B490 — HUD particle and model panels created every collection with seed 0; the engine seeds each one distinctly — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::Init` turns a zero seed into `(int)this + Plat_MSTime()`
+(B469), so no two live collections share one. B469 left `TfParticlePanel.Effect.SetParticleSystem` (both the first
+creation and the loop's remake) and `VguiBaseModelPanel.CreateParticleData` at 0, so two panels' copies of a system,
+and both eyes' glows, drew identically.
+
+**Fix (D136's stand-in):** `ParticleEffects.NextCreatedSeed()`, a process-wide creation count through `SeedFor`. It is
+distinct per collection as the pointer is, and repeats given the same creation order; the clock is dropped. Tests:
+`CModelPanelConformanceTests.ParticlePanel_TwoEffectsOfOneSystem_AreSeededDistinctlyAndNonZero`,
+`TfPlayerModelPanelConformanceTests.CreateParticleData_TwoCollections_AreSeededDistinctlyAndNonZero`. Sabotaged at the
+panel's first creation and at `CreateParticleData`, both reddened. **Not covered by a test:** the loop's remake, the
+same one-argument change.
+
+## B491 — `initial_particles` was never created; `SimulateFirstFrame` makes them before the first step — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::SimulateFirstFrame` (`particles.obj`) runs before
+`Simulate`'s `dt` test. With `m_flDt` 0 it creates `min( m_nInitialParticles, m_nMaxAllowedParticles )` particles and
+runs every initializer on them, then `InitParticleAttributes` and `CopyInitialAttributeValues`. `rockettrail` declares
+`initial_particles 1`.
+
+**Fix:** `ParticleEffect.CreateInitial` on the first frame, through the same spawn as the emitters. `SpawnAt` takes
+`GetControlPointAtTime`'s `dt == 0` arm, the present position. Tests:
+`ParticleSimulateConformanceTests.Step_TheFirstStep_CreatesTheInitialParticlesUpToTheCap` and
+`…Step_AZeroFirstStep_StillCreatesTheInitialParticles`. Both were red without it; removing the `dt == 0` guard reddened the
+first with a NaN position. The arm's value (1 rather than 0) is equivalent, because the first frame has just set the
+previous points to the present ones. **Output level, for B490-B496 together:**
+`RocketTrailOutputTests.Update_ARocketsFirstTickFromARealDemo_DrawsItsInitialPuffOnTheRocket` runs z1800's rocket 573
+through `ParticleEffects` with the installed `rockettrail` (which declares `emission_rate 150`, not the 128 older notes
+quote). It asserts three puffs on the first tick, aged 0.015, 0.0075 and 0, the initial one within two units of the
+rocket, and at least 18 corners reaching the batches. Zeroing `initial_particles` reddened it. **Not built:** `SimulateFirstFrame`'s pre-emitter operators
+(`ShouldRunBeforeEmitters`: `C_OP_RemapSpeedtoCP`, `C_OP_SetControlPointPositions`, `…ToCenter`, `…ToPlayer`), none
+of which this project implements.
+
+## B492 — a particle step ran whole; the engine cuts it into sub-steps of the definition's maximum time step — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::Simulate` (`particles.obj`) runs emit and operate in
+sub-steps of `m_flMaximumTimeStep` ("maximum time step", default 0.1), at most ten a call. While the collection's
+simulated-frame count is within "minimum rendered frames", it clamps the call to the time left before "maximum sim tick
+rate" (`m_flMaximumSimTime`), but never below "minimum sim tick rate". Children cut the parent's whole step themselves.
+Findings 58 quotes the loop. `ParticleEffect` ran every call as one step, so a HUD panel's real-time half second, or a
+viewer frame after a stall, was one integration of any length. B470 filed it under the name "maximum sim tick", which
+is in fact the sim-time clamp.
+
+**Fix:** `ParticleEffect.Simulate` cuts the call and runs `SubStep` per piece; the previous control points still move
+once per call. Tests: `ParticleSimulateConformanceTests` (6) — three sub-steps by default, a declared step, the ten-step
+cap, the maximum sim time on the first frame only, the minimum past it, a child's own step. Sabotaged: the sub-step size,
+the ten-step cap and the sim-time clamp each reddened their tests. **Tests changed by it:** `ParticleCreationTimeConformanceTests`'
+systems now declare a one-second step, so each quarter-second case still reads one emission. The slam in
+`CModelPanelConformanceTests` emits 32 for half a second, not 33, because five float sub-steps sum just under 33.
+
+## B493 — a burst at `max_particles` stopped owing entirely; the engine drops only the refused part of the step's share — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_OP_InstantaneousEmitter::Emit` (`builtin_particle_emitters.obj`):
+`share = min( owed, per frame )`, `emitted = min( share, room, num_to_emit · g_nParticle_Multiplier )`, `owed −= share`.
+B470 filed the divergence: `EmitBurst` set the debt to 0 at the first refused spawn.
+
+**Fix:** `EmitBurst` takes the share, emits what fits and subtracts the whole share.
+`ParticleSimulateConformanceTests.Step_ABurstAtItsCap_KeepsOwingWhatItsShareDidNotCover` (four owed, two a frame, room for
+one: unfinished after the first step, finished after the second). Sabotaged to subtract only what was emitted, it reddened.
+**Not reproduced:** `g_nParticle_Multiplier`, which is 1 unless a detail setting changes it.
+
+## B494 — the velocity initializers scaled by the step; the engine scales by `m_flPreviousDt`, 0.05 on the first call — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `C_INIT_CreateWithinSphere::InitNewParticlesScalar` and
+`C_INIT_MoveBetweenPoints::InitNewParticlesScalar` (`builtin_initializers.obj`) scale `PREV_XYZ`'s offset by
+`*(collection + 0x40)`. That is `m_flPreviousDt`: 0.05 from the constructor and `SimulateFirstFrame`, then the whole `dt`
+of each `Simulate` call, stored after the children run (`particles.obj`). `C_OP_BasicMovement` divides by it. Ours passed
+the step to the initializers and kept `ParticleStore.PreviousStep` as the previous sub-step, starting at 0.
+
+**Fix:** `PreviousStep` starts at `FirstPreviousStep` (0.05), is set by `EndCall` with the call's whole step, and is
+what `ParticleEffect` hands the initializers. Tests: `ParticleSimulateConformanceTests.PreviousStep_BeforeAndAfterACall_…`,
+`…Step_ASphereSpeedOnTheFirstCall_…`, `…OnALaterCall_…`, `…Step_ATracerOnTheFirstCall_…` and
+`ParticleOperatorConformanceTests.MovementBasic_BeforeAnyCall_ScalesByTheFirstFramesTwentieth`. Sabotaged: the step passed
+instead reddened the three launch tests; dropping `EndCall` together with a zero start reddened all five. **Tests changed:**
+two `MovementBasic` cases on a bare store now record a previous call of their own length, as a collection mid-run has.
+
+## B495 — initializers keyed their draws by particle id; a seeded collection draws `m_nRandomSeed + m_nRandomQueryCount++` — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** every `InitNewParticlesScalar` in `builtin_initializers.obj` indexes the table
+with the collection's query count (+0x2740) plus its seed (+0x2744) and increments the count. On a seeded collection,
+`SimulateFirstFrame` and `InitializeNewParticles` (`particles.obj`) run each initializer that is not scrub-safe once per
+new particle, initializer by initializer, over each emitter call's batch. `C_OP_InstantaneousEmitter::InitializeContextData`
+draws the count at `Init`. Per-initializer draw counts are tabulated in `ParticleQueryConformanceTests` and findings 58. Our
+port keyed by `PARTICLE_ID` plus a constant per initializer, spawned particle-major, drew the sphere's local speed once
+for all three axes, ignored the four `*_random_exponent`s, and drew the burst count at first emission.
+
+**Fix:** `ParticleStore.Query()` is the count. `ParticleSystems.Birth` adds a particle and `ParticleSystems.Initialize`
+runs initializer-major over a batch. `ParticleEffect` births each emitter call's particles and then initializes them, and
+draws burst counts in its constructor. The per-initializer draw constants are gone. Tests: `ParticleQueryConformanceTests`
+(4): initializer-major order, the count first, three local-speed draws, the offset's doubled seed. They were red by
+compile failure (no query count). Sabotaged: particle-major order, one local-speed draw, the offset without the second
+seed, and a fixed count index each reddened its test. **Tests changed:** three that named a removed draw constant now
+name the query. **Not built:** the unseeded block path; "randomly distribute to highest supplied Control Point";
+`InitMultipleOverride`'s second pass; `InitializeContextData` of operators other than the burst, whose draws are unread.
+**The table's contents are still this project's own** (`ParticleRandom`), so this matches the ORDER and the indices, not the
+values.
+
+## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)
+loops the 64 control points and stores position, previous position, forward, up and right from `vec3_origin`. B471
+saw this in passing. `ParticleEffect` filled unset points, and both `ParticleSystems` and `PathConstraint` fell back for
+a missing one, with `ParticleControlPoint.Unoriented(Vector3.Zero)`, the identity. A local-space initializer on an unset
+point therefore moved its particle along world axes, and an invalid basis on a fresh point kept the identity rather
+than zero.
+
+**Fix:** `ParticleControlPoint.Unset` (all zero) at the three sites; `Unoriented` stays a caller's fallback. Tests:
+`ParticleEffectConformanceTests.ControlPoint_NeverSet_IsTheOriginWithZeroAxes`, `…SetControlPoint_ALaterPoint_LeavesTheGapWithZeroAxes`,
+`…SetControlPoint_AnInvalidBasisOnAFreshPoint_KeepsZeroAxes` and
+`ParticleInitializerConformanceTests.Spawn_PositionModifyOffsetRandomInLocalSpaceOnAnUnsetPoint_OffsetsNothing`. Sabotaged
+back to the identity at the fill and in `ParticleSystems`, three of them reddened; the untouched `ControlPoint` fallback
+keeps the fourth.

@@ -521,6 +521,95 @@ unless every pair of forward, right and up is within 0.1 of perpendicular (`part
 inverted 5..2. The burst emitter's count draw (`C_OP_InstantaneousEmitter::InitializeContextData`) likewise has no case
 for a minimum at or above `num_to_emit`.
 
+## The follow-ups: the step, the query stream and the unset point
+
+The 2026-10-04 audit's leftovers (B490-B496), each read again in the same objects. *Read in the disassembly; decompiler
+output used only for shape.*
+
+**Every collection is seeded, the HUD's included.** B469 left a HUD particle panel's and a model panel's collections at
+seed 0, on the argument that they run on wall-clock time. But `Init` never keeps a zero: it becomes `(int)this +
+Plat_MSTime()`, distinct for every live collection. A seed of 0 made two panels' copies of one system draw identically,
+which the engine never does. The panels now take `ParticleEffects.NextCreatedSeed()`, the creation count through the same
+hash `SeedFor` uses: distinct like the pointer, and repeatable given the same order of creation (B490).
+
+**One `Simulate` call is several steps.** The loop in `?Simulate@CParticleCollection@@QEAAXM_N@Z`:
+
+```
+step = def+0x204 > 0 ? def+0x204 : 0.1                 ; m_flMaximumTimeStep, "maximum time step"
+if ( def+0x208 != 0 and [this+0x2728] <= def+0x210 )   ; m_flMaximumSimTime "maximum sim tick rate", m_nMinimumFrames
+    if ( def+0x208 < curtime + dt )  dt = max( def+0x208 − curtime, def+0x20c )   ; "minimum sim tick rate"
+    [this+0x2728]++
+left = min( dt, step · 10 )
+do { m_flDt = min( left, step ); left −= m_flDt; m_flCurTime += m_flDt;
+     pre-emitter operators; emitters + InitializeNewParticles; operators } while ( left > 0 )
+children: Simulate( dt );  m_flPreviousDt = dt;  UpdatePrevControlPoints
+```
+
+The unpack table names the fields: the strings `maximum time step`, `0.1`, `maximum sim tick rate`, `minimum sim tick rate`
+and `minimum rendered frames` sit in that order beside the `CParticleSystemDefinition` members `particles.h:2228-2233`
+declares. **The name misleads:** "maximum sim tick rate" is a TIME, the most a new collection simulates before it is
+drawn, and not a rate. The sub-step size is "maximum time step". The previous control points move only after the whole
+call, so each sub-step's `GetControlPointAtTime` lerps from the call's start across a window one sub-step wide. That
+is what the engine computes, so it is reproduced. Two results of the float arithmetic are reproduced as well: a declared
+0.05 is just over a twentieth, so a quarter second takes six sub-steps, not five; and half a second at 66 a second in
+five 0.1 sub-steps emits 32 particles, not 33 (B492).
+
+**The first frame makes particles of its own.** `SimulateFirstFrame` sets `m_flDt = 0` and `m_flPreviousDt = 0.05`,
+copies the control points to their previous positions, runs the operators that ask to run before the emitters, and then
+creates `min( def+8, [this+100] )` particles — `m_nInitialParticles`, "initial_particles", against
+`m_nMaxAllowedParticles` — and runs every initializer on them. It runs before `Simulate`'s `dt` test, so a zero first
+step makes them too. `rockettrail` declares `initial_particles 1`, so every rocket's trail starts with one puff before
+its emitter has emitted. This port created none (B491).
+
+**A particle's launch speed is scaled by the PREVIOUS call's length.** `C_INIT_CreateWithinSphere` and
+`C_INIT_MoveBetweenPoints` both write `PREV_XYZ = XYZ − velocity · *(collection + 0x40)`, and +0x40 is `m_flPreviousDt`.
+The constructor and `SimulateFirstFrame` set it to `0x3d4ccccd`, 0.05, and `Simulate` stores the call's whole `dt` there
+after its children. `C_OP_BasicMovement` multiplies the carried gap by `dt / m_flPreviousDt`, so the two cancel: a
+particle launched at v moves v · dt in its first sub-step, whatever the call before it was. This port scaled the
+initializer by the sub-step and kept `PreviousStep` as the sub-step before, 0 at first, and the movement skipped the
+ratio at 0. That agreed for one step at a constant rate and drifted wherever the rate changed (B494).
+
+**A burst at its cap still owes the rest.** `C_OP_InstantaneousEmitter::Emit` takes `share = min( owed, maximum
+emission per frame )`, emits `min( share, max_particles − active, num_to_emit · g_nParticle_Multiplier )`, and stores
+`owed − share`. The cap loses only the part of the share it refused, and later steps still emit the rest when room frees.
+This port zeroed the debt the first time a spawn was refused, which ended a large blast early in a busy collection (B493).
+
+**A seeded collection's initializers draw from a stream, not by particle.** Each `InitNewParticlesScalar` in
+`builtin_initializers.obj` reads `[collection+0x2740]`, the query count, stores it plus one, and indexes
+`s_pRandomFloats[ ( [collection+0x2744] + count ) & 0xfff ]`, which is the inline `RandomFloat( m_nRandomQueryCount++, … )`.
+On a seeded collection, `SimulateFirstFrame` and `InitializeNewParticles` call every initializer that is not scrub-safe
+as `InitNewParticlesScalar( i, 1 )` for each new particle, one initializer at a time. So the order of draws is
+initializer-major over each emitter's batch. B469's port keyed every draw by `PARTICLE_ID` plus a per-initializer
+constant, the four-wide block path, which the unseeded client uses and which a seeded collection never takes. The same
+reading settled four details that were carried as guesses:
+
+- **`Color Random` is one draw for all three channels**, as the port had *interpolated*.
+- **The sphere's local speed is three draws**, one per axis; the port took one for all three. Its outward speed draws
+  only when `speed_max` > 0, so a system without one shifts every later draw by one.
+- **`Position Modify Offset Random` counts the seed twice**: `RandomVector( query, … )` computes `seed + query` and calls
+  `RandomFloat`, which adds the seed again — `uVar1 = query + seed · 2` in the disassembly. A Valve bug, reproduced.
+- **`Lifetime`, `Radius`, `Alpha` and `Rotation Random` are `RandomFloatExp`**, with `lifetime_random_exponent`,
+  `radius_random_exponent`, `alpha_random_exponent` and `rotation_random_exponent` (names from the unpack strings, default 1).
+
+A burst's count is drawn in `InitializeContextData` at `Init`, before any particle, so it is query 0 (B495).
+
+**`C_OP_PositionLock` was re-read and agrees, clause by clause** (`?Operate@C_OP_PositionLock@@…`,
+`builtin_particle_ops.obj`): the context's previous position is re-seeded whenever it is exactly the origin; delta is
+`( m_Position − previous ) · strength`; each particle's share is `min( curtime − CREATION_TIME, m_flDt ) / m_flDt`; the
+fade window applies only when `start_fadeout_min < 1`, drawing `pow( r, exponent·4 / 4 )` for both ends; the distance
+fade is `d / ( ( 1 − d ) · 3 + 1 )` with `d = min( 1, |pos + moved − cp| / range )`; lock rotation lerps position and
+`PREV_XYZ` toward `( current · previous⁻¹ ) · p`; and the context keeps the current position and transform. Three things
+differ, none of them a port error. **Operator strength** (the `param_3` multiplying delta, and the `1 − f · strength` of
+the windowless branch) is 1 here, because nothing in this project evaluates operator fades. That is a gap shared by
+every operator, filed in the list below. **`1 / LIFE_DURATION` is an `rcpps` approximation** in the engine and an exact
+division here; the difference is in the twelfth bit. **The window's two draws come from the global SIMD random stream**,
+`RandSIMD`, which no replay can reproduce, so they stay keyed by particle and step (D136).
+
+**An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
+control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
+port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer
+rotating by an unset point's frame moved its particle along the world's axes where the engine moves it nowhere (B496).
+
 ## What is not established
 
 - **How a stop matches layered static sounds** — B416. The layering itself is settled below.

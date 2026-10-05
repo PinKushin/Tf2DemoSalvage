@@ -153,10 +153,6 @@ public sealed class ParticleEffect
     /// <summary>The one-shot emitter — what an explosion is made of.</summary>
     private const string BurstEmitter = "emit_instantaneously";
 
-    /// <summary>Which of <c>ParticleRandom</c>'s channels a burst's own count is drawn from.</summary>
-    /// <remarks>Its own, so a burst's size does not move when a spawn-time random beside it changes.</remarks>
-    private const int BurstCountChannel = 11;
-
     /// <summary>The systems this one runs alongside itself.</summary>
     /// <remarks>
     /// **A child is a full collection, not a decoration.** `rockettrail` declares two —
@@ -196,8 +192,8 @@ public sealed class ParticleEffect
     /// `children` gets the seed plus 129 × k, unresolved entries counted, and an unseeded parent's children are unseeded.
     /// The TF2 client creates every effect unseeded, so its seeds are a pointer and a clock — an input no demo carries.
     /// **D136's adaptation:** a caller that can seek passes a seed fixed by the effect's identity, which is the engine's
-    /// own seeded path; a zero seed here stays zero rather than becoming a pointer and a clock, so a test, or a HUD panel
-    /// that runs on wall-clock time anyway, is at least reproducible.
+    /// own seeded path; a zero seed here stays zero rather than becoming a pointer and a clock, so a test is reproducible.
+    /// The HUD's panels pass a distinct seed per collection instead (`ParticleEffects.NextCreatedSeed`, B490).
     /// </remarks>
     public ParticleEffect(
         ParticleSystem system,
@@ -211,6 +207,21 @@ public sealed class ParticleEffect
         Particles = new ParticleStore { Seed = seed };
         _operators = ParticleOperators.All();
         _sheet = sheets?.Invoke(system);
+
+        // **`InitializeContextData`, at `Init`, before any particle** (B472, B495): a burst's count is drawn from the
+        // collection's query stream when the collection is made. A minimum of −1 means the count is exact, and it is what
+        // every emitter in the explosion path declares; any minimum of 0 or more draws `RandomInt` in
+        // `[minimum, num_to_emit]`, with no special case for a minimum at or above the count.
+        foreach (ParticleFunction emitter in system.Emitters)
+        {
+            if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
+            {
+                int count = (int)emitter.Number("num_to_emit", 0d);
+                int least = (int)emitter.Number("num_to_emit_minimum", -1d);
+
+                _bursts[emitter] = least < 0 ? count : ParticleRandom.Whole(seed, Particles.Query(), 0, least, count);
+            }
+        }
 
         List<ParticleEffect> children = [];
         int running = seed;
@@ -283,8 +294,8 @@ public sealed class ParticleEffect
     /// <param name="point">Where it is, and which way it faces.</param>
     /// <remarks>
     /// **Passed down to every child**, as the engine's own walks `m_Children` (`particles.h:1595`). Points between
-    /// the last one set and this one are the origin, which is what an unset control point is, and their previous
-    /// position is the origin too, as <c>CParticleControlPoint</c>'s constructor leaves it.
+    /// the last one set and this one are <see cref="ParticleControlPoint.Unset"/> — the origin with zero axes, previous
+    /// position the origin too — as `CParticleCollection`'s constructor leaves every one (B496).
     ///
     /// **The position always lands; the orientation only when it is a frame** (B471). The engine sets them in two
     /// calls, and <c>SetControlPointOrientation</c> applies forward, right and up only when <c>|forward·up|</c>,
@@ -298,7 +309,7 @@ public sealed class ParticleEffect
 
         while (_points.Count <= number)
         {
-            _points.Add(ParticleControlPoint.Unoriented(Vector3.Zero));
+            _points.Add(ParticleControlPoint.Unset);
             _previous.Add(Vector3.Zero);
         }
 
@@ -326,7 +337,7 @@ public sealed class ParticleEffect
     /// <param name="number">Which one.</param>
     /// <returns>The control point.</returns>
     public ParticleControlPoint ControlPoint(int number) =>
-        number >= 0 && number < _points.Count ? _points[number] : ParticleControlPoint.Unoriented(Vector3.Zero);
+        number >= 0 && number < _points.Count ? _points[number] : ParticleControlPoint.Unset;
 
     /// <summary>Advances the effect one step, emitting at the declared rate.</summary>
     /// <param name="at">Where the emitter is — the rocket's own position — which is control point 0.</param>
@@ -368,8 +379,18 @@ public sealed class ParticleEffect
     /// </code>
     /// **Emit, operate, reap.** A particle born this step is operated on this step, so it never appears at its raw spawn
     /// state; reaping last means one that died this step is gone before anything draws it. **A paused step simulates
-    /// nothing**, not even the previous positions, so the step after it lerps from where the last real one ended. Not
-    /// built: the sub-steps a step longer than the definition's `maximum sim tick rate` is split into.
+    /// nothing**, not even the previous positions, so the step after it lerps from where the last real one ended.
+    ///
+    /// **One call is several sub-steps** (B492), each its own `m_flDt`, read in the same function:
+    /// <code>
+    /// step = "maximum time step" &gt; 0 ? it : 0.1
+    /// if ( "maximum sim tick rate" != 0 and frames ≤ "minimum rendered frames" ):
+    ///     if ( curtime + dt &gt; maximum ):  dt = max( maximum − curtime, "minimum sim tick rate" );   frames++
+    /// left = min( dt, step · 10 );  while ( left &gt; 0 ):  m_flDt = min( left, step );  left −= m_flDt;  emit, operate
+    /// </code>
+    /// The previous control points are not updated between sub-steps, only after the call, so a sub-step lerps from the
+    /// call's start across a window one sub-step wide — the engine's arithmetic, reproduced rather than tidied. Children
+    /// are given the whole step and cut it themselves.
     /// </remarks>
     private void Simulate(float seconds, bool emit)
     {
@@ -377,6 +398,7 @@ public sealed class ParticleEffect
         {
             RememberPoints();
             _previousSet = true;
+            CreateInitial();
         }
 
         if (seconds < ShortestStep)
@@ -384,6 +406,82 @@ public sealed class ParticleEffect
             return;
         }
 
+        float step = ParticleSystems.Declared(System, "maximum time step", 0d) is var declared and > 0d
+            ? (float)declared
+            : DefaultMaximumStep;
+        float span = Clamped(seconds);
+        float left = MathF.Min(span, step * MaximumSteps);
+
+        while (left > 0f)
+        {
+            float sub = MathF.Min(left, step);
+
+            left -= sub;
+            SubStep(sub, emit);
+        }
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.Simulate(seconds, emit);
+        }
+
+        Particles.EndCall(seconds);
+        RememberPoints();
+    }
+
+    /// <summary>`SimulateFirstFrame`'s particles: `min( initial_particles, m_nMaxAllowedParticles )`, every initializer run (B491).</summary>
+    /// <remarks>
+    /// Created before the first step with `m_flDt` still 0, so `GetControlPointAtTime` gives each the point's present
+    /// position, and dated to the collection's present, 0. *Not built:* the operators `SimulateFirstFrame` runs first,
+    /// those that ask to run before the emitters (`ShouldRunBeforeEmitters`); no operator this project implements does.
+    /// </remarks>
+    private void CreateInitial()
+    {
+        int count = Math.Min(
+            (int)ParticleSystems.Declared(System, "initial_particles", 0d),
+            ParticleSystems.MaxParticles(System) - Particles.Count);
+
+        int first = Particles.Count;
+
+        for (int made = 0; made < count; made++)
+        {
+            BirthAt(Particles.Age);
+        }
+
+        InitializeFrom(first);
+    }
+
+    /// <summary>`m_flMaximumTimeStep`'s default, `"0.1"` in the unpack table and `0x3dcccccd` in `Simulate`.</summary>
+    private const float DefaultMaximumStep = 0.1f;
+
+    /// <summary>The `10.0f` a call's simulated span is capped at, in maximum steps.</summary>
+    private const float MaximumSteps = 10f;
+
+    /// <summary>`m_nSimulatedFrames`: the calls the maximum sim time has clamped.</summary>
+    private int _simulatedFrames;
+
+    /// <summary>The first frames' clamp to `maximum sim tick rate` (`m_flMaximumSimTime`), as `Simulate` applies it.</summary>
+    private float Clamped(float seconds)
+    {
+        float maximum = (float)ParticleSystems.Declared(System, "maximum sim tick rate", 0d);
+
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flMaximumSimTime != 0` test
+        if (maximum == 0f || _simulatedFrames > (int)ParticleSystems.Declared(System, "minimum rendered frames", 0d))
+#pragma warning restore S1244
+        {
+            return seconds;
+        }
+
+        _simulatedFrames++;
+
+        return maximum < Particles.Age + seconds
+            ? MathF.Max(maximum - Particles.Age, (float)ParticleSystems.Declared(System, "minimum sim tick rate", 0d))
+            : seconds;
+    }
+
+    /// <summary>One sub-step: the clock, emission, every operator, the reap.</summary>
+    private void SubStep(float seconds, bool emit)
+    {
         Particles.Tick(seconds);
 
         if (emit)
@@ -417,13 +515,6 @@ public sealed class ParticleEffect
         }
 
         Particles.Reap();
-
-        foreach (ParticleEffect child in Children)
-        {
-            child.Simulate(seconds, emit);
-        }
-
-        RememberPoints();
     }
 
     /// <summary>`UpdatePrevControlPoints`: every control point's position, kept as its previous one.</summary>
@@ -492,7 +583,7 @@ public sealed class ParticleEffect
         {
             if (string.Equals(emitter.Function, BurstEmitter, StringComparison.Ordinal))
             {
-                EmitBurst(emitter, seconds);
+                EmitBurst(emitter);
             }
             else if (string.Equals(emitter.Function, ContinuousEmitter, StringComparison.Ordinal))
             {
@@ -559,16 +650,19 @@ public sealed class ParticleEffect
 
         float step = (end - start) / count;
         float born = step + start;
+        int first = Particles.Count;
 
         for (int made = 0; made < count; made++)
         {
             born = MathF.Min(born, end);
-            SpawnAt(born, seconds);
+            BirthAt(born);
             born += step;
         }
+
+        InitializeFrom(first);
     }
 
-    /// <summary>Births one particle at its creation time, every control point read as it was then.</summary>
+    /// <summary>Every control point as it was at a creation time, into a reused list; point 0 is never missing.</summary>
     /// <remarks>
     /// `GetControlPointAtTime( cp, t )`, read in `particles.obj`, which every initializer here that reads a point's
     /// position uses at `CREATION_TIME` (`C_INIT_CreateWithinSphere`, `C_INIT_PositionOffset`, `C_INIT_MoveBetweenPoints`,
@@ -578,14 +672,19 @@ public sealed class ParticleEffect
     /// f = ( dt − ( curtime − t ) ) / dt,  0 when that is ≤ 0, and not clamped above
     /// ( m_Position − m_PrevPosition ) · f + m_PrevPosition
     /// </code>
-    /// The `dt == 0` arm serves only `SimulateFirstFrame`'s initial particles, which this project does not create; every
-    /// emission here happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
+    /// The `dt == 0` arm serves `SimulateFirstFrame`'s initial particles (B491), created before any step; every other
+    /// emission happens inside a step <see cref="Simulate"/> let through, so `dt` is positive. The orientation is the
     /// current one: `GetControlPointTransformAtTime` puts the lerped position under the point's present axes.
     /// </remarks>
-    private int SpawnAt(float born, float seconds)
+    private List<ParticleControlPoint> PointsAt(float born)
     {
         float dt = Particles.LastStep;
-        float along = MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
+
+        // The arm's VALUE is unobservable: on the first frame the previous points were just set to the present ones. What
+        // it prevents is 0 / 0, a NaN position.
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flDt == 0` arm
+        float along = dt == 0f ? 1f : MathF.Max((dt - (Particles.Age - born)) / dt, 0f);
+#pragma warning restore S1244
 
         _spawnPoints.Clear();
 
@@ -597,7 +696,46 @@ public sealed class ParticleEffect
             _spawnPoints.Add(now with { At = ((now.At - then) * along) + then });
         }
 
-        return ParticleSystems.Spawn(System, Particles, _spawnPoints[0], DefaultLifetime, seconds, _spawnPoints, _sheet, born);
+        if (_spawnPoints.Count == 0)
+        {
+            _spawnPoints.Add(ParticleControlPoint.Unset);
+        }
+
+        return _spawnPoints;
+    }
+
+    /// <summary>Adds one particle at its creation time, on control point 0 as it was then; no initializer has run.</summary>
+    private void BirthAt(float born) => ParticleSystems.Birth(System, Particles, PointsAt(born)[0].At, DefaultLifetime, born);
+
+    /// <summary>`InitializeNewParticles( first, count )`: every initializer over the particles born since <paramref name="first"/>.</summary>
+    /// <remarks>
+    /// **One batch per emitter call, initializer-major** (B495): the engine calls it once an emitter's `Emit` returns, for
+    /// all the particles that call added, and a seeded collection runs each initializer over every one of them before the
+    /// next. Each particle reads the control points at its own creation time. The velocity initializers scale by
+    /// `m_flPreviousDt`, not by this sub-step (B494).
+    /// </remarks>
+    private void InitializeFrom(int first)
+    {
+        int count = Particles.Count - first;
+
+        if (count <= 0)
+        {
+            return;
+        }
+
+        ParticleSystems.Initialize(
+            System,
+            Particles,
+            first,
+            count,
+            index =>
+            {
+                List<ParticleControlPoint> points = PointsAt(Particles.Born[index]);
+
+                return (points[0], points);
+            },
+            Particles.PreviousStep,
+            _sheet);
     }
 
     /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
@@ -626,10 +764,10 @@ public sealed class ParticleEffect
     ///
     /// **`C_OP_InstantaneousEmitter::Emit`, read in the disassembly of `builtin_particle_emitters.obj` (B470)**: every
     /// particle's `CREATION_TIME` is the start time — the context's start is 0 — however many steps the per-frame cap
-    /// spreads the burst over. *Not reproduced, and filed with B470:* at `max_particles` the engine drops only the refused
-    /// part of the step's share and keeps owing the rest, where this stops owing at all.
+    /// spreads the burst over. At `max_particles` only the refused part of the step's share is dropped, and the rest of
+    /// the count stays owed: `share = min( owed, per frame )`, `emitted = min( share, room )`, `owed −= share` (B493).
     /// </remarks>
-    private void EmitBurst(ParticleFunction emitter, float seconds)
+    private void EmitBurst(ParticleFunction emitter)
     {
         float start = (float)emitter.Number("emission_start_time", 0d);
 
@@ -638,39 +776,22 @@ public sealed class ParticleEffect
             return;
         }
 
-        // Stryker disable once : a mutated condition leaves 'owed' unassigned at its use below, CS0165 — B410.
-        if (!_bursts.TryGetValue(emitter, out int owed))
-        {
-            int count = (int)emitter.Number("num_to_emit", 0d);
-            int least = (int)emitter.Number("num_to_emit_minimum", -1d);
+        int owed = _bursts[emitter];
 
-            // **A minimum of −1 means the count is exact**, and it is what every emitter in the explosion path
-            // declares. Any minimum of 0 or more draws `RandomInt`-style in `[minimum, num_to_emit]` — with no special
-            // case for a minimum at or above the count (`InitializeContextData`, B472). The draw is keyed on the
-            // collection's own particle id the way every other spawn-time random is (`ParticleRandom`), so a burst
-            // replayed after a seek reproduces itself.
-            owed = least < 0
-                ? count
-                : ParticleRandom.Whole(Particles.Seed, Particles.Count, BurstCountChannel, least, count);
+        // `C_OP_InstantaneousEmitter::Emit` (B493): the step's share is taken off what is owed whether or not it fits;
+        // only the part of it the cap refuses is lost, and the rest stays owed.
+        int share = Math.Min(owed, (int)emitter.Number("maximum emission per frame", int.MaxValue));
+        int fits = Math.Min(share, ParticleSystems.MaxParticles(System) - Particles.Count);
+        int first = Particles.Count;
+
+        for (int born = 0; born < fits; born++)
+        {
+            BirthAt(start);
         }
 
-        int allowed = (int)emitter.Number("maximum emission per frame", int.MaxValue);
-        int born = 0;
+        InitializeFrom(first);
 
-        while (born < allowed && owed > 0)
-        {
-            if (SpawnAt(start, seconds) < 0)
-            {
-                // At `max_particles`: a system at its cap has not banked a debt, it simply did not emit.
-                owed = 0;
-                break;
-            }
-
-            born++;
-            owed--;
-        }
-
-        _bursts[emitter] = owed;
+        _bursts[emitter] = owed - Math.Max(share, 0);
     }
 
     /// <summary>What each burst emitter still owes, so it fires once rather than every step.</summary>

@@ -232,6 +232,26 @@ public sealed class CModelPanelConformanceTests
             .ShouldBe("Pyro", "INVADERS_ARE_PYRO: BLU is the pyros (:138-140)");
     }
 
+    /// <remarks>
+    /// `CParticleCollection::Init` gives an unseeded collection `(int)this + Plat_MSTime()` (B469), so two panels' slams
+    /// never draw alike; D136's stand-in is a distinct, reproducible, non-zero seed per created collection (B490).
+    /// </remarks>
+    [Test]
+    public void ParticlePanel_TwoEffectsOfOneSystem_AreSeededDistinctlyAndNonZero()
+    {
+        Dictionary<string, ParticleSystem> systems = new(StringComparer.OrdinalIgnoreCase) { ["versus_door_slam"] = Slam() };
+        TfParticlePanel.Effect first = new("versus_door_slam");
+        TfParticlePanel.Effect second = new("versus_door_slam");
+
+        first.SetParticleSystem("versus_door_slam", systems, _ => null);
+        second.SetParticleSystem("versus_door_slam", systems, _ => null);
+
+        int a = first.System.ShouldNotBeNull().Particles.Seed;
+        int b = second.System.ShouldNotBeNull().Particles.Seed;
+
+        (a != 0, b != 0, a != b).ShouldBe((true, true, true));
+    }
+
     [Test]
     public void ParticlePanel_TheResBlock_PlacesTheSlamAtTheCentreUnstartedUntilStart0()
     {
@@ -254,7 +274,9 @@ public sealed class CModelPanelConformanceTests
         viewport.Think(viewport.State with { RealTime = 10.5f });
         slam.Think();
 
-        effect.System.ShouldNotBeNull().Particles.Count.ShouldBe(33, "66 a second for half a second, on engine->Time()");
+        // Half a second on engine->Time() is five 0.1 sub-steps (B492); each adds ( curtime − ( curtime − dt ) ) · 66 in
+        // float, and the five sum to a hair under 33, so the floor emits 32 — the engine's own float arithmetic.
+        effect.System.ShouldNotBeNull().Particles.Count.ShouldBe(32, "66 a second for half a second, in five sub-steps");
     }
 
     [Test]

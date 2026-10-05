@@ -37,4 +37,13 @@ public readonly record struct ParticleControlPoint(
     /// </remarks>
     public static ParticleControlPoint Unoriented(Vector3 at) =>
         new(at, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>A control point nothing has set: the origin, with ZERO axes.</summary>
+    /// <remarks>
+    /// **`CParticleCollection`'s constructor stores every vector of all 64 points from `vec3_origin`** — position,
+    /// previous position, forward, up and right (`??0CParticleCollection` in `particles.lib`'s `particles.obj`, B496). So
+    /// an initializer that rotates by an unset point's frame rotates by nothing. Not <see cref="Unoriented"/>, whose
+    /// identity is a caller's fallback and not the engine's.
+    /// </remarks>
+    public static ParticleControlPoint Unset => default;
 }
