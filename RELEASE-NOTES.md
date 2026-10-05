@@ -1,6 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.25
+# Tf2DemoSalvage 0.1.0-beta.26
 
-## Changes since 0.1.0-beta.24
+## Changes since 0.1.0-beta.25
+
+- **Sounds a map ships in its own file now play.** Ambience, water and the like that live only inside the map
+  (pl_venice has 35) were silent; the viewer now looks in the map first and then in your install, as the game
+  does (B485).
+- **A map's own sound script overrides the stock entries.** `maps/<map>_level_sounds.txt` is read for the map
+  being played, and an MvM map reads its four MvM scripts; where two scripts name the same sound, the later one
+  wins, as in the game (B485).
+- **Workshop maps find their sound script:** the map name is cleaned the way the game cleans it, so a workshop
+  map's `_level_sounds.txt` is no longer missed (B485).
+
+## Changes in 0.1.0-beta.25
 
 - **The crosshair hides when TF2 hides it:** during an active minigame, under the match summary, while the
   player is frozen, and during the countdown before a competitive or casual round. The Ambassador's crosshair
@@ -262,6 +273,11 @@ Each claim below is a measurement, not an expectation.
   32-bit flag layouts and the Ambassador scale are covered by synthetic tests with exact values; footsteps in
   the 2008 SourceTV and 2009 POV specimens went from 0 to thousands of steps, with the 2013 specimen unchanged
   as control (B500, B501).
+- **Map-shipped sounds and level sound scripts** (beta.26): synthetic tests with exact values cover a map's file
+  shadowing the install's, extending it, being forgotten on the next map, a later script overriding an earlier
+  one, the MvM script order and workshop name cleaning; pl_venice's own wind sound is absent through the install
+  and decodes once the map's file is read. Override order was settled by reading the game's sound-emitter
+  binary (B485). Not yet checked by ear in a played demo.
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
@@ -283,8 +299,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   time, it stays at 0.75.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
-- **Sounds a map ships in its own files do not play** (pl_venice has 35) (B485). A map's own ambience *script*
-  does play (beta.19).
 - **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
 - **Part of the rope model is not ported:** impulses, rope shaking, holiday lights (B478).
 - **Cosmetics are not drawn in first person** (B186).
