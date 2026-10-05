@@ -65,6 +65,26 @@ public sealed class TfHudCrosshairConformanceTests
         crosshair.ShouldDraw(Alive("CTFWeaponPDA_Spy")).ShouldBeFalse();
     }
 
+    /// <remarks>`if ( CTFMinigameLogic::GetMinigameLogic() &amp;&amp; …->GetActiveMinigame() ) return false;` (tf_hud_crosshair.cpp:67).</remarks>
+    [Test]
+    public void ShouldDraw_InAnActiveMinigame_IsHidden()
+    {
+        (TfHudCrosshair crosshair, _) = Painted(Alive("CTFRocketLauncher"));
+
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Rules = new SceneGameRules(false, 0, false) }).ShouldBeTrue("the control");
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Rules = new SceneGameRules(false, 0, false) { ActiveMinigame = true } }).ShouldBeFalse();
+    }
+
+    /// <remarks>`if ( TFGameRules() &amp;&amp; TFGameRules()->ShowMatchSummary() ) return false;` (tf_hud_crosshair.cpp:70).</remarks>
+    [Test]
+    public void ShouldDraw_UnderTheMatchSummary_IsHidden()
+    {
+        (TfHudCrosshair crosshair, _) = Painted(Alive("CTFRocketLauncher"));
+
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Rules = new SceneGameRules(false, 0, false) }).ShouldBeTrue("the control");
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Rules = new SceneGameRules(false, 0, false) { ShowMatchSummary = true } }).ShouldBeFalse();
+    }
+
     [Test]
     public void ShouldDraw_SpectatingInEye_Draws()
     {
