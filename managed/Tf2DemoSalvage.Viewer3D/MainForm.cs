@@ -73,6 +73,24 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the File &gt; Export assembly item.</summary>
     public const string ExportItemId = "ExportMenuItem";
 
+    /// <summary>Automation id of the File &gt; TF2 folder item (D210).</summary>
+    public const string GameFolderItemId = "GameFolderMenuItem";
+
+    /// <summary>Accessible name of the File &gt; TF2 folder item, which is how UIA reaches a menu item.</summary>
+    public const string GameFolderItemName = "TF2 folder";
+
+    /// <summary>How a refused folder choice begins, in the status bar and the log.</summary>
+    public const string NotAGameFolder = "Not a TF2 folder:";
+
+    /// <summary>How the startup log line naming the discovered game folder begins.</summary>
+    public const string GameFolderLog = "game folder at startup: ";
+
+    /// <summary>What <see cref="GameFolderLog"/> says when discovery found nothing.</summary>
+    public const string GameFolderNotFound = "not found";
+
+    /// <summary>How an accepted folder choice begins, in the status bar and the log.</summary>
+    public const string GameFolderSet = "TF2 folder set to ";
+
     /// <summary>Automation id of the File &gt; Compile assembly item.</summary>
     public const string CompileItemId = "CompileMenuItem";
 
@@ -1238,7 +1256,9 @@ internal class MainForm : Form, IFrameSteps
                 SetSpecular: SetSpecular,
                 SetPhong: SetPhong,
                 Screenshot: CaptureViewportToFile,
-                SetChosenHud: SetChosenHud),
+                SetChosenHud: SetChosenHud,
+                // Posted for the same reason as Export: the menu closes before the dialog opens.
+                ChooseGameFolder: () => BeginInvoke(ChooseGameFolder)),
             _settings,
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
@@ -1286,6 +1306,10 @@ internal class MainForm : Form, IFrameSteps
         // tab stop otherwise, and every shortcut is then asked about a list nobody is using. This is
         // also what a person expects: the window opens looking at the demo, so the demo has the keys.
         ActiveControl = _viewport;
+
+        // **A missing install asks for the folder (D210), before the demo below opens and reads its
+        // map** — registered first, so it runs first, and the dialog is modal, so the open waits.
+        Shown += (_, _) => AskForGameFolderIfMissing();
 
         if (initialPaths.Length > 0)
         {
@@ -9075,6 +9099,94 @@ internal class MainForm : Form, IFrameSteps
         if (ShowModal(dialog) == DialogResult.OK)
         {
             AddToLibrary(dialog.FileNames);
+        }
+    }
+
+    /// <summary>Opens the folder picker at startup when no TF2 install was found (D210).</summary>
+    /// <remarks>
+    /// Never on a headless run (<c>--shot</c>, <c>--measure</c>): a modal dialog nobody sees would hang
+    /// it. The UI suite passes <c>+cl_game_folder_ask 0</c>, because CI has no TF2.
+    /// </remarks>
+    private void AskForGameFolderIfMissing()
+    {
+        bool headless = _launch.ShotPath is not null || _launch.MeasureSeconds is not null;
+        string? found = _maps.GameFolder();
+
+        // Logged before any dialog: the UI test's control that discovery really failed.
+        _log.LogInformation("{Message}", GameFolderLog + (found ?? GameFolderNotFound));
+
+        if (_settings.ShouldAskForGameFolder(found, headless))
+        {
+            ChooseGameFolder(atStartup: true);
+        }
+    }
+
+    /// <summary>File &gt; TF2 folder: picks the <c>tf</c> folder, validates it, and saves it to the cfg (D210).</summary>
+    private void ChooseGameFolder() => ChooseGameFolder(atStartup: false);
+
+    /// <summary>Picks the <c>tf</c> folder, validates it, and saves it to the cfg (D210).</summary>
+    /// <param name="atStartup">
+    /// Whether this is the startup prompt for a missing install. Cancelling THAT stops it asking
+    /// (<c>cl_game_folder_ask 0</c>): watching a demo without TF2 is the salvage case, not an error,
+    /// and a dialog on every launch would be nagging. The menu entry still works.
+    /// </param>
+    /// <remarks>
+    /// **The choice is read back through the cfg, not handed over in memory**: <c>SteamInstall.Machine</c>
+    /// reads <c>cl_game_folder</c> on every lookup, so a save that fails is a choice that did not happen,
+    /// and the status says so. Archives already opened stay open, so after a demo has loaded the new
+    /// folder takes effect on the next start.
+    /// </remarks>
+    private void ChooseGameFolder(bool atStartup)
+    {
+        using FolderBrowserDialog dialog = new()
+        {
+            Description = atStartup
+                ? "Team Fortress 2 was not found. Choose its tf folder, or Cancel to watch without maps and models."
+                : "Choose the Team Fortress 2 tf folder.",
+            UseDescriptionForTitle = true,
+            InitialDirectory = _settings.GameFolder ?? string.Empty,
+        };
+
+        if (ShowModal(dialog) != DialogResult.OK)
+        {
+            if (atStartup)
+            {
+                _settings = _settings with { AskForGameFolder = false };
+                _status.Text = _settings.Save() is { } declineFailure
+                    ? ViewerSettings.SavedForThisSessionOnly(declineFailure)
+                    : "No TF2 folder chosen. File > TF2 folder sets it any time.";
+            }
+
+            return;
+        }
+
+        if (SteamInstall.AsGameFolder(dialog.SelectedPath) is not { } game)
+        {
+            string refused = $"{NotAGameFolder} {dialog.SelectedPath} holds no {SteamInstall.Recogniser}. "
+                + "Choose the tf folder inside Team Fortress 2.";
+            _status.Text = refused;
+            _log.LogWarning("{Message}", refused);
+            return;
+        }
+
+        _settings = _settings with { GameFolder = game };
+
+        string outcome = _game is null
+            ? $"{GameFolderSet}{game}."
+            : $"{GameFolderSet}{game}. It takes effect the next time the viewer starts.";
+
+        if (_settings.Save() is { } failure)
+        {
+            outcome = $"TF2 folder could not be saved: {failure}";
+        }
+
+        _status.Text = outcome;
+        _log.LogInformation("{Message}", outcome);
+
+        // Nothing has opened the archives yet, so the player's own config can be read from the new folder now.
+        if (_game is null)
+        {
+            LoadUserConfig();
         }
     }
 

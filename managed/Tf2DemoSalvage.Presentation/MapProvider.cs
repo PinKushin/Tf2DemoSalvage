@@ -113,8 +113,13 @@ public sealed class MapProvider : IDisposable
 
     /// <summary>A provider over this machine's usual places.</summary>
     /// <returns>The provider.</returns>
+    /// <remarks>
+    /// **A lambda, not the method group <c>SteamInstall.Machine.GameFolder</c>** (D210): the method
+    /// group binds ONE <c>Machine</c>, built with whatever the cfg said when this provider was made, so
+    /// a folder chosen in the startup picker would never reach the map load that follows it.
+    /// </remarks>
     public static MapProvider Installed() =>
-        new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder), SteamInstall.Machine.GameFolder);
+        new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder), () => SteamInstall.Machine.GameFolder());
 
     /// <summary>What to say while a map is being fetched.</summary>
     /// <param name="mapName">The map.</param>

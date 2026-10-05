@@ -25,6 +25,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="SetPhong">Add specular highlights to materials asking for <c>$phong</c>.</param>
 /// <param name="Screenshot">Write a picture of the viewport.</param>
 /// <param name="SetChosenHud">Choose a HUD from the picker — a folder or <c>.vpk</c>, or null for TF2's stock HUD (D193).</param>
+/// <param name="ChooseGameFolder">Pick the TF2 <c>tf</c> folder and save it to the cfg (D210).</param>
 /// <remarks>
 /// **Delegates rather than a reference to the form, and that is the point of the split.** A menu
 /// that holds a <c>MainForm</c> is a menu for that one window; a menu that holds fourteen actions
@@ -55,7 +56,8 @@ internal readonly record struct ViewerMenuActions(
     Action<bool> SetSpecular,
     Action<bool> SetPhong,
     Action Screenshot,
-    Action<string?> SetChosenHud);
+    Action<string?> SetChosenHud,
+    Action ChooseGameFolder);
 
 /// <summary>The viewer's main menu: the strip, and the items whose state is read elsewhere.</summary>
 /// <remarks>
@@ -234,6 +236,14 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = "Exit",
         };
         exit.Click += (_, _) => actions.Exit();
+
+        ToolStripMenuItem gameFolder = new("TF2 &folder...")
+        {
+            Name = MainForm.GameFolderItemId,
+            AccessibleName = MainForm.GameFolderItemName,
+            AccessibleDescription = "Choose the Team Fortress 2 tf folder maps, models and configs are read from.",
+        };
+        gameFolder.Click += (_, _) => actions.ChooseGameFolder();
 
         FullScreen = new ToolStripMenuItem("&Full screen")
         {
@@ -640,6 +650,8 @@ internal sealed class ViewerMenu : IDisposable
         file.DropDownItems.Add(open);
         file.DropDownItems.Add(export);
         file.DropDownItems.Add(compile);
+        file.DropDownItems.Add(new ToolStripSeparator());
+        file.DropDownItems.Add(gameFolder);
         file.DropDownItems.Add(new ToolStripSeparator());
         file.DropDownItems.Add(exit);
 
