@@ -53,6 +53,9 @@ tf2demosalvage out.txt -c -o rebuilt.dem     compile assembly back to a demo
 tf2demosalvage --help                        every option
 ```
 
+A file that is not a demo prints one line, `error: <path>: <reason>`, and exits 1. In the viewer, `--shot` and
+`--measure` exit 1 with the reason on standard error for such a file (`tf2demoview --help`).
+
 **Reporting a bug.** The viewer writes one log per run to `%LOCALAPPDATA%\Tf2DemoSalvage` (named
 `viewer-<date>-<time>-<process id>.log`; the newest 50 are kept). Send the newest log, the demo's
 file name (and the demo itself if you can), and what you did and saw. The command-line tool writes

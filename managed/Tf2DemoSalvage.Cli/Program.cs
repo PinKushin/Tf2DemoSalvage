@@ -310,6 +310,9 @@ public static class Program
         writer.WriteLine();
         writer.WriteLine("  -h, --help              this message");
         writer.WriteLine();
+        writer.WriteLine("Exit codes: 0 success, 1 failure (a file that is not a demo prints one line,");
+        writer.WriteLine("'error: <path>: <reason>'), 2 usage error.");
+        writer.WriteLine();
         writer.WriteLine("Entities are off by default because expanding them turns a 39 MB demo into");
         writer.WriteLine("gigabytes of text. --entity-limit is the practical way to inspect them.");
     }

@@ -1,6 +1,15 @@
-# Tf2DemoSalvage 0.1.0-beta.23
+# Tf2DemoSalvage 0.1.0-beta.24
 
-## Changes since 0.1.0-beta.22
+## Changes since 0.1.0-beta.23
+
+- **A file that is not a demo now fails fast, with the reason.** The header is checked first, as TF2 does, and
+  the message reads `<file> has invalid demo header ID.` A Git LFS pointer (a demo cloned without `git lfs
+  pull`) gets a hint to run `git lfs pull`. The viewer window shows the reason in its status bar and stays
+  usable; `--shot` and `--measure` exit with code 1 and the reason on standard error instead of hanging; the
+  command-line tool prints one line, `error: <path>: <reason>`, and exits 1, with no stack trace. A demo that
+  is merely cut short still opens, as before (B499).
+
+## Changes in 0.1.0-beta.23
 
 - **`+cl_game_folder <path>` on the command line** sets the TF2 `tf` folder for that run only, without saving
   it. Order of precedence: `TF2_FOLDER`, then `+cl_game_folder`, then `settings.cfg`, then Steam detection (B498).
@@ -235,6 +244,9 @@ Each claim below is a measurement, not an expectation.
   yours (B497).
 - **`+cl_game_folder` and menu shortcut relabeling** (beta.23) are covered by a command-line UI test and unit
   tests (B498).
+- **Non-demo input** (beta.24): an empty file, a Git LFS pointer and an unrelated file are each refused with the
+  header-ID message, and a truncated real header still opens; covered by unit tests and by the headless `--shot`
+  exit code (B499).
 - **Voice from every era:** Speex (2007 to 2011), Steam Voice / SILK (2011 to 2016), CELT
   (2016 to about 2018) and Opus (since).
 
