@@ -546,12 +546,16 @@ public sealed class SoundscapePlacements
     private static (float X, float Y, float Z) Origin(BspEntity entity) =>
         entity.TryGetValue("origin", out string origin) ? StringToVector(origin) : default;
 
-    /// <summary>An entity's radius; -1, meaning unlimited, when it declares none.</summary>
+    /// <summary>An entity's radius: the key through <c>atof</c>, or ZERO when it declares none — never "unlimited".</summary>
+    /// <remarks>
+    /// <c>m_flRadius</c> is a <c>FIELD_FLOAT</c> keyfield (<c>soundscape.cpp:73</c>) the constructor never sets, so with no
+    /// key it holds what the allocator left. *Settled in disassembly* (shipped x64 <c>engine.dll</c>): the entity comes from
+    /// <c>PvAllocEntPrivateData</c> (<c>IVEngineServer</c> slot 23, <c>18014a370</c>), which is <c>calloc( 1, cb )</c>, and
+    /// that body (<c>1801c8140</c>) memsets the block to zero. A radius of 0 is never in range (<c>:266, 280</c>). This
+    /// read -1 — unlimited — until B483's follow-up.
+    /// </remarks>
     private static float Radius(BspEntity entity) =>
-        entity.TryGetValue("radius", out string radius) &&
-        float.TryParse(radius, NumberStyles.Float, CultureInfo.InvariantCulture, out float read)
-            ? read
-            : -1f;
+        entity.TryGetValue("radius", out string radius) ? (float)CStdlib.Atof(radius.AsSpan()) : 0f;
 
     /// <summary>Where an entity's numbered position targets are.</summary>
     /// <remarks>

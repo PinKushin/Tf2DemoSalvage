@@ -198,7 +198,8 @@ public sealed class SoundscapeEntityConformanceTests
         SoundscapePlacements placements = SoundscapePlacements.From(
             Entities(
                 Soundscape("300 0 0", string.Empty) +
-                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"100 0 0\"\n}\n"),
+                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"100 0 0\"\n" +
+                "\"radius\" \"-1\"\n}\n"),
             Catalog);
 
         placements.Placements.Count.ShouldBe(2);
@@ -515,5 +516,5 @@ public sealed class SoundscapeEntityConformanceTests
 
     private static string Soundscape(string origin, string extra) =>
         "{\n\"classname\" \"env_soundscape\"\n\"targetname\" \"master\"\n\"soundscape\" \"test.first\"\n" +
-        $"\"origin\" \"{origin}\"\n{extra}\n}}\n";
+        $"\"origin\" \"{origin}\"\n\"radius\" \"-1\"\n{extra}\n}}\n";
 }

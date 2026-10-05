@@ -43,14 +43,17 @@ public sealed class SoundscapePlacementsTests
     }
 
     [Test]
-    public void From_ASoundscapeTheCatalogDoesNotKnowAndNoRadius_IsIndexMinusOneAndUnbounded()
+    public void From_ASoundscapeTheCatalogDoesNotKnowAndNoRadius_IsIndexMinusOneAndRadiusZero()
     {
         SoundscapePlacement placed = SoundscapePlacements.From(
             Entities("{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.missing\"\n\"origin\" \"0 0 0\"\n}\n"),
             Catalog).Placements.ShouldHaveSingleItem();
 
         placed.Index.ShouldBe(-1);
-        placed.Radius.ShouldBe(-1f);
+
+        // Zero, not unlimited: the entity is calloc'd (`Choose_ASoundscapeWithNoRadiusKey_NeverWins`). This said -1 until
+        // the disassembly settled it.
+        placed.Radius.ShouldBe(0f);
     }
 
     [Test]

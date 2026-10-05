@@ -35237,10 +35237,27 @@ test), link without the triggerable cast, triggerables unplaced, `StartDisabled`
 instead of edge, brush not offset by the trigger origin.
 
 **Not reproduced:** the player's hull (a camera has none — a player enters up to 24 units sooner); Enable/Disable
-inputs; the engine's order within each pass (map order is taken). **Not checked:** an `env_soundscape` with no `radius`
-key reads as -1 (unlimited) here; the server's `m_flRadius` is never initialised, so it is whatever the entity
-allocator leaves — zero if it clears, which would make such an entity never win. Every soundscape on koth_lakeside
-carries the key.
+inputs; the engine's order within each pass (map order is taken).
+
+**Follow-up, 2026-10-05 — the recorder's own params, and the missing radius.**
+
+- **In the recorder's eyes the client hears its networked `m_audio`** (`C_SoundscapeSystem::UpdateAudioParams`,
+  `c_soundscape.cpp:555-576`), so the viewer no longer simulates there: `SoundPresenter.RecordedSoundscape` hands the
+  demo's params when the first-person camera is on `RecorderEntityIndex`, and `SoundscapeSystem` applies them every
+  update (`Recorded` maps `entIndex - 1` to the placement id and masks slots by `localBits`; entity 0 starts nothing).
+  Free camera, other players and SourceTV keep the simulation. Tests: `Update_WithRecordedParams_PlaysThemInsteadOfTheContest`,
+  `Recorded_ASlotWithItsBitClear_IsNoPosition`, corpus `Update_FirstPersonOnTheRecorder_PlaysTheRecordedSoundscapeEveryTick`
+  (every tick of the lakeside POV, with someone else's eyes as the control). Sabotaged: recorded params ignored (both
+  red), the recorder check dropped (corpus red), `localBits` ignored (red).
+- **A soundscape with no `radius` key has radius 0 and never wins** — *settled in disassembly*, shipped x64
+  `engine.dll`: `m_flRadius` is never initialised (`soundscape.cpp:73,102-109`), `CBaseEntity::operator new` is
+  `PvAllocEntPrivateData` (`baseentity.cpp:3816-3821`), and that `IVEngineServer` slot (23, `18014a370`) is
+  `mov ecx,1; jmp 1801c8140` — `calloc( 1, cb )`, which allocates through `g_pMemAlloc` and calls `18034fcf0( p, 0, n )`
+  (`xor edx,edx` at `1801c817b`), the memset. Zero fails `m_flRadius > range || m_flRadius == -1` (`:266,280`). This read
+  -1, unlimited. A present key is now `atof`'d (a word is 0) rather than `float.TryParse`d. Test
+  `Choose_ASoundscapeWithNoRadiusKey_NeverWins`; five existing fixtures that omitted the key while meaning "unlimited"
+  now say `"radius" "-1"`. Sabotaged: the -1 default back (two red), the key ignored (ten red). **Not censused:** how many
+  installed soundscapes omit the key.
 
 ## B484 — params naming no entity faded every loop out; the client starts nothing and the loops play on — FIXED 2026-10-04
 

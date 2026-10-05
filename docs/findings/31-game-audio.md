@@ -1064,3 +1064,15 @@ caught it — the synthetic tests, written from the reading, all passed.
 demo's view origin while `getpos` printed 68 more; treated as the ear, it put the listener 20 units below the bottom of
 the Wood trigger, and the replay left a trigger the server never left. A measurement of an instrument, not of the
 engine — recorded because it was the first reading and it was wrong.
+
+**In the recorder's own eyes there is nothing to simulate.** The same recording carries the answer the simulation
+approximates: the recorder's client applied its networked params through `UpdateAudioParams`, so a first-person view on
+the recorder now plays those, tick for tick, and the simulation is kept for the free camera, other players and SourceTV.
+
+*Settled in disassembly, 2026-10-05.* **A soundscape with no `radius` key never wins — its radius is zero, not
+"unlimited".** `m_flRadius` is a keyfield nobody initialises, so its value is the allocator's. The published SDK stops at
+`engine->PvAllocEntPrivateData`; the shipped x64 `engine.dll` answers it: that `IVEngineServer` slot is a two-instruction
+`calloc( 1, cb )` whose body allocates through `g_pMemAlloc` and then calls a function with `( p, 0, n )` — the memset.
+A zero radius fails both halves of `m_flRadius > range || m_flRadius == -1`. This project had read a missing key as -1,
+which made such an entity reach the whole map; the reading was a guess dressed as a default, and the test fixtures that
+omitted the key had quietly depended on it.
