@@ -23,11 +23,14 @@ It finds Steam where Steam records itself — the registry value `SteamPath` und
 `HKEY_CURRENT_USER\Software\Valve\Steam` (or the machine-wide `InstallPath`), falling back to
 Program Files (x86)\Steam; a recorded folder with no `steamapps\libraryfolders.vdf` is skipped for
 the next — then reads that library list and picks the library that lists TF2 (app 440). So Steam and
-TF2 may each live on any drive. There is no folder picker; instead, **set the environment variable
-`TF2_FOLDER` to a `tf` folder** (for example `E:\Games\Team Fortress 2\tf`) and maps, models,
-materials, sounds and configs all come from it, whatever Steam says. If it is not found, the viewer
-says so in the status bar and still plays the demo, without the game's maps and models; a map that
-is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
+TF2 may each live on any drive. If it is not found, the viewer opens a folder picker at startup: choose
+your `tf` folder (for example `E:\Games\Team Fortress 2\tf`). **File > TF2 folder...** changes it later.
+The choice is saved as `cl_game_folder` in `%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`, and maps,
+models, materials, sounds and configs all come from it. If you cancel the picker, the viewer asks no
+more on later launches (`cl_game_folder_ask 0`) and still plays the demo, without the game's maps and
+models; a map that is missing from your install is downloaded into `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
+No environment variable is needed; `TF2_FOLDER` exists as a script and CI override and beats the saved
+folder (`docs/DECISIONS.md` D210).
 
 **Keys.** Bindings from your TF2 config (`config.cfg`, `autoexec.cfg`, or a mastercomfig-style
 `.vpk`) are used as they are, and commands the viewer does not implement are ignored (D69).
@@ -65,7 +68,7 @@ and every message body those demos contain is decoded rather than stepped over.
 |---|---|
 | Bit reader, varint decoding | Done. Unit tested, mutation tested, fuzzed. |
 | Demo header, command stream | Done. Re-encodes byte-for-byte on every demo held here. |
-| Net messages (layer 2) | Done for every type the corpus contains, across all five protocols. |
+| Net messages (layer 2) | Done for every type the corpus contains, across every protocol with a specimen. |
 | Entity schema (layer 3) | Done. `dem_datatables` parses and flattens; entity deltas, instance baselines and cross-tick state all decode. |
 | Sounds, temp entities, user messages | Done. These were the last bodies consumed without being read. |
 | Text dump, Quake-style trace, JSON Lines, CLI | Done. |
@@ -125,7 +128,7 @@ recording, so two eras differ only by era.
 
 ### Testing
 
-773 tests, zero build warnings.
+Zero build warnings. Test counts per assembly are in `docs/verification/README.md`.
 
 Layered deliberately, because each layer answers a different question: unit tests (right answer on
 input we thought of), CsCheck properties (right across the whole input space), Stryker mutation
@@ -155,7 +158,8 @@ Entities are off by default because expanding them turns a 39 MB demo into gigab
 ### Documentation map
 
 - `ROADMAP.md` — the phased plan.
-- `docs/DECISIONS.md` — D1-D31, every architectural choice and why.
+- `docs/DECISIONS.md` — every architectural choice and why, numbered.
+- `docs/findings/README.md` — which document answers what; the reverse-engineering history.
 - `docs/SPEC.md` — the format spec, with every claim tagged by how it is known (CONFIRMED
   against real bytes / DOCUMENTED / UNDOCUMENTED / OPEN).
 - `docs/RISKS.md` — anticipated blockers, ordered by when they bite.

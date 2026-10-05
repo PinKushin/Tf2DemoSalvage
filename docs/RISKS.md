@@ -3106,7 +3106,7 @@ Until it is implemented, every entity model in the viewer is overbright, and any
 model's texture or material is unreliable — three separate defects were attributed to materials
 tonight before this was understood.
 
-## B52 — buried geometry is drawn, because nothing culls by visibility — OPEN, structural
+## B52 — buried geometry is drawn, because nothing culls by visibility — OPEN, structural (premise stale: the world is PVS-culled since B152's `world cull`; whether the buried slab still draws is not re-measured; noted 2026-10-05)
 
 **Filed 2026-08-13** from an in-game comparison: the concrete around cp_process's mid point is
 buried under the ground in TF2, and this viewer draws it as a slab over the surrounding surface.
@@ -11717,7 +11717,7 @@ is filed rather than half-done.
 to implement skyboxes." A heuristic play-area box is exactly the thing that will fight a real
 `sky_camera` implementation, and fighting it from inside a class that also draws lines is worse.
 
-## B152 — the 3D skybox is drawn raw, with no `sky_camera` transform — OPEN
+## B152 — the 3D skybox is drawn raw, with no `sky_camera` transform — CLOSED (the sky pass uses the `sky_camera` scale; see "B152 CLOSED for the pass" below; heading corrected 2026-10-05)
 
 The play-area cull used to delete the 3D skybox as a side effect, which is why nothing ever needed to
 transform it. It is now drawn, and drawn WRONG: a TF2 map keeps a miniature copy of the surrounding
