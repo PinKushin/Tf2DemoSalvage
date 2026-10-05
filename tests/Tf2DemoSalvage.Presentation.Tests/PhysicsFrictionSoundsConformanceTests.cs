@@ -29,8 +29,11 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         "\"sky\" { \"gamematerial\" \"X\" }");
 
     [Test]
-    public void Step_ALoudScrape_StartsTheRoughLoopOnChanBodyFromTheCorpse()
+    public void Step_ALoudScrape_StartsTheRoughLoopOnTheScriptsChannelFromTheCorpse()
     {
+        // `SoundCreate( filter, entindex, CHAN_BODY, name, params.soundlevel )` → `CSoundPatch::Init`
+        // (`soundenvelope.cpp:353-381`) replaces the channel with the script's own, keeps the script volume, and `Play`
+        // multiplies it by `params.volume · v` from `PhysFrictionSound`'s own draw: 0.8 · 0.8 · 0.25.
         PhysicsFrictionSounds sounds = new();
 
         IReadOnlyList<SceneSound> played = sounds.Step(100, 1.0, [Scrape(7750f)], At, Surfaces, Scripts());
@@ -38,9 +41,31 @@ public sealed class PhysicsFrictionSoundsConformanceTests
         SceneSound loop = played.ShouldHaveSingleItem();
         loop.Name.ShouldBe("physics/flesh/rough.wav");
         loop.EntityIndex.ShouldBe(Corpse);
-        loop.Channel.ShouldBe(4);
-        loop.Volume.ShouldBe(0.2f, 1e-6f);
+        loop.Channel.ShouldBe(1, "the script's channel, not the CHAN_BODY the caller asked for");
+        loop.Volume.ShouldBe(0.16f, 1e-6f);
         loop.IsStop.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// Two draws, in this order: `PhysFrictionSound`'s `GetParametersForSound` (`physics.cpp:991`), whose pitch `Play`
+    /// starts the patch at, then `CSoundPatch::Init`'s (`soundenvelope.cpp:361`), whose wave and soundlevel the patch
+    /// plays.
+    /// </remarks>
+    [Test]
+    public void Step_ALoudScrape_TakesPitchFromTheFirstDrawAndSoundLevelFromThePatchs()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts(pitch: new SoundRange(50f, 150f));
+        scripts["Flesh.ScrapeRough"] = scripts["Flesh.ScrapeRough"] with { SoundLevel = new SoundRange(60f, 90f) };
+        SoundScriptEntry entry = scripts["Flesh.ScrapeRough"];
+
+        Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = EntitySounds.Stream(100, Corpse);
+        SceneSound first = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100));
+        SceneSound patch = ExplosionSounds.FromWorldAt(entry, random, 100, At(Corpse, 100));
+        first.SoundLevel.ShouldNotBe(patch.SoundLevel, "the control: the two draws must differ for the test to tell them apart");
+
+        SceneSound loop = new PhysicsFrictionSounds().Step(100, 1.0, [Scrape(7750f)], At, Surfaces, scripts).Single();
+
+        (loop.Pitch, loop.SoundLevel).ShouldBe((first.Pitch, patch.SoundLevel));
     }
 
     [Test]
@@ -100,7 +125,9 @@ public sealed class PhysicsFrictionSoundsConformanceTests
 
         SceneSound changed = sounds.Step(135, 1.51, [Scrape(3875f)], At, Surfaces, Scripts(pitch: new SoundRange(90f, 110f))).Single();
 
-        changed.ShouldBe(loop with { Tick = 135, Volume = 0.05f, Pitch = 91, ChangesVolume = true, ChangesPitch = true });
+        // The patch keeps the script volume it was made with: `m_flScriptVolume · m_volume` = 0.8 · 0.8 · 0.0625.
+        changed.ShouldBe(loop with { Tick = 135, Volume = changed.Volume, Pitch = 91, ChangesVolume = true, ChangesPitch = true });
+        changed.Volume.ShouldBe(0.04f, 1e-6f);
     }
 
     [Test]

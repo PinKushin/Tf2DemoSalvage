@@ -84,27 +84,30 @@ public sealed class ExplosionSoundsTests
     }
 
     /// <remarks>
-    /// B487: `GetParametersForSound` (soundemittersystem.dll FUN_180003370) draws the soundlevel as well, LAST,
-    /// `(int)RandomFloat( start, start + range )` — so "80, 90" is a draw, not a fixed 75 or 80.
+    /// `GetParametersForSound` (soundemittersystem.dll FUN_180003370) draws in a fixed order from ONE stream: the volume
+    /// (`RandomFloat`), the pitch (`(int)RandomFloat`), the wave (FUN_180005680, `RandomInt( 0, n - 1 )` through the
+    /// emitter's `IUniformRandomStream`, whose slot 2 is a thunk to the same vstdlib `RandomInt` export), and the
+    /// soundlevel last (`(int)RandomFloat`, B487).
     /// </remarks>
     [Test]
-    public void FromWorldAt_ARangedSoundLevel_IsTheDrawAfterThePitch()
+    public void FromWorldAt_EveryRange_IsDrawnVolumePitchWaveSoundLevel()
     {
         SoundScriptEntry ranged = new(
-            "Test.Explode", 1, new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(80f, 90f), ["a.wav"]);
+            "Test.Explode", 1, new SoundRange(0.5f, 1f), new SoundRange(90f, 110f), new SoundRange(80f, 90f), ["a.wav", "b.wav", "c.wav"]);
 
         Tf2DemoSalvage.Core.Primitives.UniformRandomStream expected = new();
         expected.SetSeed(7);
-        expected.RandomInt(0, 0);
-        expected.RandomFloat(1f, 1f);
-        expected.RandomFloat(100f, 100f);
+        float volume = expected.RandomFloat(0.5f, 1f);
+        int pitch = (int)expected.RandomFloat(90f, 110f);
+        string wave = ranged.Waves[expected.RandomInt(0, 2)];
         int level = (int)expected.RandomFloat(80f, 90f);
 
         Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = new();
         random.SetSeed(7);
 
-        ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f)).SoundLevel.ShouldBe(level);
-        level.ShouldBeInRange(80, 89);
+        SceneSound sound = ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f));
+
+        (sound.Volume, sound.Pitch, sound.Name, sound.SoundLevel).ShouldBe((volume, pitch, wave, level));
     }
 
     [Test]

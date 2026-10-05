@@ -23,10 +23,18 @@ public static class EntitySounds
             return null;
         }
 
-        // The engine draws from its global stream, which no demo records; seeded so a seek hears the same wave.
+        return ExplosionSounds.FromWorldAt(entry, Stream(tick, entity), tick, at) with { EntityIndex = entity };
+    }
+
+    /// <summary>The stream an entity's sounds at a tick draw from.</summary>
+    /// <param name="tick">When.</param>
+    /// <param name="entity">The entity.</param>
+    /// <returns>A stream seeded by both.</returns>
+    /// <remarks>The engine draws from its global stream, which no demo records; seeded so a seek hears the same wave.</remarks>
+    public static UniformRandomStream Stream(int tick, int entity)
+    {
         UniformRandomStream random = new();
         random.SetSeed(ImpactSounds.SeedFor((tick * 64) + entity));
-
-        return ExplosionSounds.FromWorldAt(entry, random, tick, at) with { EntityIndex = entity };
+        return random;
     }
 }
