@@ -104,6 +104,10 @@ divergences, each settled by the published source and fixed the same day (B466-B
   agreed with whoever wrote the port. It now asserts the label shows on the think that points the panel at the timer.
 - **The ammo count hides for a Halloween ghost, an active minigame and the match summary** (`tf_hud_ammostatus.cpp:153-160`).
   `CTFHudPlayerStatus` beside it already tested all three, so the two sibling elements disagreed under the summary.
+- **The crosshair makes the same two tests, first** (`tf_hud_crosshair.cpp:67`, `:70`), ahead of the ghost and taunt
+  checks the port already had. Its own remarks listed them as not modelled; the inputs (`m_bShowMatchSummary`, the
+  minigame logic's active minigame) were already decoded for the ammo count, so the gap was one condition (B500).
+  *Read from published source.*
 
 ## Custom HUDs are ordinary `.res` files
 

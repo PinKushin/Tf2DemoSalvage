@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// `cl_crosshair_file` replaces it with `vgui/crosshairs/NAME` drawn 32 × 32 about the centre, twice over as written
 /// (`DrawTexturedRect( iX-iWidth, … iX+iWidth … )`, :215). Colour and scale are `cl_crosshair_red/green/blue` and
 /// `cl_crosshair_scale` / 32.
-/// **Not modelled:** `restart_timer_time`'s competitive hide, the minigame and match-summary tests, `FL_FROZEN`, and the
+/// **Not modelled:** `restart_timer_time`'s competitive hide, `FL_FROZEN`, and the
 /// Ambassador's accuracy-driven `GetWeaponCrosshairScale` (tf_weapon_revolver.cpp:207) — every weapon draws at scale 1.
 /// </remarks>
 public sealed class TfHudCrosshair : VguiPanel, IHudElement
@@ -62,6 +62,12 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
     /// <returns>Whether it draws.</returns>
     public bool ShouldDraw(HudState state)
     {
+        // "turn off for the minigames" (:67), then `ShowMatchSummary()` (:70).
+        if (state.Rules.ActiveMinigame || state.Rules.ShowMatchSummary)
+        {
+            return false;
+        }
+
         if (!state.HasLocalPlayer || state.Conditions.Has(ConditionGhostMode) || state.Conditions.Has(ConditionTaunting))
         {
             return false;

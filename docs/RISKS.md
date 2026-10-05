@@ -34972,7 +34972,8 @@ tested only the weapon's own refusals, while `TfHudPlayerStatus` beside it teste
 each was red and each reddened again when its own test was sabotaged. `TF_COND_HALLOWEEN_GHOST_MODE` was declared as a
 private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
 
-**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
+**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled
+— fixed as B500.
 
 ## B473 — a paused demo played the same footsteps on every frame — FIXED 2026-10-04
 
@@ -35499,3 +35500,25 @@ in 1 s; a real demo cut to 5,000 bytes still opens and writes a PNG (salvage, by
 `CaptureUiTests.Capture_OnAnLfsPointerInsteadOfADemo_ExitsNonZeroNamingTheFileAndTheHeader` (exit 1 within 45 s,
 stderr names file and reason, no PNG). **Sabotaged:** without `CheckStamp` in `Parse`, six Core tests fail; without it
 in `LoadedDemo`, the status-bar test reads "too short"; without the `FailHeadless` call, the UI test hangs past 45 s.
+
+## B500 — the crosshair drew during an active minigame and under the match summary — FIXED 2026-10-05
+
+**Read, published source:** `CHudTFCrosshair::ShouldDraw` returns false when
+`CTFMinigameLogic::GetMinigameLogic()->GetActiveMinigame()` is set and when `TFGameRules()->ShowMatchSummary()`, before
+the ghost, taunt and `restart_timer_time` tests and before `CHudCrosshair::ShouldDraw` (`tf_hud_crosshair.cpp:64-87`).
+`TfHudCrosshair` tested the ghost and the taunt only; its remarks listed the other two as not modelled (seen under B468).
+
+**Inputs, already on the wire and already decoded for B468:** `DT_TFGameRules.m_bShowMatchSummary` and
+`DT_TFMinigameLogic.m_hActiveMinigame` resolving to a live entity (`SceneGameRules.ShowMatchSummary` / `ActiveMinigame`).
+
+**Fix:** the two tests, first, in the engine's order. `TfHudCrosshairConformanceTests.ShouldDraw_InAnActiveMinigame_IsHidden`
+and `…UnderTheMatchSummary_IsHidden`, each with a default-rules control that draws; both red before, green after.
+**Sabotaged:** dropping either operand reddened exactly that operand's test.
+
+**No real-demo assertion:** a probe (`round-timer`) over `rgl-pug-2026-08-10-pov`, `tf2-2026-pub-pov-clean` and
+`…-cheater` found no tick with `summary True` — the summary is a Valve-matchmaking end, and no lcor demo holds one or a
+Halloween minigame. A row of `summary False` is not a control on its own (it is also the default); the decode reading
+a 1 is pinned synthetically by `SceneRoundTimerTests`, which the probe's path shares. A casual-MM demo that reaches the summary would close this.
+
+**Still not modelled:** `restart_timer_time`'s competitive pre-round hide (`:84`, `:122-137`), `FL_FROZEN`, and the
+Ambassador's `GetWeaponCrosshairScale`.
