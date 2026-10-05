@@ -26,7 +26,9 @@ public sealed class ExplosionSoundsTests
 
         sound.WaveDraw.ShouldNotBeNull().Script.ShouldBe("Test.Explode");
 
-        (sound with { WaveDraw = null }).ShouldBe(new SceneSound(
+        sound.Order.Phase.ShouldBe(ClientSoundPhase.TempEntities);
+
+        (sound with { WaveDraw = null, Order = default }).ShouldBe(new SceneSound(
             Tick: 100,
             Name: ")weapons/explode1.wav",
             SoundNumber: ExplosionSounds.NotPrecached,

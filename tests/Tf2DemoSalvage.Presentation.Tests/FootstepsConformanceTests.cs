@@ -32,7 +32,10 @@ public sealed class FootstepsConformanceTests
         // `PlayStepSound` resolves through a plain `GetParametersForSound` (`baseplayer_shared.cpp:693-713`): a read (B503).
         step.WaveDraw.ShouldNotBeNull().Emitted.ShouldBeFalse();
 
-        (step with { WaveDraw = null }).ShouldBe(new SceneSound(
+        // `PlayStepSound` runs from the animation event, in `SimulateEntities` (B505).
+        step.Order.Phase.ShouldBe(ClientSoundPhase.Simulate);
+
+        (step with { WaveDraw = null, Order = default }).ShouldBe(new SceneSound(
             Tick: 100,
             Name: "player/footsteps/concrete_right.wav",
             SoundNumber: ExplosionSounds.NotPrecached,
@@ -134,7 +137,7 @@ public sealed class FootstepsConformanceTests
         third.ShouldBe(first with { Tick = 140 });
 
         // The control: tick 140's own draw differs, so the equality above is the cache and not a coincidence.
-        EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts, emitted: false)!.Value.Pitch.ShouldNotBe(first.Pitch);
+        EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.Pitch.ShouldNotBe(first.Pitch);
     }
 
     [Test]
@@ -152,7 +155,7 @@ public sealed class FootstepsConformanceTests
         footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current);
         SceneSound third = footsteps.Step(140, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current)!.Value;
 
-        third.Pitch.ShouldBe(EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts, emitted: false)!.Value.Pitch);
+        third.Pitch.ShouldBe(EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.Pitch);
     }
 
     private static readonly Func<string, StepSurface?> NoWater = static _ => null;

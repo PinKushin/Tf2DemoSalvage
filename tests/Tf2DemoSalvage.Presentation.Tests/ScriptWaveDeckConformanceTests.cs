@@ -117,7 +117,7 @@ public sealed class ScriptWaveDeckConformanceTests
             scripts).ShouldHaveSingleItem();
 
         SceneSound impact = ImpactSounds.For(new BulletLanding(5, (0f, 0f, 0f), Script, Ricochets: false), seed: 1, scripts).ShouldHaveSingleItem();
-        SceneSound? whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts);
+        SceneSound? whiz = TracerWhiz.SoundAt(5, (0f, 0f, 0f), scripts, default);
         SceneSound? hud = HudSounds.Emit(5, Script, scripts);
 
         new[] { blast.WaveDraw, impact.WaveDraw, whiz?.WaveDraw, hud?.WaveDraw }.ShouldAllBe(draw => draw != null && draw.Value.Emitted);
@@ -128,8 +128,8 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         Dictionary<string, SoundScriptEntry> scripts = new(StringComparer.OrdinalIgnoreCase) { [Script] = Entry(channel: 0, "a.wav", "b.wav") };
 
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true)!.Value.WaveDraw!.Value.Emitted.ShouldBeTrue();
-        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false)!.Value.WaveDraw!.Value.Emitted.ShouldBeFalse();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: true, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeTrue();
+        EntitySounds.Emit(5, 3, Script, (0f, 0f, 0f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.WaveDraw!.Value.Emitted.ShouldBeFalse();
     }
 
     [Test]
@@ -184,32 +184,56 @@ public sealed class ScriptWaveDeckConformanceTests
         sink.Silenced.ShouldBe(["b.wav"]);
     }
 
-    /// <remarks>The seek-equivalence the deck must keep: the state a seek lands in is the state playing there left.</remarks>
+    /// <remarks>
+    /// **A skip drops every unreliable temp entity.** `CL_ParseTempEntities`' queueing (engine.dll FUN_1801f9bc0) returns
+    /// before queueing anything when the message is unreliable (a non-zero count) and the demo player's skip test — the
+    /// vtable slot +0x48 that `CDemoPlayer::ReadPacket` (FUN_180072ee0) asks too — is true. A blast skipped over never
+    /// fires, so it never deals.
+    /// </remarks>
     [Test]
-    public void Update_ASeekPastTwoDeals_DealsTheNextAsPlayingThroughThemDid()
+    public void Update_ASeekPastTwoUnreliableBlasts_DealsNeither()
     {
-        SoundScriptEntry entry = Entry(channel:0, "a.wav", "b.wav", "c.wav");
-        SceneSound[] schedule = [Dealt(100, 0), Dealt(200, 0), Dealt(400, 0)];
-
-        List<string> playedThrough = [];
-        SoundPresenter playing = Presenter(playedThrough, entry);
-        playing.Schedule = new SoundSchedule(schedule);
-
-        foreach (int tick in new[] { 0, 100, 200, 300, 400 })
-        {
-            playing.Update(new Silent(), tick, Listener, Right, now: tick / 66d);
-        }
-
-        List<string> playedAfterSeek = [];
-        SoundPresenter seeking = Presenter(playedAfterSeek, entry);
-        seeking.Schedule = new SoundSchedule(schedule);
+        List<string> played = [];
+        SoundPresenter seeking = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        seeking.Schedule = new SoundSchedule([Dealt(100, 0), Dealt(200, 0), Dealt(400, 0)]);
 
         seeking.Update(new Silent(), 0, Listener, Right, now: 0d);
         seeking.Update(new Silent(), 350, Listener, Right, now: 1d);
         seeking.Update(new Silent(), 400, Listener, Right, now: 1.1d);
 
-        playedThrough.ShouldBe(["a.wav", "b.wav", "c.wav"]);
-        playedAfterSeek.ShouldBe(["c.wav"], "the seek skipped hearing a and b, not dealing them");
+        played.ShouldBe(["a.wav"], "the skip dropped both blasts, so the deck is full at 400");
+    }
+
+    /// <remarks>A RELIABLE temp entity (a zero count, FUN_1801f9bc0's first branch) is queued while skipping, and fires.</remarks>
+    [Test]
+    public void Update_ASeekPastTwoReliableTempEntities_DealsBoth()
+    {
+        List<string> played = [];
+        SoundPresenter seeking = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        seeking.Schedule = new SoundSchedule([Reliable(100, 0), Reliable(200, 0), Dealt(400, 0)]);
+
+        seeking.Update(new Silent(), 0, Listener, Right, now: 0d);
+        seeking.Update(new Silent(), 350, Listener, Right, now: 1d);
+        seeking.Update(new Silent(), 400, Listener, Right, now: 1.1d);
+
+        played.ShouldBe(["c.wav"], "the skip dealt a and b without playing them");
+    }
+
+    /// <remarks>An unreliable blast behind a skip back was dealt by playing and is not dealt again; the deck is not rewound.</remarks>
+    [Test]
+    public void Update_ASeekBackPastAnUnreliableBlast_LeavesTheDeckAsPlayingLeftIt()
+    {
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
+        presenter.Schedule = new SoundSchedule([Dealt(100, 0), Dealt(200, 0)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 100, Listener, Right, now: 1.5d);
+        presenter.Update(new Silent(), 200, Listener, Right, now: 3d);
+        presenter.Update(new Silent(), 150, Listener, Right, now: 4d);
+        presenter.Update(new Silent(), 200, Listener, Right, now: 5d);
+
+        played.ShouldBe(["a.wav", "b.wav", "c.wav"]);
     }
 
     [Test]
@@ -217,13 +241,13 @@ public sealed class ScriptWaveDeckConformanceTests
     {
         // **The engine has no seek backwards: `demo_gototick` to an earlier tick RELOADS the demo and skips forward from
         // its start** (engine.dll FUN_180073b10, "DemoPlayer: Reloading demo file"), and the flags live in
-        // soundemittersystem.dll, which a reload does not touch. So the deck is not rewound: the skip deals every emitted
-        // sound through the tick again, on top of what playing had already dealt.
+        // soundemittersystem.dll, which a reload does not touch. So the deck is not rewound: the skip deals every
+        // reliable emitted sound through the tick again, on top of what playing had already dealt.
         SoundScriptEntry entry = Entry(channel: 0, "a.wav", "b.wav", "c.wav");
 
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, entry);
-        presenter.Schedule = new SoundSchedule([Dealt(100, 0), Dealt(200, 0)]);
+        presenter.Schedule = new SoundSchedule([Reliable(100, 0), Reliable(200, 0)]);
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
         presenter.Update(new Silent(), 100, Listener, Right, now: 1.5d);
@@ -237,10 +261,30 @@ public sealed class ScriptWaveDeckConformanceTests
         played.ShouldBe(["a.wav", "b.wav", "a.wav"]);
     }
 
+    /// <remarks>A skip forward reads ahead from where playback is: only the ticks it passes over deal (FUN_180073b10).</remarks>
+    [Test]
+    public void Update_ASeekForwardFromMidway_DealsOnlyTheTicksItSkips()
+    {
+        SoundScriptEntry entry = Entry(channel: 0, "a.wav", "b.wav", "c.wav");
+
+        List<string> played = [];
+        SoundPresenter presenter = Presenter(played, entry);
+        presenter.Schedule = new SoundSchedule([Reliable(100, 0), Reliable(200, 0), Reliable(400, 0), Reliable(600, 0)]);
+
+        presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
+        presenter.Update(new Silent(), 100, Listener, Right, now: 1.5d);
+        presenter.Update(new Silent(), 200, Listener, Right, now: 3d);
+        presenter.Update(new Silent(), 500, Listener, Right, now: 7d);
+        presenter.Update(new Silent(), 600, Listener, Right, now: 9d);
+
+        // a and b played; the skip dealt c at 400; the deck is empty, so 600 resets it and takes a.
+        played.ShouldBe(["a.wav", "b.wav", "a.wav"]);
+    }
+
     /// <remarks>
-    /// **A skip deals what `CL_FireEvents` fires, and only that.** Every queued temp entity fires (engine.dll FUN_1800905d0
-    /// has no skipping test; `CHLClient::OnRenderStart` calls it, `cdll_client_int.cpp:2137-2255`), so an emitted sound in
-    /// the skipped ticks deals; a READ never changes which waves are available, so a skip has nothing to do for one.
+    /// **A skip deals what `CL_FireEvents` fires, and only that.** A queued temp entity fires with no skipping test
+    /// (engine.dll FUN_1800905d0), so a reliable one's emitted sound deals; a READ never changes which waves are available,
+    /// so a skip has nothing to do for one.
     /// </remarks>
     [Test]
     public void Update_ASeekPastAReadAndADeal_DealsOnlyTheEmittedOne()
@@ -249,7 +293,7 @@ public sealed class ScriptWaveDeckConformanceTests
 
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, entry);
-        presenter.Schedule = new SoundSchedule([Dealt(100, 1, emitted: false), Dealt(200, 1), Dealt(400, 1)]);
+        presenter.Schedule = new SoundSchedule([Reliable(100, 1, emitted: false), Reliable(200, 1), Dealt(400, 1)]);
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
         presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
@@ -307,7 +351,7 @@ public sealed class ScriptWaveDeckConformanceTests
         };
 
         SceneSound blast = ExplosionSounds.For(
-            [new SceneExplosion(5, 0f, 0f, 0f, (0f, 0f, 1f), 22, SceneExplosion.NoEntity, SceneExplosion.NoCustomParticle) { TempEntity = 7 }],
+            [new SceneExplosion(5, 0f, 0f, 0f, (0f, 0f, 1f), 22, SceneExplosion.NoEntity, SceneExplosion.NoCustomParticle) { TempEntity = 7, Reliable = true }],
             static _ => Script,
             scripts).ShouldHaveSingleItem();
 
@@ -324,6 +368,9 @@ public sealed class ScriptWaveDeckConformanceTests
             new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2),
             new ClientSoundOrder(ClientSoundPhase.TempEntities, 8, 2),
             new ClientSoundOrder(ClientSoundPhase.Network, 0, 0)));
+
+        // A reliable temp entity survives a skip (FUN_1801f9bc0); an unreliable one does not.
+        (blast.DealtBySkip, impact.DealtBySkip).ShouldBe((true, false));
     }
 
     /// <remarks>
@@ -348,6 +395,9 @@ public sealed class ScriptWaveDeckConformanceTests
         {
             WaveDraw = new ScriptWaveDraw(Script, draw, emitted),
         };
+
+    /// <summary>A sound from a reliable temp entity, which a skip still fires.</summary>
+    private static SceneSound Reliable(int tick, int draw, bool emitted = true) => Dealt(tick, draw, emitted) with { DealtBySkip = true };
 
     private static SoundScriptEntry Entry(int channel, params string[] waves) =>
         new(Script, channel,new SoundRange(1f, 1f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), waves);
