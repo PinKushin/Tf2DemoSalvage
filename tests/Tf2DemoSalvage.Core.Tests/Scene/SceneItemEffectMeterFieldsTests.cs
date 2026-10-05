@@ -36,6 +36,7 @@ public sealed class SceneItemEffectMeterFieldsTests
             .Items.ShouldNotBeNull().ShouldHaveSingleItem();
 
         item.EffectBarRegenTime.ShouldBe(311.25f);
+        item.LastFireTime.ShouldBe(297.5f, "DT_LocalTFWeaponData.m_flLastFireTime (tf_weaponbase.cpp:179)");
         item.Energy.ShouldBe(15f);
         item.KillComboClass.ShouldBe(7);
         item.KillComboCount.ShouldBe(2);

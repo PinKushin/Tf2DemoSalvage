@@ -101,6 +101,21 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
         (Wide, Tall) = (_screenWide, _screenTall);
     }
 
+    /// <summary>The events the constructor listens for (tf_hud_crosshair.cpp:46).</summary>
+    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(["restart_timer_time"], StringComparer.Ordinal);
+
+    /// <summary>`FireGameEvent` (tf_hud_crosshair.cpp:122).</summary>
+    /// <param name="fired">The event.</param>
+    public void HandleGameEvent(HudGameEvent fired)
+    {
+        ArgumentNullException.ThrowIfNull(fired);
+
+        TimeToHideUntil = -1f;
+    }
+
+    /// <summary>`m_flTimeToHideUntil`: -1 from the constructor (:44).</summary>
+    public float TimeToHideUntil { get; private set; } = -1f;
+
     /// <summary>`ResetCrosshair`: the default icon.</summary>
     public void ResetCrosshair() => Crosshair = DefaultCrosshair;
 

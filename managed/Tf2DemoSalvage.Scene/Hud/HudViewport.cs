@@ -58,6 +58,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// eye, `MASK_SOLID | CONTENTS_DEBRIS` — precomputed by whoever runs the ID trace, null when nothing was hit or run.
 /// </param>
 /// <param name="EyePosition">The local player's `EyePosition()`, or null where no first-person eye is known.</param>
+/// <param name="Flags">The local player's `GetFlags()`: `m_fFlags`, 0 where unsent.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -94,7 +95,8 @@ public readonly record struct HudState(
     IReadOnlyDictionary<int, uint>? AccountIds = null,
     IReadOnlyList<Core.Scene.SceneIdEntity>? IdEntities = null,
     int? WeaponPickupTraceHit = null,
-    (float X, float Y, float Z)? EyePosition = null)
+    (float X, float Y, float Z)? EyePosition = null,
+    int Flags = 0)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
