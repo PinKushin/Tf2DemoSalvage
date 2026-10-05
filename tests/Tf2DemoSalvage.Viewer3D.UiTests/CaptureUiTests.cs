@@ -93,7 +93,7 @@ public sealed class CaptureUiTests
 
         try
         {
-            (int Exit, string Errors) run = Capture(png);
+            (int Exit, string Errors) run = Capture(DemoPath, png, LongEnoughToBeAHang);
 
             // **The exit code first, and the standard error carried into the message.** This is the
             // whole point of the test: a capture that dies takes its stack with it, so the one place
@@ -121,13 +121,65 @@ public sealed class CaptureUiTests
         }
     }
 
+    /// <summary>
+    /// What a worktree holds in place of a demo when <c>git lfs pull</c> has not run: three lines of text.
+    /// </summary>
+    private const string LfsPointer =
+        "version https://git-lfs.github.com/spec/v1\n" +
+        "oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n" +
+        "size 12345\n";
+
+    /// <summary>
+    /// Far below the ~90-second minimum the patience backstop took to give up on a failed load, and far
+    /// above a window opening and closing (~3 s).
+    /// </summary>
+    private static readonly TimeSpan FailsFast = TimeSpan.FromSeconds(45);
+
+    /// <summary>
+    /// A file that is not a demo must end a headless capture at once, non-zero, naming the file and why.
+    /// </summary>
+    /// <remarks>
+    /// **Observed on an LFS-pointer worktree**: the load failed in milliseconds and logged why, then
+    /// `--shot` waited out `PatienceFrames` drawing an empty viewport, and exited zero having written
+    /// nothing — the capture test above reported a 180-second hang instead of a missing demo.
+    /// </remarks>
+    [Test]
+    public void Capture_OnAnLfsPointerInsteadOfADemo_ExitsNonZeroNamingTheFileAndTheHeader()
+    {
+        string folder = Path.Combine(
+            Path.GetTempPath(), "tf2ds-shot", Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(folder);
+
+        string pointer = Path.Combine(folder, "pointer.dem");
+        string png = Path.Combine(folder, "capture.png");
+
+        File.WriteAllText(pointer, LfsPointer);
+
+        try
+        {
+            (int Exit, string Errors) run = Capture(pointer, png, FailsFast);
+
+            run.Exit.ShouldBe(1, $"standard error:{Environment.NewLine}{run.Errors}");
+            run.Errors.ShouldContain("pointer.dem");
+            run.Errors.ShouldContain("invalid demo header ID");
+            File.Exists(png).ShouldBeFalse("a capture of no demo was written.");
+        }
+        finally
+        {
+            Clean(folder);
+        }
+    }
+
     /// <summary>The eight bytes every PNG starts with.</summary>
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
     /// <summary>Runs one headless capture to completion.</summary>
+    /// <param name="demo">The file named on the command line.</param>
     /// <param name="png">Where the capture is asked to go.</param>
+    /// <param name="hang">How long before the run is called hung and killed.</param>
     /// <returns>The process's exit code and everything it wrote to standard error.</returns>
-    private static (int Exit, string Errors) Capture(string png)
+    private static (int Exit, string Errors) Capture(string demo, string png, TimeSpan hang)
     {
         ProcessStartInfo start = new(ViewerApplication.ExecutablePath)
         {
@@ -138,7 +190,7 @@ public sealed class CaptureUiTests
 
         foreach (string argument in (string[])
         [
-            DemoPath,
+            demo,
             "--tick", ShotTick.ToString(CultureInfo.InvariantCulture),
             "--shot", png,
         ])
@@ -163,12 +215,12 @@ public sealed class CaptureUiTests
 
         // **The return value is checked**, because `WaitForExit(TimeSpan)` reporting false means the
         // process is still running and `ExitCode` would throw rather than answer.
-        if (!viewer.WaitForExit(LongEnoughToBeAHang))
+        if (!viewer.WaitForExit(hang))
         {
             viewer.Kill(entireProcessTree: true);
 
             Assert.Fail(
-                $"the capture did not finish within {LongEnoughToBeAHang.TotalSeconds:0} seconds. " +
+                $"the capture did not finish within {hang.TotalSeconds:0} seconds. " +
                 $"Standard error so far:{Environment.NewLine}{errors}");
         }
 

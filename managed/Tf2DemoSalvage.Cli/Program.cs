@@ -63,8 +63,10 @@ public static class Program
         {
             // Expected failure modes: a file that is missing, unreadable, or not a demo.
             // Anything else is a defect and should surface with its stack trace rather than
-            // being flattened into a tidy message.
-            logger.LogError(exception, "{Message}", exception.Message);
+            // being flattened into a tidy message. So this goes straight to stderr, as the usage
+            // error above does: the logger's formatter prints the stack of any exception it is
+            // handed, and the analyser requires handing it one inside a catch. The file is named.
+            Console.Error.WriteLine($"error: {line.DemoPath}: {exception.Message}");
             return ExitFailure;
         }
     }

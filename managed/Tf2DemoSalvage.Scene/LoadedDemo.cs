@@ -94,6 +94,9 @@ public sealed class LoadedDemo
         {
             int read = stream.ReadAtLeast(headerBytes, headerBytes.Length, throwOnEndOfStream: false);
 
+            // Not a demo at all says so before "too short" does — the engine's order.
+            DemoHeader.CheckStamp(headerBytes.AsSpan(0, read));
+
             if (read < headerBytes.Length)
             {
                 // Stryker disable all : the String mutator wraps the interpolated literal in a

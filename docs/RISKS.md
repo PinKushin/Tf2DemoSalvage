@@ -35468,3 +35468,34 @@ which made it pass in 15 s): setting `ShortcutKeys` on an OWNED item evidently g
 hand-back to the UI thread waits on a test thread with no message loop. Keys are now set as each item is built
 (`ViewerMenu.Bind`), before it has an owner, as the old initializers did; only the reload re-applies them, on a
 shown form. Mechanism inferred from the bisection, not traced in the WinForms source.
+
+## B499 — a headless run on a file that is not a demo waited out its patience instead of failing; a short non-demo was called "too short" — FIXED 2026-10-05
+
+**Observed:** in a worktree whose `tools/corpus/demos/*.dem` were Git LFS pointers (130-byte text),
+`Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng` stalled until its 180 s bound. **The viewer stalled, not
+the test**, and the viewer's log located it (measured): `[demo] opening pointer.dem` then the `InvalidDataException`
+WARN within 7 ms, then nothing but frames. The load had failed cleanly; `--shot` then waited on `OpeningSequence`'s
+`PatienceFrames` (30,000 frames, B401's backstop for a demo that never ARRIVES) as if a failed load might still
+arrive, and would have exited 0 with no PNG. `--measure` on the same file never ends, since no playback starts; a
+missing file on the command line took the same path. **Fix:** `MainForm.OpenCommandLineDemo` ends a headless run
+(`--shot` or `--measure`) whose command-line demo fails to open — the reason on stderr, the log at Error, exit code 1,
+window closed. Interactive runs are unchanged: the status bar says why and the window stays usable.
+
+**And the message is the engine's.** `CDemoFile::Open` rejects with `"%s has invalid demo header ID."` (read from the
+shipped `engine.dll`; the engine's demo file code is not in source-sdk-2013, only `DEMO_HEADER_ID` in
+`public/demofile/demoformat.h`). Ours checked LENGTH first, so a pointer read as "130 bytes, too short to hold a
+1072-byte demo header" — a truncated demo, which this project salvages, rather than not a demo at all.
+`DemoHeader.CheckStamp` now runs first in `Parse` and `LoadedDemo.Load`; a prefix of `HL2DEMO` passes, so a cut-short
+real demo still reports its length. An LFS pointer is named as one, with `git lfs pull`. The CLI already exited 1,
+but printed the stack of an expected failure (its catch's own comment reserves that for defects) and did not name the
+file; it now prints one line, `error: <path>: <reason>`.
+
+Measured after the fix, `--shot` per input: LFS pointer exit 1 in 4 s; empty file exit 1 in 2 s; missing file exit 1
+in 1 s; a real demo cut to 5,000 bytes still opens and writes a PNG (salvage, by design).
+
+**Tests:** `DemoHeaderTests` (pointer, non-pointer, empty, truncated-real control), `LoadedDemoTests
+.LoadDemo_AnLfsPointer_ShowsTheHeaderIdErrorAndStaysUsable` (status bar), `ProgramTests
+.Main_OnAnLfsPointer_PrintsOneLineNamingTheFileWithNoStack` (CLI), and output-level, its own process:
+`CaptureUiTests.Capture_OnAnLfsPointerInsteadOfADemo_ExitsNonZeroNamingTheFileAndTheHeader` (exit 1 within 45 s,
+stderr names file and reason, no PNG). **Sabotaged:** without `CheckStamp` in `Parse`, six Core tests fail; without it
+in `LoadedDemo`, the status-bar test reads "too short"; without the `FailHeadless` call, the UI test hangs past 45 s.

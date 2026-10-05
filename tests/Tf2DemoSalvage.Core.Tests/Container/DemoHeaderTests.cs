@@ -153,6 +153,58 @@ public sealed class DemoHeaderTests
         Should.Throw<EndOfStreamException>(() => DemoHeader.Parse(truncated.AsSpan(0, 1071)));
     }
 
+    /// <summary>A Git LFS pointer: what a worktree holds for a demo before <c>git lfs pull</c>.</summary>
+    private static readonly byte[] LfsPointer = System.Text.Encoding.ASCII.GetBytes(
+        "version https://git-lfs.github.com/spec/v1\n" +
+        "oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n" +
+        "size 12345\n");
+
+    [Test]
+    public void Parse_AShortFileWithTheWrongStamp_SaysInvalidHeaderIdBeforeLength()
+    {
+        // **The stamp is checked before the length, as the engine's CDemoFile::Open does** — its
+        // message, read from the shipped engine.dll, is "%s has invalid demo header ID." A 130-byte
+        // text file is not a short demo, and "only 130 bytes" hid that it was not a demo at all.
+        InvalidDataException exception = Should.Throw<InvalidDataException>(
+            () => DemoHeader.Parse(LfsPointer));
+
+        exception.Message.ShouldContain("invalid demo header ID");
+        exception.Message.ShouldContain("'version '");
+    }
+
+    [Test]
+    public void Parse_AnLfsPointer_NamesGitLfs()
+    {
+        InvalidDataException exception = Should.Throw<InvalidDataException>(
+            () => DemoHeader.Parse(LfsPointer));
+
+        exception.Message.ShouldContain("git lfs pull");
+    }
+
+    [Test]
+    public void Parse_ANonDemoThatIsNotAPointer_DoesNotMentionGitLfs()
+    {
+        InvalidDataException exception = Should.Throw<InvalidDataException>(
+            () => DemoHeader.Parse("NOTADEMO and some more text"u8));
+
+        exception.Message.ShouldNotContain("lfs");
+    }
+
+    [Test]
+    public void Parse_AnEmptyBuffer_ThrowsEndOfStream()
+    {
+        Should.Throw<EndOfStreamException>(() => DemoHeader.Parse([]));
+    }
+
+    [Test]
+    public void Parse_TheRightStampThenTruncated_ThrowsEndOfStream()
+    {
+        // The control for the stamp-first order: a real demo cut short still reports its length.
+        byte[] header = BuildHeader();
+
+        Should.Throw<EndOfStreamException>(() => DemoHeader.Parse(header.AsSpan(0, 500)));
+    }
+
     [Test]
     public void HeaderSizeBytes_MatchesTheDocumentedLayout()
     {

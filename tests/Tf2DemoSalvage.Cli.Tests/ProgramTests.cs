@@ -133,6 +133,22 @@ public sealed class ProgramTests : IDisposable
     }
 
     [Test]
+    public void Main_OnAnLfsPointer_PrintsOneLineNamingTheFileWithNoStack()
+    {
+        string pointer = Path.Combine(_scratch, "pointer.dem");
+        File.WriteAllText(pointer, "version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n");
+
+        Program.Main([pointer, "-t"]).ShouldBe(1);
+
+        // An expected failure is a message, not a defect: the stack is what the catch's own comment
+        // reserves for the unexpected, and the file is named because a batch run opens many.
+        string error = _error.ToString().TrimEnd();
+        error.ShouldBe(
+            $"error: {pointer}: invalid demo header ID: expected 'HL2DEMO' but found 'version '. " +
+            "It is a Git LFS pointer, not the demo: run git lfs pull.");
+    }
+
+    [Test]
     public void NotADemo_IsReportedRatherThanThrown()
     {
         string junk = Path.Combine(_scratch, "junk.dem");

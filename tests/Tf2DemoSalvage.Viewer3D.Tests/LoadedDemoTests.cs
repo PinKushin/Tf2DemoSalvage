@@ -135,6 +135,22 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    public void LoadDemo_AnLfsPointer_ShowsTheHeaderIdErrorAndStaysUsable()
+    {
+        // The interactive half of the fail-fast fix: the status bar says WHY, not only that it failed.
+        string path = Path.Combine(_folder, "pointer.dem");
+        File.WriteAllText(path, "version https://git-lfs.github.com/spec/v1\noid sha256:00\nsize 1\n");
+
+        using MainForm form = new(path);
+
+        form.LoadDemo(path).Outcome.ShouldBe(DemoLoadOutcome.Failed);
+
+        form.Demo.ShouldBeNull();
+        form.StatusText.ShouldContain("pointer.dem");
+        form.StatusText.ShouldContain("invalid demo header ID");
+    }
+
+    [Test]
     public void LoadedDemo_ATruncatedDemo_HasItsLengthMeasured()
     {
         // The reported bug, reduced. `esea_match_13977649.dem` holds 110,238 frames of
