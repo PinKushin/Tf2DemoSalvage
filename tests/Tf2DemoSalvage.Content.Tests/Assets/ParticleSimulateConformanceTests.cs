@@ -162,6 +162,51 @@ public sealed class ParticleSimulateConformanceTests
         effect.Particles.PreviousOf(0).X.ShouldBe(-100f * 0.05f, 1e-4f);
     }
 
+    /// <remarks>
+    /// `C_OP_InstantaneousEmitter::Emit` (`builtin_particle_emitters.obj`, B493): `share = min( owed, per frame )`,
+    /// `emitted = min( share, max_particles − active )`, `owed −= share`. At the cap only the refused part of the SHARE is
+    /// lost. Four owed, two a frame, room for one: the first step emits one and still owes two, so the burst is not
+    /// finished though its one particle has died; the second step emits one more and owes nothing.
+    /// </remarks>
+    [Test]
+    public void Step_ABurstAtItsCap_KeepsOwingWhatItsShareDidNotCover()
+    {
+        ParticleEffect effect = new(Capped());
+
+        effect.Step(ParticleControlPoint.Unset, 0.1f);
+        bool afterOne = effect.Finished;
+        effect.Step(ParticleControlPoint.Unset, 0.1f);
+
+        (afterOne, effect.Finished).ShouldBe((false, true));
+    }
+
+    /// <summary>Four particles at once, two a frame, one at a time, each living a tenth of a second, in whole-call steps.</summary>
+    private static ParticleSystem Capped() =>
+        new(
+            "capped",
+            [
+                new ParticleFunction("emit_instantaneously", "emit", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["num_to_emit"] = new DmxValue(DmxAttributeType.Whole, 4d),
+                    ["maximum emission per frame"] = new DmxValue(DmxAttributeType.Whole, 2d),
+                }),
+            ],
+            [
+                new ParticleFunction("Lifetime Random", "life", new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                {
+                    ["lifetime_min"] = new DmxValue(DmxAttributeType.Real, 0.1d),
+                    ["lifetime_max"] = new DmxValue(DmxAttributeType.Real, 0.1d),
+                }),
+            ],
+            [],
+            [],
+            [],
+            new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+            {
+                ["max_particles"] = new DmxValue(DmxAttributeType.Whole, 1d),
+                ["maximum time step"] = new DmxValue(DmxAttributeType.Real, 1d),
+            });
+
     /// <summary>A valid frame at <paramref name="at"/>.</summary>
     private static ParticleControlPoint Oriented(Vector3 at) => new(at, Vector3.UnitX, -Vector3.UnitY, Vector3.UnitZ);
 
