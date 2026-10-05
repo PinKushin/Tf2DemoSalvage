@@ -86,6 +86,20 @@ public sealed class RecorderPredictionWeaponStateTests
             .ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `FL_WATERJUMP` is `1&lt;&lt;2` in the nine-bit orangebox list and `1&lt;&lt;3` once `FL_ANIMDUCKING` took `1&lt;&lt;2`
+    /// (const.h:150-155) — so a current demo's crouch transition is not a water jump, and an old demo's water jump is.
+    /// </remarks>
+    [TestCase(1 << 2, true, TestName = "WaterJumping_BitTwoInANineBitDemo_IsAWaterJump")]
+    [TestCase(1 << 3, false, TestName = "WaterJumping_BitThreeInANineBitDemo_IsOnATrain")]
+    public void WaterJumping_InANineBitDemo(int flags, bool expected) =>
+        RecorderPrediction.WaterJumping(flags, PlayerFlagLayout.OrangeBox).ShouldBe(expected);
+
+    [TestCase(1 << 3, true, TestName = "WaterJumping_BitThreeInAnElevenBitDemo_IsAWaterJump")]
+    [TestCase(1 << 2, false, TestName = "WaterJumping_BitTwoInAnElevenBitDemo_IsAnimDucking")]
+    public void WaterJumping_InAnElevenBitDemo(int flags, bool expected) =>
+        RecorderPrediction.WaterJumping(flags, PlayerFlagLayout.Current).ShouldBe(expected);
+
     private static SceneItem Flamethrower(int state) =>
         new(30, "CTFFlameThrower", 21, new EconAttributeWire([], [], false), IsWeapon: true) { FlameThrowerState = state };
 

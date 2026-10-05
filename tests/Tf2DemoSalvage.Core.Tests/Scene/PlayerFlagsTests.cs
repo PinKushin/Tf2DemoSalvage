@@ -19,6 +19,20 @@ public sealed class PlayerFlagsTests
     public void Frozen_ByTheDeclaredWidth(int bits, int expected) =>
         PlayerFlags.Frozen(Schema(bits)).ShouldBe(expected);
 
+    /// <remarks>Orangebox const.h: WATERJUMP 2, FROZEN 5, ATCONTROLS 6, INWATER 9; with ANIMDUCKING: 3, 6, 7, 10.</remarks>
+    [TestCase(9, 1 << 2, 1 << 5, 1 << 6, 1 << 9, TestName = "For_NinePlayerFlagBits_IsTheOrangeBoxList")]
+    [TestCase(11, 1 << 3, 1 << 6, 1 << 7, 1 << 10, TestName = "For_ElevenPlayerFlagBits_IsTheListWithAnimDucking")]
+    public void For_ByTheDeclaredWidth(int bits, int waterJump, int frozen, int atControls, int inWater)
+    {
+        PlayerFlagLayout layout = PlayerFlagLayout.For(Schema(bits));
+
+        (layout.WaterJump, layout.Frozen, layout.AtControls, layout.InWater).ShouldBe((waterJump, frozen, atControls, inWater));
+    }
+
+    [Test]
+    public void Build_TheSyntheticElevenBitPlayer_HasTheCurrentLayout() =>
+        DemoTimeline.Build(SyntheticPlayer.DemoWithItemEffectMeterFields()).FlagLayout.ShouldBe(PlayerFlagLayout.Current);
+
     [Test]
     public void Frozen_NoPlayerTable_IsTheCurrentBit() =>
         PlayerFlags.Frozen(new DemoSchema([], [])).ShouldBe(1 << 6);

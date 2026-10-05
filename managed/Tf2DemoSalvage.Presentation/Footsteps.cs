@@ -61,6 +61,7 @@ public sealed class Footsteps
     /// <param name="ground">`GetGroundSurface()`: what a hull trace 64 units down found, or null for nothing.</param>
     /// <param name="named">A surface by name, for `wade` and `water`.</param>
     /// <param name="scripts">The sound scripts.</param>
+    /// <param name="layout">The demo's `m_fFlags` list (`DemoTimeline.FlagLayout`); the current one when not given.</param>
     /// <returns>The step, or null.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public SceneSound? Step(
@@ -68,8 +69,10 @@ public sealed class Footsteps
         ScenePlayer player,
         StepSurface? ground,
         Func<string, StepSurface?> named,
-        IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
+        PlayerFlagLayout? layout = null)
     {
+        _ = layout;
         ArgumentNullException.ThrowIfNull(named);
         ArgumentNullException.ThrowIfNull(scripts);
 

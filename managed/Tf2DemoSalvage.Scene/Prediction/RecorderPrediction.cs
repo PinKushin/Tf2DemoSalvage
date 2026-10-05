@@ -455,6 +455,16 @@ public sealed class RecorderPrediction
     /// <summary><c>FL_WATERJUMP</c> outside the HL2 block of <c>const.h:155</c>.</summary>
     private const int WaterJumpFlag = 1 << 3;
 
+    /// <summary>Whether <c>FL_WATERJUMP</c> is set, in the demo's own flag list.</summary>
+    /// <param name="flags">The recorder's <c>m_fFlags</c>.</param>
+    /// <param name="layout">The demo's list.</param>
+    /// <returns>Whether it is.</returns>
+    internal static bool WaterJumping(int flags, PlayerFlagLayout layout)
+    {
+        _ = layout;
+        return (flags & WaterJumpFlag) != 0;
+    }
+
     private const int CondStunned = 15;
     private const int StunMovement = 1 << 0;
     private const int StunControls = 1 << 1;
