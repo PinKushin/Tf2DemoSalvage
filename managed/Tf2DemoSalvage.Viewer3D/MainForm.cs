@@ -6801,7 +6801,7 @@ internal class MainForm : Form, IFrameSteps
                 case FootstepEvent:
                     ScenePlayer? stepper = Stepper(fired.EntityIndex);
                     StepSurface? ground = stepper is { } p ? GroundSurface(p) : null;
-                    SceneSound? step = stepper is { } q ? _footsteps.Step(tick, q, ground, NamedSurface, scripts.Entries) : null;
+                    SceneSound? step = stepper is { } q ? _footsteps.Step(tick, q, ground, NamedSurface, scripts.Entries, _timeline?.FlagLayout) : null;
 
                     if (step is { } played)
                     {

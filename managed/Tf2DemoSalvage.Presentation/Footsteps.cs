@@ -29,9 +29,6 @@ public sealed class Footsteps
     private const int OnGround = 1 << 0;
     private const int Ducking = 1 << 1;
 
-    /// <summary>`FL_FROZEN | FL_ATCONTROLS` in the TF branch of `const.h` (`1 &lt;&lt; 6`, `1 &lt;&lt; 7`).</summary>
-    private const int Frozen = (1 << 6) | (1 << 7);
-
     private const int Taunting = 7;
     private const int HalloweenKart = 82;
 
@@ -61,6 +58,7 @@ public sealed class Footsteps
     /// <param name="ground">`GetGroundSurface()`: what a hull trace 64 units down found, or null for nothing.</param>
     /// <param name="named">A surface by name, for `wade` and `water`.</param>
     /// <param name="scripts">The sound scripts.</param>
+    /// <param name="layout">The demo's `m_fFlags` list (`DemoTimeline.FlagLayout`); the current one when not given.</param>
     /// <returns>The step, or null.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public SceneSound? Step(
@@ -68,14 +66,18 @@ public sealed class Footsteps
         ScenePlayer player,
         StepSurface? ground,
         Func<string, StepSurface?> named,
-        IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
+        PlayerFlagLayout? layout = null)
     {
         ArgumentNullException.ThrowIfNull(named);
         ArgumentNullException.ThrowIfNull(scripts);
 
         int flags = player.Flags ?? 0;
 
-        if (player.Conditions.Has(Taunting) || player.Conditions.Has(HalloweenKart) || (flags & Frozen) != 0)
+        // `GetFlags() & (FL_FROZEN|FL_ATCONTROLS)` (baseplayer_shared.cpp:530), in the list the demo was written with.
+        PlayerFlagLayout bits = layout ?? PlayerFlagLayout.Current;
+
+        if (player.Conditions.Has(Taunting) || player.Conditions.Has(HalloweenKart) || (flags & (bits.Frozen | bits.AtControls)) != 0)
         {
             return null;
         }

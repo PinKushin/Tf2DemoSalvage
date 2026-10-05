@@ -35561,5 +35561,32 @@ watching client's own state; `IsCurrentViewAccessAllowed` is split screen.
 
 **Seen in passing, not fixed here:** `Presentation/Footsteps.cs` names `FL_FROZEN | FL_ATCONTROLS` as `1<<6`, `1<<7`,
 which in a nine-bit demo are `FL_ATCONTROLS` and `FL_CLIENT` — and every player carries `FL_CLIENT`, so in a
-2007-2009 demo that mask matches every player. *Not measured:* what the footstep path then does. It should take the
-demo's own layout, as `DemoTimeline.FrozenFlag` does.
+2007-2009 demo that mask matches every player. Measured and fixed as B501.
+
+## B501 — every 2007-2009 player's footsteps were silent; the prediction read FL_ONTRAIN as a water jump — FIXED 2026-10-05
+
+**Read, published source:** `UpdateStepSound` returns on `GetFlags() & (FL_FROZEN|FL_ATCONTROLS)`
+(`baseplayer_shared.cpp:530`). The orangebox `const.h` lists `FL_WATERJUMP 1<<2, FL_ONTRAIN 1<<3, FL_FROZEN 1<<5,
+FL_ATCONTROLS 1<<6, FL_CLIENT 1<<7, FL_INWATER 1<<9`; the list with `FL_ANIMDUCKING 1<<2` moves each up one. A demo
+says which by `m_fFlags`'s width (B500: 9 bits through 2009, 11 from 2011).
+
+**Measured before the fix** with the new `step-gate` probe — `Footsteps.Step` on the players `TimelineMoments` gives
+the viewer, over a fabricated surface whose sounds always resolve: **0 steps of 7,741 moving samples** on
+`tf2-2009-build3862-pov-cp_badlands` and **0 of 3,314** on `tf2-2008-build3420-stv-cp_granary`, every sample carrying
+`1<<7`; the control `tf2-2013-build1729296-pov-cp_badlands` gave 963 of 1,499. **The instrument lied first**: built on
+`DemoTimeline.PlayersAt`, which carries no speed, it reported 0 steps on the control too — found by running it on the
+control before believing the old demos' zero.
+
+**Fixed:** `PlayerFlagLayout` (`Current`, `OrangeBox`, `For(schema)`) on `DemoTimeline.FlagLayout`; `Footsteps.Step`
+takes it (the viewer passes the timeline's), and `RecorderPrediction.WaterJumping` reads `FL_WATERJUMP` through it — a
+2009 POV recorder on a train had read as water-jumping, and a current one's crouch transition as nothing. After: 5,702
+steps (2009 POV), 1,958 (2008 STV), 963 (2013, unchanged). The unused `PlayerActivityState.AnimDucking`/`InWater`
+constants were removed; `InWater` held the orangebox `1<<9`, which is `FL_FAKECLIENT` in a current demo.
+**Every other `FL_` read in `managed/`** is `FL_ONGROUND` or `FL_DUCKING`, which both lists share (grep, 2026-10-05).
+
+**Tests:** `FootstepsConformanceTests.Step_*InANineBitDemo*` / `*InAnElevenBitDemo*` (client sounds, frozen and at
+controls silent, per layout), `PlayerFlagsTests.For_*`, `RecorderPredictionWeaponStateTests.WaterJumping_*`, and
+`CorpusFootstepLayoutTests` (2009 POV, 2008 STV, 2013 POV each step, through `StepGateProbe.Measure`). Red before.
+**Sabotaged:** dropping `FL_ATCONTROLS` from the mask (2 red), passing the current layout to every demo (2009 and 2008
+red), the orangebox `FL_WATERJUMP` at `1<<3` (3 red). **Survives:** `PredictFrom` passing the current layout instead
+of the timeline's — no test drives `PredictFrom` through a water jump; nor is `MainForm`'s argument covered.

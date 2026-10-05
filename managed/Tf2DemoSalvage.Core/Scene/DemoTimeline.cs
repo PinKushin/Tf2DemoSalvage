@@ -2248,7 +2248,10 @@ public sealed class DemoTimeline
     public int NetworkProtocol { get; private init; }
 
     /// <summary>`FL_FROZEN` in the layout this demo's `m_fFlags` was written with — <see cref="PlayerFlags.Frozen"/>.</summary>
-    public int FrozenFlag { get; private init; } = PlayerFlags.FrozenCurrent;
+    public int FrozenFlag => FlagLayout.Frozen;
+
+    /// <summary>The `m_fFlags` list this demo was written with — <see cref="PlayerFlagLayout.For"/>.</summary>
+    public PlayerFlagLayout FlagLayout { get; private init; } = PlayerFlagLayout.Current;
 
     /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
     /// <remarks>
@@ -3845,7 +3848,7 @@ public sealed class DemoTimeline
             MapCrc = mapCrc,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
-            FrozenFlag = PlayerFlags.Frozen(schema),
+            FlagLayout = PlayerFlagLayout.For(schema),
             _simulationLag = simulationLag,
             SimulationLagUnknown = simulationLag[LagUnknownBucket],
             _animationLag = animationLag,

@@ -289,7 +289,7 @@ public sealed class RecorderPrediction
         player = player with
         {
             ViewOffsetZ = recorder.ViewOffsetZ ?? 0f,
-            WaterJumpUnknown = (flags & WaterJumpFlag) != 0,
+            WaterJumpUnknown = WaterJumping(flags, _timeline.FlagLayout),
             StunActive = recorder.StunIndex is >= 0,
             StunAmount = recorder.MovementStunAmount ?? 0,
             StunFlags = recorder.StunFlags ?? 0,
@@ -452,8 +452,11 @@ public sealed class RecorderPrediction
     private const int OnGroundFlag = 1 << 0;
     private const int DuckingFlag = 1 << 1;
 
-    /// <summary><c>FL_WATERJUMP</c> outside the HL2 block of <c>const.h:155</c>.</summary>
-    private const int WaterJumpFlag = 1 << 3;
+    /// <summary>Whether <c>FL_WATERJUMP</c> is set, in the demo's own flag list (<see cref="PlayerFlagLayout"/>).</summary>
+    /// <param name="flags">The recorder's <c>m_fFlags</c>.</param>
+    /// <param name="layout">The demo's list.</param>
+    /// <returns>Whether it is.</returns>
+    internal static bool WaterJumping(int flags, PlayerFlagLayout layout) => (flags & layout.WaterJump) != 0;
 
     private const int CondStunned = 15;
     private const int StunMovement = 1 << 0;

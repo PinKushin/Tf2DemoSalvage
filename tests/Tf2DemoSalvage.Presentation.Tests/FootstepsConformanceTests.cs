@@ -74,6 +74,25 @@ public sealed class FootstepsConformanceTests
         new Footsteps().Step(100, Player(speed: 110f), Concrete, NoWater, Scripts()).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// `if ( GetFlags() &amp; (FL_FROZEN|FL_ATCONTROLS)) return;` (baseplayer_shared.cpp:530). In the nine-bit orangebox layout
+    /// those are `1&lt;&lt;5` and `1&lt;&lt;6`, and `1&lt;&lt;7` is `FL_CLIENT`, which every player carries.
+    /// </remarks>
+    [TestCase(1 << 7, false, TestName = "Step_AClientInANineBitDemo_Sounds")]
+    [TestCase(1 << 5, true, TestName = "Step_FrozenInANineBitDemo_IsSilent")]
+    [TestCase(1 << 6, true, TestName = "Step_AtControlsInANineBitDemo_IsSilent")]
+    public void Step_InANineBitDemo(int flag, bool silent) =>
+        (new Footsteps().Step(100, Player(speed: 350f, flags: OnGround | flag), Concrete, NoWater, Scripts(), PlayerFlagLayout.OrangeBox) is null)
+            .ShouldBe(silent);
+
+    /// <remarks>In the current layout `FL_FROZEN` is `1&lt;&lt;6`, `FL_ATCONTROLS` `1&lt;&lt;7` and `FL_CLIENT` `1&lt;&lt;8`.</remarks>
+    [TestCase(1 << 8, false, TestName = "Step_AClientInAnElevenBitDemo_Sounds")]
+    [TestCase(1 << 6, true, TestName = "Step_FrozenInAnElevenBitDemo_IsSilent")]
+    [TestCase(1 << 7, true, TestName = "Step_AtControlsInAnElevenBitDemo_IsSilent")]
+    public void Step_InAnElevenBitDemo(int flag, bool silent) =>
+        (new Footsteps().Step(100, Player(speed: 350f, flags: OnGround | flag), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current) is null)
+            .ShouldBe(silent);
+
     [Test]
     public void Step_InTheAir_IsSilent()
     {
