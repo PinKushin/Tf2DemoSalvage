@@ -2450,6 +2450,12 @@ public sealed class MapAssets
             // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
             if (Resolve(assets, named, pak, archives, maximumTextureSize).Texture is not { } texture)
             {
+                // A `Refract` material names no colour texture: it warps the frame through its normal map (B476).
+                if (RefractSprite(assets, named, pak, archives, maximumTextureSize) is { } refract)
+                {
+                    sprites[path] = refract;
+                }
+
                 continue;
             }
 
@@ -2492,6 +2498,54 @@ public sealed class MapAssets
         }
 
         return sprites;
+    }
+
+    /// <summary><c>SHADER_PARAM( NORMALMAP, …, "models/shadertest/shader1_normal", … )</c> (`refract.cpp:21`).</summary>
+    private const string DefaultRefractNormalMap = "models/shadertest/shader1_normal";
+
+    /// <summary>A <c>Refract</c> sprite material — <c>effects/beam001_*</c> — or null when it is not one this port draws.</summary>
+    /// <remarks>
+    /// **Its blend is the shader's, not the text's alone**: <c>InitParamsRefract_DX9</c> sets
+    /// <c>MATERIAL_VAR_TRANSLUCENT</c> on every Refract material (`refract_dx9_helper.cpp:22`), and
+    /// <c>SetDefaultBlendingShadowState</c> then blends by alpha, or adds under <c>$additive</c>.
+    /// </remarks>
+    private static EngineSprite? RefractSprite(
+        ILogger assets, string named, PakFile pak, GameArchives archives, int maximumTextureSize)
+    {
+        if (ReadVmt(named, pak, archives) is not { } vmt ||
+            !vmt.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        MapTexture? Texture(string name) =>
+            LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + name + ".vtf");
+
+        if (Texture(vmt.Value("$normalmap") ?? DefaultRefractNormalMap) is not { } normal)
+        {
+            assets.LogWarning("refract material {Material} has no readable $normalmap", named);
+            return null;
+        }
+
+        MapTexture? tint = vmt.Value("$refracttinttexture") is { } tinted ? Texture(tinted) : null;
+
+        if (RefractMaterial.Read(vmt, normal, tint) is not { } refract)
+        {
+            assets.LogInformation("refract material {Material} selects a combination this viewer does not draw", named);
+            return null;
+        }
+
+        EngineSprite sprite = EngineSprite.Init(
+            normal,
+            [],
+            vmt.IsAdditive ? SpriteBlend.Additive : SpriteBlend.Translucent,
+            SpriteOrientation.ParallelUpright,
+            origin: null,
+            (1f, 1f, 1f, 1f),
+            ignoresVertexColors: false,
+            vmt.Shader);
+
+        return sprite with { Material = sprite.Material with { Refract = refract } };
     }
 
     /// <summary>A material as it draws, parsed and patched, or null when there is no file.</summary>

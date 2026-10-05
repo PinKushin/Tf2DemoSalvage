@@ -35069,16 +35069,39 @@ crossing of the centre column, with black corners. Sabotage reddened each target
 `random`, whose state cannot be reproduced. Every corpus trail sends a variance of 0. A trail in the 3D skybox
 (`m_flSkyboxScale` ≠ 1) is drawn in the main view; none in the corpus is.
 
-## B476 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — OPEN 2026-10-04
+## B476 — a `Refract` trail draws nothing: `effects/beam001_*` needs the frame behind it — FIXED 2026-10-05
 
 `effects/beam001_white`, `_red` and `_blu` are `Refract` materials (`$normalmap effects/beam001_normal`,
 `$refractamount .2`, `$forcerefract 1`). They are the most common trail on several real matches, attached to players
 at attachments 3 to 8: 49 + 36 + 13 of `pass_sanctum_a2a`'s 261 trails are `beam001_white` alone. The particle pass
-draws a texture over the frame and cannot sample the frame. So `EntityTrails` samples these trails and skips them,
-counted in `Skipped`. It does not draw the normal map as a texture.
+drew a texture over the frame and could not sample the frame, so `EntityTrails` sampled these trails and skipped them.
 
-**What closes it:** a pass after the opaque world that copies the frame and draws the strip through the `Refract`
-shader's offset, as the water views already do for the world. The strip geometry is already built.
+**Fix, read from published source:** `MapAssets` loads a `Refract` sprite material as its normal map plus a
+`RefractMaterial` (`refract.cpp`, `refract_dx9_helper.cpp`). `EntityTrails` gives each refract trail its own batch with
+the raw vertex colour and the shader's depth write. Before each such batch the renderer copies the frame into a
+1024-square `_rt_PowerOfTwoFB`, as `UpdateRefractTexture()` does per renderable (`viewrender.cpp:4609-4635`; size from
+engine.dll disassembly). The sprite renderer then draws the strip through a port of `refract_ps2x.fxc` (the `BLUR`,
+`COLORMODULATE` and `REFRACTTINTTEXTURE` combos). Full account: `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Not ported:** the `CUBEMAP`, `SECONDARY_NORMAL`, `MASKED` and `FADEOUTONSILHOUETTE` combos, a `$basetexture`, and
+pixel fog. A material that selects one of the combos stays skipped. The offscreen test target's view is plain UNORM
+where the window's is sRGB, so the synthetic render tests check the arithmetic in stored values, not linear light.
+
+**Evidence:** `RefractMaterialConformanceTests` (5 methods), `EntityTrailsConformanceTests` (two refract trails, two
+batches), and `RefractTrailRenderTests` (warp offset with its control, colour modulation, and a real `beam001_white`
+trail from `pass_sanctum_a2a`, an lcor demo that skips where it is absent). Sabotage reddened each target, restored by
+the inverse edit:
+
+- With the warp scaled to zero, column 20 read black instead of the wall.
+- With the colour modulation removed, green read 190 instead of 95.
+- With refract trails refused as undrawable, `Drawn` was 0 instead of 2.
+- With the blur clamp at 2, `$bluramount 2` read 2.
+- With `$nowritez` inverted, both depth cases failed.
+- With `$envmap` admitted, its combo was not refused.
+- With the frame copy unbound, the real trail's brightest pixel was the background's 192.
+
+**Cost, not measured:** each refract trail adds a copy and a 1024-square stretch of the frame, as in the engine.
+Sanctum shows up to five at once.
 
 ## B477 — no rope ever drew: `DT_RopeKeyframe` is NOBASE with no model index, and nothing hung one — FIXED 2026-10-04
 

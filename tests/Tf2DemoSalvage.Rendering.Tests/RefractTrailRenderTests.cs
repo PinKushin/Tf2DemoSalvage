@@ -13,7 +13,8 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// <summary>A <c>Refract</c> strip, drawn by the real renderer over the frame it copies (B476).</summary>
 /// <remarks>
 /// **The camera of the synthetic tests is the identity**, so a position is clip space: the frame is cleared black with
-/// a white wall over its right half (x &gt; 0), and the strip is one full-screen quad in front of it. The normal map is
+/// a lit wall over its right half (x &gt; 0), read before the strip is drawn, and the strip is one full-screen quad in
+/// front of it. The normal map is
 /// one texel, (255, 128, 255, 255) — a normal of x = 1, y = 1/255, alpha 1 — so <c>refract_ps2x.fxc</c> moves every
 /// sample <c>vNormal.xy · vNormal.a · $refractamount</c> to the right: at 0.25, a quarter of the frame
 /// (<c>vRefractTexCoord *= scale; vRefractTexCoord += vRefractTexCoordNoWarp</c>). The y offset, a thousandth of the
@@ -25,38 +26,48 @@ public sealed class RefractTrailRenderTests
 
     /// <remarks>
     /// **The warp reads the frame a quarter to the right.** Column 20 (u ≈ 0.32) is black under the strip and samples
-    /// u ≈ 0.57, the wall; column 4 (u ≈ 0.07) samples u ≈ 0.32, still black. The control is the same strip at
-    /// <c>$refractamount</c> 0, which samples straight through: column 20 stays black.
+    /// u ≈ 0.57, the wall, so it becomes what column 36 was; column 4 (u ≈ 0.07) samples u ≈ 0.32, still black. The
+    /// control is the same strip at <c>$refractamount</c> 0, which samples straight through: column 20 stays black.
     /// </remarks>
-    [TestCase(0.25f, 255)]
-    [TestCase(0f, 0)]
-    public void Render_ARefractStripOverAHalfWhiteFrame_ShowsTheFrameOffsetByTheNormal(float amount, int column20)
+    [TestCase(0.25f, true)]
+    [TestCase(0f, false)]
+    public void Render_ARefractStripOverAHalfLitFrame_ShowsTheFrameOffsetByTheNormal(float amount, bool showsWall)
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
 
-        DrawFrameThenStrip(target, Refract(amount), (1f, 1f, 1f, 1f));
+        (int, int, int) wall = DrawFrameThenStrip(target, Refract(amount), (1f, 1f, 1f, 1f), 36);
 
-        target.PixelAt(20, 32).ShouldBe((column20, column20, column20));
+        wall.ShouldNotBe((0, 0, 0), "the control: the wall must be lit for the warp to show anything");
+        Near(target.PixelAt(20, 32), showsWall ? wall : (0, 0, 0));
         target.PixelAt(4, 32).ShouldBe((0, 0, 0), "a quarter right of column 4 is still the black half");
     }
 
     /// <remarks>
     /// **<c>$vertexcolormodulate</c> multiplies the warped colour by the vertex colour**:
-    /// <c>refractTintColor *= i.ColorModulate.rgb; colorWarp *= refractTintColor</c>. Over the white wall at column 48, a
-    /// vertex colour of (1, 0.5, 0) is linear (1, 0.5, 0), written through the sRGB curve as (255, 188, 0) — the
-    /// target is read and written as sRGB, as the shader's <c>EnableSRGBRead</c> and <c>EnableSRGBWrite</c> ask.
+    /// <c>refractTintColor *= i.ColorModulate.rgb; colorWarp *= refractTintColor</c>. Over the wall at column 48 a
+    /// vertex colour of (1, 0.5, 0) keeps red, halves green and removes blue.
+    ///
+    /// **Halved in the stored encoding, because this target's view is plain UNORM**: the frame copy reads back what was
+    /// written, and the product is written as is. The window's view is <c>B8G8R8A8_UNORM_SRGB</c>
+    /// (<c>Device3D.CreateBackBufferView</c>), where the same shader halves green in linear light, as the engine's
+    /// <c>EnableSRGBRead</c> and <c>EnableSRGBWrite</c> ask; the offscreen target differs from the window there for every
+    /// pass, not only this one.
     /// </remarks>
     [Test]
     public void Render_AVertexColourWithColorModulate_TintsTheWarpedFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
 
-        DrawFrameThenStrip(target, Refract(0f), (1f, 0.5f, 0f, 1f));
+        (int Red, int Green, int Blue) wall = DrawFrameThenStrip(target, Refract(0f), (1f, 0.5f, 0f, 1f), 48);
 
-        (int red, int green, int blue) = target.PixelAt(48, 32);
+        Near(target.PixelAt(48, 32), (wall.Red, (int)Math.Round(wall.Green * 0.5), 0));
+    }
 
-        (red, blue).ShouldBe((255, 0));
-        green.ShouldBeInRange(187, 188, "linear one half, through the sRGB curve");
+    private static void Near((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected)
+    {
+        Math.Abs(actual.Red - expected.Red).ShouldBeLessThanOrEqualTo(1, $"red {actual} against {expected}");
+        Math.Abs(actual.Green - expected.Green).ShouldBeLessThanOrEqualTo(1, $"green {actual} against {expected}");
+        Math.Abs(actual.Blue - expected.Blue).ShouldBeLessThanOrEqualTo(1, $"blue {actual} against {expected}");
     }
 
     /// <remarks>
@@ -88,7 +99,7 @@ public sealed class RefractTrailRenderTests
         MapAssets assets = MapAssets.Load(
             map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: DemoModels.Sprites(timeline));
 
-        assets.SpriteMaterials.TryGetValue("materials/effects/beam001_white.vmt", out EngineSprite beam)
+        assets.SpriteMaterials.TryGetValue("effects/beam001_white.vmt", out EngineSprite beam)
             .ShouldBeTrue("beam001_white ships with TF2 and the demo names it");
         beam.Material.Refract.ShouldNotBeNull("the material loads as a Refract draw");
 
@@ -138,7 +149,9 @@ public sealed class RefractTrailRenderTests
         int background = Sum(target.PixelAt(1, 1));
         int brightest = Enumerable.Range(0, Size * 2).Select(row => Sum(target.PixelAt(Size, row))).Max();
 
-        brightest.ShouldBeGreaterThan(background + 60, "the strip doubles the grey where it is opaque");
+        // Measured 250 against a background of 192 on 2026-10-05: the strip's alpha fades along it, so the doubling is
+        // partial. Half the measured lift is the floor.
+        brightest.ShouldBeGreaterThan(background + 29, "the strip doubles the grey where it is opaque");
 
         foreach ((int x, int y) in (ReadOnlySpan<(int, int)>)[(Size * 2 - 2, 1), (1, Size * 2 - 2), (Size * 2 - 2, Size * 2 - 2)])
         {
@@ -175,9 +188,10 @@ public sealed class RefractTrailRenderTests
         VertexColorModulate: true,
         WritesDepth: true);
 
-    /// <summary>Clears black, draws the white right half, then the strip over everything.</summary>
-    private static void DrawFrameThenStrip(
-        OffscreenTarget target, RefractMaterial refract, (float Red, float Green, float Blue, float Alpha) colour)
+    /// <summary>Clears black, draws the lit right half, reads the frame at one column, then draws the strip over everything.</summary>
+    /// <returns>The frame at <paramref name="column"/>, row 32, before the strip.</returns>
+    private static (int Red, int Green, int Blue) DrawFrameThenStrip(
+        OffscreenTarget target, RefractMaterial refract, (float Red, float Green, float Blue, float Alpha) colour, int column)
     {
         List<WorldVertex> wall =
         [
@@ -192,6 +206,7 @@ public sealed class RefractTrailRenderTests
         target.Clear(0f, 0f, 0f);
         target.DrawWorld(wall, [new WorldBatch(0, 0, wall.Count)], Identity, MapCache.Load(), surfaceColours: true, translucent: false);
 
+        (int, int, int) before = target.PixelAt(column, 32);
         (float r, float g, float b, float a) = colour;
 
         DetailSpriteVertex Corner(float x, float y) => new(x, y, 0.5f, 0f, 0f, r, g, b, a, 0f, 0f, 0f);
@@ -210,6 +225,8 @@ public sealed class RefractTrailRenderTests
                     Refract = refract,
                 }),
             Identity);
+
+        return before;
     }
 
     private static float[] Identity =>

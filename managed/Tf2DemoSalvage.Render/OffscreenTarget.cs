@@ -382,6 +382,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     private DetailSpriteRenderer? _sprites;
     private ComPtr<ID3D11ShaderResourceView> _spriteSheet;
+    private ComPtr<ID3D11ShaderResourceView> _refractNormal;
+    private ComPtr<ID3D11ShaderResourceView> _refractTint;
 
     /// <summary>Draws one particle or entity sprite batch with its blend and depth state, as the viewer's particle pass does (B391).</summary>
     /// <param name="batch">The batch.</param>
@@ -404,6 +406,24 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
 
         _sprites.SetSheet(_spriteSheet);
+
+        if (batch.Material.Refract is { } refract)
+        {
+            // UpdateRefractTexture before the draw, as DrawTranslucentRenderables does per renderable (B476).
+            ComPtr<ID3D11ShaderResourceView> frame = (_world ??= WorldRenderer.Create(_device, _loggers))
+                .UpdateRefractTexture(_context, new WaterFrameTarget(_view, _depthView, _width, _height));
+
+            _refractNormal.Dispose();
+            _refractNormal = WorldRenderer.UploadTexture(_device, _context, refract.NormalMap, srgb: false);
+            _refractTint.Dispose();
+            _refractTint = WorldRenderer.UploadTexture(_device, _context, refract.RefractTintTexture);
+            _sprites.SetRefract(refract, _refractNormal, frame, _refractTint);
+        }
+        else
+        {
+            _sprites.SetRefract(null);
+        }
+
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
         _sprites.Upload(_device, _context, batch.Corners);
@@ -681,6 +701,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _detailSheet.Dispose();
         _sprites?.Dispose();
         _spriteSheet.Dispose();
+        _refractNormal.Dispose();
+        _refractTint.Dispose();
         _world?.Dispose();
         _view.Dispose();
         _depthView.Dispose();

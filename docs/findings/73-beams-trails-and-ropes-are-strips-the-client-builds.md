@@ -139,7 +139,36 @@ Tallied on z1800, badwater and sanctum (`entity-census`), the trails are Sandman
 `effects/beam001_*`. All are `kRenderTransAlpha` with no width variance and a skybox scale of 1. The first three are
 `UnlitGeneric` with `$vertexcolor` and `$vertexalpha`, which the particle pass draws.
 `beam001_*` is `Refract`, which needs the frame behind it, and it is the most common trail on several real matches.
-It is sampled and not drawn (B476).
+Until B476 it was sampled and not drawn.
+
+### A refracting trail warps a copy of the frame, one copy per trail (B476; read from published source)
+
+`effects/beam001_white` as shipped is `$normalmap effects/beam001_normal`, `$refractamount .2`, `$bluramount 1`,
+`$refracttinttexture effects/white`, `$vertexcolormodulate 1` and `$translucent 1` (`vmt` probe). `_red` and `_blu`
+swap the tint texture for a `$refracttint`. Nothing about the strip changes: the same `CBeamSegDraw` corners are
+drawn through a different shader.
+
+**The image is the frame, and it is copied before every renderable that needs it.** `Refract` sets
+`MATERIAL_VAR2_NEEDS_POWER_OF_TWO_FRAME_BUFFER_TEXTURE` (`refract_dx9_helper.cpp:59`), and with no `$basetexture`
+binds `TEXTURE_FRAME_BUFFER_FULL_TEXTURE_0` (`:226-233`). `DrawTranslucentRenderables` calls `UpdateRefractTexture()`
+inside its per-entity loop (`viewrender.cpp:4609-4635`, `:4651-4686`), and on the PC that copies every time
+(`view_scene.h:50`, `IsPC() ||`). So one trail refracts another drawn before it. The viewer gives each refract trail
+its own batch and copies the frame before each. The target is `_rt_PowerOfTwoFB`, 1024 square and clamped, created by
+the engine (engine.dll `0x1800f69b3`-`0x1800f69ef`, disassembly) beside the water's targets. The copy reuses the
+water's stretch path. Water views skip refracting renderables (`bRenderingWaterRenderTargets`, `:4614`), and the
+viewer draws no particles in its water views.
+
+**The shader** (`refract_ps2x.fxc`) moves each sample by `normal.xy · normal.a · $refractamount`. Under
+`COLORMODULATE` it also multiplies that offset by the vertex alpha and the tint by the vertex colour. `BLUR 1` is a
+four-tap polyphase box at 1/512. The alpha is vertex alpha times normal alpha, blended by alpha. A white tint texture
+doubles the frame (`2.0 · g_RefractTint · tex`), which is why `beam001_white` reads as a bright streak over the scene.
+Two defaults are easy to get wrong. An undeclared `$bluramount` is 0, not the parameter's 1 (`:47-50`). And the shader
+**writes depth** although translucent (`EnableDepthWrites( bWriteZ )`, `:119`), unless `$nowritez`.
+
+**What is not ported:** the `CUBEMAP`, `SECONDARY_NORMAL`, `MASKED` and `FADEOUTONSILHOUETTE` combos and a
+`$basetexture`. A material that selects one loads without a refract draw and stays skipped. None of the three
+`beam001_*` materials selects one; other shipped Refract materials were not surveyed. Pixel fog is not applied, as
+for every particle and sprite draw here.
 
 ## Evidence that trails draw
 
@@ -150,6 +179,12 @@ It is sampled and not drawn (B476).
   the production chain. It then draws the ribbon from a camera placed beside its last eight ticks of flight. The
   brightest pixel of the centre column measured 142 and every corner stayed black. With the segment alpha sabotaged
   to zero it measured 0.
+- **Refract trails (B476):** `RefractMaterialConformanceTests` and `EntityTrailsConformanceTests` (a batch per trail,
+  the raw vertex colour, the depth write). `RefractTrailRenderTests` draws a synthetic strip over a half-lit frame:
+  the warp shows the lit half a quarter of the frame to the left, and the control at `$refractamount` 0 does not.
+  Its output-level test samples `pass_sanctum_a2a`'s entity 355, a `beam001_white` trail, over 40 ticks on a grey of
+  0.25. The centre column's brightest pixel summed to 250 against a background of 192, and the corners were unchanged.
+  With the frame copy unbound it read 192.
 
 ## A rope is hung by the client, and only its ends are on the wire (read from published source)
 

@@ -2074,7 +2074,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -2092,7 +2092,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 _particleSheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract));
         }
     }
 
@@ -2106,12 +2106,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// **One renderer reused across them**, because the corners are re-uploaded per batch anyway and
     /// a renderer per material would mean a shader and a layout per material for no gain.
     /// </remarks>
-    private void DrawParticleBatches(float[] viewProjection) => DrawParticleBatches(_particleBatches, viewProjection);
+    private void DrawParticleBatches(float[] viewProjection) =>
+        DrawParticleBatches(_particleBatches, viewProjection, new WaterFrameTarget(_backBufferView, _depthView, _width, _height));
 
     /// <summary>Draws the given batches under one camera — the world's, or a model panel's.</summary>
+    /// <param name="batches">The batches.</param>
+    /// <param name="viewProjection">The camera.</param>
+    /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners)> batches,
-        float[] viewProjection)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract)> batches,
+        float[] viewProjection,
+        WaterFrameTarget? frame = null)
     {
         if (batches.Count == 0)
         {
@@ -2123,8 +2128,38 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         foreach ((ComPtr<ID3D11ShaderResourceView> sheet,
                   SpriteBlend blend,
                   SpriteDepth depth,
-                  IReadOnlyList<DetailSpriteVertex> corners) in batches)
+                  IReadOnlyList<DetailSpriteVertex> corners,
+                  RefractMaterial? refract) in batches)
         {
+            if (refract is not null)
+            {
+                if (frame is not { } target || _world is null)
+                {
+                    continue;
+                }
+
+                // UpdateRefractTexture() before EACH refracting renderable (viewrender.cpp:4609-4635), B476.
+                if (!_refractNormals.TryGetValue(refract.NormalMap, out ComPtr<ID3D11ShaderResourceView> normal))
+                {
+                    normal = WorldRenderer.UploadTexture(_device, _context, refract.NormalMap, srgb: false);
+                    _refractNormals[refract.NormalMap] = normal;
+                }
+
+                ComPtr<ID3D11ShaderResourceView> tint = default;
+
+                if (refract.RefractTintTexture is { } tinted && !_particleSheets.TryGetValue(tinted, out tint))
+                {
+                    tint = WorldRenderer.UploadTexture(_device, _context, tinted);
+                    _particleSheets[tinted] = tint;
+                }
+
+                _particleSprites.SetRefract(refract, normal, _world.UpdateRefractTexture(_context, target), tint);
+            }
+            else
+            {
+                _particleSprites.SetRefract(null);
+            }
+
             _particleSprites.SetSheet(sheet);
             _particleSprites.SetBlend(blend);
             _particleSprites.SetDepth(depth);
@@ -2143,14 +2178,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         ComPtr<ID3D11ShaderResourceView> Sheet,
         SpriteBlend Blend,
         SpriteDepth Depth,
-        IReadOnlyList<DetailSpriteVertex> Corners)> _panelParticles = [];
+        IReadOnlyList<DetailSpriteVertex> Corners,
+        RefractMaterial? Refract)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
         ComPtr<ID3D11ShaderResourceView> Sheet,
         SpriteBlend Blend,
         SpriteDepth Depth,
-        IReadOnlyList<DetailSpriteVertex> Corners)> _particleBatches = [];
+        IReadOnlyList<DetailSpriteVertex> Corners,
+        RefractMaterial? Refract)> _particleBatches = [];
+
+    /// <summary>Each refract material's normal map, uploaded raw — a bump map is a direction, not a colour (B476).</summary>
+    private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _refractNormals = [];
 
     private DetailSpriteRenderer? _detailSprites;
     private ComPtr<ID3D11ShaderResourceView> _detailSheet;

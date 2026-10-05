@@ -24,9 +24,13 @@ namespace Tf2DemoSalvage.Scene;
 /// plays forwards, one frame at a time, so every point it holds was sampled within a lifetime of now. Without the
 /// second rule a forward seek would draw one frame of a strip fading from the old place to the new.
 ///
-/// **A material the particle pass cannot draw is skipped, counted, and still sampled.** <c>effects/beam001_*</c> — the
-/// most common trail in real matches — is a <c>Refract</c> material, which needs the frame behind it; this pass draws
-/// <c>Sprite</c> and <c>UnlitGeneric</c> materials (B476).
+/// **A material the particle pass cannot draw is skipped, counted, and still sampled.** It draws <c>Sprite</c>,
+/// <c>UnlitGeneric</c> and <c>Refract</c> materials.
+///
+/// **A <c>Refract</c> trail is a batch of its own** (B476) — <c>effects/beam001_*</c>, the most common trail in real
+/// matches. The engine copies the frame before EACH translucent renderable whose material needs it
+/// (`viewrender.cpp:4609-4635`), so one trail refracts another drawn before it; and the shader is not the
+/// <c>Sprite</c> shader, so the vertex colour <see cref="BeamSegDraw"/> packed reaches it unconverted.
 /// </remarks>
 public sealed class EntityTrails
 {
@@ -46,6 +50,11 @@ public sealed class EntityTrails
     private readonly List<BeamSegment> _segments = [];
     private readonly List<DetailSpriteVertex> _corners = [];
     private readonly SpriteStripBatches _strips = new();
+
+    /// <summary>Each refract trail's corners, reused across builds; the first <see cref="_refractCount"/> are this build's.</summary>
+    private readonly List<List<DetailSpriteVertex>> _refractCorners = [];
+    private readonly List<ParticleBatch> _batches = [];
+    private int _refractCount;
 
     /// <summary>How many trails the last build drew.</summary>
     public int Drawn { get; private set; }
@@ -77,6 +86,8 @@ public sealed class EntityTrails
         ArgumentNullException.ThrowIfNull(renderOrigin);
 
         _strips.Clear();
+        _batches.Clear();
+        _refractCount = 0;
         _offered.Clear();
         Drawn = 0;
         Skipped = 0;
@@ -117,7 +128,9 @@ public sealed class EntityTrails
 
         Forget();
 
-        return _strips.Batches(sprites);
+        _batches.AddRange(_strips.Batches(sprites));
+
+        return _batches;
     }
 
     /// <summary>This entity's ring, new when it was not offered last frame, changed material, or its clock jumped.</summary>
@@ -303,6 +316,30 @@ public sealed class EntityTrails
         _corners.Clear();
         BeamSegDraw.Draw(System.Runtime.InteropServices.CollectionsMarshal.AsSpan(_segments), camera, _corners);
 
+        if (sprite.Material.Refract is { } refract)
+        {
+            if (_corners.Count == 0)
+            {
+                return false;
+            }
+
+            if (_refractCount == _refractCorners.Count)
+            {
+                _refractCorners.Add([]);
+            }
+
+            List<DetailSpriteVertex> own = _refractCorners[_refractCount++];
+
+            own.Clear();
+            own.AddRange(_corners);
+            // The shader's own depth state: written unless $nowritez (refract_dx9_helper.cpp:119).
+            _batches.Add(new ParticleBatch(
+                own,
+                sprite.Material with { Depth = refract.WritesDepth ? SpriteDepth.TestAndWrite : SpriteDepth.TestNoWrite }));
+
+            return true;
+        }
+
         int before = _strips.Corners;
 
         _strips.Add(prop.ModelPath, sprite, prop.Pose.RenderMode, _corners);
@@ -310,9 +347,13 @@ public sealed class EntityTrails
         return _strips.Corners > before;
     }
 
-    /// <summary>Whether the particle pass can draw this material's shader: <c>Sprite</c> and <c>UnlitGeneric</c>.</summary>
+    /// <summary>
+    /// Whether the particle pass can draw this material's shader: <c>Sprite</c>, <c>UnlitGeneric</c>, and a
+    /// <c>Refract</c> that loaded with its parameters.
+    /// </summary>
     private static bool Drawable(EngineSprite sprite) =>
-        sprite.IsSpriteShader || sprite.Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase);
+        sprite.IsSpriteShader || sprite.Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) ||
+        sprite.Material.Refract is not null;
 
     /// <summary>Source's <c>Lerp( t, a, b )</c>: <c>a + ( b − a ) · t</c>.</summary>
     private static float Lerp(float t, float from, float to) => from + ((to - from) * t);

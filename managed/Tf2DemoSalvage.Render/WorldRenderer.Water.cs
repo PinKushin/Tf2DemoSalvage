@@ -422,6 +422,9 @@ internal sealed unsafe partial class WorldRenderer
         _refractionView.Dispose();
         _refractionTarget.Dispose();
         _refractionTexture.Dispose();
+        _powerOfTwoView.Dispose();
+        _powerOfTwoTarget.Dispose();
+        _powerOfTwoTexture.Dispose();
         _waterDepth.Dispose();
         _waterDepthTexture.Dispose();
         _frameCopyView.Dispose();
@@ -474,7 +477,8 @@ internal sealed unsafe partial class WorldRenderer
         WriteWater(context, null, -1);
     }
 
-    private static float Linear(float gamma) => MathF.Pow(gamma, 2.2f);
+    /// <summary><c>GammaToLinear</c>, as <c>SetPixelShaderConstantGammaToLinear</c> converts a colour parameter.</summary>
+    internal static float Linear(float gamma) => MathF.Pow(gamma, 2.2f);
 
     /// <summary>Whether the draws that follow write the height fog factor to alpha — only fully opaque ones do.</summary>
     /// <param name="context">The context.</param>
@@ -853,6 +857,42 @@ internal sealed unsafe partial class WorldRenderer
     /// </remarks>
     private void StretchFrameToRefraction(ComPtr<ID3D11DeviceContext> context, WaterFrameTarget frame)
     {
+        EnsureWaterTargets();
+        StretchFrameInto(context, frame, _refractionTarget);
+    }
+
+    /// <summary>
+    /// <c>UpdateRefractTexture()</c> (`view_scene.h:41-74`): the whole frame, stretched into <c>_rt_PowerOfTwoFB</c>, then
+    /// the frame bound again — what a <c>Refract</c> material warps (B476).
+    /// </summary>
+    /// <param name="context">The context.</param>
+    /// <param name="frame">The frame being drawn.</param>
+    /// <returns>The copy, to bind as the refract shader's frame.</returns>
+    /// <remarks>
+    /// **Its own target, not the water's**: <c>_rt_PowerOfTwoFB</c> is created beside the water targets, 1024 square
+    /// (engine.dll <c>0x1800f69b3</c>-<c>0x1800f69ef</c>: <c>CreateNamedRenderTargetTextureEx2( "_rt_PowerOfTwoFB",
+    /// 0x400, 0x400, 1, … )</c>). On the PC every call copies — <c>if ( IsPC() || … )</c> — so a second refracting
+    /// renderable sees the first.
+    /// </remarks>
+    internal ComPtr<ID3D11ShaderResourceView> UpdateRefractTexture(ComPtr<ID3D11DeviceContext> context, WaterFrameTarget frame)
+    {
+        if (_powerOfTwoTarget.Handle is null)
+        {
+            (_powerOfTwoTexture, _powerOfTwoTarget, _powerOfTwoView) = WaterTarget();
+        }
+
+        StretchFrameInto(context, frame, _powerOfTwoTarget);
+
+        return _powerOfTwoView;
+    }
+
+    private ComPtr<ID3D11Texture2D> _powerOfTwoTexture;
+    private ComPtr<ID3D11RenderTargetView> _powerOfTwoTarget;
+    private ComPtr<ID3D11ShaderResourceView> _powerOfTwoView;
+
+    private void StretchFrameInto(
+        ComPtr<ID3D11DeviceContext> context, WaterFrameTarget frame, ComPtr<ID3D11RenderTargetView> into)
+    {
         ComPtr<ID3D11Resource> source = default;
 
         frame.Target.GetResource(ref source);
@@ -864,7 +904,7 @@ internal sealed unsafe partial class WorldRenderer
         context.CopyResource(_frameCopy, source);
         source.Dispose();
 
-        Blit(context, _frameCopyView, _refractionTarget);
+        Blit(context, _frameCopyView, into);
 
         Viewport frameViewport = new(0f, 0f, frame.Width, frame.Height, 0f, 1f);
 
