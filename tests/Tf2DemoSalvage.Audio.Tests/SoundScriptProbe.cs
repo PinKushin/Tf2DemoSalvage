@@ -30,7 +30,7 @@ public sealed class SoundScriptProbe
             path => archive.ReadFile(path.ToUpperInvariant()));
 
         List<SoundScriptEntry> silent =
-            [.. catalog.Entries.Values.Where(entry => entry.SoundLevel == 0)];
+            [.. catalog.Entries.Values.Where(entry => entry.SoundLevel == new SoundRange(0f, 0f))];
 
         TestContext.Out.WriteLine($"SNDLVL_NONE entries: {silent.Count}");
 

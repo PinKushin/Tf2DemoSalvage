@@ -48,7 +48,7 @@ public sealed class SoundScriptConformanceTests
         entry.Channel.ShouldBe(0, "CHAN_AUTO");
         entry.Volume.Low.ShouldBe(1f, "VOL_NORM");
         entry.Pitch.Low.ShouldBe(100f, "PITCH_NORM");
-        entry.SoundLevel.ShouldBe(75, "SNDLVL_NORM");
+        entry.SoundLevel.ShouldBe(new SoundRange(75f, 75f), "SNDLVL_NORM");
     }
 
     [Test]
@@ -164,7 +164,7 @@ public sealed class SoundScriptConformanceTests
         entry.Waves[0].ShouldBe("weapons/fx/rics/ric1.wav");
         entry.Waves[2].ShouldBe("weapons/fx/rics/ric3.wav");
         entry.Channel.ShouldBe(6);
-        entry.SoundLevel.ShouldBe(96);
+        entry.SoundLevel.ShouldBe(new SoundRange(96f, 96f));
     }
 
     [Test]
@@ -226,13 +226,15 @@ public sealed class SoundScriptConformanceTests
                     withRanges++;
                 }
 
-                levels[entry.SoundLevel] = levels.GetValueOrDefault(entry.SoundLevel) + 1;
+                int level = (int)entry.SoundLevel.Low;
+
+                levels[level] = levels.GetValueOrDefault(level) + 1;
 
                 // Every entry must be usable, not merely present: an entry with no wave is one this
                 // reader dropped the payload of, and a soundlevel outside the declared range means
                 // the symbolic resolution silently fell back.
                 entry.Waves.ShouldNotBeEmpty(entry.Name);
-                entry.SoundLevel.ShouldBeInRange(0, 180, entry.Name);
+                level.ShouldBeInRange(0, 180, entry.Name);
                 entry.Volume.Low.ShouldBeInRange(0f, 10f, entry.Name);
             }
         }
@@ -303,7 +305,7 @@ public sealed class SoundScriptConformanceTests
         SoundScriptEntry ricochet = read["FX_RicochetSound.Ricochet"];
 
         ricochet.Channel.ShouldBe(6, "CHAN_STATIC");
-        ricochet.SoundLevel.ShouldBe(96, "SNDLVL_96dB");
+        ricochet.SoundLevel.ShouldBe(new SoundRange(96f, 96f), "SNDLVL_96dB");
         ricochet.Volume.Low.ShouldBe(1f);
         ricochet.Pitch.Low.ShouldBe(90f);
         ricochet.Pitch.High.ShouldBe(110f);
@@ -312,9 +314,9 @@ public sealed class SoundScriptConformanceTests
         // The control: a neighbouring entry must NOT share those values, or the lookup is returning
         // whatever it read last rather than the entry asked for.
         SoundScriptEntry other = read.Values.First(
-            e => e.SoundLevel != 96 && e.Name != ricochet.Name);
+            e => e.SoundLevel != ricochet.SoundLevel && e.Name != ricochet.Name);
 
-        other.SoundLevel.ShouldNotBe(96);
+        other.SoundLevel.ShouldNotBe(ricochet.SoundLevel);
     }
 
     /// <summary>Reads one entry out of a soundscript given as text.</summary>

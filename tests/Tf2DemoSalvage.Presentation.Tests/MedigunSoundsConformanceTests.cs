@@ -24,6 +24,23 @@ public sealed class MedigunSoundsConformanceTests
         sounds[2].ShouldBe(sounds[2] with { Tick = 160, Name = "weapons/medigun_heal_detach.wav", EntityIndex = 40, IsStop = false });
     }
 
+    /// <remarks>
+    /// Both are sound patches: `SoundCreate` → `CSoundPatch::Init` (`soundenvelope.cpp:353-381`) keeps the script's
+    /// volume, wave, soundlevel and channel, but its PITCH is the patch's own — `controller.Play( patch, 1.f, 100.f )`
+    /// (`tf_weapon_medigun.cpp:2061`, `:2327`) — so a ranged script pitch is never heard.
+    /// </remarks>
+    [Test]
+    public void For_ARangedScriptPitch_PlaysThePatchPitch100()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        scripts["WeaponMedigun.HealingWorld"] = scripts["WeaponMedigun.HealingWorld"] with { Pitch = new SoundRange(50f, 80f) };
+        scripts["WeaponMedigun.HealingDetachWorld"] = scripts["WeaponMedigun.HealingDetachWorld"] with { Pitch = new SoundRange(50f, 80f) };
+
+        IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, scripts);
+
+        sounds.ShouldAllBe(sound => sound.Pitch == 100);
+    }
+
     /// <remarks>A new target on the same tick keeps `m_bHealing` true: the loop runs on and nothing detaches.</remarks>
     [Test]
     public void For_ASwitchOfTarget_KeepsTheLoop()
@@ -67,9 +84,9 @@ public sealed class MedigunSoundsConformanceTests
 
     private static Dictionary<string, SoundScriptEntry> Scripts() => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["WeaponMedigun.HealingWorld"] = new("WeaponMedigun.HealingWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/medigun_heal.wav"]),
-        ["WeaponMedigun.HealingDetachWorld"] = new("WeaponMedigun.HealingDetachWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/medigun_heal_detach.wav"]),
-        ["Weapon_Quick_Fix.Healing"] = new("Weapon_Quick_Fix.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/quick_fix_heal.wav"]),
-        ["WeaponMedigun_Vaccinator.Healing"] = new("WeaponMedigun_Vaccinator.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), 64, ["weapons/vaccinator_heal.wav"]),
+        ["WeaponMedigun.HealingWorld"] = new("WeaponMedigun.HealingWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/medigun_heal.wav"]),
+        ["WeaponMedigun.HealingDetachWorld"] = new("WeaponMedigun.HealingDetachWorld", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/medigun_heal_detach.wav"]),
+        ["Weapon_Quick_Fix.Healing"] = new("Weapon_Quick_Fix.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/quick_fix_heal.wav"]),
+        ["WeaponMedigun_Vaccinator.Healing"] = new("WeaponMedigun_Vaccinator.Healing", 1, new SoundRange(0.75f, 0.75f), new SoundRange(100f, 100f), new SoundRange(64f, 64f),["weapons/vaccinator_heal.wav"]),
     };
 }

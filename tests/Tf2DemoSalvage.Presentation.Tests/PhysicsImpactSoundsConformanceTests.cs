@@ -69,5 +69,5 @@ public sealed class PhysicsImpactSoundsConformanceTests
     };
 
     private static SoundScriptEntry Entry(string name, string wave) =>
-        new(name, 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), 75, [wave]);
+        new(name, 1, new SoundRange(0.8f, 0.8f), new SoundRange(100f, 100f), new SoundRange(75f, 75f), [wave]);
 }

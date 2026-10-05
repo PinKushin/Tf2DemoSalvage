@@ -108,6 +108,50 @@ public sealed class FootstepsConformanceTests
             .Value.Name.ShouldBe("player/footsteps/water_right.wav");
     }
 
+    /// <remarks>
+    /// `PlayStepSound` (`baseplayer_shared.cpp:693-713`) keeps `m_StepSoundCache[ nSide ]`: when the step name has ONE
+    /// wave (`params.count == 1`) its whole `CSoundParameters` is reused, so the foot's later steps keep the first
+    /// step's drawn pitch and soundlevel and draw nothing.
+    /// </remarks>
+    [Test]
+    public void Step_ASingleWaveName_ReusesTheFootsFirstDraw()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        scripts["Concrete.StepRight"] = scripts["Concrete.StepRight"] with
+        {
+            Pitch = new SoundRange(50f, 150f),
+            SoundLevel = new SoundRange(60f, 90f),
+        };
+
+        Footsteps footsteps = new();
+        SceneSound first = footsteps.Step(100, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current)!.Value;
+        footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current);
+        SceneSound third = footsteps.Step(140, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current)!.Value;
+
+        third.ShouldBe(first with { Tick = 140 });
+
+        // The control: tick 140's own draw differs, so the equality above is the cache and not a coincidence.
+        EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts)!.Value.Pitch.ShouldNotBe(first.Pitch);
+    }
+
+    [Test]
+    public void Step_ARandomWaveName_DrawsEachStep()
+    {
+        Dictionary<string, SoundScriptEntry> scripts = Scripts();
+        scripts["Concrete.StepRight"] = scripts["Concrete.StepRight"] with
+        {
+            Pitch = new SoundRange(50f, 150f),
+            Waves = ["player/footsteps/concrete1.wav", "player/footsteps/concrete2.wav"],
+        };
+
+        Footsteps footsteps = new();
+        footsteps.Step(100, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current);
+        footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current);
+        SceneSound third = footsteps.Step(140, Player(speed: 350f), Concrete, NoWater, scripts, PlayerFlagLayout.Current)!.Value;
+
+        third.Pitch.ShouldBe(EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts)!.Value.Pitch);
+    }
+
     private static readonly Func<string, StepSurface?> NoWater = static _ => null;
 
     private static ScenePlayer Player(float speed, int flags = OnGround) =>
@@ -124,7 +168,7 @@ public sealed class FootstepsConformanceTests
                 string name = $"{surface}.Step{foot}";
                 string wave = $"player/footsteps/{file}_{side}.wav";
 
-                scripts[name] = new SoundScriptEntry(name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), 75, [wave]);
+                scripts[name] = new SoundScriptEntry(name, 4, new SoundRange(0.9f, 0.9f), new SoundRange(100f, 100f), new SoundRange(75f, 75f),[wave]);
             }
         }
 

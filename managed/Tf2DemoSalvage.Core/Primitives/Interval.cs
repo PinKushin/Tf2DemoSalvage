@@ -7,8 +7,8 @@ namespace Tf2DemoSalvage.Core.Primitives;
 /// <param name="Range">The second number minus the first, or 0 when there was one — and NEGATIVE for a descending pair.</param>
 /// <remarks>
 /// **Published source, <c>game/shared/interval.cpp:21-59</c>**, which soundscapes read every variable value through
-/// (B462). Not <c>SoundRange</c>: a soundscript range is ordered and falls back to a default, where this is
-/// <c>atof</c> of <c>strtok</c> tokens — a word is zero and <c>"110,90"</c> is a start of 110 and a range of −20.
+/// (B462), and game_sounds scripts too before their storage narrows it (B487, <c>SoundScript</c>). It is <c>atof</c> of
+/// <c>strtok</c> tokens — a word is zero and <c>"110,90"</c> is a start of 110 and a range of −20.
 ///
 /// *Not reproduced:* <c>ReadInterval</c> copies into a 128-byte buffer first, so a value past 127 characters is cut.
 /// </remarks>

@@ -24,8 +24,8 @@ public sealed class SoundScriptTests
 
         entry.Channel.ShouldBe(1);
         entry.Volume.ShouldBe(new SoundRange(0.5f, 0.5f));
-        entry.Pitch.ShouldBe(new SoundRange(90f, 110f), "a reversed range is ordered");
-        entry.SoundLevel.ShouldBe(80);
+        entry.Pitch.ShouldBe(new SoundRange(110f, 346f), "a reversed range is NOT ordered; its -20 wraps to the byte 236 (B487)");
+        entry.SoundLevel.ShouldBe(new SoundRange(80f, 80f));
         entry.Waves.ShouldBe(["weapons/shot.wav"]);
     }
 
@@ -50,13 +50,15 @@ public sealed class SoundScriptTests
     }
 
     [Test]
-    public void Read_ARangeWithAnUnreadableHalf_FallsBackToNormal()
+    public void Read_ARangeWithAWordForAHalf_ReadsTheWordAsZero()
     {
+        // atof of a word is 0 and nothing falls back (B487): "0.5,loud" is start 0.5, range -0.5, so the engine
+        // draws RandomFloat( 0.5, 0 ); "fast,90" is start 0, range 90.
         SoundScriptEntry entry = Read(
             "\"E\"\n{\n\"volume\" \"0.5,loud\"\n\"pitch\" \"fast,90\"\n\"wave\" \"x.wav\"\n}\n")["E"];
 
-        entry.Volume.ShouldBe(new SoundRange(1f, 1f));
-        entry.Pitch.ShouldBe(new SoundRange(100f, 100f));
+        entry.Volume.ShouldBe(new SoundRange(0.5f, 0f));
+        entry.Pitch.ShouldBe(new SoundRange(0f, 90f));
     }
 
     [Test]

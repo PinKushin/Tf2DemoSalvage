@@ -42,6 +42,9 @@ public sealed class Footsteps
     /// <summary>`m_Local.m_nStepside`, per player: 0 plays `stepright`, 1 `stepleft`.</summary>
     private readonly Dictionary<int, int> _side = [];
 
+    /// <summary>`m_StepSoundCache[ 2 ]`, per player: the step name and the parameters drawn for it, by foot.</summary>
+    private readonly Dictionary<(int Entity, int Side), (string Name, SceneSound Parameters)> _cache = [];
+
     /// <summary>`UpdateStepSound`'s `static int iSkipStep` — one counter shared by every player, as in the engine.</summary>
     private int _skipStep;
 
@@ -49,6 +52,7 @@ public sealed class Footsteps
     public void Reset()
     {
         _side.Clear();
+        _cache.Clear();
         _skipStep = 0;
     }
 
@@ -158,9 +162,29 @@ public sealed class Footsteps
 
         _side[player.EntityIndex] = side ^ 1;
 
+        // `m_StepSoundCache[ nSide ]` (`baseplayer_shared.cpp:693-713`): a name with ONE wave keeps its first
+        // `CSoundParameters` for that foot, so its pitch and soundlevel are drawn once, not per step.
+        SceneSound drawn;
+
+        if (_cache.TryGetValue((player.EntityIndex, side), out (string Name, SceneSound Parameters) cached) && cached.Name == name)
+        {
+            drawn = cached.Parameters with { Tick = tick, OriginX = player.X, OriginY = player.Y, OriginZ = player.Z };
+        }
+        else if (EntitySounds.Emit(tick, player.EntityIndex, name, (player.X, player.Y, player.Z), scripts) is { } fresh)
+        {
+            drawn = fresh;
+
+            if (scripts.TryGetValue(name, out SoundScriptEntry entry) && entry.Waves.Count == 1)
+            {
+                _cache[(player.EntityIndex, side)] = (name, fresh);
+            }
+        }
+        else
+        {
+            return null;
+        }
+
         // `ep.m_flVolume = fvol` outside Mann vs. Machine: the script's own volume is drawn and thrown away.
-        return EntitySounds.Emit(tick, player.EntityIndex, name, (player.X, player.Y, player.Z), scripts) is { } drawn
-            ? drawn with { Channel = BodyChannel, Volume = volume }
-            : null;
+        return drawn with { Channel = BodyChannel, Volume = volume };
     }
 }

@@ -403,8 +403,7 @@ public class TfItemEffectMeterWeapon : TfHudItemEffectMeter
     /// <summary>A float stored into an `int`: `cvttss2si`, which gives `0x80000000` for anything out of range or NaN.</summary>
     /// <param name="value">The float.</param>
     /// <returns>The int.</returns>
-    protected static int Truncate(float value) =>
-        float.IsNaN(value) || value >= 2147483648f || value < -2147483648f ? int.MinValue : (int)value;
+    protected static int Truncate(float value) => Tf2DemoSalvage.Core.Primitives.CStdlib.Truncate(value);
 }
 
 /// <summary>The kill streak meter: `CHudItemEffectMeter_Weapon&lt; CTFWeaponBase &gt;` for `TF_WEAPON_NONE` (:726-763).</summary>

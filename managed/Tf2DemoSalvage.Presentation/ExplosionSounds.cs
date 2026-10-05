@@ -75,14 +75,17 @@ public static class ExplosionSounds
     /// <returns>The sound.</returns>
     internal static SceneSound FromWorldAt(SoundScriptEntry entry, UniformRandomStream random, int tick, (float X, float Y, float Z) at)
     {
-        string wave = entry.Waves[random.RandomInt(0, entry.Waves.Count - 1)];
+        // `GetParametersForSound` (soundemittersystem.dll FUN_180003370), in its order, from one stream: volume, pitch, the
+        // wave (FUN_180005680's `RandomInt( 0, n - 1 )` — through an `IUniformRandomStream` whose slot is a thunk to the
+        // same vstdlib export), then the soundlevel. `CSoundParameters::pitch` and `soundlevel` are ints, so those float
+        // draws truncate on assignment.
         float volume = random.RandomFloat(entry.Volume.Low, entry.Volume.High);
-
-        // `CSoundParameters::pitch` is an int, so the float draw truncates on assignment.
         int pitch = (int)random.RandomFloat(entry.Pitch.Low, entry.Pitch.High);
+        string wave = entry.Waves[random.RandomInt(0, entry.Waves.Count - 1)];
+        int soundLevel = (int)random.RandomFloat(entry.SoundLevel.Low, entry.SoundLevel.High);
 
         return new SceneSound(
-            tick, wave, NotPrecached, FromWorld, entry.Channel, volume, entry.SoundLevel, pitch, DelaySeconds: 0f, at.X, at.Y, at.Z);
+            tick, wave, NotPrecached, FromWorld, entry.Channel, volume, soundLevel, pitch, DelaySeconds: 0f, at.X, at.Y, at.Z);
     }
 
     /// <summary>Two tick-ordered sound lists as one, the demo's own first where they share a tick.</summary>
