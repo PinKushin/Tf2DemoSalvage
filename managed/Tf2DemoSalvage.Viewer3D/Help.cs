@@ -56,7 +56,8 @@ internal static class Help
           --first-person             Open in the recorder's view rather than the free camera.
           --third-person             Open over a player's shoulder, the chase camera.
           --tick <n>                 Seek here before drawing.
-          --shot <path>              Save one frame to path, then exit.
+          --shot <path>              Save one frame to path, then exit. Exits 1, with the reason
+                                     on stderr, if the file is not a demo.
           --spectate <who>           First-person a specific player: a NAME, a Steam id
                                     ([U:1:n], STEAM_0:y:z or 7656...), a user id or an
                                     entity index. A name matches case-insensitively, exactly
@@ -69,7 +70,8 @@ internal static class Help
                                      HUD is TF2's stock one; tf/custom is not read for it.
           --measure <seconds>        Play for this many seconds OF PLAYBACK, print the mean frame
                                      cost, and exit. Not wall clock: loading a map takes about
-                                     twenty seconds and does not count against it.
+                                     twenty seconds and does not count against it. Exits 1, with
+                                     the reason on stderr, if the file is not a demo.
           --then-seek <tick>         With --measure: then pause, seek to this tick and measure the
                                      paused frame as long again (mean ms, phases, live particles).
           +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in
