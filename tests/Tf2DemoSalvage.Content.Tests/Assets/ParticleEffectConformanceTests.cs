@@ -297,6 +297,40 @@ public sealed class ParticleEffectConformanceTests
         effect.ControlPoint(0).ShouldBe(Oriented with { At = Moved });
     }
 
+    /// <remarks>
+    /// `CParticleCollection::CParticleCollection`, read in the disassembly of `particles.obj` (`??0CParticleCollection`,
+    /// B496): every one of the 64 control points' vectors — position, previous position, forward, up, right — is stored
+    /// from `vec3_origin`. An unset point has no axes at all, not the world's.
+    /// </remarks>
+    [Test]
+    public void ControlPoint_NeverSet_IsTheOriginWithZeroAxes() =>
+        new ParticleEffect(Named("p", [])).ControlPoint(3).ShouldBe(default(ParticleControlPoint));
+
+    /// <remarks>Setting a later point leaves the ones between it and the last set as the constructor left them (B496).</remarks>
+    [Test]
+    public void SetControlPoint_ALaterPoint_LeavesTheGapWithZeroAxes()
+    {
+        ParticleEffect effect = new(Named("p", []));
+
+        effect.SetControlPoint(2, Oriented);
+
+        effect.ControlPoint(1).ShouldBe(default(ParticleControlPoint));
+    }
+
+    /// <remarks>
+    /// An invalid basis on a point never oriented keeps the constructor's zero axes, because `SetControlPointOrientation`
+    /// keeps the OLD orientation (`particles.h:1616-1640`), and the old one is zero (B496).
+    /// </remarks>
+    [Test]
+    public void SetControlPoint_AnInvalidBasisOnAFreshPoint_KeepsZeroAxes()
+    {
+        ParticleEffect effect = new(Named("p", []));
+
+        effect.SetControlPoint(1, new ParticleControlPoint(Moved, Vector3.UnitX, Vector3.UnitX, Vector3.UnitZ));
+
+        effect.ControlPoint(1).ShouldBe(new ParticleControlPoint(Moved, Vector3.Zero, Vector3.Zero, Vector3.Zero));
+    }
+
     /// <summary>Sets control point 1 to <see cref="Oriented"/>, then to <see cref="Moved"/> with the given basis, and expects only the move.</summary>
     private static void Refused(Vector3 forward, Vector3 right, Vector3 up)
     {

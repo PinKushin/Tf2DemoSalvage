@@ -558,6 +558,29 @@ public sealed class ParticleInitializerConformanceTests
         store.PositionOf(index).ShouldBe(new Vector3(0f, 50f, 0f), "along control point 1's forward, +Y, not 0's +X");
     }
 
+    /// <remarks>
+    /// An unset control point's axes are ZERO, as `CParticleCollection`'s constructor leaves every one (B496), so a
+    /// local-space offset rotated by it vanishes rather than landing along the world's axes.
+    /// </remarks>
+    [Test]
+    public void Spawn_PositionModifyOffsetRandomInLocalSpaceOnAnUnsetPoint_OffsetsNothing()
+    {
+        Vector4 out50 = new(50f, 0f, 0f, 0f);
+
+        ParticleFunction offset = Offset(out50, out50, local: true);
+        Dictionary<string, DmxValue> onOne = new(offset.Parameters, System.StringComparer.Ordinal)
+        {
+            ["control_point_number"] = new DmxValue(DmxAttributeType.Whole, 1d),
+        };
+
+        ParticleStore store = new();
+
+        int index = ParticleSystems.Spawn(
+            Declaring(offset with { Parameters = onOne }), store, FacingPlusY(Vector3.Zero), lives: 1f, seconds: 1f / 66f);
+
+        store.PositionOf(index).ShouldBe(Vector3.Zero);
+    }
+
     [Test]
     public void SpriteBlending_AddSelf_OutranksAdditive()
     {
