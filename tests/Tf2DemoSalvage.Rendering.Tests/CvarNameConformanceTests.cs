@@ -77,6 +77,14 @@ public sealed class CvarNameConformanceTests
             "D193's deliberate departure: TF2 installs a HUD by it being the one in `custom/` and has " +
             "no convar that picks among several, so there is no name of Valve's to adopt.",
 
+        ["cl_game_folder"] =
+            "D210. The engine is told its game directory by `-game` on its own command line, never " +
+            "by a convar, so there is no name of Valve's for a config to carry.",
+
+        ["cl_game_folder_ask"] =
+            "D210. Follows `cl_game_folder` above: whether the viewer asks for it at startup, which " +
+            "the engine never does.",
+
         ["texture_quality"] =
             "PROVISIONAL — the one entry here that is a question rather than an answer. Valve ships " +
             "`mat_picmip` (default -1, archived) for texture quality, so unlike every other name " +

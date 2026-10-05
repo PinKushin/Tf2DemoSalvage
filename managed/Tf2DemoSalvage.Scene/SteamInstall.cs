@@ -37,11 +37,69 @@ public sealed class SteamInstall(
     private const string UserKey = @"HKEY_CURRENT_USER\Software\Valve\Steam";
     private const string MachineKey = @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam";
 
-    /// <summary>This machine: its registry, its Program Files, its <see cref="OverrideVariable"/>.</summary>
-    public static SteamInstall Machine => new(
-        ReadWindowsRegistry,
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-        Environment.GetEnvironmentVariable(OverrideVariable));
+    /// <summary>A file every TF2 <c>tf</c> folder holds — the same recogniser the tests' <c>GameInstall</c> uses.</summary>
+    /// <remarks>
+    /// A file, not the folder's existence: Steam keeps a library directory for a game that has been
+    /// uninstalled, so a <c>tf</c> folder can exist and hold nothing.
+    /// </remarks>
+    public const string Recogniser = "tf2_textures_dir.vpk";
+
+    /// <summary>
+    /// This machine: its registry, its Program Files, and the folder named by
+    /// <see cref="ChosenFolder"/> — <see cref="OverrideVariable"/>, else the viewer cfg's <c>cl_game_folder</c>.
+    /// </summary>
+    /// <remarks>
+    /// **The cfg is read on every call, deliberately** (D210): a folder chosen in the picker reaches the
+    /// next lookup without anything holding a stale copy. It is a few hundred bytes, read a handful of
+    /// times per demo.
+    /// </remarks>
+    public static SteamInstall Machine =>
+        Environment.GetEnvironmentVariable(SteamRootVariable) is { Length: > 0 } steamRoot
+            ? new(
+                (key, name) => key == UserKey && name == "SteamPath" ? steamRoot : null,
+                null,
+                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ViewerSettings.Load().GameFolder))
+            : new(
+                ReadWindowsRegistry,
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                ChosenFolder(Environment.GetEnvironmentVariable(OverrideVariable), ViewerSettings.Load().GameFolder));
+
+    /// <summary>
+    /// TEST SEAM (D210): names the only Steam folder discovery may look in, replacing the registry and
+    /// Program Files. Pointed at an empty folder, discovery fails on any machine, so the UI suite can
+    /// drive the not-found picker on the owner's machine as on CI. Not a user setting.
+    /// </summary>
+    public const string SteamRootVariable = "TF2VIEW_STEAM_ROOT";
+
+    /// <summary>The folder that beats detection: the environment's, else the cfg's (D210).</summary>
+    /// <param name="environment"><see cref="OverrideVariable"/>'s value — scripts and CI.</param>
+    /// <param name="configured">The viewer cfg's <c>cl_game_folder</c> — the user's choice.</param>
+    /// <returns>The folder, or null when neither names one.</returns>
+    public static string? ChosenFolder(string? environment, string? configured) =>
+        string.IsNullOrEmpty(environment) ? configured : environment;
+
+    /// <summary>The <c>tf</c> folder a user picked, or null when it is not one (D210).</summary>
+    /// <param name="chosen">The folder picked: <c>tf</c> itself or the <c>Team Fortress 2</c> folder above it.</param>
+    /// <param name="fileExists">Whether a file exists; null means the real file system.</param>
+    /// <returns>The <c>tf</c> folder holding <see cref="Recogniser"/>, or null.</returns>
+    /// <remarks>
+    /// The folder above is accepted because it is the one Steam's "Browse local files" opens, so it is
+    /// where the obvious click lands.
+    /// </remarks>
+    public static string? AsGameFolder(string chosen, Func<string, bool>? fileExists = null)
+    {
+        Func<string, bool> exists = fileExists ?? File.Exists;
+
+        foreach (string candidate in (string[])[chosen, Path.Combine(chosen, "tf")])
+        {
+            if (exists(Path.Combine(candidate, Recogniser)))
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
 
     private readonly Func<string, bool> _fileExists = fileExists ?? File.Exists;
 

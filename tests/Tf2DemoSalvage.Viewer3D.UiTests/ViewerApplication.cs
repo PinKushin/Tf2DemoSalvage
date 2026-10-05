@@ -318,8 +318,24 @@ internal sealed partial class ViewerApplication : IDisposable
     /// <param name="arguments">Files or folders, as a file association would pass them.</param>
     /// <returns>The running application.</returns>
     /// <exception cref="FileNotFoundException">The viewer has not been built.</exception>
-    public static ViewerApplication Launch(params string[] arguments)
+    public static ViewerApplication Launch(params string[] arguments) =>
+        Launch(new Dictionary<string, string?>(), askForGameFolder: false, arguments);
+
+    /// <summary>Launches the viewer with extra environment, optionally letting it ask for the TF2 folder.</summary>
+    /// <param name="environment">Variables to set for the viewer; a null value removes one.</param>
+    /// <param name="askForGameFolder">Whether the startup folder picker may open (D210).</param>
+    /// <param name="arguments">Files or folders, as a file association would pass them.</param>
+    /// <returns>The running application.</returns>
+    /// <remarks>
+    /// **Every launch gets its OWN settings file** (<c>TF2VIEW_SETTINGS</c>, D210). Before this the
+    /// suite read and wrote the owner's real <c>settings.cfg</c> — any test that changed full screen
+    /// mode saved the run's launch options into it — and a test that picks a TF2 folder would have
+    /// rewritten where his viewer looks for the game.
+    /// </remarks>
+    public static ViewerApplication Launch(
+        IReadOnlyDictionary<string, string?> environment, bool askForGameFolder, params string[] arguments)
     {
+        ArgumentNullException.ThrowIfNull(environment);
         string executable = LocateExecutable();
 
         // **Passed as a launch option, not exported as an environment variable.** The viewer takes
@@ -345,6 +361,12 @@ internal sealed partial class ViewerApplication : IDisposable
             // carrying it for everybody — the same reasoning as the capture folder above.
             "+developer",
             "1",
+
+            // **No startup folder picker (D210).** CI has no TF2, so the viewer would open a modal
+            // "where is TF2?" dialog over every test. The picker itself is driven through the File
+            // menu by GameFolderUiTests, which this does not affect.
+            "+" + ViewerSettings.AskForGameFolderCommand,
+            askForGameFolder ? "1" : "0",
         ];
 
         // **Geometry is inherited, never forced.** The viewer honours TF2VIEW_WINDOW_SIZE and
@@ -361,9 +383,26 @@ internal sealed partial class ViewerApplication : IDisposable
         Log($"window geometry: size={Environment.GetEnvironmentVariable("TF2VIEW_WINDOW_SIZE") ?? "default"}, " +
             $"pos={Environment.GetEnvironmentVariable("TF2VIEW_WINDOW_POS") ?? "default"}");
 
-        Application application = arguments.Length == 0
-            ? Application.Launch(executable)
-            : Application.Launch(executable, string.Join(' ', arguments));
+        System.Diagnostics.ProcessStartInfo start = new(executable, string.Join(' ', arguments))
+        {
+            UseShellExecute = false,
+        };
+        start.Environment[ViewerSettings.PathVariable] = Path.Combine(
+            Path.GetTempPath(), "tf2ds-ui-settings", Guid.NewGuid().ToString("N"), "settings.cfg");
+
+        foreach ((string name, string? value) in environment)
+        {
+            if (value is null)
+            {
+                start.Environment.Remove(name);
+            }
+            else
+            {
+                start.Environment[name] = value;
+            }
+        }
+
+        Application application = Application.Launch(start);
 
         UIA3Automation automation = new();
 
@@ -534,8 +573,16 @@ internal sealed partial class ViewerApplication : IDisposable
     /// The point is computed from the element's own bounding rectangle rather than from a stored
     /// position, because the window moves — full-screen tests in this same suite move it.
     /// </remarks>
-    public void Click(string automationId, MouseButton button = MouseButton.Left)
+    public void Click(string automationId, MouseButton button = MouseButton.Left) =>
+        Click(Find(automationId), automationId, button);
+
+    /// <summary>Clicks an element already found — a menu item, which UIA reaches by name — with the same foreground guard.</summary>
+    /// <param name="element">The element.</param>
+    /// <param name="what">What it is, for the refusal message.</param>
+    /// <param name="button">Which button.</param>
+    public void Click(AutomationElement element, string what, MouseButton button = MouseButton.Left)
     {
+        ArgumentNullException.ThrowIfNull(element);
         Window.SetForeground();
 
         if (!HasFocus())
@@ -546,11 +593,11 @@ internal sealed partial class ViewerApplication : IDisposable
         if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
         {
             throw new InvalidOperationException(
-                $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
+                $"Refusing to click {what}: the viewer did not come to the foreground, so " +
                 "the click would be delivered into whatever window is in front of it.");
         }
 
-        System.Drawing.Rectangle bounds = Find(automationId).BoundingRectangle;
+        System.Drawing.Rectangle bounds = element.BoundingRectangle;
 
         Mouse.Click(
             new System.Drawing.Point(

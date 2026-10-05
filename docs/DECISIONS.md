@@ -9557,3 +9557,28 @@ So:
 - **Every environment variable and launch option gets sorted** into user-facing or dev/debug. User-facing ones
   become cfg settings with UI where it makes sense. Dev and debug ones (`--measure`, `--shot`, `TF2VIEW_CAMERA` and
   similar) stay as they are. The owner expects most to be dev/debug; the sort is recorded where the setting is read.
+
+**Implementation (2026-10-04).** Precedence for the `tf` folder: `TF2_FOLDER` > `cl_game_folder` (cfg) > Steam
+discovery (`SteamInstall.Machine`, which re-reads the cfg on every lookup). When nothing is found and the run is not
+headless, the viewer opens a native folder picker at startup; the choice must hold `tf2_textures_dir.vpk` (the folder
+above `tf` is accepted too), is saved as `cl_game_folder`, and Cancel saves `cl_game_folder_ask 0` so a TF2-less user
+is not asked every launch. **File > TF2 folder...** changes it later (a demo already loaded keeps its archives until
+the next start). The sort:
+
+| Name | Kind | Classification | Where it lives now |
+|---|---|---|---|
+| `cl_game_folder`, `cl_game_folder_ask` | cfg | user | new; picker + File menu |
+| `cl_screenshot_folder`, `hud_chosen`, every other cfg line | cfg | user | unchanged |
+| `TF2_FOLDER` | env | scripts/CI override | kept; beats the cfg |
+| `TF2VIEW_CAPTURE_FOLDER` | env | — | read by nothing; `--help` still listed it; removed (`cl_screenshot_folder` replaced it) |
+| `TF2VIEW_AUTOPLAY`, `TF2VIEW_CAMERA`, `TF2VIEW_PICK`, `TF2VIEW_MODEL_CULL`, `TF2VIEW_WARP`, `TF2VIEW_WINDOW_POS`, `TF2VIEW_WINDOW_SIZE` | env | dev/debug/CI | unchanged; `--help` marks the section "nothing a user needs" |
+| `TF2VIEW_SETTINGS`, `TF2VIEW_STEAM_ROOT` | env | test seams (B497) | new |
+| `TF2DEMOSALVAGE_GCOR_ONLY` | env | gate/tests | unchanged |
+| `--autoplay`, `--first-person`, `--third-person`, `--tick`, `--spectate` | launch | per-run choice of what to open, not a setting | unchanged |
+| `--hud` | launch | per-run; the persistent setting already exists (`hud_chosen` + picker) | unchanged |
+| `--shot`, `--measure`, `--then-seek`, `--look`, `--zoom`, `--colours` | launch | dev/debug | unchanged |
+| `+<cvar> <value>` | launch | Source's own per-run cfg override | unchanged |
+| CLI (`tf2demosalvage`) options | launch | per-invocation; nothing persistent | unchanged |
+
+Known limit: `+cl_game_folder <path>` on the command line does not reach discovery, which reads the cfg file; a
+per-run folder is `TF2_FOLDER`'s job.

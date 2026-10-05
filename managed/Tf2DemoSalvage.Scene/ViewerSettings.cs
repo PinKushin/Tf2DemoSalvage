@@ -276,6 +276,18 @@ public sealed record ViewerSettings
     /// </remarks>
     public const string ChosenHudCommand = "hud_chosen";
 
+    /// <summary>Command name for the TF2 <c>tf</c> folder the user chose (D210).</summary>
+    /// <remarks>
+    /// **Valve has no cvar for it** — the engine is told its game directory by <c>-game</c> on its own
+    /// command line, never by a config — so the name is ours, in the <c>cl_screenshot_folder</c> style
+    /// (D79 rule 2). <c>TF2_FOLDER</c> still beats it, for scripts and CI.
+    /// </remarks>
+    public const string GameFolderCommand = "cl_game_folder";
+
+    /// <summary>Command name for whether a missing install opens the folder picker at startup (D210).</summary>
+    /// <remarks>Ours for the same reason as <see cref="GameFolderCommand"/>. Set to 0 when the user declines the picker.</remarks>
+    public const string AskForGameFolderCommand = "cl_game_folder_ask";
+
     /// <summary>Command name for the viewmodel's field of view.</summary>
     /// <remarks>
     /// **TF2 lets a player change this, so this viewer does too** — the standing rule in
@@ -454,6 +466,19 @@ public sealed record ViewerSettings
     /// written back whenever the picker changes the choice, so it survives the next launch.
     /// </remarks>
     public string? ChosenHud { get; init; }
+
+    /// <summary>The TF2 <c>tf</c> folder the picker chose, or null to detect it through Steam (D210).</summary>
+    public string? GameFolder { get; init; }
+
+    /// <summary>Whether a missing install opens the folder picker at startup (D210).</summary>
+    public bool AskForGameFolder { get; init; } = true;
+
+    /// <summary>Whether to open the folder picker at startup.</summary>
+    /// <param name="found">The <c>tf</c> folder found, or null.</param>
+    /// <param name="headless">Whether this is an unwatched run (<c>--shot</c>, <c>--measure</c>), which a modal dialog would hang.</param>
+    /// <returns>True only when nothing was found, the user has not declined, and someone is watching.</returns>
+    public bool ShouldAskForGameFolder(string? found, bool headless) =>
+        found is null && AskForGameFolder && !headless;
 
     /// <summary>How full screen is entered.</summary>
     /// <remarks>
@@ -718,10 +743,17 @@ public sealed record ViewerSettings
     public bool VerticalSync { get; init; }
 
     /// <summary>Where the settings file lives.</summary>
-    public static string Path => System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage",
-        "settings.cfg");
+    /// <remarks><see cref="PathVariable"/> moves it — a test seam, so a UI test never reads or writes the owner's file.</remarks>
+    public static string Path =>
+        Environment.GetEnvironmentVariable(PathVariable) is { Length: > 0 } moved
+            ? moved
+            : System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tf2DemoSalvage",
+                "settings.cfg");
+
+    /// <summary>TEST SEAM (D210): a settings file to use instead of the user's. Not a user setting.</summary>
+    public const string PathVariable = "TF2VIEW_SETTINGS";
 
     /// <summary>Reads the settings, or returns defaults.</summary>
     /// <param name="path">File to read; defaults to <see cref="Path"/>.</param>
@@ -925,6 +957,17 @@ public sealed record ViewerSettings
             !string.IsNullOrWhiteSpace(hud))
         {
             settings = settings with { ChosenHud = hud };
+        }
+
+        if (values.TryGetValue(GameFolderCommand, out string? game) &&
+            !string.IsNullOrWhiteSpace(game))
+        {
+            settings = settings with { GameFolder = game };
+        }
+
+        if (Read(values, AskForGameFolderCommand) is { } ask)
+        {
+            settings = settings with { AskForGameFolder = ask != 0 };
         }
 
         if (Read(values, VerticalSyncCommand) is { } sync)
@@ -1205,6 +1248,20 @@ public sealed record ViewerSettings
             ChosenHudCommand,
             ChosenHud is { Length: > 0 } hud ? $"\"{hud}\"" : string.Empty,
             ChosenHud is null);
+        text.AppendLine();
+        text.AppendLine("// Your TF2 tf folder, when Steam's records do not find it. File > TF2 folder");
+        text.AppendLine("// sets it. Empty finds it through Steam. TF2_FOLDER, if set, wins.");
+        Setting(
+            text,
+            GameFolderCommand,
+            GameFolder is { Length: > 0 } game ? $"\"{game}\"" : string.Empty,
+            GameFolder is null);
+        text.AppendLine("// 0 stops asking for the tf folder at startup when TF2 is not found.");
+        Setting(
+            text,
+            AskForGameFolderCommand,
+            (AskForGameFolder ? 1 : 0).ToString(CultureInfo.InvariantCulture),
+            AskForGameFolder == Defaults.AskForGameFolder);
         text.AppendLine();
         text.AppendLine("// 1 presents in step with the display. Off by default: it adds latency,");
         text.AppendLine("// and a driver that disables it globally ignores the request anyway.");

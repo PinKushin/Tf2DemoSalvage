@@ -48,7 +48,8 @@ public sealed class MainFormTests
         file.DropDownItems.OfType<ToolStripMenuItem>()
             .Select(item => item.Name)
             .ShouldBe([
-                MainForm.OpenDemoItemId, MainForm.ExportItemId, MainForm.CompileItemId, MainForm.ExitItemId]);
+                MainForm.OpenDemoItemId, MainForm.ExportItemId, MainForm.CompileItemId, MainForm.GameFolderItemId,
+                MainForm.ExitItemId]);
     }
 
     [Test]

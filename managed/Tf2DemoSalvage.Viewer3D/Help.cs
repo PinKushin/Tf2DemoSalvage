@@ -75,11 +75,24 @@ internal static class Help
           +<cvar> <value>            Set a cvar for this run only, as Source does. Anything in
                                      settings.cfg works here: fps_max 0, developer 1, and so on.
 
-        ENVIRONMENT
+        SETTINGS
+          Everything a user sets lives in %LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg, written in
+          TF2's own config syntax; lines it does not know are ignored. Among them:
+          cl_game_folder <path>      Your TF2 tf folder, when Steam's records do not find it.
+                                     File > TF2 folder sets it; the viewer asks at startup
+                                     when TF2 is not found.
+          cl_game_folder_ask 0       Stop asking for the tf folder at startup.
+          cl_screenshot_folder <path> Where --shot and the screenshot key write.
+
+        ENVIRONMENT (scripts, CI and debugging only; nothing a user needs)
+          TF2_FOLDER                 A tf folder that beats both cl_game_folder and Steam.
           TF2VIEW_AUTOPLAY           Same as --autoplay.
           TF2VIEW_CAMERA             "x y z pitch yaw" for a headless capture.
-          TF2VIEW_CAPTURE_FOLDER     Where --shot and the screenshot key write.
           TF2VIEW_MODEL_CULL         Backface culling mode, for debugging inside-out models.
+          TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
+          TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
+          TF2VIEW_PICK             "x y": log what lies under that pixel of a --shot.
+          TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
           TF2VIEW_WINDOW_POS         "x y" window position.
           TF2VIEW_WINDOW_SIZE        "width height" window size.
 

@@ -35427,3 +35427,18 @@ than zero.
 `ParticleInitializerConformanceTests.Spawn_PositionModifyOffsetRandomInLocalSpaceOnAnUnsetPoint_OffsetsNothing`. Sabotaged
 back to the identity at the fill and in `ParticleSystems`, three of them reddened; the untouched `ControlPoint` fallback
 keeps the fourth.
+
+## B497 — the UI suite read and wrote the owner's real `settings.cfg`, and could not reach the not-found path at all — FIXED 2026-10-04
+
+**Measured, D210 work.** `ViewerSettings.Path` was fixed to `%LOCALAPPDATA%\Tf2DemoSalvage\settings.cfg`, so every UI
+launch loaded the owner's own settings, and any test that changed a saved setting (full screen mode, texture quality,
+the HUD picker) saved the run's `+developer 1` and capture folder into his file. The first D210 picker test also ran
+against the owner's real install: discovery found `F:\SteamLibrary\...\tf`, so the "TF2 not found" path never ran and
+the test asserted on a condition it could not create (owner's report, 2026-10-04).
+
+**Fixed by two test seams, both env vars and both dev-only (D210's sort):** `TF2VIEW_SETTINGS` moves the settings file,
+and `ViewerApplication.Launch` now gives EVERY launch its own temp one; `TF2VIEW_STEAM_ROOT` replaces registry and
+Program Files discovery with one named Steam folder. `GameFolderUiTests` launches its own viewer per test with an empty
+Steam root, no `TF2_FOLDER` and a temp cfg, and asserts the viewer's `game folder at startup: not found` line before
+expecting any dialog. **Sabotaged:** with the seam disabled, both tests fail in SetUp quoting the owner's F: path; with
+picker validation removed, the refusal test fails with the folder "set".
