@@ -8098,12 +8098,19 @@ internal class MainForm : Form, IFrameSteps
 
         long soundAt = Stopwatch.GetTimestamp();
 
+        // In the recorder's eyes, its networked soundscape rather than a simulation (B483).
+        int? eyes = _firstPerson ? FollowedEntity() : null;
+        SceneSoundscape? recorded = _timeline is { } timeline
+            ? SoundPresenter.RecordedSoundscape(timeline, _transport.CurrentTick, eyes)
+            : null;
+
         SoundPhases phases = _sound.Update(
             output,
             _transport.CurrentTick,
             ears.Origin,
             ears.Right,
-            _audioClock.Elapsed.TotalSeconds);
+            _audioClock.Elapsed.TotalSeconds,
+            recorded);
 
         StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
     }

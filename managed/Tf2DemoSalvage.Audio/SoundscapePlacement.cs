@@ -51,6 +51,40 @@ public readonly record struct SoundscapePlacement(
     int Cluster = -1,
     bool Enabled = true);
 
+/// <summary>One <c>trigger_soundscape</c> with a triggerable to hand its touches to.</summary>
+/// <param name="Id">Its position among the map's linked triggers, which is the state's key.</param>
+/// <param name="Soundscape">The <see cref="SoundscapePlacement.Id"/> of its <c>env_soundscape_triggerable</c>.</param>
+/// <param name="HeadNode">Its brush model's root in the BSP tree, <c>dmodel_t::headnode</c>.</param>
+/// <param name="X">Its <c>origin</c>, which the brush model is placed at.</param>
+/// <param name="Y">Its origin.</param>
+/// <param name="Z">Its origin.</param>
+/// <param name="Enabled">
+/// <c>!m_bDisabled</c> at spawn: a disabled trigger never takes <c>FSOLID_TRIGGER</c> (<c>triggers.cpp:352-355</c>), so
+/// nothing touches it. The Enable input is entity I/O, which no demo records.
+/// </param>
+public readonly record struct SoundscapeTrigger(int Id, int Soundscape, int HeadNode, float X, float Y, float Z, bool Enabled);
+
+/// <summary>One listener's server-side trigger state: what it touches, and <c>m_hTriggerSoundscapeList</c>.</summary>
+/// <remarks>
+/// **Per player, and never networked** — <c>CBasePlayer::m_hTriggerSoundscapeList</c> is a server member, and the
+/// touch list is the server's physics. A client sees only the <c>audioparams_t</c> they produce (B483).
+/// </remarks>
+public sealed class SoundscapeTouches
+{
+    /// <summary>Triggerable placement ids, head first, as <c>AddToHead</c> orders them.</summary>
+    internal List<int> List { get; } = [];
+
+    /// <summary>The trigger ids the listener was inside at the last <see cref="SoundscapePlacements.Touch"/>.</summary>
+    internal HashSet<int> Touching { get; } = [];
+
+    /// <summary>Forgets everything, for a seek or a new level.</summary>
+    public void Clear()
+    {
+        List.Clear();
+        Touching.Clear();
+    }
+}
+
 /// <summary>
 /// Which soundscape a listener is standing in, decided the way the engine decides it.
 /// </summary>
@@ -69,7 +103,8 @@ public readonly record struct SoundscapePlacement(
 /// `env_soundscape_proxy` carries `MainSoundscapeName`, the targetname of any `CEnvSoundscape` — an
 /// `env_soundscape_triggerable` or another proxy included — whose index AND position names it copies
 /// (`CEnvSoundscapeProxy::Activate`, <c>soundscape.cpp:40-62</c>, B481). cp_process has 4 of the first and 40 of the
-/// second. The triggerable is read only as a master (B483).
+/// second. An `env_soundscape_triggerable` is placed like the first, and is also written by its `trigger_soundscape`
+/// volumes through <see cref="Touch"/> (B483).
 /// </remarks>
 public sealed class SoundscapePlacements
 {
@@ -78,7 +113,14 @@ public sealed class SoundscapePlacements
 
     private readonly List<SoundscapePlacement> _placements;
 
-    private SoundscapePlacements(List<SoundscapePlacement> placements) => _placements = placements;
+    private SoundscapePlacements(List<SoundscapePlacement> placements, List<SoundscapeTrigger> triggers)
+    {
+        _placements = placements;
+        Triggers = triggers;
+    }
+
+    /// <summary>Every <c>trigger_soundscape</c> linked to a triggerable, in map order.</summary>
+    public IReadOnlyList<SoundscapeTrigger> Triggers { get; }
 
     /// <summary>Every placed soundscape, in the map's own entity order.</summary>
     /// <remarks>
@@ -98,8 +140,12 @@ public sealed class SoundscapePlacements
     /// every placement carries cluster −1 and <see cref="Choose"/> does no visibility filtering,
     /// which is the behaviour this had before B177.
     /// </param>
+    /// <param name="models">The map's brush models, for each <c>trigger_soundscape</c>'s <c>*N</c>; without them no trigger is read.</param>
     public static SoundscapePlacements From(
-        IReadOnlyList<BspEntity> entities, SoundscapeCatalog catalog, BspLeafTree? leaves = null)
+        IReadOnlyList<BspEntity> entities,
+        SoundscapeCatalog catalog,
+        BspLeafTree? leaves = null,
+        IReadOnlyList<BspModel>? models = null)
     {
         ArgumentNullException.ThrowIfNull(entities);
         ArgumentNullException.ThrowIfNull(catalog);
@@ -162,17 +208,22 @@ public sealed class SoundscapePlacements
         }
 
         List<SoundscapePlacement> placements = [];
+        Dictionary<BspEntity, int> placed = new(ReferenceEqualityComparer.Instance);
 
         foreach (BspEntity entity in entities)
         {
             // **Whose position keys the placement plays at.** A proxy's are its master's: `Activate` copies every
             // `m_positionNames[i]` from it (`soundscape.cpp:52-54`), so the proxy's own never reach the player (B464).
             //
-            // The triggerable is held, as a master, and not placed: its own place in the radius contest is B483.
-            if (!held.TryGetValue(entity, out Held soundscape) || IsTriggerable(entity))
+            // **The triggerable is placed too**: it is a `CEnvSoundscape`, listed by its constructor (`:108`), and the
+            // contest calls `UpdateForPlayer` on every listed entity (`soundscape_system.cpp:296-369`) — its `Think`
+            // override (`soundscape.cpp:461-464`) stops nothing, because the contest is not a think (B483).
+            if (!held.TryGetValue(entity, out Held soundscape))
             {
                 continue;
             }
+
+            placed[entity] = placements.Count;
 
             (float X, float Y, float Z) origin = Origin(entity);
 
@@ -193,10 +244,117 @@ public sealed class SoundscapePlacements
 
                 // `FIELD_BOOLEAN` from a keyvalue is `atoi( szValue ) != 0` (`saverestore_gamedll.cpp:62`); a proxy
                 // inherits the keyfield and keeps its own.
-                !(entity.TryGetValue("StartDisabled", out string disabled) && CStdlib.Atoi(disabled) != 0)));
+                !StartsDisabled(entity)));
         }
 
-        return new SoundscapePlacements(placements);
+        return new SoundscapePlacements(placements, LinkTriggers(entities, byTargetName, placed, models));
+    }
+
+    /// <summary>`FIELD_BOOLEAN` from a keyvalue is `atoi( szValue ) != 0` (`saverestore_gamedll.cpp:62`).</summary>
+    private static bool StartsDisabled(BspEntity entity) =>
+        entity.TryGetValue("StartDisabled", out string disabled) && CStdlib.Atoi(disabled) != 0;
+
+    /// <summary>Every <c>trigger_soundscape</c> whose handle resolves, with its brush.</summary>
+    /// <remarks>
+    /// <c>CTriggerSoundscape::Activate</c>: <c>m_hSoundscape = dynamic_cast&lt; CEnvSoundscapeTriggerable* &gt;(
+    /// gEntList.FindEntityByName( NULL, m_SoundscapeName ) )</c> (<c>soundscape.cpp:538-544</c>) — the first entity of
+    /// the name, and only a triggerable. A null handle makes both touches do nothing (<c>:510-526</c>), so such a trigger
+    /// is left out rather than carried.
+    /// </remarks>
+    private static List<SoundscapeTrigger> LinkTriggers(
+        IReadOnlyList<BspEntity> entities,
+        Dictionary<string, BspEntity> byTargetName,
+        Dictionary<BspEntity, int> placed,
+        IReadOnlyList<BspModel>? models)
+    {
+        List<SoundscapeTrigger> triggers = [];
+
+        if (models is null)
+        {
+            return triggers;
+        }
+
+        foreach (BspEntity entity in entities)
+        {
+            if (!entity.ClassName.Equals("trigger_soundscape", StringComparison.OrdinalIgnoreCase) ||
+                !entity.TryGetValue("soundscape", out string named) ||
+                !byTargetName.TryGetValue(named, out BspEntity? target) ||
+                !IsTriggerable(target) ||
+                !placed.TryGetValue(target, out int soundscape) ||
+                !entity.TryGetValue("model", out string model) ||
+                !model.StartsWith('*') ||
+                !int.TryParse(model.AsSpan(1), NumberStyles.None, CultureInfo.InvariantCulture, out int index) ||
+                index >= models.Count)
+            {
+                continue;
+            }
+
+            (float X, float Y, float Z) origin = Origin(entity);
+
+            triggers.Add(new SoundscapeTrigger(
+                triggers.Count, soundscape, models[index].HeadNode, origin.X, origin.Y, origin.Z, !StartsDisabled(entity)));
+        }
+
+        return triggers;
+    }
+
+    /// <summary>Runs one listener's trigger touches, and answers the soundscape its params now name.</summary>
+    /// <param name="touches">The listener's server-side state, carried between calls.</param>
+    /// <param name="inside">Whether the listener is touching a trigger's brush now.</param>
+    /// <param name="current">The placement its params name before the touches; null for <c>entIndex = 0</c>.</param>
+    /// <returns>The placement its params name after them; null when the last trigger was left.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>
+    /// **Edges, not levels**: the params are written on a start or an end touch and never while standing inside, so the
+    /// radius contest can take over inside a trigger and keep it.
+    ///
+    /// <c>DelegateStartTouch</c> (<c>soundscape.cpp:417-430</c>): <c>FindAndRemove</c>, <c>AddToHead</c>, write.
+    /// <c>DelegateEndTouch</c> (<c>:433-458</c>): <c>FindAndRemove</c>, then the head writes, or with an empty list
+    /// <c>entIndex = 0</c>. Every list entry is a triggerable here, so its <c>dynamic_cast</c> skip never fires.
+    ///
+    /// **Every start before any end** — end touches come from the links a frame did not refresh, checked after the
+    /// moves. *Measured, not read:* the koth_lakeside recording (B483) teleports from inside both Wood and an Outside
+    /// trigger into a second Outside trigger, and the server wrote <c>entIndex 0</c>. Only starts-first gives that: the
+    /// new Outside start heads the list, the old Outside end removes that SAME triggerable, Wood's end empties it.
+    /// Within each pass the order is the map's, which the engine's touch-link order is not known to be.
+    /// </remarks>
+    public SoundscapePlacement? Touch(
+        SoundscapeTouches touches, Func<SoundscapeTrigger, bool> inside, SoundscapePlacement? current)
+    {
+        ArgumentNullException.ThrowIfNull(touches);
+        ArgumentNullException.ThrowIfNull(inside);
+
+        List<SoundscapeTrigger> ended = [];
+
+        foreach (SoundscapeTrigger trigger in Triggers)
+        {
+            bool now = trigger.Enabled && inside(trigger);
+
+            if (now == touches.Touching.Contains(trigger.Id))
+            {
+                continue;
+            }
+
+            if (!now)
+            {
+                ended.Add(trigger);
+                continue;
+            }
+
+            touches.Touching.Add(trigger.Id);
+            touches.List.Remove(trigger.Soundscape);
+            touches.List.Insert(0, trigger.Soundscape);
+            current = _placements[trigger.Soundscape];
+        }
+
+        foreach (SoundscapeTrigger trigger in ended)
+        {
+            touches.Touching.Remove(trigger.Id);
+            touches.List.Remove(trigger.Soundscape);
+            current = touches.List.Count > 0 ? _placements[touches.List[0]] : null;
+        }
+
+        return current;
     }
 
     /// <summary>The soundscape a listener at a point is in, or <c>null</c> when none reaches.</summary>
@@ -388,12 +546,16 @@ public sealed class SoundscapePlacements
     private static (float X, float Y, float Z) Origin(BspEntity entity) =>
         entity.TryGetValue("origin", out string origin) ? StringToVector(origin) : default;
 
-    /// <summary>An entity's radius; -1, meaning unlimited, when it declares none.</summary>
+    /// <summary>An entity's radius: the key through <c>atof</c>, or ZERO when it declares none — never "unlimited".</summary>
+    /// <remarks>
+    /// <c>m_flRadius</c> is a <c>FIELD_FLOAT</c> keyfield (<c>soundscape.cpp:73</c>) the constructor never sets, so with no
+    /// key it holds what the allocator left. *Settled in disassembly* (shipped x64 <c>engine.dll</c>): the entity comes from
+    /// <c>PvAllocEntPrivateData</c> (<c>IVEngineServer</c> slot 23, <c>18014a370</c>), which is <c>calloc( 1, cb )</c>, and
+    /// that body (<c>1801c8140</c>) memsets the block to zero. A radius of 0 is never in range (<c>:266, 280</c>). This
+    /// read -1 — unlimited — until B483's follow-up.
+    /// </remarks>
     private static float Radius(BspEntity entity) =>
-        entity.TryGetValue("radius", out string radius) &&
-        float.TryParse(radius, NumberStyles.Float, CultureInfo.InvariantCulture, out float read)
-            ? read
-            : -1f;
+        entity.TryGetValue("radius", out string radius) ? (float)CStdlib.Atof(radius.AsSpan()) : 0f;
 
     /// <summary>Where an entity's numbered position targets are.</summary>
     /// <remarks>

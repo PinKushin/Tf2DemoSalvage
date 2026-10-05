@@ -126,8 +126,9 @@ public sealed class SoundscapeEntityConformanceTests
                 "{\n\"classname\" \"info_target\"\n\"targetname\" \"hum\"\n\"origin\" \"10 20 30\"\n}\n"),
             Catalog).Placements;
 
-        // The triggerable itself is not placed: its own place in the radius contest is B483, filed open.
-        SoundscapePlacement proxy = placed.ShouldHaveSingleItem();
+        // The triggerable contends too, in map order before its proxy (B483).
+        placed.Count.ShouldBe(2);
+        SoundscapePlacement proxy = placed[1];
 
         proxy.X.ShouldBe(5f);
         proxy.Index.ShouldBe(1, "test.second, the triggerable's");
@@ -197,7 +198,8 @@ public sealed class SoundscapeEntityConformanceTests
         SoundscapePlacements placements = SoundscapePlacements.From(
             Entities(
                 Soundscape("300 0 0", string.Empty) +
-                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"100 0 0\"\n}\n"),
+                "{\n\"classname\" \"env_soundscape_proxy\"\n\"MainSoundscapeName\" \"nobody\"\n\"origin\" \"100 0 0\"\n" +
+                "\"radius\" \"-1\"\n}\n"),
             Catalog);
 
         placements.Placements.Count.ShouldBe(2);
@@ -514,5 +516,5 @@ public sealed class SoundscapeEntityConformanceTests
 
     private static string Soundscape(string origin, string extra) =>
         "{\n\"classname\" \"env_soundscape\"\n\"targetname\" \"master\"\n\"soundscape\" \"test.first\"\n" +
-        $"\"origin\" \"{origin}\"\n{extra}\n}}\n";
+        $"\"origin\" \"{origin}\"\n\"radius\" \"-1\"\n{extra}\n}}\n";
 }

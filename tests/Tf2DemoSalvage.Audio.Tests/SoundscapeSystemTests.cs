@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Audio;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Audio.Tests;
 
@@ -139,6 +140,90 @@ public sealed class SoundscapeSystemTests
         system.Update(sink, (0f, 0f, 9000f), Right, now: 2d);
 
         sink.Played.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **The trigger's touch reaches the mixer** (B483): a triggerable 9,000 units off with a 1-unit radius cannot win the
+    /// contest, so only its trigger can make it current. Touching starts its loop; the control, the same map with no
+    /// touch test supplied, starts nothing.
+    /// </remarks>
+    [Test]
+    public void Update_InsideATriggerOfAFarTriggerable_StartsItsLoop()
+    {
+        Sink touched = new();
+        Sink control = new();
+
+        SoundscapeSystem system = Triggered();
+        system.Inside = (_, _) => true;
+        system.Update(touched, Origin, Right, now: 1d);
+
+        Triggered().Update(control, Origin, Right, now: 1d);
+
+        touched.Played.ShouldHaveSingleItem();
+        control.Played.ShouldBeEmpty();
+    }
+
+    /// <remarks>
+    /// **Through the recorder's eyes the client hears its networked params, not a simulation.**
+    /// <c>C_SoundscapeSystem::UpdateAudioParams</c> (<c>c_soundscape.cpp:555-576</c>) copies <c>m_audio</c> when the
+    /// index or the entity changed and starts the soundscape only for <c>entIndex &gt; 0</c> and a valid index. Here the
+    /// listener stands inside the radius of `test.room`, which the contest would choose — and the recorded params name
+    /// no entity, so nothing starts. Then they name entity 3, index 0, slot 0 at (5, 6, 7), heard from 9,000 units
+    /// up where the contest reaches nothing: it starts, as that placement.
+    /// </remarks>
+    [Test]
+    public void Update_WithRecordedParams_PlaysThemInsteadOfTheContest()
+    {
+        Sink sink = new();
+        SoundscapeSystem system = Playing(opens: true);
+        (float X, float Y, float Z)?[] slots = [(5f, 6f, 7f), null, null, null, null, null, null, null];
+
+        system.Update(sink, Origin, Right, now: 1d, recorded: new SceneSoundscape(0, 0, slots, 0));
+
+        sink.Played.ShouldBeEmpty("entIndex 0 starts nothing, whatever the contest would choose");
+        system.Current.ShouldBeNull();
+
+        system.Update(sink, (0f, 0f, 9000f), Right, now: 1.05d, recorded: new SceneSoundscape(0, 1, slots, 3));
+
+        sink.Played.ShouldHaveSingleItem();
+        SoundscapePlacement current = system.Current.ShouldNotBeNull();
+        current.Id.ShouldBe(2, "entity 3 is the third soundscape the server listed, id 2 here");
+        current.Index.ShouldBe(0);
+        current.Positions[0].ShouldBe((5f, 6f, 7f));
+    }
+
+    /// <remarks>A slot whose <c>localBits</c> bit is clear is unused (<c>c_soundscape.cpp:797-804</c>), whatever it holds.</remarks>
+    [Test]
+    public void Recorded_ASlotWithItsBitClear_IsNoPosition()
+    {
+        (float X, float Y, float Z)?[] slots = [(1f, 2f, 3f), (4f, 5f, 6f), null, null, null, null, null, null];
+
+        SoundscapePlacement placed = SoundscapeSystem.Recorded(new SceneSoundscape(4, 0b10, slots, 7), catalog: null)
+            .ShouldNotBeNull();
+
+        placed.Positions[0].ShouldBeNull();
+        placed.Positions[1].ShouldBe((4f, 5f, 6f));
+        placed.Id.ShouldBe(6);
+        placed.Index.ShouldBe(4);
+    }
+
+    private static SoundscapeSystem Triggered()
+    {
+        SoundscapeSystem system = Playing(opens: true);
+
+        system.Placements = SoundscapePlacements.From(
+            Tf2DemoSalvage.Content.Bsp.BspEntities.Parse(global::System.Text.Encoding.UTF8.GetBytes(
+                "{\n\"classname\" \"env_soundscape_triggerable\"\n\"targetname\" \"far\"\n\"soundscape\" \"test.room\"\n" +
+                "\"origin\" \"9000 0 0\"\n\"radius\" \"1\"\n}\n" +
+                "{\n\"classname\" \"trigger_soundscape\"\n\"model\" \"*1\"\n\"soundscape\" \"far\"\n}\n")),
+            system.Catalog!,
+            models:
+            [
+                new(default, default, default, 0, 0, 0),
+                new(default, default, default, 7, 0, 0),
+            ]);
+
+        return system;
     }
 
     private static SoundscapeSystem Playing(bool opens, global::System.Action? onAsk = null)

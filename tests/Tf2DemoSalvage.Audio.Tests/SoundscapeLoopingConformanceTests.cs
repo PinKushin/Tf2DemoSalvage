@@ -412,7 +412,7 @@ public sealed class SoundscapeLoopingConformanceTests
             Catalog = catalog,
             Placements = SoundscapePlacements.From(
                 Tf2DemoSalvage.Content.Bsp.BspEntities.Parse(Encoding.UTF8.GetBytes(
-                    "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.room\"\n\"origin\" \"0 0 0\"\n}\n")),
+                    "{\n\"classname\" \"env_soundscape\"\n\"soundscape\" \"test.room\"\n\"origin\" \"0 0 0\"\n\"radius\" \"-1\"\n}\n")),
                 catalog),
         };
 

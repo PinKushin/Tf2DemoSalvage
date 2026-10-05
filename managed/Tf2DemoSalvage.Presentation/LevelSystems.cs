@@ -277,7 +277,12 @@ public sealed class LevelSystems
         _sound.Scripts = _installScripts?.ForLevel(levelRead, mapName);
 
         _soundscape.Placements = _soundscape.Catalog is { } loaded
-            ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves)
+            ? SoundscapePlacements.From(map.Level.Entities, loaded, map.Level.Leaves, map.Level.BrushModels)
+            : null;
+
+        // `trigger_soundscape` touches, against each trigger's own brush (B483).
+        _soundscape.Inside = map.Level.Leaves is { } tree
+            ? (trigger, point) => SoundscapeSystem.Touches(tree, trigger, point)
             : null;
 
         _soundscape.Leaves = map.Level.Leaves;
