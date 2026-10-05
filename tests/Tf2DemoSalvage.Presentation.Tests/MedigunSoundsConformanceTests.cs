@@ -41,6 +41,20 @@ public sealed class MedigunSoundsConformanceTests
         sounds.ShouldAllBe(sound => sound.Pitch == 100);
     }
 
+    /// <remarks>
+    /// **A patch reads the deck and never deals from it** (B503): `CSoundPatch::Init` resolves the script through a plain
+    /// `GetParametersForSound` (`soundenvelope.cpp:353-381`), whose `isbeingemitted` is false, so FUN_180003370 never
+    /// clears the wave it picked.
+    /// </remarks>
+    [Test]
+    public void For_OneHeal_ReadsEveryWaveWithoutDealing()
+    {
+        IReadOnlyList<SceneSound> sounds = MedigunSounds.For([Beam(target: 3, start: 100, end: 160)], At, Scripts());
+
+        sounds.Count.ShouldBe(3);
+        sounds.ShouldAllBe(sound => sound.WaveDraw != null && !sound.WaveDraw.Value.Emitted);
+    }
+
     /// <remarks>A new target on the same tick keeps `m_bHealing` true: the loop runs on and nothing detaches.</remarks>
     [Test]
     public void For_ASwitchOfTarget_KeepsTheLoop()

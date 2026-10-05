@@ -105,7 +105,7 @@ public sealed class ExplosionSoundsTests
         Tf2DemoSalvage.Core.Primitives.UniformRandomStream random = new();
         random.SetSeed(7);
 
-        SceneSound sound = ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f));
+        SceneSound sound = ExplosionSounds.FromWorldAt(ranged, random, 1, (0f, 0f, 0f), emitted: true);
 
         (sound.Volume, sound.Pitch, sound.Name, sound.SoundLevel).ShouldBe((volume, pitch, wave, level));
     }
