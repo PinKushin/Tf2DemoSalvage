@@ -526,6 +526,12 @@ for a minimum at or above `num_to_emit`.
 The 2026-10-04 audit's leftovers (B490-B496), each read again in the same objects. *Read in the disassembly; decompiler
 output used only for shape.*
 
+**Every collection is seeded, the HUD's included.** B469 left a HUD particle panel's and a model panel's collections at
+seed 0, on the argument that they run on wall-clock time. But `Init` never keeps a zero: it becomes `(int)this +
+Plat_MSTime()`, distinct for every live collection. A seed of 0 made two panels' copies of one system draw identically,
+which the engine never does. The panels now take `ParticleEffects.NextCreatedSeed()`, the creation count through the same
+hash `SeedFor` uses: distinct like the pointer, and repeatable given the same order of creation (B490).
+
 **An unset control point has no axes.** `CParticleCollection`'s constructor (`??0CParticleCollection`) loops the 64
 control points and stores every vector — position, previous position, forward, up, right — from `vec3_origin`. This
 port filled an unset point with the identity basis, a fallback written for callers without angles, so an initializer

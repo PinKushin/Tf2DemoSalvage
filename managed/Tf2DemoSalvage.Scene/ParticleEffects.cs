@@ -117,6 +117,19 @@ public sealed class ParticleEffects
         return seed != 0 ? seed : 1;
     }
 
+    /// <summary>How many collections <see cref="NextCreatedSeed"/> has seeded in this process.</summary>
+    private static long _created;
+
+    /// <summary>A seed for a collection with no identity a seek could fix — a HUD particle panel's, a model panel's (B490).</summary>
+    /// <returns>A non-zero seed, different for every call.</returns>
+    /// <remarks>
+    /// **The engine's own input here is <c>(int)this + Plat_MSTime()</c>**, distinct per collection because two live
+    /// collections never share an address. The stand-in keeps that distinctness and drops the clock: the creation count,
+    /// through <see cref="SeedFor"/>. A panel runs on wall-clock time, so nothing seeks it; the count makes a run repeat
+    /// itself given the same order of creation, which is the most a wall-clock panel can promise.
+    /// </remarks>
+    public static int NextCreatedSeed() => SeedFor(global::System.Threading.Interlocked.Increment(ref _created));
+
     /// <summary>Steps every effect, starting one for each projectile that has none.</summary>
     /// <param name="projectiles">
     /// The live projectiles this tick: where each is, where it STARTED, and how many ticks ago

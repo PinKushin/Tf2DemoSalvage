@@ -35314,6 +35314,20 @@ model 58) stopped its packet with *"Unrecognised message id 42 at bit 9202"* whe
 `SkippableMessageTests.BspDecal_WithA2048ModelPrecache_ReadsTwelveModelBits`; output level:
 `CorpusTraceTests.EveryDemo_TracesWithoutAnUnreadableBlock` over the specimen, which is what found it.
 
+## B490 — HUD particle and model panels created every collection with seed 0; the engine seeds each one distinctly — FIXED 2026-10-04
+
+**Read, disassembly of `particles.lib`:** `CParticleCollection::Init` turns a zero seed into `(int)this + Plat_MSTime()`
+(B469), so no two live collections share one. B469 left `TfParticlePanel.Effect.SetParticleSystem` (both the first
+creation and the loop's remake) and `VguiBaseModelPanel.CreateParticleData` at 0, so two panels' copies of a system,
+and both eyes' glows, drew identically.
+
+**Fix (D136's stand-in):** `ParticleEffects.NextCreatedSeed()`, a process-wide creation count through `SeedFor`. It is
+distinct per collection as the pointer is, and repeats given the same creation order; the clock is dropped. Tests:
+`CModelPanelConformanceTests.ParticlePanel_TwoEffectsOfOneSystem_AreSeededDistinctlyAndNonZero`,
+`TfPlayerModelPanelConformanceTests.CreateParticleData_TwoCollections_AreSeededDistinctlyAndNonZero`. Sabotaged at the
+panel's first creation and at `CreateParticleData`, both reddened. **Not covered by a test:** the loop's remake, the
+same one-argument change.
+
 ## B496 — an unset particle control point had the identity basis; the engine's constructor leaves its axes zero — FIXED 2026-10-04
 
 **Read, disassembly of `particles.lib`:** `CParticleCollection`'s constructor (`??0CParticleCollection`, `particles.obj`)

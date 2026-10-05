@@ -196,8 +196,8 @@ public sealed class ParticleEffect
     /// `children` gets the seed plus 129 × k, unresolved entries counted, and an unseeded parent's children are unseeded.
     /// The TF2 client creates every effect unseeded, so its seeds are a pointer and a clock — an input no demo carries.
     /// **D136's adaptation:** a caller that can seek passes a seed fixed by the effect's identity, which is the engine's
-    /// own seeded path; a zero seed here stays zero rather than becoming a pointer and a clock, so a test, or a HUD panel
-    /// that runs on wall-clock time anyway, is at least reproducible.
+    /// own seeded path; a zero seed here stays zero rather than becoming a pointer and a clock, so a test is reproducible.
+    /// The HUD's panels pass a distinct seed per collection instead (`ParticleEffects.NextCreatedSeed`, B490).
     /// </remarks>
     public ParticleEffect(
         ParticleSystem system,

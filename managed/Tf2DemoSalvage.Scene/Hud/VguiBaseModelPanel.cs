@@ -140,7 +140,7 @@ public class VguiBaseModelPanel : VguiMdlPanel
             return null;
         }
 
-        ParticleData data = new(new ParticleEffect(system, systems, SheetOf));
+        ParticleData data = new(new ParticleEffect(system, systems, SheetOf, ParticleEffects.NextCreatedSeed()));
 
         _particleList.Add(data);
 
