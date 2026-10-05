@@ -1371,7 +1371,8 @@ public sealed class DemoTimeline
             ChargeBeginTime = item.Number("DT_PipebombLauncherLocalData.m_flChargeBeginTime")
                 ?? item.Number("DT_ParticleCannon.m_flChargeBeginTime") ?? 0f,
             PrimaryAmmoType = item.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType"),
-            EffectBarRegenTime = item.Number("DT_LocalTFWeaponData.m_flEffectBarRegenTime") ?? 0f,            Energy = item.Number("DT_TFWeaponBase.m_flEnergy") ?? 0f,
+            EffectBarRegenTime = item.Number("DT_LocalTFWeaponData.m_flEffectBarRegenTime") ?? 0f,
+            LastFireTime = item.Number("DT_LocalTFWeaponData.m_flLastFireTime") ?? 0f,            Energy = item.Number("DT_TFWeaponBase.m_flEnergy") ?? 0f,
             KillComboClass = item.Integer("DT_TFWeaponBase.m_nKillComboClass") ?? 0,
             KillComboCount = item.Integer("DT_TFWeaponBase.m_nKillComboCount") ?? 0,
             KnifeExists = item.Integer("DT_TFWeaponKnife.m_bKnifeExists") is > 0,

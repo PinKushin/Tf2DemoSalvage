@@ -108,6 +108,17 @@ divergences, each settled by the published source and fixed the same day (B466-B
   checks the port already had. Its own remarks listed them as not modelled; the inputs (`m_bShowMatchSummary`, the
   minigame logic's active minigame) were already decoded for the ammo count, so the gap was one condition (B500).
   *Read from published source.*
+- **`FL_FROZEN` is not one bit across TF2's history.** The orangebox `const.h` has nine player flags and `FL_FROZEN` at
+  `1<<5`; inserting `FL_ANIMDUCKING` at `1<<2` pushed it to `1<<6` and the list to eleven. The demo says which it was
+  written with, because `m_fFlags` is sent in `PLAYER_FLAG_BITS`: 9 bits in the 2007-2009 specimens, 11 in 2011 and 2013,
+  32 in 2026 (B500). *Measured with the `schema` probe, read from published source.* A constant `1<<6` reads a 2008
+  player's `FL_ATCONTROLS` as frozen.
+- **The Ambassador's crosshair rests at three quarters size**, not full: `RemapValClamped( t, 1.0, 0.5, 0.75, 2.5 )` of
+  the time since the last shot, so it blooms to 2.5× right after firing and shrinks back over the next half second.
+  Its timer is prediction-only, but it is set on the same call and curtime as the networked `m_flLastFireTime`, which
+  is what a demo can carry (B500). *Read from published source.*
+- **The competitive countdown hides the crosshair**: a `restart_timer_time` of 1 to 10 seconds hides it until that many seconds later, in ladder and casual
+  matches but not MvM — `IsCompetitiveMode()` counts casual (B500). *Read from published source.*
 
 ## Custom HUDs are ordinary `.res` files
 

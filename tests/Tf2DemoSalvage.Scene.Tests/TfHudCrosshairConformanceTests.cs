@@ -130,6 +130,22 @@ public sealed class TfHudCrosshairConformanceTests
     public void HandleGameEvent_NotACompetitiveCountdown_DoesNotHide(int time, int matchGroup) =>
         Hidden(RestartTimer(time, matchGroup), curTime: 2f).ShouldBeFalse();
 
+    /// <remarks>
+    /// A `time` of 0 would hide until the very curtime it fired at, which no later frame can see; the field shows the engine
+    /// took the clearing branch (`nTime &gt; 0`, :129).
+    /// </remarks>
+    [Test]
+    public void HandleGameEvent_ZeroSeconds_SetsNoHideTime()
+    {
+        (TfHudCrosshair crosshair, _) = Painted(Alive("CTFRocketLauncher"));
+
+        crosshair.HandleGameEvent(RestartTimer(1, matchGroup: 7));
+        crosshair.TimeToHideUntil.ShouldBe(2f, "the control: one second from 1.0");
+        crosshair.HandleGameEvent(RestartTimer(0, matchGroup: 7));
+
+        crosshair.TimeToHideUntil.ShouldBe(-1f);
+    }
+
     [Test]
     public void HandleGameEvent_ALaterCountdownOutOfRange_ClearsTheHide()
     {
@@ -137,6 +153,19 @@ public sealed class TfHudCrosshairConformanceTests
 
         crosshair.HandleGameEvent(RestartTimer(5, matchGroup: 7));
         crosshair.HandleGameEvent(RestartTimer(11, matchGroup: 7));
+
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { CurTime = 2f }).ShouldBeTrue();
+    }
+
+    /// <remarks>`LevelShutdown` sets `m_flTimeToHideUntil = -1.f` (tf_hud_crosshair.cpp:103).</remarks>
+    [Test]
+    public void LevelShutdown_DuringACountdown_ClearsTheHide()
+    {
+        (TfHudCrosshair crosshair, _) = Painted(Alive("CTFRocketLauncher"));
+
+        crosshair.HandleGameEvent(RestartTimer(5, matchGroup: 7));
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { CurTime = 2f }).ShouldBeFalse("the control, hidden by the countdown");
+        crosshair.LevelShutdown();
 
         crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { CurTime = 2f }).ShouldBeTrue();
     }

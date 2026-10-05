@@ -26,6 +26,25 @@ public static class PlayerFlags
     {
         ArgumentNullException.ThrowIfNull(schema);
 
+        foreach (SendTable table in schema.Tables)
+        {
+            if (table.Name != "DT_BasePlayer")
+            {
+                continue;
+            }
+
+            foreach (SendProperty property in table.Properties)
+            {
+                if (property.Name == "m_fFlags")
+                {
+                    return property.BitCount <= OrangeBoxPlayerFlagBits ? FrozenOrangeBox : FrozenCurrent;
+                }
+            }
+        }
+
         return FrozenCurrent;
     }
+
+    /// <summary>The orangebox `PLAYER_FLAG_BITS`.</summary>
+    private const int OrangeBoxPlayerFlagBits = 9;
 }
