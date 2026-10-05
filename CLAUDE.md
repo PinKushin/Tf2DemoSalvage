@@ -209,6 +209,13 @@ value that means "offered" rather than "packed", and a hex search that reported 
 absent. **Before believing a probe's absence, ask it for something that must be there.** If that
 comes back missing too, the instrument is broken, not the subject.
 
+## Public beta: user docs ship with every release
+
+Beta per user-visible merge (D206). Each release updates README, RELEASE-NOTES (changes, known gaps, requirements,
+verified list), user guide, `--help` for what changed — not just the changes section. Owner, 2026-10-04: *"docs
+should probably be kept super updated now that we have a public beta"*. Doc passes go to a sonnet bounded-task
+after the implementer, never opus.
+
 ## Where to start
 
 Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — container parsing, then `dem_datatables`/`dem_stringtables`, then generic SendTable-driven entity delta decode, emitting a normalized event stream. Validate against `z1800.dem` end to end once the primitives are unit-tested individually. Output target: a Quake-style readable trace — the demo decompiled to text, message by message, in stream order — plus a summary dump and JSON Lines. **No SQLite**: removed 2026-08-10, see `docs/DECISIONS.md` D17. Do not create anything under `native/libtf2dem` for this phase.

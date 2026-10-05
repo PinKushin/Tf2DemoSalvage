@@ -66,3 +66,9 @@ one subagent for the rest of the week... still max of like 3"* (under 20% of the
 Owner, on an opus agent launched to add gcor specimens for new protocols: *"adding specimens was probably a sonnet or
 haiku job, not a opus job"*. Picking files, manifest entries, era tests, doc updates = bounded-task (sonnet). Opus only
 if a decode actually fails and needs diagnosis — spawn that separately when it happens.
+
+## 2026-10-04: user-facing docs follow as a separate sonnet agent
+Owner, on D210 (folder picker/cfg): *"the agent that fixes this will need to update docs or you will need to run doc
+subagents for them, the second is probably the better idea"*. Implementer (opus) does code + tests + RISKS/findings
+in-commit; afterwards a bounded-task (sonnet) updates README, RELEASE-NOTES requirements/known gaps, user guide,
+--help prose. Still one subagent at a time — docs agent runs after the implementer finishes.
