@@ -24,3 +24,8 @@ findings sections restating code, and reading whole disassembly logs when 60 lin
 - Disassembly logs: grep the address, then offset/limit to that routine only.
 - Workflows/subagents only where they save main-context reads, not by reflex.
 - Never trade parity for brevity ([[valve-parity-is-the-first-principle]]).
+
+2026-10-05, owner: *"the big big think is always token efficiency, well other than code quality and valve parity, but
+those are kinda built into EFFICIENCY"* — doing it right once is the efficient path. Output (generated code/prose) is the
+expensive side; resume an agent for fixes to its own code, fresh sonnet for a separate small bug
+([[one-subagent-and-prefer-cheap-models]]).
