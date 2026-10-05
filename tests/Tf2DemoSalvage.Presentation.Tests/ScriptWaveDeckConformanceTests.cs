@@ -454,32 +454,37 @@ public sealed class ScriptWaveDeckConformanceTests
         played.ShouldBe(["b.wav"], "the skip dealt a");
     }
 
-    /// <remarks>A skip's frames belong to the tick it went to; handed for another, they are not this seek's.</remarks>
-    [Test]
-    public void Update_ASkipHandedForAnotherTick_DealsNothing()
+    /// <remarks>
+    /// A skip's frames are handed as the view builds the moment, and the presenter may reach it a few ticks later — so a
+    /// skip to 300 lands on an update at 350, and one to a tick this update has not reached does not.
+    /// </remarks>
+    [TestCase(300, "b.wav")]
+    [TestCase(351, "a.wav")]
+    public void Update_ASkipHandedForATick_DealsOnlyWhenThisUpdateReachedIt(int to, string expected)
     {
         List<string> played = [];
         SoundPresenter presenter = Presenter(played, Entry(channel: 0, "a.wav", "b.wav", "c.wav"));
         presenter.Schedule = new SoundSchedule([Dealt(400, 0)]);
 
         presenter.Update(new Silent(), 0, Listener, Right, now: 0d);
-        presenter.Skipped(new SoundSkip(0, 300, [new SkipFrame(300, [Dealt(300, 0)])]));
+        presenter.Skipped(new SoundSkip(0, to, [new SkipFrame(to, [Dealt(to, 0)])]));
         presenter.Update(new Silent(), 350, Listener, Right, now: 1d);
         presenter.Update(new Silent(), 400, Listener, Right, now: 1.1d);
 
-        played.ShouldBe(["a.wav"]);
+        played.ShouldBe([expected]);
     }
 
     /// <remarks>
     /// `CDemoPlayer::ReadPacket` (FUN_180072ee0) counts packets while skipping and returns null at the 100th, so a read
-    /// loop takes 99 and the frame renders; the last batch ends at the target, where the skip is done.
+    /// loop takes 99 and the frame renders; the batch that reaches the target is the frame the skip lands on, which the
+    /// viewer draws — and sounds — itself, so it is not one of the skip's.
     /// </remarks>
     [Test]
-    public void Frames_ASkipOf301Ticks_RendersEvery99AndAtTheTarget()
+    public void Frames_ASkipOf301Ticks_RendersEvery99BeforeTheTarget()
     {
-        DemoSkip.Frames(1000, 1300).ShouldBe([1098, 1197, 1296, 1300]);
-        DemoSkip.Frames(1000, 1098).ShouldBe([1098]);
-        DemoSkip.Frames(1000, 1000).ShouldBe([1000]);
+        DemoSkip.Frames(1000, 1300).ShouldBe([1098, 1197, 1296]);
+        DemoSkip.Frames(1000, 1099).ShouldBe([1098]);
+        DemoSkip.Frames(1000, 1098).ShouldBe([]);
     }
 
     /// <remarks>The schedule's own rule for a seek — backwards, the first call, or past its catch-up — shared, not copied.</remarks>

@@ -797,6 +797,13 @@ public sealed class EntityModelSet : Hud.IMdlCache
     private readonly Dictionary<string, IReadOnlyList<PropVertex>> _raw =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Whether a pose walks animation events — false for a pass the engine never makes, such as a decal replay.</summary>
+    /// <remarks>
+    /// The walk's state is the previous frame's cycle (`m_flPrevEventCycle`), so a pass of our own that walked would move
+    /// it to a moment the engine's client never rendered, and the next real frame would cross the wrong span (B504).
+    /// </remarks>
+    public bool WalksEvents { get; set; } = true;
+
     /// <summary>Brings every entity's animation state up to date, before any bones are built.</summary>
     /// <param name="props">What exists at this tick.</param>
     /// <param name="seconds">Demo time, for advancing cycles.</param>
@@ -1007,7 +1014,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // The engine's own call site is the same place: `C_BaseAnimating::FrameAdvance` runs
             // the cycle forward and then dispatches, so an event is noticed on the frame the
             // animation reached it rather than on the packet that mentioned the sequence.
-            if (fireEvents && _walked.Add(prop.EntityIndex))
+            if (fireEvents && WalksEvents && _walked.Add(prop.EntityIndex))
             {
                 AnimationEvents(prop, skinned, sequence, phase);
             }

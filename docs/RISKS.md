@@ -35700,7 +35700,7 @@ deal (`EmitSoundByHandle`); footsteps, physics impacts, friction and patches onl
 global stream's position — `FX_FireBullets` reseeds it per bullet from the TE's seed (`tf_fx_shared.cpp:310`), but
 every client `RandomInt`/`RandomFloat` between (`ClientAdjustStartSoundParams`, `c_tf_player.cpp:11663`, among others)
 consumes from it, so each sound keeps its own seeded stream; only the draw is interpolated, never the deal.
-Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13 at this fix; 24 with
+Account: `docs/findings/31-game-audio.md` (B503). Tests: `ScriptWaveDeckConformanceTests` (13 at this fix; 31 with
 B504/B505),
 `MedigunSoundsConformanceTests.For_OneHeal_ReadsEveryWaveWithoutDealing`; output level:
 `CorpusScriptWaveDeckTests` — f12's 2,629 blasts in 876 three-wave blocks, each a permutation. **Sabotaged:** no clear,
@@ -35720,7 +35720,7 @@ repeats them. Reproducing the deck needs every client emission in one tick-order
 deck kept per producer would be a partial model that agrees with nothing. Gender filtering in the same function is moot
 for TF2's world sounds (`GENDER_NONE`).
 
-## B504 — a seek dealt the wave deck as "played to the tick", which is not what the engine's skip does — PARTLY FIXED 2026-10-05
+## B504 — a seek dealt the wave deck as "played to the tick", which is not what the engine's skip does — FIXED 2026-10-05
 
 **Fixed, disassembly.** The engine cannot seek; `CDemoPlayer::SkipToTick` (engine.dll FUN_180073b10) reads ahead from
 where it is, and a target behind it RELOADS the demo and reads ahead from its start. While skipping, the
@@ -35748,11 +35748,37 @@ with none, when skipping — then `_Host_RunFrame_Render` (FUN_1801a5d30 → `SC
 no skip test. Only `CL_RunPrediction` (FUN_180092710) is skipped. So `OnRenderStart` simulates (`DoAnimationEvents`,
 which fires every event between the previous frame's cycle and this one's, one loop at most) and fires the queued
 temp entities every 99 × max(1, ticks accumulated) packets — a count that depends on how long each host frame took.
-**Not implemented, and why:** reproducing (1) needs the HUD run over every skipped event (from the demo's start for a
-skip back), its state included — streaks, meters and chat decide their own sounds — where the HUD now replays a
-window silently; (2) needs every model posed and its events crossed at each batch boundary, and the boundaries are
-wall-clock dependent, so only "99 packets per frame" (a host frame shorter than a tick) could be modelled. Ours deal
-neither for skipped ticks. The frame-order half (3) is fixed: see B505.
+The frame-order half (3) is fixed: see B505.
+
+**Fixed 2026-10-05, the rest — the viewer's seek now renders the engine's skip frames.** `MainForm.ReplaySkip` runs on
+every seek `SoundSchedule.IsSkip` names (the schedule's own rule, now shared): from where playback was, or from the
+demo's first tick for a skip back, it walks `DemoSkip.Frames` — a frame per 99 ticks, stopping short of the batch that
+reaches the target, which is the viewer's own landing frame and plays its sounds as the engine's last frame does (the
+first version ran that batch silently too, and `PausedSoundUiTests` caught the opening tick's footsteps gone) — and in each
+runs the real HUD over that batch's game events and user messages (`VguiHud.Frame( …, paint: false )`, the same
+elements and state as playback, so streaks, chat and meters decide their own sounds), then builds and poses the moment
+(`ShowOnly` + `PoseNow( ViewFrustum.Nothing )`, the decal replay's path) and keeps each crossed `AE_CL_PLAYSOUND`. The
+sounds go to `SoundPresenter.Skipped`; `Skip` deals them with the reliable temp entities, frame by frame, each frame in
+`InFrameOrder`, unplayed. The HUD's feed is advanced through the frames, so the landing frame is not a reset and its
+window is not replayed twice. Our own decal replay no longer walks animation events (`EntityModelSet.WalksEvents`): it
+is not a frame the engine renders, and its walk would leave the next real frame crossing the wrong span.
+**Measured on f12** (`demostf-cp_process_f12-2026-08-08-2207`, viewer log 2026-10-05 16:23): a skip from 25 to 90,006
+renders 908 frames in 5.7 s and deals **29** HUD sounds (and the 0 reliable temp entities B504 measured); the 3,527
+animation events those frames crossed are all footsteps (7001) — no `AE_CL_PLAYSOUND` on a world model in this match,
+which every live log agrees with — so **0** animation sounds deal. A skip back to 50,000 reloads from the start: 505
+frames, 2.0 s, **19** HUD sounds dealt. The decal replay is separate and unchanged in cost (1.9 s and 1.3 s).
+*Interpolated:* one packet per tick, and one read loop per frame — the engine reads 99 × (ticks the host frame built
+up), which depends on how long its frames take; footsteps are crossed but not stepped, as they only read the deck (their
+left/right state is not advanced through the skip); a HUD sound made during a skip is stamped at its frame's last tick,
+in the parse phase, and the item meters' beep — which the engine makes in `SimulateEntities` — is in the parse phase
+with the other HUD sounds, as it already was in playback. A tie of phase and tick (a server sound and a HUD sound in one
+parse) keeps the schedule first: the packet's order is not carried. Tests: `ScriptWaveDeckConformanceTests` (a HUD
+sound in a later frame after an earlier frame's blast, one frame's HUD sound before its blast, an animation sound dealt,
+a skip handed for a tick reached or not, the frame boundaries, `IsSkip`), `VguiHudSkipFrameTests` (a skip frame's chat
+sound, painted or not). **Sabotaged:** temp entities pushed into the last frame, the frame's live sounds dropped, a
+frame every 100, `IsSkip` at `>=`, the paint not left out, the skip used for a tick not reached — each reddened its
+test. **Not sabotaged:** the viewer's wiring (`ReplaySkip`, `WalksEvents`), which is a window and is checked by the log
+counts above rather than by a test.
 
 ## B505 — within a tick, scheduled and live script sounds of one script were dealt scheduled-first, not in the client's order — FIXED 2026-10-05
 

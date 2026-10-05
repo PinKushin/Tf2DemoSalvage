@@ -1158,7 +1158,12 @@ frame while skipping, and `_Host_RunFrame_Render` has no skip test at all — on
 99 packets or so the client simulates (animation events crossing whatever cycle jumped) and fires its queue; how many
 packets exactly depends on how long the previous host frame took. The expectation going in was the reverse — that a
 skip was a parse with nothing drawn — and the packet cap is what kills it: a skip that never rendered would not need
-one. Neither half is reproduced here yet (B504 lists why).
+one. **Both are now reproduced the only way they can be: by doing what the engine does.** A seek in the viewer walks
+the skip's frames — the real HUD hearing each batch's events unpainted, the moment built and posed so its animation
+events are crossed — and hands the sounds to the deck frame by frame. On f12 a skip to 90,006 renders 908 frames in
+5.7 s and deals 29 HUD sounds; every one of the 3,527 animation events those frames cross is a footstep, which only
+reads. The number that cannot be reproduced is the frame count itself: the engine reads 99 packets per tick its host
+frame built up, so a slow machine renders fewer, larger frames — the viewer models a frame shorter than a tick.
 
 **One frame, several ticks.** The same host frame settles B505's interpolation: `_Host_RunFrame` calls
 `_Host_RunFrame_Client` once per tick it accumulated, each parsing its packet and firing its game events, and renders

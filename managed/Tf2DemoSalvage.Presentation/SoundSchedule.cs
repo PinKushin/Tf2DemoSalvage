@@ -85,7 +85,8 @@ public sealed class SoundSchedule
     /// <param name="previous">Where playback was, or null when it was nowhere.</param>
     /// <param name="tick">Where it is now.</param>
     /// <returns>True for the first move, a move back, or one past <see cref="CatchUpTicks"/>.</returns>
-    public static bool IsSkip(int? previous, int tick) => false;
+    public static bool IsSkip(int? previous, int tick) =>
+        previous is not { } last || tick < last || tick - last > CatchUpTicks;
 
     /// <summary>Moves playback to a tick and answers what should start.</summary>
     /// <param name="tick">Where playback now is.</param>
@@ -106,7 +107,7 @@ public sealed class SoundSchedule
 
         _tick = tick;
 
-        if (first || tick < previous || tick - previous > CatchUpTicks)
+        if (IsSkip(first ? null : previous, tick))
         {
             Jumped = !first;
             Repositioned = true;

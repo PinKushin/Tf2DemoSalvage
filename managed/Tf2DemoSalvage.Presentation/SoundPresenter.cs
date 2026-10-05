@@ -391,7 +391,9 @@ public sealed class SoundPresenter(
     /// (FUN_1800905d0) fires it with no skipping test; `EmitSoundByHandle` → `GetParametersForSoundEx`
     /// (`SoundEmitterSystem.cpp:465`) has none either. Nothing resets the flags: they live in soundemittersystem.dll,
     /// which a demo reload does not touch, so a skip back deals the start's reliable sounds AGAIN on top of whatever
-    /// playing dealt. A read deals nothing a later pick could see, so it is not replayed.
+    /// playing dealt. A read deals nothing a later pick could see, so it is not replayed. **And the client renders while it
+    /// skips** — a frame per batch of packets — so the HUD and animation-event sounds the view made in each frame
+    /// (<see cref="Skipped"/>) deal with that frame's temp entities, in the frame's order (<see cref="InFrameOrder"/>).
     /// </remarks>
     private void Skip(SoundSchedule schedule, int? from, int to)
     {
@@ -399,13 +401,39 @@ public sealed class SoundPresenter(
         int after = from is { } at && at <= to ? at : int.MinValue;
         int dealt = 0;
 
+        // The client's frames during the skip, handed over by the view as it built the moment — which this update may reach a
+        // tick or two later; one beyond it, or behind where playback was, is not this skip's. Without them, one frame.
+        // The landing frame — the batch that reaches the target — closes the list; its own sounds come through `Emit`.
+        List<SkipFrame> frames = _skip is { } skip && skip.To <= to && skip.To > after ? [.. skip.Frames] : [];
+
+        if (frames.Count == 0 || frames[^1].Through < to)
+        {
+            frames.Add(new SkipFrame(to, []));
+        }
+        List<SceneSound> fired = [];
+        int frame = 0;
+
+        _skip = null;
+
         foreach (SceneSound sound in schedule.Through(to))
         {
-            if (sound.Tick > after && sound.DealtBySkip && sound.WaveDraw is { Emitted: true } && Deals(sound))
+            if (sound.Tick <= after || !sound.DealtBySkip || sound.WaveDraw is not { Emitted: true } || !Deals(sound))
             {
-                Dealt(sound);
-                dealt++;
+                continue;
             }
+
+            // Every frame this sound's batch comes after renders first.
+            while (frame < frames.Count - 1 && sound.Tick > frames[frame].Through)
+            {
+                dealt += DealFrame(fired, frames[frame++]);
+            }
+
+            fired.Add(sound);
+        }
+
+        while (frame < frames.Count)
+        {
+            dealt += DealFrame(fired, frames[frame++]);
         }
 
         audio.LogInformation(
@@ -413,7 +441,29 @@ public sealed class SoundPresenter(
             string.Create(
                 CultureInfo.InvariantCulture,
                 $"wave deck: a skip to tick {to} from {(after == int.MinValue ? "the start" : after.ToString(CultureInfo.InvariantCulture))} " +
-                $"over {_skip?.Frames.Count ?? 0} frames dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+                $"over {frames.Count} frames dealt {dealt} script sounds in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0.0} ms"));
+    }
+
+    /// <summary>Deals one skip frame: its temp entities' sounds and the sounds the client made in it, in the frame's order.</summary>
+    /// <param name="fired">The temp entities' sounds the frame fires; emptied.</param>
+    /// <param name="frame">The frame.</param>
+    /// <returns>How many were dealt.</returns>
+    private int DealFrame(List<SceneSound> fired, SkipFrame frame)
+    {
+        int dealt = 0;
+
+        foreach ((SceneSound sound, _) in InFrameOrder(fired, [.. frame.Live]))
+        {
+            if (sound.WaveDraw is { Emitted: true } && Deals(sound))
+            {
+                Dealt(sound);
+                dealt++;
+            }
+        }
+
+        fired.Clear();
+
+        return dealt;
     }
 
     /// <summary>

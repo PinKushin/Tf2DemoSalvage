@@ -10,9 +10,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// <summary>The game events playback crossed since the last frame, as the HUD's listeners receive them.</summary>
 /// <remarks>
 /// Playing forward, each event fires once, in stream order, as its tick is reached. A seek — backward, or forward past
-/// <see cref="Window"/> — is `demo_gototick`: the engine reads every packet to the new tick without drawing, so listeners
-/// hear each event and the HUD retires nothing until the next paint. Replaying the last <see cref="Window"/> seconds is the
-/// same result, because no notice outlives it (`hud_deathnotice_time` × 2, hud_basedeathnotice.cpp:923).
+/// <see cref="Window"/> — is `demo_gototick`: the engine reads every packet to the new tick, rendering a frame per 99
+/// (B504), so listeners hear each event. The viewer's skip runs the HUD through those frames itself (`MainForm.ReplaySkip`),
+/// so this feed is reset only where no skip ran first — no HUD yet. Replaying the last <see cref="Window"/> seconds is then
+/// the same picture, because no notice outlives it (`hud_deathnotice_time` × 2, hud_basedeathnotice.cpp:923).
 /// **ponytail:** an event older than the window that a later one would have merged into (`UseExistingNotice`) is not
 /// replayed; the merged line would already have expired, so only its count can differ.
 /// </remarks>
