@@ -57,6 +57,7 @@ public static class HudStates
             CurTime = tick * interval,
             Rules = timeline.RulesAt(tick),
             LocalIndex = timeline.RecorderEntityIndex ?? 0,
+            FrozenFlag = timeline.FrozenFlag,
             Players = players,
             Names = Names(timeline),
             AccountIds = AccountIds(timeline),
@@ -139,6 +140,7 @@ public static class HudStates
             ObserverTarget: local.ObserverTarget ?? 0,
             WeaponClass: local.WeaponClass,
             PlayerClass: local.PlayerClass ?? 0,
-            Conditions: local.Conditions);
+            Conditions: local.Conditions,
+            Flags: local.Flags ?? 0);
     }
 }

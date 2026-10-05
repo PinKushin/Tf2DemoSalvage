@@ -1372,7 +1372,7 @@ public sealed class DemoTimeline
                 ?? item.Number("DT_ParticleCannon.m_flChargeBeginTime") ?? 0f,
             PrimaryAmmoType = item.Integer("DT_LocalWeaponData.m_iPrimaryAmmoType"),
             EffectBarRegenTime = item.Number("DT_LocalTFWeaponData.m_flEffectBarRegenTime") ?? 0f,
-            Energy = item.Number("DT_TFWeaponBase.m_flEnergy") ?? 0f,
+            LastFireTime = item.Number("DT_LocalTFWeaponData.m_flLastFireTime") ?? 0f,            Energy = item.Number("DT_TFWeaponBase.m_flEnergy") ?? 0f,
             KillComboClass = item.Integer("DT_TFWeaponBase.m_nKillComboClass") ?? 0,
             KillComboCount = item.Integer("DT_TFWeaponBase.m_nKillComboCount") ?? 0,
             KnifeExists = item.Integer("DT_TFWeaponKnife.m_bKnifeExists") is > 0,
@@ -2246,6 +2246,9 @@ public sealed class DemoTimeline
     /// bounds it: protocol 14 was written by no build later than protocol 15's first.
     /// </remarks>
     public int NetworkProtocol { get; private init; }
+
+    /// <summary>`FL_FROZEN` in the layout this demo's `m_fFlags` was written with — <see cref="PlayerFlags.Frozen"/>.</summary>
+    public int FrozenFlag { get; private init; } = PlayerFlags.FrozenCurrent;
 
     /// <summary>The map hash <c>svc_ServerInfo</c> carries beside the checksum, when it has one.</summary>
     /// <remarks>
@@ -3842,6 +3845,7 @@ public sealed class DemoTimeline
             MapCrc = mapCrc,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
+            FrozenFlag = PlayerFlags.Frozen(schema),
             _simulationLag = simulationLag,
             SimulationLagUnknown = simulationLag[LagUnknownBucket],
             _animationLag = animationLag,

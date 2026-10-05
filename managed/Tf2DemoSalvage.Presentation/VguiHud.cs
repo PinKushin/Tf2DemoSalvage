@@ -196,6 +196,7 @@ public sealed class VguiHud
         if (reset)
         {
             DeathNotice.Clear();
+            Crosshair.LevelShutdown();
         }
 
         // The host frame (engine.dll `_Host_RunFrame`, 0x1801a4570) runs `_Host_RunFrame_Input` (0x1801a5b90) first, whose
@@ -231,6 +232,11 @@ public sealed class VguiHud
             if (TfHudMatchStatus.ListensFor.Contains(fired.Event.Name))
             {
                 MatchStatus.HandleGameEvent(fired);
+            }
+
+            if (TfHudCrosshair.ListensFor.Contains(fired.Event.Name))
+            {
+                Crosshair.HandleGameEvent(fired);
             }
 
             if (TfHudPlayerClass.ListensFor.Contains(fired.Event.Name))

@@ -11,9 +11,9 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// offset arms are VR and Sixense, which a demo has neither of. The icon is whatever <see cref="TfHudWeapon"/> set last;
 /// `cl_crosshair_file` replaces it with `vgui/crosshairs/NAME` drawn 32 × 32 about the centre, twice over as written
 /// (`DrawTexturedRect( iX-iWidth, … iX+iWidth … )`, :215). Colour and scale are `cl_crosshair_red/green/blue` and
-/// `cl_crosshair_scale` / 32.
-/// **Not modelled:** `restart_timer_time`'s competitive hide, the minigame and match-summary tests, `FL_FROZEN`, and the
-/// Ambassador's accuracy-driven `GetWeaponCrosshairScale` (tf_weapon_revolver.cpp:207) — every weapon draws at scale 1.
+/// `cl_crosshair_scale` / 32, times the weapon's <see cref="WeaponCrosshairScale"/>.
+/// **Not modelled, and why:** `IsDrawingLoadingImage`, `IsPaused`, `IsInVGuiInputMode` and the view-entity test are the
+/// watching client's own state, not the recording's; `IsCurrentViewAccessAllowed` is a split-screen guard.
 /// </remarks>
 public sealed class TfHudCrosshair : VguiPanel, IHudElement
 {
@@ -62,7 +62,19 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
     /// <returns>Whether it draws.</returns>
     public bool ShouldDraw(HudState state)
     {
+        // "turn off for the minigames" (:67), then `ShowMatchSummary()` (:70).
+        if (state.Rules.ActiveMinigame || state.Rules.ShowMatchSummary)
+        {
+            return false;
+        }
+
         if (!state.HasLocalPlayer || state.Conditions.Has(ConditionGhostMode) || state.Conditions.Has(ConditionTaunting))
+        {
+            return false;
+        }
+
+        // `m_flTimeToHideUntil > gpGlobals->curtime` (:84).
+        if (TimeToHideUntil > state.CurTime)
         {
             return false;
         }
@@ -76,6 +88,7 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
         bool needsDraw = Crosshair is not null
             && Settings.Enabled != 0
             && ClientModeAllows(state, Settings)
+            && (state.Flags & state.FrozenFlag) == 0
             && (state.Alive
                 || state.ObserverMode == Core.Scene.ObserverModes.InEye
                 || (Settings.Observer != 0 && state.ObserverMode == Core.Scene.ObserverModes.Roaming));
@@ -95,6 +108,77 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
         (Wide, Tall) = (_screenWide, _screenTall);
     }
 
+    /// <summary>
+    /// `pWeapon-&gt;GetWeaponCrosshairScale( flWeaponScale )` (hud_crosshair.cpp:252-259, tf_hud_crosshair.cpp:189-196): 1 from
+    /// the base (basecombatweapon_shared.h:513) for every weapon but `CTFRevolver` and its `CTFRevolver_Secondary`, which with
+    /// `CanHeadshot()` — `set_weapon_mode` 1 (tf_weapon_revolver.h:49) — remap the time since `m_flLastAccuracyCheck` from
+    /// [1.0, 0.5] onto [0.75, 2.5] (tf_weapon_revolver.cpp:207-223).
+    /// </summary>
+    /// <remarks>
+    /// **`m_flLastAccuracyCheck` is a prediction-only field** (:30), set to `curtime` in `PrimaryAttack` (:157) on the same
+    /// call, at the same curtime, as `FireProjectile` sets the networked `m_flLastFireTime` (tf_weaponbase_gun.cpp:354);
+    /// nothing else writes either, so the networked value stands for it. *Interpolated:* a shot prediction re-runs ahead of
+    /// the last packet is not seen until the packet carries it, and the clock is the server's (`ServerTime`) where the
+    /// engine uses `GetFinalPredictedTime() + interpolation_amount * TICK_INTERVAL`.
+    /// </remarks>
+    /// <param name="state">The local player.</param>
+    /// <param name="weaponAttribute">`CALL_ATTRIB_HOOK` on a weapon, or null where no schema is open — then no headshot mode.</param>
+    /// <returns>The weapon's scale.</returns>
+    public static float WeaponCrosshairScale(HudState state, Func<ScenePlayer, SceneItem, string, float, float>? weaponAttribute)
+    {
+        if (state.Player(state.LocalIndex) is not { } owner)
+        {
+            return 1f;
+        }
+
+        SceneItem? weapon = null;
+
+        foreach (SceneItem item in owner.Items ?? [])
+        {
+            if (item.EntityIndex == owner.ActiveWeapon)
+            {
+                weapon = item;
+            }
+        }
+
+        if (weapon is not { ClassName: "CTFRevolver" or "CTFRevolver_Secondary" } revolver || weaponAttribute is null
+            || AttributeHooks.RoundFloatToInt(weaponAttribute(owner, revolver, "set_weapon_mode", 0f)) != 1)
+        {
+            return 1f;
+        }
+
+        // RemapValClamped( flTimeSinceCheck, 1.0f, 0.5f, 0.75f, 2.5f ) (mathlib.h).
+        float fraction = Math.Clamp((state.ServerTime - revolver.LastFireTime - 1f) / (0.5f - 1f), 0f, 1f);
+
+        return 0.75f + ((2.5f - 0.75f) * fraction);
+    }
+
+    /// <summary>The events the constructor listens for (tf_hud_crosshair.cpp:46).</summary>
+    public static IReadOnlySet<string> ListensFor { get; } = new HashSet<string>(["restart_timer_time"], StringComparer.Ordinal);
+
+    /// <summary>`FireGameEvent` (tf_hud_crosshair.cpp:122).</summary>
+    /// <param name="fired">The event.</param>
+    public void HandleGameEvent(HudGameEvent fired)
+    {
+        ArgumentNullException.ThrowIfNull(fired);
+
+        // "restart_timer_time" in a competitive-mode match, 1 to 10 seconds: hidden until it runs out (:124-133).
+        if (fired.Event.Name == "restart_timer_time" && TfMatchGroupDescription.IsCompetitiveMode(fired.Rules.MatchGroup)
+            && fired.Event.GetInt("time") is <= 10 and > 0 and var time)
+        {
+            TimeToHideUntil = fired.CurTime + time;
+            return;
+        }
+
+        TimeToHideUntil = -1f;
+    }
+
+    /// <summary>`LevelShutdown` (:93-104): the hide cleared — which a seek, restarting playback, is.</summary>
+    public void LevelShutdown() => TimeToHideUntil = -1f;
+
+    /// <summary>`m_flTimeToHideUntil`: -1 from the constructor (:44).</summary>
+    public float TimeToHideUntil { get; private set; } = -1f;
+
     /// <summary>`ResetCrosshair`: the default icon.</summary>
     public void ResetCrosshair() => Crosshair = DefaultCrosshair;
 
@@ -104,7 +188,9 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
     {
         ArgumentNullException.ThrowIfNull(surface);
 
-        if (HudViewport.Of(this)?.State is not { HasLocalPlayer: true })
+        HudViewport? viewport = HudViewport.Of(this);
+
+        if (viewport?.State is not { HasLocalPlayer: true } state)
         {
             return;
         }
@@ -112,7 +198,7 @@ public sealed class TfHudCrosshair : VguiPanel, IHudElement
         // `GetDrawPosition`: the middle of the full-screen viewport.
         float x = _screenWide / 2f;
         float y = _screenTall / 2f;
-        float playerScale = Settings.Scale / 32f;
+        float playerScale = WeaponCrosshairScale(state, viewport.WeaponAttribute) * Settings.Scale / 32f;
         (byte, byte, byte, byte) color = ((byte)Settings.Red, (byte)Settings.Green, (byte)Settings.Blue, 255);
         int centreX = (int)(x + 0.5f);
         int centreY = (int)(y + 0.5f);

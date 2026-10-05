@@ -123,6 +123,12 @@ public sealed record SceneItem(int EntityIndex, string? ClassName, int? Definiti
     /// <summary>`m_flEffectBarRegenTime` (tf_weaponbase.cpp:180, `DT_LocalTFWeaponData`): when the effect bar is full, server clock.</summary>
     public float EffectBarRegenTime { get; init; }
 
+    /// <summary>
+    /// `m_flLastFireTime` (tf_weaponbase.cpp:179, `DT_LocalTFWeaponData`, its owner's alone): `FireProjectile`'s
+    /// `gpGlobals->curtime` (tf_weaponbase_gun.cpp:354), server clock; 0 when unsent.
+    /// </summary>
+    public float LastFireTime { get; init; }
+
     /// <summary>`m_flEnergy` (tf_weaponbase.cpp:219): an energy weapon's charge.</summary>
     public float Energy { get; init; }
 

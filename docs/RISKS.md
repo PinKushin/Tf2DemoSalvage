@@ -34972,7 +34972,8 @@ tested only the weapon's own refusals, while `TfHudPlayerStatus` beside it teste
 each was red and each reddened again when its own test was sabotaged. `TF_COND_HALLOWEEN_GHOST_MODE` was declared as a
 private 77 in four files; it is now `PlayerConditions.HalloweenGhostMode`, which those four alias.
 
-**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled.
+**Not fixed here, seen in passing:** `TfHudCrosshair`'s remarks list the minigame and match-summary tests as not modelled
+— fixed as B500.
 
 ## B473 — a paused demo played the same footsteps on every frame — FIXED 2026-10-04
 
@@ -35499,3 +35500,66 @@ in 1 s; a real demo cut to 5,000 bytes still opens and writes a PNG (salvage, by
 `CaptureUiTests.Capture_OnAnLfsPointerInsteadOfADemo_ExitsNonZeroNamingTheFileAndTheHeader` (exit 1 within 45 s,
 stderr names file and reason, no PNG). **Sabotaged:** without `CheckStamp` in `Parse`, six Core tests fail; without it
 in `LoadedDemo`, the status-bar test reads "too short"; without the `FailHeadless` call, the UI test hangs past 45 s.
+
+## B500 — the crosshair drew during an active minigame, under the match summary, frozen and in a competitive countdown, and never scaled the Ambassador — FIXED 2026-10-05
+
+**Read, published source:** `CHudTFCrosshair::ShouldDraw` returns false when
+`CTFMinigameLogic::GetMinigameLogic()->GetActiveMinigame()` is set and when `TFGameRules()->ShowMatchSummary()`, before
+the ghost, taunt and `restart_timer_time` tests and before `CHudCrosshair::ShouldDraw` (`tf_hud_crosshair.cpp:64-87`).
+`TfHudCrosshair` tested the ghost and the taunt only; its remarks listed the other two as not modelled (seen under B468).
+
+**Inputs, already on the wire and already decoded for B468:** `DT_TFGameRules.m_bShowMatchSummary` and
+`DT_TFMinigameLogic.m_hActiveMinigame` resolving to a live entity (`SceneGameRules.ShowMatchSummary` / `ActiveMinigame`).
+
+**Fix:** the two tests, first, in the engine's order. `TfHudCrosshairConformanceTests.ShouldDraw_InAnActiveMinigame_IsHidden`
+and `…UnderTheMatchSummary_IsHidden`, each with a default-rules control that draws; both red before, green after.
+**Sabotaged:** dropping either operand reddened exactly that operand's test.
+
+**No real-demo assertion:** a probe (`round-timer`) over `rgl-pug-2026-08-10-pov`, `tf2-2026-pub-pov-clean` and
+`…-cheater` found no tick with `summary True` — the summary is a Valve-matchmaking end, and no lcor demo holds one or a
+Halloween minigame. A row of `summary False` is not a control on its own (it is also the default); the decode reading
+a 1 is pinned synthetically by `SceneRoundTimerTests`, which the probe's path shares. A casual-MM demo that reaches the summary would close this.
+
+**The rest of `ShouldDraw` and `Paint`, closed the same day** (*read from published source; synthetic exact values*):
+
+- **`restart_timer_time`** (`:46`, `:84`, `:122-137`): in an `IsCompetitiveMode()` match — the group's description is
+  `MATCH_TYPE_COMPETITIVE` or `MATCH_TYPE_CASUAL` (`tf_gamerules.cpp:2214`), so ladder 2, casual 7 and the event
+  placeholder 8, never MvM — a `time` of 1..10 hides it until `curtime + time`, tested strictly (`>`); any other
+  `restart_timer_time` clears it to -1, and so does `LevelShutdown` (`:103`), which a seek is. `TfMatchGroupDescription`
+  now carries `GetMatchType()`. Tests: `HandleGameEvent_ACasualCountdownOf5_*` (5.99 hidden, 6.0 drawn),
+  `…ALadderCountdownOf10_Hides`, `…OutsideAMatch`/`…InMannVsMachine`/`…ElevenSeconds`/`…ZeroSeconds_DoesNotHide`,
+  `…ZeroSeconds_SetsNoHideTime`, `…ALaterCountdownOutOfRange_ClearsTheHide`, `LevelShutdown_DuringACountdown_ClearsTheHide`,
+  and `VguiHudTests.Frame_ACasualRestartTimerTime_ReachesTheCrosshair` / `…AReset_ClearsTheCrosshairsHide` for the wiring.
+- **`FL_FROZEN`** (`hud_crosshair.cpp:127`). **The bit moved between builds**: orangebox `const.h` lists nine player
+  flags with `FL_FROZEN (1<<5)`; the list that inserted `FL_ANIMDUCKING (1<<2)` lists eleven with `FL_FROZEN (1<<6)`.
+  `SendPropInt( m_fFlags, PLAYER_FLAG_BITS )` puts the width on the wire, and the `schema` probe (which now prints each
+  property's type and width) measured **9 bits in the 2007, 2008 and 2009 specimens, 11 in 2011 and 2013, 32 in
+  rgl-pug-2026-08-10**. `PlayerFlags.Frozen` reads the width off the demo; `DemoTimeline.FrozenFlag` carries it.
+  Tests: `PlayerFlagsTests` (9 → bit 5, 11 and 32 → bit 6), `CorpusPlayerFlagsTests` on the 2009 and 2013 POV
+  specimens, `ShouldDraw_Frozen_IsHidden`, `…FrozenInANineBitDemo_IsHidden`, `…AtControlsInANineBitDemo_Draws`.
+- **The Ambassador's scale** (`tf_weapon_revolver.cpp:207-223`, `hud_crosshair.cpp:252-280`, `tf_hud_crosshair.cpp:189-215`):
+  `CTFRevolver` and `CTFRevolver_Secondary` with `set_weapon_mode` 1 scale both paint paths by
+  `RemapValClamped( t, 1.0, 0.5, 0.75, 2.5 )`; every other weapon by the base's 1. **At rest it is 0.75, not 1.**
+  `m_flLastAccuracyCheck` is prediction-only (`:30`), but `PrimaryAttack` sets it on the same call and curtime as
+  `FireProjectile` sets the networked `DT_LocalTFWeaponData.m_flLastFireTime` (`tf_weaponbase_gun.cpp:354`), and
+  nothing else writes either — so the decode now carries `LastFireTime`. Tests: `Paint_TheAmbassador*` (24, 80 and 52 px
+  for t = 1.0, 0.5, 0.75), `Paint_TheStockRevolver_IsUnscaled`, `Paint_TheAmbassadorWithACustomFile_ScalesIt`.
+  *Interpolated:* a shot prediction re-runs ahead of the last packet is not seen until the packet carries it, and the
+  clock is the server's tick time where the engine uses `GetFinalPredictedTime() + interpolation_amount * TICK_INTERVAL`.
+  *Absent in the 2009 specimen's schema* (`m_flLastFireTime` is in 2013's, not 2009's): there the field reads 0 and the
+  Ambassador holds at 0.75; whether that era's revolver had the override at all is not read.
+
+**Sabotaged, each restored by its inverse edit:** dropping the frozen test (2 red), `>` to `>=` (6.0 red), dropping
+`IsCompetitiveMode` (2 red), counting MvM (1 red), shifting both range bounds (ladder 10 and zero red), removing the
+clearing branch or `LevelShutdown` (3 red, plus the reset wiring), removing the `VguiHud` dispatch (1 red), forcing
+headshot mode (stock revolver red), moving the remap's low end (3 of 4 red), `<=` to `<` on the width (9-bit red),
+misnaming the decode (field test red), dropping `Flags` from `HudStates.From` (1 red), and the timeline ignoring the
+schema (2009 specimen red).
+
+**Not modelled, and why:** `IsDrawingLoadingImage`, `IsPaused`, `IsInVGuiInputMode` and the view-entity test are the
+watching client's own state; `IsCurrentViewAccessAllowed` is split screen.
+
+**Seen in passing, not fixed here:** `Presentation/Footsteps.cs` names `FL_FROZEN | FL_ATCONTROLS` as `1<<6`, `1<<7`,
+which in a nine-bit demo are `FL_ATCONTROLS` and `FL_CLIENT` — and every player carries `FL_CLIENT`, so in a
+2007-2009 demo that mask matches every player. *Not measured:* what the footstep path then does. It should take the
+demo's own layout, as `DemoTimeline.FrozenFlag` does.

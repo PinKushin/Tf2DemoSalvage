@@ -27,5 +27,9 @@ public sealed class HudStatesTests
     public void From_ADeadLifeState_IsNotAlive() =>
         HudStates.From(Player() with { LifeState = 2 }, 0).Alive.ShouldBeFalse();
 
+    [Test]
+    public void From_TheFlags_AreThePlayersMFFlags() =>
+        HudStates.From(Player() with { Flags = (1 << 6) | 1 }, 0).Flags.ShouldBe(65, "FL_FROZEN | FL_ONGROUND (const.h:148, :158)");
+
     private static ScenePlayer Player() => new(1, 0f, 0f, 0f, 2, Health: 99, PlayerClass: 3);
 }

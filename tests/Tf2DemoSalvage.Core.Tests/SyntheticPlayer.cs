@@ -859,7 +859,7 @@ internal static class SyntheticPlayer
         tables.Add(new SendTable("m_flItemChargeMeter", NeedsDecoder: true,
             [.. Enumerable.Range(0, 11).Select(slot => NoScaleFloat(slot.ToString("D3", CultureInfo.InvariantCulture)))]));
         tables.Add(new SendTable("m_hMyWeapons", NeedsDecoder: true, [UnsignedInt("000", bits: 21)]));
-        tables.Add(new SendTable("DT_LocalTFWeaponData", NeedsDecoder: true, [NoScaleFloat("m_flEffectBarRegenTime")]));
+        tables.Add(new SendTable("DT_LocalTFWeaponData", NeedsDecoder: true, [NoScaleFloat("m_flEffectBarRegenTime"), NoScaleFloat("m_flLastFireTime")]));
         tables.Add(new SendTable("DT_TFWeaponBase", NeedsDecoder: true,
         [
             Table("LocalActiveTFWeaponData", "DT_LocalTFWeaponData"), NoScaleFloat("m_flEnergy"),
@@ -912,6 +912,7 @@ internal static class SyntheticPlayer
             Entity(decoder, ItemClassId, 30, new Dictionary<string, PropertyValue>
             {
                 ["m_flEffectBarRegenTime"] = PropertyValue.FromFloat(311.25f),
+                ["m_flLastFireTime"] = PropertyValue.FromFloat(297.5f),
                 ["m_flEnergy"] = PropertyValue.FromFloat(15f),
                 ["m_nKillComboClass"] = PropertyValue.FromInt(7),
                 ["m_nKillComboCount"] = PropertyValue.FromInt(2),
