@@ -35241,7 +35241,7 @@ audible changes today; it is the branch B483's end-touch will reach.
 restart that reclaims the loop where it stands); `Ended_…` now fades through a soundscape with no loops, which is what
 `StartNewSoundscape` does. Sabotage — a fade on a null placement — reddened it; restored by the inverse edit.
 
-## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — OPEN 2026-10-04
+## B485 — the sound cache reads waves from the install only; a map's pakfile sounds never open — FIXED 2026-10-05
 
 **Measured while closing B465** (`pak` probe): pl_venice's pakfile carries 35 entries under `sound/` — canal water,
 flies, rodents — and `LevelSystems.OpenGame` sets `SoundCache.Read = game.Archives.Read`, once per install. Any sound
@@ -35250,6 +35250,18 @@ that lives only in a map's pakfile, whether a soundscape loop, a `playrandom` wa
 mounted at its head. The fix needs the cache to read per level — and to forget what it decoded from the previous map's
 pakfile, since a stock path can be shadowed by one map and not the next. koth_lazarus ships no sounds, so B465's
 output-level test does not reach this.
+
+**Fix:** `PakFile.AheadOf(install)` is the level's `"GAME"` path, in one place; `LevelSystems.Load` builds it once and
+hands it to the soundscape catalog, to `SoundCache.Level` (which also forgets every earlier decode), and to
+`SoundScriptCatalog.ForLevel`, which lays the level's own scripts over the install's per
+`CSoundEmitterSystem::LevelInitPreEntity` (`SoundEmitterSystem.cpp:258-306`): `maps/<map>_level_sounds.txt`, or the
+four MvM scripts on a map named `mvm`. A new catalog per level stands in for `ClearSoundOverrides` (`:333-336`).
+**Interpolated:** an override REPLACES a stock entry of the same name — from `isoundemittersystembase.h:257`'s comment;
+the code is closed. Tests: `SoundPakfileConformanceTests` (synthetic: shadow, extend, forget, override, MvM order) and
+`LevelSystemsTests.Load_PlVenice_HandsTheSoundCacheTheLevelsPakfile` (pl_venice's pakfile-only wind gust: absent
+through the install, decoded after the load). Sabotage, each restored by the inverse edit: install-first order
+(reddened the shadow test and the B465 soundscape test), no cache clear (the forget test), `TryAdd` for the override
+(the override test), a case-sensitive `mvm` match (the MvM test), the cache handed the install in `Load` (pl_venice).
 
 ## B486 — `CStdlib` was not the runtime: no inf or nan, .NET's white space, zero on overflow; two private copies held what it lacked — FIXED 2026-10-04
 

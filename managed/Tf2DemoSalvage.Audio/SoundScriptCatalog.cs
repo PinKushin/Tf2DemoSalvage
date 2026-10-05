@@ -148,6 +148,61 @@ public sealed class SoundScriptCatalog
         return new SoundScriptCatalog(entries, scripts);
     }
 
+    /// <summary>This catalog with a level's own scripts added over it.</summary>
+    /// <param name="read">The level's search path — its pakfile ahead of the install (B485).</param>
+    /// <param name="mapName">The level's name, without path or extension.</param>
+    /// <returns>A new catalog; this one, the install's, is untouched.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="read"/> or <paramref name="mapName"/> is null.</exception>
+    /// <remarks>
+    /// **<c>CSoundEmitterSystem::LevelInitPreEntity</c>, TF2's branch** (<c>SoundEmitterSystem.cpp:258-306</c>): on a map
+    /// whose lowercased <c>maps/&lt;name&gt;</c> holds <c>mvm</c>, the four MvM scripts in that order; otherwise
+    /// <c>maps/&lt;name&gt;_level_sounds.txt</c> — each only when <c>FileExists( …, "GAME" )</c>, and each through
+    /// <c>AddSoundOverrides</c>. <c>LevelShutdownPostEntity</c> is <c>ClearSoundOverrides()</c> (<c>:333-336</c>), which
+    /// is why this returns a new catalog rather than changing the install's.
+    ///
+    /// **A level's entry REPLACES a stock one of the same name — read from the interface comment, not the code**
+    /// (<c>isoundemittersystembase.h:257</c>, "override sound scripts … with level specific overrides"); the
+    /// implementation is in the closed <c>soundemittersystem.dll</c>. <c>GetCleanMapName</c>'s workshop-name stripping
+    /// is not reproduced: a demo names a stock map by its plain name.
+    /// </remarks>
+    public SoundScriptCatalog ForLevel(Func<string, byte[]?> read, string mapName)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(mapName);
+
+        Dictionary<string, SoundScriptEntry> entries = new(_entries, StringComparer.OrdinalIgnoreCase);
+        List<string> scripts = [.. _scripts];
+        // The engine lowercases the name (`Q_strlower`) and matches with `V_stristr`; the readers fold case themselves.
+        string map = "maps/" + mapName;
+
+        string[] overrides = map.Contains("mvm", StringComparison.OrdinalIgnoreCase)
+            ?
+            [
+                "scripts/mvm_level_sounds.txt",
+                "scripts/mvm_level_sound_tweaks.txt",
+                "scripts/game_sounds_vo_mvm.txt",
+                "scripts/game_sounds_vo_mvm_mighty.txt",
+            ]
+            : [map + "_level_sounds.txt"];
+
+        foreach (string path in overrides)
+        {
+            if (read(path) is not { } script)
+            {
+                continue;
+            }
+
+            scripts.Add(path);
+
+            foreach ((string name, SoundScriptEntry entry) in SoundScript.Read(script))
+            {
+                entries[name] = entry;
+            }
+        }
+
+        return new SoundScriptCatalog(entries, scripts);
+    }
+
     /// <summary>The script paths a manifest names, in order.</summary>
     /// <remarks>
     /// Comments are the <see cref="KeyValuesReader"/>'s job, and it drops them — which is what keeps

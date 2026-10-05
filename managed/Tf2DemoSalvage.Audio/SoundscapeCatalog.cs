@@ -181,7 +181,7 @@ public sealed class SoundscapeCatalog
         ArgumentNullException.ThrowIfNull(pak);
         ArgumentNullException.ThrowIfNull(install);
 
-        return Load(path => pak.ReadFile(path) ?? install(path), mapName);
+        return Load(pak.AheadOf(install), mapName);
     }
 
     /// <summary>Appends one file's top-level sections, in order.</summary>

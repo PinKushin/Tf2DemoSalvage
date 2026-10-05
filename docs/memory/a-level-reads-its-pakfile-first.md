@@ -15,10 +15,12 @@ materials, models — tries the map's own zip first. A reader built once per ins
 level". `C_SoundscapeSystem::LevelInitPreEntity` is `Shutdown(); Init();` and `Init` appends the map's own
 `scripts/soundscapes_<map>.txt` — 71 of 239 installed maps ship one in the pakfile, and 3,700 placements on 66 maps
 resolved to nothing (B465, measured with the `soundscape-map-scripts` probe). The sound cache still has the same
-blind spot for pakfile waves — pl_venice carries 35 (B485, open). Map assets already did it right
+blind spot for pakfile waves — pl_venice carries 35 (B485, fixed: `SoundCache.Level` per load, plus the
+`<map>_level_sounds.txt` overrides). Map assets already did it right
 (`pak.ReadFile(path) ?? archives.Read(path)` in `MapAssets`, `IvpMapWorld`, `PropModels`).
 
-**How to apply:** a per-level reader is `pak.ReadFile(path) ?? install(path)` — `SoundscapeCatalog.ForLevel` is the
-soundscape one. Check the system's `LevelInitPreEntity` for a rebuild before deciding a table belongs to the install.
+**How to apply:** a per-level reader is `pak.AheadOf(install)` (`PakFile`, the one place the order lives);
+`LevelSystems.LevelRead` builds it once per load and hands it to the soundscape catalog, the sound cache and the sound
+scripts. Check the system's `LevelInitPreEntity` for a rebuild before deciding a table belongs to the install.
 And a census is cheap: the `pak` probe lists a map's pakfile, so count how many installed maps ship the file before
 calling a gap rare.

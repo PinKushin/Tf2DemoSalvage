@@ -72,6 +72,23 @@ public sealed class SoundCache
     /// </remarks>
     public Func<string, byte[]?>? Read { get; set; }
 
+    /// <summary>Starts a level: reads through <paramref name="read"/> from now on, and forgets every earlier decode.</summary>
+    /// <param name="read">The level's search path — its pakfile ahead of the install (B485).</param>
+    /// <exception cref="ArgumentNullException"><paramref name="read"/> is null.</exception>
+    /// <remarks>
+    /// **Forgets, because a decode is only true of the level that read it.** A map's pakfile can shadow a stock path, so
+    /// a sample decoded on one map is the wrong answer on the next — and a miss cached on a map without the file would
+    /// hide it on one that ships it.
+    /// </remarks>
+    public void Level(Func<string, byte[]?> read)
+    {
+        ArgumentNullException.ThrowIfNull(read);
+
+        Read = read;
+        _cache.Clear();
+        _unopened = 0;
+    }
+
     /// <summary>How many distinct names the install could not supply.</summary>
     public int Unopened => _unopened;
 

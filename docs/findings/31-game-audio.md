@@ -984,7 +984,18 @@ index order are the parts worth keeping: the map's entries are numbered after al
 the server, so a demo's index means the same on each.
 
 The same pass found the wave reader has the same blind spot one level down — pl_venice carries 35 sounds in its pakfile
-and the sound cache never looks there (B485, open).
+and the sound cache never looks there (B485).
+
+*Read, published source, 2026-10-05.* **The fix was not only the waves.** `CSoundEmitterSystem::LevelInitPreEntity`
+(`SoundEmitterSystem.cpp:258-306`) also lays a level's own sound SCRIPT over the install's, through the same `"GAME"`
+path: `maps/<map>_level_sounds.txt`, or — TF2's branch, on any map whose name holds `mvm` — four fixed MvM scripts,
+`mvm_level_sounds.txt` first. That explains a detail found earlier and left unexplained: those MvM scripts are the ones
+Valve commented out of `game_sounds_manifest.txt`, because they are loaded per level, not per install.
+`LevelShutdownPostEntity` is `ClearSoundOverrides()`, so the overrides belong to one level. **That an override REPLACES
+a stock entry of the same name is interpolated from the interface's comment** (`isoundemittersystembase.h:257`); the
+code is in the closed `soundemittersystem.dll` and was not disassembled. *Measured:* pl_venice's
+`ambient/venice_wind_gust_01.mp3` does not open through the install and decodes once the level is loaded; pl_venice
+ships no `_level_sounds.txt`, and no census of installed maps was taken.
 
 *Read, published source and the C standard, 2026-10-04.* **`atof` returns a double**, and that is not pedantry here:
 `ReadInterval` narrows the start on assignment and computes the range as `atof( token ) - tmp.start` in double, so
