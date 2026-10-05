@@ -6752,6 +6752,25 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The animation events taken this frame; reused.</summary>
     private readonly List<FiredAnimationEvent> _firedEvents = [];
 
+    /// <summary>One footstep event, gated by the flag list the loaded demo was written with (B501).</summary>
+    /// <param name="footsteps">The viewer's footstep state.</param>
+    /// <param name="tick">When.</param>
+    /// <param name="stepper">The player.</param>
+    /// <param name="ground">What is under them.</param>
+    /// <param name="named">A surface by name.</param>
+    /// <param name="scripts">The sound scripts.</param>
+    /// <param name="timeline">The loaded demo, whose `FlagLayout` decides which bits are frozen and at controls.</param>
+    /// <returns>The step, or null.</returns>
+    internal static SceneSound? Footstep(
+        Footsteps footsteps,
+        int tick,
+        ScenePlayer stepper,
+        StepSurface? ground,
+        Func<string, StepSurface?> named,
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
+        DemoTimeline timeline) =>
+        footsteps.Step(tick, stepper, ground, named, scripts, timeline.FlagLayout);
+
     /// <summary>The sounds this frame's animation events make: `C_BaseAnimating::FireEvent` and TF2's footstep (B172).</summary>
     /// <remarks>
     /// `AE_CL_PLAYSOUND` (`c_baseanimating.cpp:3988`) emits its options from attachment 1, or the origin when the model
@@ -6801,7 +6820,7 @@ internal class MainForm : Form, IFrameSteps
                 case FootstepEvent:
                     ScenePlayer? stepper = Stepper(fired.EntityIndex);
                     StepSurface? ground = stepper is { } p ? GroundSurface(p) : null;
-                    SceneSound? step = stepper is { } q ? _footsteps.Step(tick, q, ground, NamedSurface, scripts.Entries, _timeline?.FlagLayout) : null;
+                    SceneSound? step = stepper is { } q && _timeline is { } shown ? Footstep(_footsteps, tick, q, ground, NamedSurface, scripts.Entries, shown) : null;
 
                     if (step is { } played)
                     {

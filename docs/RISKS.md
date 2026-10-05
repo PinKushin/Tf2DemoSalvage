@@ -35609,5 +35609,11 @@ constants were removed; `InWater` held the orangebox `1<<9`, which is `FL_FAKECL
 controls silent, per layout), `PlayerFlagsTests.For_*`, `RecorderPredictionWeaponStateTests.WaterJumping_*`, and
 `CorpusFootstepLayoutTests` (2009 POV, 2008 STV, 2013 POV each step, through `StepGateProbe.Measure`). Red before.
 **Sabotaged:** dropping `FL_ATCONTROLS` from the mask (2 red), passing the current layout to every demo (2009 and 2008
-red), the orangebox `FL_WATERJUMP` at `1<<3` (3 red). **Survives:** `PredictFrom` passing the current layout instead
-of the timeline's — no test drives `PredictFrom` through a water jump; nor is `MainForm`'s argument covered.
+red), the orangebox `FL_WATERJUMP` at `1<<3` (3 red). **Both wirings now covered (2026-10-05):**
+`RecorderPredictionFlagLayoutTests` drives `PredictFrom` on a nine-bit recorder (`DemoTimeline.ForRecorder`, an internal
+seam like `ForTracks`) in an empty world — `1<<2` declined, `1<<3` (on a train) exactly (0, 0, −24) after two airborne
+ticks; `FootstepWiringTests` calls `MainForm.Footstep`, the static `StepAnimationSounds` now routes through — a nine-bit
+`FL_CLIENT` stepper sounds, an eleven-bit `1<<7` one is silent. **Sabotaged:** the current layout in `PredictFrom` (both
+prediction tests red); the current layout in `MainForm.Footstep` (the nine-bit footstep red). No wiring bug found.
+`Footsteps.Step`'s layout is now REQUIRED (it defaulted to the current list, which is how a missed argument compiled);
+it was the only optional `PlayerFlagLayout` parameter in `managed/`.
