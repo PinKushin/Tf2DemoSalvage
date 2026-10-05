@@ -95,6 +95,16 @@ public sealed class TfHudCrosshairConformanceTests
         crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Flags = (1 << 6) | (1 << 0) }).ShouldBeFalse();
     }
 
+    /// <remarks>A nine-bit demo's `FL_FROZEN` is `1&lt;&lt;5`, and its `1&lt;&lt;6` is `FL_ATCONTROLS` (orangebox const.h).</remarks>
+    [TestCase(1 << 5, false, TestName = "ShouldDraw_FrozenInANineBitDemo_IsHidden")]
+    [TestCase(1 << 6, true, TestName = "ShouldDraw_AtControlsInANineBitDemo_Draws")]
+    public void ShouldDraw_InANineBitDemo(int flags, bool drawn)
+    {
+        (TfHudCrosshair crosshair, _) = Painted(Alive("CTFRocketLauncher"));
+
+        crosshair.ShouldDraw(Alive("CTFRocketLauncher") with { Flags = flags, FrozenFlag = 1 << 5 }).ShouldBe(drawn);
+    }
+
     /// <remarks>
     /// `FireGameEvent` (tf_hud_crosshair.cpp:122-137): in a competitive-mode match a `time` of 1..10 hides it until
     /// `curtime + time`, and `ShouldDraw` tests `m_flTimeToHideUntil &gt; gpGlobals-&gt;curtime` (:84) — strict, so it draws

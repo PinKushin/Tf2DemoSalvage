@@ -99,7 +99,8 @@ public sealed class SchemaProbe : IProbe
             .Where(table => !Matches(table.Name, filter))
             .SelectMany(table => table.Properties
                 .Where(property => Matches(property.Name, filter))
-                .Select(property => $"PROP   {table.Name}.{property.Name}"))
+                .Select(property =>
+                    $"PROP   {table.Name}.{property.Name}  {property.Type} {property.BitCount.ToString(CultureInfo.InvariantCulture)} bits"))
             .Distinct(StringComparer.Ordinal)
             .Order(StringComparer.Ordinal))
         {

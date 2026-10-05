@@ -59,6 +59,7 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// </param>
 /// <param name="EyePosition">The local player's `EyePosition()`, or null where no first-person eye is known.</param>
 /// <param name="Flags">The local player's `GetFlags()`: `m_fFlags`, 0 where unsent.</param>
+/// <param name="FrozenFlag">`FL_FROZEN` in the demo's own flag layout — <see cref="Core.Scene.PlayerFlags.Frozen"/>.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -96,7 +97,8 @@ public readonly record struct HudState(
     IReadOnlyList<Core.Scene.SceneIdEntity>? IdEntities = null,
     int? WeaponPickupTraceHit = null,
     (float X, float Y, float Z)? EyePosition = null,
-    int Flags = 0)
+    int Flags = 0,
+    int FrozenFlag = Core.Scene.PlayerFlags.FrozenCurrent)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>
