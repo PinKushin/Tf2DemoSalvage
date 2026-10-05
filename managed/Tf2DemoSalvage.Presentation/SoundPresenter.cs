@@ -167,12 +167,32 @@ public sealed class SoundPresenter(
         return (x * x) + (y * y) + (z * z) < sound.AudibleWithin * sound.AudibleWithin;
     }
 
+    /// <summary>The soundscape params the recording networked, when the ears are the recorder's own; else null.</summary>
+    /// <param name="timeline">The demo.</param>
+    /// <param name="tick">The tick being played.</param>
+    /// <param name="firstPersonEntity">Whose eyes the camera is in, or null for a free camera.</param>
+    /// <returns>The recorder's <c>m_audio</c> at the tick, or null to simulate.</returns>
+    /// <remarks>
+    /// **The recorder's client heard exactly its own <c>m_audio</c>** — <c>C_SoundscapeSystem::UpdateAudioParams</c>
+    /// (<c>c_soundscape.cpp:555-576</c>) — so in its eyes there is nothing to simulate. A free camera, another player
+    /// and a SourceTV recording (whose <see cref="DemoTimeline.Soundscapes"/> is empty) fall to the simulation (B483).
+    /// </remarks>
+    public static SceneSoundscape? RecordedSoundscape(DemoTimeline timeline, int tick, int? firstPersonEntity)
+    {
+        ArgumentNullException.ThrowIfNull(timeline);
+
+        return firstPersonEntity is { } entity && entity == timeline.RecorderEntityIndex
+            ? timeline.SoundscapeAt(tick)
+            : null;
+    }
+
     /// <summary>Brings the audible world up to date for one tick.</summary>
     /// <param name="output">Where sound goes.</param>
     /// <param name="tick">The tick being played.</param>
     /// <param name="listener">Where the ears are, which is the camera.</param>
     /// <param name="right">The listener's right vector, for the pan.</param>
     /// <param name="now">Seconds on the caller's audio clock, for the soundscape fade.</param>
+    /// <param name="recorded">The recorder's networked soundscape when the ears are its own — <see cref="RecordedSoundscape"/>.</param>
     /// <returns>What each phase cost, for the caller's own ledger.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="output"/> is null.</exception>
     public SoundPhases Update(
@@ -180,7 +200,8 @@ public sealed class SoundPresenter(
         int tick,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
-        double now)
+        double now,
+        SceneSoundscape? recorded = null)
     {
         ArgumentNullException.ThrowIfNull(output);
 
@@ -225,7 +246,7 @@ public sealed class SoundPresenter(
 
         long looped = Stopwatch.GetTimestamp();
 
-        soundscape.Update(output, listener, right, now);
+        soundscape.Update(output, listener, right, now, recorded);
 
         long soundscaped = Stopwatch.GetTimestamp();
 

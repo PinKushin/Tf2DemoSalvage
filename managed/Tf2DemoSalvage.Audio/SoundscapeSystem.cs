@@ -6,6 +6,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.GameSystems;
 
 namespace Tf2DemoSalvage.Audio;
@@ -166,13 +167,31 @@ public sealed class SoundscapeSystem(
     /// <param name="right">The listener's right vector, for the pan.</param>
     /// <param name="now">Seconds on the caller's audio clock.</param>
     /// <exception cref="ArgumentNullException"><paramref name="output"/> is null.</exception>
+    /// <param name="recorded">
+    /// The params the server networked to the listener, when the listener IS the recording's own player — then the
+    /// client applies them as <c>UpdateAudioParams</c> does (<c>c_soundscape.cpp:555-576</c>) and nothing is simulated.
+    /// Null for a free camera, another player, or a SourceTV recording, which carries nobody's.
+    /// </param>
     public void Update(
         IAudioSink output,
         (float X, float Y, float Z) listener,
         (float X, float Y, float Z) right,
-        double now)
+        double now,
+        SceneSoundscape? recorded = null)
     {
         ArgumentNullException.ThrowIfNull(output);
+
+        if (recorded is { } written)
+        {
+            // **Every update, not on the choose timer**: the client applies params as they arrive. The touch state
+            // belongs to a simulated listener, so it starts afresh when the simulation resumes.
+            _touches.Clear();
+            SoundscapePlacement? heard = Recorded(written, Catalog);
+
+            _mixer.MoveTo(heard, heard is { } named && Catalog is { } catalog ? catalog.At(named.Index) : null);
+            Advance(output, listener, right, now);
+            return;
+        }
 
         // Stryker disable once : a mutant that empties the guard body leaves 'placements'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
@@ -198,6 +217,53 @@ public sealed class SoundscapeSystem(
             Choose(placements, listener);
         }
 
+        Advance(output, listener, right, now);
+    }
+
+    /// <summary>The soundscape the client applies from networked params, or null for <c>entIndex</c> 0.</summary>
+    /// <param name="recorded">The params as the demo carries them.</param>
+    /// <param name="catalog">The client's list, for the name in the log; null leaves it empty.</param>
+    /// <returns>A placement standing for the entity that wrote them.</returns>
+    /// <remarks>
+    /// **Id is <c>entIndex - 1</c>**, the same numbering <see cref="SoundscapePlacements"/> gives the server's list, so a
+    /// change of entity is a change here. A slot is a position only where <c>localBits</c> sets its bit
+    /// (<c>c_soundscape.cpp:797-804</c>).
+    /// </remarks>
+    public static SoundscapePlacement? Recorded(SceneSoundscape recorded, SoundscapeCatalog? catalog)
+    {
+        if (recorded.EntityIndex <= 0)
+        {
+            return null;
+        }
+
+        (float X, float Y, float Z)?[] positions = new (float X, float Y, float Z)?[8];
+
+        for (int slot = 0; slot < positions.Length && slot < recorded.Positions.Count; slot++)
+        {
+            positions[slot] = recorded.HasPosition(slot) ? recorded.Positions[slot] : null;
+        }
+
+        return new SoundscapePlacement(
+            recorded.EntityIndex - 1,
+            catalog?.At(recorded.Index)?.Name ?? string.Empty,
+            recorded.Index,
+            0f,
+            0f,
+            0f,
+            -1f,
+            positions);
+    }
+
+    /// <summary>What the mixer is playing: the soundscape the listener's params name, or null for none.</summary>
+    public SoundscapePlacement? Current => _mixer.Current;
+
+    /// <summary>Fades, stops and starts the voices for one frame.</summary>
+    private void Advance(
+        IAudioSink output,
+        (float X, float Y, float Z) listener,
+        (float X, float Y, float Z) right,
+        double now)
+    {
         IReadOnlyList<SoundscapeVoice> voices = _mixer.Advance((float)(now - _advancedAt));
 
         _advancedAt = now;
