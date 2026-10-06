@@ -122,12 +122,13 @@ Trade-off accepted knowingly: Windows/MSVC-only, no cheap Linux CI for ASan/UBSa
 > decompilers is about **repository size**, not licensing (`~/.claude/CLAUDE.md`). Reading published
 > source was never decompilation in the first place.
 >
-> What survives unchanged: clean-room parsing of the asset formats, and the rule that if C++ is ever
-> pulled in it stays behind a C ABI shim. Nothing in this project has needed that yet.
+> What survives unchanged: the rule that if C++ is ever pulled in it stays behind a C ABI shim. Nothing
+> in this project has needed that yet. ("Clean-room parsing of the asset formats" also survived here
+> until D207 withdrew it: the project is written from the SDK, shipped data and disassembly.)
 
 Source SDK 2013 does **not** contain the demo/net parser or renderer (`engine.dll` stays closed) — it only has mod-side game code, `tier0`/`tier1`/mathlib utilities, and compiler tool headers (`bspfile.h`, `studio.h`). So it's irrelevant to Phase 1/2 regardless.
 
-For Phase 3 asset parsing (BSP/MDL/VTF), default is clean-room parsing from community-documented formats (Valve Developer Community wiki, cross-checked against prior art like SourceIO/Crowbar/HLLib) to avoid the SDK's license ambiguity (written around non-commercial mods requiring the base game — a standalone public tool is a gray-area fit) and to avoid pulling C++ into the codebase. Reconsider **only** if a specific format (most likely MDL/VVD/VTX skeletal animation) proves too error-prone to reverse-engineer cleanly — and if so, wrap it behind a C ABI shim like the core, don't let C++ leak into the rest of the codebase.
+(Superseded by D207: not clean-room.) For Phase 3 asset parsing (BSP/MDL/VTF), default is clean-room parsing from community-documented formats (Valve Developer Community wiki, cross-checked against prior art like SourceIO/Crowbar/HLLib) to avoid the SDK's license ambiguity (written around non-commercial mods requiring the base game — a standalone public tool is a gray-area fit) and to avoid pulling C++ into the codebase. Reconsider **only** if a specific format (most likely MDL/VVD/VTX skeletal animation) proves too error-prone to reverse-engineer cleanly — and if so, wrap it behind a C ABI shim like the core, don't let C++ leak into the rest of the codebase.
 
 ## D5. Corpus strategy: two different problems, not one
 

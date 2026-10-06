@@ -120,6 +120,10 @@ run in-browser. Why this codebase rather than adopting the Rust parser: D208.
 
 ### On the Source SDK — options weighed
 
+> **Superseded (D207, 2026-10-03):** the "clean-room" option below was never what the project did. It is written
+> from the published SDK, the game's shipped data and disassembly, so it is not a clean-room implementation. The
+> table and recommendation are kept as the original reasoning, not the current position.
+
 One important correction to flag: Source SDK 2013 does **not** actually contain the demo/netcode parser or the renderer (`engine.dll`, `materialsystem`, the actual .dem reader) — those stay proprietary and closed. What it *does* contain is the mod-side game code (client/server DLLs), `tier0`/`tier1` utility libs, mathlib, and the map/model compiler tools (`vbsp`, `vrad`, `studiomdl`) with their format headers (`bspfile.h`, `studio.h`). So it's only relevant to Phase 3 (asset parsing for the 3D viewer), never to Phase 1/2 demo parsing itself.
 
 | | Clean-room C/C# (VDC docs + prior art as reference) | Source SDK 2013 headers/utils (C++) |
