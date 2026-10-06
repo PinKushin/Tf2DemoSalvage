@@ -35117,6 +35117,46 @@ absent: 465 against a background of 411). Sabotage reddened each target, restore
 Sanctum shows up to five at once. The fps comparison against main could not be run: `pass_sanctum_a2a.bsp` is not on
 this machine, and the stock-map demos in lcor carry `beam001` trails for one tick at a time.
 
+## B507 — a map fetched on first open was read off the load's barrier, after the decode: mapless view or a crash — FIXED 2026-10-05
+
+**Owner's report:** `demostf-pass_sanctum_a2a-1491285.dem` (lcor) with the map not installed showed a mapless view;
+a later run found the map the first run had fetched into `%LOCALAPPDATA%/Tf2DemoSalvage/maps/` and drew it.
+
+**Measured, from his log and a reproduction** (map moved out of the cache, same demo, `--measure 40`): the header
+names the map 0.4 s after opening, but `[map] pass_sanctum_a2a is not installed; fetching it` came only after
+`building the position timeline took 33.44s` (38 s in the reproduction). The fetch was fire-and-forget from
+`ReadMapNamed`, which runs inside the load's `Task.Run` — so `DownloadMapAsync`'s `ConfigureAwait(true)` had no UI
+context to return to, and the map read it ended in ran **on a pool thread, outside the `_readingMap` barrier,
+beside the render loop, with neither precache run**. His run logged `loading pass_sanctum_a2a.bsp` and the lump
+reads, then never `building the world`; the reproduction crashed the process with `ArgumentOutOfRangeException`
+in `EntityModelSet.Collate` from `ProjectWorld`, the render loop meeting a half-replaced model set.
+
+**Not the cause, checked:** the cache folder. `MapProvider.OwnMapsFolder` IS `MapDownloader.DefaultFolder`, every
+probe and the viewer search it through that one property, and the map's pakfile, sounds and scripts are read from
+the BSP bytes the level load is handed — there is no second reader of the maps folder to disagree.
+
+**Fix:** `MapProvider.PrepareAsync` reads the 1,072-byte header, locates the map or fetches it, and is started by
+`LoadDemoAsync` before the decode; the load awaits it under the loading overlay, then reads the map through the
+ordinary barriered path. `DownloadMapAsync` is gone; a failed fetch is a status line and a warning, not a
+background task. Test seams `TF2VIEW_MAP_CACHE` and `TF2VIEW_MAP_MIRROR` (D210's kind) replace the cache folder
+and the mirror.
+
+**Evidence:** `MapProviderTests` (four `PrepareAsync_*`: header-only file fetches its map; a cached map costs no
+request; `Find` locates the fetched file; a non-demo reports instead of throwing) and `MapFetchUiTests` — its own
+viewer with no install and an empty cache, `cp_granary` served by a localhost listener that holds the download
+until the decode has finished, asserting the fetch line precedes the decode line, one download, and a world with
+vertices. Sabotage reddened each, restored by the inverse edit:
+
+- Load not awaiting the prepared map: the UI test timed out with no world built.
+- Prepare started only after the decode: the UI test failed `decodedAt should be greater than` the fetch.
+- Downloader writing to a folder other than the one searched: the UI test timed out with no world built.
+- Locate skipped before fetching: `PrepareAsync_WithTheMapAlreadyInTheCache_FetchesNothing` failed.
+- Map name read from the wrong header field: three `PrepareAsync_*` tests failed.
+- `InvalidDataException` not caught: `PrepareAsync_OnAFileThatIsNotADemo_ReportsInsteadOfThrowing` failed.
+
+**Left as found:** the synchronous `LoadDemo` (tests only) no longer fetches; it reports the map absent. A fetch
+is still asked with no checksum, so the D162 checksum-named cache files are never written by the viewer.
+
 ## B506 — Refract on a MODEL draws as no Refract at all: 74 shipped `$model` materials — OPEN 2026-10-05
 
 **Measured on the shipped VPKs** (`refract-census`): 74 of the 123 Refract materials set `$model`. They include the cloak

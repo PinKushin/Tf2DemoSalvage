@@ -118,12 +118,6 @@ public sealed class MapProviderTests
     }
 
     [Test]
-    public void Fetching_ForAMap_NamesTheMap()
-    {
-        MapProvider.Fetching("cp_badlands").ShouldContain("cp_badlands");
-    }
-
-    [Test]
     public void Find_WithNoGameInstalled_SaysSoRatherThanBlamingTheMap()
     {
         // **The owner's requirement, 2026-08-26:** *"the user has to point us to their tf2 folder
@@ -321,6 +315,99 @@ public sealed class MapProviderTests
         Directory.GetFiles(folder, "*.bsp*", SearchOption.AllDirectories).ShouldBeEmpty();
     }
 
+    /// <remarks>
+    /// **The owner's requirement (2026-10-05): the fetch starts as soon as the map name is decoded from the header**, in
+    /// parallel with the rest of the load. The file here IS only a header — no command stream at all — so a prepare that
+    /// waited on the decode, or read anything past byte 1072, could not produce this map.
+    /// </remarks>
+    [Test]
+    public async Task PrepareAsync_OnAFileThatIsOnlyAHeader_FetchesTheMapTheHeaderNames()
+    {
+        string folder = TempFolder();
+        UrlHandler mirror = new((MirrorUrl + "maps/cp_fake.bsp", FakeMap(seed: 3)));
+        using MapProvider maps = MirrorProvider(folder, mirror);
+        List<string> announced = [];
+
+        MapFetch fetch = await maps.PrepareAsync(HeaderOnlyDemo("cp_fake"), announced.Add, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        announced.ShouldBe(["cp_fake"]);
+        fetch.Path.ShouldBe(Path.Combine(folder, "cp_fake.bsp"));
+        (await File.ReadAllBytesAsync(fetch.Path!).ConfigureAwait(false)).ShouldBe(FakeMap(seed: 3));
+    }
+
+    /// <remarks>The control for the test above: a map already on disk costs no request and announces no fetch.</remarks>
+    [Test]
+    public async Task PrepareAsync_WithTheMapAlreadyInTheCache_FetchesNothing()
+    {
+        string folder = TempFolder();
+        string cached = Path.Combine(folder, "cp_fake.bsp");
+        await File.WriteAllBytesAsync(cached, FakeMap(seed: 4)).ConfigureAwait(false);
+        UrlHandler mirror = new((MirrorUrl + "maps/cp_fake.bsp", FakeMap(seed: 3)));
+        using MapProvider maps = MirrorProvider(folder, mirror);
+        List<string> announced = [];
+
+        MapFetch fetch = await maps.PrepareAsync(HeaderOnlyDemo("cp_fake"), announced.Add, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        fetch.Path.ShouldBe(cached);
+        announced.ShouldBeEmpty();
+        mirror.Requests.ShouldBe(0);
+    }
+
+    /// <remarks>
+    /// **The folder fetched into is the folder searched — one place.** The map read after a fetch goes through
+    /// <c>Find</c>, not the fetch's own path, so a cache the locator does not search would fetch, succeed and draw nothing.
+    /// </remarks>
+    [Test]
+    public async Task PrepareAsync_AfterAFetch_FindLocatesTheFetchedFile()
+    {
+        string folder = TempFolder();
+        using MapProvider maps = MirrorProvider(folder, new UrlHandler((MirrorUrl + "maps/cp_fake.bsp", FakeMap(seed: 5))));
+
+        MapFetch fetch = await maps.PrepareAsync(HeaderOnlyDemo("cp_fake"), _ => { }, CancellationToken.None)
+            .ConfigureAwait(false);
+
+        maps.Find("cp_fake").Path.ShouldBe(fetch.Path.ShouldNotBeNull());
+    }
+
+    [Test]
+    public async Task PrepareAsync_OnAFileThatIsNotADemo_ReportsInsteadOfThrowing()
+    {
+        string folder = TempFolder();
+        string notADemo = Path.Combine(folder, "pointer.dem");
+        await File.WriteAllTextAsync(notADemo, "version https://git-lfs.github.com/spec/v1\n").ConfigureAwait(false);
+        UrlHandler mirror = new();
+        using MapProvider maps = MirrorProvider(folder, mirror);
+
+        MapFetch fetch = await maps.PrepareAsync(notADemo, _ => { }, CancellationToken.None).ConfigureAwait(false);
+
+        fetch.Path.ShouldBeNull();
+        fetch.Status.ShouldContain("pointer.dem");
+        mirror.Requests.ShouldBe(0);
+    }
+
+    /// <summary>A demo file of exactly one header naming <paramref name="map"/>, and nothing after it.</summary>
+    private static string HeaderOnlyDemo(string map)
+    {
+        byte[] header = new byte[Tf2DemoSalvage.Core.Container.DemoHeader.SizeBytes];
+        "HL2DEMO\0"u8.CopyTo(header);
+        BitConverter.GetBytes(3).CopyTo(header, 8);
+        BitConverter.GetBytes(24).CopyTo(header, 12);
+        System.Text.Encoding.ASCII.GetBytes(map).CopyTo(header, 536);
+
+        string path = Path.Combine(TempFolder(), "header-only.dem");
+        File.WriteAllBytes(path, header);
+
+        return path;
+    }
+
+    private static MapProvider MirrorProvider(string folder, UrlHandler mirror) =>
+        new(
+            Path.Combine(folder, "libraryfolders.vdf"),
+            folder,
+            () => new MapDownloader(new HttpClient(mirror), folder, MirrorUrl));
+
     /// <summary>A mirror URL nothing real answers; the handler stands in for it.</summary>
     private const string MirrorUrl = "https://example.invalid/";
 
@@ -330,9 +417,13 @@ public sealed class MapProviderTests
         private readonly Dictionary<string, byte[]> _files = files.ToDictionary(
             file => file.Url, file => file.Body, StringComparer.Ordinal);
 
+        /// <summary>How many requests reached this mirror.</summary>
+        public int Requests { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Requests++;
             string url = request.RequestUri?.ToString() ?? string.Empty;
 
             return Task.FromResult(_files.TryGetValue(url, out byte[]? body)

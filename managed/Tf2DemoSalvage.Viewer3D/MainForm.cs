@@ -1582,7 +1582,11 @@ internal class MainForm : Form, IFrameSteps
     /// opened from the playlist had its map read with the previous demo's timeline, or with none on
     /// the first open, and `MapAssets.Load` was told of no sprites and no worn items.
     /// </remarks>
-    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline)
+    /// <param name="prepared">
+    /// What <see cref="MapProvider.PrepareAsync"/> came back with for this demo, or null on a path that prepared
+    /// nothing — the synchronous <see cref="LoadDemo"/> and a reload, which never fetch.
+    /// </param>
+    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
     {
         MapSearch found = _maps.Find(mapName);
 
@@ -1607,13 +1611,14 @@ internal class MainForm : Form, IFrameSteps
             _mapLog.LogWarning("{Message}", NoGameInstalled);
         }
 
+        // **The fetch already happened, from the header, and the load waited for it** (B507). This branch started it
+        // fire-and-forget once the decode was done, and the read it ended in ran on a pool thread outside the
+        // `_readingMap` barrier and skipped both precaches: a first download left the view mapless or crashed it.
         if (found.Path is not { } path)
         {
-            // Not on this machine. Fetch it the way joining a server would - in the background,
-            // because a 40 MB download must not freeze the window, and the demo is watchable
-            // without a map anyway.
-            _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it");
-            _ = DownloadMapAsync(mapName, timeline);
+            string absent = prepared?.Status is { Length: > 0 } why ? why : $"Map {mapName} is not installed";
+            _status.Text = absent;
+            _mapLog.LogWarning("{Message}", absent);
             return (false, _game);
         }
 
@@ -1622,103 +1627,10 @@ internal class MainForm : Form, IFrameSteps
         return (ReadMap(mapName, path, timeline), _game);
     }
 
-    /// <summary>Fetches a map that is not installed, then loads it.</summary>
-    /// <remarks>
-    /// **Downloading is a background operation with a visible outcome and no modal wait.** The
-    /// viewer is already usable - players draw without a world behind them - so the map arriving
-    /// is an improvement to a working view rather than something to block on.
-    ///
-    /// Failures are reported and nothing else happens.
-    ///
-    /// **This used to say "not found" was the ordinary answer, because most maps in a real archive
-    /// are community maps no mirror carries. That is wrong.** The owner: *"no its not normal not to
-    /// find a map on fast dl, even old community ones"*. A failure here is the exception, not the
-    /// rule — which matters, because the belief that it was routine is what justified keeping a
-    /// no-map fallback that turned out to be dead by construction anyway (see ProjectMap).
-    ///
-    /// **And the version does not have to match the demo, which forecloses a whole line of work.**
-    /// The hard case is not community maps but Valve's own: they revise a map in place, so the
-    /// `cp_badlands` a 2013 demo was recorded on is gone, while a community map keeps its versioned
-    /// filename for ever. That sounds like a reason to hunt period maps. It is not — the owner:
-    ///
-    /// > *"valve has never really blocked off a map as an update, so new demos will go through walls
-    /// > on old maps, but old demos will play fine on new maps, just look like the people are
-    /// > completely oblivious to a huge choke point and no one is using a part of the map."*
-    ///
-    /// Map updates ADD geometry rather than removing it, and the asymmetry runs the way this project
-    /// needs: an old demo on a current map is correct everywhere the players actually went, and the
-    /// only artefact is unused space. Fetching whatever the mirror has today is therefore right, and
-    /// a period-map archive would be effort spent on the direction nobody plays.
-    ///
-    /// **REVERSED by D162 (2026-09-11).** The owner now wants the recorded version drawn, chosen by the
-    /// demo's map CRC, from the first source that has it. The paragraph above still says what a
-    /// mismatched map LOOKS like; it no longer decides what is drawn. Kept rather than deleted, because
-    /// a reversal read without the position it reversed is the kind that gets reversed back.
-    /// </remarks>
-    private async Task DownloadMapAsync(string mapName, DemoTimeline? timeline)
-    {
-        _status.Text = MapProvider.Fetching(mapName);
-
-        // **`ConfigureAwait(true)` here, `false` inside the provider, and the asymmetry is the
-        // point.** Everything after this line touches `_status.Text` and `ReadMap`, so the
-        // continuation has to come back to the UI thread. The provider is a library and must not
-        // capture a context it knows nothing about.
-        //
-        // The `ArgumentException` that used to be caught here — a demo header naming something that
-        // is not a map name — is handled inside the provider now and arrives as a status line, since
-        // whether a name is fetchable is the downloader's question rather than the window's.
-        MapFetch fetch;
-
-        try
-        {
-            fetch = await _maps
-                .FetchAsync(mapName, _shutdown.Token)
-                .ConfigureAwait(true);
-        }
-        catch (OperationCanceledException)
-        {
-            // The window is going. Nothing to report and nowhere to report it.
-            return;
-        }
-        catch (ObjectDisposedException disposed)
-        {
-            // **The half a cancellation token cannot cover, and the half that kept CI red after
-            // the token was added.** `Dispose` cancels and then disposes `_maps`, so a fetch
-            // already inside `HttpClient` faults with `ObjectDisposedException` rather than
-            // `OperationCanceledException` — a different type, escaping a fire-and-forget task,
-            // on the UI thread, through a native window-procedure callback. That is precisely
-            // `0xC000041D`, and it is why the process died AFTER the shutdown line in the log.
-            _mapLog.LogWarning(disposed, "{Message}", $"the fetch of {mapName} was cut off by shutdown");
-            return;
-        }
-        catch (Exception failure) when (failure is IOException or System.Net.Http.HttpRequestException)
-        {
-            // A mirror that is down or a write that fails is not a reason to take the window with
-            // it. **Nothing may escape this method**: it is started with `_ = …`, so an exception
-            // here has no caller to catch it and reaches the message loop instead.
-            _mapLog.LogWarning(failure, "{Message}", $"could not fetch {mapName}");
-            return;
-        }
-
-        // **Everything below touches a form and a Direct3D device, so it must not run after
-        // either is gone** (B402). The await returns to the UI thread even when that thread is
-        // shutting down, and `IsDisposed` is the only thing that says so.
-        if (_shutdown.IsCancellationRequested || IsDisposed || Disposing)
-        {
-            return;
-        }
-
-        if (fetch.Path is null)
-        {
-            _status.Text = fetch.Status;
-            return;
-        }
-
-        if (ReadMap(mapName, fetch.Path, timeline))
-        {
-            _status.Text = (_demo?.Describe() ?? mapName) + "  (map downloaded)";
-        }
-    }
+    // `DownloadMapAsync` was here until B507: a fetch started after the decode, fire-and-forget, whose map read ran
+    // on a pool thread (the continuation of a task begun inside `Task.Run` has no UI context to return to) beside the
+    // render loop. `MapProvider.PrepareAsync`, awaited inside `LoadDemoAsync`, replaces it. The D162 history it
+    // carried — the recorded version is wanted, from the first source that has it — is in `docs/DECISIONS.md`.
 
     /// <summary>Reads a map file into the viewport's geometry.</summary>
     private bool ReadMap(string mapName, string path, DemoTimeline? timeline)
@@ -2964,6 +2876,13 @@ internal class MainForm : Form, IFrameSteps
             // part-way — a decode and a map read are one operation each — but the token means a
             // window that closes mid-load does not come back to a disposed form afterwards, which
             // is the same crash the map fetch had.
+            // **The map is found or fetched from the HEADER, in parallel with the decode** (B507): the fetch used to start
+            // only after a decode of tens of seconds, and its read then raced the render loop off the load's barrier.
+            Task<MapFetch> mapReady = _maps.PrepareAsync(
+                path,
+                mapName => _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it"),
+                _shutdown.Token);
+
             // **The install is opened first, because the decode reads its class scripts** (B437): `DontDoAirwalk` and
             // `DontDoNewJump` are anim-state inputs the demo does not carry. `Install` opens once and answers the same
             // content every time after, so the map read below gets this same one.
@@ -2985,6 +2904,15 @@ internal class MainForm : Form, IFrameSteps
                 _loading.Report(LoadingMap, fraction: null);
                 return 0;
             });
+
+            // **Waited for here, under the loading overlay** — a first download ends with the map loaded, never a mapless
+            // view left behind (owner, 2026-10-05). An installed map's task finished long ago.
+            MapFetch prepared = await mapReady.ConfigureAwait(false);
+
+            if (!_loads.IsCurrent(ticket))
+            {
+                return OnUi(() => Superseded(_demoLog, path));
+            }
 
             // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
             // old map touches the device and stays here; finding and reading the new one touches
@@ -3012,7 +2940,7 @@ internal class MainForm : Form, IFrameSteps
                     // statements anyone could reorder into a silent no-op; it is now carried by
                     // `game`, which does not exist until the read has produced it.
                     (bool drawn, GameContent? game) =
-                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline);
+                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
 
                     OnUi(() =>
                     {

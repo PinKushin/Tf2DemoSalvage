@@ -125,7 +125,10 @@ public sealed class MapDownloader : IDisposable
     ///
     /// The constructor stays public for the tests, which supply a client with a stubbed handler.
     /// </remarks>
-    public static MapDownloader Create(string folder) => new(new HttpClient(), folder);
+    public static MapDownloader Create(string folder) => new(
+        new HttpClient(),
+        folder,
+        Environment.GetEnvironmentVariable(MirrorVariable) is { Length: > 0 } test ? test : DefaultMirror);
 
     /// <summary>Builds a downloader.</summary>
     /// <param name="client">Client to fetch with; disposed with this object.</param>
@@ -445,10 +448,19 @@ public sealed class MapDownloader : IDisposable
     /// into a Steam install would put a stranger's bytes where the game loads them from, which is
     /// a different and much worse program than this one.
     /// </remarks>
-    public static string DefaultFolder => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Tf2DemoSalvage",
-        "maps");
+    public static string DefaultFolder =>
+        Environment.GetEnvironmentVariable(CacheVariable) is { Length: > 0 } test
+            ? test
+            : Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Tf2DemoSalvage",
+                "maps");
+
+    /// <summary>TEST SEAM (D210's kind): replaces <see cref="DefaultFolder"/>, so a UI test starts with no map cached.</summary>
+    public const string CacheVariable = "TF2VIEW_MAP_CACHE";
+
+    /// <summary>TEST SEAM (D210's kind): replaces <see cref="DefaultMirror"/> in <see cref="Create"/>, for a local fake.</summary>
+    public const string MirrorVariable = "TF2VIEW_MAP_MIRROR";
 
     /// <summary>Describes a failed attempt for the status line.</summary>
     /// <param name="mapName">The map that was wanted.</param>
