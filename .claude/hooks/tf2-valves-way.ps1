@@ -10,21 +10,10 @@
 $ErrorActionPreference = 'Stop'
 
 $reminder = @'
-STANDING DECISION - do not re-open it, do not offer an alternative, do not ask which way:
-
-  Valve's way. Always. (D89, D129, D131.)
-
-  - Parity is the first principle. Performance never buys a departure from it, and in this
-    project doing what the engine does has made it FASTER every time.
-  - Read the engine before designing. Every branch, and the overrides - a base returning a
-    constant changes what a guard means.
-  - A divergence is a defect, whatever it costs to fix. "Bigger than pretty much any other
-    since its such a low level change" - the owner, on the one that was nearly deferred.
-  - The target is BETTER than TF2, not equal: we draw less and moved skinning to the GPU.
-  - If a divergence is found, FIX IT. Report what was done, not a menu of what could be.
-
-  Ask only when the engine itself is ambiguous, or when a change would alter something the
-  owner can see. Never ask which of Valve's way and another way to take.
+STANDING DECISION, settled - never re-open or offer an alternative: Valve's way, 100% parity (D89, D129, D131).
+Read the engine (every branch, every override) before designing. A divergence is a defect: fix it, whatever it
+costs, and report what was done. Performance never buys a departure. Ask only if the engine itself is ambiguous
+or a change alters something the owner can see.
 '@
 
 @{ hookSpecificOutput = @{
