@@ -9500,6 +9500,12 @@ the parity rule (D89) requires. The phrase was the owner's own early wording, ca
 Owner: *"yea fix the readme wording"* — the README now says what the sources actually are: the published SDK, the
 game's shipped data and disassembly of the shipped binaries, never leaked source, and no Valve assets distributed (D9).
 
+**The decoder's own history does not change the claim (owner, 2026-10-05):** *"we did technically do the parser
+itself 'clean room' style, but i dont want to claim it, the agent just went through the demo, it never had to look at
+any source code for that."* The demo container and entity decode were worked out from the demo bytes; the bit reader
+did follow the published `bf_read` (`src/tier1/bitbuf.cpp`). Either way the project as a whole is not called
+clean-room anywhere.
+
 ---
 
 ## D208 — an online viewer is on the roadmap, built from this codebase, after viewer parity (2026-10-03)
