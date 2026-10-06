@@ -78,6 +78,17 @@ public sealed class RefractMaterialConformanceTests
         Read("\"$normalmap\" \"x\"\n" + line, null).ShouldNotBeNull().WritesDepth.ShouldBe(writes);
 
     /// <remarks>
+    /// **Pixel fog applies unless <c>$nofog</c>**: the dynamic <c>PIXELFOGTYPE</c> combo is
+    /// <c>GetPixelFogCombo()</c> (`refract_dx9_helper.cpp:260`, `:267`), which a material flagged
+    /// <c>MATERIAL_VAR_NOFOG</c> turns off. `beam001_*` comments its <c>$nofog</c> out, so it fogs; 84 of the 123 shipped
+    /// Refract materials state it (`refract-census`, 2026-10-05).
+    /// </remarks>
+    [TestCase("", true)]
+    [TestCase("\"$nofog\" \"1\"", false)]
+    public void Read_NoFog_DecidesWhetherPixelFogApplies(string line, bool fogged) =>
+        Read("\"$normalmap\" \"x\"\n" + line, null).ShouldNotBeNull().Fogged.ShouldBe(fogged);
+
+    /// <remarks>
     /// **The combos this port does not draw are refused rather than drawn wrong**: a <c>$basetexture</c> replaces the
     /// frame as the warped image (`:226-233`), and <c>$envmap</c>, <c>$normalmap2</c>, <c>$masked</c> and
     /// <c>$fadeoutonsilhouette</c> select the <c>CUBEMAP</c>, <c>SECONDARY_NORMAL</c>, <c>MASKED</c> and

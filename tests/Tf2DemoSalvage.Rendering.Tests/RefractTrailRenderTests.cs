@@ -45,13 +45,9 @@ public sealed class RefractTrailRenderTests
     /// <remarks>
     /// **<c>$vertexcolormodulate</c> multiplies the warped colour by the vertex colour**:
     /// <c>refractTintColor *= i.ColorModulate.rgb; colorWarp *= refractTintColor</c>. Over the wall at column 48 a
-    /// vertex colour of (1, 0.5, 0) keeps red, halves green and removes blue.
-    ///
-    /// **Halved in the stored encoding, because this target's view is plain UNORM**: the frame copy reads back what was
-    /// written, and the product is written as is. The window's view is <c>B8G8R8A8_UNORM_SRGB</c>
-    /// (<c>Device3D.CreateBackBufferView</c>), where the same shader halves green in linear light, as the engine's
-    /// <c>EnableSRGBRead</c> and <c>EnableSRGBWrite</c> ask; the offscreen target differs from the window there for every
-    /// pass, not only this one.
+    /// vertex colour of (1, 0.5, 0) keeps red, halves green IN LINEAR LIGHT and removes blue: the frame is read and
+    /// written through the sRGB curve, as the shader's <c>EnableSRGBRead</c> and <c>EnableSRGBWrite</c> ask, and the
+    /// offscreen target's view is the window's <c>B8G8R8A8_UNORM_SRGB</c> (<c>Device3D.CreateBackBufferView</c>).
     /// </remarks>
     [Test]
     public void Render_AVertexColourWithColorModulate_TintsTheWarpedFrame()
@@ -60,8 +56,39 @@ public sealed class RefractTrailRenderTests
 
         (int Red, int Green, int Blue) wall = DrawFrameThenStrip(target, Refract(0f), (1f, 0.5f, 0f, 1f), 48);
 
-        Near(target.PixelAt(48, 32), (wall.Red, (int)Math.Round(wall.Green * 0.5), 0));
+        Near(target.PixelAt(48, 32), (wall.Red, Srgb(0.5 * Linear(wall.Green)), 0));
     }
+
+    /// <remarks>
+    /// **A fogged Refract strip blends toward the fog colour by the squared factor**: <c>FinalOutput</c> with
+    /// <c>CalcPixelFogFactor( PIXELFOGTYPE, … )</c> (`refract_ps2x.fxc`), the range fog the world's pixel shader runs.
+    /// With the identity camera the strip's projected z is 0.5; a fog from 0 to 0.25 at density 1 is fully in, so every
+    /// pixel is the fog colour, linear (1, 0, 0) — written (255, 0, 0). The control is the same strip with
+    /// <c>$nofog</c>, which shows the wall.
+    /// </remarks>
+    [TestCase(true)]
+    [TestCase(false)]
+    public void Render_ARefractStripInFullFog_IsTheFogColourUnlessNoFog(bool fogged)
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        (int, int, int) wall = DrawFrameThenStrip(
+            target, Refract(0f) with { Fogged = fogged }, (1f, 1f, 1f, 1f), 48, new SceneFog(0f, 0.25f, 1f, 0f, 0f, 1f));
+
+        Near(target.PixelAt(48, 32), fogged ? (255, 0, 0) : wall);
+    }
+
+    /// <summary>The sRGB decode a D3D <c>_SRGB</c> view applies.</summary>
+    private static double Linear(int stored)
+    {
+        double c = stored / 255.0;
+
+        return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
+    }
+
+    /// <summary>The sRGB encode, rounded to the stored byte.</summary>
+    private static int Srgb(double linear) =>
+        (int)Math.Round(255.0 * (linear <= 0.0031308 ? linear * 12.92 : (1.055 * Math.Pow(linear, 1 / 2.4)) - 0.055));
 
     private static void Near((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected)
     {
@@ -191,7 +218,11 @@ public sealed class RefractTrailRenderTests
     /// <summary>Clears black, draws the lit right half, reads the frame at one column, then draws the strip over everything.</summary>
     /// <returns>The frame at <paramref name="column"/>, row 32, before the strip.</returns>
     private static (int Red, int Green, int Blue) DrawFrameThenStrip(
-        OffscreenTarget target, RefractMaterial refract, (float Red, float Green, float Blue, float Alpha) colour, int column)
+        OffscreenTarget target,
+        RefractMaterial refract,
+        (float Red, float Green, float Blue, float Alpha) colour,
+        int column,
+        SceneFog? fog = null)
     {
         List<WorldVertex> wall =
         [
@@ -224,7 +255,8 @@ public sealed class RefractTrailRenderTests
                 {
                     Refract = refract,
                 }),
-            Identity);
+            Identity,
+            fog);
 
         return before;
     }
