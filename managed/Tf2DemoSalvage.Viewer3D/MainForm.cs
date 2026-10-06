@@ -8592,8 +8592,21 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>Hands this frame's scene to the device.</summary>
-    private void DrawScene(VguiDrawList? overlay) =>
-        _device?.DrawFrame(
+    private void DrawScene(VguiDrawList? overlay)
+    {
+        if (_device is null)
+        {
+            return;
+        }
+
+        // The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).
+        _device.ScreenOverlay =
+            _moment.ScreenOverlay is { } overlayName &&
+            _loaded?.Assets?.ScreenOverlays.TryGetValue(overlayName, out ScreenOverlayMaterial? screenOverlay) == true
+                ? screenOverlay
+                : null;
+
+        _device.DrawFrame(
             BackgroundRed,
             BackgroundGreen,
             BackgroundBlue,
@@ -8623,6 +8636,7 @@ internal class MainForm : Form, IFrameSteps
             _moment.ViewmodelInstances,
             _moment.ViewmodelCamera?.ToMatrix(),
             overlay);
+    }
 
     /// <summary>
     /// Notes that the viewport changed size, without doing the work yet.

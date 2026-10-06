@@ -126,6 +126,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     private ComPtr<ID3D11DepthStencilView> _depthView;
     private ComPtr<ID3D11Texture2D> _depthBuffer;
+
+    /// <summary>The local player's screen overlay for the next frame, or null for none.</summary>
+    public ScreenOverlayMaterial? ScreenOverlay { get; set; }
     private ComPtr<ID3D11DepthStencilState> _depthOn;
     private ComPtr<ID3D11DepthStencilState> _depthOff;
 
@@ -809,7 +812,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 // stay one shape — a painted weapon a player HOLDS is a world model (B330).
                 paint: instance.Paint,
                 burn: instance.Burn,
-                urine: instance.Urine);
+                urine: instance.Urine,
+
+                // A cloaking spy's own arms and weapon — `invis` on every viewmodel material.
+                cloak: instance.Cloak);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -876,7 +882,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 overrideMaterial: instance.MaterialOverride,
                 paint: instance.Paint,
                 burn: instance.Burn,
-                urine: instance.Urine);
+                urine: instance.Urine,
+                cloak: instance.Cloak);
         }
 
         // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
@@ -1062,7 +1069,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             urine: instance.Urine,
 
             // A baked static prop's colour mesh (B426).
-            bakedColours: instance.BakedColours);
+            bakedColours: instance.BakedColours,
+
+            // What `spy_invis` and `invis` write into `$cloakfactor` for this entity.
+            cloak: instance.Cloak);
     }
 
     /// <summary>The frame's models, for the water views that draw entities.</summary>
@@ -1476,6 +1486,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 if (_worldCamera is { } particleCamera)
                 {
                     DrawParticleBatches(particleCamera.Matrix);
+                }
+
+                // **`PerformScreenOverlay`, after the viewmodels and before the HUD** (viewrender.cpp:2177): the local
+                // player's overlay over the finished world.
+                if (ScreenOverlay is { } screenOverlay)
+                {
+                    _world.DrawScreenOverlay(_context, screenOverlay, _world.Seconds);
                 }
             }
             else
@@ -3613,8 +3630,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // `Normal` from every caller because nothing decoded `m_clrRender`, `m_nRenderFX` or
         // `m_nRenderMode`; `EntityModels` runs `C_BaseEntity::ComputeFxBlend` per entity per frame
         // and the answer arrives on the instance.
+        // **A cloaking material is translucent for the frame** — the shader's `IsTranslucent` answers true while
+        // `$cloakfactor` is strictly inside (0, 1) — so a cloaking spy sorts with the translucent renderables, and its
+        // copy of the frame holds everything opaque behind it.
         RenderGroup requested = RenderGroups.For(
-            translucent, instance.TwoPass, isBrushModel: false, instance.Alpha, instance.RenderMode);
+            translucent || instance.Cloak.Cloaking, instance.TwoPass, isBrushModel: false, instance.Alpha, instance.RenderMode);
 
         (RenderGroup stored, bool twoPass) = RenderGroups.Store(requested);
 

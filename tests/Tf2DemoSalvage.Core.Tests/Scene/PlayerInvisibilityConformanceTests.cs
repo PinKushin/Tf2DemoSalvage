@@ -84,7 +84,9 @@ public sealed class PlayerInvisibilityConformanceTests
     {
         // ( flPercentInvisible < 0.01 ) ? 0.0
         PlayerInvisibility.LocalWeapon(0.009f, blink: false, motionCloakDry: false).ShouldBe(0f);
-        PlayerInvisibility.LocalWeapon(0.01f, blink: false, motionCloakDry: false).ShouldBe(0.2228f, 1e-6f);
+        // The literal is a double, and 0.01f is just under it — so the engine's own 0.01f still reads as zero.
+        PlayerInvisibility.LocalWeapon(0.01f, blink: false, motionCloakDry: false).ShouldBe(0f);
+        PlayerInvisibility.LocalWeapon(0.011f, blink: false, motionCloakDry: false).ShouldBe(0.22308f, 1e-6f);
     }
 
     [Test]

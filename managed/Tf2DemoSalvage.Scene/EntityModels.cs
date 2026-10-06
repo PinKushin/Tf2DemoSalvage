@@ -112,6 +112,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="LeafPlace">Its place in its view's leaf list, where the scene collated it (B262).</param>
 /// <param name="SizeBucket">The size bucket of the box it was collated by; null when the scene did not collate it.</param>
 /// <param name="InSky">Whether the 3D skybox view collated it, so the sky pass draws it.</param>
+/// <param name="Cloak">What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this entity.</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -242,7 +243,11 @@ public readonly record struct ModelInstance(
     // a viewmodel — has no bucket, and the device files it itself.
     int LeafPlace = 0,
     int? SizeBucket = null,
-    bool InSky = false);
+    bool InSky = false,
+
+    // **What the invisibility proxies write into `$cloakfactor` for this entity** (`spy_invis`, `invis`). Default is
+    // nobody cloaked, which is both proxies' value for everyone but a spy.
+    CloakBind Cloak = default);
 
 /// <summary>
 /// The views collation walks — <c>m_pWorldListInfo->m_pLeafList</c> per view (B262).
@@ -355,6 +360,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// White when nothing supplies it, which is the proxy's own resting value — a multiply by one.
     /// </remarks>
     public Func<SceneProp, (float Red, float Green, float Blue)>? UrineTint { get; set; }
+
+    /// <summary>What the invisibility proxies bind for each prop; production supplies `MomentScene.CloakOf`.</summary>
+    /// <remarks>Null means nobody is cloaked, which is both proxies' value for an entity no spy owns.</remarks>
+    public Func<SceneProp, CloakBind>? Cloak { get; set; }
 
     /// <summary>Where the entities this set builds report, so the bone merge can say what paired.</summary>
     private readonly ILoggerFactory _loggers;
@@ -5867,6 +5876,15 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 PortalWindowsFaded++;
             }
 
+            CloakBind cloak = Cloak?.Invoke(prop) ?? default;
+
+            // `C_TFPlayer::DrawModel` returns before drawing anything once `GetEffectiveInvisibilityLevel() >= 1`
+            // (c_tf_player.cpp:6938) — eyes and all, which carry no cloak pass of their own.
+            if (cloak.Undrawn)
+            {
+                continue;
+            }
+
             into.Add(new ModelInstance(
                 prop.ModelPath,
                 transform.ToMatrix(),
@@ -5927,7 +5945,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 BakedColours: baked,
                 LeafPlace: place,
                 SizeBucket: bucket,
-                InSky: inSky));
+                InSky: inSky,
+                Cloak: cloak));
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's
@@ -6016,7 +6035,10 @@ public sealed class EntityModelSet : Hud.IMdlCache
                     // Drawn with its item, so collated where the item was (`DrawEconEntityAttachedModels`).
                     LeafPlace: place,
                     SizeBucket: bucket,
-                    InSky: inSky));
+                    InSky: inSky,
+
+                    // The item's own bind, as the engine binds the attached mesh with the item's renderable.
+                    Cloak: cloak));
             }
         }
 

@@ -243,7 +243,8 @@ public sealed class MomentPresenter
             // The same, and for the same reason — who recorded it decides whose vision filters
             // the scene is drawn through (B354).
             source.Recorder,
-            source.HolidayVisionFlagsAt(tick));
+            source.HolidayVisionFlagsAt(tick),
+            source.ServerTimeAt(tick));
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);
