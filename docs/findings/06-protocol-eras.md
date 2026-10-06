@@ -229,6 +229,18 @@ Also worth keeping: the corpus-wide sound test walks only the first 2,000 comman
 first overrun here sits later, so that test **passed** with the defect in place. The pin is a
 whole-file test on this one specimen.
 
+**Protocol 19 adds no wire change of its own** (read + measured, 2026-10-06). `proto_version.h:31-35`
+names 18 and 19 only for the post-Halloween sound flag bit, which this parser already reads at 18 and
+above; every other protocol branch in Core (type width, `SendPropType` numbering, replay flag, MD5,
+packed model indices `<= 20`, special DSP `> 21`, prefetch/sound index `> 22`, varint lengths `> 23`)
+puts 19 on the same side as 18. The build-4743 POV (header 19) traces end to end with no unreadable
+block and renders a `--shot`. One thing stays honest rather than named: 19 uses the launch user
+message table, so ids above 28 print as numbers. Its id 41 carries 85-bit bodies (`CheapBreakModel`
+at 41, as in the June 2011 table), but id 50 carries 229 bits, which fits nothing in that table's
+haptics block — so a table between June 2011 and March 2013 exists, and naming it needs the client
+(interpolated; no 4743 client held). The header check that refused this file was a closed list of
+protocols, removed (D211).
+
 ## Protocol 15 was two builds, and the change was never at 16 (B440)
 
 Found 2026-09-30. Evidence classes inline.

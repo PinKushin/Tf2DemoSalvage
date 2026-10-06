@@ -90,15 +90,11 @@ public sealed class CorpusContainerTests
 
         header.DemoProtocol.ShouldBe(3);
 
-        // Not pinned to 24. The corpus was entirely protocol 24 until a demo recorded on the
-        // June 2009 client was added, and pinning it was an assumption that every demo is
-        // modern - exactly the assumption this project exists to avoid. The real invariant is
-        // that the protocol is one this parser knows how to read.
-        //
-        // 21 and 22 since four GotFrag demos were recovered into lcor on 2026-08-22 (recorded in
-        // docs/TIMELINE.md by 64aebb65); this list was written on 2026-08-10, before them. A
-        // protocol outside it is still a finding: a new specimen to date, not one to wave through.
-        header.NetworkProtocol.ShouldBeOneOf(11, 14, 15, 16, 21, 22, 24);
+        // A floor, never a list (D211): TF2 shipped at protocol 11, and that is the only fact a
+        // header check needs. A closed set of "known" protocols failed the first 18 and 19
+        // specimens while they decoded cleanly; which protocols have specimens is coverage,
+        // recorded in docs/TIMELINE.md, and never a reason to refuse a demo.
+        header.NetworkProtocol.ShouldBeGreaterThanOrEqualTo(11);
         header.GameDirectory.ShouldBe("tf");
         header.MapName.ShouldNotBeNullOrWhiteSpace();
 
