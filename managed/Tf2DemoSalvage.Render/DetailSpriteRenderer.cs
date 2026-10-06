@@ -74,6 +74,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             float4 col : COLOR;
             float3 next : TEXCOORD1;
             float3 refract : TEXCOORD2;
+            float4 wpos : TEXCOORD3;
         };
 
         VsOut VsMain(VsIn input)
@@ -87,6 +88,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             // Refract_vs20.fxc: "Map projected position to the refraction texture", y inverted, divided per pixel.
             output.refract = float3(
                 (output.pos.x + output.pos.w) * 0.5f, (-output.pos.y + output.pos.w) * 0.5f, output.pos.w);
+            output.wpos = float4(input.pos, output.pos.z);
             return output;
         }
 
@@ -96,7 +98,10 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         cbuffer Refract : register(b5)
         {
             float4 refractTintAmount;   // linear $refracttint, $refractamount
-            float4 refractFlags;        // BLUR, COLORMODULATE, REFRACTTINTTEXTURE
+            float4 refractFlags;        // BLUR, COLORMODULATE, REFRACTTINTTEXTURE, PIXELFOGTYPE on
+            float4 refractFogColour;    // FogConstants: linear colour, w the fog type (0 off, 1 range, 2 radial)
+            float4 refractFogParams;    // FogConstants: start/range, -, max density, 1/range
+            float4 refractEye;
         };
 
         Texture2D normalMap : register(t1);
@@ -151,6 +156,20 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
                 float3 colorNoWarp = frameCopy.Sample(clampLinear, vRefractTexCoordNoWarp).rgb;
                 colorWarp *= refractTintColor;
                 result = lerp(colorNoWarp, colorWarp, 1.0f);
+            }
+
+            // FinalOutput( …, TONEMAP_SCALE_NONE ) with CalcPixelFogFactor: the range or radial fog the world's PixelFog
+            // runs, toward the fog colour by the squared factor. Interpolated: the fog colour is unscaled, as
+            // TONEMAP_SCALE_NONE scales nothing else.
+            if (refractFlags.w > 0.5f && refractFogColour.w > 0.5f)
+            {
+                // Refract_vs20.fxc's worldPos_projPosZ: the projected z, carried from the vertex shader (the camera
+                // buffer is bound to the vertex stage only).
+                float projZ = refractFogColour.w > 1.5f
+                    ? distance(refractEye.xyz, input.wpos.xyz)
+                    : input.wpos.w;
+                float fogFactor = saturate(min(refractFogParams.z, (projZ * refractFogParams.w) - refractFogParams.x));
+                result = lerp(result, refractFogColour.rgb, fogFactor * fogFactor);
             }
 
             return float4(result, colorModulate.a * vNormal.a);
@@ -260,17 +279,26 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     /// <param name="normal">Its normal map, uploaded raw.</param>
     /// <param name="frame">The copy of the frame it warps, <c>_rt_PowerOfTwoFB</c>.</param>
     /// <param name="tint">Its tint texture, uploaded through the sRGB curve; a null handle when it has none.</param>
+    /// <param name="fog">The fog in force, or null for none.</param>
+    /// <param name="eye">Where the camera is, for radial fog.</param>
     public void SetRefract(
         Tf2DemoSalvage.Scene.RefractMaterial? refract,
         ComPtr<ID3D11ShaderResourceView> normal = default,
         ComPtr<ID3D11ShaderResourceView> frame = default,
-        ComPtr<ID3D11ShaderResourceView> tint = default)
+        ComPtr<ID3D11ShaderResourceView> tint = default,
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        System.Numerics.Vector3 eye = default)
     {
         _refract = refract;
         _refractNormal = normal;
         _refractFrame = frame;
         _refractTint = tint;
+        _refractFog = FogConstants.For(fog);
+        _refractEye = eye;
     }
+
+    private float[] _refractFog = new float[8];
+    private System.Numerics.Vector3 _refractEye;
 
     /// <summary>Binds the refract pass's inputs: <c>c1</c> linear, <c>c5.x</c>, and the three combos as flags.</summary>
     private void BindRefract(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, Tf2DemoSalvage.Scene.RefractMaterial refract)
@@ -279,7 +307,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         {
             BufferDesc description = new()
             {
-                ByteWidth = 8 * sizeof(float),
+                ByteWidth = 20 * sizeof(float),
                 Usage = Usage.Dynamic,
                 BindFlags = (uint)BindFlag.ConstantBuffer,
                 CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -315,7 +343,17 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         into[4] = refract.BlurAmount;
         into[5] = refract.VertexColorModulate ? 1f : 0f;
         into[6] = _refractTint.Handle is not null ? 1f : 0f;
-        into[7] = 0f;
+        into[7] = refract.Fogged ? 1f : 0f;
+
+        for (int at = 0; at < 8; at++)
+        {
+            into[8 + at] = _refractFog[at];
+        }
+
+        into[16] = _refractEye.X;
+        into[17] = _refractEye.Y;
+        into[18] = _refractEye.Z;
+        into[19] = 0f;
 
         context.Unmap(_refractConstants, 0);
 

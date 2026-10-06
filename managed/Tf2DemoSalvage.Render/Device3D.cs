@@ -2153,7 +2153,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     _particleSheets[tinted] = tint;
                 }
 
-                _particleSprites.SetRefract(refract, normal, _world.UpdateRefractTexture(_context, target), tint);
+                _particleSprites.SetRefract(
+                    refract, normal, _world.UpdateRefractTexture(_context, target), tint, _waterMainFog ?? WorldFog,
+                    new System.Numerics.Vector3(_translucentEye.X, _translucentEye.Y, _translucentEye.Z));
             }
             else
             {

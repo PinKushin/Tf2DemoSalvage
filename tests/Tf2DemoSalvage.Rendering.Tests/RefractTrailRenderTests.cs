@@ -56,7 +56,7 @@ public sealed class RefractTrailRenderTests
 
         (int Red, int Green, int Blue) wall = DrawFrameThenStrip(target, Refract(0f), (1f, 0.5f, 0f, 1f), 48);
 
-        Near(target.PixelAt(48, 32), (wall.Red, Srgb(0.5 * Linear(wall.Green)), 0));
+        Near(target.PixelAt(48, 32), (wall.Red, SrgbTarget.Encode(0.5 * SrgbTarget.Decode(wall.Green)), 0));
     }
 
     /// <remarks>
@@ -77,18 +77,6 @@ public sealed class RefractTrailRenderTests
 
         Near(target.PixelAt(48, 32), fogged ? (255, 0, 0) : wall);
     }
-
-    /// <summary>The sRGB decode a D3D <c>_SRGB</c> view applies.</summary>
-    private static double Linear(int stored)
-    {
-        double c = stored / 255.0;
-
-        return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
-    }
-
-    /// <summary>The sRGB encode, rounded to the stored byte.</summary>
-    private static int Srgb(double linear) =>
-        (int)Math.Round(255.0 * (linear <= 0.0031308 ? linear * 12.92 : (1.055 * Math.Pow(linear, 1 / 2.4)) - 0.055));
 
     private static void Near((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected)
     {
@@ -176,8 +164,10 @@ public sealed class RefractTrailRenderTests
         int background = Sum(target.PixelAt(1, 1));
         int brightest = Enumerable.Range(0, Size * 2).Select(row => Sum(target.PixelAt(Size, row))).Max();
 
-        // Measured 250 against a background of 192 on 2026-10-05: the strip's alpha fades along it, so the doubling is
-        // partial. Half the measured lift is the floor.
+        TestContext.Out.WriteLine($"BEAM001 brightest {brightest} against background {background}");
+
+        // Measured 465 against a background of 411 on 2026-10-05: the strip's alpha fades along it, so the doubling is
+        // partial. About half the measured lift of 54 is the floor.
         brightest.ShouldBeGreaterThan(background + 29, "the strip doubles the grey where it is opaque");
 
         foreach ((int x, int y) in (ReadOnlySpan<(int, int)>)[(Size * 2 - 2, 1), (1, Size * 2 - 2), (Size * 2 - 2, Size * 2 - 2)])

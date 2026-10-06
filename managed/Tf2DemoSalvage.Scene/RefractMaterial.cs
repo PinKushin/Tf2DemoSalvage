@@ -16,6 +16,9 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="BlurAmount">The <c>BLUR</c> combo, 0 or 1.</param>
 /// <param name="VertexColorModulate">The <c>COLORMODULATE</c> combo, <c>$vertexcolormodulate</c>.</param>
 /// <param name="WritesDepth"><c>bWriteZ</c>: <c>$nowritez</c> is 0.</param>
+/// <param name="Fogged">
+/// The <c>PIXELFOGTYPE</c> combo is on: <c>GetPixelFogCombo()</c> (`:260`, `:267`) unless <c>$nofog</c>.
+/// </param>
 /// <remarks>
 /// **The image warped is the FRAME**, copied into <c>_rt_PowerOfTwoFB</c> before each translucent renderable that
 /// needs it (`viewrender.cpp:4609-4635`) and bound when there is no <c>$basetexture</c> (`refract_dx9_helper.cpp:
@@ -28,7 +31,8 @@ public sealed record RefractMaterial(
     MapTexture? RefractTintTexture,
     int BlurAmount,
     bool VertexColorModulate,
-    bool WritesDepth)
+    bool WritesDepth,
+    bool Fogged = true)
 {
     /// <summary><c>#define MAXBLUR 1</c> (`refract_dx9_helper.cpp:16`).</summary>
     private const int MaximumBlur = 1;
@@ -37,9 +41,15 @@ public sealed record RefractMaterial(
     private const float DefaultRefractAmount = 2f;
 
     /// <summary>
-    /// Parameters that select a combo this port does not draw: <c>$basetexture</c> replaces the frame as the image, and
-    /// the rest select <c>CUBEMAP</c>, <c>SECONDARY_NORMAL</c>, <c>MASKED</c> and <c>FADEOUTONSILHOUETTE</c>.
+    /// Parameters that select a combo this strip pass does not draw: <c>$basetexture</c> replaces the frame as the image,
+    /// and the rest select <c>CUBEMAP</c>, <c>SECONDARY_NORMAL</c>, <c>MASKED</c> and <c>FADEOUTONSILHOUETTE</c>.
     /// </summary>
+    /// <remarks>
+    /// **No sprite or particle material TF2 ships selects one** (`refract-census`, 2026-10-05): none of the 123 Refract
+    /// materials states <c>$masked</c>, <c>$fadeoutonsilhouette</c> or <c>$normalmap2</c>, and the 11 with
+    /// <c>$envmap</c> and 2 with <c>$basetexture _rt_Camera</c> are all <c>$model</c> materials, drawn by the model path
+    /// (B506), which this pass never sees.
+    /// </remarks>
     private static readonly string[] Refused = ["$basetexture", "$envmap", "$normalmap2"];
 
     private static readonly string[] RefusedWhenSet = ["$masked", "$fadeoutonsilhouette"];
@@ -81,7 +91,8 @@ public sealed record RefractMaterial(
             tintTexture,
             Math.Clamp(Integer(material, "$bluramount"), 0, MaximumBlur),
             Integer(material, "$vertexcolormodulate") != 0,
-            Integer(material, "$nowritez") == 0);
+            Integer(material, "$nowritez") == 0,
+            Integer(material, "$nofog") == 0);
     }
 
     /// <summary>A parameter as <c>GetIntValue</c> reads it: the integer part, 0 when undeclared.</summary>
