@@ -165,10 +165,21 @@ doubles the frame (`2.0 · g_RefractTint · tex`), which is why `beam001_white` 
 Two defaults are easy to get wrong. An undeclared `$bluramount` is 0, not the parameter's 1 (`:47-50`). And the shader
 **writes depth** although translucent (`EnableDepthWrites( bWriteZ )`, `:119`), unless `$nowritez`.
 
-**What is not ported:** the `CUBEMAP`, `SECONDARY_NORMAL`, `MASKED` and `FADEOUTONSILHOUETTE` combos and a
-`$basetexture`. A material that selects one loads without a refract draw and stays skipped. None of the three
-`beam001_*` materials selects one; other shipped Refract materials were not surveyed. Pixel fog is not applied, as
-for every particle and sprite draw here.
+**Pixel fog applies unless `$nofog`** (the `PIXELFOGTYPE` combo, `GetPixelFogCombo()`, `:260`). It is the world's
+range or radial fog, by the projected z the vertex shader carries. `beam001_*` comments its `$nofog` out, so a trail
+in a fogged map fogs. 84 of the 123 shipped Refract materials state `$nofog`.
+
+**The census decides what else matters** (`refract-census`, measured on the shipped VPKs). No shipped Refract material
+selects `MASKED`, `FADEOUTONSILHOUETTE` or a second normal map. The 11 that select `CUBEMAP` and the 2 that bind
+`_rt_Camera` as `$basetexture` all set `$model`, so they reach the model renderer, which has no Refract draw (B506).
+The strip pass refuses those combos, and no sprite or particle material selects one.
+
+**A wrong turn worth keeping: the offscreen pictures were not in the window's colour space.** The first synthetic test
+predicted the vertex-colour multiply in linear light and read it halved in STORED values. That was not the shader. The
+offscreen target's view was plain UNORM, while the window's back buffer view is `B8G8R8A8_UNORM_SRGB`, so every
+offscreen blend and frame copy ran on gamma bytes. `FogRenderTests` had met the same thing earlier (a predicted 138 that
+read 74) and recorded it rather than fixing it. The target now uses the window's format, and the six tests that had
+encoded raw linear bytes predict through the sRGB curve.
 
 ## Evidence that trails draw
 
@@ -183,8 +194,9 @@ for every particle and sprite draw here.
   the raw vertex colour, the depth write). `RefractTrailRenderTests` draws a synthetic strip over a half-lit frame:
   the warp shows the lit half a quarter of the frame to the left, and the control at `$refractamount` 0 does not.
   Its output-level test samples `pass_sanctum_a2a`'s entity 355, a `beam001_white` trail, over 40 ticks on a grey of
-  0.25. The centre column's brightest pixel summed to 250 against a background of 192, and the corners were unchanged.
-  With the frame copy unbound it read 192.
+  0.25. The centre column's brightest pixel summed to 465 against a background of 411 in the sRGB target (250 against
+  192 while it was UNORM), and the corners were unchanged. With the frame copy unbound it read the background. A fog
+  test draws the strip in full fog: the fog colour, and with `$nofog` the wall.
 
 ## A rope is hung by the client, and only its ends are on the wire (read from published source)
 

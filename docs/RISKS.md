@@ -35083,25 +35083,52 @@ the raw vertex colour and the shader's depth write. Before each such batch the r
 engine.dll disassembly). The sprite renderer then draws the strip through a port of `refract_ps2x.fxc` (the `BLUR`,
 `COLORMODULATE` and `REFRACTTINTTEXTURE` combos). Full account: `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
 
-**Not ported:** the `CUBEMAP`, `SECONDARY_NORMAL`, `MASKED` and `FADEOUTONSILHOUETTE` combos, a `$basetexture`, and
-pixel fog. A material that selects one of the combos stays skipped. The offscreen test target's view is plain UNORM
-where the window's is sRGB, so the synthetic render tests check the arithmetic in stored values, not linear light.
+**Pixel fog is ported too**: unless `$nofog`, the strip blends toward the fog colour as the world's range or radial
+fog does (`GetPixelFogCombo`, `:260`). `beam001_*` comments its `$nofog` out, so it fogs. *Interpolated:* the fog
+colour is taken unscaled, as `TONEMAP_SCALE_NONE` scales nothing else.
 
-**Evidence:** `RefractMaterialConformanceTests` (5 methods), `EntityTrailsConformanceTests` (two refract trails, two
-batches), and `RefractTrailRenderTests` (warp offset with its control, colour modulation, and a real `beam001_white`
-trail from `pass_sanctum_a2a`, an lcor demo that skips where it is absent). Sabotage reddened each target, restored by
-the inverse edit:
+**What the census says is left** (`refract-census` probe, 2026-10-05, measured on the shipped VPKs): 123 of 30,992
+materials are Refract. None selects `MASKED`, `FADEOUTONSILHOUETTE` or a second normal map. The 11 with `$envmap`
+(`CUBEMAP`) and the 2 with `$basetexture _rt_Camera` are all `$model` materials, which the model path draws; that path
+is B506. This strip pass refuses those combos, and no sprite or particle material selects one.
+
+**The offscreen test target now blends like the window.** Its view was plain UNORM where the window's is
+`B8G8R8A8_UNORM_SRGB`, so every offscreen picture blended stored gamma values. It is now the window's format. Six
+rendering tests that had encoded raw linear bytes now predict through the sRGB curve (`SrgbTarget`). Their arithmetic
+was already linear, so only the encoding of the expectation changed.
+
+**Evidence:** `RefractMaterialConformanceTests` (6 methods), `EntityTrailsConformanceTests` (two refract trails, two
+batches), and `RefractTrailRenderTests` (warp offset with its control, colour modulation in linear light, fog with a
+`$nofog` control, and a real `beam001_white` trail from `pass_sanctum_a2a`, an lcor demo that skips where it is
+absent: 465 against a background of 411). Sabotage reddened each target, restored by the inverse edit:
 
 - With the warp scaled to zero, column 20 read black instead of the wall.
-- With the colour modulation removed, green read 190 instead of 95.
+- With the colour modulation removed, green read 190 instead of 95 (run while the target was still UNORM).
 - With refract trails refused as undrawable, `Drawn` was 0 instead of 2.
 - With the blur clamp at 2, `$bluramount 2` read 2.
 - With `$nowritez` inverted, both depth cases failed.
 - With `$envmap` admitted, its combo was not refused.
-- With the frame copy unbound, the real trail's brightest pixel was the background's 192.
+- With the frame copy unbound, the real trail's brightest pixel was the background.
+- With the fog flag inverted, both fog cases failed; with `$nofog` inverted, both read cases failed.
+- With the offscreen view back to UNORM, the baked-colour, half-density fog and colour-modulation tests failed
+  (56, 74 and 95 against 129, 138 and 139).
 
 **Cost, not measured:** each refract trail adds a copy and a 1024-square stretch of the frame, as in the engine.
-Sanctum shows up to five at once.
+Sanctum shows up to five at once. The fps comparison against main could not be run: `pass_sanctum_a2a.bsp` is not on
+this machine, and the stock-map demos in lcor carry `beam001` trails for one tick at a time.
+
+## B506 — Refract on a MODEL draws as no Refract at all: 74 shipped `$model` materials — OPEN 2026-10-05
+
+**Measured on the shipped VPKs** (`refract-census`): 74 of the 123 Refract materials set `$model`. They include the cloak
+and invulnerability overlays, the sniper scope lenses, `models/items/crystal_ball_glass_refract`, the
+`muzzleflash/blurmuzzle` and the HUD class cloak icons. They are the only materials that select `CUBEMAP` (11) or bind
+`_rt_Camera` as `$basetexture` (2). B476 ported `refract_ps2x.fxc` for the strip pass only. The model path has no
+Refract draw: no frame copy before the model, and no tangent frame or skinning into `Refract_vs20`'s `MODEL` combo.
+How these models draw today was not measured.
+
+**What closes it:** the model renderer copies the frame before a model whose material needs it, as
+`DrawTranslucentRenderables` does per renderable. It then draws the material through the same pixel shader with
+`MODEL=1` and the `CUBEMAP` term, `CalcReflectionVectorUnnormalized( worldNormal, tangentEyeVector )` as written.
 
 ## B477 — no rope ever drew: `DT_RopeKeyframe` is NOBASE with no model index, and nothing hung one — FIXED 2026-10-04
 
