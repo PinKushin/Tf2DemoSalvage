@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 
 using Tf2DemoSalvage.Content.Bsp;
+using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation;
@@ -120,11 +121,6 @@ public sealed class MapProvider : IDisposable
     /// </remarks>
     public static MapProvider Installed() =>
         new(SteamLibraryFile, OwnMapsFolder, () => MapDownloader.Create(OwnMapsFolder), () => SteamInstall.Machine.GameFolder());
-
-    /// <summary>What to say while a map is being fetched.</summary>
-    /// <param name="mapName">The map.</param>
-    /// <returns>The line.</returns>
-    public static string Fetching(string mapName) => "Downloading map " + mapName + "...";
 
     /// <summary>What to say when a map was found but could not be read.</summary>
     /// <param name="mapName">The map.</param>
@@ -291,6 +287,61 @@ public sealed class MapProvider : IDisposable
             return new MapFetch(
                 Path: null, "Map " + wanted.Name + " could not be fetched: " + failure.Message);
         }
+    }
+
+    /// <summary>Makes a demo's map available — found on disk or fetched — from the header alone.</summary>
+    /// <param name="demoPath">The demo being opened.</param>
+    /// <param name="fetching">Told the map's name when, and only when, a download starts.</param>
+    /// <param name="cancellationToken">Cancels the download.</param>
+    /// <returns>Where the map is and what to tell the user; a null path with a status when it is not to be had.</returns>
+    /// <remarks>
+    /// **Started the moment a demo is opened, alongside the decode, never after it** (owner, 2026-10-05: *"as soon as
+    /// the map name is decoded"*). The name is in the 1,072-byte header; the decode it used to wait on took 33 s on
+    /// <c>pass_sanctum_a2a</c>, and only then did a fetch begin, fire-and-forget, whose map read ran on a pool thread
+    /// beside the render loop — mapless at best, a crash in <c>EntityModelSet.Collate</c> at worst (B507). The map read
+    /// now awaits THIS task inside the load, behind the same barrier as any installed map.
+    ///
+    /// **Never throws for a bad file or a failed download** — the decode reports an unreadable demo with its own
+    /// message, and a map that cannot be had is a status line, not a failed load. Only cancellation escapes.
+    /// </remarks>
+    public Task<MapFetch> PrepareAsync(string demoPath, Action<string> fetching, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(fetching);
+
+        return Task.Run(
+            async () =>
+            {
+                try
+                {
+                    byte[] header = new byte[DemoHeader.SizeBytes];
+                    int read;
+
+                    using (FileStream file = File.OpenRead(demoPath))
+                    {
+                        read = await file.ReadAtLeastAsync(header, header.Length, throwOnEndOfStream: false, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
+                    string mapName = DemoHeader.Parse(header.AsSpan(0, read)).MapName;
+
+                    if (Locate(mapName) is { } path)
+                    {
+                        return new MapFetch(path, Status: string.Empty);
+                    }
+
+                    fetching(mapName);
+
+                    return await FetchAsync(mapName, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception failure) when (failure is IOException or InvalidDataException or UnauthorizedAccessException
+                    or System.Net.Http.HttpRequestException or ObjectDisposedException)
+                {
+                    // ObjectDisposedException: `Dispose` mid-download (the window closing), which the old fire-and-forget
+                    // caught for the same reason — nothing may escape a task nobody may ever await.
+                    return new MapFetch(Path: null, "No map for " + Path.GetFileName(demoPath) + ": " + failure.Message);
+                }
+            },
+            cancellationToken);
     }
 
     /// <summary>Closes the downloader, if one was ever built.</summary>
