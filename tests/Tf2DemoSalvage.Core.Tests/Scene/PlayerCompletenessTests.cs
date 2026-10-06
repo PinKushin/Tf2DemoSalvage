@@ -208,6 +208,7 @@ public sealed class PlayerCompletenessTests
         ActiveWeaponClip = 6,
         KillStreak = 4,
         InvisChangeCompleteTime = 5.5f,
+        ScreenOverlayMaterial = "effects/jarate_overlay",
         CloakMeter = 42f,
         DisguiseWeapon = 31,
         Decapitations = 3,
