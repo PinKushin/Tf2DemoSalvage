@@ -398,7 +398,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   the beginning, as the game does. Faster rewind through checkpoints is planned.
 - **No landing sounds.** The game predicts them on the client and never records them in the demo;
   footsteps are rebuilt from the player animations, landings are not yet (B172).
-- **Refractive trails are not drawn**, the see-through trail several projectiles leave (B476).
 - **Part of the rope model is not ported:** impulses, rope shaking, holiday lights (B478).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
