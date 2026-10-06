@@ -423,6 +423,8 @@ internal sealed unsafe partial class WorldRenderer
         _refractionTarget.Dispose();
         _refractionTexture.Dispose();
         _powerOfTwoView.Dispose();
+        _refractModelShader.Dispose();
+        _refractModelConstants.Dispose();
         _powerOfTwoTarget.Dispose();
         _powerOfTwoTexture.Dispose();
         _waterDepth.Dispose();
@@ -884,6 +886,101 @@ internal sealed unsafe partial class WorldRenderer
         StretchFrameInto(context, frame, _powerOfTwoTarget);
 
         return _powerOfTwoView;
+    }
+
+    /// <summary>The copy a model's refracting batch warps, of whatever target the model is being drawn into (B506).</summary>
+    private ComPtr<ID3D11ShaderResourceView> _refractModelFrame;
+
+    /// <summary>The viewport the model was drawn under, so the refract shader can place each pixel in the frame.</summary>
+    private Viewport _refractModelViewport;
+
+    /// <summary>
+    /// <c>UpdateRefractTexture()</c> for a model batch: the bound target, copied, then bound again with its viewport (B506).
+    /// </summary>
+    /// <param name="context">The context.</param>
+    private void CopyFrameForRefract(ComPtr<ID3D11DeviceContext> context)
+    {
+        ComPtr<ID3D11RenderTargetView> target = default;
+        ComPtr<ID3D11DepthStencilView> depth = default;
+        ComPtr<ID3D11Resource> resource = default;
+        ComPtr<ID3D11Texture2D> texture = default;
+        uint viewports = 1;
+        Viewport viewport = default;
+
+        context.RSGetViewports(ref viewports, ref viewport);
+        context.OMGetRenderTargets(1u, ref target, ref depth);
+        target.GetResource(ref resource);
+        SilkMarshal.ThrowHResult(resource.QueryInterface(out texture));
+
+        Texture2DDesc description = default;
+
+        texture.GetDesc(ref description);
+        _refractModelFrame = UpdateRefractTexture(
+            context, new WaterFrameTarget(target, depth, (int)description.Width, (int)description.Height));
+        context.RSSetViewports(1, in viewport);
+        _refractModelViewport = viewport;
+
+        texture.Dispose();
+        resource.Dispose();
+        target.Dispose();
+        depth.Dispose();
+    }
+
+    /// <summary>Binds <c>PsRefractModel</c> and its inputs over the batch's ordinary material binds (B506).</summary>
+    /// <param name="context">The context.</param>
+    /// <param name="refract">The material, its normal map and its tint texture.</param>
+    private void BindRefractModel(
+        ComPtr<ID3D11DeviceContext> context,
+        (RefractMaterial Material, ComPtr<ID3D11ShaderResourceView> Normal, ComPtr<ID3D11ShaderResourceView> Tint) refract)
+    {
+        if (_refractModelShader.Handle is null)
+        {
+            using D3DCompiler compiler = D3DCompiler.GetApi();
+
+            _refractModelShader = PixelShader(_device, compiler, "PsRefractModel");
+
+            BufferDesc buffer = new()
+            {
+                ByteWidth = 12 * sizeof(float),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.ConstantBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            SilkMarshal.ThrowHResult(_device.CreateBuffer(in buffer, null, ref _refractModelConstants));
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
+
+        float* into = (float*)mapped.PData;
+        RefractMaterial material = refract.Material;
+
+        // SetPixelShaderConstantGammaToLinear( 1, REFRACTTINT ), c5.x $refractamount (refract_dx9_helper.cpp:282-291).
+        into[0] = Linear(material.RefractTint.Red);
+        into[1] = Linear(material.RefractTint.Green);
+        into[2] = Linear(material.RefractTint.Blue);
+        into[3] = material.RefractAmount;
+        into[4] = material.BlurAmount;
+        into[5] = refract.Tint.Handle is not null ? 1f : 0f;
+        into[6] = material.Fogged ? 1f : 0f;
+        into[7] = 0f;
+        into[8] = _refractModelViewport.Width;
+        into[9] = _refractModelViewport.Height;
+        into[10] = _refractModelViewport.TopLeftX;
+        into[11] = _refractModelViewport.TopLeftY;
+
+        context.Unmap(_refractModelConstants, 0);
+
+        ComPtr<ID3D11ShaderResourceView> normal = refract.Normal;
+        ComPtr<ID3D11ShaderResourceView> tint = refract.Tint;
+
+        context.PSSetShader(_refractModelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetConstantBuffers(5, 1, ref _refractModelConstants);
+        context.PSSetShaderResources(12, 1, ref normal);
+        context.PSSetShaderResources(13, 1, ref _refractModelFrame);
+        context.PSSetShaderResources(14, 1, ref tint);
     }
 
     private ComPtr<ID3D11Texture2D> _powerOfTwoTexture;

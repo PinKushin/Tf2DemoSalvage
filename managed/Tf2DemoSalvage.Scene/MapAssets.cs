@@ -93,6 +93,7 @@ namespace Tf2DemoSalvage.Scene;
 /// overwritten each frame and one without keeps this.
 /// </param>
 /// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
+/// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -151,7 +152,10 @@ public readonly record struct MapTexture(
     bool TakesVertexAlpha = false,
 
     // **A 2D sky face's shader, constant and sRGB read** (B461) — null for every texture that is not one.
-    SkyFaceShading? Sky = null)
+    SkyFaceShading? Sky = null,
+
+    // **A model's `Refract` material** (B506): this slot is then its normal map, blended, and the draw warps the frame.
+    RefractMaterial? Refract = null)
 {
     /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
     /// <param name="decoded">The texture as read.</param>
@@ -1318,7 +1322,7 @@ public sealed class MapAssets
         ResolvedMaterial? ResolveProp(string path)
         {
             ResolvedMaterial? resolved = Resolve(
-                assets, path, pak, archives, maximumTextureSize, report: false, animatedDetails);
+                assets, path, pak, archives, maximumTextureSize, report: false, animatedDetails, model: true);
 
             if (resolved is { } material)
             {
@@ -2623,7 +2627,10 @@ public sealed class MapAssets
         // decode at once and they share this table by design. An ordinary Dictionary written from
         // several threads corrupts silently, and the symptom would be a map whose textures differ
         // between runs.
-        ConcurrentDictionary<string, IReadOnlyList<MapTexture>>? animatedDetails = null)
+        ConcurrentDictionary<string, IReadOnlyList<MapTexture>>? animatedDetails = null,
+
+        // **Only the model path draws a `Refract` slot** (B506); every other caller keeps what it had.
+        bool model = false)
     {
         byte[]? Find(string path)
         {
@@ -2688,7 +2695,7 @@ public sealed class MapAssets
         // eyes use EyeRefract, which names an iris, a cornea and an occlusion map and no
         // $basetexture at all - so asking for the base drew the missing-texture chequer on every
         // player's eyes while the material itself resolved perfectly (B62).
-        MapTexture? first = Decode(
+        MapTexture? first = ResolveRefract() ?? Decode(
             material.PrimaryTexture, material.IsAlphaTested, material.IsAdditive);
 
         // **Two shaders reach this slot and they combine differently.** A WorldVertexTransition
@@ -2725,6 +2732,29 @@ public sealed class MapAssets
             ResolveAnimationFrames(),
             ResolveDetailAnimation(),
             ResolveWater());
+
+        // **A `Refract` material names no colour: it warps the frame through its normal map** (B506). The slot is
+        // that normal map, translucent — `InitParamsRefract_DX9` sets MATERIAL_VAR_TRANSLUCENT on every one
+        // (`refract_dx9_helper.cpp:22`) — carrying the parameters the model draw binds. A combination the port does
+        // not draw ($envmap, $basetexture) returns null and keeps the old path. Only `$model` ones: the world's
+        // brush pass has no refract draw, and a brush-drawn Refract would otherwise paint its normal map.
+        MapTexture? ResolveRefract()
+        {
+            if (!model || !material.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase) ||
+                material.Value("$model") is not { } isModel || isModel.Trim() is "0" or "" ||
+                Load(material.Value("$normalmap") ?? DefaultRefractNormalMap) is not { } normal)
+            {
+                return null;
+            }
+
+            MapTexture? tint = material.Value("$refracttinttexture") is { } tinted && Load(tinted) is { } decoded
+                ? MapTexture.Of(decoded)
+                : null;
+
+            return RefractMaterial.Read(material, MapTexture.Of(normal), tint) is { } refract
+                ? MapTexture.Of(normal) with { IsTranslucent = !material.IsAdditive, IsAdditive = material.IsAdditive, Refract = refract }
+                : null;
+        }
 
         MapWater? ResolveWater()
         {

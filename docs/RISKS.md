@@ -35157,7 +35157,7 @@ vertices. Sabotage reddened each, restored by the inverse edit:
 **Left as found:** the synchronous `LoadDemo` (tests only) no longer fetches; it reports the map absent. A fetch
 is still asked with no checksum, so the D162 checksum-named cache files are never written by the viewer.
 
-## B506 — Refract on a MODEL draws as no Refract at all: 74 shipped `$model` materials — OPEN 2026-10-05
+## B506 — Refract on a MODEL draws as no Refract at all: 74 shipped `$model` materials — FIXED 2026-10-05 (13 HL2 combos refused)
 
 **Measured on the shipped VPKs** (`refract-census`): 74 of the 123 Refract materials set `$model`. They include the cloak
 and invulnerability overlays, the sniper scope lenses, `models/items/crystal_ball_glass_refract`, the
@@ -35169,6 +35169,37 @@ How these models draw today was not measured.
 **What closes it:** the model renderer copies the frame before a model whose material needs it, as
 `DrawTranslucentRenderables` does per renderable. It then draws the material through the same pixel shader with
 `MODEL=1` and the `CUBEMAP` term, `CalcReflectionVectorUnnormalized( worldNormal, tangentEyeVector )` as written.
+
+**How they drew, measured 2026-10-05:** as the missing-material chequer. A Refract material names no `$basetexture`, so
+`Resolve` found no primary texture and the model batch bound `_white` (the chequer).
+
+**Correction to the filing:** most of the 74 are not model draws in TF2. The cloak, invuln, jarate and bleed
+`*_overlay` materials are SCREEN overlays (`SetScreenOverlayMaterial`), the `hud/class_*cloak` and `scope_sniper_*`
+ones are HUD, and a cloaked spy is `VertexLitGeneric` with `$cloakpassenabled`, not Refract. The model-drawn ones that
+can appear in a TF2 match are the Bazaar Bargain lens (`c_bazaar_sniper_lens`, stock and workshop), the crystal ball
+and `blurmuzzle`.
+
+**Fix:** the model path's material resolve (`ResolveProp`, and only it) turns a `$model` Refract material into a slot
+carrying its `RefractMaterial` — its normal map, translucent, as `InitParamsRefract_DX9` sets `MATERIAL_VAR_TRANSLUCENT`.
+`DrawModel` copies the bound frame before each such batch (`UpdateRefractTexture`, the B476 copy) and draws it through
+`PsRefractModel`, the strip port's pixel arithmetic over the model vertex shader: with no `CUBEMAP` the pixel shader
+reads no tangent frame, and `MODEL=1` changes only skinning, which the model shader already does.
+
+**Not done, filed here rather than as new entries because nothing in TF2 reaches them:** the 11 `$envmap` (`CUBEMAP`)
+and 2 `$basetexture _rt_Camera` materials still resolve as before (chequer). All 13 are HL2 props and shader tests.
+`$nowritez` is not honoured on the model path (the translucent class decides depth writes); only
+`props_combine/stasisshield_sheet` sets it. `$bumptransform` scrolling is not applied.
+
+**Evidence:** `RefractModelRenderTests` (3), on the Bazaar lens loaded through the production model path: the slot
+resolves with BLUR 0 (`$bluramount 0.5`, integer part); over a uniform grey the lens is exactly the grey (within one
+step), where painting the slot gives (191, 194, 255) against 188; over a half-lit frame every pixel is a linear blend
+of black and the wall. Sabotage: drawing the batch without the refract path reddened both render tests; disabling the
+resolve reddened all three. **Survivor:** zeroing the warp leaves all three green — the lens's normal map moves the
+frame about a pixel at 64 px, under the copy's resample blur (128 pixels changed without the warp, 64 with). The warp
+arithmetic is the strip pass's, whose tests predict it exactly.
+
+**No output-level assertion on a real demo:** no lcor demo carries a `CTFSniperRifleDecap` (`entity-census` over all
+58, 2026-10-05), though ten precache the rifle's model. The render tests draw the shipped model's real material.
 
 ## B477 — no rope ever drew: `DT_RopeKeyframe` is NOBASE with no model index, and nothing hung one — FIXED 2026-10-04
 

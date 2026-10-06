@@ -914,6 +914,62 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return saturate(f * projZ * heightFog.w);
         }
 
+        // **`refract_ps2x.fxc` for a model** (B506): the strip pass's port (DetailSpriteRenderer.PsRefract, B476) over
+        // the model vertex shader. MODEL=1 changes only the vertex shader's skinning; with no CUBEMAP the pixel shader
+        // never reads the tangent frame. vRefractXYW / w is the pixel's place in the frame, SV_POSITION over the
+        // viewport. No $model material sets $vertexcolormodulate (refract-census), so COLORMODULATE is 0.
+        cbuffer RefractModel : register(b5)
+        {
+            float4 refractModelTint;    // linear $refracttint, $refractamount
+            float4 refractModelFlags;   // BLUR, REFRACTTINTTEXTURE, PIXELFOGTYPE on, -
+            float4 refractModelFrame;   // viewport width, height, left, top
+        };
+
+        Texture2D refractNormalMap : register(t12);
+        Texture2D refractFrameCopy : register(t13);
+        Texture2D refractTintMap   : register(t14);
+
+        float4 PsRefractModel(VsOut input) : SV_TARGET
+        {
+            float4 vNormal = refractNormalMap.Sample(wrapSampler, input.uv);
+            vNormal.xyz = vNormal.xyz * 2.0f - 1.0f;
+
+            float3 refractTintColor = refractModelFlags.y > 0.5f
+                ? 2.0f * refractModelTint.rgb * refractTintMap.Sample(wrapSampler, input.uv).rgb
+                : refractModelTint.rgb;
+
+            float2 vRefractTexCoordNoWarp = (input.pos.xy - refractModelFrame.zw) / refractModelFrame.xy;
+            float2 vRefractTexCoord = vNormal.xy * (vNormal.a * refractModelTint.w) + vRefractTexCoordNoWarp;
+            float3 result;
+
+            if (refractModelFlags.x > 0.5f)
+            {
+                const float blur = 1.0f / 512.0f;
+                const float halfBlur = 0.5f * blur;
+                result  = refractFrameCopy.Sample(clampSampler, vRefractTexCoord - float2(halfBlur, halfBlur)).rgb * 0.4444444f;
+                result += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(blur, -halfBlur)).rgb * 0.2222222f;
+                result += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-halfBlur, blur)).rgb * 0.2222222f;
+                result += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(blur, blur)).rgb * 0.1111111f;
+                result *= refractTintColor;
+            }
+            else
+            {
+                result = refractFrameCopy.Sample(clampSampler, vRefractTexCoord).rgb * refractTintColor;
+            }
+
+            // FinalOutput( …, TONEMAP_SCALE_NONE ): the fog with no light scale.
+            if (refractModelFlags.z > 0.5f && fogColour.w > 0.5f)
+            {
+                float projZ = fogColour.w > 1.5f
+                    ? distance(eyePosition.xyz, input.wpos)
+                    : mul(float4(input.wpos, 1.0f), viewProjection).z;
+                float fogFactor = saturate(min(fogParams.z, (projZ * fogParams.w) - fogParams.x));
+                result = lerp(result, fogColour.rgb, fogFactor * fogFactor);
+            }
+
+            return float4(result, vNormal.a);
+        }
+
         float4 PsMain(VsOut input) : SV_TARGET
         {
             // **Two textures mixed by the vertex's alpha, which is what terrain is.** A
@@ -1863,6 +1919,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>Materials blended with what is behind them, drawn last and sorted.</summary>
     private readonly HashSet<int> _translucent = [];
+
+    /// <summary>Each model <c>Refract</c> material by index, with its uploaded normal map and tint (B506).</summary>
+    private readonly Dictionary<int, (RefractMaterial Material, ComPtr<ID3D11ShaderResourceView> Normal, ComPtr<ID3D11ShaderResourceView> Tint)> _refracts = [];
+
+    private ComPtr<ID3D11PixelShader> _refractModelShader;
+    private ComPtr<ID3D11Buffer> _refractModelConstants;
 
     /// <summary>Materials that mark a surface rather than being one — <c>$decal</c>.</summary>
     /// <remarks>
@@ -2902,6 +2964,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (texture is { IsNoCull: true })
             {
                 _noCull.Add(index);
+            }
+
+            // A model's Refract material (B506): its normal map raw, its tint through the sRGB curve.
+            if (texture is { Refract: { } refract })
+            {
+                _refracts[index] = (
+                    refract,
+                    Upload(device, context, refract.NormalMap, srgb: false),
+                    refract.RefractTintTexture is { } tint ? Upload(device, context, tint) : default);
             }
 
             if (texture is { IsAdditive: true })
@@ -6296,6 +6367,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _translucent.Clear();
         ReleaseWaters();
 
+        foreach ((RefractMaterial _, ComPtr<ID3D11ShaderResourceView> normal, ComPtr<ID3D11ShaderResourceView> tint) in _refracts.Values)
+        {
+            normal.Dispose();
+            tint.Dispose();
+        }
+
+        _refracts.Clear();
+
         // Gathered against the material kinds just cleared; Device3D gathers again on its next camera (B426).
         TranslucentLeaves = null;
 
@@ -6791,6 +6870,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             kept++;
 
+            // **UpdateRefractTexture() before the renderable, as DrawTranslucentRenderables does per renderable**
+            // (`viewrender.cpp:4609-4635`, B506). The copy rebinds the world pipeline, so this model's own vertex
+            // streams go back on after it.
+            bool refracting = material >= 0 && _refracts.ContainsKey(material);
+
+            if (refracting)
+            {
+                CopyFrameForRefract(context);
+                context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
+                BindColours(context, bakedColours);
+            }
+
             // **Chosen per MATERIAL rather than per pass, which is the engine's arrangement and the
             // other half of B135.** A shader in Source declares `EnableBlending` in its own
             // SHADOW_STATE block, so the material system sets it on bind and no pass inherits
@@ -7001,9 +7092,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // material did not resolve. A brush entity adds its class colour on top (B219).
             SetMaterial(context, material, batch.Category, tint, paint, burn, urine);
 
+            if (refracting)
+            {
+                BindRefractModel(context, _refracts[material]);
+            }
+
             drawn += batch.VertexCount;
 
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+            if (refracting)
+            {
+                // The copy is drawn into again before the next refracting batch; a bound input cannot be an output.
+                ComPtr<ID3D11ShaderResourceView> none = default;
+
+                context.PSSetShaderResources(13, 1, ref none);
+                context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+            }
         }
 
         // **What was actually SUBMITTED, reported when it changes** (B222). `kept` counts batches
