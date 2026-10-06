@@ -18,6 +18,10 @@ namespace Tf2DemoSalvage.Scene;
 /// The depth state. Tested and unwritten for every particle and detail sprite; an entity sprite's render
 /// mode can choose otherwise (B391).
 /// </param>
+/// <param name="Refract">
+/// A <c>Refract</c> material's parameters, which warp a copy of the frame instead of drawing <see cref="Sheet"/>;
+/// null for every other shader (B476).
+/// </param>
 /// <remarks>
 /// **One of these per MATERIAL, not per system**, because that is what a draw call costs. A rocket
 /// runs three systems — `rockettrail`, `rockettrail_burst`, `rockettrail_fire` — on three materials,
@@ -28,7 +32,8 @@ public readonly record struct ParticleMaterial(
     IReadOnlyList<SheetSequence> Sequences,
     SpriteBlend Blend,
     float Alpha = 1f,
-    SpriteDepth Depth = SpriteDepth.TestNoWrite)
+    SpriteDepth Depth = SpriteDepth.TestNoWrite,
+    RefractMaterial? Refract = null)
 {
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);

@@ -75,7 +75,7 @@ public sealed class BakedColourStreamRenderTests
     /// **The colour mesh IS the static light, decoded and nothing else.** `DoLighting` (`common_vs_fxc.h:870-874`) and
     /// `PixelShaderDoLightingLinear` (`common_vertexlitgeneric_dx9.h:272`) take <c>GammaToLinear( colour · 2 )</c> as the
     /// whole static term: no lightmap multiplies it. So a colour byte of 64 drawn over a white albedo with no cube
-    /// writes pow( 128 / 255, 2.2 ) = 0.2196 → 56 to the offscreen target, which stores the shader's output as it is.
+    /// writes pow( 128 / 255, 2.2 ) = 0.2196, stored through the target's sRGB view as 129.
     /// </remarks>
     [Test]
     public void DrawModelPose_ABakedByteWithNoCube_WritesGammaToLinearOfTwiceIt()
@@ -103,8 +103,8 @@ public sealed class BakedColourStreamRenderTests
             Face(), [new WorldBatch(0, 0, 6)], Camera(), Identity(), assets,
             bothSides: true, debug: new DebugModes(DrawFlat: true), bakedColours: [.. System.Linq.Enumerable.Repeat(term, 18)]);
 
-        int expected = (int)System.MathF.Round(System.MathF.Pow(128f / 255f, 2.2f) * 255f);
-        expected.ShouldBe(56, "worked by hand");
+        int expected = SrgbTarget.Encode(System.Math.Pow(128.0 / 255.0, 2.2));
+        expected.ShouldBe(129, "worked by hand");
         target.PixelAt(32, 32).ShouldBe((expected, expected, expected));
     }
 
@@ -162,9 +162,8 @@ public sealed class BakedColourStreamRenderTests
 
         both.Green.ShouldBeInRange(colours.Green - 1, colours.Green + 1, "the lamp adds no green");
 
-        // The offscreen target stores the shader's output as it is (0.1 of colour reads 26, 0.1 · 255), so the sum is a
-        // sum of bytes.
-        int predicted = colours.Red + lampOnly.Red;
+        // The target stores through the sRGB curve, so the sum is taken in linear light and encoded once.
+        int predicted = SrgbTarget.Encode(SrgbTarget.Decode(colours.Red) + SrgbTarget.Decode(lampOnly.Red));
         both.Red.ShouldBeInRange(predicted - 1, predicted + 1, "colours plus lamp");
     }
 

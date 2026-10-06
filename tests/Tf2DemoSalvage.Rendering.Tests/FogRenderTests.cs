@@ -16,8 +16,9 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// identity camera, so <c>flProjPosZ</c> is 0.9. Fog from 0 to 0.9 puts that depth at factor 1:
 /// the pixel IS the fog colour. A max density of 0.5 caps the factor before the saturate, and the
 /// blend squares it — 0.25 — so the pixel is a quarter of the way to the fog colour. A prediction
-/// written for an sRGB target first said 138 and the target answered 74: the offscreen target is
-/// UNORM, so the shader's linear output is what is stored.
+/// written for an sRGB target first said 138 and the target answered 74: the offscreen target was
+/// UNORM then, unlike the window. Since B476 its view is the window's sRGB one, and the prediction
+/// is the sRGB one again.
 /// </remarks>
 public sealed class FogRenderTests
 {
@@ -73,10 +74,10 @@ public sealed class FogRenderTests
         (int Red, int Green, int Blue) clear = Draw(target, assets, null);
         (int Red, int Green, int Blue) fogged = Draw(target, assets, new SceneFog(0f, Depth, 1f, 0f, 0f, 0.5f));
 
-        // lerp( shader, fog, 0.5 * 0.5 ) per channel; fog is (1, 0, 0). The offscreen target is
-        // UNORM, not sRGB, so the shader's linear output is stored as it is and read back the same.
+        // lerp( shader, fog, 0.5 * 0.5 ) per channel in linear light; fog is (1, 0, 0). The offscreen target stores
+        // through the sRGB curve, as the window does, so each read is decoded, blended and encoded again.
         static int Predict(int channel, float fog) =>
-            (int)MathF.Round(((channel / 255f * 0.75f) + (fog * 0.25f)) * 255f);
+            SrgbTarget.Encode((SrgbTarget.Decode(channel) * 0.75) + (fog * 0.25));
 
         TestContext.Out.WriteLine($"FOG clear {clear} / half-density red fog {fogged}");
 

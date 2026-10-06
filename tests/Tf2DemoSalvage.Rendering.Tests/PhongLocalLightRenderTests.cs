@@ -362,7 +362,13 @@ public sealed class PhongLocalLightRenderTests
             phong: phong,
             locals: locals);
 
-        return target.PixelAt(Centre, Centre);
+        // In linear units of 1/255: the target stores through the sRGB curve (B476), and every prediction and every
+        // sum of highlights here is linear light, so the stored byte is decoded before it is compared.
+        (int r, int g, int b) = target.PixelAt(Centre, Centre);
+
+        static int Linear(int stored) => (int)Math.Round(SrgbTarget.Decode(stored) * 255.0);
+
+        return (Linear(r), Linear(g), Linear(b));
     }
 
     /// <summary>A point lamp far along a direction from the origin, with no falloff and no range.</summary>

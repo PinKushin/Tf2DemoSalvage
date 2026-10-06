@@ -382,13 +382,16 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     private DetailSpriteRenderer? _sprites;
     private ComPtr<ID3D11ShaderResourceView> _spriteSheet;
+    private ComPtr<ID3D11ShaderResourceView> _refractNormal;
+    private ComPtr<ID3D11ShaderResourceView> _refractTint;
 
     /// <summary>Draws one particle or entity sprite batch with its blend and depth state, as the viewer's particle pass does (B391).</summary>
     /// <param name="batch">The batch.</param>
     /// <param name="camera">The view-projection matrix.</param>
     /// <exception cref="ArgumentNullException">The camera is null.</exception>
     /// <exception cref="ArgumentException">The batch has no sheet.</exception>
-    public void DrawSprites(ParticleBatch batch, float[] camera)
+    /// <param name="fog">The fog a refracting batch blends toward, or null for none.</param>
+    public void DrawSprites(ParticleBatch batch, float[] camera, Tf2DemoSalvage.Core.Scene.SceneFog? fog = null)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -404,6 +407,24 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
 
         _sprites.SetSheet(_spriteSheet);
+
+        if (batch.Material.Refract is { } refract)
+        {
+            // UpdateRefractTexture before the draw, as DrawTranslucentRenderables does per renderable (B476).
+            ComPtr<ID3D11ShaderResourceView> frame = (_world ??= WorldRenderer.Create(_device, _loggers))
+                .UpdateRefractTexture(_context, new WaterFrameTarget(_view, _depthView, _width, _height));
+
+            _refractNormal.Dispose();
+            _refractNormal = WorldRenderer.UploadTexture(_device, _context, refract.NormalMap, srgb: false);
+            _refractTint.Dispose();
+            _refractTint = WorldRenderer.UploadTexture(_device, _context, refract.RefractTintTexture);
+            _sprites.SetRefract(refract, _refractNormal, frame, _refractTint, fog);
+        }
+        else
+        {
+            _sprites.SetRefract(null);
+        }
+
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
         _sprites.Upload(_device, _context, batch.Corners);
@@ -681,6 +702,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _detailSheet.Dispose();
         _sprites?.Dispose();
         _spriteSheet.Dispose();
+        _refractNormal.Dispose();
+        _refractTint.Dispose();
         _world?.Dispose();
         _view.Dispose();
         _depthView.Dispose();
@@ -705,7 +728,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
             Height = (uint)height,
             MipLevels = 1,
             ArraySize = 1,
-            Format = Format.FormatB8G8R8A8Unorm,
+            // Typeless, so the target can be viewed through the sRGB curve as the window's back buffer is
+            // (Device3D.CreateBackBufferView) while the staging copy reads the stored bytes (B476).
+            Format = Format.FormatB8G8R8A8Typeless,
             SampleDesc = new SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)BindFlag.RenderTarget,
@@ -726,9 +751,17 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         SilkMarshal.ThrowHResult(device.CreateTexture2D(
             in stagingDescription, ref Unsafe.NullRef<SubresourceData>(), ref staging));
 
+        // **The window's format, B8G8R8A8_UNORM_SRGB, so an offscreen picture blends like the real frame.** This was a
+        // plain UNORM view, under which every blend and every frame copy ran on stored gamma values while the window
+        // ran them in linear light — a picture that disagreed with the viewer for a reason nobody could see (B476).
+        RenderTargetViewDesc viewDescription = new()
+        {
+            Format = Format.FormatB8G8R8A8UnormSrgb,
+            ViewDimension = RtvDimension.Texture2D,
+        };
+
         ComPtr<ID3D11RenderTargetView> view = default;
-        SilkMarshal.ThrowHResult(device.CreateRenderTargetView(
-            texture, ref Unsafe.NullRef<RenderTargetViewDesc>(), ref view));
+        SilkMarshal.ThrowHResult(device.CreateRenderTargetView(texture, in viewDescription, ref view));
 
         // **A depth buffer, because without one this target was not drawing the same picture.**
         // The window has one; this did not, so every draw simply overwrote what came before in

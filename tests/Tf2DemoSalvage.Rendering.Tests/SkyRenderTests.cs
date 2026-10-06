@@ -198,6 +198,6 @@ public sealed class SkyRenderTests
 
     private static float Linear(float c) => c <= 0.04045f ? c / 12.92f : MathF.Pow((c + 0.055f) / 1.055f, 2.4f);
 
-    /// <summary>The byte the offscreen target stores: it is <c>B8G8R8A8_UNORM</c>, so the shader's linear output as written.</summary>
-    private static int Srgb(float linear) => (int)MathF.Round(Math.Clamp(linear, 0f, 1f) * 255f);
+    /// <summary>The byte the offscreen target stores: its view is the window's <c>B8G8R8A8_UNORM_SRGB</c> (B476).</summary>
+    private static int Srgb(float linear) => SrgbTarget.Encode(linear);
 }

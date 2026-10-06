@@ -232,19 +232,58 @@ public sealed class EntityTrailsConformanceTests
     }
 
     /// <remarks>
-    /// **`kRenderNone` draws nothing** — <c>DrawModel</c> returns at <c>!IsVisible()</c> (`:431`) — and a
-    /// <c>Refract</c> material, which needs the frame behind it, is one this pass cannot draw (B476). Both are counted.
+    /// **`kRenderNone` draws nothing** — <c>DrawModel</c> returns at <c>!IsVisible()</c> (`:431`) — and neither does a
+    /// <c>Refract</c> material whose combination this port refuses (<see cref="RefractMaterial.Read"/>), which loads
+    /// without a <see cref="ParticleMaterial.Refract"/>. Both are counted.
     /// </remarks>
-    [TestCase(RenderModes.None, "UnlitGeneric")]
-    [TestCase(RenderModes.TransAlpha, "Refract")]
-    public void Build_AnUndrawableTrail_IsSkipped(int renderMode, string shader)
+    [TestCase(RenderModes.None, "UnlitGeneric", true)]
+    [TestCase(RenderModes.TransAlpha, "Refract", false)]
+    public void Build_AnUndrawableTrail_IsSkipped(int renderMode, string shader, bool refract)
     {
         EntityTrails trails = new();
 
-        Frame(trails, 10f, 0f, renderMode: renderMode, shader: shader);
+        Frame(trails, 10f, 0f, renderMode: renderMode, shader: shader, refract: refract);
 
-        Frame(trails, 10.25f, 100f, renderMode: renderMode, shader: shader).ShouldBeEmpty();
+        Frame(trails, 10.25f, 100f, renderMode: renderMode, shader: shader, refract: refract).ShouldBeEmpty();
         (trails.Drawn, trails.Skipped).ShouldBe((0, 1));
+    }
+
+    /// <remarks>
+    /// **A <c>Refract</c> trail draws, one batch per trail** (B476). The frame it warps is copied before EACH translucent
+    /// renderable that needs it — <c>UpdateRefractTexture()</c> inside the per-entity loop of
+    /// <c>DrawTranslucentRenderables</c> (`viewrender.cpp:4609-4635`, `:4651-4686`) — so a trail refracts the trail
+    /// drawn before it, which two trails sharing one draw could not. Two such trails are two batches.
+    ///
+    /// **The vertex colour reaches the shader raw**: the <c>Refract</c> shader is not the <c>Sprite</c> shader and reads
+    /// no render mode; with <c>$vertexcolormodulate</c> it multiplies the tint by the vertex colour and the warp by the
+    /// vertex alpha (`refract_ps2x.fxc`, <c>COLORMODULATE</c>). And it writes depth (`refract_dx9_helper.cpp:119`).
+    /// </remarks>
+    [Test]
+    public void Build_TwoRefractTrails_DrawABatchEachWithTheRawVertexColour()
+    {
+        EntityTrails trails = new();
+        Dictionary<string, EngineSprite> sprites = Sprites(loaded: true, "Refract", refract: true);
+
+        SceneProp First(float x) => Prop(x, Ball(), (255, 128, 0), 255, RenderModes.TransAlpha);
+        SceneProp Second(float x) => First(x) with { EntityIndex = 302, Pose = First(x).Pose with { Y = 50f } };
+
+        trails.Build([First(0f), Second(0f)], Camera, sprites, prop => Position(prop), 10f);
+        IReadOnlyList<ParticleBatch> batches =
+            trails.Build([First(100f), Second(100f)], Camera, sprites, prop => Position(prop), 10.25f);
+
+        trails.Drawn.ShouldBe(2);
+        batches.Count.ShouldBe(2, "one batch per trail, for a frame copy before each");
+
+        foreach (ParticleBatch batch in batches)
+        {
+            batch.Material.Refract.ShouldNotBeNull();
+            batch.Material.Depth.ShouldBe(SpriteDepth.TestAndWrite);
+            batch.Corners.Count.ShouldBe(12);
+
+            DetailSpriteVertex newest = batch.Corners[2];
+
+            (newest.Red, newest.Green, newest.Blue, newest.Alpha).ShouldBe((1f, 128f / 255f, 0f, 1f));
+        }
     }
 
     /// <remarks>
@@ -294,11 +333,12 @@ public sealed class EntityTrailsConformanceTests
         int renderMode = RenderModes.TransAlpha,
         string shader = "UnlitGeneric",
         bool loaded = true,
-        bool orphaned = false) =>
+        bool orphaned = false,
+        bool refract = false) =>
         trails.Build(
             [Prop(x, parameters ?? Ball(), colour ?? ((byte)255, (byte)255, (byte)255), brightness, renderMode)],
             Camera,
-            Sprites(loaded, shader),
+            Sprites(loaded, shader, refract),
             prop => orphaned ? null : Position(prop),
             time);
 
@@ -317,15 +357,18 @@ public sealed class EntityTrailsConformanceTests
         },
         ClassName: "CSpriteTrail");
 
-    private static Dictionary<string, EngineSprite> Sprites(bool loaded, string shader = "UnlitGeneric")
+    private static Dictionary<string, EngineSprite> Sprites(bool loaded, string shader = "UnlitGeneric", bool refract = false)
     {
         Dictionary<string, EngineSprite> sprites = new(System.StringComparer.OrdinalIgnoreCase);
+        MapTexture sheet = new(64, 64, 64, 64, TextureImage.None, IsTransparent: true);
 
         if (loaded)
         {
             sprites[Material] = new EngineSprite(
-                new ParticleMaterial(
-                    new MapTexture(64, 64, 64, 64, TextureImage.None, IsTransparent: true), [], SpriteBlend.Translucent),
+                new ParticleMaterial(sheet, [], SpriteBlend.Translucent)
+                {
+                    Refract = refract ? new RefractMaterial(sheet, 0.2f, (1f, 1f, 1f), null, 1, true, true) : null,
+                },
                 64,
                 64,
                 SpriteOrientation.Parallel,

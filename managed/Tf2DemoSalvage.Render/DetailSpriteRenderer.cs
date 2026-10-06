@@ -73,6 +73,8 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             float2 uv : TEXCOORD0;
             float4 col : COLOR;
             float3 next : TEXCOORD1;
+            float3 refract : TEXCOORD2;
+            float4 wpos : TEXCOORD3;
         };
 
         VsOut VsMain(VsIn input)
@@ -82,7 +84,95 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             output.uv = input.uv;
             output.col = input.col;
             output.next = input.next;
+
+            // Refract_vs20.fxc: "Map projected position to the refraction texture", y inverted, divided per pixel.
+            output.refract = float3(
+                (output.pos.x + output.pos.w) * 0.5f, (-output.pos.y + output.pos.w) * 0.5f, output.pos.w);
+            output.wpos = float4(input.pos, output.pos.z);
             return output;
+        }
+
+        // refract_ps2x.fxc for the combos a sprite trail selects: no CUBEMAP, FADEOUTONSILHOUETTE, MASKED or
+        // SECONDARY_NORMAL; BLUR 0 or 1; REFRACTTINTTEXTURE and COLORMODULATE either way (B476). The frame and the tint
+        // texture are read through the sRGB curve and the result written through it, as EnableSRGBRead/Write ask.
+        cbuffer Refract : register(b5)
+        {
+            float4 refractTintAmount;   // linear $refracttint, $refractamount
+            float4 refractFlags;        // BLUR, COLORMODULATE, REFRACTTINTTEXTURE, PIXELFOGTYPE on
+            float4 refractFogColour;    // FogConstants: linear colour, w the fog type (0 off, 1 range, 2 radial)
+            float4 refractFogParams;    // FogConstants: start/range, -, max density, 1/range
+            float4 refractEye;
+        };
+
+        Texture2D normalMap : register(t1);
+        Texture2D frameCopy : register(t2);
+        Texture2D tintMap : register(t3);
+        SamplerState clampLinear : register(s1);
+
+        static const float g_BlurFraction = 1.0f / 512.0f;
+        static const float g_HalfBlurFraction = 0.5f * g_BlurFraction;
+
+        float4 PsRefract(VsOut input) : SV_TARGET
+        {
+            // DecompressNormal( NORMAL_DECODE_NONE ).
+            float4 vNormal = normalMap.Sample(linearWrap, input.uv);
+            vNormal.xyz = vNormal.xyz * 2.0f - 1.0f;
+
+            float3 refractTintColor = refractFlags.z > 0.5f
+                ? 2.0f * refractTintAmount.rgb * tintMap.Sample(linearWrap, input.uv).rgb
+                : refractTintAmount.rgb;
+
+            float4 colorModulate = refractFlags.y > 0.5f ? input.col : float4(1.0f, 1.0f, 1.0f, 1.0f);
+            refractTintColor *= colorModulate.rgb;
+
+            float ooW = 1.0f / input.refract.z;
+            float2 vRefractTexCoordNoWarp = input.refract.xy * ooW;
+            float2 vRefractTexCoord = vNormal.xy;
+            float scale = vNormal.a * refractTintAmount.w * colorModulate.a;
+            vRefractTexCoord *= scale;
+            vRefractTexCoord += vRefractTexCoordNoWarp;
+
+            // FADEOUTONSILHOUETTE is 0, so blend is 1.
+            float3 result;
+
+            if (refractFlags.x > 0.5f)
+            {
+                // "use polyphase magic to convert 9 lookups into 4"
+                float2 upper_2x2_loc = vRefractTexCoord - float2(g_HalfBlurFraction, g_HalfBlurFraction);
+                float2 right_1x2_loc = vRefractTexCoord + float2(g_BlurFraction, -g_HalfBlurFraction);
+                float2 lower_2x1_loc = vRefractTexCoord + float2(-g_HalfBlurFraction, g_BlurFraction);
+                float2 singleton_loc = vRefractTexCoord + float2(g_BlurFraction, g_BlurFraction);
+                result  = frameCopy.Sample(clampLinear, upper_2x2_loc).rgb * 0.4444444f;
+                result += frameCopy.Sample(clampLinear, right_1x2_loc).rgb * 0.2222222f;
+                result += frameCopy.Sample(clampLinear, lower_2x1_loc).rgb * 0.2222222f;
+                result += frameCopy.Sample(clampLinear, singleton_loc).rgb * 0.1111111f;
+
+                float3 unblurredColor = frameCopy.Sample(clampLinear, vRefractTexCoordNoWarp).rgb;
+                result = lerp(unblurredColor, result * refractTintColor, 1.0f);
+            }
+            else
+            {
+                float3 colorWarp = frameCopy.Sample(clampLinear, vRefractTexCoord).rgb;
+                float3 colorNoWarp = frameCopy.Sample(clampLinear, vRefractTexCoordNoWarp).rgb;
+                colorWarp *= refractTintColor;
+                result = lerp(colorNoWarp, colorWarp, 1.0f);
+            }
+
+            // FinalOutput( …, TONEMAP_SCALE_NONE ) with CalcPixelFogFactor: the range or radial fog the world's PixelFog
+            // runs, toward the fog colour by the squared factor. Interpolated: the fog colour is unscaled, as
+            // TONEMAP_SCALE_NONE scales nothing else.
+            if (refractFlags.w > 0.5f && refractFogColour.w > 0.5f)
+            {
+                // Refract_vs20.fxc's worldPos_projPosZ: the projected z, carried from the vertex shader (the camera
+                // buffer is bound to the vertex stage only).
+                float projZ = refractFogColour.w > 1.5f
+                    ? distance(refractEye.xyz, input.wpos.xyz)
+                    : input.wpos.w;
+                float fogFactor = saturate(min(refractFogParams.z, (projZ * refractFogParams.w) - refractFogParams.x));
+                result = lerp(result, refractFogColour.rgb, fogFactor * fogFactor);
+            }
+
+            return float4(result, colorModulate.a * vNormal.a);
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -164,11 +254,115 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     private DetailSpriteRenderer(
         ComPtr<ID3D11VertexShader> vertexShader,
         ComPtr<ID3D11PixelShader> pixelShader,
+        ComPtr<ID3D11PixelShader> refractShader,
         ComPtr<ID3D11InputLayout> layout)
     {
         _vertexShader = vertexShader;
         _pixelShader = pixelShader;
+        _refractShader = refractShader;
         _layout = layout;
+    }
+
+    private ComPtr<ID3D11PixelShader> _refractShader;
+    private ComPtr<ID3D11Buffer> _refractConstants;
+    private ComPtr<ID3D11SamplerState> _clampSampler;
+    private ComPtr<ID3D11ShaderResourceView> _refractNormal;
+    private ComPtr<ID3D11ShaderResourceView> _refractFrame;
+    private ComPtr<ID3D11ShaderResourceView> _refractTint;
+    private Tf2DemoSalvage.Scene.RefractMaterial? _refract;
+
+    /// <summary>
+    /// Draws the next batches through the <c>Refract</c> shader instead of the sheet — or, with null, the sheet again
+    /// (B476).
+    /// </summary>
+    /// <param name="refract">The material's parameters, or null.</param>
+    /// <param name="normal">Its normal map, uploaded raw.</param>
+    /// <param name="frame">The copy of the frame it warps, <c>_rt_PowerOfTwoFB</c>.</param>
+    /// <param name="tint">Its tint texture, uploaded through the sRGB curve; a null handle when it has none.</param>
+    /// <param name="fog">The fog in force, or null for none.</param>
+    /// <param name="eye">Where the camera is, for radial fog.</param>
+    public void SetRefract(
+        Tf2DemoSalvage.Scene.RefractMaterial? refract,
+        ComPtr<ID3D11ShaderResourceView> normal = default,
+        ComPtr<ID3D11ShaderResourceView> frame = default,
+        ComPtr<ID3D11ShaderResourceView> tint = default,
+        Tf2DemoSalvage.Core.Scene.SceneFog? fog = null,
+        System.Numerics.Vector3 eye = default)
+    {
+        _refract = refract;
+        _refractNormal = normal;
+        _refractFrame = frame;
+        _refractTint = tint;
+        _refractFog = FogConstants.For(fog);
+        _refractEye = eye;
+    }
+
+    private float[] _refractFog = new float[8];
+    private System.Numerics.Vector3 _refractEye;
+
+    /// <summary>Binds the refract pass's inputs: <c>c1</c> linear, <c>c5.x</c>, and the three combos as flags.</summary>
+    private void BindRefract(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, Tf2DemoSalvage.Scene.RefractMaterial refract)
+    {
+        if (_refractConstants.Handle is null)
+        {
+            BufferDesc description = new()
+            {
+                ByteWidth = 20 * sizeof(float),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.ConstantBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            SilkMarshal.ThrowHResult(device.CreateBuffer(in description, ref Unsafe.NullRef<SubresourceData>(), ref _refractConstants));
+
+            // _rt_PowerOfTwoFB is created clamped in s and t (texture flags 0xc, engine.dll 0x1800f69cb).
+            SamplerDesc clamp = new()
+            {
+                Filter = Filter.MinMagMipLinear,
+                AddressU = TextureAddressMode.Clamp,
+                AddressV = TextureAddressMode.Clamp,
+                AddressW = TextureAddressMode.Clamp,
+                ComparisonFunc = ComparisonFunc.Never,
+                MaxLOD = float.MaxValue,
+            };
+
+            SilkMarshal.ThrowHResult(device.CreateSamplerState(in clamp, ref _clampSampler));
+        }
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_refractConstants, 0, Map.WriteDiscard, 0, ref mapped));
+
+        float* into = (float*)mapped.PData;
+
+        // SetPixelShaderConstantGammaToLinear( 1, REFRACTTINT ) (refract_dx9_helper.cpp:282).
+        into[0] = WorldRenderer.Linear(refract.RefractTint.Red);
+        into[1] = WorldRenderer.Linear(refract.RefractTint.Green);
+        into[2] = WorldRenderer.Linear(refract.RefractTint.Blue);
+        into[3] = refract.RefractAmount;
+        into[4] = refract.BlurAmount;
+        into[5] = refract.VertexColorModulate ? 1f : 0f;
+        into[6] = _refractTint.Handle is not null ? 1f : 0f;
+        into[7] = refract.Fogged ? 1f : 0f;
+
+        for (int at = 0; at < 8; at++)
+        {
+            into[8 + at] = _refractFog[at];
+        }
+
+        into[16] = _refractEye.X;
+        into[17] = _refractEye.Y;
+        into[18] = _refractEye.Z;
+        into[19] = 0f;
+
+        context.Unmap(_refractConstants, 0);
+
+        context.PSSetShader(_refractShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetConstantBuffers(5, 1, ref _refractConstants);
+        context.PSSetSamplers(1, 1, ref _clampSampler);
+        context.PSSetShaderResources(1, 1, ref _refractNormal);
+        context.PSSetShaderResources(2, 1, ref _refractFrame);
+        context.PSSetShaderResources(3, 1, ref _refractTint);
     }
 
     /// <summary>Compiles the shaders and builds the input layout.</summary>
@@ -180,6 +374,15 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
 
         ComPtr<ID3D10Blob> vertexBytecode = Compile(compiler, "VsMain", "vs_5_0");
         ComPtr<ID3D10Blob> pixelBytecode = Compile(compiler, "PsMain", "ps_5_0");
+        ComPtr<ID3D10Blob> refractBytecode = Compile(compiler, "PsRefract", "ps_5_0");
+
+        ComPtr<ID3D11PixelShader> refractShader = default;
+        SilkMarshal.ThrowHResult(device.CreatePixelShader(
+            refractBytecode.GetBufferPointer(),
+            refractBytecode.GetBufferSize(),
+            ref Unsafe.NullRef<ID3D11ClassLinkage>(),
+            ref refractShader));
+        refractBytecode.Dispose();
 
         ComPtr<ID3D11VertexShader> vertexShader = default;
         SilkMarshal.ThrowHResult(device.CreateVertexShader(
@@ -256,7 +459,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         vertexBytecode.Dispose();
         pixelBytecode.Dispose();
 
-        return new DetailSpriteRenderer(vertexShader, pixelShader, layout);
+        return new DetailSpriteRenderer(vertexShader, pixelShader, refractShader, layout);
     }
 
     /// <summary>The one sheet every detail sprite is drawn from.</summary>
@@ -431,6 +634,11 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _sampler);
         context.PSSetShaderResources(0, 1, ref _sheet);
+
+        if (_refract is { } refract)
+        {
+            BindRefract(device, context, refract);
+        }
         context.OMSetBlendState(
             _mode switch
             {
@@ -455,6 +663,14 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         context.RSSetState(_noCull);
 
         context.Draw((uint)cornerCount, (uint)firstCorner);
+
+        if (_refract is not null)
+        {
+            // The frame copy is drawn into again before the next refracting draw; a bound input cannot be an output.
+            ComPtr<ID3D11ShaderResourceView> none = default;
+
+            context.PSSetShaderResources(2, 1, ref none);
+        }
 
         // **The depth state goes back to what every pass before B391 left**, for the same reason the
         // blend is turned off below: a pass that follows may inherit it, and a glow's depth-off state
@@ -489,6 +705,9 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         _depthOff.Dispose();
         _noCull.Dispose();
         _layout.Dispose();
+        _refractConstants.Dispose();
+        _clampSampler.Dispose();
+        _refractShader.Dispose();
         _pixelShader.Dispose();
         _vertexShader.Dispose();
 
