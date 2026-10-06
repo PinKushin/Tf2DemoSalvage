@@ -86,6 +86,11 @@ public interface IMomentSource
     /// </remarks>
     public int? Recorder { get; }
 
+    /// <summary>The server's clock at a moment, in seconds — `gpGlobals->curtime` for a networked server time.</summary>
+    /// <param name="tick">The demo tick, fractional while playing.</param>
+    /// <returns>The demo's own clock where it carries no server tick.</returns>
+    public float ServerTimeAt(double tick) => (float)(tick * IntervalPerTick);
+
     /// <summary>Tells the source what an entity's model says about its pose parameters.</summary>
     /// <param name="entityIndex">The entity whose model has been resolved.</param>
     /// <param name="looping">Which of its pose parameters wrap, by index.</param>
@@ -324,6 +329,15 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;
+
+    /// <inheritdoc/>
+    /// <remarks>The last `net_Tick`'s server tick, as the HUD reads it, plus the fraction of the tick being shown.</remarks>
+    public float ServerTimeAt(double tick)
+    {
+        int whole = (int)Math.Floor(tick);
+
+        return (float)(((timeline.ServerTickAt(whole) ?? whole) + (tick - whole)) * timeline.IntervalPerTick);
+    }
 
     /// <inheritdoc />
     public void OnNewModel(int entityIndex, IReadOnlyList<bool> looping, bool staticProp)

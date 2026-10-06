@@ -25,6 +25,7 @@ namespace Tf2DemoSalvage.Scene;
 /// (B354). Null is a SourceTV recording, whose viewer is a spectator carrying nothing.
 /// </param>
 /// <param name="HolidayVisionFlags">`TF_VISION_FILTER_HALLOWEEN` while Halloween or a full moon is active, else 0.</param>
+/// <param name="ServerTime">The server clock in seconds, which the cloak ramp is timed on.</param>
 /// <remarks>
 /// **This is <c>SetupRenderInfo_t</c>'s shape, and the shape is the point.** Valve's renderables-list
 /// builder takes one:
@@ -92,7 +93,11 @@ public readonly record struct MomentInfo(
     int? Recorder = null,
 
     // The holiday half of the recorder's vision filter flags (c_tf_player.cpp:8090-8095).
-    int HolidayVisionFlags = 0)
+    int HolidayVisionFlags = 0,
+
+    // **The server's clock**, which `m_flInvisChangeCompleteTime` is stamped on — what `InvisibilityThink` compares
+    // `curtime` against to ramp a cloak (tf_player_shared.cpp:7977). Zero for a caller that has none.
+    float ServerTime = 0f)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

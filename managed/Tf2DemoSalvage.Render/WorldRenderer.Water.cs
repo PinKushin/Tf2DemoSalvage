@@ -425,6 +425,9 @@ internal sealed unsafe partial class WorldRenderer
         _powerOfTwoView.Dispose();
         _refractModelShader.Dispose();
         _refractModelConstants.Dispose();
+        _cloakShader.Dispose();
+        _cloakDepth.Dispose();
+        ReleaseScreenOverlays();
         _powerOfTwoTarget.Dispose();
         _powerOfTwoTexture.Dispose();
         _waterDepth.Dispose();
@@ -938,17 +941,9 @@ internal sealed unsafe partial class WorldRenderer
             using D3DCompiler compiler = D3DCompiler.GetApi();
 
             _refractModelShader = PixelShader(_device, compiler, "PsRefractModel");
-
-            BufferDesc buffer = new()
-            {
-                ByteWidth = 12 * sizeof(float),
-                Usage = Usage.Dynamic,
-                BindFlags = (uint)BindFlag.ConstantBuffer,
-                CPUAccessFlags = (uint)CpuAccessFlag.Write,
-            };
-
-            SilkMarshal.ThrowHResult(_device.CreateBuffer(in buffer, null, ref _refractModelConstants));
         }
+
+        EnsureRefractModelConstants();
 
         MappedSubresource mapped = default;
 
@@ -981,6 +976,107 @@ internal sealed unsafe partial class WorldRenderer
         context.PSSetShaderResources(12, 1, ref normal);
         context.PSSetShaderResources(13, 1, ref _refractModelFrame);
         context.PSSetShaderResources(14, 1, ref tint);
+    }
+
+    /// <summary>The constant buffer the model refract and cloak shaders share (register b5).</summary>
+    private void EnsureRefractModelConstants()
+    {
+        if (_refractModelConstants.Handle is not null)
+        {
+            return;
+        }
+
+        BufferDesc buffer = new()
+        {
+            ByteWidth = 12 * sizeof(float),
+            Usage = Usage.Dynamic,
+            BindFlags = (uint)BindFlag.ConstantBuffer,
+            CPUAccessFlags = (uint)CpuAccessFlag.Write,
+        };
+
+        SilkMarshal.ThrowHResult(_device.CreateBuffer(in buffer, null, ref _refractModelConstants));
+    }
+
+    /// <summary><c>DrawCloakBlendedPass</c> for one batch, drawn again over its standard pass.</summary>
+    /// <param name="context">The context.</param>
+    /// <param name="pass">The material's cloak pass.</param>
+    /// <param name="bound">The <c>$cloakfactor</c> and <c>$cloakColorTint</c> the proxies left.</param>
+    /// <param name="bumped">The <c>BUMPMAP</c> combo: the material's <c>$bumpmap</c> is a texture (bound at t4).</param>
+    /// <param name="batch">The batch.</param>
+    /// <remarks>
+    /// **Its own state, as the helper resets it** ("since we're drawing from two materials"): blended
+    /// <c>SRC_ALPHA, ONE_MINUS_SRC_ALPHA</c>, depth tested and written. The frame is the copy made before the
+    /// renderable, bound as <c>TEXTURE_FRAME_BUFFER_FULL_TEXTURE_0</c> — which <c>UpdateRefractTexture</c>'s
+    /// <c>SetFrameBufferCopyTexture( pTexture )</c> points at the power-of-two copy (`view_scene.h:62`).
+    /// </remarks>
+    private void DrawCloakPass(
+        ComPtr<ID3D11DeviceContext> context,
+        CloakPass pass,
+        (float Factor, (float Red, float Green, float Blue) Tint) bound,
+        bool bumped,
+        WorldBatch batch)
+    {
+        if (_cloakShader.Handle is null)
+        {
+            using D3DCompiler compiler = D3DCompiler.GetApi();
+
+            _cloakShader = PixelShader(_device, compiler, "PsCloakModel");
+
+            DepthStencilDesc depth = default;
+
+            depth.DepthEnable = 1;
+            depth.DepthWriteMask = DepthWriteMask.All;
+            depth.DepthFunc = ComparisonFunc.LessEqual;
+
+            SilkMarshal.ThrowHResult(_device.CreateDepthStencilState(in depth, ref _cloakDepth));
+        }
+
+        EnsureRefractModelConstants();
+
+        MappedSubresource mapped = default;
+
+        SilkMarshal.ThrowHResult(context.Map(_refractModelConstants, 0, Map.WriteDiscard, 0, ref mapped));
+
+        float* into = (float*)mapped.PData;
+
+        // c7 $cloakcolortint and c6.y $refractamount, both as written; c6.x $cloakfactor.
+        into[0] = bound.Tint.Red;
+        into[1] = bound.Tint.Green;
+        into[2] = bound.Tint.Blue;
+        into[3] = pass.RefractAmount;
+        into[4] = bound.Factor;
+        into[5] = bumped ? 1f : 0f;
+        into[6] = 0f;
+        into[7] = 0f;
+        into[8] = _refractModelViewport.Width;
+        into[9] = _refractModelViewport.Height;
+        into[10] = _refractModelViewport.TopLeftX;
+        into[11] = _refractModelViewport.TopLeftY;
+
+        context.Unmap(_refractModelConstants, 0);
+
+        ComPtr<ID3D11DepthStencilState> depthBefore = default;
+        uint stencilBefore = 0;
+
+        context.OMGetDepthStencilState(ref depthBefore, ref stencilBefore);
+
+        float* blendFactor = stackalloc float[4] { 1f, 1f, 1f, 1f };
+
+        context.OMSetBlendState(_alphaBlend, blendFactor, 0xFFFFFFFF);
+        context.OMSetDepthStencilState(_cloakDepth, 0);
+        context.PSSetShader(_cloakShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.PSSetConstantBuffers(5, 1, ref _refractModelConstants);
+        context.PSSetShaderResources(13, 1, ref _refractModelFrame);
+
+        context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+
+        // A bound input cannot be an output, and the next batch draws with the material's own state and shader.
+        ComPtr<ID3D11ShaderResourceView> none = default;
+
+        context.PSSetShaderResources(13, 1, ref none);
+        context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+        context.OMSetDepthStencilState(depthBefore, stencilBefore);
+        depthBefore.Dispose();
     }
 
     private ComPtr<ID3D11Texture2D> _powerOfTwoTexture;

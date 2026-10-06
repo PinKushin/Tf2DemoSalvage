@@ -94,6 +94,7 @@ namespace Tf2DemoSalvage.Scene;
 /// </param>
 /// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
+/// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -155,7 +156,10 @@ public readonly record struct MapTexture(
     SkyFaceShading? Sky = null,
 
     // **A model's `Refract` material** (B506): this slot is then its normal map, blended, and the draw warps the frame.
-    RefractMaterial? Refract = null)
+    RefractMaterial? Refract = null,
+
+    // **A model material's cloak pass** (`$cloakpassenabled`): the frame warped over the model as `$cloakfactor` rises.
+    CloakPass? Cloak = null)
 {
     /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
     /// <param name="decoded">The texture as read.</param>
@@ -908,6 +912,10 @@ public sealed class MapAssets
     /// </remarks>
     public IReadOnlyDictionary<string, EngineSprite> SpriteMaterials
     { get; private init; } = new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The local player's screen overlays by material name (<c>ScreenOverlay.All</c>); absent where none ships.</summary>
+    public IReadOnlyDictionary<string, ScreenOverlayMaterial> ScreenOverlays
+    { get; private init; } = new Dictionary<string, ScreenOverlayMaterial>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The materials the game's decals draw with, by name, at their index in the material table (B415).</summary>
     /// <remarks>
@@ -1772,6 +1780,7 @@ public sealed class MapAssets
             ParticleSystemsByName = particleSystems,
             ParticleMaterials = allParticleMaterials,
             SpriteMaterials = sprites,
+            ScreenOverlays = LoadScreenOverlays(assets, pak, archives, maximumTextureSize),
             DecalMaterials = decals,
             DetailModelNames = detailModelNames,
             EntityModels = models,
@@ -2504,20 +2513,11 @@ public sealed class MapAssets
         return sprites;
     }
 
-    /// <summary><c>SHADER_PARAM( NORMALMAP, …, "models/shadertest/shader1_normal", … )</c> (`refract.cpp:21`).</summary>
-    private const string DefaultRefractNormalMap = "models/shadertest/shader1_normal";
-
-    /// <summary>A <c>Refract</c> sprite material — <c>effects/beam001_*</c> — or null when it is not one this port draws.</summary>
-    /// <remarks>
-    /// **Its blend is the shader's, not the text's alone**: <c>InitParamsRefract_DX9</c> sets
-    /// <c>MATERIAL_VAR_TRANSLUCENT</c> on every Refract material (`refract_dx9_helper.cpp:22`), and
-    /// <c>SetDefaultBlendingShadowState</c> then blends by alpha, or adds under <c>$additive</c>.
-    /// </remarks>
-    private static EngineSprite? RefractSprite(
-        ILogger assets, string named, PakFile pak, GameArchives archives, int maximumTextureSize)
+    /// <summary>A <c>Refract</c> material's parameters with its textures loaded, or null when it is not one this port draws.</summary>
+    private static RefractMaterial? ReadRefract(
+        ILogger assets, string named, VmtMaterial vmt, PakFile pak, GameArchives archives, int maximumTextureSize)
     {
-        if (ReadVmt(named, pak, archives) is not { } vmt ||
-            !vmt.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase))
+        if (!vmt.Shader.Equals("Refract", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -2538,6 +2538,59 @@ public sealed class MapAssets
             assets.LogInformation("refract material {Material} selects a combination this viewer does not draw", named);
             return null;
         }
+
+        return refract;
+    }
+
+    /// <summary>The local player's screen overlays (<c>ScreenOverlay.All</c>), loaded with the map for the reason every
+    /// material is: the first jarate of a match must not hitch.</summary>
+    /// <remarks>
+    /// **Every one is recorded, drawable or not**, because the slot is history: an overlay this port does not draw still
+    /// displaces the one before it. <c>effects/imcookin</c> is UnlitTwoTexture, additive, with <c>$color</c> written by
+    /// <c>BurnLevel</c> — and <c>PerformScreenOverlay</c> binds it with no entity, so <c>CProxyBurnLevel</c> answers 0
+    /// (`c_tf_player.cpp`, its <c>!pEntity</c> branch) and the overlay adds black: it draws nothing, faithfully.
+    /// </remarks>
+    private static Dictionary<string, ScreenOverlayMaterial> LoadScreenOverlays(
+        ILogger assets, PakFile pak, GameArchives archives, int maximumTextureSize)
+    {
+        Dictionary<string, ScreenOverlayMaterial> overlays = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string named in Core.Scene.ScreenOverlay.All)
+        {
+            if (ReadVmt(named, pak, archives) is not { } vmt)
+            {
+                continue;
+            }
+
+            overlays[named] = new ScreenOverlayMaterial(
+                named,
+                ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize),
+                vmt.Proxies,
+                vmt.NumericValues());
+        }
+
+        return overlays;
+    }
+
+    /// <summary><c>SHADER_PARAM( NORMALMAP, …, "models/shadertest/shader1_normal", … )</c> (`refract.cpp:21`).</summary>
+    private const string DefaultRefractNormalMap = "models/shadertest/shader1_normal";
+
+    /// <summary>A <c>Refract</c> sprite material — <c>effects/beam001_*</c> — or null when it is not one this port draws.</summary>
+    /// <remarks>
+    /// **Its blend is the shader's, not the text's alone**: <c>InitParamsRefract_DX9</c> sets
+    /// <c>MATERIAL_VAR_TRANSLUCENT</c> on every Refract material (`refract_dx9_helper.cpp:22`), and
+    /// <c>SetDefaultBlendingShadowState</c> then blends by alpha, or adds under <c>$additive</c>.
+    /// </remarks>
+    private static EngineSprite? RefractSprite(
+        ILogger assets, string named, PakFile pak, GameArchives archives, int maximumTextureSize)
+    {
+        if (ReadVmt(named, pak, archives) is not { } vmt ||
+            ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize) is not { } refract)
+        {
+            return null;
+        }
+
+        MapTexture normal = refract.NormalMap;
 
         EngineSprite sprite = EngineSprite.Init(
             normal,
@@ -2711,6 +2764,13 @@ public sealed class MapAssets
         // **The parameters carried out alongside the textures**, so the caller can report what
         // the map asked for rather than only what failed. Gathered here because this is the one
         // place the parsed VMT exists; the census itself runs on the single-threaded side.
+        // **The cloak pass rides on the model path's slot** — only a model draws one (`MATERIAL_VAR_MODEL` is set by
+        // `InitParamsCloakBlendedPass`), and every player, weapon and cosmetic material declares it.
+        if (model && first is { } colour && CloakPass.Read(material) is { } cloak)
+        {
+            first = colour with { Cloak = cloak };
+        }
+
         return new ResolvedMaterial(
             first,
             second,

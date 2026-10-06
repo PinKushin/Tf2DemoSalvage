@@ -242,6 +242,11 @@ in any public writeup found:
   disassembly. A trail is points the client samples from where its projectile is drawn, and a rope is a Verlet chain
   the client hangs between two entities. No demo in either corpus carries a temp-entity beam
   ([73](73-beams-trails-and-ropes-are-strips-the-client-builds.md)).
+- **A cloak is a second pass, and a screen overlay is a slot with a history.** A cloaked spy is his own materials with
+  `$cloakpassenabled`, warping a copy of the frame drawn before him, the standard pass dropped past a factor of 4/9;
+  nobody but an enemy ever reaches full invisibility. The overlay is one variable the condition hooks write and only
+  clear when it holds their own material — and the spy's own cloak has none
+  ([74](74-a-cloak-is-a-second-pass-and-an-overlay-is-a-slot.md)).
 
 ## Conventions used throughout
 

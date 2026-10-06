@@ -72,6 +72,54 @@ public static class PlayerInvisibility
         return Math.Clamp(target * scale, 0f, 1f);
     }
 
+    /// <summary>`tf_teammate_max_invis` (c_tf_player.cpp:1712), FCVAR_CHEAT | FCVAR_DEVELOPMENTONLY — never anything else.</summary>
+    private const float TeammateMaxInvis = 0.95f;
+
+    /// <summary>`OBS_MODE_DEATHCAM` (shareddefs.h).</summary>
+    private const int DeathCam = 1;
+
+    /// <summary>`OBS_MODE_FREEZECAM` (shareddefs.h).</summary>
+    private const int FreezeCam = 2;
+
+    /// <summary>`TF_VM_MIN_INVIS` / `TF_VM_MAX_INVIS` (tf_viewmodel.h).</summary>
+    private const float ViewmodelMinInvis = 0.22f;
+
+    private const float ViewmodelMaxInvis = 0.5f;
+
+    /// <summary>`C_TFPlayer::GetEffectiveInvisibilityLevel` (c_tf_player.cpp:6844): the percent as the viewer is shown it.</summary>
+    /// <param name="percent">`GetPercentInvisible()` — <see cref="Percent"/>.</param>
+    /// <param name="isEnemy">`IsEnemyPlayer()`, against the recorder (false for a SourceTV viewer, who has no team).</param>
+    /// <param name="entityIndex">This player's entity index.</param>
+    /// <param name="recorderObserverMode">The local player's `GetObserverMode()`, or null.</param>
+    /// <param name="recorderObserverTarget">The local player's observer target, by entity index, or null.</param>
+    /// <returns>0 visible through 1 invisible.</returns>
+    /// <remarks>
+    /// **Not ported, named:** the Halloween Hightower `TF_COND_STEALTHED_USER_BUFF` limit (it needs the gamerules'
+    /// Halloween scenario) and the taunt stomp `taunt_attr_player_invis_percent` (an attribute on a taunt item). Neither
+    /// reaches a competitive or ordinary match.
+    /// </remarks>
+    public static float Effective(
+        float percent, bool isEnemy, int entityIndex, int? recorderObserverMode, int? recorderObserverTarget)
+    {
+        bool capped = !isEnemy ||
+            (recorderObserverMode is DeathCam or FreezeCam && recorderObserverTarget == entityIndex);
+
+        return capped && percent > TeammateMaxInvis ? TeammateMaxInvis : percent;
+    }
+
+    /// <summary>`CInvisProxy::OnBind` for the LOCAL player (tf_viewmodel.cpp:575-594), the old `vm_invis` arithmetic.</summary>
+    /// <param name="percent">`GetPercentInvisible()`.</param>
+    /// <param name="blink">`InCond( TF_COND_STEALTHED_BLINK )`.</param>
+    /// <param name="motionCloakDry">A motion-cloak watch with `GetSpyCloakMeter() &lt;= 0`.</param>
+    /// <returns>The `$cloakfactor` the local player's own weapons and arms are drawn with.</returns>
+    public static float LocalWeapon(float percent, bool blink, bool motionCloakDry)
+    {
+        // `( flPercentInvisible < 0.01 ) ? 0.0 : RemapVal( … )`, the literal a double as written.
+        float invis = percent < 0.01 ? 0f : RemapVal(percent, 0f, 1f, ViewmodelMinInvis, ViewmodelMaxInvis);
+
+        return blink || motionCloakDry ? 0.3f : invis;
+    }
+
     /// <summary>`RemapVal` (mathlib/mathlib.h:612): unclamped; a zero-width input range answers by which side `val` is on.</summary>
     private static float RemapVal(float value, float a, float b, float c, float d)
     {

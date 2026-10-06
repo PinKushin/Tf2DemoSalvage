@@ -35940,3 +35940,70 @@ and the frame's temp entities fire in queue order after its simulation (`SoundPr
 one-tick-per-frame control, `…OneFrameOverTwoTicksOfTempEntities_DealsThemInQueueOrder`. **Sabotaged:** tick before
 phase reddened both multi-tick tests. *Interpolated, and untested:* a tie of phase and tick keeps the schedule first —
 a server sound and a HUD sound both made during one parse, whose real order is the packet's.
+
+## B508 — a cloaking spy drew solid: no cloak pass, no invisibility proxy — FIXED 2026-10-06
+
+**Measured before the fix:** nothing read `$cloakpassenabled` (307 shipped materials) and no proxy wrote
+`$cloakfactor`, so a spy at any level of cloak drew as an ordinary opaque player; only the HUD's class panel used
+`PlayerInvisibility.Percent`. The engine and its corrections are findings 74.
+
+**Fix:** `CloakPass` reads the pass off a model material (`$cloakcolortint`, `$refractamount` defaulting to 0.1,
+`$cloakfactor`) and ports `CloakBlendedPassIsFullyOpaque` and the per-frame `(0, 1)` test. `MomentScene.CloakOf` binds
+per entity what `spy_invis` and `invis` write — `GetEffectiveInvisibilityLevel` (the teammate/no-team 0.95 cap, the
+deathcam/freezecam cap on the recorder's killer), `CInvisProxy`'s 0.22–0.5 remap for the recorder's own entities, the
+team tint on the body only — found through the entity, its move parent, its owner, or (a viewmodel) the followed
+player. `EntityModels` drops a body at effective level 1 (`C_TFPlayer::DrawModel`). `WorldRenderer.DrawModel` copies
+the frame once before a cloaking model, skips each material's standard pass past 4/9, and draws `PsCloakModel`
+(`cloak_blended_pass_ps2x.fxc`) over the batch; `Device3D.Classify` collates a cloaking model as translucent.
+
+**Evidence:** `CloakPassConformanceTests` (6), `PlayerInvisibilityConformanceTests` (+6), `CloakBindTests` (6),
+`CloakRenderTests` (3 of 5, the shipped `spy_red`: nearly cloaked over a uniform frame is the frame within one step,
+its uncloaked control paints the suit; half cloaked RED is the frame × (1, 0.5, 0.4) in linear light, ratios within
+0.02), `CorpusCloakAndOverlayTests.CloakOf_ASourceTvSpyCloaking_RisesToTheTeammateCap` (serveme STV spy 7, 0.3–0.8 at
+63730, the 0.95 cap and drawn at 63800). Captured with `--shot` at 63720 and 63745 on that demo: the spy reads as a
+red-tinted warp of the wall behind him, the suit gone. **Sabotage, each restored by the inverse edit:** the teammate
+cap removed reddened both `Effective` cap tests; the 4/9 threshold widened reddened `DrawsStandardPass`; `invis` writing
+`SpyInvis` reddened `For_…`; the viewmodel's owner not resolved reddened `CloakOf_TheRecordersOwnViewmodel…`; the tint
+dropped from the shader reddened the half-cloaked render; the standard pass drawn regardless reddened the fully-cloaked
+render. **Survivor, kept and named:** with the cloak pass never drawn, the 0.99 half of the fully-cloaked render stays
+green — at 0.99 the pass reproduces its own copy, so "drawn" and "not drawn" are the same picture; the half-cloaked test
+is what sees the pass.
+
+**Not ported, named:** the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
+mesh tangents this vertex format lacks (*interpolated*; it moves only the warp's direction). A motion-cloak (Cloak and
+Dagger) spy's fade by speed is known only for the recorder, whose item list carries the watch's attribute — others draw
+as an ordinary watch, as the HUD already did. `C_TFRagdoll`'s own cloak (feign death), the Hightower spell's limit, the
+taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped non-local read, and the tint a `spy_invis` bind
+leaves in a shared material for the next entity are not reproduced. The translucency is decided from this frame's
+factor; the engine's `ComputeTranslucencyType` sees the last bind's, a frame earlier.
+
+**Owner-visible:** every cloaking or cloaked spy changes. On a POV demo the recorder's ENEMY spies vanish at full
+cloak, his teammates and every spy on SourceTV keep a 0.95 shimmer — TF2's own behaviour, and a change from the solid
+spy shown before.
+
+## B509 — no screen overlay was drawn: uber, jarate, bleed, gas — FIXED 2026-10-06
+
+**Measured before the fix:** `PerformScreenOverlay` had no counterpart; the recorder ubered or jarated saw a clean
+screen. Findings 74 records the slot's rules, including that a spy's cloak and Mad Milk set none.
+
+**Fix:** `ScreenOverlay.Step` ports the overlay half of every `OnAdd*`/`OnRemove*` in `SyncConditions` order, and the
+timeline steps it on the recorder each frame (`ScenePlayer.ScreenOverlayMaterial`). `MapAssets.ScreenOverlays` loads
+the nine materials with the map; `ScreenOverlayMaterial.Bind` runs their `Sine`, `Equals` and `TextureScroll` proxies
+with no entity; `MomentScene.ScreenOverlay` hands the slot to the device only in the recorder's own eyes; and
+`WorldRenderer.DrawScreenOverlay` copies the frame and draws the Refract arithmetic (`PsRefractModel`) over a screen
+rectangle after the particles and before the HUD, its texcoords 0 to 1023/1024 through `$bumptransform`.
+
+**Evidence:** `ScreenOverlayConformanceTests` (14), `ScreenOverlayMaterialTests` (4: the bleed pulse into
+`$refracttint[1..2]`, the invuln `$refractamount` swing, the jarate scroll), `CloakRenderTests` (jarate over a uniform
+frame keeps red within one step and darkens blue; `imcookin` loads and draws nothing),
+`CorpusCloakAndOverlayTests.Build_TheUberedRecordersEyes_DrawTheRedInvulnOverlay` (rgl-pug POV, tick 95960; none in
+third person; none at 96200). `--shot` at 95960 shows TF2's orange vignette. **Sabotage, each restored:** a remover
+clearing any overlay reddened `Step_AnotherRemoved_KeepsTheShownOne`; the overlay put on the wrong player reddened the
+corpus test; the screen rectangle not drawn reddened the jarate render.
+
+**Not drawn, named:** `effects/stealth_overlay` (the Halloween stealth spell's; as shipped a grey translucent
+VertexLitGeneric, drawn by `ViewDrawFade`) and `effects/imcookin` (drawn as nothing — faithfully, findings 74). Both
+still take the slot. `AnimatedTexture` on an overlay's `$normalmap` draws frame 0. `IsErrorMaterial` is not consulted:
+all nine ship.
+
+**Owner-visible:** in first person on a POV demo, the recorder's uber, jarate, bleed and gas now tint and warp the view.

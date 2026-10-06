@@ -472,6 +472,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// the world and its overlays (B135, B426).
     /// </param>
     /// <param name="locals">The lamps lighting the model, or null (B424's static-plus-dynamic test).</param>
+    /// <param name="cloak">What the invisibility proxies bind for the model; nobody cloaked by default.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -498,7 +499,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         float[]? bakedColours = null,
         bool surfaceColours = false,
         bool clearDepth = true,
-        IReadOnlyList<LocalLight>? locals = null)
+        IReadOnlyList<LocalLight>? locals = null,
+        CloakBind cloak = default)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -560,7 +562,23 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
-            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours);
+            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak);
+    }
+
+    /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>
+    /// <param name="overlay">The overlay material.</param>
+    /// <param name="seconds">`curtime`, for its proxies.</param>
+    /// <returns>Whether anything was drawn.</returns>
+    public bool DrawScreenOverlay(ScreenOverlayMaterial overlay, double seconds)
+    {
+        _world ??= WorldRenderer.Create(_device, _loggers);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+
+        return _world.DrawScreenOverlay(_context, overlay, seconds);
     }
 
     /// <summary>

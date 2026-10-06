@@ -391,6 +391,27 @@ public sealed class MomentScene : IGameSystemPerFrame
         // (`c_tf_player.cpp:1935`) — which is the same chain, written out in the engine.
         _models.UrineTint = prop => UrineTintOf(prop.OwnedBy ?? prop.AttachedTo, players);
 
+        // **The invisibility proxies, per entity** — `spy_invis` and `invis`, which write `$cloakfactor` on every player,
+        // weapon and cosmetic material. Both find the player through the entity, its move parent or its owner.
+        (int? recorder, float serverTime, int? followed) = (info.Recorder, info.ServerTime, info.Followed);
+
+        // **The local player's screen overlay, through his own eyes only** — `PerformScreenOverlay` draws the slot his
+        // condition hooks wrote; a SourceTV viewer's local player has none, and another camera is not his view.
+        ScreenOverlay = null;
+
+        if (info.FirstPerson && followed is { } eyes && eyes == recorder)
+        {
+            foreach (ScenePlayer player in players)
+            {
+                if (player.EntityIndex == eyes)
+                {
+                    ScreenOverlay = player.ScreenOverlayMaterial;
+                }
+            }
+        }
+
+        _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed);
+
         ReportUndressedPlayers(players);
 
         // **The model set resolves the mask's body part**, because only it has the .mdl. A spy's
@@ -922,6 +943,86 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         return 0f;
     }
+
+    /// <summary>What `spy_invis` and `invis` bind for one prop.</summary>
+    /// <param name="prop">The entity being drawn.</param>
+    /// <param name="players">This moment's players.</param>
+    /// <param name="recorder">The local player's entity index, or null for a SourceTV viewer.</param>
+    /// <param name="serverTime">The server clock the cloak ramps on.</param>
+    /// <param name="followed">Whom the first-person camera follows: a viewmodel's owner.</param>
+    /// <returns>Nobody cloaked for an entity no player owns.</returns>
+    /// <remarks>
+    /// **The player is found the way both proxies find it**: the entity itself, its move parent (a worn item), or its
+    /// owner (a weapon, a viewmodel). `invis` gives the LOCAL player's own entities the viewmodel remap
+    /// (`tf_viewmodel.cpp:575`); everyone else gets `GetEffectiveInvisibilityLevel`, which caps all but the recorder's
+    /// enemies at 0.95 — so a SourceTV viewer, on no team, sees every cloaked spy as a faint shimmer.
+    ///
+    /// **Not ported, named:** a motion-cloak (Cloak and Dagger) spy's fade by speed needs his watch's attribute, which
+    /// only the recorder's item list carries here, so others draw as an ordinary watch; and a feign-death ragdoll's own
+    /// `C_TFRagdoll::GetPercentInvisible`.
+    /// </remarks>
+    public static CloakBind CloakOf(
+        SceneProp prop, IReadOnlyList<ScenePlayer> players, int? recorder, float serverTime, int? followed)
+    {
+        ArgumentNullException.ThrowIfNull(prop);
+        ArgumentNullException.ThrowIfNull(players);
+
+        // A viewmodel's player is `pVM->GetOwner()` — whoever the first-person camera follows; its props carry
+        // synthetic indices of their own.
+        int? viewmodelOwner = prop.FirstPerson ? followed : null;
+        int owner = viewmodelOwner ?? prop.OwnedBy ?? prop.AttachedTo ?? prop.EntityIndex;
+        ScenePlayer? found = null;
+        ScenePlayer? local = null;
+
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == owner)
+            {
+                found = player;
+            }
+
+            if (player.EntityIndex == recorder)
+            {
+                local = player;
+            }
+        }
+
+        if (found is not { } player2)
+        {
+            return default;
+        }
+
+        float percent = PlayerInvisibility.Percent(player2, serverTime, motionCloak: false);
+
+        if (percent <= 0f)
+        {
+            return default;
+        }
+
+        float effective = PlayerInvisibility.Effective(
+            percent, player2.IsEnemy, player2.EntityIndex, local?.ObserverMode, local?.ObserverTarget);
+
+        float invis = player2.EntityIndex == recorder
+            ? PlayerInvisibility.LocalWeapon(percent, player2.Conditions.Has(StealthedBlink), motionCloakDry: false)
+            : effective;
+
+        bool body = prop.OwnedBy is null && prop.AttachedTo is null && prop.EntityIndex == player2.EntityIndex;
+
+        return new CloakBind(
+            effective,
+            invis,
+            body ? CloakPass.TeamTint(player2.Team) : null,
+            Undrawn: body && effective >= 1f);
+    }
+
+    /// <summary>`TF_COND_STEALTHED_BLINK` (tf_shareddefs.h:699).</summary>
+    private const int StealthedBlink = 9;
+
+    /// <summary>
+    /// The screen overlay material this moment draws over the frame, or null — the recorder's slot, while the camera is
+    /// in his eyes (see <c>Core.Scene.ScreenOverlay</c>).
+    /// </summary>
+    public string? ScreenOverlay { get; private set; }
 
     /// <summary>The jarate multiplier for the player in an entity slot (B336).</summary>
     /// <param name="entity">The slot, or null for a prop nobody owns.</param>

@@ -970,6 +970,87 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return float4(result, vNormal.a);
         }
 
+        // **`PerformScreenOverlay`'s power-of-two branch** (viewrender.cpp:1228-1240): `DrawScreenSpaceRectangle( mat,
+        // 0, 0, w, h, 0, 0, sw - 1, sh - 1, sw, sh )` over the 1024² copy, so the rectangle's texcoords run 0 to
+        // 1023/1024 — through `$bumptransform` (refract_vs20's BUMPTRANSFORM) into the normal map. PsRefractModel then
+        // places each pixel in the frame by SV_POSITION, which is the rectangle's own projection.
+        cbuffer ScreenOverlay : register(b6)
+        {
+            float4 overlayBump0;
+            float4 overlayBump1;
+        };
+
+        VsOut VsScreenOverlay(uint id : SV_VertexID)
+        {
+            VsOut output = (VsOut)0;
+            float2 corner = float2((id << 1) & 2, id & 2);
+
+            output.pos = float4(corner * float2(2.0f, -2.0f) + float2(-1.0f, 1.0f), 0.0f, 1.0f);
+
+            float4 texCoord = float4(corner * (1023.0f / 1024.0f), 0.0f, 1.0f);
+
+            output.uv = float2(dot(texCoord, overlayBump0), dot(texCoord, overlayBump1));
+            return output;
+        }
+
+        // **`cloak_blended_pass_ps2x.fxc`**, VertexLitGeneric's cloak pass, over the model vertex shader. It shares the
+        // refract cbuffer: refractModelTint is $cloakcolortint (rgb, set raw — SetPixelShaderConstant, not the
+        // gamma-to-linear variant) and $refractamount (w); refractModelFlags.x is $cloakfactor, .y the BUMPMAP combo.
+        // **The one approximation**: Valve's BUMPMAP combo rotates the normal map by the mesh's tangent frame, which this
+        // vertex format does not carry; the frame here is the screen-derivative cotangent frame of the same surface.
+        float4 PsCloakModel(VsOut input) : SV_TARGET
+        {
+            float cloakFactor = saturate(refractModelFlags.x);
+            float3 vWorldNormal = normalize(input.nrm);
+
+            if (refractModelFlags.y > 0.5f)
+            {
+                float3 vTangentNormal = bumpMap.Sample(wrapSampler, input.uv).xyz * 2.0f - 1.0f;
+                float3 dp1 = ddx(input.wpos);
+                float3 dp2 = ddy(input.wpos);
+                float2 duv1 = ddx(input.uv);
+                float2 duv2 = ddy(input.uv);
+                float3 dp2perp = cross(dp2, vWorldNormal);
+                float3 dp1perp = cross(vWorldNormal, dp1);
+                float3 tangent = dp2perp * duv1.x + dp1perp * duv2.x;
+                float3 binormal = dp2perp * duv1.y + dp1perp * duv2.y;
+                float invmax = rsqrt(max(max(dot(tangent, tangent), dot(binormal, binormal)), 1e-20f));
+                vWorldNormal = tangent * invmax * vTangentNormal.x + binormal * invmax * vTangentNormal.y +
+                    vWorldNormal * vTangentNormal.z;
+            }
+
+            // c0/c1: the first two rows of ( View * Proj ) transposed — the normal's clip-space x and y.
+            float2 vProjNormal = mul(float4(vWorldNormal, 0.0f), viewProjection).xy;
+
+            float2 vRefractTexCoordNoWarp = (input.pos.xy - refractModelFrame.zw) / refractModelFrame.xy;
+            float2 vRefractTexCoord = vProjNormal * lerp(refractModelTint.w, 0.0f, cloakFactor) + vRefractTexCoordNoWarp;
+
+            float flBlurAmount = lerp(0.05f, 0.0f, cloakFactor);
+            float3 cRefract = refractFrameCopy.Sample(clampSampler, vRefractTexCoord).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-0.0876f,  0.9703f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2( 0.4802f,  0.5651f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2( 0.1851f,  0.1580f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-0.2616f, -0.0617f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-0.5477f, -0.6603f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-0.5325f,  0.0711f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2(-0.0751f, -0.8954f) * flBlurAmount).rgb;
+            cRefract += refractFrameCopy.Sample(clampSampler, vRefractTexCoord + float2( 0.6384f,  0.4054f) * flBlurAmount).rgb;
+            cRefract /= 9.0f;
+
+            // The Fresnel term reads the interpolated vertex normal, never the bumped one.
+            float flFresnel = 1.0f - saturate(dot(input.nrm, normalize(eyePosition.xyz - input.wpos)));
+            float flCloakLerpFactor = saturate(lerp(1.0f, flFresnel - 1.35f, cloakFactor));
+            flCloakLerpFactor = 1.0f - smoothstep(0.4f, 0.425f, flCloakLerpFactor);
+
+            cRefract *= lerp(flFresnel * 0.4f + 0.8f, 1.0f, cloakFactor * cloakFactor);
+
+            float fColorTintStrength = saturate((cloakFactor - 0.75f) * 4.0f);
+            cRefract *= lerp(refractModelTint.rgb, float3(1.0f, 1.0f, 1.0f), fColorTintStrength);
+
+            // FinalOutput( result, 0, PIXEL_FOG_TYPE_NONE, TONEMAP_SCALE_NONE ).
+            return float4(cRefract, flCloakLerpFactor);
+        }
+
         float4 PsMain(VsOut input) : SV_TARGET
         {
             // **Two textures mixed by the vertex's alpha, which is what terrain is.** A
@@ -1925,6 +2006,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     private ComPtr<ID3D11PixelShader> _refractModelShader;
     private ComPtr<ID3D11Buffer> _refractModelConstants;
+
+    /// <summary>Each model material's cloak pass by index — <c>$cloakpassenabled</c>.</summary>
+    private readonly Dictionary<int, CloakPass> _cloaks = [];
+
+    private ComPtr<ID3D11PixelShader> _cloakShader;
+
+    /// <summary><c>EnableDepthWrites( true )</c> over the default test, as <c>DrawCloakBlendedPass</c> leaves it.</summary>
+    private ComPtr<ID3D11DepthStencilState> _cloakDepth;
 
     /// <summary>Materials that mark a surface rather than being one — <c>$decal</c>.</summary>
     /// <remarks>
@@ -2973,6 +3062,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     refract,
                     Upload(device, context, refract.NormalMap, srgb: false),
                     refract.RefractTintTexture is { } tint ? Upload(device, context, tint) : default);
+            }
+
+            if (texture is { Cloak: { } cloak })
+            {
+                _cloaks[index] = cloak;
             }
 
             if (texture is { IsAdditive: true })
@@ -6374,6 +6468,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         }
 
         _refracts.Clear();
+        _cloaks.Clear();
 
         // Gathered against the material kinds just cleared; Device3D gathers again on its next camera (B426).
         TranslucentLeaves = null;
@@ -6631,6 +6726,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// A baked static prop's colour mesh in the model buffer's order, or null (B426). Bound as a second
     /// stream. With no cube it is the light; with one (zero, B424) the shader ADDS it to the cube and the lamps.
     /// </param>
+    /// <param name="cloak">
+    /// What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this ENTITY; each material with a cloak
+    /// pass draws by it.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -6661,12 +6760,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         (float Red, float Green, float Blue)? paint = null,
         float burn = 0f,
         (float Red, float Green, float Blue)? urine = null,
-        float[]? bakedColours = null)
+        float[]? bakedColours = null,
+        CloakBind cloak = default)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
 
         ArgumentNullException.ThrowIfNull(modelPath);
+
+        // **UpdateRefractTexture() once, before the renderable** (`viewrender.cpp:4609-4635`): a cloaking material's
+        // `NeedsPowerOfTwoFrameBufferTexture` answers true for the frame, so the copy is of the frame WITHOUT this model,
+        // and every cloaking batch of it warps that same copy.
+        bool frameCopied = cloak.Cloaking && _cloaks.Count > 0;
+
+        if (frameCopied)
+        {
+            CopyFrameForRefract(context);
+        }
 
         // **Named now that each model owns its buffer.** "Nothing was uploaded" used to be one
         // question about one shared buffer; it is now a question about THIS model, and saying which
@@ -7097,9 +7207,26 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 BindRefractModel(context, _refracts[material]);
             }
 
+            // **The cloak pass's two decisions, per material as SHADER_DRAW makes them** (`vertexlitgeneric_dx9.cpp:464-519`):
+            // past 4/9 the standard pass is skipped outright, and strictly inside (0, 1) the cloak pass follows it.
+            CloakPass? cloakPass = material >= 0 && _cloaks.TryGetValue(material, out CloakPass? found) ? found : null;
+            IReadOnlyList<MaterialProxy> materialProxies = material >= 0 && material < _proxies.Count ? _proxies[material] : [];
+            (float Factor, (float Red, float Green, float Blue) Tint) cloaked = cloakPass is null
+                ? (0f, (1f, 1f, 1f))
+                : cloak.For(cloakPass, materialProxies);
+
             drawn += batch.VertexCount;
 
-            context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            if (cloakPass is null || CloakPass.DrawsStandardPass(cloaked.Factor))
+            {
+                context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+            }
+
+            if (cloakPass is not null && frameCopied && CloakPass.DrawsCloakPass(cloaked.Factor))
+            {
+                DrawCloakPass(
+                    context, cloakPass, cloaked, material < _bumps.Count && _bumps[material].Handle is not null, batch);
+            }
 
             if (refracting)
             {

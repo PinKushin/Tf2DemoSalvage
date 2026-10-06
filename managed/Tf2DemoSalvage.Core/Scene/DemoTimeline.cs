@@ -301,6 +301,12 @@ public readonly record struct ScenePlayer(
     /// </summary>
     public float? InvisChangeCompleteTime { get; init; }
 
+    /// <summary>
+    /// The screen overlay the LOCAL player's condition hooks have left in `view-&gt;SetScreenOverlayMaterial`, as
+    /// <see cref="ScreenOverlay"/> steps it; null for nobody's, and for every player but the recorder.
+    /// </summary>
+    public string? ScreenOverlayMaterial { get; init; }
+
     /// <summary>`m_Shared.m_flCloakMeter` (:586): 0..100 — a motion cloak at 0 fades by speed (`InvisibilityThink`, :8019).</summary>
     public float? CloakMeter { get; init; }
 
@@ -2565,6 +2571,12 @@ public sealed class DemoTimeline
         // inventing a time for it.
         Dictionary<int, int> burningSince = [];
 
+        // **The local player's screen overlay, stepped by the condition hooks as they fire** (`ScreenOverlay`): one
+        // slot, written by each `OnAdd*` and cleared by an `OnRemove*` only when it holds that hook's own material, so
+        // it is history and only this in-order loop can keep it.
+        PlayerConditions overlayConditions = default;
+        string? screenOverlay = null;
+
         // **When each player last JUMPED — a teleport or a respawn** (B346). The wire carries
         // `m_ubInterpolationFrame`, a parity whose value means nothing and whose CHANGE means a
         // discontinuity: `IncrementInterpolationFrame` (`baseentity.cpp:8471`), declared under the
@@ -3273,6 +3285,17 @@ public sealed class DemoTimeline
                     lastHeld[player.EntityIndex] = holding;
                 }
 
+                // `SyncConditions` runs on every update the local player receives, dormant or not; its team is
+                // `m_pOuter->GetTeamNumber()`, the entity's own.
+                if (player.EntityIndex == recorderSlot + 1)
+                {
+                    PlayerConditions conditionsNow = player.Conditions();
+
+                    screenOverlay = ScreenOverlay.Step(
+                        screenOverlay, overlayConditions, conditionsNow, First(player, TeamProperties));
+                    overlayConditions = conditionsNow;
+                }
+
                 // **A dormant player's animation state is cleared, every frame it stays dormant** (B112). The client
                 // keeps a dormant player in its animation list, and `Update` finds `IsDormant()` and calls
                 // `ClearAnimationState` (`multiplayer_animstate.cpp:1390`, `tf_playeranimstate.cpp:370-374`).
@@ -3663,6 +3686,7 @@ public sealed class DemoTimeline
                     Gravity = player.Number("DT_BaseEntity.m_flGravity") ?? 0f,
                     KillStreak = player.Integer("m_nStreaks.000"),
                     InvisChangeCompleteTime = player.Number("DT_TFPlayerShared.m_flInvisChangeCompleteTime"),
+                    ScreenOverlayMaterial = player.EntityIndex == recorderSlot + 1 ? screenOverlay : null,
                     CloakMeter = player.Number("DT_TFPlayerShared.m_flCloakMeter"),
                     DisguiseWeapon = EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")),
                     DisguiseWeaponItem = DisguiseWeaponItem(player, entities),
