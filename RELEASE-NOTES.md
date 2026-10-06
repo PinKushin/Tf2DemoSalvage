@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.31
+# Tf2DemoSalvage 0.1.0-beta.32
 
-## Changes since 0.1.0-beta.30
+## Changes since 0.1.0-beta.31
+
+- **A map you do not have installed now loads on the first open.** The viewer starts fetching the map as soon as
+  the demo header names it, in parallel with decoding, and the load waits for it. Before, a first download could
+  leave a view with no map, or crash (B507). Fetched maps are cached in `%LOCALAPPDATA%\Tf2DemoSalvage\maps`.
+
+## Changes in 0.1.0-beta.31
 
 - **Refract trails now draw.** Trails drawn with a refracting material (the `beam001` trails attached to players,
   common in real matches) were skipped. They now warp a copy of the frame behind them and fade into fog, as the
@@ -293,6 +299,8 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Early map fetch (B507):** covered by the 0.1.0-beta.32 test suite and the merge gate; see `docs/RISKS.md` B507.
+
 - **Every protocol TF2 has shipped with that a demo could be found for: 11, 14, 15, 16, 18, 19, 21,
   22 and 24.** The test suite carries one demo per era and point of view, recorded on a client of
   that period: 2007 (build 3258, first-person and SourceTV), 2008 (build 3420, both), 2009
@@ -354,6 +362,9 @@ Each claim below is a measurement, not an expectation.
 ## Known gaps
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
+
+- **Downloaded maps carry no checksum.** A fetched map is cached by name, not by checksum, so the
+  checksum-named cache of D162 is not used for it (B507).
 
 - **Very large demos cannot be opened in the viewer.** A demo left recording on an idle server for
   hours (the 1.3 GB and 2 GB specimens found so far) works in the command-line tool, but the
