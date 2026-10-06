@@ -174,6 +174,24 @@ selects `MASKED`, `FADEOUTONSILHOUETTE` or a second normal map. The 11 that sele
 `_rt_Camera` as `$basetexture` all set `$model`, so they reach the model renderer, which has no Refract draw (B506).
 The strip pass refuses those combos, and no sprite or particle material selects one.
 
+### A model's Refract is the same pixel shader, and most "model" Refract is not on a model (B506; read from published source, measured)
+
+**`MODEL=1` changes only the vertex shader.** `DrawRefract_DX9` (`refract_dx9_helper.cpp:157-182`) gives a model no
+tangent stream and sets `refract_vs20`'s `MODEL` combo, which skins. The pixel shader reads the tangent frame only
+under `CUBEMAP` (`refract_ps2x.fxc:227-241`). So for every TF2 combo, the model draw is the strip's arithmetic over the
+model vertex shader, with `vRefractXYW / w` being the pixel's place in the frame. The viewer computes that from
+`SV_POSITION` over the viewport rather than carrying a fourth interpolant.
+
+**Before B506 these drew as the missing-material chequer**, not as nothing: a Refract material names no
+`$basetexture`, so the model batch bound the chequer.
+
+**The filing's list was wrong about what is a model.** It counted the cloak and invulnerability overlays among
+model-drawn materials. They are screen overlays (`*_overlay`, `SetScreenOverlayMaterial`), the `hud/` ones are HUD,
+and a cloaked spy is `VertexLitGeneric` with `$cloakpassenabled`. The `$model` flag says how the shader takes its
+vertices, not that a model in the world uses it. What a TF2 match can show is the Bazaar Bargain's lens, the crystal
+ball and `blurmuzzle`. No lcor demo has a Bazaar Bargain held (`entity-census`, no `CTFSniperRifleDecap` in 58), so the
+render tests draw the shipped lens material through the production model load instead.
+
 **A wrong turn worth keeping: the offscreen pictures were not in the window's colour space.** The first synthetic test
 predicted the vertex-colour multiply in linear light and read it halved in STORED values. That was not the shader. The
 offscreen target's view was plain UNORM, while the window's back buffer view is `B8G8R8A8_UNORM_SRGB`, so every

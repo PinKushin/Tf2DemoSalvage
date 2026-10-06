@@ -47,8 +47,8 @@ public sealed record RefractMaterial(
     /// <remarks>
     /// **No sprite or particle material TF2 ships selects one** (`refract-census`, 2026-10-05): none of the 123 Refract
     /// materials states <c>$masked</c>, <c>$fadeoutonsilhouette</c> or <c>$normalmap2</c>, and the 11 with
-    /// <c>$envmap</c> and 2 with <c>$basetexture _rt_Camera</c> are all <c>$model</c> materials, drawn by the model path
-    /// (B506), which this pass never sees.
+    /// <c>$envmap</c> and 2 with <c>$basetexture _rt_Camera</c> are all <c>$model</c> materials. The model path reads the
+    /// rest through here too (B506), and those 13 stay refused there: they are HL2 props and shader tests TF2 never draws.
     /// </remarks>
     private static readonly string[] Refused = ["$basetexture", "$envmap", "$normalmap2"];
 
