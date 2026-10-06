@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.30
+# Tf2DemoSalvage 0.1.0-beta.31
 
-## Changes since 0.1.0-beta.29
+## Changes since 0.1.0-beta.30
+
+- **Refract trails now draw.** Trails drawn with a refracting material (the `beam001` trails attached to players,
+  common in real matches) were skipped. They now warp a copy of the frame behind them and fade into fog, as the
+  game does (B476).
+- **No user-visible change:** offscreen test pictures now use the same sRGB format as the window.
+
+## Changes in 0.1.0-beta.30
 
 - **A seek now replays the game's skip, silently.** HUD sounds and animation-event sounds in the skipped ticks
   count toward a script's no-repeat wave deck, as in TF2, so the waves you hear after a seek match what the game
@@ -325,6 +332,10 @@ Each claim below is a measurement, not an expectation.
   this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
   control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
   ear in a played demo.
+- **Refract trails** (beta.31): conformance tests cover the refract shader port, the trail batching and the frame
+  copy; fog was read from the game's published shader source, with the fog colour taken unscaled (an
+  interpolation). Not yet checked by eye against the game, and the frame-rate cost of a refract trail is not
+  measured (B476).
 - **Skip replay and multi-tick frame order** (beta.30): HUD and animation-event sounds in skipped ticks deal the
   wave deck as the engine's skip does; timings measured on the f12 demo (forward to tick 90,006 about +4 s,
   rewind to tick 50,000 about +0.9 s). Not yet checked by ear in a played demo (B504, B505).
@@ -352,6 +363,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
+- **Refracting materials on models are not drawn yet** (B506): the cloak and invulnerability overlays, sniper
+  scope lenses, the crystal ball, and the blurred muzzle flash. How they look today was not measured.
 - **Crosshair approximations (B500):** the match-summary and minigame hides are verified only on synthetic data,
   because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
   game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
