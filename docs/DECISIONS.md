@@ -9596,3 +9596,21 @@ sees the command line's value (read from shipped game data, `game-file cfg/valve
 the earlier note had filed it as `TF2_FOLDER`'s job, which made a Source-syntax launch option silently do nothing.
 Also: a folder picked at startup reloads the player's config, and the menu's shortcut labels are now redone from
 it (`ViewerMenu.ApplyBindings`); they had kept the keys from before the read.
+
+## D211 — no known-protocol list: a header is checked against a floor of 11, and coverage is a report (2026-10-06)
+
+**Trigger.** The overnight full-corpus superset failed exactly two tests:
+`Container_EveryCorpusDemo_WalksCleanlyAndAgreesWithItsHeader` on the lcor ESEA POVs at protocols 18
+(build 4735) and 19 (build 4743), because the test pinned `NetworkProtocol` to
+`[11, 14, 15, 16, 21, 22, 24]`. Both files decode end to end (CLI trace and the decode fixes B488/B489
+already made for them); only the list refused them.
+
+**The owner, verbatim:** *"we shouldnt really need a 'known list' though should we? We know tf2 demos are
+protocol 11+, and we dont really need to know anything else, other then how many of them we have covered,
+but not having it listed somewhere should never keep it from being tested"*.
+
+**So:** the container test asserts `NetworkProtocol >= 11` and agreement with its header, nothing else.
+Which protocols have specimens is a fact in `docs/TIMELINE.md`, never a test gate. A decode branch gated
+by a protocol RANGE is fine — that is the wire format; a closed set of accepted values is not. A grep of
+`tests/`, `managed/` and `tools/` found no other closed set (the list was the only `ShouldBeOneOf` over a
+protocol, and nothing in Core refuses or skips an unlisted protocol).

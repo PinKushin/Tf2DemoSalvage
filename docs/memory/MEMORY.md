@@ -130,3 +130,4 @@
 - [Download every demo found](download-every-demo-found.md) — whole packs into lcor; archive.org later.
 - [Users never touch env vars](users-never-touch-environment-variables.md) — cfg + UI; env is scripts/debug (D210).
 - [A deck is dealt at play time](a-deck-is-dealt-at-play-time.md) — state shared by load + live sounds resolves in the presenter; a seek is the engine's skip, not "play to T" (B503-B505).
+- [No known-protocol list](no-known-protocol-list.md) — floor 11, coverage is TIMELINE, never a gate (D211).
