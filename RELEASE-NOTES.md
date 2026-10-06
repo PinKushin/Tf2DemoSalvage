@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.32
+# Tf2DemoSalvage 0.1.0-beta.33
 
-## Changes since 0.1.0-beta.31
+## Changes since 0.1.0-beta.32
+
+- **Refracting materials on models now draw.** The Bazaar Bargain lens, the crystal ball and the blurred muzzle
+  flash showed the missing-material checkerboard; they now warp a copy of the frame behind them, as the game
+  does (B506).
+
+## Changes in 0.1.0-beta.32
 
 - **A map you do not have installed now loads on the first open.** The viewer starts fetching the map as soon as
   the demo header names it, in parallel with decoding, and the load waits for it. Before, a first download could
@@ -299,6 +305,9 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Refracting models (B506):** covered by the 0.1.0-beta.33 test suite and the merge gate. Refract trails cost no
+  measurable frame rate on sanctum. No demo we hold contains a Bazaar Bargain, so this was not checked on a real
+  demo; see `docs/RISKS.md` B506.
 - **Early map fetch (B507):** covered by the 0.1.0-beta.32 test suite and the merge gate; see `docs/RISKS.md` B507.
 
 - **Every protocol TF2 has shipped with that a demo could be found for: 11, 14, 15, 16, 18, 19, 21,
@@ -342,8 +351,7 @@ Each claim below is a measurement, not an expectation.
   ear in a played demo.
 - **Refract trails** (beta.31): conformance tests cover the refract shader port, the trail batching and the frame
   copy; fog was read from the game's published shader source, with the fog colour taken unscaled (an
-  interpolation). Not yet checked by eye against the game, and the frame-rate cost of a refract trail is not
-  measured (B476).
+  interpolation). Not yet checked by eye against the game (B476).
 - **Skip replay and multi-tick frame order** (beta.30): HUD and animation-event sounds in skipped ticks deal the
   wave deck as the engine's skip does; timings measured on the f12 demo (forward to tick 90,006 about +4 s,
   rewind to tick 50,000 about +0.9 s). Not yet checked by ear in a played demo (B504, B505).
@@ -374,8 +382,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
-- **Refracting materials on models are not drawn yet** (B506): the cloak and invulnerability overlays, sniper
-  scope lenses, the crystal ball, and the blurred muzzle flash. How they look today was not measured.
+- **Some model refract materials still show the checkerboard** (B506): the 13 HL2 and test materials that use
+  `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. Not checked on a real
+  demo.
 - **Crosshair approximations (B500):** the match-summary and minigame hides are verified only on synthetic data,
   because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
   game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
