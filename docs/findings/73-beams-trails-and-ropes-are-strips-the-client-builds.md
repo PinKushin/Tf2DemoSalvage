@@ -192,6 +192,32 @@ vertices, not that a model in the world uses it. What a TF2 match can show is th
 ball and `blurmuzzle`. No lcor demo has a Bazaar Bargain held (`entity-census`, no `CTFSniperRifleDecap` in 58), so the
 render tests draw the shipped lens material through the production model load instead.
 
+### The refused model combos are HL2 props no TF2 map places, but `_rt_Camera` itself is live (B506 leftovers; measured, read from published source)
+
+**Which models carry the 13 refused materials** (`refract-census reach`, 2026-10-07, a byte search of every shipped
+`.mdl` for each material's name; the control is the Bazaar lens, found in both its models): 26 models, every one an
+HL2 or shader-test model (`props_combine/combine_barricade_*`, `stasisshield`, `breentp_rings`, `props_c17/door02_double`,
+`props_wasteland/lighthouse_fresnel_light*`, `props_lab/crystalholder_crystal`, `effects/portalrift`,
+`shadertest/shaderslab1/3/4/5`). **None of the 242 maps read places one** — the 239 in `tf/maps` and the 3 in the
+viewer's own cache, static props and entity `model` keys both. TF2 mounts the HL2 VPKs, so a community map could;
+none that this project has seen does.
+
+**`$nowritez` and `$bumptransform` reach nothing the model path draws.** Only `stasisshield_sheet` sets `$nowritez`,
+and it is one of the 13. The parameter `$bumptransform` is stated by no Refract material; what moves it is a proxy, 22
+of them (`TextureTransform` ×6, `TextureScroll` ×16, measured by the same census). Those are the six HUD scope pieces,
+the screen overlays, the `water_warp*` and `screenwarp` effects, six of the 13, and `props_lab/tank_glass001`, whose
+one model (`generatortube`) no map places either. The three TF2 model draws — the Bazaar lens, the crystal ball and
+`blurmuzzle` — carry no proxy.
+
+**`_rt_Camera` is not dead in TF2, which is what kept this from being a one-line close.** `CTFRenderTargets` creates it
+at `tf_monitor_resolution` 1024 (`tf_rendertargets.cpp:16,41`, `baseclientrendertargets.cpp:37-46,62`), `viewrender.cpp`
+defines `USE_MONITORS` for `TF_CLIENT_DLL` (`:65-67`), and `DrawMonitors` renders every active, non-dormant
+`C_PointCamera` into it before the main view (`:2074-2081`, `:3240-3287`, `DrawOneMonitor` `:3168-3238`). The class is
+networked (`DT_PointCamera`, in z1800's schema), and three shipped maps place a `point_camera`: `koth_boardwalk`,
+`pd_circus` and `vsh_skirmish`. So the two Refract materials binding it are unreachable only because their models are;
+the monitor pass is a separate missing feature, filed as B511, and no corpus demo exercises it (`entity-census`: no
+`CPointCamera` in 57 lcor demos or in gcor, with `CRopeKeyframe` found in 80 as the control).
+
 **A wrong turn worth keeping: the offscreen pictures were not in the window's colour space.** The first synthetic test
 predicted the vertex-colour multiply in linear light and read it halved in STORED values. That was not the shader. The
 offscreen target's view was plain UNORM, while the window's back buffer view is `B8G8R8A8_UNORM_SRGB`, so every
