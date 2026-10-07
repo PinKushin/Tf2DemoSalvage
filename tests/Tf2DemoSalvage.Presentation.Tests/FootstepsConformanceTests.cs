@@ -158,6 +158,48 @@ public sealed class FootstepsConformanceTests
         third.Pitch.ShouldBe(EntitySounds.Emit(140, 7, "Concrete.StepRight", (10f, 20f, 30f), scripts, emitted: false, ClientSoundPhase.Simulate)!.Value.Pitch);
     }
 
+    // ---- The landing: CGameMovement::PlayerRoughLandingEffects → PlayStepSound( origin, m_pSurfaceData, fvol, true ) ----
+
+    [Test]
+    public void Land_OnConcrete_IsTheNextFootAtTheLandingsVolume()
+    {
+        // gamemovement.cpp:3995 hands fvol straight to PlayStepSound, which plays it as ep.m_flVolume on CHAN_BODY.
+        SceneSound landing = new Footsteps().Land(100, 7, (1f, 2f, 3f), Concrete, 0.85f, Scripts()).ShouldNotBeNull();
+
+        (landing with { WaveDraw = null, Order = default }).ShouldBe(new SceneSound(
+            Tick: 100,
+            Name: "player/footsteps/concrete_right.wav",
+            SoundNumber: ExplosionSounds.NotPrecached,
+            EntityIndex: 7,
+            Channel: 4,
+            Volume: 0.85f,
+            SoundLevel: 75,
+            Pitch: 100,
+            DelaySeconds: 0f,
+            OriginX: 1f,
+            OriginY: 2f,
+            OriginZ: 3f));
+    }
+
+    [Test]
+    public void Land_ThenAStep_SharesTheFootAlternation()
+    {
+        // One m_Local.m_nStepside serves both (baseplayer_shared.cpp:682-687).
+        Footsteps footsteps = new();
+
+        footsteps.Land(100, 7, (1f, 2f, 3f), Concrete, 1f, Scripts());
+
+        footsteps.Step(120, Player(speed: 350f), Concrete, NoWater, Scripts(), PlayerFlagLayout.Current)!.Value.Name
+            .ShouldBe("player/footsteps/concrete_left.wav");
+    }
+
+    [Test]
+    public void Land_OnNothing_IsSilent()
+    {
+        // `if ( !psurface ) return;` (:676).
+        new Footsteps().Land(100, 7, (1f, 2f, 3f), null, 1f, Scripts()).ShouldBeNull();
+    }
+
     private static readonly Func<string, StepSurface?> NoWater = static _ => null;
 
     private static ScenePlayer Player(float speed, int flags = OnGround) =>

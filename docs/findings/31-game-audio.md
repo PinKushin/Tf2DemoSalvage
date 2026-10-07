@@ -1183,3 +1183,21 @@ every client `RandomInt`/`RandomFloat` between two reseeds consumes from the sam
 (`c_tf_player.cpp:11663`) for every sound among them, and nothing records how many. So each sound keeps its own
 deterministic stream; the DRAW is interpolated, the deal is not. Measured on f12 through the presenter: the 2,629 blasts
 all play `BaseExplosionEffect.Sound`'s three waves, and each of the 876 consecutive triples is a permutation.
+
+## A landing is a footstep that prediction plays, and only for the recorder (B172)
+
+The owner heard no landings. The footstep fix (`4bb16c37`) suggested the same route — an animation event — and it is
+the wrong one: the landing sound comes from MOVEMENT. `CheckFalling` (`gamemovement.cpp:3919`) picks a volume from
+`m_flFallVelocity` against 350, 290 and 580, TF2's `PlayerRoughLandingEffects` (`tf_gamemovement.cpp:2975`) mutes a
+grapple and any scout landing short of fall damage, and the base hands the ground's step sound to `PlayStepSound` — the
+same function and the same `m_nStepside` as a footstep, at the landing's volume. *Read from published source.*
+
+The part with no prior art is who it reaches. **The server sends a landing only to clients OUTSIDE the lander's PVS**
+(`baseplayer_shared.cpp:717-722`), on the stated assumption that those inside predict it — but only the lander's own
+client runs his movement. So in the live game nobody near a player hears him land, and an STV demo has nothing to
+reconstruct. The recorder of a POV demo is the one exception, because prediction runs during playback (D205): the
+viewer now re-runs `CheckFalling` in `TfGameMovement` and plays each command's landing the first time it is predicted.
+On the 2009 badlands POV demo that is 4 landings against the server's 7 — the missing three land in a command whose
+acknowledging packet arrives on the same tick it is read, so no frame predicts it. *Measured; the engine skipping the
+same three is interpolated from D205's order of reads.* The server's own `m_flFallVelocity` was the control, and it
+nearly misled: its zero is networked as 0.03125, so a test for `== 0` counted no landings at all.
