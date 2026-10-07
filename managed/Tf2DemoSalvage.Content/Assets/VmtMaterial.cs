@@ -541,6 +541,12 @@ public sealed class VmtMaterial
     public bool TakesVertexColour =>
         IsCable || (Shader.StartsWith("UnlitGeneric", StringComparison.OrdinalIgnoreCase) && Flag("$vertexcolor"));
 
+    /// <summary>
+    /// A <c>Cable</c> material's normal map — its <c>$bumpmap</c>, or the parameter's default <c>cable/cablenormalmap</c>
+    /// (`cable_dx9.cpp:26`) — bound for every cable (`:111`); null for any other shader (B478).
+    /// </summary>
+    public string? CableBumpMap => IsCable ? Value("$bumpmap") ?? "cable/cablenormalmap" : null;
+
     /// <summary>Whether this is a rope's <c>Cable</c> shader, or one of its per-level fallbacks.</summary>
     private bool IsCable => Shader.StartsWith("Cable", StringComparison.OrdinalIgnoreCase);
 

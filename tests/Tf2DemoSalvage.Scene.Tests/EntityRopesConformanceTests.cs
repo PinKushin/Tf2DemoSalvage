@@ -188,6 +188,164 @@ public sealed class EntityRopesConformanceTests
         sprites.Drawn.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **An impulse is a force on every node until it decays**: <c>ReceiveMessage</c> SETS <c>m_flImpulse</c>
+    /// (`c_rope.cpp:2092-2094`), and <c>GetNodeForces</c> adds <c>ROPE_IMPULSE_SCALE · impulse</c> to each node and decays it
+    /// by 0.95 (`:913-917`). An upward kick lifts the hanging middle above the same rope left alone.
+    /// </remarks>
+    [Test]
+    public void Impulse_AnUpwardKick_LiftsTheMiddleAboveTheUnkickedRope()
+    {
+        EntityRopes kicked = new();
+        EntityRopes control = new();
+
+        Build(kicked, Cable(), fakeAntialiasing: false);
+        Build(control, Cable(), fakeAntialiasing: false);
+
+        kicked.Impulse(120, new Vector3(0f, 0f, 5000f));
+
+        float lifted = SolidPass(Build(kicked, Cable(), fakeAntialiasing: false)).Min(corner => corner.Z);
+        float resting = SolidPass(Build(control, Cable(), fakeAntialiasing: false)).Min(corner => corner.Z);
+
+        lifted.ShouldBeGreaterThan(resting + 1f);
+    }
+
+    /// <remarks>
+    /// **An impulse for a rope not yet simulated waits for it**: the client entity exists when its message is read
+    /// (`ReceiveMessage` runs on the entity), so the impulse is its state from the start. Without
+    /// <c>ROPE_INITIAL_HANG</c> the first think simulates one frame, which the kick lifts; one for another entity changes
+    /// nothing. (With the hang, five seconds of simulation decay it away first — 0.95 a node a step — as in the client.)
+    /// </remarks>
+    [Test]
+    public void Impulse_BeforeTheRopesFirstBuild_IsItsStartingImpulse()
+    {
+        SceneRope unhung = Cable() with { Flags = EntityRopes.SimulateFlag | EntityRopes.NoWindFlag };
+        EntityRopes kicked = new();
+        EntityRopes stranger = new();
+
+        kicked.Impulse(120, new Vector3(0f, 0f, 5000f));
+        stranger.Impulse(121, new Vector3(0f, 0f, 5000f));
+
+        float lifted = SolidPass(Build(kicked, unhung, fakeAntialiasing: false)).Max(corner => corner.Z);
+        float resting = SolidPass(Build(stranger, unhung, fakeAntialiasing: false)).Max(corner => corner.Z);
+        float control = SolidPass(Build(new EntityRopes(), unhung, fakeAntialiasing: false)).Max(corner => corner.Z);
+
+        lifted.ShouldBeGreaterThan(control + 1f);
+        resting.ShouldBe(control);
+    }
+
+    /// <remarks>
+    /// **`ShakeRopes` adds <c>( 1 − distance / radius ) · magnitude</c> to the impulse's z for every node within the
+    /// radius** (`C_RopeKeyframe::ShakeRope`, `c_rope.cpp:1265-1280`), for every rope (`ShakeRopesCallback`, `:856-868`).
+    /// Out of reach it adds nothing — the rope is the control's exactly; in reach it lifts.
+    /// </remarks>
+    [Test]
+    public void Shake_InAndOutOfReach_LiftsOnlyTheRopeItReaches()
+    {
+        EntityRopes far = new();
+        EntityRopes near = new();
+        EntityRopes control = new();
+
+        Build(far, Cable(), fakeAntialiasing: false);
+        Build(near, Cable(), fakeAntialiasing: false);
+        Build(control, Cable(), fakeAntialiasing: false);
+
+        far.Shake(new Vector3(5000f, 0f, 0f), 100f, 5000f);
+        near.Shake(new Vector3(50f, 0f, 60f), 500f, 5000f);
+
+        float resting = SolidPass(Build(control, Cable(), fakeAntialiasing: false)).Min(corner => corner.Z);
+
+        SolidPass(Build(far, Cable(), fakeAntialiasing: false)).Min(corner => corner.Z).ShouldBe(resting);
+        SolidPass(Build(near, Cable(), fakeAntialiasing: false)).Min(corner => corner.Z).ShouldBeGreaterThan(resting + 1f);
+    }
+
+    /// <remarks>
+    /// **Both ends dormant and both with a model: no draw** (`DrawModel`, `c_rope.cpp:1462-1467`). One dormant end is not
+    /// enough, and the test is of the handles' entities, not of where the ends are.
+    /// </remarks>
+    [TestCase(true, true, 0)]
+    [TestCase(true, false, 1)]
+    [TestCase(false, true, 1)]
+    public void Build_DormantEndsWithModels_DrawOnlyWhenNotBoth(bool startDormant, bool endDormant, int drawn)
+    {
+        EntityRopes ropes = new();
+
+        ropes.Build(
+            [Prop(Cable())],
+            new RopeView(new Vector3(50f, -100f, 100f), Vector3.UnitY, 1000f),
+            Sprites(fakeAntialiasing: false),
+            Ends,
+            _ => Vector3.One,
+            (_, _) => new RopeHit(1f, Vector3.Zero, 0f, false),
+            frameTime: 0.015f,
+            dormantWithModel: handle => handle == StartHandle ? startDormant : endDormant);
+
+        ropes.Drawn.ShouldBe(drawn);
+    }
+
+    /// <remarks>
+    /// **Holiday lights: a <c>TF_HolidayLight</c> at every strip point** (`BuildRope`, `c_rope.cpp:1709-1752`):
+    /// <c>m_nMaterial</c> the rope's index, <c>m_nHitBox</c> <c>node &lt;&lt; 8</c> at a node and one more at each
+    /// subdivision after it, and the scale <c>r_rope_holiday_light_scale</c>, 0.055. Five nodes and two subdivisions are
+    /// thirteen points; the second node's are 256, then 257 and 258.
+    /// </remarks>
+    [Test]
+    public void Build_InHolidayLightMode_DispatchesALightAtEveryStripPoint()
+    {
+        EntityRopes ropes = new();
+
+        Build(ropes, Cable(), fakeAntialiasing: false, holidayStyle: 0);
+
+        ropes.HolidayLights.Count.ShouldBe(13);
+        ropes.HolidayLights.Select(light => light.SubId).ShouldBe([0, 1, 2, 256, 257, 258, 512, 513, 514, 768, 769, 770, 1024]);
+        ropes.HolidayLights.ShouldAllBe(light => light.RopeIndex == ropes.HolidayLights[0].RopeIndex);
+        ropes.HolidayLights.ShouldAllBe(light => Math.Abs(light.Scale - EntityRopes.HolidayLightScale) < 1e-7f);
+        EntityRopes.HolidayLightScale.ShouldBe(0.055f);
+        Vector3.Distance(ropes.HolidayLights[0].Origin, StartPoint).ShouldBeLessThan(0.001f);
+
+        Build(ropes, Cable(), fakeAntialiasing: false);
+
+        ropes.HolidayLights.ShouldBeEmpty("no lights out of holiday mode");
+    }
+
+    /// <remarks>
+    /// **Under Pyrovision the solid material is <c>cable/pure_white</c>** (`GetSolidMaterial`, `c_rope.cpp:1984-1996`) — style
+    /// 1 — while the texture height is still the rope's own (`FinishInit`, `:1318`).
+    /// </remarks>
+    [Test]
+    public void Build_InPyrovisionHolidayStyle_DrawsTheSolidPassPureWhite()
+    {
+        EntityRopes ropes = new();
+        Dictionary<string, EngineSprite> sprites = Sprites(fakeAntialiasing: false);
+        EngineSprite white = CableMaterial(SpriteBlend.Opaque) with
+        {
+            Material = new ParticleMaterial(new MapTexture(2, 2, 2, 2, TextureImage.None, IsTransparent: false), [], SpriteBlend.Opaque),
+        };
+
+        sprites[EntityRopes.PureWhiteMaterial] = white;
+
+        IReadOnlyList<ParticleBatch> batches = ropes.Build(
+            [Prop(Cable())],
+            new RopeView(new Vector3(50f, -100f, 100f), Vector3.UnitY, 1000f),
+            sprites,
+            Ends,
+            _ => Vector3.One,
+            (_, _) => new RopeHit(1f, Vector3.Zero, 0f, false),
+            frameTime: 0.015f,
+            holidayStyle: 1);
+
+        batches.Count.ShouldBe(1);
+        batches[0].Material.Sheet.ShouldBe(white.Material.Sheet);
+        SolidPass(batches)[2].V.ShouldBe(600f / 9f, 0.001f, "the rope's own texture height, 1, sets the increment");
+    }
+
+    private static RopeEndPoint? Ends(int handle, int attachment, bool weapon) => handle switch
+    {
+        StartHandle => new RopeEndPoint(StartPoint, Vector3.UnitX),
+        EndHandle => new RopeEndPoint(EndPoint, Vector3.UnitX),
+        _ => null,
+    };
+
     private static SceneRope Cable() => new(
         StartPoint: StartHandle,
         EndPoint: EndHandle,
@@ -205,20 +363,21 @@ public sealed class EntityRopesConformanceTests
         ScrollSpeed: 0f);
 
     private static IReadOnlyList<ParticleBatch> Build(
-        EntityRopes ropes, SceneRope rope, bool fakeAntialiasing, float distance = 100f, Vector3? light = null) =>
+        EntityRopes ropes,
+        SceneRope rope,
+        bool fakeAntialiasing,
+        float distance = 100f,
+        Vector3? light = null,
+        int? holidayStyle = null) =>
         ropes.Build(
             [Prop(rope)],
             new RopeView(new Vector3(50f, -distance, 100f), Vector3.UnitY, 1000f),
             Sprites(fakeAntialiasing),
-            (handle, _, _) => handle switch
-            {
-                StartHandle => new RopeEndPoint(StartPoint, Vector3.UnitX),
-                EndHandle => new RopeEndPoint(EndPoint, Vector3.UnitX),
-                _ => null,
-            },
+            Ends,
             _ => light ?? Vector3.One,
             (_, _) => new RopeHit(1f, Vector3.Zero, 0f, false),
-            frameTime: 0.015f);
+            frameTime: 0.015f,
+            holidayStyle: holidayStyle);
 
     private static SceneProp Prop(SceneRope rope) => new(
         EntityIndex: 120,

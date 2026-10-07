@@ -2492,6 +2492,16 @@ public sealed class MapAssets
                 vmt?.Modulation,
                 vmt?.TakesVertexColour ?? false,
                 vmt?.TakesVertexAlpha ?? false);
+
+            // **A rope's `Cable` material shades by its normal map** (`cable_ps2x.fxc:40-49`, B478), loaded raw beside it.
+            if (vmt?.CableBumpMap is { } bump &&
+                LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + bump.Replace('\\', '/') + ".vtf")
+                    is { } normal)
+            {
+                EngineSprite loaded = sprites[path];
+
+                sprites[path] = loaded with { Material = loaded.Material with { CableBump = normal } };
+            }
         }
 
         // Stryker disable all : the String mutator wraps the interpolated literal in a

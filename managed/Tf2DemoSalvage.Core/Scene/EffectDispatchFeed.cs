@@ -53,6 +53,12 @@ public readonly record struct SceneEffectDispatch(
 
     /// <summary>Whether it came reliably (a zero count), which a demo skip still queues (B504).</summary>
     public bool Reliable { get; init; }
+
+    /// <summary>`m_flMagnitude`, 0 unless sent — what `ShakeRopes` shakes by (`c_rope.cpp:860`, B478).</summary>
+    public float Magnitude { get; init; }
+
+    /// <summary>`m_flRadius`, 0 unless sent — how far `ShakeRopes` reaches (`c_rope.cpp:859`, B478).</summary>
+    public float Radius { get; init; }
 }
 
 /// <summary>Every `CTEEffectDispatch` a demo carries, in fire order, and the table naming them (B415).</summary>
@@ -137,6 +143,8 @@ public sealed class EffectDispatchFeed
         private (float X, float Y, float Z) _colourTwo;
         private bool _hasControlPoint1;
         private (float X, float Y, float Z) _controlPoint1;
+        private float _magnitude;
+        private float _radius;
 
         public void Read(string name, PropertyValue value)
         {
@@ -153,6 +161,8 @@ public sealed class EffectDispatchFeed
                 case "m_iEffectName": _name = (int)value.AsInt; break;
                 case "m_fFlags": _flags = (int)value.AsInt; break;
                 case "m_flScale": _scale = value.AsFloat; break;
+                case "m_flMagnitude": _magnitude = value.AsFloat; break;
+                case "m_flRadius": _radius = value.AsFloat; break;
                 case "m_nAttachmentIndex": _attachment = (int)value.AsInt; break;
                 case "m_nSurfaceProp": _surfaceProp = unchecked((short)((int)value.AsInt - 1)); break;
                 case "m_nMaterial": _material = (int)value.AsInt; break;
@@ -174,6 +184,10 @@ public sealed class EffectDispatchFeed
         public readonly SceneEffectDispatch At(int tick) =>
             new(tick, _name, _origin, _start, _normal, _angles, _flags, _scale, _attachment, _surfaceProp, _material,
                 _damageType, _hitBox, _entity, _colour, _customColours, _colourOne, _colourTwo, _hasControlPoint1,
-                _controlPoint1);
+                _controlPoint1)
+            {
+                Magnitude = _magnitude,
+                Radius = _radius,
+            };
     }
 }

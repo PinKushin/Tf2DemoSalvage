@@ -320,12 +320,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
     /// <inheritdoc />
     public int HolidayVisionFlagsAt(double tick) =>
         TfHolidays.IsHalloweenOrFullMoonActive(
-            timeline.ServerConVars.Value, timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType, WatcherClock.Value)
+            timeline.ServerConVars.Value, timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType, TfHolidays.WatcherClock)
             ? VisionVisibility.HalloweenFlag
             : 0;
-
-    /// <summary>`UTIL_CalculateHolidays` reads the clock once per process (util_shared.cpp:1374-1377).</summary>
-    private static readonly Lazy<DateTime> WatcherClock = new(() => DateTime.Now);
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;

@@ -2091,7 +2091,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -2109,7 +2109,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 _particleSheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump));
         }
     }
 
@@ -2131,7 +2131,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="viewProjection">The camera.</param>
     /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract)> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump)> batches,
         float[] viewProjection,
         WaterFrameTarget? frame = null)
     {
@@ -2146,8 +2146,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                   SpriteBlend blend,
                   SpriteDepth depth,
                   IReadOnlyList<DetailSpriteVertex> corners,
-                  RefractMaterial? refract) in batches)
+                  RefractMaterial? refract,
+                  MapTexture? cableBump) in batches)
         {
+            // A `Cable` material's normal map, raw like the refract one (B478); none for everything else.
+            ComPtr<ID3D11ShaderResourceView> bump = default;
+
+            if (cableBump is { } bumpMap && !_refractNormals.TryGetValue(bumpMap, out bump))
+            {
+                bump = WorldRenderer.UploadTexture(_device, _context, bumpMap, srgb: false);
+                _refractNormals[bumpMap] = bump;
+            }
+
+            _particleSprites.SetCableBump(bump);
+
             if (refract is not null)
             {
                 if (frame is not { } target || _world is null)
@@ -2198,7 +2210,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         SpriteBlend Blend,
         SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners,
-        RefractMaterial? Refract)> _panelParticles = [];
+        RefractMaterial? Refract,
+        MapTexture? CableBump)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
@@ -2206,9 +2219,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         SpriteBlend Blend,
         SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners,
-        RefractMaterial? Refract)> _particleBatches = [];
+        RefractMaterial? Refract,
+        MapTexture? CableBump)> _particleBatches = [];
 
-    /// <summary>Each refract material's normal map, uploaded raw — a bump map is a direction, not a colour (B476).</summary>
+    /// <summary>
+    /// Each refract material's normal map and each cable's, uploaded raw — a bump map is a direction, not a colour
+    /// (B476, B478).
+    /// </summary>
     private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _refractNormals = [];
 
     private DetailSpriteRenderer? _detailSprites;

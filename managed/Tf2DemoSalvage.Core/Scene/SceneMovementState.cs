@@ -55,4 +55,17 @@ public readonly record struct SceneLocalMovement
 /// <param name="SolidType"><c>SolidType_t</c>: <c>SOLID_BSP</c> 1, <c>SOLID_BBOX</c> 2 (<c>const.h:239-240</c>).</param>
 /// <param name="SolidFlags"><c>FSOLID_*</c>; <c>FSOLID_NOT_SOLID</c> is 4 (<c>const.h:252</c>).</param>
 /// <param name="CollisionGroup"><c>Collision_Group_t</c> (<c>const.h:398</c>) or TF's (<c>tf_shareddefs.h:1317</c>).</param>
-public readonly record struct SceneCollision(int SolidType, int SolidFlags, int CollisionGroup);
+public readonly record struct SceneCollision(int SolidType, int SolidFlags, int CollisionGroup)
+{
+    /// <summary><c>m_vecMins</c> (<c>collisionproperty.cpp:372</c>): the scaled OBB minimum, in collision space.</summary>
+    public (float X, float Y, float Z) Mins { get; init; }
+
+    /// <summary><c>m_vecMaxs</c> (<c>collisionproperty.cpp:373</c>).</summary>
+    public (float X, float Y, float Z) Maxs { get; init; }
+
+    /// <summary>
+    /// <c>IsBoundsDefinedInEntitySpace</c> (<c>collisionproperty.h:340-344</c>): not <c>FSOLID_FORCE_WORLD_ALIGNED</c> (64),
+    /// and neither <c>SOLID_BBOX</c> (2) nor <c>SOLID_NONE</c> (0) — the OBB turns with the entity.
+    /// </summary>
+    public bool BoundsInEntitySpace => (SolidFlags & 64) == 0 && SolidType is not (2 or 0);
+}

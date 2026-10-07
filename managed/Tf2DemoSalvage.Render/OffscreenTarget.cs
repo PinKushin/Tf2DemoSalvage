@@ -384,6 +384,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     private ComPtr<ID3D11ShaderResourceView> _spriteSheet;
     private ComPtr<ID3D11ShaderResourceView> _refractNormal;
     private ComPtr<ID3D11ShaderResourceView> _refractTint;
+    private ComPtr<ID3D11ShaderResourceView> _cableBump;
 
     /// <summary>Draws one particle or entity sprite batch with its blend and depth state, as the viewer's particle pass does (B391).</summary>
     /// <param name="batch">The batch.</param>
@@ -424,6 +425,13 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         {
             _sprites.SetRefract(null);
         }
+
+        // A `Cable` material's normal map, raw (B478).
+        _cableBump.Dispose();
+        _cableBump = batch.Material.CableBump is { } bump
+            ? WorldRenderer.UploadTexture(_device, _context, bump, srgb: false)
+            : default;
+        _sprites.SetCableBump(_cableBump);
 
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
@@ -727,6 +735,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _depthView.Dispose();
         _depthTexture.Dispose();
         _staging.Dispose();
+        _cableBump.Dispose();
         _texture.Dispose();
         _context.Dispose();
         _device.Dispose();

@@ -7369,6 +7369,7 @@ internal class MainForm : Form, IFrameSteps
         double tick = _transport.CurrentTick;
         float seconds = (float)(tick * interval);
         float elapsed = (float)Math.Max(0d, (tick - _effectEntitiesTick) * interval);
+        int previousTick = (int)_effectEntitiesTick;
 
         _effectEntitiesTick = tick;
 
@@ -7400,14 +7401,33 @@ internal class MainForm : Form, IFrameSteps
             TrailOrigin,
             seconds);
 
+        IReadOnlyDictionary<string, EngineSprite> spriteMaterials = _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites;
+
+        // Before the think, as the client reads them with the packet (B478): each rope's impulse and each ShakeRopes.
+        if (elapsed > 0f)
+        {
+            KickRopes(previousTick + 1, (int)tick);
+        }
+
+        int? holidayStyle = RopeHolidayStyle((int)tick);
+
+        // `CHolidayLightManager::Update`: the lights the last frame dispatched are made or moved now.
+        _ropeLights.Update(seconds, holidayStyle ?? 0);
+
         IReadOnlyList<ParticleBatch> ropes = _ropes.Build(
             _moment.Drawn,
             new RopeView(view.Origin, forward, Math.Max(1, _viewport.ClientSize.Width)),
-            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
+            spriteMaterials,
             RopeEnd,
             RopeLight,
             RopeCollide,
-            elapsed);
+            elapsed,
+            RopeEndDormantWithModel,
+            holidayStyle);
+
+        QueueHolidayLights((int)tick);
+
+        IReadOnlyList<ParticleBatch> holidayLights = _ropeLights.Batches(spriteMaterials, forward, right, up);
 
         // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
         // refused" read differently in the log.
@@ -7422,8 +7442,132 @@ internal class MainForm : Form, IFrameSteps
         }
 
         // Ropes first: the rope manager draws its cache with the opaque renderables, before anything translucent.
-        return [.. ropes, .. beams, .. trails];
+        return [.. ropes, .. beams, .. trails, .. holidayLights];
     }
+
+    /// <summary>
+    /// The rope events of the ticks played since the last frame (B478): <c>C_RopeKeyframe::ReceiveMessage</c>'s impulses and
+    /// <c>ShakeRopesCallback</c>'s shakes, in arrival order within each kind.
+    /// </summary>
+    private void KickRopes(int fromTick, int toTick)
+    {
+        if (_timeline is not { } timeline || toTick < fromTick)
+        {
+            return;
+        }
+
+        TickWindow.Between(timeline.RopeImpulses.All, static impulse => impulse.Tick, fromTick, toTick, _ropeImpulsesNow);
+
+        foreach ((int _, SceneRopeImpulse impulse) in _ropeImpulsesNow)
+        {
+            _ropes.Impulse(impulse.EntityIndex, new Vector3(impulse.Impulse.X, impulse.Impulse.Y, impulse.Impulse.Z));
+        }
+
+        TickWindow.Between(timeline.Dispatches.All, static dispatch => dispatch.Tick, fromTick, toTick, _ropeShakesNow);
+
+        foreach ((int _, SceneEffectDispatch shake) in _ropeShakesNow)
+        {
+            if (string.Equals(timeline.Dispatches.Names.Name(shake.Name), "ShakeRopes", StringComparison.Ordinal))
+            {
+                _ropes.Shake(new Vector3(shake.Origin.X, shake.Origin.Y, shake.Origin.Z), shake.Radius, shake.Magnitude);
+            }
+        }
+    }
+
+    /// <summary>
+    /// <c>CRopeManager::IsHolidayLightMode</c>'s answer this tick, as a style or null (B478): the game rules' gates, Christmas
+    /// on the watcher's calendar, and the local player's Pyrovision.
+    /// </summary>
+    private int? RopeHolidayStyle(int tick)
+    {
+        if (_timeline is not { } timeline)
+        {
+            return null;
+        }
+
+        SceneGameRules rules = timeline.RulesAt(tick);
+
+        return _ropeHolidayMode.Style(
+            rules.Present,
+            rules.PowerupMode,
+            rules.RopesHolidayLightsAllowed,
+            () => TfHolidays.IsChristmasActive(timeline.ServerConVars.Value, rules.MapHolidayType, TfHolidays.WatcherClock),
+            (_moment.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
+    }
+
+    /// <summary>
+    /// <c>CHolidayLightManager::AddHolidayLight</c> for each light the build just dispatched, against the local player's
+    /// origin and the map's <c>sky_camera</c> — the origin <c>m_skybox3d</c> carries.
+    /// </summary>
+    private void QueueHolidayLights(int tick)
+    {
+        if (!ReferenceEquals(_ropeLightsTimeline, _timeline))
+        {
+            // `LevelShutdownPreEntity` and the temp entities' level shutdown.
+            _ropeLights.Clear();
+            _ropeLightsTimeline = _timeline;
+        }
+
+        if (_ropes.HolidayLights.Count == 0)
+        {
+            return;
+        }
+
+        Vector3? player = _timeline?.RecorderEntityIndex is { } local &&
+            _timeline.TrackFor(local, tick)?.At(tick) is { } pose
+                ? new Vector3(pose.X, pose.Y, pose.Z)
+                : null;
+
+        (float X, float Y, float Z) sky = _loaded?.Level is { } level
+            ? BspEntities.SkyCamera(level.Entities)?.Origin ?? default
+            : default;
+
+        foreach (RopeHolidayDispatch dispatch in _ropes.HolidayLights)
+        {
+            _ropeLights.Add(dispatch, player, new Vector3(sky.X, sky.Y, sky.Z));
+        }
+    }
+
+    /// <summary>
+    /// Whether a rope end's <c>EHANDLE</c> names an entity that is dormant and has a model index — <c>DrawModel</c>'s two
+    /// tests of each end (`c_rope.cpp:1462-1467`).
+    /// </summary>
+    private bool RopeEndDormantWithModel(int handle)
+    {
+        const int InvalidHandle = (1 << 21) - 1;
+        const int SlotMask = (1 << 11) - 1;
+
+        if (handle == InvalidHandle || _timeline is not { } timeline)
+        {
+            return false;
+        }
+
+        int slot = handle & SlotMask;
+        int tick = _transport.CurrentTick;
+
+        return timeline.TrackFor(slot, tick) is { } track &&
+            track.Continues(handle >> 11) &&
+            track.ModelPath.Length > 0 &&
+            timeline.Dormancy.IsDormant(slot, tick);
+    }
+
+    /// <summary><c>TF_VISION_FILTER_PYRO</c> (`shareddefs.h:977`).</summary>
+    private const int PyroVisionFlag = 1;
+
+    /// <summary>The impulses of the ticks played since the last frame.</summary>
+    private readonly List<(int Index, SceneRopeImpulse Impulse)> _ropeImpulsesNow = [];
+
+    /// <summary>The effect dispatches of those ticks, of which the ShakeRopes are taken.</summary>
+    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _ropeShakesNow = [];
+
+    /// <summary><c>s_RopeManager</c>'s holiday state, which lives as long as the client.</summary>
+    private readonly RopeHolidayMode _ropeHolidayMode = new();
+
+    /// <summary>The <c>TF_HolidayLight</c> temp entities.</summary>
+    private readonly RopeHolidayLights _ropeLights = new();
+
+    /// <summary>The demo the lights belong to; another one is another level.</summary>
+    private DemoTimeline? _ropeLightsTimeline;
 
     /// <summary>
     /// <c>CalculateEndPointAttachment</c> (`c_rope.cpp:1923-1967`): with <c>ROPE_PLAYER_WPN_ATTACH</c> a player's weapon's
@@ -7431,9 +7575,8 @@ internal class MainForm : Form, IFrameSteps
     /// origin, a player's hull centre, anything else's origin.
     /// </summary>
     /// <remarks>
-    /// **Two answers are approximate, and neither is reached by the corpus**: the angles are the entity's own even for an
-    /// attachment, which only a direction lock reads, and a non-rope, non-player entity answers its origin where the
-    /// engine answers the centre of its collision box. Every corpus rope ends on another rope keyframe.
+    /// **One answer is approximate, and the corpus does not reach it**: the angles are the entity's own even for an
+    /// attachment, which only a direction lock reads. Every corpus rope ends on another rope keyframe.
     /// </remarks>
     private RopeEndPoint? RopeEnd(int handle, int attachment, bool playerWeapon)
     {
@@ -7459,10 +7602,17 @@ internal class MainForm : Form, IFrameSteps
             return new RopeEndPoint(new Vector3(at.X, at.Y, at.Z), forward);
         }
 
+        // `WorldSpaceCenter()`: a rope keyframe's override is its origin (`c_rope.cpp:1486-1489`); anything else's is its
+        // collision box's centre (`collisionproperty.h:391-396`, B478).
+        if (player)
+        {
+            return new RopeEndPoint(new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags)), forward);
+        }
+
         return new RopeEndPoint(
-            player
-                ? new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags))
-                : new Vector3(placed.X, placed.Y, placed.Z),
+            string.Equals(track.ClassName, RopeImpulseFeed.RopeClassName, StringComparison.Ordinal)
+                ? new Vector3(placed.X, placed.Y, placed.Z)
+                : WorldSpaceCenter.Of(placed, track.CollisionAt(_transport.CurrentTick)),
             forward);
     }
 

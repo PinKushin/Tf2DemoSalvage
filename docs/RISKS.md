@@ -35228,28 +35228,53 @@ with grey corners. Sabotage reddened each target, restored by the inverse edit:
 - Without the `ROPE_SIMULATE` gate, a last keyframe drew.
 - With both passes' widths zeroed, the render test read 381.
 
-## B478 — what of the rope is not ported: impulse, `ShakeRopes`, holiday lights, the cable's bump term, dormant ends — OPEN 2026-10-04
+## B478 — what of the rope was not ported: impulse, `ShakeRopes`, holiday lights, the cable's bump term, dormant ends — FIXED 2026-10-06
 
-The rope port leaves five things out, each stated here so its absence is not mistaken for the engine's:
+The first rope port (B477) left five things out. **All five are ported, read from published source.** The full
+account is in `docs/findings/73`.
 
-1. **The instantaneous impulse** a rope's entity message carries (`C_RopeKeyframe::ReceiveMessage`, `c_rope.cpp:
-   2082-2095`). Its force term is ported, but the impulse is always zero. Whether any demo carries the message is
-   not measured.
-2. **The `ShakeRopes` client effect** (`c_rope.cpp:856-871`). Only HL2's strider dispatches it in the published
-   server code.
-3. **Holiday lights** (`TF_HolidayLight` dispatched per strip point under `IsHolidayLightMode`) and the `pure_white`
-   material under Pyro vision.
-4. **The `Cable` shader's bump term.** The pixel is `blue( normal map )² · base · vertex colour`
-   (`cable_ps2x.fxc:42-49`; half-Lambert of the normal against +Z). The particle pass multiplies the base by the vertex
-   colour without it, so the translucent back pass is flat across the strip instead of shaded like a cylinder. The
-   solid pass is black either way.
-5. **`DrawModel`'s dormant-ends refusal** (`c_rope.cpp:1462-1467`): both ends dormant and both with a model. Every
-   corpus rope ends on another rope keyframe, which has no model, so the branch is unreachable there. The viewer
-   cannot tell dormant from deleted. A rope end on a non-rope, non-player entity takes its origin, where the engine
-   takes the centre of its collision box.
+1. **The impulse.** The rope's entity message is three `ReadFloat`s with no type byte, and it SETS `m_flImpulse`
+   (`c_rope.cpp:2082-2095`). It is taken only when the class id is the rope's own; any other class goes to the base
+   handler. `RopeImpulseFeed` records it on the timeline and `EntityRopes.Impulse` applies it before the frame's
+   think. **Measured, `rope-events` probe:** `ctf_helltrain_event` (3) and `arena_perks` (1) wire `SetForce`, the
+   only sender (`rope.cpp:520-546`). That is 4 of 239 installed maps, against a control of 9,647 rope entities.
+   No gcor demo carries a rope impulse. No lcor demo does either, in the 83 measured before the sweep was stopped
+   at 75 minutes; the sweep did not finish, so lcor is not wholly measured.
+2. **`ShakeRopes`** (`c_rope.cpp:856-871`, `:1265-1280`). `m_flMagnitude` and `m_flRadius` are now read from
+   `DT_EffectData`, and the viewer shakes every rope for each dispatch of that name. Only HL2's strider dispatches
+   it in the published server code. So in TF2 the code path exists and nothing reaches it; no corpus demo carries
+   one.
+3. **Holiday lights and Pyrovision's `pure_white`.** `RopeHolidayMode` ports `IsHolidayLightMode`, in its order and
+   with its once-only Christmas latch. `TfHolidays.IsChristmasActive` covers the cvars, the map type and the
+   calendar. `EntityRopes` dispatches a light at every strip point. `RopeHolidayLights` ports
+   `CHolidayLightManager` and `CreateHolidayLight`: the range and sky gates, the 250-a-frame queue, the colour
+   cycle, the blink, and the never-dying temp entity. The new game rules fields are `m_bRopesHolidayLightsAllowed`
+   and `m_bPowerupMode`.
+4. **The `Cable` bump term.** `PsCable` multiplies by `b²` from the material's `$bumpmap`, which defaults to
+   `cable/cablenormalmap` (`cable_dx9.cpp:26`). B478 expected a cylinder's profile; the measurement does not show
+   one. At eight pixels the edge-to-middle ratio is 1 with and without the term, and the column's total is 1,760
+   against 2,056. So the term darkens the strip rather than rounding it (`EntityRopeRenderTests`).
+5. **Dormant ends.** `EntityDormancy` keeps `LeavePVS` until the next enter or delete. The refusal needs both ends
+   dormant and both with a model. An end on an ordinary entity now hangs from `WorldSpaceCenter`: the OBB centre
+   from `m_vecMins` and `m_vecMaxs`, turned with the entity when its bounds are in entity space
+   (`collisionproperty.h:340-414`).
 
-**Interpolated:** the gusts draw from a stream seeded by the entity index, not the client's global stream. Their
-timing and direction are a valid draw, not TF2's.
+**Tests.** Unit: `RopeImpulseFeedConformanceTests`, `EntityDormancyConformanceTests`, the ShakeRopes fields in
+`EffectDispatchFeedConformanceTests`, six new cases in `EntityRopesConformanceTests`,
+`RopeHolidayLightsConformanceTests`, `TfHolidaysChristmasConformanceTests`, `WorldSpaceCenterConformanceTests` and
+`VmtCableBumpConformanceTests`. Output level, on the 2011 viaduct STV rope: the bump term against its own control,
+and bulbs drawn red on grey. **Sabotage**, each restored by the inverse edit:
+
+- either-end-dormant for both-ends-dormant reddened the two one-end cases;
+- a zeroed `SetImpulse` reddened both impulse tests;
+- a never-true shake reddened the shake test;
+- a blink that never dims reddened the blink test.
+
+***Interpolated:*** the bulb's roll and the gusts draw from streams of this project's, not the client's global
+stream. The temp-entity pool of 500 is the lights' alone here, where the engine shares it with every other temp
+entity. A bulb draws its sprite's first frame, not the 10-frame-a-second animation, which is this project's
+limitation for every sprite. `m_skybox3d.origin` is taken as the map's `sky_camera` origin, or zero without one. A
+`ShakeRopes` or impulse fires at its packet's tick, and a skip forward fires every event it passes.
 
 ## B479 — `atof` was read straight to float; C returns a double, and `ReadInterval` subtracts in it — FIXED 2026-10-04
 

@@ -759,6 +759,18 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 
     /// <summary>`IsHolidayMap( n )`: `m_nMapHolidayType` (tf_gamerules.h:595), 0 (`kHoliday_None`) when unsent.</summary>
     public int MapHolidayType { get; init; }
+
+    /// <summary>
+    /// `GetRopesHolidayLightsAllowed()`: `m_bRopesHolidayLightsAllowed` (tf_gamerules.h:1050, RecvPropBool
+    /// tf_gamerules.cpp:1483) — the constructor's true (:1644) when unsent.
+    /// </summary>
+    public bool RopesHolidayLightsAllowed { get; init; } = true;
+
+    /// <summary>`IsPowerupMode()`: `m_bPowerupMode` (RecvPropBool tf_gamerules.cpp:1467), the Mannpower grapple's mode.</summary>
+    public bool PowerupMode { get; init; }
+
+    /// <summary>Whether a game rules entity exists — `TFGameRules()` is not null.</summary>
+    public bool Present { get; init; }
 }
 
 /// <summary>One corpse, as <c>DT_TFRagdoll</c> describes it.</summary>
@@ -1192,6 +1204,10 @@ public sealed class DemoTimeline
                 solidType,
                 entity.Integer("DT_CollisionProperty.m_usSolidFlags") ?? 0,
                 entity.Integer("DT_BaseEntity.m_CollisionGroup") ?? 0)
+            {
+                Mins = entity.Vector("DT_CollisionProperty.m_vecMins") ?? default,
+                Maxs = entity.Vector("DT_CollisionProperty.m_vecMaxs") ?? default,
+            }
             : null;
 
     /// <summary>What every <see cref="SceneIdEntity"/> shares: team, placement and collision.</summary>
@@ -1955,6 +1971,12 @@ public sealed class DemoTimeline
     /// <summary>Every medigun beam, in the order they started (B396).</summary>
     public HealBeamFeed HealBeams { get; private init; } = new();
 
+    /// <summary>Every rope's <c>SetForce</c> impulse, in arrival order (B478).</summary>
+    public RopeImpulseFeed RopeImpulses { get; private init; } = new();
+
+    /// <summary>When each entity was dormant — left the PVS and still held by the client (B478).</summary>
+    public EntityDormancy Dormancy { get; private init; } = new();
+
     /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
     private const string MedigunClass = "CWeaponMedigun";
 
@@ -2545,6 +2567,8 @@ public sealed class DemoTimeline
         EffectFeeds feeds = new();
         MuzzleFlashFeed muzzleFlashes = new();
         HealBeamFeed healBeams = new();
+        RopeImpulseFeed ropeImpulses = new();
+        EntityDormancy dormancy = new();
 
         List<TimelineFrame> frames = [];
 
@@ -2956,6 +2980,16 @@ public sealed class DemoTimeline
                             feeds);
                         continue;
 
+                    // **A rope's impulse** (`C_RopeKeyframe::ReceiveMessage`, `c_rope.cpp:2082-2095`, B478): dispatched to
+                    // the entity at that index, and taken only when the class id is the rope's own.
+                    case EntityMessage entityMessage:
+                        if (entities.TryGet(entityMessage.EntityIndex, out EntityState? addressed))
+                        {
+                            ropeImpulses.Record(entityMessage, addressed.ClassName, addressed.ClassId, command.Tick);
+                        }
+
+                        continue;
+
                     // **The decal names**, which `m_nIndex` points into. Both messages, as every precache table needs.
                     case CreateStringTableMessage { Name: DecalFeed.TableName } decalTable:
                         feeds.Decals.Names.Replace(decalTable.Entries);
@@ -3033,6 +3067,7 @@ public sealed class DemoTimeline
                     decoder.Decode(snapshot.Body.Span, snapshot, snapshot.LengthBits))
                 {
                     entities.Apply(entity);
+                    dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick);
 
                     touchedEntities.Add(entity.EntityIndex);
 
@@ -3780,6 +3815,9 @@ public sealed class DemoTimeline
                 InTraining = gameRules?.Integer("DT_TFGameRules.m_bIsInTraining") is > 0,
                 WinningTeam = gameRules?.Integer(WinningTeamProperty),
                 MapHolidayType = gameRules?.Integer("DT_TFGameRules.m_nMapHolidayType") ?? 0,
+                RopesHolidayLightsAllowed = gameRules?.Integer("DT_TFGameRules.m_bRopesHolidayLightsAllowed") is not 0,
+                PowerupMode = gameRules?.Integer("DT_TFGameRules.m_bPowerupMode") is > 0,
+                Present = gameRules is not null,
                 NextRespawnWave = (gameRules?.Number("m_flNextRespawnWave.002") ?? 0f, gameRules?.Number("m_flNextRespawnWave.003") ?? 0f),
                 TeamRespawnWaveTimes = (gameRules?.Number("m_TeamRespawnWaveTimes.002") ?? -1f, gameRules?.Number("m_TeamRespawnWaveTimes.003") ?? -1f),
                 // `GetRobotDestructionLogic()`, which player destruction's logic also registers as (it derives from it).
@@ -3886,6 +3924,8 @@ public sealed class DemoTimeline
             Dispatches = feeds.Dispatches,
             MuzzleFlashes = muzzleFlashes,
             HealBeams = healBeams,
+            RopeImpulses = ropeImpulses,
+            Dormancy = dormancy,
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,

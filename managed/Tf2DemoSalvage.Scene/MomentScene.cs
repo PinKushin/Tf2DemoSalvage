@@ -422,6 +422,8 @@ public sealed class MomentScene : IGameSystemPerFrame
         // plus Halloween while the holiday is active. Asked before the players join, of the gear already listed.
         int viewerFlags = VisionVisibility.ViewerFlags(_drawn, info.Recorder, VisionGrantedBy) | info.HolidayVisionFlags;
 
+        ViewerVisionFlags = viewerFlags;
+
         PlayerProps.Add(
             players, _drawn, Appearance, _models,
             (viewerFlags & VisionVisibility.HalloweenFlag) == VisionVisibility.HalloweenFlag);
@@ -1023,6 +1025,12 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// in his eyes (see <c>Core.Scene.ScreenOverlay</c>).
     /// </summary>
     public string? ScreenOverlay { get; private set; }
+
+    /// <summary>
+    /// The local player's <c>GetVisionFilterFlags</c> this moment — what <c>IsLocalPlayerUsingVisionFilterFlags</c> tests
+    /// (`cdll_util.cpp:125`); <c>TF_VISION_FILTER_PYRO</c> is 1 (B478).
+    /// </summary>
+    public int ViewerVisionFlags { get; private set; }
 
     /// <summary>The jarate multiplier for the player in an entity slot (B336).</summary>
     /// <param name="entity">The slot, or null for a prop nobody owns.</param>

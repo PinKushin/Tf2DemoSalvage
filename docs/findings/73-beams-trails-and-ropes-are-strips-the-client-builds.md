@@ -260,3 +260,41 @@ ported and reached only by the unit suite.
 - **Output level:** `EntityRopeRenderTests` hangs viaduct's entity 95, a 320-unit span, through the production chain.
   It draws the rope over grey from 20 units to the side. The darkest pixel of the centre column measured 0 against a
   grey of 381, and every corner stayed grey. With both passes' widths sabotaged to zero it measured 381.
+
+## What pushes a rope, and what hangs on one (B478)
+
+The first port left five pieces out. All five are now in, and two of them corrected what had been written about them.
+
+- **A rope is pushed two ways, and TF2's own maps use one of them.** `CRopeKeyframe::InputSetForce` sends three floats
+  in an entity message, with no type byte. It sends them to the rope and to every rope after it down the chain
+  (`rope.cpp:520-546`). `C_RopeKeyframe::ReceiveMessage` SETS the impulse from them; it does not add. The
+  `ShakeRopes` effect adds `( 1 − distance / radius ) · magnitude` to the impulse's z, once for every node within
+  the radius (`c_rope.cpp:1265-1280`), and it does so for every rope. B478 had filed the impulse as "whether any demo
+  carries the message is not measured". The `rope-events` probe answers it for the maps. Of 239 installed maps,
+  **`ctf_helltrain_event` wires `SetForce` three times and `arena_perks` once**. The control is 9,647 rope entities
+  across the same lumps. So the path is reachable on stock content. No corpus demo measured carries either event:
+  all of gcor, and the 83 lcor demos the sweep reached before it was stopped (`docs/RISKS.md` B478).
+- **A rope impulse is absorbed by the initial hang.** An impulse that arrives before a rope's first think is decayed
+  by 0.95 per node per step through the five seconds of `ROPE_INITIAL_HANG`, so it shows nothing. Without the hang
+  it lifts the first frame. Both cases are the engine's.
+- **The holiday lights are a temp entity that never dies.** `BuildRope` dispatches `TF_HolidayLight` at every strip
+  point. `CHolidayLightManager` queues a point within 2,000 units of the local player and at least 2,000 from his 3D
+  sky's origin, at most 250 a frame. The next frame it makes a sprite temp entity with `FTENT_NEVERDIE`, and
+  `IsActive` answers `die != 0` for one (`c_te_legacytempents.cpp:286-290`). **So a light stays where its rope last
+  put it until the level ends**, whether or not the rope is still drawn. The four colours are named red, yellow,
+  green and blue in the source, but their values are (255, 0, 0), (2, 110, 197), (117, 193, 8) and (255, 151, 29). A
+  global counter cycles through them per light made. One rope in five blinks to alpha 64 on a cycle of its sub-id
+  and `curtime · 2`.
+- **Pyrovision turns the lights on whatever the date** (style 1). It draws `effects/mtp_fluff` unrolled, and every
+  rope's solid pass is `cable/pure_white`. Christmas is read once per client process, the first time game rules
+  exist (`m_bHolidayInitialized`). The window is 12-01 to 01-08 on the watcher's clock, or a forced holiday of 3, or
+  a Christmas map. The map can refuse the lights with `ropes_holiday_lights_allowed`. Powerup mode refuses them
+  always: "We don't want to draw the lights for the grapple".
+- **The `Cable` bump term darkens the back pass rather than shading it.** The pixel is `b² · base · vertex colour`,
+  where b is the normal map's blue. B478 expected a cylinder's profile across the strip. At eight pixels wide the
+  edge-to-middle ratio of the centre column is the same with and without the term: 1. What it does change is the
+  total, which measured 1,760 with it against 2,056 without (`EntityRopeRenderTests`, 2026-10-06).
+- **Dormant ends are now told apart from deleted ones.** A snapshot's `LeavePVS` makes an entity dormant until its
+  next enter or delete (`EntityDormancy`). `DrawModel` refuses a rope only when both ends are dormant AND both have a
+  model. An end on an ordinary entity hangs from `CCollisionProperty::WorldSpaceCenter`: the OBB centre, turned with
+  the entity when its bounds are in entity space. A rope keyframe's override is its own origin (`c_rope.cpp:1486`).

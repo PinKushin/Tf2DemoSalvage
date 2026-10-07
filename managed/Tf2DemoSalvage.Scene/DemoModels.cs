@@ -345,6 +345,11 @@ public static class DemoModels
                 if (pose.Rope is not null)
                 {
                     paths.Add(EntityRopes.BackMaterialPath(track.ModelPath));
+
+                    // And, for the holiday lights, Pyrovision's solid material and the two light sprites (B478).
+                    paths.Add(EntityRopes.PureWhiteMaterial);
+                    paths.Add(RopeHolidayLights.BulbMaterial);
+                    paths.Add(RopeHolidayLights.FluffMaterial);
                 }
             }
         }
