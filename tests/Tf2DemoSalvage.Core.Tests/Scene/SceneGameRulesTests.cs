@@ -9,7 +9,7 @@ public sealed class SceneGameRulesTests
     public void RulesAt_AMannVsMachineHightowerRound_ReadsBoth() =>
         DemoTimeline.Build(SyntheticPlayer.DemoWithGameRules(mannVsMachine: true, halloweenScenario: 4, playerDestruction: false))
             .RulesAt(100)
-            .ShouldBe(new SceneGameRules(MannVsMachine: true, HalloweenScenario: 4, PlayerDestruction: false));
+            .ShouldBe(new SceneGameRules(MannVsMachine: true, HalloweenScenario: 4, PlayerDestruction: false) { Present = true });
 
     [Test]
     public void ServerTickAt_AfterANetTick_IsTheServersTickNotTheDemos() =>
@@ -24,5 +24,6 @@ public sealed class SceneGameRulesTests
                 // Player destruction's logic derives from robot destruction's, so it is `GetRobotDestructionLogic()`; its
                 // respawn scales are unsent here.
                 RobotDestructionRespawnScale = (0f, 0f),
+                Present = true,
             });
 }

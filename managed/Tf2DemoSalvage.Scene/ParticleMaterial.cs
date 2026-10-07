@@ -35,6 +35,12 @@ public readonly record struct ParticleMaterial(
     SpriteDepth Depth = SpriteDepth.TestNoWrite,
     RefractMaterial? Refract = null)
 {
+    /// <summary>
+    /// A <c>Cable</c> material's <c>$bumpmap</c>, whose blue squared shades the strip across its width
+    /// (`cable_ps2x.fxc:40-49`); null for every other shader (B478).
+    /// </summary>
+    public MapTexture? CableBump { get; init; }
+
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);
 }

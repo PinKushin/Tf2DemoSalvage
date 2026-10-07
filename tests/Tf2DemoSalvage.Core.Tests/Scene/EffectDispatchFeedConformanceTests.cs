@@ -125,6 +125,20 @@ public sealed class EffectDispatchFeedConformanceTests
     }
 
     [Test]
+    public void Record_AShakeRopes_ReadsItsMagnitudeAndRadius()
+    {
+        // `ShakeRopesCallback` reads `m_flMagnitude` and `m_flRadius` (`c_rope.cpp:858-860`); both are in
+        // `DT_EffectData` (`effect_dispatch_data.cpp:49`, `:62`), and unsent they are zero (B478).
+        EffectDispatchFeed feed = new();
+
+        feed.Record(EffectDispatchFeed.EventClassName, Effect(Float("m_flMagnitude", 25f), Float("m_flRadius", 300f)), 2);
+        feed.Record(EffectDispatchFeed.EventClassName, Effect(), 3);
+
+        (feed.All[0].Magnitude, feed.All[0].Radius).ShouldBe((25f, 300f));
+        (feed.All[1].Magnitude, feed.All[1].Radius).ShouldBe((0f, 0f));
+    }
+
+    [Test]
     public void Record_AnotherClass_IsNotADispatch()
     {
         new EffectDispatchFeed().Record("CTETFBlood", Effect(), 1).ShouldBeFalse();

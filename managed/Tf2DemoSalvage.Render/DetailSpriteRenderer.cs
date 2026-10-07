@@ -182,6 +182,17 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             float4 texel = lerp(first, second, input.next.z);
             return float4(texel.rgb * input.col.rgb, texel.a * input.col.a);
         }
+
+        // cable_ps2x.fxc:40-49 (B478): the normal map, read raw, is expanded and dotted with +Z — its blue, 2b - 1 —
+        // then half-Lambert squared, ( ( 2b - 1 ) * 0.5 + 0.5 )^2 = b^2, times texture times vertex colour. Both texture
+        // coordinates are the strip's one (BeamSegDraw writes one set).
+        float4 PsCable(VsOut input) : SV_TARGET
+        {
+            float4 texel = sheet.Sample(linearWrap, input.uv);
+            float3 normal = normalMap.Sample(linearWrap, input.uv).xyz * 2.0f - 1.0f;
+            float lambert = dot(normal, float3(0.0f, 0.0f, 1.0f)) * 0.5f + 0.5f;
+            return float4(lambert * lambert * (texel.rgb * input.col.rgb), texel.a * input.col.a);
+        }
         """;
 
     private ComPtr<ID3D11VertexShader> _vertexShader;
@@ -264,6 +275,8 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     }
 
     private ComPtr<ID3D11PixelShader> _refractShader;
+    private ComPtr<ID3D11PixelShader> _cableShader;
+    private ComPtr<ID3D11ShaderResourceView> _cableBump;
     private ComPtr<ID3D11Buffer> _refractConstants;
     private ComPtr<ID3D11SamplerState> _clampSampler;
     private ComPtr<ID3D11ShaderResourceView> _refractNormal;
@@ -296,6 +309,13 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         _refractFog = FogConstants.For(fog);
         _refractEye = eye;
     }
+
+    /// <summary>
+    /// Draws the next batches through the <c>Cable</c> shader's bump term with this normal map, uploaded raw — or, with a
+    /// null handle, without it (B478).
+    /// </summary>
+    /// <param name="bump">The material's <c>$bumpmap</c>.</param>
+    public void SetCableBump(ComPtr<ID3D11ShaderResourceView> bump) => _cableBump = bump;
 
     private float[] _refractFog = new float[8];
     private System.Numerics.Vector3 _refractEye;
@@ -384,6 +404,15 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             ref refractShader));
         refractBytecode.Dispose();
 
+        ComPtr<ID3D10Blob> cableBytecode = Compile(compiler, "PsCable", "ps_5_0");
+        ComPtr<ID3D11PixelShader> cableShader = default;
+        SilkMarshal.ThrowHResult(device.CreatePixelShader(
+            cableBytecode.GetBufferPointer(),
+            cableBytecode.GetBufferSize(),
+            ref Unsafe.NullRef<ID3D11ClassLinkage>(),
+            ref cableShader));
+        cableBytecode.Dispose();
+
         ComPtr<ID3D11VertexShader> vertexShader = default;
         SilkMarshal.ThrowHResult(device.CreateVertexShader(
             vertexBytecode.GetBufferPointer(),
@@ -459,7 +488,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         vertexBytecode.Dispose();
         pixelBytecode.Dispose();
 
-        return new DetailSpriteRenderer(vertexShader, pixelShader, refractShader, layout);
+        return new DetailSpriteRenderer(vertexShader, pixelShader, refractShader, layout) { _cableShader = cableShader };
     }
 
     /// <summary>The one sheet every detail sprite is drawn from.</summary>
@@ -639,6 +668,12 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         {
             BindRefract(device, context, refract);
         }
+        else if (_cableBump.Handle is not null)
+        {
+            context.PSSetShader(_cableShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
+            context.PSSetShaderResources(1, 1, ref _cableBump);
+        }
+
         context.OMSetBlendState(
             _mode switch
             {
@@ -708,6 +743,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         _refractConstants.Dispose();
         _clampSampler.Dispose();
         _refractShader.Dispose();
+        _cableShader.Dispose();
         _pixelShader.Dispose();
         _vertexShader.Dispose();
 

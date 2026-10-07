@@ -37,6 +37,13 @@ public readonly record struct RopeHit(float Fraction, Vector3 Normal, float Dist
 /// <returns>What the sweep hit.</returns>
 public delegate RopeHit RopeCollision(Vector3 from, Vector3 to);
 
+/// <summary>One <c>TF_HolidayLight</c> dispatch — the <c>CEffectData</c> <c>BuildRope</c> fills per strip point (B478).</summary>
+/// <param name="RopeIndex"><c>m_nMaterial</c>: the rope's <c>m_nRopeIndex</c>, its place in creation order.</param>
+/// <param name="SubId"><c>m_nHitBox</c>: <c>node &lt;&lt; 8</c>, plus one per subdivision point after the node.</param>
+/// <param name="Origin"><c>m_vOrigin</c>: the strip point.</param>
+/// <param name="Scale"><c>m_flScale</c>: <c>r_rope_holiday_light_scale</c>.</param>
+public readonly record struct RopeHolidayDispatch(int RopeIndex, int SubId, Vector3 Origin, float Scale);
+
 /// <summary>The camera, as the rope build reads it: <c>CurrentViewOrigin</c>, <c>CurrentViewForward</c>, <c>ScreenWidth</c>.</summary>
 /// <param name="Origin">The view origin, which is also <c>MainViewOrigin</c> for the wind distance.</param>
 /// <param name="Forward">The view forward.</param>
@@ -54,9 +61,12 @@ public readonly record struct RopeView(Vector3 Origin, Vector3 Forward, float Sc
 /// class keeps a <see cref="RopePhysics"/> per rope across frames, the way the entity does.
 ///
 /// **What is not here, and why.** <c>GetWindspeedAtTime</c> is always zero: no demo in either corpus carries an
-/// <c>env_wind</c> (`entity-census`), so only the gust branch is reachable. The impulse from the rope's own entity
-/// message, the <c>ShakeRopes</c> effect and the holiday lights are not ported (B478). The random gusts draw from a
-/// stream seeded by the entity index rather than the client's global stream, whose state cannot be reproduced.
+/// <c>env_wind</c> (`entity-census`), so only the gust branch is reachable. The random gusts draw from a stream seeded by
+/// the entity index rather than the client's global stream, whose state cannot be reproduced.
+///
+/// **Told, not asked** (B478): a rope's entity-message impulse (<see cref="Impulse"/>) and a <c>ShakeRopes</c> effect
+/// (<see cref="Shake"/>) arrive before the frame's think, as they do in the client, where both are handled while the
+/// packet is read and <c>ClientThink</c> runs afterwards.
 /// </remarks>
 public sealed class EntityRopes
 {
@@ -119,8 +129,22 @@ public sealed class EntityRopes
         new(0.5f, 0.5f * 0.5f, 0.5f * 0.5f * 0.5f),
     ];
 
+    /// <summary>
+    /// <c>"cable/pure_white"</c>, the solid material every rope draws with in holiday style 1, Pyrovision
+    /// (`GetSolidMaterial`, `c_rope.cpp:1984-1996`).
+    /// </summary>
+    public const string PureWhiteMaterial = "cable/pure_white.vmt";
+
+    /// <summary><c>r_rope_holiday_light_scale</c>'s default (`c_rope.cpp:86`).</summary>
+    public const float HolidayLightScale = 0.055f;
+
     private readonly Dictionary<int, Rope> _ropes = [];
+    private readonly Dictionary<int, Vector3> _pendingImpulses = [];
+    private readonly List<RopeHolidayDispatch> _holidayLights = [];
     private readonly HashSet<int> _offered = [];
+
+    /// <summary><c>s_nLastRopeIndex</c>: each rope's index is the next one when it is created (`c_rope.cpp:1063`).</summary>
+    private int _nextRopeIndex;
     private readonly List<int> _forgotten = [];
     private readonly SpriteStripBatches _strips = new();
     private readonly List<BeamSegment> _segments = [];
@@ -130,8 +154,41 @@ public sealed class EntityRopes
     /// <summary>How many ropes the last build drew.</summary>
     public int Drawn { get; private set; }
 
-    /// <summary>How many it was offered and drew nothing for — no <c>ROPE_SIMULATE</c>, or no material.</summary>
+    /// <summary>How many it was offered and drew nothing for — no <c>ROPE_SIMULATE</c>, no material, or dormant ends.</summary>
     public int Skipped { get; private set; }
+
+    /// <summary>The <c>TF_HolidayLight</c>s the last build dispatched, in draw order; empty out of holiday mode.</summary>
+    public IReadOnlyList<RopeHolidayDispatch> HolidayLights => _holidayLights;
+
+    /// <summary><c>C_RopeKeyframe::ReceiveMessage</c> (`c_rope.cpp:2082-2095`): a rope's impulse is SET to what arrived.</summary>
+    /// <param name="entity">The rope's entity index.</param>
+    /// <param name="impulse">The three floats of its message.</param>
+    /// <remarks>
+    /// A rope not yet simulated here is an entity the client already holds, so the impulse waits for its first build.
+    /// </remarks>
+    public void Impulse(int entity, Vector3 impulse)
+    {
+        if (_ropes.TryGetValue(entity, out Rope? rope))
+        {
+            rope.SetImpulse(impulse);
+        }
+        else
+        {
+            _pendingImpulses[entity] = impulse;
+        }
+    }
+
+    /// <summary><c>ShakeRopesCallback</c> (`c_rope.cpp:856-868`): every rope's <c>ShakeRope</c>.</summary>
+    /// <param name="center"><c>m_vOrigin</c>.</param>
+    /// <param name="radius"><c>m_flRadius</c>.</param>
+    /// <param name="magnitude"><c>m_flMagnitude</c>.</param>
+    public void Shake(Vector3 center, float radius, float magnitude)
+    {
+        foreach (Rope rope in _ropes.Values)
+        {
+            rope.Shake(center, radius, magnitude);
+        }
+    }
 
     /// <summary>The material a rope's translucent anti-aliasing pass is drawn with: its own name plus <c>_back</c>.</summary>
     /// <param name="modelPath">The rope's material path, as <c>modelprecache</c> names it.</param>
@@ -157,6 +214,14 @@ public sealed class EntityRopes
     /// <param name="lighting"><c>engine-&gt;ComputeLighting</c> at a point, averaged over the cube and clamped.</param>
     /// <param name="collide">The world sweep a <c>ROPE_COLLIDE</c> rope's nodes take.</param>
     /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>; zero while paused.</param>
+    /// <param name="dormantWithModel">
+    /// Whether an end's <c>EHANDLE</c> names an entity that is dormant and has a model — <c>DrawModel</c>'s refusal asks it
+    /// of both (`c_rope.cpp:1462-1467`); null for none.
+    /// </param>
+    /// <param name="holidayStyle">
+    /// <c>GetHolidayLightStyle()</c> while <c>IsHolidayLightMode()</c> holds — 0 bulbs, 1 Pyrovision — or null when it does
+    /// not; see <see cref="RopeHolidayMode"/>.
+    /// </param>
     /// <returns>One batch per material and pass: every back pass, then every solid one.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<ParticleBatch> Build(
@@ -166,7 +231,9 @@ public sealed class EntityRopes
         RopeEndPointResolver endPoints,
         Func<Vector3, Vector3> lighting,
         RopeCollision collide,
-        float frameTime)
+        float frameTime,
+        Func<int, bool>? dormantWithModel = null,
+        int? holidayStyle = null)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -176,6 +243,7 @@ public sealed class EntityRopes
 
         _strips.Clear();
         _offered.Clear();
+        _holidayLights.Clear();
         Drawn = 0;
         Skipped = 0;
 
@@ -195,7 +263,7 @@ public sealed class EntityRopes
             rope.Context = new Context(endPoints, lighting, collide, view);
             rope.Think(frameTime);
 
-            if (rope.ReadyToDraw(sprites))
+            if (rope.ReadyToDraw(sprites, dormantWithModel))
             {
                 drawn.Add((rope, prop));
             }
@@ -207,11 +275,19 @@ public sealed class EntityRopes
 
         Forget();
 
+        // `GetSolidMaterial`: pure white in Pyrovision's holiday style, whatever the rope's own material is.
+        string? solidOverride = holidayStyle == 1 && sprites.ContainsKey(PureWhiteMaterial) ? PureWhiteMaterial : null;
+
         // `DrawRenderCache_NonQueued`: every rope's back pass, then every rope's solid pass, per material pair.
         foreach ((Rope rope, SceneProp prop) in drawn)
         {
+            if (holidayStyle is not null)
+            {
+                DispatchHolidayLights(rope);
+            }
+
             bool back = Draw(rope, prop, sprites, view, solid: false);
-            bool solid = Draw(rope, prop, sprites, view, solid: true);
+            bool solid = Draw(rope, prop, sprites, view, solid: true, solidOverride);
 
             if (back || solid)
             {
@@ -222,14 +298,37 @@ public sealed class EntityRopes
         return _strips.Batches(sprites);
     }
 
+    /// <summary>
+    /// <c>BuildRope</c>'s <c>DispatchEffect( "TF_HolidayLight", … )</c> at every strip point (`c_rope.cpp:1707-1752`): the
+    /// node's sub-id is <c>node &lt;&lt; 8</c> and each subdivision point after it takes the next.
+    /// </summary>
+    private void DispatchHolidayLights(Rope rope)
+    {
+        int subdivisions = rope.Points(_segments);
+
+        for (int point = 0; point < _segments.Count; point++)
+        {
+            int node = point / (subdivisions + 1);
+            int step = point % (subdivisions + 1);
+
+            _holidayLights.Add(new RopeHolidayDispatch(
+                rope.Index, (node << 8) + step, _segments[point].Position, HolidayLightScale));
+        }
+    }
+
     /// <summary>This entity's simulation, new when it was not offered last frame or changed material.</summary>
     private Rope RopeFor(SceneProp prop, SceneRope parameters)
     {
         if (!_ropes.TryGetValue(prop.EntityIndex, out Rope? rope) ||
             !string.Equals(rope.ModelPath, prop.ModelPath, StringComparison.Ordinal))
         {
-            rope = new Rope(prop.EntityIndex, prop.ModelPath, parameters);
+            rope = new Rope(prop.EntityIndex, prop.ModelPath, parameters, _nextRopeIndex++);
             _ropes[prop.EntityIndex] = rope;
+
+            if (_pendingImpulses.Remove(prop.EntityIndex, out Vector3 waiting))
+            {
+                rope.SetImpulse(waiting);
+            }
         }
 
         rope.Receive(parameters, new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z));
@@ -258,7 +357,13 @@ public sealed class EntityRopes
 
     /// <summary>One pass of one rope: <c>BuildRope</c>, then <c>RenderNonSolidRopes</c> or <c>RenderSolidRopes</c>.</summary>
     /// <returns>Whether anything was emitted.</returns>
-    private bool Draw(Rope rope, SceneProp prop, IReadOnlyDictionary<string, EngineSprite> sprites, in RopeView view, bool solid)
+    private bool Draw(
+        Rope rope,
+        SceneProp prop,
+        IReadOnlyDictionary<string, EngineSprite> sprites,
+        in RopeView view,
+        bool solid,
+        string? solidOverride = null)
     {
         EngineSprite material = sprites[prop.ModelPath];
         string backPath = BackMaterialPath(prop.ModelPath);
@@ -298,7 +403,10 @@ public sealed class EntityRopes
 
         if (solid)
         {
-            _strips.Add(prop.ModelPath, material, RenderModes.Normal, _corners);
+            // The texture height above is still the rope's own material's (`FinishInit`, `c_rope.cpp:1318`).
+            string solidPath = solidOverride ?? prop.ModelPath;
+
+            _strips.Add(solidPath, sprites[solidPath], RenderModes.Normal, _corners);
         }
         else
         {
@@ -386,9 +494,10 @@ public sealed class EntityRopes
         private float _timeToNextGust;
         private Vector3 _windDirection;
 
-        public Rope(int entity, string modelPath, SceneRope parameters)
+        public Rope(int entity, string modelPath, SceneRope parameters, int index)
         {
             ModelPath = modelPath;
+            Index = index;
             _parameters = parameters;
             _random.SetSeed(entity);
 
@@ -400,7 +509,30 @@ public sealed class EntityRopes
 
         public string ModelPath { get; }
 
+        /// <summary><c>m_nRopeIndex</c>.</summary>
+        public int Index { get; }
+
         public Context Context { get; set; }
+
+        /// <summary><c>ReceiveMessage</c>: <c>m_flImpulse</c> is set, not added to.</summary>
+        public void SetImpulse(Vector3 impulse) => _impulse = impulse;
+
+        /// <summary>
+        /// <c>ShakeRope</c> (`c_rope.cpp:1265-1280`): for each of <c>m_nSegments</c> nodes within the radius of its CURRENT
+        /// position, <c>( 1 − distance / radius ) · magnitude</c> onto the impulse's z.
+        /// </summary>
+        public void Shake(Vector3 center, float radius, float magnitude)
+        {
+            for (int index = 0; index < _physics.NodeCount; index++)
+            {
+                float amount = 1f - (Vector3.Distance(_physics.Nodes[index].Position, center) / radius);
+
+                if (amount >= 0f)
+                {
+                    _impulse.Z += amount * magnitude;
+                }
+            }
+        }
 
         /// <summary><c>OnDataChanged</c>: new data this frame when anything received changed, and the springs on a new length or slack.</summary>
         public void Receive(SceneRope parameters, Vector3 origin)
@@ -461,7 +593,7 @@ public sealed class EntityRopes
         /// <c>DrawModel</c>'s gates (`c_rope.cpp:1446-1473`) and <c>AddToRenderCache</c>'s: initialised, simulating, and
         /// a solid material to draw with.
         /// </summary>
-        public bool ReadyToDraw(IReadOnlyDictionary<string, EngineSprite> sprites)
+        public bool ReadyToDraw(IReadOnlyDictionary<string, EngineSprite> sprites, Func<int, bool>? dormantWithModel)
         {
             // `ShouldDraw` refuses a rope without ROPE_SIMULATE, and `InitRopePhysics` with it.
             if (!InitRopePhysics() ||
@@ -477,6 +609,14 @@ public sealed class EntityRopes
                 RecomputeSprings();
             }
 
+            // "If our start & end entities have models, but are nodraw, then we don't draw" — both dormant, both with a
+            // model index, "because rope endpoints are point entities".
+            if (dormantWithModel is not null &&
+                dormantWithModel(_parameters.StartPoint) && dormantWithModel(_parameters.EndPoint))
+            {
+                return false;
+            }
+
             ConstrainNodesBetweenEndpoints();
 
             return true;
@@ -487,8 +627,56 @@ public sealed class EntityRopes
         public float Build(
             List<BeamSegment> segments, List<float> backWidths, in RopeView view, bool fakeAntialiasing, int textureHeight)
         {
-            segments.Clear();
             backWidths.Clear();
+
+            int subdivisionCount = Points(segments);
+            int nodeCount = _physics.NodeCount;
+
+            // "Figure out texture scale."
+            float pixelsPerInch = 4f / _parameters.TextureScale;
+            float totalTexCoord = pixelsPerInch * (_parameters.Length + _parameters.Slack + SlackFudge);
+            int totalPoints = ((nodeCount - 1) * subdivisionCount) + 1;
+            float increment = totalTexCoord / totalPoints / textureHeight;
+            float texCoord = 0f;
+            float maximumBackWidth = 0f;
+
+            for (int index = 0; index < segments.Count; index++)
+            {
+                BeamSegment segment = segments[index];
+
+                if (fakeAntialiasing)
+                {
+                    (float width, float alpha, float backWidth) = Smoothed(segment.Position, view);
+
+                    segments[index] = segment with { TexCoord = texCoord, Width = width, Alpha = alpha };
+                    backWidths.Add(backWidth);
+
+                    if (backWidth > 0f)
+                    {
+                        maximumBackWidth = Math.Max(maximumBackWidth, backWidth);
+                    }
+                }
+                else
+                {
+                    // "Build the data with no smoothing."
+                    segments[index] = segment with { TexCoord = texCoord, Width = _parameters.Width, Alpha = 0.3f };
+                    backWidths.Add(-1f);
+                }
+
+                texCoord += increment;
+            }
+
+            return maximumBackWidth;
+        }
+
+        /// <summary>
+        /// <c>BuildRope</c>'s first loop (`c_rope.cpp:1702-1760`): every node and the Catmull-Rom points between, each with
+        /// its colour.
+        /// </summary>
+        /// <returns>How many subdivision points follow each node but the last.</returns>
+        public int Points(List<BeamSegment> segments)
+        {
+            segments.Clear();
 
             Vector3[] subdivisions = SubdivisionVectors(out int subdivisionCount);
             float subdivisionScale = 1f / (subdivisionCount + 1);
@@ -532,41 +720,7 @@ public sealed class EntityRopes
                 }
             }
 
-            // "Figure out texture scale."
-            float pixelsPerInch = 4f / _parameters.TextureScale;
-            float totalTexCoord = pixelsPerInch * (_parameters.Length + _parameters.Slack + SlackFudge);
-            int totalPoints = ((nodeCount - 1) * subdivisionCount) + 1;
-            float increment = totalTexCoord / totalPoints / textureHeight;
-            float texCoord = 0f;
-            float maximumBackWidth = 0f;
-
-            for (int index = 0; index < segments.Count; index++)
-            {
-                BeamSegment segment = segments[index];
-
-                if (fakeAntialiasing)
-                {
-                    (float width, float alpha, float backWidth) = Smoothed(segment.Position, view);
-
-                    segments[index] = segment with { TexCoord = texCoord, Width = width, Alpha = alpha };
-                    backWidths.Add(backWidth);
-
-                    if (backWidth > 0f)
-                    {
-                        maximumBackWidth = Math.Max(maximumBackWidth, backWidth);
-                    }
-                }
-                else
-                {
-                    // "Build the data with no smoothing."
-                    segments[index] = segment with { TexCoord = texCoord, Width = _parameters.Width, Alpha = 0.3f };
-                    backWidths.Add(-1f);
-                }
-
-                texCoord += increment;
-            }
-
-            return maximumBackWidth;
+            return subdivisionCount;
         }
 
         /// <summary>
