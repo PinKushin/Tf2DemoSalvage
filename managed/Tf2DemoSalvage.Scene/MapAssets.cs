@@ -2572,14 +2572,56 @@ public sealed class MapAssets
                 continue;
             }
 
-            overlays[named] = new ScreenOverlayMaterial(
-                named,
-                ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize),
-                vmt.Proxies,
-                vmt.NumericValues());
+            RefractMaterial? refract = ReadRefract(assets, named, vmt, pak, archives, maximumTextureSize);
+
+            overlays[named] = new ScreenOverlayMaterial(named, refract, vmt.Proxies, vmt.NumericValues())
+            {
+                NormalFrames = refract is null
+                    ? []
+                    : OverlayNormalFrames(assets, archives, pak, maximumTextureSize, vmt.Value("$normalmap") ?? DefaultRefractNormalMap, refract.NormalMap),
+
+                // ViewDrawFade's branch: no frame copy, translucent, not additive (see ScreenOverlayMaterial.Fade).
+                Fade = refract is null && vmt.Value("$translucent") is { } translucent && translucent.Trim() != "0" &&
+                    !vmt.IsAdditive && vmt.Value("$basetexture") is { } basetexture
+                    ? LoadPackedTexture(assets, archives, pak, maximumTextureSize, "materials/" + basetexture + ".vtf")
+                    : null,
+            };
         }
 
         return overlays;
+    }
+
+    /// <summary>Every frame of an overlay's <c>$normalmap</c>, frame 0 the one already read.</summary>
+    private static List<MapTexture> OverlayNormalFrames(
+        ILogger assets, GameArchives archives, PakFile pak, int maximumTextureSize, string normal, MapTexture first)
+    {
+        string path = "materials/" + normal + ".vtf";
+        int count = 1;
+
+        // The count is the file's; DecodePacked hands back a MapTexture, so read it in the decode.
+        _ = DecodePacked(assets, archives, pak, path, file =>
+        {
+            VtfTexture texture = VtfTexture.Read(file, maximumTextureSize);
+
+            count = texture.FrameCount;
+            return MapTexture.Of(texture);
+        });
+
+        List<MapTexture> frames = [first];
+
+        for (int frame = 1; frame < count; frame++)
+        {
+            int at = frame;
+
+            if (DecodePacked(assets, archives, pak, path, file => MapTexture.Of(VtfTexture.Read(file, maximumTextureSize, frame: at))) is not { } next)
+            {
+                break;
+            }
+
+            frames.Add(next);
+        }
+
+        return frames;
     }
 
     /// <summary><c>SHADER_PARAM( NORMALMAP, …, "models/shadertest/shader1_normal", … )</c> (`refract.cpp:21`).</summary>

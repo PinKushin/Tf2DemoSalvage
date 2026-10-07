@@ -128,9 +128,18 @@ public sealed record MapWater(
     /// <param name="seconds">Playback time.</param>
     /// <param name="frames">How many frames the texture has.</param>
     /// <returns>The frame; 0 with no such proxy or one frame.</returns>
-    public int NormalFrameAt(double seconds, int frames)
+    public int NormalFrameAt(double seconds, int frames) => NormalFrameAt(Proxies, seconds, frames);
+
+    /// <summary>The same, for any material's proxies — a screen overlay's too.</summary>
+    /// <param name="proxies">The material's proxies.</param>
+    /// <param name="seconds">Playback time.</param>
+    /// <param name="frames">How many frames the texture has.</param>
+    /// <returns>The frame; 0 with no such proxy or one frame.</returns>
+    public static int NormalFrameAt(IReadOnlyList<MaterialProxy> proxies, double seconds, int frames)
     {
-        foreach (MaterialProxy proxy in Proxies)
+        ArgumentNullException.ThrowIfNull(proxies);
+
+        foreach (MaterialProxy proxy in proxies)
         {
             if (proxy.Name.Equals("AnimatedTexture", StringComparison.OrdinalIgnoreCase) &&
                 string.Equals(proxy.Argument("animatedTextureVar"), "$normalmap", StringComparison.OrdinalIgnoreCase))

@@ -410,7 +410,13 @@ public sealed class MomentScene : IGameSystemPerFrame
             }
         }
 
-        _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed);
+        // `m_bMotionCloak` is every spy's, not only the recorder's: `m_hMyWeapons` is on the main table
+        // (basecombatcharacter.cpp:204) and `m_flCloakMeter` on DT_TFPlayerShared (tf_player_shared.cpp:586).
+        AttributeHooks? hooks = Weapons.Items is { } schema ? new AttributeHooks(schema) : null;
+        Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnWeapon);
+        int halloweenScenario = info.HalloweenScenario;
+
+        _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed, motionCloak, halloweenScenario);
 
         ReportUndressedPlayers(players);
 
@@ -959,15 +965,36 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// (`tf_viewmodel.cpp:575`); everyone else gets `GetEffectiveInvisibilityLevel`, which caps all but the recorder's
     /// enemies at 0.95 — so a SourceTV viewer, on no team, sees every cloaked spy as a faint shimmer.
     ///
-    /// **Not ported, named:** a motion-cloak (Cloak and Dagger) spy's fade by speed needs his watch's attribute, which
-    /// only the recorder's item list carries here, so others draw as an ordinary watch; and a feign-death ragdoll's own
-    /// `C_TFRagdoll::GetPercentInvisible`.
+    /// **A cloaked corpse** — a Your Eternal Reward victim's, <see cref="SceneProp.CorpseInvisibility"/> — is the
+    /// `C_TFRagdoll` branch of both proxies: `spy_invis` writes the corpse's own percent and no tint
+    /// (`c_tf_player.cpp:1720-1725`), and `invis` leaves that value alone (`tf_viewmodel.cpp:565-572`). No cap: the
+    /// corpse is nobody's teammate.
+    ///
+    /// **Not ported, named:** the cosmetics on that corpse. `CreateBoneAttachmentsFromWearables` attaches them with
+    /// `AttachEntityToBone( this, … )` where `this` is the PLAYER (`c_tf_player.cpp:10240`), so whose invisibility they
+    /// take is the living player's — not what this project hangs them on.
     /// </remarks>
+    /// <param name="motionCloak">
+    /// `m_bMotionCloak` per player (<see cref="Hud.TfHudPlayerClass.HasMotionCloak(ScenePlayer, Func{ScenePlayer, SceneItem, string, float, float}?)"/>);
+    /// null treats every watch as ordinary.
+    /// </param>
+    /// <param name="halloweenScenario">`m_halloweenScenario`, for the Hightower stealth spell's cap.</param>
     public static CloakBind CloakOf(
-        SceneProp prop, IReadOnlyList<ScenePlayer> players, int? recorder, float serverTime, int? followed)
+        SceneProp prop,
+        IReadOnlyList<ScenePlayer> players,
+        int? recorder,
+        float serverTime,
+        int? followed,
+        Func<ScenePlayer, bool>? motionCloak = null,
+        int halloweenScenario = 0)
     {
         ArgumentNullException.ThrowIfNull(prop);
         ArgumentNullException.ThrowIfNull(players);
+
+        if (prop.CorpseInvisibility > 0f)
+        {
+            return new CloakBind(prop.CorpseInvisibility, prop.CorpseInvisibility);
+        }
 
         // A viewmodel's player is `pVM->GetOwner()` — whoever the first-person camera follows; its props carry
         // synthetic indices of their own.
@@ -994,7 +1021,8 @@ public sealed class MomentScene : IGameSystemPerFrame
             return default;
         }
 
-        float percent = PlayerInvisibility.Percent(player2, serverTime, motionCloak: false);
+        bool motion = motionCloak?.Invoke(player2) ?? false;
+        float percent = PlayerInvisibility.Percent(player2, serverTime, motion);
 
         if (percent <= 0f)
         {
@@ -1002,10 +1030,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
 
         float effective = PlayerInvisibility.Effective(
-            percent, player2.IsEnemy, player2.EntityIndex, local?.ObserverMode, local?.ObserverTarget);
+            percent, player2.IsEnemy, player2.EntityIndex, local?.ObserverMode, local?.ObserverTarget,
+            PlayerInvisibility.HalloweenSpellStealth(player2.Conditions, halloweenScenario));
 
+        // `pWpn && pWpn->HasMotionCloak() && GetSpyCloakMeter() <= 0.f` (tf_viewmodel.cpp:594-598).
         float invis = player2.EntityIndex == recorder
-            ? PlayerInvisibility.LocalWeapon(percent, player2.Conditions.Has(StealthedBlink), motionCloakDry: false)
+            ? PlayerInvisibility.LocalWeapon(
+                percent, player2.Conditions.Has(StealthedBlink), motionCloakDry: motion && (player2.CloakMeter ?? 0f) <= 0f)
             : effective;
 
         bool body = prop.OwnedBy is null && prop.AttachedTo is null && prop.EntityIndex == player2.EntityIndex;

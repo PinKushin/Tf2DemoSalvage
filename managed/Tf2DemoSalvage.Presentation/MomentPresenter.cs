@@ -244,7 +244,8 @@ public sealed class MomentPresenter
             // the scene is drawn through (B354).
             source.Recorder,
             source.HolidayVisionFlagsAt(tick),
-            source.ServerTimeAt(tick));
+            source.ServerTimeAt(tick),
+            source.HalloweenScenarioAt(tick));
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

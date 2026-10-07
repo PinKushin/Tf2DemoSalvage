@@ -2586,6 +2586,10 @@ public sealed partial class EntityState
     /// </remarks>
     public bool RagdollGold() => Integer($"{RagdollTable}.m_bGoldRagdoll") is int and not 0;
 
+    /// <summary>Whether this corpse fades out, a Your Eternal Reward victim's — <c>m_bCloaked</c> (`c_tf_player.cpp:530`).</summary>
+    /// <returns>True when the flag is set.</returns>
+    public bool RagdollCloaked() => Integer($"{RagdollTable}.m_bCloaked") is int and not 0;
+
     /// <summary>Whether this corpse froze — <c>m_bIceRagdoll</c>.</summary>
     /// <returns>True when the flag is set.</returns>
     /// <remarks>A Spy-cicle backstab. Absent from older tables, like the gold flag beside it.</remarks>

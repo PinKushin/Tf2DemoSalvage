@@ -61,6 +61,31 @@ public sealed class ScreenOverlayMaterialTests
     }
 
     [Test]
+    public void NormalFrameAt_TheJarateOverlay_AdvancesAtThirtyFramesAndWraps()
+    {
+        // jarate_overlay.vmt: AnimatedTexture( $normalmap → $bumpframe, 30 ), bound as BindTexture( NORMALMAP, BUMPFRAME ).
+        // ( (int)( 30 · t ) ) % frames (baseanimatedtextureproxy.cpp:100-110), over four synthetic frames.
+        ScreenOverlayMaterial jarate = Overlay("""
+            "Refract" { "$refractamount" ".05"
+              "Proxies" { "AnimatedTexture" { "animatedtexturevar" "$normalmap" "animatedtextureframenumvar" "$bumpframe" "animatedtextureframerate" 30.00 } } }
+            """) with { NormalFrames = [Refract.NormalMap, Refract.NormalMap, Refract.NormalMap, Refract.NormalMap] };
+
+        jarate.NormalFrameAt(0.1).ShouldBe(3);
+        jarate.NormalFrameAt(0.14).ShouldBe(0);
+        (jarate with { NormalFrames = [Refract.NormalMap] }).NormalFrameAt(0.1).ShouldBe(0, "a still normal map");
+    }
+
+    [Test]
+    public void NormalFrameAt_AnOverlayWithoutTheProxy_IsTheFirstFrame()
+    {
+        ScreenOverlayMaterial invuln = Overlay("""
+            "Refract" { "$refractamount" ".02" }
+            """) with { NormalFrames = [Refract.NormalMap, Refract.NormalMap] };
+
+        invuln.NormalFrameAt(0.1).ShouldBe(0);
+    }
+
+    [Test]
     public void Bind_AnOverlayThisPortDrawsAsNothing_IsNeutral()
     {
         new ScreenOverlayMaterial("effects/imcookin", null, [], new Dictionary<string, (float, float, float)>())

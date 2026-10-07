@@ -200,6 +200,10 @@ public sealed class ParentedPropPlacementTests
                 // **`StaticScreen` (B432)**: set on every static prop by `PropModels.StaticModel`; an
                 // entity takes no static-prop screen fade, so null is its true answer.
                 nameof(SceneProp.StaticScreen),
+
+                // **`CorpseInvisibility` (B508)**: `m_bCloaked` is on `DT_TFRagdoll` and nowhere else, so only
+                // `RagdollProps` has a corpse to fade; 0 is "not a cloaked corpse", the true answer everywhere else.
+                nameof(SceneProp.CorpseInvisibility),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

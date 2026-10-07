@@ -656,6 +656,7 @@ public readonly record struct ScenePose
 /// </param>
 /// <param name="StaticFade">A static prop's distance fade entry (B430); null everywhere else.</param>
 /// <param name="StaticScreen">A static prop's screen-fade inputs (B432); null everywhere else.</param>
+/// <param name="CorpseInvisibility">A cloaked corpse's own invisibility; 0 everywhere else.</param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -807,7 +808,11 @@ public sealed record SceneProp(
 
     // **A static prop's sphere and forced fade scale, for the screen fades** (B432). Set on every
     // static prop, entry or not, because the level fade applies to all of them; null for every entity.
-    StaticPropScreen? StaticScreen = null);
+    StaticPropScreen? StaticScreen = null,
+
+    // **A cloaked corpse's own invisibility, 0 for everything else** — `C_TFRagdoll::GetPercentInvisible`, which
+    // both invisibility proxies read off a ragdoll (`PlayerInvisibility.Ragdoll`). Only `RagdollProps` sets it.
+    float CorpseInvisibility = 0f);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

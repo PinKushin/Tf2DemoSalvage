@@ -72,6 +72,39 @@ public sealed class PlayerInvisibilityConformanceTests
     }
 
     [Test]
+    public void Effective_AnEnemyInHightowersStealthSpell_IsCapped()
+    {
+        // bHalloweenSpellStealth = IsHalloweenScenario( HALLOWEEN_SCENARIO_HIGHTOWER ) && InCond( TF_COND_STEALTHED_USER_BUFF );
+        // bLimitedInvis = !IsEnemyPlayer() || bHalloweenSpellStealth (c_tf_player.cpp:6849-6850).
+        PlayerInvisibility.Effective(1f, isEnemy: true, 4, null, null, halloweenSpellStealth: true).ShouldBe(0.95f);
+        PlayerInvisibility.Effective(1f, isEnemy: true, 4, null, null, halloweenSpellStealth: false).ShouldBe(1f);
+    }
+
+    [Test]
+    public void HalloweenSpellStealth_OnlyOnHightowerWithTheUserBuff_IsTrue()
+    {
+        // HALLOWEEN_SCENARIO_HIGHTOWER is 4 (tf_gamerules.h); TF_COND_STEALTHED_USER_BUFF 64 (tf_shareddefs.h).
+        PlayerConditions buffed = new(0, 0, 1, 0, 0);
+
+        buffed.Has(64).ShouldBeTrue("the control: bit 64 is the third word's first");
+        PlayerInvisibility.HalloweenSpellStealth(buffed, halloweenScenario: 4).ShouldBeTrue();
+        PlayerInvisibility.HalloweenSpellStealth(buffed, halloweenScenario: 3).ShouldBeFalse();
+        PlayerInvisibility.HalloweenSpellStealth(new PlayerConditions(Stealthed, 0, 0, 0, 0), halloweenScenario: 4).ShouldBeFalse();
+    }
+
+    [Test]
+    public void Ragdoll_ACloakedCorpse_FadesOverOneSecond()
+    {
+        // m_bCloaked: Your Eternal Reward's victim (tf_player.cpp:12707-12715), never a feign death's (:15795).
+        // C_TFRagdoll::ClientThink (c_tf_player.cpp:1392-1399): while m_bCloaked, m_flPercentInvisible += frametime, to 1 —
+        // from 0, the entity's zeroed allocation, and the think runs every frame (CLIENT_THINK_ALWAYS, :864).
+        PlayerInvisibility.Ragdoll(cloaked: true, secondsAlive: 0f).ShouldBe(0f);
+        PlayerInvisibility.Ragdoll(cloaked: true, secondsAlive: 0.25f).ShouldBe(0.25f);
+        PlayerInvisibility.Ragdoll(cloaked: true, secondsAlive: 3f).ShouldBe(1f);
+        PlayerInvisibility.Ragdoll(cloaked: false, secondsAlive: 3f).ShouldBe(0f);
+    }
+
+    [Test]
     public void LocalWeapon_HalfCloaked_RemapsIntoTheViewmodelRange()
     {
         // CInvisProxy::OnBind for the local player (tf_viewmodel.cpp:575-594): RemapVal( p, 0, 1, 0.22, 0.5 ).

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
@@ -46,6 +47,23 @@ public sealed class RagdollPropsTests
         // The control on that: pitch is deliberately NOT carried, since a player's pitch lives in
         // the head's pose parameters and applying it here tips the whole body over.
         corpse.Pose.Pitch.ShouldBe(0f);
+    }
+
+    /// <remarks>
+    /// **A cloaked corpse fades over its first second** — `m_bCloaked`, `ClientThink`'s ramp (c_tf_player.cpp:1392-1399).
+    /// Created at tick 100 at 0.015 s a tick: 20 ticks in is 0.3, 150 ticks in is past 1. The control is the same corpse
+    /// uncloaked.
+    /// </remarks>
+    [Test]
+    public void Fill_ACloakedCorpse_CarriesItsFadeFromCreation()
+    {
+        List<SceneProp> scene = [];
+
+        RagdollProps.Fill([Corpse(SceneTeams.Red) with { Cloaked = true }], tick: 120d, Classes, scene, intervalPerTick: 0.015f);
+        RagdollProps.Fill([Corpse(SceneTeams.Red) with { Cloaked = true }], tick: 200d, Classes, scene, intervalPerTick: 0.015f);
+        RagdollProps.Fill([Corpse(SceneTeams.Red)], tick: 200d, Classes, scene, intervalPerTick: 0.015f);
+
+        scene.Select(prop => prop.CorpseInvisibility).ShouldBe([0.3f, 1f, 0f], tolerance: 1e-5f);
     }
 
     /// <remarks>
