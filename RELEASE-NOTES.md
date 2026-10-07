@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.34
+# Tf2DemoSalvage 0.1.0-beta.35
 
-## Changes since 0.1.0-beta.33
+## Changes since 0.1.0-beta.34
+
+- **Ropes are now ported in full.** A rope's impulse (the force the two maps `ctf_helltrain_event` and
+  `arena_perks` apply to theirs), the `ShakeRopes` shake, holiday lights on ropes (including Pyrovision's white
+  lights), the cable material's bump term, and ropes whose ends go dormant now follow the game (B478). The
+  holiday lights follow the game's Christmas rules and blink and cycle colour as it does.
+
+## Changes in 0.1.0-beta.34
 
 - **Cloaked spies now cloak.** A spy at any level of cloak drew as a solid player. He now warps the frame behind
   him with the game's cloak pass and fades with the cloak level; at full cloak the recorder's enemy spies vanish,
@@ -365,6 +372,11 @@ Each claim below is a measurement, not an expectation.
   serveme SourceTV demo a cloaking spy rises to the 0.95 cap and reads as a red-tinted warp of the wall behind
   him; on a point-of-view demo the recorder's uber draws the red overlay at tick 95960. Compared by eye in
   `--shot` captures, not yet side by side with the game.
+- **Rope impulse, shake, holiday lights, cable bump, dormant ends (B478):** covered by conformance tests and the
+  merge gate; each fix was sabotaged and the right test reddened. Output level, on the 2011 viaduct SourceTV rope:
+  the bump term against its own control, and bulbs drawn red on grey. Impulse (4 of 239 installed maps) is in no
+  demo we hold, and the lcor sweep did not finish, so it is untested on a real demo. `ShakeRopes` is
+  unreachable in TF2's server code. Not yet checked by eye against the game.
 - **Refract trails** (beta.31): conformance tests cover the refract shader port, the trail batching and the frame
   copy; fog was read from the game's published shader source, with the fog colour taken unscaled (an
   interpolation). Not yet checked by eye against the game (B476).
@@ -406,6 +418,11 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   recorder only; other spies draw as with an ordinary watch. A feign-death cloak, the Halloween stealth spell's
   cloak and screen overlay, and the `imcookin` overlay are not drawn. An animated overlay normal map draws its
   first frame.
+- **Rope leftovers (B478):** a holiday bulb's roll uses this project's own random stream, and the pool of 500
+  light temp entities is the lights' alone here, where the game shares it with every other temp entity. A bulb
+  draws its sprite's first frame only. A rope impulse or `ShakeRopes` fires at its packet's tick, and a skip
+  forward fires every event it passes. `m_skybox3d.origin` is taken as the map's `sky_camera` origin, or zero
+  without one.
 - **Crosshair approximations (B500):** the match-summary and minigame hides are verified only on synthetic data,
   because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
   game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
