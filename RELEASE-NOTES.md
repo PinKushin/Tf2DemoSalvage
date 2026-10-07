@@ -1,6 +1,18 @@
-# Tf2DemoSalvage 0.1.0-beta.33
+# Tf2DemoSalvage 0.1.0-beta.34
 
-## Changes since 0.1.0-beta.32
+## Changes since 0.1.0-beta.33
+
+- **Cloaked spies now cloak.** A spy at any level of cloak drew as a solid player. He now warps the frame behind
+  him with the game's cloak pass and fades with the cloak level; at full cloak the recorder's enemy spies vanish,
+  while the recorder's teammates and every spy in a SourceTV demo keep the game's 0.95 shimmer. Team tint follows
+  the game (B508).
+- **The recorder's screen overlays now draw.** In first person on a point-of-view demo, uber, jarate, bleed and
+  gas tint and warp the view, as the game does (B509).
+- **Demos at protocols 18 and 19 are no longer held back by a list.** They already decoded; the test that checked
+  them had pinned the accepted protocols, and now asks only for protocol 11 or later (D211). No change to
+  decoding.
+
+## Changes in 0.1.0-beta.33
 
 - **Refracting materials on models now draw.** The Bazaar Bargain lens, the crystal ball and the blurred muzzle
   flash showed the missing-material checkerboard; they now warp a copy of the frame behind them, as the game
@@ -349,6 +361,10 @@ Each claim below is a measurement, not an expectation.
   this, every recorded soundscape entity matches on every tick in first person, with someone else's view as
   control. The game's missing-radius behavior was settled in its shipped engine binary (B483). Not yet checked by
   ear in a played demo.
+- **Cloak and screen overlays (B508, B509):** covered by conformance and render tests and the merge gate. On the
+  serveme SourceTV demo a cloaking spy rises to the 0.95 cap and reads as a red-tinted warp of the wall behind
+  him; on a point-of-view demo the recorder's uber draws the red overlay at tick 95960. Compared by eye in
+  `--shot` captures, not yet side by side with the game.
 - **Refract trails** (beta.31): conformance tests cover the refract shader port, the trail batching and the frame
   copy; fog was read from the game's published shader source, with the fog colour taken unscaled (an
   interpolation). Not yet checked by eye against the game (B476).
@@ -385,6 +401,11 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Some model refract materials still show the checkerboard** (B506): the 13 HL2 and test materials that use
   `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. Not checked on a real
   demo.
+- **Cloak and overlay leftovers (B508, B509):** the cloak's normal map uses a screen-derived frame, not mesh
+  tangents, so only the warp's direction differs. A Cloak and Dagger spy's fade by speed is known for the
+  recorder only; other spies draw as with an ordinary watch. A feign-death cloak, the Halloween stealth spell's
+  cloak and screen overlay, and the `imcookin` overlay are not drawn. An animated overlay normal map draws its
+  first frame.
 - **Crosshair approximations (B500):** the match-summary and minigame hides are verified only on synthetic data,
   because no demo we hold contains either. The Ambassador scale follows the server's shot time, so a shot the
   game predicts ahead of the last packet appears slightly late, and in 2009 demos, whose data lacks the shot
