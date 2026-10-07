@@ -36064,3 +36064,10 @@ still take the slot. `AnimatedTexture` on an overlay's `$normalmap` draws frame 
 all nine ship.
 
 **Owner-visible:** in first person on a POV demo, the recorder's uber, jarate, bleed and gas now tint and warp the view.
+
+## B510 — footstep foot alternation is not reset across a seek — MEASURED, NOT A DEFECT 2026-10-07
+
+*Read from published source (B172's landing-sounds section).* `Footsteps.Reset` is never called on a seek, so the
+left/right foot a player's next step uses carries on from before the jump. The engine does not reset its
+`m_nStepside` counter either, so this matches the game rather than diverging from it. Filed so nobody reads the
+missing reset as a bug; reopen only if a measurement of the game's own playback across a seek shows a reset.

@@ -1,6 +1,14 @@
-# Tf2DemoSalvage 0.1.0-beta.35
+# Tf2DemoSalvage 0.1.0-beta.36
 
-## Changes since 0.1.0-beta.34
+## Changes since 0.1.0-beta.35
+
+- **The recorder now hears his own landings.** In a point-of-view demo, a hard landing plays the ground's footstep
+  sound at the game's volume (full past a fast fall, a little less past a medium one; a scout lands audibly only
+  when it hurts), as the game does. The game predicts these on the recorder's own client and never records them.
+  Other players' landings, and every landing in a SourceTV demo, stay silent by design: the game's server leaves
+  out anyone who can see the player, so nobody else is meant to hear them either (B172).
+
+## Changes in 0.1.0-beta.35
 
 - **Ropes are now ported in full.** A rope's impulse (the force the two maps `ctf_helltrain_event` and
   `arena_perks` apply to theirs), the `ShakeRopes` shake, holiday lights on ropes (including Pyrovision's white
@@ -372,6 +380,9 @@ Each claim below is a measurement, not an expectation.
   serveme SourceTV demo a cloaking spy rises to the 0.95 cap and reads as a red-tinted warp of the wall behind
   him; on a point-of-view demo the recorder's uber draws the red overlay at tick 95960. Compared by eye in
   `--shot` captures, not yet side by side with the game.
+- **Recorder landing sounds (B172):** covered by conformance tests and the merge gate. On the 2009 badlands POV
+  demo, 4 landings are predicted, each within one packet of a hard landing the server's own fall speed shows, with
+  the same volume; the server made 7. Not yet checked by ear in a played demo.
 - **Rope impulse, shake, holiday lights, cable bump, dormant ends (B478):** covered by conformance tests and the
   merge gate; each fix was sabotaged and the right test reddened. Output level, on the 2011 viaduct SourceTV rope:
   the bump term against its own control, and bulbs drawn red on grey. Impulse (4 of 239 installed maps) is in no
@@ -434,8 +445,11 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   cannot be reproduced, so each sound's random draw is the viewer's own.
 - **Seeks are slower than before (B504):** forward seeks replay the skipped ticks, and a rewind restarts from
   the beginning, as the game does. Faster rewind through checkpoints is planned.
-- **No landing sounds.** The game predicts them on the client and never records them in the demo;
-  footsteps are rebuilt from the player animations, landings are not yet (B172).
+- **Landing sounds are the recorder's only, as in the game (B172).** Three of the seven hard landings in the
+  demo we measured are not predicted: the landing's command is read on the same tick as the packet that
+  acknowledges it (the game's order within a tick is inferred, not confirmed). Also not ported: the landing view
+  punch, landing on moving or descending ground, the grappling hook's safe-fall reset, `sv_footsteps 0` and
+  Mann vs. Machine's volume rule.
 - **Part of the rope model is not ported:** impulses, rope shaking, holiday lights (B478).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
