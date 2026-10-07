@@ -38,6 +38,48 @@ public sealed class RecorderPrediction
     private double _askedTick = double.NaN;
     private (float X, float Y, float Z)? _answer;
 
+    /// <summary>The last frame's landings, by command (B172).</summary>
+    private readonly List<PredictedLanding> _landings = [];
+
+    /// <summary>The last frame's newest pending command; null when it had none.</summary>
+    private int? _lastPending;
+
+    /// <summary>The newest command whose landing has been handed out — <c>IsFirstTimePredicted</c>'s line; null until re-based.</summary>
+    private int? _predictedThrough;
+
+    /// <summary>
+    /// The landing sounds commands predicted for the FIRST time this frame made (B172): <c>PlayStepSound</c> returns on a
+    /// re-prediction (<c>baseplayer_shared.cpp:672-674</c>), so each command's landing plays once, on the frame it is first run.
+    /// </summary>
+    /// <param name="into">Receives them, oldest first.</param>
+    /// <remarks>
+    /// A step back in time re-bases the line without playing, as the engine predicts nothing while it skips or seeks
+    /// (<c>CL_RunPrediction</c>, D205); so does the first frame.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="into"/> is null.</exception>
+    public void TakeLandings(ICollection<PredictedLanding> into)
+    {
+        ArgumentNullException.ThrowIfNull(into);
+
+        if (_lastPending is not { } newest)
+        {
+            return;
+        }
+
+        if (_predictedThrough is { } through)
+        {
+            foreach (PredictedLanding landing in _landings)
+            {
+                if (landing.Sequence > through)
+                {
+                    into.Add(landing);
+                }
+            }
+        }
+
+        _predictedThrough = Math.Max(newest, _predictedThrough ?? newest);
+    }
+
     /// <summary>Prediction over a decoded demo and the map its world is read from.</summary>
     /// <param name="timeline">The demo.</param>
     /// <param name="world">The loaded map, asked per frame because it is read on its own schedule; null for none.</param>
@@ -192,7 +234,14 @@ public sealed class RecorderPrediction
             return _answer;
         }
 
+        if (tick < _askedTick)
+        {
+            _predictedThrough = null;
+        }
+
         _askedTick = tick;
+        _landings.Clear();
+        _lastPending = null;
         _answer = Predict((int)Math.Floor(tick));
 
         return _answer;
@@ -200,15 +249,19 @@ public sealed class RecorderPrediction
 
     private (float X, float Y, float Z)? Predict(int tick)
     {
-        return LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick) : null;
+        return LastPacket(_timeline.PacketAcknowledgements, tick) is { } packet ? PredictFrom(packet, tick, _landings) : null;
     }
+
+    /// <inheritdoc cref="PredictFrom(ValueTuple{int, int}, int, List{PredictedLanding}?)"/>
+    public (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick) => PredictFrom(packet, tick, null);
 
     /// <summary>The velocity prediction reaches from one packet's state, with every command read by a tick re-run on it.</summary>
     /// <param name="packet">The packet's tick and acknowledgement.</param>
     /// <param name="tick">The tick whose commands are read; later than the packet's for there to be any.</param>
     /// <returns>The velocity, or null as for <see cref="VelocityAt"/>.</returns>
+    /// <param name="landings">Receives each command's landing; null for none. Also records the newest pending command.</param>
     /// <remarks>Public so the next packet can be compared with it: its state includes exactly these commands.</remarks>
-    public (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick)
+    private (float X, float Y, float Z)? PredictFrom((int Tick, int Acknowledged) packet, int tick, List<PredictedLanding>? landings)
     {
         if (_timeline.RecorderEntityIndex is not { } recorderIndex)
         {
@@ -220,6 +273,11 @@ public sealed class RecorderPrediction
         if (pending.Count == 0 || _world() is not { } level)
         {
             return null;
+        }
+
+        if (landings is not null)
+        {
+            _lastPending = pending[^1].Sequence;
         }
 
         IReadOnlyList<ScenePlayer> players = _timeline.PlayersAt(packet.Tick);
@@ -330,6 +388,11 @@ public sealed class RecorderPrediction
             if (!movement.ProcessMovement(ref player, command.Command, _timeline.IntervalPerTick, first, command.Sequence))
             {
                 return null;
+            }
+
+            if (movement.LandingVolume is { } volume)
+            {
+                landings?.Add(new PredictedLanding(command.Sequence, volume, player.Origin, player.Surface));
             }
 
             first = false;

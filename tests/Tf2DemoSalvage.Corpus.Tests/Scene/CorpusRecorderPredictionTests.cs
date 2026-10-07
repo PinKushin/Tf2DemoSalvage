@@ -137,6 +137,85 @@ public sealed class CorpusRecorderPredictionTests
         compared.ShouldBe(50);
     }
 
+    [Test]
+    public void TakeLandings_PlayingThroughAPovDemo_SoundsEachHardLandingTheServerSawOnce()
+    {
+        // B172, the output: played tick by tick as the viewer does, prediction's CheckFalling hands out landing sounds, each
+        // command's once. The control is the server's own m_flFallVelocity (DT_Local): it is zeroed by the server's
+        // CheckFalling on the landing, so a packet with it at or past 350 followed by one on the ground with it zero is a
+        // hard landing the server made from the same commands.
+        string game = SdkReference.GameInstall.Require();
+        byte[] map = File.ReadAllBytes(Path.Combine(game, "maps", "cp_badlands.bsp"));
+        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(Corpus.Demo("tf2-2009-build3862-pov-cp_badlands")));
+        MapLevel level = MapLevel.Read(map, NullLogger.Instance);
+        GameContent content = GameContent.Open(game, NullLoggerFactory.Instance);
+        ImpactDecals decals = ImpactDecals.Load(map, content.Archives, content.Surfaces);
+        int recorder = timeline.RecorderEntityIndex.ShouldNotBeNull();
+        RecorderPrediction prediction = new(timeline, () => level)
+        {
+            GroundSurface = trace => content.Surfaces.GetSurfaceData(decals.SurfacePropOfTrace(trace)),
+        };
+        TimelineMoments moments = new(timeline) { Player = new DemoPlayer(timeline), Prediction = prediction };
+
+        List<PredictedLanding> landings = [];
+        List<ScenePlayer> players = [];
+
+        for (int tick = timeline.FirstTick; tick < timeline.LastTick; tick++)
+        {
+            players.Clear();
+            moments.PlayersAt(tick, players);
+            prediction.TakeLandings(landings);
+        }
+
+        // The server's hard landings: the field is a low-precision float, so its zero arrives as 0.03125.
+        List<(int Tick, float Volume)> server = [];
+        float lastFall = 0f;
+
+        foreach ((int tick, int _) in timeline.PacketAcknowledgements)
+        {
+            if (Find(timeline, recorder, tick) is not { Movement: { } movement } player)
+            {
+                continue;
+            }
+
+            if (lastFall >= 350f && movement.FallVelocity < 1f && ((player.Flags ?? 0) & 1) != 0 &&
+                (player.PlayerClass != 1 || lastFall > 580f))
+            {
+                server.Add((tick, lastFall > 580f ? 1f : 0.85f));
+            }
+
+            lastFall = movement.FallVelocity;
+        }
+
+        List<(int Tick, float Volume)> predicted =
+            [.. landings.Select(landing => (timeline.UserCommands.First(command => command.Sequence == landing.Sequence).Tick, landing.Volume))];
+
+        string report = string.Create(
+            CultureInfo.InvariantCulture,
+            $"predicted (command tick, volume): {string.Join(", ", predicted)}; the server's (packet tick, volume): {string.Join(", ", server)}");
+
+        TestContext.Out.WriteLine(report);
+
+        // Measured 2026-10-07: 4 of the server's 7. The other three land in a command read on the tick the packet that
+        // acknowledges it arrives, so no frame ever predicts it — the engine's order too, if CL_RunPrediction follows the
+        // tick's messages (D205), so TF2 plays none of those three either.
+        predicted.Count.ShouldBeGreaterThan(0, report);
+        landings.Select(landing => landing.Sequence).ShouldBeUnique(report);
+        landings.ShouldAllBe(landing => landing.Surface != null, report);
+
+        foreach ((int tick, float volume) in predicted)
+        {
+            // The first server landing at or after the command — the packet acknowledging it, up to 8 ticks on (18333 → 18341).
+            (int Tick, float Volume) next = server.FirstOrDefault(landing => landing.Tick >= tick);
+
+            (next.Tick - tick).ShouldBeInRange(0, 10, report);
+            next.Volume.ShouldBe(volume, report);
+        }
+    }
+
+    private static ScenePlayer? Find(DemoTimeline timeline, int recorder, int tick) =>
+        timeline.PlayersAt(tick).FirstOrDefault(player => player.EntityIndex == recorder && player.IsAlive);
+
     private static (float X, float Y, float Z)? Velocity(DemoTimeline timeline, int recorder, int tick)
     {
         foreach (ScenePlayer player in timeline.PlayersAt(tick))

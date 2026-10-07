@@ -147,36 +147,64 @@ public sealed class Footsteps
             volume *= 0.65f;
         }
 
-        return Play(tick, player, found, volume, scripts);
+        return Play(tick, player.EntityIndex, (player.X, player.Y, player.Z), found, volume, scripts);
     }
 
+    /// <summary>
+    /// A predicted landing (B172): `PlayerRoughLandingEffects` calls `PlayStepSound( origin, m_pSurfaceData, fvol, true )`
+    /// (`gamemovement.cpp:3995`), on the same `m_nStepside` a footstep turns.
+    /// </summary>
+    /// <param name="tick">When.</param>
+    /// <param name="entityIndex">The player.</param>
+    /// <param name="origin">Where the move left him.</param>
+    /// <param name="surface">`m_pSurfaceData`, or null for none, which plays nothing.</param>
+    /// <param name="volume">`fvol`, as `CheckFalling` chose it.</param>
+    /// <param name="scripts">The sound scripts.</param>
+    /// <returns>The landing, or null.</returns>
+    public SceneSound? Land(
+        int tick,
+        int entityIndex,
+        (float X, float Y, float Z) origin,
+        StepSurface? surface,
+        float volume,
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts) =>
+        surface is { } found ? Play(tick, entityIndex, origin, found, volume, scripts) : null;
+
     /// <summary>`PlayStepSound`: this foot's sound, then the other foot next time.</summary>
-    private SceneSound? Play(int tick, ScenePlayer player, StepSurface surface, float volume, IReadOnlyDictionary<string, SoundScriptEntry> scripts)
+    private SceneSound? Play(
+        int tick,
+        int entityIndex,
+        (float X, float Y, float Z) origin,
+        StepSurface surface,
+        float volume,
+        IReadOnlyDictionary<string, SoundScriptEntry> scripts)
     {
-        _side.TryGetValue(player.EntityIndex, out int side);
+        ArgumentNullException.ThrowIfNull(scripts);
+
+        _side.TryGetValue(entityIndex, out int side);
 
         if ((side != 0 ? surface.Left : surface.Right) is not { } name)
         {
             return null;
         }
 
-        _side[player.EntityIndex] = side ^ 1;
+        _side[entityIndex] = side ^ 1;
 
         // `m_StepSoundCache[ nSide ]` (`baseplayer_shared.cpp:693-713`): a name with ONE wave keeps its first
         // `CSoundParameters` for that foot, so its pitch and soundlevel are drawn once, not per step.
         SceneSound drawn;
 
-        if (_cache.TryGetValue((player.EntityIndex, side), out (string Name, SceneSound Parameters) cached) && cached.Name == name)
+        if (_cache.TryGetValue((entityIndex, side), out (string Name, SceneSound Parameters) cached) && cached.Name == name)
         {
-            drawn = cached.Parameters with { Tick = tick, OriginX = player.X, OriginY = player.Y, OriginZ = player.Z };
+            drawn = cached.Parameters with { Tick = tick, OriginX = origin.X, OriginY = origin.Y, OriginZ = origin.Z };
         }
-        else if (EntitySounds.Emit(tick, player.EntityIndex, name, (player.X, player.Y, player.Z), scripts, emitted: false, ClientSoundPhase.Simulate) is { } fresh)
+        else if (EntitySounds.Emit(tick, entityIndex, name, origin, scripts, emitted: false, ClientSoundPhase.Simulate) is { } fresh)
         {
             drawn = fresh;
 
             if (scripts.TryGetValue(name, out SoundScriptEntry entry) && entry.Waves.Count == 1)
             {
-                _cache[(player.EntityIndex, side)] = (name, fresh);
+                _cache[(entityIndex, side)] = (name, fresh);
             }
         }
         else

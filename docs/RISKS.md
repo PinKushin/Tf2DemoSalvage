@@ -14592,10 +14592,42 @@ eye height comes from the class), or a spectator/SourceTV entity being followed 
 player. The first thing to measure is which players it fails for and what those have in common —
 `docs/memory/ask-whether-the-data-arrived.md`, before anything about cameras.
 
-### B172 — footsteps and landing sounds are absent from every demo — footsteps FIXED 2026-09-23 (`4bb16c37`, animation event 7001, `Footsteps`); landing sounds OPEN
+### B172 — footsteps and landing sounds are absent from every demo — footsteps FIXED 2026-09-23 (`4bb16c37`, animation event 7001, `Footsteps`); landing sounds FIXED 2026-10-07 (prediction's `CheckFalling`, `Footsteps.Land`)
 
 **Heading corrected 2026-10-04:** it still read "OPEN, and may be unfixable" eleven days after footsteps shipped, and
-the release notes' known gaps repeated it. Landing sounds (`CheckFalling` → `PlayerRoughLandingEffects`) are not built.
+the release notes' known gaps repeated it.
+
+#### Landing sounds: only the POV recorder makes one, and prediction is what makes it — 2026-10-07
+
+*Read from published source, plus D205's disassembly; measured on the corpus.* The landing sound is not an animation
+event. `CTFGameMovement::FullWalkMove` calls `CheckFalling` (`tf_gamemovement.cpp:2702`); `CGameMovement::CheckFalling`
+(`gamemovement.cpp:3919-3985`) acts on the ground when `m_flFallVelocity` ≥ `PLAYER_FALL_PUNCH_THRESHOLD` (350 outside
+HL2, `shareddefs.h:419`): `fvol` 0.5 with any water, else 1.0 past `PLAYER_MAX_SAFE_FALL_SPEED` 580, 0.85 past 290 (the
+`< PLAYER_MIN_BOUNCE_SPEED` 200 branch is dead under a 350 threshold). TF2's `PlayerRoughLandingEffects` (`:2975-3005`)
+silences `TF_COND_GRAPPLINGHOOK` and drops a scout below 1.0 to 0 — a scout lands audibly only when it hurts. The base
+(`gamemovement.cpp:3987-4012`) then calls `PlayStepSound( origin, m_pSurfaceData, fvol, true )`: the ground's
+`stepleft`/`stepright` on the SAME `m_nStepside` footsteps turn, `CHAN_BODY`, volume `fvol`.
+
+**Who hears it.** Movement runs on the client only for the predicted local player, and `PlayStepSound` returns on a
+re-prediction (`baseplayer_shared.cpp:672-674`). On the server, `PlayStepSound` removes every client in the origin's
+PVS (`:717-722`) — "these players generate the footsteps client side" — so another player's landing reaches a client
+only from beyond the PVS, as an `svc_Sounds` the demo already carries and the viewer already plays. Nothing on the
+client lands anyone else: no `C_TFPlayer` override detects it (`c_tf_player.cpp`'s outline has none). So **in an STV
+demo, and for everyone but the recorder in a POV demo, there is nothing to add.** For the recorder, `CL_RunPrediction`
+runs during playback (D205), so TF2 plays his landings off the re-simulated commands — what `RecorderPrediction` now
+does: `TfGameMovement.LandingVolume` per command, `TakeLandings` handing out each command once (a step back re-bases,
+as a seek predicts nothing), `Footsteps.Land` in the viewer.
+
+**Measured on `tf2-2009-build3862-pov-cp_badlands`** (`CorpusRecorderPredictionTests`): 4 landings predicted, each
+within one packet of a hard landing the server's own `m_flFallVelocity` shows (that field's zero arrives as 0.03125),
+with the same volume. The server made 7. The other three each land in a command read on the very tick the packet that
+acknowledges it arrives, so no frame ever has it pending — and if the engine predicts after reading the tick's
+messages, as D205's read says, TF2's playback skips the same three. *Interpolated:* that order within the tick.
+
+**Not ported:** the punch angle; `IsFloating()` ground and descending-ground subtraction (the client's ground velocity
+is zero, D205); `TF_COND_GRAPPLINGHOOK_SAFEFALL`'s `tf_grapplinghook_prevent_fall_damage` reset; `sv_footsteps 0`;
+Mann vs. Machine's script volume. Footstep alternation across a seek (`Footsteps.Reset` is never called, and the
+engine's `m_nStepside` is not reset either) stays as it was — it does not fall out of this code.
 
 The owner, after the audio wiring: *"footsteps still are not played either, and neither are landing
 sounds, except for maybe voice lines if it had fall damage"*.

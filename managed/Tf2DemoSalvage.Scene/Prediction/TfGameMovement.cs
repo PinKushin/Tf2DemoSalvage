@@ -220,6 +220,7 @@ public sealed class TfGameMovement
 
         _player = player;
         _declined = false;
+        LandingVolume = null;
         _frametime = frametime;
 
         // SetupMove (prediction.cpp:610).
@@ -1066,14 +1067,65 @@ public sealed class TfGameMovement
             _player.Velocity = _player.Velocity with { Z = 0f };
         }
 
-        // CheckFalling clears m_flFallVelocity on landing and changes no velocity.
-        if (_player.OnGround)
-        {
-            _player.FallVelocity = 0f;
-        }
-
+        CheckFalling();
         CheckVelocity();
     }
+
+    /// <summary>
+    /// <c>CGameMovement::CheckFalling</c> (<c>gamemovement.cpp:3919-3985</c>) and TF2's
+    /// <c>PlayerRoughLandingEffects</c> (<c>tf_gamemovement.cpp:2975-3005</c>): the landing sound's volume, cleared fall
+    /// speed. No velocity changes.
+    /// </summary>
+    /// <remarks>
+    /// *Interpolated:* the ground is never <c>IsFloating()</c> and never descends — the client's ground velocity is zero
+    /// (<see cref="SetGroundEntity"/>). The <c>PLAYER_MIN_BOUNCE_SPEED</c> branch (200) is dead under a 350 threshold, so
+    /// it is absent. <c>PlayerFallingDamage</c> is the server's; the client's <c>MoveHelper</c> answers
+    /// alive. The punch angle is not ported.
+    /// </remarks>
+    private void CheckFalling()
+    {
+        if (!_player.OnGround || _player.FallVelocity <= 0f)
+        {
+            return;
+        }
+
+        if (!_player.IsDead && _player.FallVelocity >= FallPunchThreshold)
+        {
+            float volume = 0.5f;
+
+            if (_player.WaterLevel <= 0 && _player.FallVelocity > MaxSafeFallSpeed)
+            {
+                volume = 1f;
+            }
+            else if (_player.WaterLevel <= 0 && _player.FallVelocity > MaxSafeFallSpeed / 2f)
+            {
+                volume = 0.85f;
+            }
+
+            // CTFGameMovement::PlayerRoughLandingEffects: a grapple lands silently, a scout only when it hurts.
+            if (_player.Conditions.Has(ConditionGrapplingHook) || (_player.PlayerClass == ClassScout && volume < 1f))
+            {
+                volume = 0f;
+            }
+
+            LandingVolume = volume > 0f ? volume : null;
+        }
+
+        _player.FallVelocity = 0f;
+    }
+
+    /// <summary>
+    /// The <c>fvol</c> the last command's landing handed <c>PlayStepSound</c> (<c>gamemovement.cpp:3995</c>), or null for
+    /// none: <c>m_pSurfaceData</c>'s step sound, forced, on <c>CHAN_BODY</c> at this volume (B172).
+    /// </summary>
+    public float? LandingVolume { get; private set; }
+
+    /// <summary><c>PLAYER_FALL_PUNCH_THRESHOLD</c> and <c>PLAYER_MAX_SAFE_FALL_SPEED</c> outside HL2 (<c>shareddefs.h:416-419</c>).</summary>
+    private const float FallPunchThreshold = 350f;
+    private const float MaxSafeFallSpeed = 580f;
+
+    /// <summary><c>TF_COND_GRAPPLINGHOOK</c> (<c>tf_shareddefs.h:788</c>).</summary>
+    private const int ConditionGrapplingHook = 98;
 
     private void CheckJumpButton()
     {

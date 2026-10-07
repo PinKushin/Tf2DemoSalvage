@@ -33,6 +33,7 @@ using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Text;
 using Tf2DemoSalvage.Logging;
 using Tf2DemoSalvage.Scene.Hud;
+using Tf2DemoSalvage.Scene.Prediction;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -7134,6 +7135,41 @@ internal class MainForm : Form, IFrameSteps
         return trace.Fraction >= 1f ? null : SurfaceAt(decals.SurfacePropOfTrace(trace));
     }
 
+    /// <summary>The landings prediction ran for the first time this frame (B172).</summary>
+    private readonly List<PredictedLanding> _landings = [];
+
+    /// <summary>
+    /// The POV recorder's landing sounds: prediction's <c>CheckFalling</c> → <c>PlayStepSound</c> (B172). Only the recorder —
+    /// no client runs movement for anyone else, and the server sends their landings only beyond the PVS
+    /// (<c>baseplayer_shared.cpp:717-722</c>), which the demo already carries.
+    /// </summary>
+    private void StepLandingSounds(int tick)
+    {
+        _landings.Clear();
+
+        if (_moments.Source is not TimelineMoments { Prediction: { } prediction })
+        {
+            return;
+        }
+
+        prediction.TakeLandings(_landings);
+
+        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _timeline?.RecorderEntityIndex is not { } recorder)
+        {
+            return;
+        }
+
+        foreach (PredictedLanding landing in _landings)
+        {
+            StepSurface? surface = landing.Surface is { } s ? new StepSurface(s.GameMaterial, s.Sounds.StepLeft, s.Sounds.StepRight) : null;
+
+            if (_footsteps.Land(tick, recorder, (landing.Origin.X, landing.Origin.Y, landing.Origin.Z), surface, landing.Volume, scripts.Entries) is { } sound)
+            {
+                _sound.Emit(sound);
+            }
+        }
+    }
+
     private StepSurface? NamedSurface(string name) =>
         _game?.Surfaces is { } surfaces && surfaces.GetSurfaceIndex(name) is >= 0 and var index ? SurfaceAt(index) : null;
 
@@ -7170,6 +7206,7 @@ internal class MainForm : Form, IFrameSteps
         StepDecals(_transport.CurrentTick);
         StepModelDecals(_transport.CurrentTick);
         StepAnimationSounds(_transport.CurrentTick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
+        StepLandingSounds(_transport.CurrentTick);
         StepCorpseSounds(_transport.CurrentTick);
         StepImpactEffects(_transport.CurrentTick);
         StepSparks(_transport.CurrentTick);
