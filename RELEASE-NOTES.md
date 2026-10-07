@@ -1,6 +1,18 @@
-# Tf2DemoSalvage 0.1.0-beta.36
+# Tf2DemoSalvage 0.1.0-beta.37
 
-## Changes since 0.1.0-beta.35
+## Changes since 0.1.0-beta.36
+
+- **Every spy now cloaks the way the game draws it.** Cloak and Dagger (the watch whose cloak fades with how fast
+  the spy moves) now applies to every spy, not only the recorder. The recorder's own weapons also stay pinned at
+  0.3 visibility when his cloak meter is empty (B508).
+- **Your Eternal Reward victims now cloak.** The corpse fades out over one second, as in the game. Dead Ringer
+  corpses never cloak, so they are drawn normally; the earlier note saying otherwise was wrong (B508).
+- **Halloween stealth.** The stealth spell's visibility cap and its screen overlay are drawn (B508, B509).
+- **Animated screen overlays animate.** Jarate, bleed and gas overlays now play their animation at 30 frames a
+  second instead of showing the first frame. The burning overlay (`imcookin`) draws nothing in the game either,
+  so that is correct (B509).
+
+## Changes in 0.1.0-beta.36
 
 - **The recorder now hears his own landings.** In a point-of-view demo, a hard landing plays the ground's footstep
   sound at the game's volume (full past a fast fall, a little less past a medium one; a scout lands audibly only
@@ -380,6 +392,12 @@ Each claim below is a measurement, not an expectation.
   serveme SourceTV demo a cloaking spy rises to the 0.95 cap and reads as a red-tinted warp of the wall behind
   him; on a point-of-view demo the recorder's uber draws the red overlay at tick 95960. Compared by eye in
   `--shot` captures, not yet side by side with the game.
+- **Cloak and Dagger for every spy, Your Eternal Reward corpses, Halloween stealth, animated overlays (B508,
+  B509):** covered by conformance and render tests and the merge gate, each fix reverted alone and its own test
+  reddened. A Cloak and Dagger spy running on an empty meter on pl_upward reads 0.5 at full speed (0.95 without
+  the install's schema); the probe over eleven local matches found Cloak and Dagger on spies in eight and 39 Dead
+  Ringer corpses, none cloaked. **No demo we hold has a Your Eternal Reward victim or the Halloween stealth
+  spell, so those two were not checked on a real demo.** Not yet compared with the game by eye.
 - **Recorder landing sounds (B172):** covered by conformance tests and the merge gate. On the 2009 badlands POV
   demo, 4 landings are predicted, each within one packet of a hard landing the server's own fall speed shows, with
   the same volume; the server made 7. Not yet checked by ear in a played demo.
@@ -424,11 +442,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Some model refract materials still show the checkerboard** (B506): the 13 HL2 and test materials that use
   `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. Not checked on a real
   demo.
-- **Cloak and overlay leftovers (B508, B509):** the cloak's normal map uses a screen-derived frame, not mesh
-  tangents, so only the warp's direction differs. A Cloak and Dagger spy's fade by speed is known for the
-  recorder only; other spies draw as with an ordinary watch. A feign-death cloak, the Halloween stealth spell's
-  cloak and screen overlay, and the `imcookin` overlay are not drawn. An animated overlay normal map draws its
-  first frame.
+- **Cloak leftovers (B508):** the cloak's normal map uses a screen-derived frame, not mesh tangents (no model
+  draw carries tangents yet), so only the warp's direction differs. A taunt that sets a spy's invisibility is not
+  applied over the cloak. `vm_invis` is read uncapped for other players. A cloak tint can carry over to the next
+  spy that shares the material. The cosmetics on a cloaked Your Eternal Reward corpse are not cloaked.
 - **Rope leftovers (B478):** a holiday bulb's roll uses this project's own random stream, and the pool of 500
   light temp entities is the lights' alone here, where the game shares it with every other temp entity. A bulb
   draws its sprite's first frame only. A rope impulse or `ShakeRopes` fires at its packet's tick, and a skip
