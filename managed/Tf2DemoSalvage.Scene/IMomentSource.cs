@@ -75,6 +75,11 @@ public interface IMomentSource
     /// <returns>`TF_VISION_FILTER_HALLOWEEN` (2) during Halloween or a full moon, else 0.</returns>
     public int HolidayVisionFlagsAt(double tick) => 0;
 
+    /// <summary>`m_halloweenScenario` at a tick (<see cref="SceneGameRules.HalloweenScenario"/>); 0 with no game rules.</summary>
+    /// <param name="tick">The moment being shown.</param>
+    /// <returns>The scenario; 4 is Hightower.</returns>
+    public int HalloweenScenarioAt(double tick) => 0;
+
     /// <summary>The player the demo was recorded from, or null for a SourceTV recording.</summary>
     /// <remarks>
     /// **Asked because the viewer of a demo IS its recorder, and one drawing rule turns on that**
@@ -323,6 +328,9 @@ public sealed class TimelineMoments(DemoTimeline timeline) : IMomentSource
             timeline.ServerConVars.Value, timeline.RulesAt((int)Math.Floor(tick)).MapHolidayType, TfHolidays.WatcherClock)
             ? VisionVisibility.HalloweenFlag
             : 0;
+
+    /// <inheritdoc />
+    public int HalloweenScenarioAt(double tick) => timeline.RulesAt((int)Math.Floor(tick)).HalloweenScenario;
 
     /// <inheritdoc />
     public int? Recorder => timeline.RecorderEntityIndex;

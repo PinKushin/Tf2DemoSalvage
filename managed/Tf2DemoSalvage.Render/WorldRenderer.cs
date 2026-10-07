@@ -993,6 +993,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return output;
         }
 
+        // **`render->ViewDrawFade( white, material )`** (viewrender.cpp:1242-1246), for an overlay needing no frame copy:
+        // the base texture over the screen, blended by its alpha. Only effects/stealth_overlay reaches it, whose base is
+        // black throughout — so the engine's lighting of the fade quad, closed in engine.dll, multiplies zero.
+        float4 PsScreenFade(VsOut input) : SV_TARGET
+        {
+            return albedoMap.Sample(wrapSampler, input.uv);
+        }
+
         // **`cloak_blended_pass_ps2x.fxc`**, VertexLitGeneric's cloak pass, over the model vertex shader. It shares the
         // refract cbuffer: refractModelTint is $cloakcolortint (rgb, set raw — SetPixelShaderConstant, not the
         // gamma-to-linear variant) and $refractamount (w); refractModelFlags.x is $cloakfactor, .y the BUMPMAP combo.

@@ -120,6 +120,46 @@ public sealed class CloakRenderTests
         target.DrawScreenOverlay(assets.ScreenOverlays[ScreenOverlay.Burning], 1.0).ShouldBeFalse();
     }
 
+    /// <remarks>
+    /// **The Halloween stealth overlay darkens, evenly**: `ViewDrawFade` draws `effects/stealth_overlay`, a translucent
+    /// VertexLitGeneric over the all-black `effects/grey` — so each pixel is the frame × ( 1 − α ), the same factor on all
+    /// three channels. The control is the frame before it.
+    /// </remarks>
+    [Test]
+    public void DrawScreenOverlay_StealthOverAUniformFrame_DarkensEveryChannelAlike()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+        MapAssets assets = MapCache.Load();
+        ScreenOverlayMaterial stealth = assets.ScreenOverlays[ScreenOverlay.Stealth];
+
+        stealth.Refract.ShouldBeNull("as shipped, its Refract block is commented out");
+        stealth.Fade.ShouldNotBeNull();
+
+        target.Clear(0.8f, 0.8f, 0.8f);
+        (int red, int green, int blue) grey = target.PixelAt(32, 32);
+
+        target.DrawScreenOverlay(stealth, 0.0).ShouldBeTrue();
+
+        (int red, int green, int blue) = target.PixelAt(32, 32);
+
+        red.ShouldBeLessThan(grey.red);
+        green.ShouldBe(red);
+        blue.ShouldBe(red);
+    }
+
+    /// <remarks>
+    /// **The animated overlays carry every frame of their normal map**: jarate's `water/tfwater001_normal` is an animated
+    /// VTF; invulnerability's is a still one.
+    /// </remarks>
+    [Test]
+    public void ScreenOverlays_JarateAndInvuln_LoadTheirNormalFrames()
+    {
+        MapAssets assets = MapCache.Load();
+
+        assets.ScreenOverlays[ScreenOverlay.Urine].NormalFrames.Count.ShouldBeGreaterThan(1);
+        assets.ScreenOverlays[ScreenOverlay.InvulnRed].NormalFrames.Count.ShouldBe(1);
+    }
+
     private static int SpyRed(MapAssets assets)
     {
         int index = Enumerable.Range(0, assets.Materials.Count)

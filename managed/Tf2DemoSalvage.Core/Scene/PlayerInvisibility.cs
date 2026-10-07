@@ -92,20 +92,54 @@ public static class PlayerInvisibility
     /// <param name="entityIndex">This player's entity index.</param>
     /// <param name="recorderObserverMode">The local player's `GetObserverMode()`, or null.</param>
     /// <param name="recorderObserverTarget">The local player's observer target, by entity index, or null.</param>
+    /// <param name="halloweenSpellStealth"><see cref="HalloweenSpellStealth"/>: capped whoever is watching.</param>
     /// <returns>0 visible through 1 invisible.</returns>
     /// <remarks>
-    /// **Not ported, named:** the Halloween Hightower `TF_COND_STEALTHED_USER_BUFF` limit (it needs the gamerules'
-    /// Halloween scenario) and the taunt stomp `taunt_attr_player_invis_percent` (an attribute on a taunt item). Neither
-    /// reaches a competitive or ordinary match.
+    /// **Not ported, named:** the taunt stomp `taunt_attr_player_invis_percent` (an attribute on a taunt item), which
+    /// does not reach a competitive or ordinary match.
     /// </remarks>
     public static float Effective(
-        float percent, bool isEnemy, int entityIndex, int? recorderObserverMode, int? recorderObserverTarget)
+        float percent,
+        bool isEnemy,
+        int entityIndex,
+        int? recorderObserverMode,
+        int? recorderObserverTarget,
+        bool halloweenSpellStealth = false)
     {
-        bool capped = !isEnemy ||
+        bool capped = !isEnemy || halloweenSpellStealth ||
             (recorderObserverMode is DeathCam or FreezeCam && recorderObserverTarget == entityIndex);
 
         return capped && percent > TeammateMaxInvis ? TeammateMaxInvis : percent;
     }
+
+    /// <summary>`HALLOWEEN_SCENARIO_HIGHTOWER` (tf_gamerules.h).</summary>
+    private const int Hightower = 4;
+
+    /// <summary>`TF_COND_STEALTHED_USER_BUFF` (tf_shareddefs.h): the Halloween stealth spell.</summary>
+    private const int StealthedUserBuff = 64;
+
+    /// <summary>
+    /// `bHalloweenSpellStealth` (c_tf_player.cpp:6849): `IsHalloweenScenario( HALLOWEEN_SCENARIO_HIGHTOWER ) &amp;&amp;
+    /// InCond( TF_COND_STEALTHED_USER_BUFF )` — Valve's "crude way to limit Halloween spell".
+    /// </summary>
+    /// <param name="conditions">The cloaked player's conditions.</param>
+    /// <param name="halloweenScenario">`m_halloweenScenario` (<see cref="SceneGameRules.HalloweenScenario"/>).</param>
+    /// <returns>Whether the player is capped at the teammate maximum even for his enemies.</returns>
+    public static bool HalloweenSpellStealth(PlayerConditions conditions, int halloweenScenario) =>
+        halloweenScenario == Hightower && conditions.Has(StealthedUserBuff);
+
+    /// <summary>`C_TFRagdoll::GetPercentInvisible` (c_tf_player.h): the corpse's own fade.</summary>
+    /// <param name="cloaked">`m_bCloaked` — a Your Eternal Reward victim (tf_player.cpp:12707-12715).</param>
+    /// <param name="secondsAlive">Client seconds since the corpse was created.</param>
+    /// <returns>0 visible through 1 invisible.</returns>
+    /// <remarks>
+    /// `ClientThink` (c_tf_player.cpp:1392-1399), every frame (`CLIENT_THINK_ALWAYS`, :864): `if ( m_bCloaked &amp;&amp;
+    /// m_flPercentInvisible &lt; 1.f ) m_flPercentInvisible += gpGlobals->frametime`, clamped to 1, from the zeroed
+    /// allocation every client entity starts with. The sum of frame times is the time since creation (*interpolated*: the
+    /// first think's frame time counts the frame the corpse was created in).
+    /// </remarks>
+    public static float Ragdoll(bool cloaked, float secondsAlive) =>
+        cloaked ? Math.Clamp(secondsAlive, 0f, 1f) : 0f;
 
     /// <summary>`CInvisProxy::OnBind` for the LOCAL player (tf_viewmodel.cpp:575-594), the old `vm_invis` arithmetic.</summary>
     /// <param name="percent">`GetPercentInvisible()`.</param>

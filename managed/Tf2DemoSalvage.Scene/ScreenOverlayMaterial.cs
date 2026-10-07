@@ -19,14 +19,40 @@ public sealed record ScreenOverlayMaterial(
     IReadOnlyList<MaterialProxy> Proxies,
     IReadOnlyDictionary<string, (float Red, float Green, float Blue)> Variables)
 {
+    /// <summary>Every frame of the Refract <c>$normalmap</c>, the first being <see cref="RefractMaterial.NormalMap"/>.</summary>
+    /// <remarks>
+    /// `BindTexture( SHADER_SAMPLER2, NORMALMAP, BUMPFRAME )` (refract_dx9_helper.cpp), <c>$bumpframe</c> written by
+    /// <c>AnimatedTexture</c>: jarate, bleed and gas animate <c>water/tfwater001_normal</c> at 30 frames a second.
+    /// </remarks>
+    public IReadOnlyList<MapTexture> NormalFrames { get; init; } = [];
+
+    /// <summary>
+    /// The <c>$basetexture</c> of an overlay drawn by <c>render-&gt;ViewDrawFade</c> — the branch for a material that
+    /// needs no frame copy (viewrender.cpp:1242-1246) — or null.
+    /// </summary>
+    /// <remarks>
+    /// Only <c>effects/stealth_overlay</c> takes it: a translucent <c>VertexLitGeneric</c> over <c>effects/grey</c>, whose
+    /// colour is black throughout (probe <c>vmt</c>: mean RGBA 0 0 0 108), so the overlay darkens the frame by the
+    /// texture's alpha whatever lighting the engine's fade quad is drawn under (*interpolated*: the quad's lighting and
+    /// texcoords are inside closed `engine.dll`; the black makes the first moot). <c>effects/imcookin</c> is additive, its
+    /// <c>$color</c> written 0 by <c>BurnLevel</c> with no entity to read — `IVRenderView::ViewDrawFade( byte *color,
+    /// IMaterial * )` (ivrenderview.h:255) is handed none — so it adds black and keeps no fade texture.
+    /// </remarks>
+    public MapTexture? Fade { get; init; }
+
+    /// <summary>Which <see cref="NormalFrames"/> entry binds at a moment.</summary>
+    /// <param name="seconds">`gpGlobals->curtime`.</param>
+    /// <returns>The frame index; 0 for a still normal map.</returns>
+    public int NormalFrameAt(double seconds) => MapWater.NormalFrameAt(Proxies, seconds, NormalFrames.Count);
+
     /// <summary>The overlay's parameters after its proxies run at a moment.</summary>
     /// <param name="seconds">`gpGlobals->curtime`, which the time-driven proxies read.</param>
     /// <returns>The <c>$refractamount</c>, gamma <c>$refracttint</c> and <c>$bumptransform</c> the draw binds.</returns>
     /// <remarks>
     /// **The proxies these materials run** (probe <c>vmt</c>, 2026-10-06): <c>Sine</c> on the invulnerability overlay's
     /// <c>$refractamount</c>; <c>Sine</c> then two <c>Equals</c> putting the bleed overlay's pulse into
-    /// <c>$refracttint[1]</c> and <c>[2]</c>; <c>TextureScroll</c> on <c>$bumptransform</c>. **Not ported, named:**
-    /// <c>AnimatedTexture</c> on <c>$normalmap</c> — the normal map draws its first frame.
+    /// <c>$refracttint[1]</c> and <c>[2]</c>; <c>TextureScroll</c> on <c>$bumptransform</c>. <c>AnimatedTexture</c> on
+    /// <c>$normalmap</c> is <see cref="NormalFrameAt"/>.
     /// </remarks>
     public (float RefractAmount, (float Red, float Green, float Blue) RefractTint, TextureTransform BumpTransform) Bind(
         double seconds)

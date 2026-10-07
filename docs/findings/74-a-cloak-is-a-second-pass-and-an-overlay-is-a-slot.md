@@ -76,5 +76,37 @@ overlay 13 times; `serveme-627619-stv-2026-08-07`'s spy 7 cloaks from tick 63693
 
 The cloak pass's `BUMPMAP` combo rotates the normal map into world space by the mesh's tangent frame, which this
 vertex format does not carry; the port derives a cotangent frame from screen derivatives of the same surface
-(*interpolated*). It moves only the warp's direction, and the warp shrinks to nothing as the cloak completes.
-`AnimatedTexture` on an overlay's `$normalmap` draws frame 0. The rest is named in B508 and B509.
+(*interpolated*). It moves only the warp's direction, and the warp shrinks to nothing as the cloak completes. It is
+not a cloak question: the model path carries no tangent anywhere, so VertexLitGeneric's own bump lighting lacks the
+same frame (RISKS "the highlight uses the VERTEX normal"). The rest is named in B508 and B509.
+
+## The leftovers, and one wrong filing (read from published source, 2026-10-07)
+
+**"A feign-death ragdoll's own cloak" was a wrong filing.** `C_TFRagdoll` does fade itself — `ClientThink` adds
+`frametime` to `m_flPercentInvisible` while `m_bCloaked`, to 1 (`c_tf_player.cpp:1392-1399`), and both invisibility
+proxies read that off a ragdoll (`spy_invis` writes it with no tint, `invis` leaves it alone) — but the server sets
+`m_bCloaked` for one thing only: the victim of a knife that `ShouldDisguiseOnBackstab`, Your Eternal Reward
+(`tf_player.cpp:12707-12715`). The Dead Ringer's ragdoll comes from `CreateFeignDeathRagdoll` (`:15795`), which sets
+`m_bFeignDeath` and never `m_bCloaked`; the feigning spy himself cloaks by the ordinary player path, his change time
+stamped "now" by `OnAddStealthed` (`tf_player_shared.cpp:6999-7003`). So the corpse that vanishes is the backstabbed
+one, and it vanishes for everyone, uncapped: the corpse is nobody's teammate.
+
+**A motion cloak is everyone's, not only the recorder's.** `m_bMotionCloak` is latched on the client by
+`OnAddStealthed` from the first `TF_WEAPON_INVIS` in `m_hMyWeapons`, which is on the main player table
+(`basecombatcharacter.cpp:204`), and the speed fade's other input, `m_flCloakMeter`, is on `DT_TFPlayerShared`
+(`tf_player_shared.cpp:586`) — not the local-only table. The earlier note that only the recorder's items carry the
+watch was wrong about the wire; it was true of this port's wiring, which asked the HUD's hook.
+
+**The Hightower stealth spell caps its enemies too**: `bLimitedInvis = !IsEnemyPlayer() || bHalloweenSpellStealth`
+(`c_tf_player.cpp:6849-6850`), the spell being `TF_COND_STEALTHED_USER_BUFF` while `m_halloweenScenario` is Hightower.
+
+**`effects/stealth_overlay` is drawn by `ViewDrawFade`**, the branch for an overlay needing no frame copy
+(`viewrender.cpp:1242-1246`). As shipped it is a translucent VertexLitGeneric over `effects/grey`, whose colour is zero
+everywhere (probe `vmt`: mean RGBA 0 0 0 108) — so it darkens the frame by the texture's alpha, and the lighting the
+engine gives the fade quad (closed, *interpolated*) multiplies black. **`effects/imcookin` stays nothing**: additive,
+`$color` written by `BurnLevel`, and `IVRenderView::ViewDrawFade( byte *color, IMaterial *pMaterial )`
+(`ivrenderview.h:255`) carries no entity for the proxy to read, so `CProxyBurnLevel` takes its `!pEntity` branch and
+writes 0 (*read from source*; the engine body is closed, the signature is not).
+
+**Jarate, bleed and gas animate their normal map**: `AnimatedTexture` on `$normalmap` at 30 frames a second into
+`$bumpframe`, `water/tfwater001_normal` — the overlay now binds that frame, as water does.

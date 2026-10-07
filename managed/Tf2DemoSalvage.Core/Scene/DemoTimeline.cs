@@ -880,6 +880,12 @@ public readonly record struct SceneGameRules(bool MannVsMachine, int HalloweenSc
 /// wearables that hang off the body; see <see cref="SceneCarriedItem"/> for why the engine needs
 /// both sets.
 /// </param>
+/// <param name="Cloaked">
+/// <c>m_bCloaked</c>: the corpse of a backstab by a knife that disguises its killer — Your Eternal Reward
+/// (<c>ShouldDisguiseOnBackstab</c>, `tf_player.cpp:12707-12715`). **Not a feign death's**, whose ragdoll
+/// (<c>CreateFeignDeathRagdoll</c>, `:15795`) never sets it. <c>C_TFRagdoll::ClientThink</c> fades it out by
+/// <c>m_flPercentInvisible += frametime</c> to 1 (`c_tf_player.cpp:1392-1399`).
+/// </param>
 /// <remarks>
 /// **The reason corpses are invisible is that they were never DESCRIBED, not that they were lost.**
 /// `DT_TFRagdoll` is `NOBASE`, so it inherits no model index, no skin, no body and no angles; a prop
@@ -911,7 +917,8 @@ public readonly record struct SceneRagdoll(
     (float X, float Y, float Z)? Force = null,
     (float X, float Y, float Z)? Velocity = null,
     int? ForceBone = null,
-    IReadOnlyList<SceneCarriedItem>? Carried = null);
+    IReadOnlyList<SceneCarriedItem>? Carried = null,
+    bool Cloaked = false);
 
 /// <summary>One thing a corpse was wearing when it died.</summary>
 /// <param name="Model">The model to draw, bone-merged onto the corpse.</param>
@@ -4873,7 +4880,7 @@ public sealed class DemoTimeline
                 // `RagdollCreate` and the velocity to `SetAbsVelocity` — and folding them together
                 // would lose the one that scales by mass.
                 corpse.RagdollForce(), corpse.RagdollVelocity(), corpse.RagdollForceBone(),
-                carried);
+                carried, corpse.RagdollCloaked());
         }
 
         if (entity.UpdateType == EntityUpdateType.Delete)

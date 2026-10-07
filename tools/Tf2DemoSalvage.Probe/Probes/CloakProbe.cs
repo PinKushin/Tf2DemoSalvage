@@ -42,6 +42,8 @@ public sealed class CloakProbe : IProbe
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
         float interval = timeline.IntervalPerTick;
         HashSet<int> spies = [];
+        Dictionary<int, string> watchesOf = [];
+        List<string> dry = [];
         List<string> partial = [];
         List<string> full = [];
         string? overlay = null;
@@ -58,6 +60,20 @@ public sealed class CloakProbe : IProbe
                 if (player.PlayerClass == Spy)
                 {
                     spies.Add(player.EntityIndex);
+
+                    foreach (SceneItem item in player.Items ?? [])
+                    {
+                        if (item.ClassName == "CTFWeaponInvis" && item.DefinitionIndex is { } watch)
+                        {
+                            string seen = watchesOf.GetValueOrDefault(player.EntityIndex, "");
+                            string entry = string.Create(CultureInfo.InvariantCulture, $"{watch}");
+
+                            if (!seen.Split(' ').Contains(entry))
+                            {
+                                watchesOf[player.EntityIndex] = (seen + " " + entry).Trim();
+                            }
+                        }
+                    }
                 }
 
                 float percent = PlayerInvisibility.Percent(player, serverTime, motionCloak: false);
@@ -66,6 +82,16 @@ public sealed class CloakProbe : IProbe
                     $"--tick {frame.Tick} entity {player.EntityIndex} team {player.Team} percent {percent:0.000} enemy {player.IsEnemy} at {player.X:0} {player.Y:0} {player.Z:0} yaw {player.Yaw:0}");
 
                 // Spies only: a decloak ramp also runs, as the engine runs it, on anyone whose change time is ahead.
+                // The motion-cloak fade's own inputs (tf_player_shared.cpp:8017-8024): stealthed, the change done, an empty
+                // meter, moving. Printed whatever the watch, which the 'watches' list below names.
+                if (player.PlayerClass == Spy && player.Conditions.IsStealthed && (player.InvisChangeCompleteTime ?? 0f) <= serverTime &&
+                    player.CloakMeter is 0f && player.Velocity is { } v && (v.X * v.X) + (v.Y * v.Y) > 100f && dry.Count < 10)
+                {
+                    dry.Add(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"--tick {frame.Tick} entity {player.EntityIndex} speed {MathF.Sqrt((v.X * v.X) + (v.Y * v.Y)):0} max {player.MaxSpeed:0}"));
+                }
+
                 if (player.PlayerClass == Spy && percent > 0f && percent < 1f && partial.Count < 40)
                 {
                     partial.Add(at);
@@ -97,6 +123,27 @@ public sealed class CloakProbe : IProbe
         }
 
         output.WriteLine($"spies seen: {spies.Count} ({string.Join(", ", spies.Order())}); overlay changes: {overlayChanges}");
+        output.WriteLine("stealthed on an empty meter, moving (a motion cloak's fade):");
+        dry.ForEach(line => output.WriteLine("  " + line));
+        output.WriteLine("watches (CTFWeaponInvis definition per spy; 60 is the Cloak and Dagger):");
+
+        foreach ((int spy, string watches) in watchesOf.OrderBy(pair => pair.Key))
+        {
+            output.WriteLine($"  entity {spy}: {watches}");
+        }
+
+        // The control for "no feign death": every corpse is counted, so zero cloaked of zero corpses says nothing.
+        List<SceneRagdoll> cloaked = [.. timeline.Corpses.Where(corpse => corpse.Cloaked || corpse.FeignDeath)];
+
+        output.WriteLine(
+            $"corpses: {timeline.Corpses.Count}, m_bCloaked: {cloaked.Count(corpse => corpse.Cloaked)}, m_bFeignDeath: {cloaked.Count(corpse => corpse.FeignDeath)}");
+
+        foreach (SceneRagdoll corpse in cloaked.Take(10))
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  --tick {corpse.FirstTick} corpse {corpse.EntityIndex} cloaked {corpse.Cloaked} feign {corpse.FeignDeath} of {corpse.PlayerIndex} team {corpse.Team} at {corpse.X:0} {corpse.Y:0} {corpse.Z:0} until {corpse.LastTick}"));
+        }
         output.WriteLine("partly cloaked:");
         partial.ForEach(line => output.WriteLine("  " + line));
         output.WriteLine("fully cloaked:");

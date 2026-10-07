@@ -613,9 +613,16 @@ public sealed class TfHudPlayerClass : VguiEditablePanel
     /// `m_bMotionCloak` (tf_player_shared.cpp:7022): the first `TF_WEAPON_INVIS` among the weapons, `HasMotionCloak` —
     /// `CALL_ATTRIB_HOOK_INT( iMode, set_weapon_mode ) == INVIS_MOTION_CLOAK` (tf_weapon_invis.h:22-26, :66-68).
     /// </summary>
-    internal static bool HasMotionCloak(ScenePlayer player, HudViewport? viewport)
+    internal static bool HasMotionCloak(ScenePlayer player, HudViewport? viewport) =>
+        HasMotionCloak(player, viewport?.WeaponAttribute);
+
+    /// <summary>The same, given the weapon attribute hook directly — what the cloak proxies ask for every player.</summary>
+    /// <param name="player">The player.</param>
+    /// <param name="hook">`CALL_ATTRIB_HOOK_FLOAT` on one of his weapons, or null for no schema.</param>
+    /// <returns>Whether his watch is a motion cloak.</returns>
+    public static bool HasMotionCloak(ScenePlayer player, Func<ScenePlayer, SceneItem, string, float, float>? hook)
     {
-        if (viewport?.WeaponAttribute is not { } hook)
+        if (hook is null)
         {
             return false;
         }

@@ -36027,12 +36027,25 @@ green — at 0.99 the pass reproduces its own copy, so "drawn" and "not drawn" a
 is what sees the pass.
 
 **Not ported, named:** the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
-mesh tangents this vertex format lacks (*interpolated*; it moves only the warp's direction). A motion-cloak (Cloak and
-Dagger) spy's fade by speed is known only for the recorder, whose item list carries the watch's attribute — others draw
-as an ordinary watch, as the HUD already did. `C_TFRagdoll`'s own cloak (feign death), the Hightower spell's limit, the
-taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped non-local read, and the tint a `spy_invis` bind
-leaves in a shared material for the next entity are not reproduced. The translucency is decided from this frame's
-factor; the engine's `ComputeTranslucencyType` sees the last bind's, a frame earlier.
+mesh tangents this vertex format lacks (*interpolated*; it moves only the warp's direction) — a model-path gap, not a
+cloak one: no model batch carries a tangent. The taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped
+non-local read, the tint a `spy_invis` bind leaves in a shared material for the next entity, and the cloak of the
+cosmetics on a cloaked corpse (attached to the PLAYER, `c_tf_player.cpp:10240`) are not reproduced. The translucency
+is decided from this frame's factor; the engine's `ComputeTranslucencyType` sees the last bind's, a frame earlier.
+
+**Leftovers closed 2026-10-07** (findings 74, "The leftovers"): every spy's motion cloak — `MomentScene` asks
+`HasMotionCloak` of each player through `items_game.txt`, since `m_hMyWeapons` and `m_flCloakMeter` are networked to
+all — with the recorder's dry-watch 0.3 pin on his own weapons; the Hightower stealth spell's cap
+(`PlayerInvisibility.HalloweenSpellStealth`, `MomentInfo.HalloweenScenario`); and the cloaked corpse
+(`SceneRagdoll.Cloaked`, `SceneProp.CorpseInvisibility`, `PlayerInvisibility.Ragdoll`). **The filing was wrong about
+that last one**: `m_bCloaked` is Your Eternal Reward's victim, never a feign death's ragdoll, which does not fade.
+Tests: `PlayerInvisibilityConformanceTests` (+3), `CloakBindTests` (+4), `RagdollPropsTests.Fill_ACloakedCorpse_…`,
+each reddened by its own sabotage (the spell cap dropped, the motion flag ignored, the corpse's flag ignored), restored
+by the inverse edit. On a real demo: `CorpusCloakAndOverlayTests.Build_ACloakAndDaggerSpyRunningOnAnEmptyMeter_…`
+(pl_upward spy 15 at 55005, full speed: 0.5 through `Build` with the install's schema, 0.95 without). **Measured with
+probe `cloak` over eleven lcor matches (2026-10-07):** Cloak and Dagger on spies in eight; 39 Dead Ringer corpses
+(`m_bFeignDeath`), every one with `m_bCloaked` false — the control that the instrument reads the table — and no
+Your Eternal Reward victim, so the cloaked corpse has no specimen; nor does the Hightower spell.
 
 **Owner-visible:** every cloaking or cloaked spy changes. On a POV demo the recorder's ENEMY spies vanish at full
 cloak, his teammates and every spy on SourceTV keep a 0.95 shimmer — TF2's own behaviour, and a change from the solid
@@ -36058,10 +36071,16 @@ third person; none at 96200). `--shot` at 95960 shows TF2's orange vignette. **S
 clearing any overlay reddened `Step_AnotherRemoved_KeepsTheShownOne`; the overlay put on the wrong player reddened the
 corpus test; the screen rectangle not drawn reddened the jarate render.
 
-**Not drawn, named:** `effects/stealth_overlay` (the Halloween stealth spell's; as shipped a grey translucent
-VertexLitGeneric, drawn by `ViewDrawFade`) and `effects/imcookin` (drawn as nothing — faithfully, findings 74). Both
-still take the slot. `AnimatedTexture` on an overlay's `$normalmap` draws frame 0. `IsErrorMaterial` is not consulted:
-all nine ship.
+**Drawn as nothing, faithfully:** `effects/imcookin` — additive, its `$color` zeroed by `BurnLevel` with no entity,
+since `ViewDrawFade`'s interface carries none (findings 74). It still takes the slot. `IsErrorMaterial` is not
+consulted: all nine ship.
+
+**Leftovers closed 2026-10-07:** `effects/stealth_overlay` draws as `ViewDrawFade` does — its black `$basetexture`
+blended by alpha over the frame (`ScreenOverlayMaterial.Fade`, `PsScreenFade`; *interpolated*: the fade quad's
+texcoords and lighting are engine.dll's, and the black makes the lighting moot); jarate, bleed and gas bind their
+animated normal map's frame (`ScreenOverlayMaterial.NormalFrames`/`NormalFrameAt`). Tests:
+`ScreenOverlayMaterialTests` (+2), `CloakRenderTests` (+2: stealth darkens a uniform frame alike on every channel;
+jarate loads its frames and invulnerability one).
 
 **Owner-visible:** in first person on a POV demo, the recorder's uber, jarate, bleed and gas now tint and warp the view.
 
