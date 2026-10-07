@@ -450,7 +450,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   acknowledges it (the game's order within a tick is inferred, not confirmed). Also not ported: the landing view
   punch, landing on moving or descending ground, the grappling hook's safe-fall reset, `sv_footsteps 0` and
   Mann vs. Machine's volume rule.
-- **Part of the rope model is not ported:** impulses, rope shaking, holiday lights (B478).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
 - **Demos recorded in late June 2011 were malformed by the game itself** and may not decode (B144).
