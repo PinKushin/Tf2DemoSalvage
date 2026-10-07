@@ -80,6 +80,49 @@ public sealed class CorpusCloakAndOverlayTests
         full.ShouldBe(new CloakBind(0.95f, 0.95f, CloakPass.TeamTint(2), Undrawn: false));
     }
 
+    /// <remarks>
+    /// demostf-pl_upward_f12-1491354 (lcor), probe `cloak`: spy 15 is stealthed on an empty meter at full speed
+    /// (320 of 320) from 55003, carrying the Cloak and Dagger (60). Through the scene's own wiring — `Build` with the
+    /// install's `items_game.txt` — `InvisibilityThink`'s motion branch gives RemapVal( 320², 0, 320², 1, 0.5 ) = 0.5,
+    /// under the SourceTV cap. The control is the same moment with no schema, where the watch reads as ordinary: 0.95.
+    /// </remarks>
+    [Test]
+    public void Build_ACloakAndDaggerSpyRunningOnAnEmptyMeter_FadesBySpeed()
+    {
+        const int SpyEntity = 15;
+        const int Tick = 55005;
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("demostf-pl_upward_f12-1491354"));
+        TimelineMoments moments = new(timeline);
+        GameContent content = GameContent.Open(SdkReference.GameInstall.Require(), NullLoggerFactory.Instance);
+        List<ScenePlayer> players = [];
+        List<SceneProp> props = [];
+
+        timeline.PlayersAt(Tick, players);
+        timeline.PropsAt(Tick, props);
+
+        ScenePlayer spy = players.Single(player => player.EntityIndex == SpyEntity);
+
+        spy.Items!.Single(item => item.ClassName == "CTFWeaponInvis").DefinitionIndex.ShouldBe(60, "the control: the Cloak and Dagger");
+
+        SceneProp body = new(SpyEntity, "models/player/spy.mdl", SceneModelKind.Studio, new ScenePose());
+        MomentInfo info = Info(Tick, timeline.RecorderEntityIndex ?? -1, firstPerson: false, timeline.IntervalPerTick) with
+        {
+            Recorder = timeline.RecorderEntityIndex,
+            ServerTime = moments.ServerTimeAt(Tick),
+        };
+
+        EntityModelSet models = new();
+        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance) { Weapons = content.Weapons };
+
+        scene.Build(players, props, info);
+        models.Cloak!(body).SpyInvis.ShouldBe(0.5f, 0.02f);
+
+        EntityModelSet bare = new();
+
+        new MomentScene(bare, new ViewmodelScene(), NullLogger.Instance).Build(players, props, info);
+        bare.Cloak!(body).SpyInvis.ShouldBe(0.95f, "no schema: an ordinary watch, capped for SourceTV");
+    }
+
     private static MomentInfo Info(int tick, int recorder, bool firstPerson, float interval) =>
         new(
             Tick: tick,

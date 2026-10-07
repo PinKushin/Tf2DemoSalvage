@@ -36041,7 +36041,11 @@ all — with the recorder's dry-watch 0.3 pin on his own weapons; the Hightower 
 that last one**: `m_bCloaked` is Your Eternal Reward's victim, never a feign death's ragdoll, which does not fade.
 Tests: `PlayerInvisibilityConformanceTests` (+3), `CloakBindTests` (+4), `RagdollPropsTests.Fill_ACloakedCorpse_…`,
 each reddened by its own sabotage (the spell cap dropped, the motion flag ignored, the corpse's flag ignored), restored
-by the inverse edit.
+by the inverse edit. On a real demo: `CorpusCloakAndOverlayTests.Build_ACloakAndDaggerSpyRunningOnAnEmptyMeter_…`
+(pl_upward spy 15 at 55005, full speed: 0.5 through `Build` with the install's schema, 0.95 without). **Measured with
+probe `cloak` over eleven lcor matches (2026-10-07):** Cloak and Dagger on spies in eight; 39 Dead Ringer corpses
+(`m_bFeignDeath`), every one with `m_bCloaked` false — the control that the instrument reads the table — and no
+Your Eternal Reward victim, so the cloaked corpse has no specimen; nor does the Hightower spell.
 
 **Owner-visible:** every cloaking or cloaked spy changes. On a POV demo the recorder's ENEMY spies vanish at full
 cloak, his teammates and every spy on SourceTV keep a 0.95 shimmer — TF2's own behaviour, and a change from the solid
