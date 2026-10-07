@@ -35222,6 +35222,14 @@ and 2 `$basetexture _rt_Camera` materials still resolve as before (chequer). All
 `$nowritez` is not honoured on the model path (the translucent class decides depth writes); only
 `props_combine/stasisshield_sheet` sets it. `$bumptransform` scrolling is not applied.
 
+**Leftovers closed as unreachable, measured 2026-10-07** (`refract-census reach`; full account in
+`docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`): the 13 materials live on 26 HL2 and
+shader-test models, and none of 242 maps (`tf/maps` plus the viewer's cache) places one, by static prop or entity
+`model`. `$nowritez` is only on one of the 13. `$bumptransform` is moved only by proxies, on HUD, screen-overlay and
+effect materials, six of the 13, and `tank_glass001`, whose one model no map places; the three TF2 model draws carry
+none. Nothing is ported: a port with no reachable subject would have no output-level assertion. **Reopen** if a
+community map places one of these models. `_rt_Camera` itself is live in TF2 — that is B511, not this entry.
+
 **Evidence:** `RefractModelRenderTests` (3), on the Bazaar lens loaded through the production model path: the slot
 resolves with BLUR 0 (`$bluramount 0.5`, integer part); over a uniform grey the lens is exactly the grey (within one
 step), where painting the slot gives (191, 194, 255) against 188; over a half-lit frame every pixel is a linear blend
@@ -36090,3 +36098,21 @@ jarate loads its frames and invulnerability one).
 left/right foot a player's next step uses carries on from before the jump. The engine does not reset its
 `m_nStepside` counter either, so this matches the game rather than diverging from it. Filed so nobody reads the
 missing reset as a bug; reopen only if a measurement of the game's own playback across a seek shows a reset.
+
+## B511 — `point_camera` monitors are not drawn: `_rt_Camera` is never rendered — OPEN, filed 2026-10-07
+
+*Read from published source, measured on the shipped maps.* TF2 creates `_rt_Camera` at `tf_monitor_resolution` 1024
+(`tf_rendertargets.cpp:16,41`, `baseclientrendertargets.cpp:37-46,62`) and, with `USE_MONITORS` defined for
+`TF_CLIENT_DLL` (`viewrender.cpp:65-67`), renders every active, non-dormant `C_PointCamera` into it before the main
+view while `cl_drawmonitors` is 1 (`:2074-2081`, `DrawMonitors` `:3240`, `DrawOneMonitor` `:3168-3238`: the camera's
+origin, angles and `m_FOV`, aspect 1 unless `m_bUseScreenAspectRatio`, its own fog, `ViewDrawScene` with the 2D sky).
+TF2 also force-draws the local player for the pass (`:3266-3287`). The viewer has no such pass, does not draw
+`CPointCamera`, and binds nothing named `_rt_Camera`.
+
+**Reach:** `DT_PointCamera` is in the schema (z1800). `koth_boardwalk`, `pd_circus` and `vsh_skirmish` place a
+`point_camera` (`refract-census reach`, 242 maps). **No corpus demo carries one** (`entity-census`: none in 57 lcor
+demos or gcor; `CRopeKeyframe` in 80 as the control), so there is no subject for an output-level assertion yet. What a
+monitor surface on those maps draws today was not measured.
+
+**What closes it:** a demo on one of the three maps, then a second scene render from the camera entity into a
+1024-square target bound as `_rt_Camera`, as `DrawOneMonitor` does. It adds a render pass, so measure the frame cost.
