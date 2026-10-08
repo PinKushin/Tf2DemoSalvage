@@ -26,8 +26,31 @@ public sealed class FlexSettings
     private const int MaximumCount = 1 << 16;
 
     private readonly Dictionary<string, IReadOnlyList<FlexSettingWeight>> _byName;
+    private readonly List<IReadOnlyList<FlexSettingWeight>> _bySlot;
+    private readonly int[] _indexes;
 
-    private FlexSettings(Dictionary<string, IReadOnlyList<FlexSettingWeight>> byName) => _byName = byName;
+    private FlexSettings(
+        Dictionary<string, IReadOnlyList<FlexSettingWeight>> byName, List<IReadOnlyList<FlexSettingWeight>> bySlot, int[] indexes)
+    {
+        _byName = byName;
+        _bySlot = bySlot;
+        _indexes = indexes;
+    }
+
+    /// <summary><c>pIndexedSetting( index )</c> (<c>studio.h:2927</c>) — how a phoneme code finds its viseme.</summary>
+    /// <param name="index">The phoneme code.</param>
+    /// <returns>The setting's weights, or null out of range or for a <c>-1</c> slot.</returns>
+    public IReadOnlyList<FlexSettingWeight>? IndexedSetting(int index)
+    {
+        if (index < 0 || index >= _indexes.Length)
+        {
+            return null;
+        }
+
+        int slot = _indexes[index];
+
+        return slot < 0 || slot >= _bySlot.Count ? null : _bySlot[slot];
+    }
 
     /// <summary>How many settings the file declares.</summary>
     public int Count => _byName.Count;
@@ -70,6 +93,18 @@ public sealed class FlexSettings
         }
 
         Dictionary<string, IReadOnlyList<FlexSettingWeight>> byName = new(StringComparer.OrdinalIgnoreCase);
+        List<IReadOnlyList<FlexSettingWeight>> bySlot = new(settings);
+
+        int indexCount = Int(file, 88);
+        int indexesAt = Int(file, 92);
+        Fits(file, indexesAt, indexCount, 4);
+
+        int[] indexes = new int[indexCount];
+
+        for (int index = 0; index < indexCount; index++)
+        {
+            indexes[index] = Int(file, indexesAt + (index * 4));
+        }
 
         for (int index = 0; index < settings; index++)
         {
@@ -94,9 +129,10 @@ public sealed class FlexSettings
             }
 
             byName.TryAdd(name, weights);
+            bySlot.Add(weights);
         }
 
-        return new FlexSettings(byName);
+        return new FlexSettings(byName, bySlot, indexes);
     }
 
     private static int Int(ReadOnlySpan<byte> file, int at) => BinaryPrimitives.ReadInt32LittleEndian(file[at..]);

@@ -567,14 +567,27 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
         float[]? face;
 
-        if (PlayingScene(prop, seconds) is { } scene)
+        if (FaceDriving(prop, seconds) is { } global)
         {
-            face = Face(model, order, scene.Taunt, scene.Seconds);
+            float[] weights = FaceFlex.Rules(model.Flex, FaceFlex.Local(model.Flex, global));
+            float[] delayed = Delayed(prop.EntityIndex, weights, seconds);
+            face = FaceFlex.Deltas(model.Flex, weights, delayed, model.VertexCount) is { } deltas
+                ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+                : null;
         }
-        else if (!_restingFace.TryGetValue(prop.ModelPath, out face))
+        else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
         {
-            face = Face(model, order, null, 0f);
-            _restingFace[prop.ModelPath] = face;
+            // **No face of its own**: a bone-merged item whose parent is not a player is a C_BaseFlex at its zeroed
+            // controllers (each at its minimum, `c_baseflex.cpp:1222`); anything else is a C_BaseAnimating, whose
+            // `SetupWeights` is empty, so it draws with the weights `LockFlexWeights` zeroed (studiorender
+            // 0x1800584b0) — which still moves a flex whose ramp is not zero at zero (B513).
+            float[] weights = prop.AttachedTo is null
+                ? new float[model.Flex.Descriptors.Count]
+                : FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex));
+            face = FaceFlex.Deltas(model.Flex, weights, weights, model.VertexCount) is { } deltas
+                ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+                : null;
+            _restingFace[RestingKey(prop)] = face;
         }
 
         if (face is not null)
@@ -585,27 +598,94 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return face;
     }
 
-    /// <summary>The last scene with expressions this entity is playing, and its clock, or null.</summary>
-    private static (SceneTaunt Taunt, float Seconds)? PlayingScene(SceneProp prop, double seconds)
-    {
-        (SceneTaunt, float)? found = null;
+    private static string RestingKey(SceneProp prop) => (prop.AttachedTo is null ? "0:" : "1:") + prop.ModelPath;
 
-        foreach (SceneGesture gesture in prop.Pose.Gestures ?? [])
+    /// <summary>Each TF player's face, by entity index, with the model it was reset for.</summary>
+    private readonly Dictionary<int, (string Model, ActorFace Face)> _faces = [];
+
+    /// <summary>Each drawing entity's <c>m_flFlexDelayedWeight</c> and <c>m_flFlexDelayTime</c>.</summary>
+    private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
+
+    /// <summary>What drives faces: every scene and voice in the recording (B513); null drives none.</summary>
+    public FaceSources? Faces { get; set; }
+
+    /// <summary>
+    /// The global weights a prop's rules read, or null for a prop with no TF player behind it: a player's own face; a
+    /// bone-merged item on a player reads the player's (<c>CEconEntity::SetupWeights</c>, <c>econ_entity.cpp:1377</c>); a
+    /// corpse reads its dead player's (<c>C_TFRagdoll::SetupWeights</c>, <c>c_tf_player.cpp:636</c>).
+    /// </summary>
+    private IReadOnlyDictionary<string, float>? FaceDriving(SceneProp prop, double seconds)
+    {
+        int actor;
+
+        if (prop.FaceOf is { } dead)
         {
-            if (gesture.Taunt is { Expressions.Count: > 0 } playing && seconds >= gesture.StartedSeconds &&
-                (gesture.StoppedSeconds is not { } stopped || seconds < stopped))
+            actor = dead;
+        }
+        else if (prop.BoneMerged && prop.AttachedTo is { } parent && _faces.ContainsKey(parent))
+        {
+            actor = parent;
+        }
+        else if (IsPlayerModel(prop) && _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own))
+        {
+            actor = prop.EntityIndex;
+
+            if (!_faces.TryGetValue(actor, out (string Model, ActorFace Face) known) ||
+                !string.Equals(known.Model, prop.ModelPath, StringComparison.OrdinalIgnoreCase) ||
+                seconds < known.Face.LastSeconds)
             {
-                found = (playing, playing.TimeAt((float)(seconds - gesture.StartedSeconds)));
+                // `C_TFPlayer::OnNewModel` resets the face; a seek back starts it again too (interpolated: the engine
+                // never plays a demo backwards).
+                _faces[actor] = (prop.ModelPath, new ActorFace(own.Flex, own.Flex.ModelName, Faces));
+                _delays.Remove(actor);
             }
         }
+        else
+        {
+            return null;
+        }
 
-        return found;
+        if (!_faces.TryGetValue(actor, out (string Model, ActorFace Face) face))
+        {
+            return null;
+        }
+
+        face.Face.Step(
+            seconds,
+            prop.EntityIndex,
+            Faces?.Scenes(actor, seconds) ?? GestureScenes(prop),
+            Faces?.Voices(actor, seconds) ?? []);
+
+        return face.Face.Global;
     }
 
-    private static float[]? Face(PropModels.ModelFrames model, int[] order, SceneTaunt? taunt, float sceneSeconds) =>
-        FaceFlex.Deltas(model.Flex, FaceFlex.Controllers(model.Flex, taunt, sceneSeconds), model.VertexCount) is { } deltas
-            ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
-            : null;
+    /// <summary>A TF class model, <c>models/player/&lt;class&gt;.mdl</c> — the one shape a <c>C_TFPlayer</c> draws.</summary>
+    private static bool IsPlayerModel(SceneProp prop) =>
+        !prop.BoneMerged && prop.FaceOf is null &&
+        prop.ModelPath.StartsWith("models/player/", StringComparison.OrdinalIgnoreCase) &&
+        prop.ModelPath.IndexOf('/', "models/player/".Length) < 0;
+
+    /// <summary>Without a recording's sources, the gesture slot's scenes — the scene a test hands a prop.</summary>
+    private static List<FaceScene> GestureScenes(SceneProp prop) =>
+        [.. (prop.Pose.Gestures ?? []).Where(g => g.Taunt is not null)
+            .Select(g => new FaceScene(g.Taunt!, g.StartedSeconds, g.StoppedSeconds))];
+
+    /// <summary><c>RunFlexDelay</c> on the drawing entity's own delayed weights.</summary>
+    private float[] Delayed(int entity, float[] weights, double seconds)
+    {
+        if (!_delays.TryGetValue(entity, out (float[] Delayed, double Time) state) ||
+            state.Delayed.Length != weights.Length || seconds < state.Time)
+        {
+            state = (new float[weights.Length], 0d);
+        }
+
+        // A second draw in one frame blends nothing: the time it left is now (`flFlexDelayTime < curtime` fails).
+        double time = state.Time;
+        FaceFlex.Delay(weights, state.Delayed, ref time, seconds, seconds - state.Time);
+
+        _delays[entity] = (state.Delayed, time);
+        return state.Delayed;
+    }
 
     /// <summary>Each baked static prop's colours in its model buffer's order, built once per entity.</summary>
     private readonly Dictionary<int, float[]?> _bakedByEntity = [];
@@ -5000,6 +5080,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
         _byModel.Clear();
         _frames.Clear();
         _restingFace.Clear();
+        _faces.Clear();
+        _delays.Clear();
         _swaps.Clear();
         _raw.Clear();
         _packedOrder.Clear();

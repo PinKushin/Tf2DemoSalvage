@@ -32,6 +32,43 @@ public sealed record SceneExpression(
     IReadOnlyList<SceneCurveSample> Ramp,
     IReadOnlyList<SceneExpressionWeight> Weights);
 
+/// <summary>One flex sample, <c>choreoevent.cpp:4477-4481</c>: time, value / 255, curve type.</summary>
+/// <param name="Time">Seconds into the event.</param>
+/// <param name="Value">0 to 1, in the track's own range.</param>
+/// <param name="CurveType">
+/// <c>MAKE_CURVE_TYPE( left, right )</c> (interpolatortypes.h:40): the LOW byte is the right (outbound) interpolator, the
+/// next the left. As read; <c>CExpressionSample</c> keeps only 15 bits (expressionsample.h:62).
+/// </param>
+public readonly record struct SceneFlexSample(float Time, float Value, int CurveType);
+
+/// <summary>One flex animation track, as the binary restore leaves it (no edge info is stored).</summary>
+/// <param name="Controller">The controller's name; a combo track prefixes <c>right_</c>/<c>left_</c>.</param>
+/// <param name="Active">Flag bit 0.</param>
+/// <param name="Combo">Flag bit 1: a stereo track with a balance curve.</param>
+/// <param name="Min">The track's range bottom.</param>
+/// <param name="Max">Its top.</param>
+/// <param name="Samples">The magnitude curve, type 0.</param>
+/// <param name="Balance">The balance curve, type 1, for a combo track.</param>
+public sealed record SceneFlexTrack(
+    string Controller,
+    bool Active,
+    bool Combo,
+    float Min,
+    float Max,
+    IReadOnlyList<SceneFlexSample> Samples,
+    IReadOnlyList<SceneFlexSample> Balance);
+
+/// <summary>One <c>FLEXANIMATION</c> event (B513).</summary>
+/// <param name="Start">Scene seconds it begins.</param>
+/// <param name="End">Scene seconds it ends; one without an end is not carried (<c>c_baseflex.cpp:1733</c>).</param>
+/// <param name="Ramp">Its intensity ramp, in seconds from <paramref name="Start"/>.</param>
+/// <param name="Tracks">Its tracks.</param>
+public sealed record SceneFlexAnimation(
+    float Start,
+    float End,
+    IReadOnlyList<SceneCurveSample> Ramp,
+    IReadOnlyList<SceneFlexTrack> Tracks);
+
 /// <summary>
 /// What a compiled scene does to the player it animates, resolved once (B351).
 /// </summary>
@@ -71,6 +108,9 @@ public sealed record SceneTaunt(
     /// longer first — <c>CChoreoScene::EventLess</c>, <c>choreoscene.cpp:2565</c>) — B513.
     /// </summary>
     public IReadOnlyList<SceneExpression> Expressions { get; init; } = [];
+
+    /// <summary>The scene's <c>FLEXANIMATION</c> events, in the same order as <see cref="Expressions"/> (B513).</summary>
+    public IReadOnlyList<SceneFlexAnimation> FlexAnimations { get; init; } = [];
 
     /// <summary>The scene's own ramp, <c>m_SceneRamp</c>; empty is a constant 1.</summary>
     public IReadOnlyList<SceneCurveSample> SceneRamp { get; init; } = [];

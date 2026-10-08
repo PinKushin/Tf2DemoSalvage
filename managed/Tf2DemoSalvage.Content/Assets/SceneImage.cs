@@ -304,6 +304,7 @@ public sealed class SceneImage
         return new SceneTaunt(gestures, loopsFrom, loopsAt)
         {
             Expressions = expressions is null ? [] : ExpressionsOf(events, expressions),
+            FlexAnimations = expressions is null ? [] : FlexAnimationsOf(events),
             SceneRamp = sceneRamp,
             // `FindStopTime` (choreoscene.cpp:1558): the latest end, or start for an event with none.
             Duration = events.Count == 0 ? 0f : events.Max(one => HasEndTime(one) ? one.End : one.Start),
@@ -312,6 +313,23 @@ public sealed class SceneImage
 
     /// <summary><c>CChoreoEvent::EXPRESSION</c>.</summary>
     private const byte Expression = 2;
+
+    /// <summary><c>CChoreoEvent::FLEXANIMATION</c>.</summary>
+    private const byte FlexAnimation = 10;
+
+    /// <summary><c>if ( !Q_stricmp( event-&gt;GetName(), "NULL" ) )</c> — <c>C_SceneEntity::StartEvent</c> ignores it
+    /// (<c>c_sceneentity.cpp:463</c>).</summary>
+    private static bool IsNull(SceneEvent one) => string.Equals(one.Name, "NULL", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The scene's <c>FLEXANIMATION</c> events with an end, NULL-named ones dropped, in <c>EventLess</c> order.</summary>
+    private static List<SceneFlexAnimation> FlexAnimationsOf(List<SceneEvent> events) =>
+    [
+        .. events
+            .Where(one => one.Type == FlexAnimation && HasEndTime(one) && !IsNull(one))
+            .Select(one => new SceneFlexAnimation(one.Start, one.End, one.Ramp, one.FlexTracks))
+            .OrderBy(one => one.Start)
+            .ThenByDescending(one => one.End),
+    ];
 
     /// <summary><c>CChoreoEvent::HasEndTime</c>: <c>m_flEndTime != -1.0f</c>, an exact sentinel compare.</summary>
 #pragma warning disable S1244 // the engine's own sentinel test, exact by design
@@ -324,7 +342,7 @@ public sealed class SceneImage
 
         foreach (SceneEvent one in events)
         {
-            if (one.Type != Expression || !HasEndTime(one) || read(one.Parameters) is not { } file ||
+            if (one.Type != Expression || !HasEndTime(one) || IsNull(one) || read(one.Parameters) is not { } file ||
                 file.Setting(one.Parameters2) is not { } setting)
             {
                 continue;
@@ -646,7 +664,7 @@ public sealed class SceneImage
             int began = buffer.At;
             byte type = buffer.Byte();
 
-            buffer.Short();                           // name, pooled
+            int name = buffer.Short();                // name, pooled
 
             float start = buffer.Float();
             float end = buffer.Float();
@@ -701,6 +719,7 @@ public sealed class SceneImage
             into?.Add(new SceneEvent(type, start, end, named, began)
             {
                 Parameters2 = Pooled(parameters2, ParametersBuffer),
+                Name = Pooled(name, ParametersBuffer),
                 Ramp = ramp,
                 FlexTracks = tracks,
             });

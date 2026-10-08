@@ -117,6 +117,152 @@ public static class ChoreoCurve
             startCurve, endCurve, vPre, (start.Time, start.Value), (end.Time, end.Value), vNext, f2));
     }
 
+    /// <summary><c>CFlexAnimationTrack::GetIntensity( time, side )</c> (<c>choreoevent.cpp:882</c>), B513.</summary>
+    /// <param name="track">The track.</param>
+    /// <param name="start">The event's start, scene seconds.</param>
+    /// <param name="end">Its end.</param>
+    /// <param name="time">Scene seconds now.</param>
+    /// <param name="side">0 for the left (and a mono track), 1 for the right.</param>
+    /// <returns>The controller value, in the track's own range.</returns>
+    public static float TrackIntensity(SceneFlexTrack track, float start, float end, float time, int side)
+    {
+        ArgumentNullException.ThrowIfNull(track);
+
+        float magnitude = TrackInternal(track, start, end, time, 0);
+        float scale = 1f;
+
+        if (track.Combo)
+        {
+            float balance = TrackInternal(track, start, end, time, 1);
+
+            if (side == 0 && balance > 0.5f)
+            {
+                scale = (1f - balance) / 0.5f;
+            }
+            else if (side == 1 && balance < 0.5f)
+            {
+                scale = balance / 0.5f;
+            }
+        }
+
+        return magnitude * scale;
+    }
+
+    /// <summary><c>GetIntensityInternal</c>, <c>choreoevent.cpp:696</c>.</summary>
+    private static float TrackInternal(SceneFlexTrack track, float start, float end, float time, int type)
+    {
+        float value;
+
+        // Left edge before, right edge after — the same value with no edge info stored.
+        if (time < start || time > end)
+        {
+            value = TrackZero(track, type);
+        }
+        else
+        {
+            value = TrackFraction(track, end - start, time - start, type);
+        }
+
+        // S1244: the SDK's own guard, `m_flMin != m_flMax`.
+#pragma warning disable S1244
+        if (type == 0 && track.Min != track.Max)
+#pragma warning restore S1244
+        {
+            value = (value * (track.Max - track.Min)) + track.Min;
+        }
+
+        return value;
+    }
+
+    /// <summary><c>GetZeroValue</c> with no edge info (the binary restore sets none): 0.5 for the balance curve, else
+    /// <c>GetDefaultEdgeZeroPos</c> — where zero sits in the track's range.</summary>
+    private static float TrackZero(SceneFlexTrack track, int type)
+    {
+        if (type == 1)
+        {
+            return 0.5f;
+        }
+
+#pragma warning disable S1244 // `m_flMin != m_flMax`, as the SDK writes it.
+        return track.Min != track.Max ? (0f - track.Min) / (track.Max - track.Min) : 0f;
+#pragma warning restore S1244
+    }
+
+    /// <summary><c>GetFracIntensity</c>, <c>choreoevent.cpp:731</c>: its own search (with the <c>time == end</c> step),
+    /// curve types taken as stored (15 bits), no <c>CURVE_DEFAULT</c> substitution and no clamped-X adjustment.</summary>
+    private static float TrackFraction(SceneFlexTrack track, float duration, float time, int type)
+    {
+        IReadOnlyList<SceneFlexSample> samples = type == 0 ? track.Samples : track.Balance;
+        float zero = TrackZero(track, type);
+        int count = samples.Count;
+
+        if (count < 1)
+        {
+            return zero;
+        }
+
+        (float Time, float Value, int Curve) Bounded(int index)
+        {
+            if (index < 0)
+            {
+                return (0f, zero, 0);
+            }
+
+            if (index >= count)
+            {
+                return (duration, zero, 0);
+            }
+
+            return (samples[index].Time, samples[index].Value, samples[index].CurveType & 0x7FFF);
+        }
+
+        (float Time, float Value, int Curve) start = default;
+        (float Time, float Value, int Curve) end = default;
+
+        int j = Math.Max(count / 2, 1);
+        int i = j;
+
+        while (i > -2 && i < count + 1)
+        {
+            start = Bounded(i);
+            end = Bounded(i + 1);
+            j = Math.Max(j / 2, 1);
+
+            if (time < start.Time)
+            {
+                i -= j;
+            }
+            else if (time > end.Time)
+            {
+                i += j;
+            }
+            else
+            {
+#pragma warning disable S1244 // `time == esEnd->time`, the SDK's exact compare.
+                if (time == end.Time)
+#pragma warning restore S1244
+                {
+                    ++i;
+                    start = Bounded(i);
+                    end = Bounded(i + 1);
+                }
+
+                break;
+            }
+        }
+
+        (float Time, float Value, int Curve) pre = Bounded(Math.Max(-1, i - 1));
+        (float Time, float Value, int Curve) next = Bounded(Math.Min(i + 2, count));
+
+        float dt = end.Time - start.Time;
+        float f2 = dt > 0f ? (time - start.Time) / dt : 0f;
+        f2 = Math.Clamp(f2, 0f, 1f);
+
+        return Clamp01(Between(
+            start.Curve, end.Curve, (pre.Time, pre.Value), (start.Time, start.Value), (end.Time, end.Value),
+            (next.Time, next.Value), f2));
+    }
+
     /// <summary>The part of <c>GetIntensity</c> shared with a flex track: the hold rules, then one or two curves.</summary>
     /// <param name="startCurve">The start sample's curve type; its RIGHT (outbound) interpolator is used.</param>
     /// <param name="endCurve">The end sample's; its LEFT (inbound) interpolator is used.</param>

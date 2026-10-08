@@ -79,6 +79,9 @@ public readonly record struct SceneSound(
     /// <summary>`SND_CHANGE_PITCH`: changes the pitch of this sound where it already plays.</summary>
     public bool ChangesPitch { get; init; }
 
+    /// <summary>`SND_IGNORE_PHONEMES`: a voice source the mouth must not lip-sync to (B513).</summary>
+    public bool IgnoresPhonemes { get; init; }
+
     /// <summary>
     /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
     /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,

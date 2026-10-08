@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Presentation;
 using Tf2DemoSalvage.Scene;
 
@@ -50,6 +51,103 @@ public sealed class FlexProbe : IProbe
 
         GameContent game = GameContent.Open(folder, NullLoggerFactory.Instance);
 
+        if (arguments[0] == "sentence" && arguments.Count > 2)
+        {
+            Dictionary<string, Sentence> cache = SoundCacheFile.Read(File.ReadAllBytes(arguments[1]));
+            output.WriteLine($"{cache.Count} sentences");
+
+            foreach ((string name, Sentence sentence) in cache.Where(p => p.Key.Contains(arguments[2], StringComparison.OrdinalIgnoreCase)).Take(100))
+            {
+                string phonemes = string.Join(" ", sentence.Phonemes.Take(8).Select(p =>
+                    string.Create(CultureInfo.InvariantCulture, $"{p.Code}@{p.Start:0.###}-{p.End:0.###}")));
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"{name}: {sentence.Phonemes.Count} phonemes, {sentence.Emphasis.Count} emphasis, {sentence.SampleCount} samples at {sentence.SampleRate} = {sentence.Length:0.###} s; {phonemes}"));
+            }
+
+            return;
+        }
+
+        if (arguments[0] == "voices" && arguments.Count > 2 && DemoCorpus.Find(arguments[1], output) is { } demo)
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
+
+            foreach (SceneSound sound in timeline.Sounds.Where(s => s.Name.Contains(arguments[2], StringComparison.OrdinalIgnoreCase)).Take(40))
+            {
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"tick {sound.Tick} entity {sound.EntityIndex} channel {sound.Channel} '{sound.Name}' stop {sound.IsStop} ignore-phonemes {sound.IgnoresPhonemes} pitch {sound.Pitch}"));
+            }
+
+            return;
+        }
+
+        // Every played sound whose path the sound caches carry a sentence for — the control is the cache count.
+        if (arguments[0] == "lipsync" && arguments.Count > 1 && DemoCorpus.Find(arguments[1], output) is { } spoken)
+        {
+            Dictionary<string, Sentence> sentences = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string cache in Directory.GetFiles(folder, "*.sound.cache"))
+            {
+                foreach ((string name, Sentence sentence) in SoundCacheFile.Read(File.ReadAllBytes(cache)))
+                {
+                    sentences.TryAdd(name, sentence);
+                }
+            }
+
+            output.WriteLine($"{sentences.Count} cached sentences");
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(spoken));
+
+            foreach (SceneSound sound in timeline.Sounds.Where(s => !s.IsStop &&
+                sentences.ContainsKey(SoundCacheFile.Normalise("sound/" + s.Name.TrimStart('*', '#', '@', '>', '<', '^', ')', '}', '$', '!', '?', '&', '~', '`', '+', '%', '(')))).Take(40))
+            {
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"tick {sound.Tick} entity {sound.EntityIndex} channel {sound.Channel} '{sound.Name}' ignore-phonemes {sound.IgnoresPhonemes}"));
+            }
+
+            return;
+        }
+
+        // Every scene a recording plays: actors, start and stop, and what of it moves a face. Overlapping runs on one
+        // actor are flagged. The control is the scene count, which `scene-wire` reports too.
+        if (arguments[0] == "played" && arguments.Count > 1 && DemoCorpus.Find(arguments[1], output) is { } played &&
+            game.Archives.Read("scenes/scenes.image") is { } imageBytes && SceneImage.Read(imageBytes) is { } image)
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(played));
+            output.WriteLine($"{timeline.Scenes.Count} scene runs");
+            Dictionary<int, List<(int Start, int? Stop)>> byActor = [];
+
+            foreach (SceneChoreography run in timeline.Scenes)
+            {
+                SceneTaunt? plan = image.TauntFor(run.Scene, name =>
+                    game.Archives.Read("expressions/" + name.Replace('\\', '/') + ".vfe") is { Length: > 0 } vfe ? FlexSettings.Read(vfe) : null);
+                bool overlaps = false;
+
+                foreach (int actor in run.Actors)
+                {
+                    if (!byActor.TryGetValue(actor, out List<(int Start, int? Stop)>? runs))
+                    {
+                        runs = [];
+                        byActor[actor] = runs;
+                    }
+
+                    overlaps |= runs.Any(r => r.Stop is null || r.Stop > run.Tick);
+                    runs.Add((run.Tick, run.StoppedTick));
+                }
+
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"tick {run.Tick}-{run.StoppedTick?.ToString(CultureInfo.InvariantCulture) ?? "?"} actors {string.Join(",", run.Actors)} '{run.Scene}': " +
+                    $"{plan?.Expressions.Count ?? -1} expressions, {plan?.FlexAnimations.Count ?? -1} flex animations " +
+                    $"({plan?.FlexAnimations.Sum(a => a.Tracks.Count) ?? 0} tracks){(overlaps ? " OVERLAPS" : "")}"));
+            }
+
+            return;
+        }
+
+        if (arguments[0] == "census")
+        {
+            Census(output, game);
+            return;
+        }
+
         if (arguments[0] == "scenes")
         {
             Scenes(output, game, arguments.Skip(1).ToList());
@@ -72,7 +170,14 @@ public sealed class FlexProbe : IProbe
                 $"{path}: fixed-point flag {(flags & StudioFlex.FixedPointScaleFlag) != 0}, " +
                 $"{flex.Descriptors.Count} descriptors, {flex.Controllers.Count} controllers, " +
                 $"{flex.Rules.Count} rules, {flex.Flexes.Count} mesh flexes, " +
-                $"{flex.Flexes.Sum(f => f.Vertices.Count)} vertanims"));
+                $"{flex.Flexes.Sum(f => f.Vertices.Count)} vertanims, {flex.Flexes.Count(f => f.IsWrinkle)} wrinkle flexes " +
+                $"({flex.Flexes.Where(f => f.IsWrinkle).Sum(f => f.Vertices.Count(v => v.RawWrinkle != 0))} nonzero wrinkle deltas)"));
+
+            // The header's own name — `pszName()`, which `C_TFPlayer::InitPhonemeMappings` builds the phoneme file from.
+            string internalName = System.Text.Encoding.ASCII.GetString(bytes, 12, 64).TrimEnd('\0');
+            string stem = Path.ChangeExtension(internalName, null).Replace('\\', '/');
+            output.WriteLine($"    name '{internalName}'; expressions/{stem}/phonemes/phonemes.vfe " +
+                (game.Archives.Read($"expressions/{stem}/phonemes/phonemes.vfe") is null ? "absent" : "present"));
 
             output.WriteLine("    controllers: " + string.Join(", ", flex.Controllers.Select(c =>
                 string.Create(CultureInfo.InvariantCulture, $"{c.Name}[{c.Type} {c.Min:0.##}..{c.Max:0.##}]"))));
@@ -107,6 +212,70 @@ public sealed class FlexProbe : IProbe
                         : $"op{op.Op}:{op.Index}")));
             }
         }
+    }
+
+    /// <summary>
+    /// Every model the game ships: how many carry flexes, how many wrinkle flexes, how many fixed-point deltas, and
+    /// which non-player models flex. The control is the player count, which must be nine.
+    /// </summary>
+    private static void Census(TextWriter output, GameContent game)
+    {
+        int models = 0, flexed = 0, wrinkled = 0, fixedPoint = 0, unread = 0, slow = 0;
+        List<string> named = [];
+
+        foreach (string path in game.Archives.Paths().Where(p => p.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (game.Archives.Read(path) is not { } bytes)
+            {
+                continue;
+            }
+
+            models++;
+
+            StudioFlexData flex;
+
+            try
+            {
+                flex = StudioFlex.Read(bytes);
+            }
+            catch (InvalidDataException)
+            {
+                unread++;
+                continue;
+            }
+
+            if (!flex.HasVertexAnimation)
+            {
+                continue;
+            }
+
+            flexed++;
+            named.Add(path);
+            if (flex.Flexes.Any(f => f.IsWrinkle))
+            {
+                wrinkled++;
+                output.WriteLine($"    wrinkle: {path}");
+            }
+            fixedPoint += (BitConverter.ToInt32(bytes, 152) & StudioFlex.FixedPointScaleFlag) != 0 ? 1 : 0;
+            slow += flex.Flexes.Any(f => f.Vertices.Any(v => v.Speed != 255)) ? 1 : 0;
+
+            // A flex whose ramp is not zero at weight zero moves even on an entity that sets no weights
+            // (LockFlexWeights zeroes the buffer, studiorender 0x1800584b0).
+            if (flex.Flexes.Any(f => StudioFlexRules.Ramp(f, 0f) != 0f))
+            {
+                output.WriteLine($"    moves at zero weight: {path}");
+            }
+
+            if ((BitConverter.ToInt32(bytes, 152) & StudioFlex.ConvertedFlag) != 0)
+            {
+                output.WriteLine($"    converted on disk: {path}");
+            }
+        }
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{models} models, {flexed} with vertex flex ({named.Count(p => p.StartsWith("models/player/", StringComparison.OrdinalIgnoreCase) && p.Count(c => c == '/') == 2)} class models), " +
+            $"{wrinkled} with wrinkle flexes, {fixedPoint} fixed point, {slow} with a speed below 255, {unread} unreadable"));
+        output.WriteLine("    " + string.Join(", ", named.Take(80)));
     }
 
     /// <summary>

@@ -169,6 +169,28 @@ public sealed class StudioFlexRulesTests
     public void Accumulate_AZeroWeight_TouchesNothing() =>
         StudioFlexRules.Accumulate(Data([], Flex(0, 0, Anim(0, 0))), [0f], [0f], new float[3], new float[3]).ShouldBe(0);
 
+    [TestCase(0.0009f, 0)]
+    [TestCase(-0.0009f, 0)]
+    [TestCase(0.0011f, 1)]
+    public void Accumulate_AWeightInsideTheDeadBand_IsSkipped(float weight, int expected) =>
+        // R_StudioFlexVerts, studiorender 0x18001eb90: all four weights inside (-0.001, 0.001), compared as doubles.
+        StudioFlexRules.Accumulate(Data([], Flex(0, 0, Anim(0, 0))), [weight], [weight], new float[3], new float[3])
+            .ShouldBe(expected);
+
+    [Test]
+    public void Accumulate_SpeedAndSide_MixInTheEnginesOrder()
+    {
+        // w = ((1 - s) w2 + s w1)(1 - side) + ((1 - s) w4 + s w3) side, s = speed / 255, side = side / 255:
+        // speed 51 (0.2), side 102 (0.4); w1 = 1, w2 = 0.5, w3 = 0, w4 = 0.25.
+        // ((0.8 × 0.5) + (0.2 × 1)) × 0.6 + ((0.8 × 0.25) + 0) × 0.4 = 0.36 + 0.08 = 0.44; × delta 2.
+        StudioFlexData data = Data([], Flex(0, 1, Anim(0, side: 102, speed: 51)));
+        float[] positions = new float[3];
+
+        StudioFlexRules.Accumulate(data, [1f, 0f], [0.5f, 0.25f], positions, new float[3]);
+
+        positions[0].ShouldBe(0.88f, 1e-5f);
+    }
+
     [Test]
     public void Resting_EachController_IsItsMinimum() =>
         StudioFlexRules.Resting(Data([])).ShouldBe([0f, -1f, -45f, 0f]);
