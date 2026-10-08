@@ -482,6 +482,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <param name="locals">The lamps lighting the model, or null (B424's static-plus-dynamic test).</param>
     /// <param name="cloak">What the invisibility proxies bind for the model; nobody cloaked by default.</param>
     /// <param name="bones">Row-major 3x4 bone matrices to skin the vertices by, or null for an unskinned draw.</param>
+    /// <param name="flex">Position and normal deltas per vertex, added before skinning, or null (B513).</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -510,7 +511,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool clearDepth = true,
         IReadOnlyList<LocalLight>? locals = null,
         CloakBind cloak = default,
-        IReadOnlyList<float[]>? bones = null)
+        IReadOnlyList<float[]>? bones = null,
+        float[]? flex = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -578,7 +580,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _world.DrawModel(
             _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
-            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak);
+            origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak,
+            flex: flex);
     }
 
     /// <summary>Draws a screen overlay over what this target holds, as <c>Device3D</c> does after the world.</summary>

@@ -815,7 +815,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 urine: instance.Urine,
 
                 // A cloaking spy's own arms and weapon — `invis` on every viewmodel material.
-                cloak: instance.Cloak);
+                cloak: instance.Cloak,
+
+                // Always null on a viewmodel, passed so the draw sites stay one shape (B513).
+                flex: instance.Flex);
         }
 
         // **Both of the pass's changes are put back, and forgetting the camera was a real defect.**
@@ -883,7 +886,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 paint: instance.Paint,
                 burn: instance.Burn,
                 urine: instance.Urine,
-                cloak: instance.Cloak);
+                cloak: instance.Cloak,
+                flex: instance.Flex);
         }
 
         // `CBaseModelPanel::PostPaint3D` renders the panel's particles after its models, under its camera
@@ -1137,7 +1141,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             bakedColours: instance.BakedColours,
 
             // What `spy_invis` and `invis` write into `$cloakfactor` for this entity.
-            cloak: instance.Cloak);
+            cloak: instance.Cloak,
+
+            // The face, added before skinning (B513).
+            flex: instance.Flex);
     }
 
     /// <summary>The frame's models, for the water views that draw entities.</summary>

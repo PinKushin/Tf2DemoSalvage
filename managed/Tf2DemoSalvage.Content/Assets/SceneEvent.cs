@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 
+using Tf2DemoSalvage.Core.Scene;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
@@ -26,17 +28,15 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public readonly record struct SceneEvent(byte Type, float Start, float End, string Parameters, int At)
 {
+    /// <summary>The second parameter — for an <c>EXPRESSION</c>, the flex setting's name (<c>GetParameters2</c>).</summary>
+    public string Parameters2 { get; init; } = string.Empty;
+
     /// <summary>The event's own intensity ramp, <c>m_Ramp</c> — empty means a constant 1.</summary>
     public IReadOnlyList<SceneCurveSample> Ramp { get; init; } = [];
 
     /// <summary>The flex animation tracks, <c>RestoreFlexAnimationsFromBuffer</c> (<c>choreoevent.cpp:4455</c>).</summary>
     public IReadOnlyList<SceneFlexTrack> FlexTracks { get; init; } = [];
 }
-
-/// <summary>One ramp sample: <c>GetFloat</c> time, <c>GetUnsignedChar</c> / 255 value (<c>choreoevent.cpp:4385</c>).</summary>
-/// <param name="Time">Seconds into the event.</param>
-/// <param name="Value">0 to 1.</param>
-public readonly record struct SceneCurveSample(float Time, float Value);
 
 /// <summary>One flex sample, <c>choreoevent.cpp:4477-4481</c>: time, value / 255, curve type.</summary>
 /// <param name="Time">Seconds into the event.</param>

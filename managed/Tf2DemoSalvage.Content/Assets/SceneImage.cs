@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Hashing;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Primitives;
@@ -247,7 +248,22 @@ public sealed class SceneImage
     /// **A scene with no gesture returns an empty plan rather than null**, because "plays no
     /// animation" is most of the archive and must be distinguishable from "not in the archive".
     /// </remarks>
-    public SceneTaunt? TauntFor(string scene)
+    public SceneTaunt? TauntFor(string scene) => TauntFor(scene, null);
+
+    /// <summary>What a scene does to the player it animates, its faces included (B351, B513).</summary>
+    /// <param name="scene">The scene's name as the wire spells it.</param>
+    /// <param name="expressions">
+    /// Reads an expression file by the name an event gives it (<c>player\heavy\emotion\emotion</c>), or null when
+    /// absent; null here skips faces altogether.
+    /// </param>
+    /// <returns>The plan, or null when the scene is not in the archive.</returns>
+    /// <remarks>
+    /// **Only EXPRESSION events with an end and a readable setting are kept**: <c>ProcessFlexSettingSceneEvent</c>
+    /// returns at once for an event with no end, and <c>AddFlexSetting</c> does nothing for a setting the file does
+    /// not hold (<c>c_baseflex.cpp:1743</c>, <c>:1865</c>). An event named <c>NULL</c> is ignored by
+    /// <c>C_SceneEntity::StartEvent</c> and is not told apart here — none was seen among the taunts.
+    /// </remarks>
+    public SceneTaunt? TauntFor(string scene, Func<string, FlexSettings?>? expressions)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -257,8 +273,9 @@ public sealed class SceneImage
         }
 
         List<SceneEvent> events = [];
+        List<SceneCurveSample> sceneRamp = [];
 
-        SequenceIn(Body(entry), events, out _, out _);
+        SequenceIn(Body(entry), events, out _, out _, out _, sceneRamp);
 
         List<SceneTauntGesture> gestures = [];
         float loopsFrom = -1f;
@@ -284,7 +301,45 @@ public sealed class SceneImage
             }
         }
 
-        return new SceneTaunt(gestures, loopsFrom, loopsAt);
+        return new SceneTaunt(gestures, loopsFrom, loopsAt)
+        {
+            Expressions = expressions is null ? [] : ExpressionsOf(events, expressions),
+            SceneRamp = sceneRamp,
+            // `FindStopTime` (choreoscene.cpp:1558): the latest end, or start for an event with none.
+            Duration = events.Count == 0 ? 0f : events.Max(one => HasEndTime(one) ? one.End : one.Start),
+        };
+    }
+
+    /// <summary><c>CChoreoEvent::EXPRESSION</c>.</summary>
+    private const byte Expression = 2;
+
+    /// <summary><c>CChoreoEvent::HasEndTime</c>: <c>m_flEndTime != -1.0f</c>, an exact sentinel compare.</summary>
+#pragma warning disable S1244 // the engine's own sentinel test, exact by design
+    private static bool HasEndTime(SceneEvent one) => one.End != -1f;
+#pragma warning restore S1244
+
+    private static List<SceneExpression> ExpressionsOf(List<SceneEvent> events, Func<string, FlexSettings?> read)
+    {
+        List<SceneExpression> found = [];
+
+        foreach (SceneEvent one in events)
+        {
+            if (one.Type != Expression || !HasEndTime(one) || read(one.Parameters) is not { } file ||
+                file.Setting(one.Parameters2) is not { } setting)
+            {
+                continue;
+            }
+
+            found.Add(new SceneExpression(
+                one.Start,
+                one.End,
+                one.Ramp,
+                [.. setting.Select(weight => new SceneExpressionWeight(weight.Controller, weight.Weight, weight.Influence))]));
+        }
+
+        // CChoreoScene::EventLess: earlier start first, then the LATER end. A stable sort keeps file order after that,
+        // where the engine compares event names (not carried; how often two expressions tie is unmeasured).
+        return [.. found.OrderBy(one => one.Start).ThenByDescending(one => one.End)];
     }
 
     /// <summary>Every event one directory slot's scene declares.</summary>
@@ -597,7 +652,7 @@ public sealed class SceneImage
             float end = buffer.Float();
 
             int parameters = buffer.Short();          // the sequence name, for a gesture
-            buffer.Short();                           // parameters 2
+            int parameters2 = buffer.Short();         // parameters 2: an expression's setting
             buffer.Short();                           // parameters 3
 
             List<SceneCurveSample> ramp = Ramp(ref buffer);
@@ -643,7 +698,12 @@ public sealed class SceneImage
 
             string named = Pooled(parameters, ParametersBuffer);
 
-            into?.Add(new SceneEvent(type, start, end, named, began) { Ramp = ramp, FlexTracks = tracks });
+            into?.Add(new SceneEvent(type, start, end, named, began)
+            {
+                Parameters2 = Pooled(parameters2, ParametersBuffer),
+                Ramp = ramp,
+                FlexTracks = tracks,
+            });
 
             if (found is null && type is Gesture or Sequence && named.Length > 0)
             {

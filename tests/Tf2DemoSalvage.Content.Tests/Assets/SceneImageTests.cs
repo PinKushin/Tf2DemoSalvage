@@ -65,6 +65,35 @@ public sealed class SceneImageTests
     }
 
     [Test]
+    public void EventsAt_AnExpression_KeepsItsSettingItsRampAndItsTracks()
+    {
+        // B513: the face reads an EXPRESSION's second parameter (the setting), its ramp, and a FLEXANIMATION's tracks.
+        byte[] expression = [.. Common(2, name: 2, parameters: 2, flexSamples: 3, rampSamples: 3, parameters2: SequenceSlot)];
+        byte[] image = Image(TauntCrc, Scene(loose: [], channelled: [expression]));
+
+        SceneEvent read = SceneImage.Read(image).ShouldNotBeNull().EventsAt(0).ShouldHaveSingleItem();
+
+        read.Parameters.ShouldBe("hi5");
+        read.Parameters2.ShouldBe(Sequence);
+        read.Ramp.ShouldBe([new(0f, 0f), new(0.03f, 127 / 255f), new(0.06f, 1f)]);
+
+        SceneFlexTrack track = read.FlexTracks.ShouldHaveSingleItem();
+        track.Controller.ShouldBe("loop_event");
+        (track.Active, track.Combo, track.Min, track.Max).ShouldBe((true, false, 0f, 1f));
+        track.Samples.ShouldBe([new(0f, 0f, 1), new(0.1f, 1 / 255f, 1), new(0.2f, 2 / 255f, 1)]);
+    }
+
+    [Test]
+    public void TauntFor_AnExpressionWhoseFileIsAbsent_MovesNoFace()
+    {
+        byte[] expression = [.. Common(2, name: 2, parameters: 2, flexSamples: 0, parameters2: SequenceSlot)];
+        SceneImage archive = SceneImage.Read(Image(TauntCrc, Scene(loose: [], channelled: [expression]))).ShouldNotBeNull();
+
+        archive.TauntFor("test/taunt", _ => null).ShouldNotBeNull().Expressions.ShouldBeEmpty();
+        archive.TauntFor("test/taunt").ShouldNotBeNull().Duration.ShouldBe(2.5f, "FindStopTime: the latest end");
+    }
+
+    [Test]
     public void SequenceFor_AGestureUnderAnActor_IsFoundPastTheActorlessEvents()
     {
         // **The manipulation: a scene shaped like a real taunt.** One actor-less `LOOP` first —
@@ -412,8 +441,9 @@ public sealed class SceneImageTests
     /// Samples on the event's ramp. Written the way <c>CCurveData::SaveToBuffer</c> writes them:
     /// the count as ONE byte, then every sample — so past 255 the count wraps and the samples do not.
     /// </param>
+    /// <param name="parameters2">The pool slot of the second parameter — an expression's setting (B513).</param>
     private static List<byte> Common(
-        byte type, short name, short parameters, int flexSamples, int rampSamples = 2)
+        byte type, short name, short parameters, int flexSamples, int rampSamples = 2, short parameters2 = 0)
     {
         List<byte> bytes =
         [
@@ -422,7 +452,7 @@ public sealed class SceneImageTests
             .. BitConverter.GetBytes(0.5f),             // start time
             .. BitConverter.GetBytes(2.5f),             // end time
             .. BitConverter.GetBytes(parameters),
-            .. BitConverter.GetBytes((short)0),         // parameters 2
+            .. BitConverter.GetBytes(parameters2),
             .. BitConverter.GetBytes((short)0),         // parameters 3
         ];
 

@@ -10,6 +10,28 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// </param>
 public readonly record struct SceneTauntGesture(float At, string Sequence);
 
+/// <summary>One ramp sample: <c>GetFloat</c> time, <c>GetUnsignedChar</c> / 255 value (<c>choreoevent.cpp:4385</c>).</summary>
+/// <param name="Time">Seconds into the event.</param>
+/// <param name="Value">0 to 1.</param>
+public readonly record struct SceneCurveSample(float Time, float Value);
+
+/// <summary>One weight of a flex setting, its key already a controller name (<c>flexweight_t</c>).</summary>
+/// <param name="Controller">The controller it pulls.</param>
+/// <param name="Weight">Toward this value, in the controller's own range.</param>
+/// <param name="Influence">How hard, before the event's intensity.</param>
+public readonly record struct SceneExpressionWeight(string Controller, float Weight, float Influence);
+
+/// <summary>One <c>EXPRESSION</c> event, its setting already read out of its <c>.vfe</c> (B513).</summary>
+/// <param name="Start">Scene seconds it begins.</param>
+/// <param name="End">Scene seconds it ends; an event without an end is not carried (<c>c_baseflex.cpp:1743</c>).</param>
+/// <param name="Ramp">Its intensity ramp, in seconds from <paramref name="Start"/>.</param>
+/// <param name="Weights">The setting's weights, in file order.</param>
+public sealed record SceneExpression(
+    float Start,
+    float End,
+    IReadOnlyList<SceneCurveSample> Ramp,
+    IReadOnlyList<SceneExpressionWeight> Weights);
+
 /// <summary>
 /// What a compiled scene does to the player it animates, resolved once (B351).
 /// </summary>
@@ -44,6 +66,18 @@ public sealed record SceneTaunt(
     float LoopsFrom,
     float LoopsAt)
 {
+    /// <summary>
+    /// The scene's <c>EXPRESSION</c> events, in the order the engine adds them to the actor (start time, then the
+    /// longer first — <c>CChoreoScene::EventLess</c>, <c>choreoscene.cpp:2565</c>) — B513.
+    /// </summary>
+    public IReadOnlyList<SceneExpression> Expressions { get; init; } = [];
+
+    /// <summary>The scene's own ramp, <c>m_SceneRamp</c>; empty is a constant 1.</summary>
+    public IReadOnlyList<SceneCurveSample> SceneRamp { get; init; } = [];
+
+    /// <summary>The scene's duration — the latest event end — which the scene ramp closes at.</summary>
+    public float Duration { get; init; }
+
     /// <summary>Whether the scene folds its own clock back, and so repeats.</summary>
     /// <remarks>
     /// **This is also the engine's test for whether stopping the scene clears the gesture slot.**

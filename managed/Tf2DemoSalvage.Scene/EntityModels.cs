@@ -113,6 +113,7 @@ public readonly record struct FiredAnimationEvent(
 /// <param name="SizeBucket">The size bucket of the box it was collated by; null when the scene did not collate it.</param>
 /// <param name="InSky">Whether the 3D skybox view collated it, so the sky pass draws it.</param>
 /// <param name="Cloak">What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this entity.</param>
+/// <param name="Flex">The face's position and normal deltas per buffer vertex, or null (B513).</param>
 public readonly record struct ModelInstance(
     string ModelPath,
     float[] Matrix,
@@ -247,7 +248,11 @@ public readonly record struct ModelInstance(
 
     // **What the invisibility proxies write into `$cloakfactor` for this entity** (`spy_invis`, `invis`). Default is
     // nobody cloaked, which is both proxies' value for everyone but a spy.
-    CloakBind Cloak = default);
+    CloakBind Cloak = default,
+
+    // **The face** (B513): a position delta then a normal delta per vertex of the model's buffer, in its order, which the
+    // shader adds before skinning (`ApplyMorph`, common_vs_fxc.h:384-387). Null for a model with no flex this frame.
+    float[]? Flex = null);
 
 /// <summary>
 /// The views collation walks — <c>m_pWorldListInfo->m_pLeafList</c> per view (B262).
@@ -538,6 +543,69 @@ public sealed class EntityModelSet : Hud.IMdlCache
     /// colour stream indexed by buffer vertex has to be laid out in this order (B426).
     /// </remarks>
     private readonly Dictionary<string, int[]> _packedOrder = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Per model with flexes, the face it wears in no scene — null when that moves nothing (B513).</summary>
+    private readonly Dictionary<string, float[]?> _restingFace = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>How many instances were given a moving face, since the set was made (B513).</summary>
+    /// <remarks>Counted where the stream is attached to the instance, so it reports what the draw USES (B243).</remarks>
+    public int FlexedInstances { get; private set; }
+
+    /// <summary>The face a player wears now: the scene's expressions through the rules, in buffer order (B513).</summary>
+    /// <remarks>
+    /// **The scene is the VCD gesture's**, the one this viewer tracks per player; it ends when the scene stops
+    /// playing back, because <c>C_SceneEntity::StopPlayback</c> clears the actor's scene events. A scene running
+    /// alongside another on the same actor is not tracked (B513 remainder).
+    /// </remarks>
+    private float[]? FlexFor(SceneProp prop, PropModels.ModelFrames? model, double seconds)
+    {
+        if (model is null || !model.Flex.HasVertexAnimation || model.CornerVertex.Count == 0 ||
+            !_packedOrder.TryGetValue(prop.ModelPath, out int[]? order))
+        {
+            return null;
+        }
+
+        float[]? face;
+
+        if (PlayingScene(prop, seconds) is { } scene)
+        {
+            face = Face(model, order, scene.Taunt, scene.Seconds);
+        }
+        else if (!_restingFace.TryGetValue(prop.ModelPath, out face))
+        {
+            face = Face(model, order, null, 0f);
+            _restingFace[prop.ModelPath] = face;
+        }
+
+        if (face is not null)
+        {
+            FlexedInstances++;
+        }
+
+        return face;
+    }
+
+    /// <summary>The last scene with expressions this entity is playing, and its clock, or null.</summary>
+    private static (SceneTaunt Taunt, float Seconds)? PlayingScene(SceneProp prop, double seconds)
+    {
+        (SceneTaunt, float)? found = null;
+
+        foreach (SceneGesture gesture in prop.Pose.Gestures ?? [])
+        {
+            if (gesture.Taunt is { Expressions.Count: > 0 } playing && seconds >= gesture.StartedSeconds &&
+                (gesture.StoppedSeconds is not { } stopped || seconds < stopped))
+            {
+                found = (playing, playing.TimeAt((float)(seconds - gesture.StartedSeconds)));
+            }
+        }
+
+        return found;
+    }
+
+    private static float[]? Face(PropModels.ModelFrames model, int[] order, SceneTaunt? taunt, float sceneSeconds) =>
+        FaceFlex.Deltas(model.Flex, FaceFlex.Controllers(model.Flex, taunt, sceneSeconds), model.VertexCount) is { } deltas
+            ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+            : null;
 
     /// <summary>Each baked static prop's colours in its model buffer's order, built once per entity.</summary>
     private readonly Dictionary<int, float[]?> _bakedByEntity = [];
@@ -4931,6 +4999,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
         _releaseOnUpload = false;
         _byModel.Clear();
         _frames.Clear();
+        _restingFace.Clear();
         _swaps.Clear();
         _raw.Clear();
         _packedOrder.Clear();
@@ -5950,7 +6019,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 LeafPlace: place,
                 SizeBucket: bucket,
                 InSky: inSky,
-                Cloak: cloak));
+                Cloak: cloak,
+                Flex: FlexFor(prop, parts, seconds)));
 
             // **The item's `attached_models`, drawn on the item's own transform and bones.**
             // `DrawEconEntityAttachedModels` (`econ_entity.cpp:103`) copies the parent's

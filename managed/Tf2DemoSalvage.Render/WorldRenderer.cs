@@ -110,6 +110,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **A studio model's tangent S and, in w, the binormal's sign** — `mstudio_modelvertexdata_t::TangentS`
             // (studio.h:1485). w is zero on every vertex that has none, and that is the "no tangent frame" test.
             float4 tangent : TEXCOORD12;
+
+            // **The face: a flex's position and normal deltas, a third stream** (B513). Zero at stride zero for every
+            // draw without one, so it adds nothing.
+            float3 flexPos : TEXCOORD13;
+            float3 flexNrm : TEXCOORD14;
         };
 
         struct VsOut
@@ -708,18 +713,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // two are exclusive: a model is either baked or skinned, never both.
             if (skinning.x >= 1.0f)
             {
-                posed = SkinPosition(input.pos, input.bones, input.weights, skinning.x);
+                // **The flex first, in model space, before the bones** — `ApplyMorph` (common_vs_fxc.h:384-387): the
+                // position takes its delta, and the normal AND the tangent take the normal's delta (B513).
+                float3 flexedPos = input.pos + input.flexPos;
+                float3 flexedNrm = input.nrm + input.flexNrm;
+                float3 flexedTangent = input.tangent.xyz + input.flexNrm;
+
+                posed = SkinPosition(flexedPos, input.bones, input.weights, skinning.x);
 
                 // The normal turns with the bones but is not translated by them, so it is skinned
                 // about the origin and normalised afterwards.
                 float3 boneOrigin = SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x);
                 posedNormal = normalize(SkinPosition(
-                    input.nrm, input.bones, input.weights, skinning.x) - boneOrigin);
+                    flexedNrm, input.bones, input.weights, skinning.x) - boneOrigin);
 
                 // **The tangent by the same blend matrix, rotation only** — `worldTangentS = mul3x3(
                 // ( float3 )modelTangentS, ( const float3x3 )blendMatrix )` (common_vs_fxc.h:738). Its w is never
                 // skinned: it is the binormal's handedness, applied after (:740).
-                posedTangent = SkinPosition(input.tangent.xyz, input.bones, input.weights, skinning.x) - boneOrigin;
+                posedTangent = SkinPosition(flexedTangent, input.bones, input.weights, skinning.x) - boneOrigin;
             }
 
             float4 world = mul(float4(posed, 1.0f), model);
@@ -2611,6 +2622,26 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 AlignedByteOffset = 0,
                 InputSlotClass = InputClassification.PerVertexData,
             },
+
+            // The flex stream, slot 2 (B513): position delta, then normal delta.
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 13,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                InputSlot = FlexSlot,
+                AlignedByteOffset = 0,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 14,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
+                InputSlot = FlexSlot,
+                AlignedByteOffset = sizeof(float) * 3,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
         ];
 
         ComPtr<ID3D11InputLayout> layout = default;
@@ -2746,7 +2777,83 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             _wireframeFor = wireframe,
             _device = device,
             _whiteColour = ColourStream(device, [1f, 1f, 1f]),
+            _noFlex = ColourStream(device, new float[FlexFloats]),
         };
+    }
+
+    /// <summary>The vertex buffer slot the flex stream binds to (B513).</summary>
+    private const uint FlexSlot = 2;
+
+    /// <summary>Floats per vertex in the flex stream: a position delta and a normal delta.</summary>
+    private const int FlexFloats = 6;
+
+    /// <summary>Six zeros, bound at stride zero on slot 2 for every draw without a face (B513).</summary>
+    private ComPtr<ID3D11Buffer> _noFlex;
+
+    /// <summary>The one dynamic flex stream, rewritten per flexing draw with <c>WRITE_DISCARD</c> (B513).</summary>
+    private ComPtr<ID3D11Buffer> _flexStream;
+
+    /// <summary>How many floats <see cref="_flexStream"/> holds.</summary>
+    private int _flexStreamFloats;
+
+    /// <summary>The face last written into <see cref="_flexStream"/>.</summary>
+    private float[]? _flexUploaded;
+
+    /// <summary>Binds a draw's face to slot 2, or the zero element at stride zero.</summary>
+    /// <remarks>
+    /// **One dynamic buffer, discarded per draw**: the driver renames it, so a draw already queued keeps the
+    /// contents it was given. It grows to the largest face drawn and never shrinks.
+    /// </remarks>
+    private void BindFlex(ComPtr<ID3D11DeviceContext> context, float[]? flex)
+    {
+        uint offset = 0;
+
+        if (flex is null || flex.Length == 0)
+        {
+            uint none = 0;
+            context.IASetVertexBuffers(FlexSlot, 1, ref _noFlex, in none, in offset);
+            return;
+        }
+
+        // A refract copy rebinds the pipeline mid-model; the same face goes back on without a second upload.
+        if (ReferenceEquals(flex, _flexUploaded))
+        {
+            uint again = sizeof(float) * FlexFloats;
+            context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in again, in offset);
+            return;
+        }
+
+        _flexUploaded = flex;
+
+        if (_flexStreamFloats < flex.Length)
+        {
+            _flexStream.Dispose();
+
+            BufferDesc description = new()
+            {
+                ByteWidth = (uint)(flex.Length * sizeof(float)),
+                Usage = Usage.Dynamic,
+                BindFlags = (uint)BindFlag.VertexBuffer,
+                CPUAccessFlags = (uint)CpuAccessFlag.Write,
+            };
+
+            _flexStream = default;
+            SilkMarshal.ThrowHResult(_device.CreateBuffer(in description, null, ref _flexStream));
+            _flexStreamFloats = flex.Length;
+        }
+
+        MappedSubresource mapped = default;
+        SilkMarshal.ThrowHResult(context.Map(_flexStream, 0, Map.WriteDiscard, 0, ref mapped));
+
+        fixed (float* from = flex)
+        {
+            System.Buffer.MemoryCopy(from, mapped.PData, (long)_flexStreamFloats * sizeof(float), (long)flex.Length * sizeof(float));
+        }
+
+        context.Unmap(_flexStream, 0);
+
+        uint stride = sizeof(float) * FlexFloats;
+        context.IASetVertexBuffers(FlexSlot, 1, ref _flexStream, in stride, in offset);
     }
 
     /// <summary>The device, kept to create a baked prop's colour stream the first time it is drawn.</summary>
@@ -3803,6 +3910,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         // The layout reads slot 1 on every draw; only a baked static prop binds a colour mesh there (B426).
         BindColours(context, null);
+
+        // And slot 2; only a flexing face binds a stream there (B513).
+        BindFlex(context, null);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.PSSetSamplers(0, 1, ref _wrapSampler);
@@ -6479,6 +6589,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _model.Dispose();
         ReleaseModelBuffers();
         _whiteColour.Dispose();
+        _noFlex.Dispose();
+        _flexStream.Dispose();
         _decalOffset.Dispose();
         _decalPolyOffset.Dispose();
         _bothSides.Dispose();
@@ -6824,6 +6936,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// What <c>spy_invis</c> and <c>invis</c> write into <c>$cloakfactor</c> for this ENTITY; each material with a cloak
     /// pass draws by it.
     /// </param>
+    /// <param name="flex">
+    /// The face's position and normal deltas per vertex of the model's buffer, or null (B513).
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **One matrix and one draw per entity, which is the engine's shape.** The vertices were
@@ -6855,7 +6970,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         float burn = 0f,
         (float Red, float Green, float Blue)? urine = null,
         float[]? bakedColours = null,
-        CloakBind cloak = default)
+        CloakBind cloak = default,
+        float[]? flex = null)
     {
         ArgumentNullException.ThrowIfNull(matrix);
         ArgumentNullException.ThrowIfNull(batches);
@@ -6912,6 +7028,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **A baked static prop's colour mesh beside the shared vertices** (B426, `engine.dll` `0x1800f1bd0`),
         // unbound again at the end so no later draw reads it.
         BindColours(context, bakedColours);
+
+        // **The face's deltas beside the model's vertices** (B513), added before skinning by the shader.
+        BindFlex(context, flex);
 
         SetModel(context, matrix, light, sun, blend, bones, locals, staticLight: bakedColours is not null);
 
@@ -7084,6 +7203,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 CopyFrameForRefract(context);
                 context.IASetVertexBuffers(0, 1, ref vertexBuffer, in stride, in offset);
                 BindColours(context, bakedColours);
+                BindFlex(context, flex);
             }
 
             // **Chosen per MATERIAL rather than per pass, which is the engine's arrangement and the
@@ -7442,6 +7562,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         if (bakedColours is not null)
         {
             BindColours(context, null);
+        }
+
+        // Unbound again so no later draw reads this face (B513).
+        if (flex is not null)
+        {
+            BindFlex(context, null);
         }
     }
 
