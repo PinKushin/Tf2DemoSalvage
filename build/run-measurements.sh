@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RETIRED: the Oracle measurement boxes were disabled 2026-10-08 and dropped (D212). Kept for reference, not run.
 #
 # Run one long measurement workload on the shared measurement box.
 #

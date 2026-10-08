@@ -1,0 +1,42 @@
+name: TF2 dedicated server content
+description: >
+  Installs Valve's TF2 dedicated server (SteamCMD, anonymous, app 232250) and exports TF2_FOLDER at
+  its `tf` directory, so tests that read the installed game (D184) have content on a hosted runner
+  (D212). Cached on the app's public buildid so it refreshes when TF2 updates.
+runs:
+  using: composite
+  steps:
+    - name: Get SteamCMD and the current buildid
+      id: build
+      shell: bash
+      run: |
+        sudo dpkg --add-architecture i386
+        sudo apt-get update -q
+        sudo apt-get install -y -q lib32gcc-s1
+        mkdir -p ~/steamcmd
+        curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C ~/steamcmd
+        # The first run self-updates and may print nothing useful.
+        ~/steamcmd/steamcmd.sh +quit > /dev/null || true
+        ~/steamcmd/steamcmd.sh +login anonymous +app_info_update 1 +app_info_print 232250 +quit > info.txt
+        id=$(grep -A4 '"public"' info.txt | sed -n 's/.*"buildid"[^0-9]*\([0-9]*\).*/\1/p' | head -1)
+        echo "buildid: '$id'"
+        test -n "$id"
+        echo "id=$id" >> "$GITHUB_OUTPUT"
+
+    - name: Restore the server install
+      id: cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: ~/tf2ds
+        key: tf2ds-${{ steps.build.outputs.id }}
+
+    - name: Install the server
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: ~/steamcmd/steamcmd.sh +force_install_dir "$HOME/tf2ds" +login anonymous +app_update 232250 validate +quit
+
+    - name: Export TF2_FOLDER
+      shell: bash
+      run: |
+        echo "TF2_FOLDER=$HOME/tf2ds/tf" >> "$GITHUB_ENV"
+        du -sh "$HOME/tf2ds" "$HOME/tf2ds/tf"

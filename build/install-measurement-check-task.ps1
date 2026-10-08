@@ -1,3 +1,4 @@
+# RETIRED: the Oracle measurement boxes were disabled 2026-10-08 and dropped (D212). Kept for reference, not run.
 <#
 .SYNOPSIS
     Installs (or removes) the daily Windows scheduled task that checks Tf2DemoSalvage's
