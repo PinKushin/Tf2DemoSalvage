@@ -53,9 +53,45 @@ tangent too (`ApplyMorph`, `common_vs_fxc.h:384-387`, *source*).
 the furthest 1.79 units, and the drawn head changes (`FaceFlexDemoRenderTests`, *measured*). Before the scene the
 soldier's resting face moves nothing — the control.
 
-## Not ported, named
+## The remainder, closed (B513, second pass)
 
-`FLEXANIMATION` tracks (they write `m_flexWeight`, which `ProcessSceneEvents( true )` decays by 0.95 per **frame**,
-`c_baseflex.cpp:1703`); `SPEAK` lip sync from the `.wav` phoneme chunk (`ProcessVisemes`); more than one scene per
-actor at once (this viewer tracks the VCD gesture slot's scene); the one-frame lag of `EventThink` testing the previous
-frame's time; event names `NULL`; wrinkle maps; flex on baked (unskinned) models.
+- **The target ramp, read in disassembly.** `R_StudioFlexVerts` (x64 `studiorender.dll` `0x18001eb90`): 0 at or
+  outside t0/t3, `(w-t0)/(t1-t0)` rising, 1 to t2, `(t3-w)/(t3-t2)` falling. A flex is skipped only when all four of its
+  weights sit inside (−0.001, 0.001), compared as doubles; speed and side are bytes × 0.003921569; the weight is
+  `((1-s)·w2 + s·w1)·(1-side) + ((1-s)·w4 + s·w3)·side` (*disassembly*). The earlier reading was right on [0, 1].
+- **Fixed point is not a file format, it is a load step.** `datacache` `0x180009ff0` converts every float16 delta to
+  `(short)(int)(half / scale)` once per model, with scale the header's if flagged else 1/4096, and marks the header
+  `0x4000`; drawing multiplies back. So every delta is quantised at 1/4096 even on unflagged models (*disassembly*).
+- **A TF player's face does not rest at the bind pose.** `ResetFlexWeights` sets each controller to 0 *in its own
+  range* (`c_tf_player.cpp:5298`), so a −1..1 lid rests half shut by the rules: 398 soldier vertices move at rest,
+  0.25 units at most (*measured*). The first pass's "resting = minimum" was the answer for a C_BaseFlex nothing set — a
+  worn item off a player, for instance — and is kept for that.
+- **FLEXANIMATION** writes `m_flexWeight` after a ×0.95 decay **per SetupGlobalWeights call** — and a worn item and a
+  dead player's corpse each call the player's (`econ_entity.cpp:1377`, `c_tf_player.cpp:636`), so the decay runs once
+  per drawing entity per frame (*source*). A track naming a controller the model lacks writes controller 0
+  (`MAX( FindFlexController, 0 )`, `:1987`). No scene any lcor demo we probed plays carries one (*measured*,
+  `flex played`), so this is synthetic-only.
+- **Every scene, not the gesture slot's.** A real match runs idle loops, attack and voice scenes on one player at once:
+  1,417 of 1,824 runs in tf2-2026-pub-pov-clean overlap another on the same actor (*measured*). A scene's stop is now
+  recorded — `m_bIsPlayingBack` false, the slot switching scenes, or the entity deleted.
+- **EventThink's lag**: an event is live while the scene's time at the PREVIOUS frame is inside it
+  (`choreoscene.cpp:2529`), read at this frame's time. **`NULL`-named events** never start (`c_sceneentity.cpp:463`).
+- **Lip sync.** TF2's voice lines are MP3s with no phoneme chunk; the sentences live in the VPKs' `.sound.cache`
+  (`CAudioSourceCachedInfo::Restore`, `engine.dll` `0x180053740`, *disassembly*). Only 51 sounds carry one —
+  scout head-left/right and taunt lines, soldier tank lines, a burp — so ordinary voice lines move the mouth through
+  their scene's expressions. One cached line is played in the lcor sweep: `vo/scout_HeadRight03.wav`, granary 2013,
+  tick 58230; forty ticks in, the visemes move 2,548 more vertices than the same moment without the sentence
+  (`FaceLipSyncDemoTests`). The phoneme file is named from the header's `pszName` (`player/scout.mdl`), not the load
+  path — the first run used the path, found no file, and moved nothing.
+- **Wrinkle maps are unreachable.** Of 16,608 shipped models, 8 carry wrinkle flexes, all `models/player/hwm/*`, which
+  `UseHWMorphModels()` — hardcoded `false` (`baseplayer_shared.cpp:104`) — never selects; the CPU flex path ignores the
+  wrinkle delta anyway (*measured*, *disassembly*).
+- **Non-player flex models** draw with the zero weights `LockFlexWeights` leaves (`0x1800584b0`). 88 shipped HL2
+  character models move at zero weight (their ramp is not zero there); none is a TF2 player.
+
+## Still open, named
+
+The interpolation history `m_flexWeight` carries as a `LATCH_ANIMATION_VAR` (`c_baseflex.cpp:134`); the engine's mouth
+registration (which channels, pitch) was not located in `engine.dll`, so the voice channels are an **interpolation**;
+a corpse whose player has respawned should switch to its own unset face (`c_tf_player.cpp:630`); flex on baked
+(unskinned) props is not applied — the only models it would change are the 88 HL2 ones.

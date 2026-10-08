@@ -204,6 +204,9 @@ public sealed class ParentedPropPlacementTests
                 // **`CorpseInvisibility` (B508)**: `m_bCloaked` is on `DT_TFRagdoll` and nowhere else, so only
                 // `RagdollProps` has a corpse to fade; 0 is "not a cloaked corpse", the true answer everywhere else.
                 nameof(SceneProp.CorpseInvisibility),
+
+                // **`FaceOf` (B513)**: only a corpse draws another entity's face; null is "its own", true elsewhere.
+                nameof(SceneProp.FaceOf),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

@@ -36,7 +36,11 @@ public readonly record struct StudioVertAnim(
     byte Speed,
     byte Side,
     (float X, float Y, float Z) Delta,
-    (float X, float Y, float Z) NormalDelta);
+    (float X, float Y, float Z) NormalDelta)
+{
+    /// <summary>A wrinkle vertanim's <c>wrinkledelta</c> as stored, a fixed-point short; zero otherwise.</summary>
+    public short RawWrinkle { get; init; }
+}
 
 /// <summary>One mesh's vertex animation for one descriptor, <c>mstudioflex_t</c> (<c>studio.h:1144</c>).</summary>
 /// <param name="FlexDesc">The descriptor whose weight drives it.</param>
@@ -53,7 +57,11 @@ public sealed record StudioMeshFlex(
     float Target1,
     float Target2,
     float Target3,
-    IReadOnlyList<StudioVertAnim> Vertices);
+    IReadOnlyList<StudioVertAnim> Vertices)
+{
+    /// <summary>Whether its vertanims are <c>mstudiovertanim_wrinkle_t</c> (<c>STUDIO_VERT_ANIM_WRINKLE</c>).</summary>
+    public bool IsWrinkle { get; init; }
+}
 
 /// <summary>Everything a model says about its face: descriptors, controllers, rules, and the deltas.</summary>
 /// <param name="Descriptors">FACS names, one per descriptor — the rules' outputs.</param>
@@ -68,6 +76,12 @@ public sealed record StudioFlexData(
 {
     /// <summary>A model with no face.</summary>
     public static StudioFlexData None { get; } = new([], [], [], []);
+
+    /// <summary>
+    /// The header's own name, <c>pszName()</c> (<c>studiohdr_t::name</c>, offset 12, 64 bytes) — <c>player/scout.mdl</c>, not the
+    /// path it was loaded from — which <c>C_TFPlayer::InitPhonemeMappings</c> names the phoneme file after.
+    /// </summary>
+    public string ModelName { get; init; } = string.Empty;
 
     /// <summary>Whether there is anything to move.</summary>
     public bool HasVertexAnimation => Flexes.Count > 0 && Descriptors.Count > 0;
@@ -94,13 +108,13 @@ public sealed record StudioFlexData(
 /// <c>numflexrules</c> from the header and <c>numflexes</c> from every mesh.
 /// </summary>
 /// <remarks>
-/// **The deltas are float16 on disk unless the header says fixed point.** <c>mstudiovertanim_t</c> stores
-/// a union of <c>short delta[3]</c> and <c>float16 flDelta[3]</c> (<c>studio.h:1017-1027</c>), and the flag
-/// <c>STUDIOHDR_FLAGS_VERT_ANIM_FIXED_POINT_SCALE</c> is "flagged on load" (<c>studio.h:2091</c>): the
-/// engine converts the file's float16 to fixed with <c>ConvertToFixed</c> and sets it. So a file that
-/// does not carry the flag holds float16, and one that does holds shorts scaled by
-/// <c>VertAnimFixedPointScale()</c> (<c>studio.h:2395</c>). Reading float16 directly skips the engine's
-/// requantisation, whose step is below a hundredth of a unit — interpolated, not measured.
+/// **The deltas are what the loader leaves, read in disassembly** (x64 <c>datacache.dll</c> <c>0x180009ff0</c>, called
+/// from <c>0x180011150</c>, B513). Unless <c>STUDIOHDR_FLAGS_FLEXES_CONVERTED</c> (0x4000, <c>studio.h:2076</c>) is
+/// set, every vertanim's six float16s become <c>(short)(int)( half * ( 1 / scale ) )</c> — a reciprocal multiply,
+/// truncated, wrapped to 16 bits — and the flag is set; the scale is <c>flVertAnimFixedPointScale</c> under
+/// 0x200000 and <c>1/4096</c> otherwise (<c>studio.h:2395</c>). Studiorender then uses <c>short * scale</c>
+/// (<c>0x18001eb90</c>). The half conversion is Valve's (<c>0x18000b4a0</c>): an infinity reads ±65504 and a NaN 0.
+/// The wrinkle short is not converted.
 /// </remarks>
 public static class StudioFlex
 {
@@ -127,9 +141,11 @@ public static class StudioFlex
         }
 
         int flags = BinaryPrimitives.ReadInt32LittleEndian(bytes[HeaderFlagsOffset..]);
-        float? scale = (flags & FixedPointScaleFlag) != 0
-            ? BinaryPrimitives.ReadSingleLittleEndian(bytes[HeaderVertAnimScaleOffset..])
-            : null;
+        Fixed scale = new(
+            (flags & FixedPointScaleFlag) != 0
+                ? BinaryPrimitives.ReadSingleLittleEndian(bytes[HeaderVertAnimScaleOffset..])
+                : DefaultScale,
+            (flags & ConvertedFlag) != 0);
 
         int descCount = Table(bytes, HeaderFlexDescCountOffset, FlexDescStride, out int descAt);
         int controllerCount = Table(bytes, HeaderFlexControllerCountOffset, FlexControllerStride, out int controllerAt);
@@ -183,10 +199,15 @@ public static class StudioFlex
             rules.Add(new StudioFlexRule(BinaryPrimitives.ReadInt32LittleEndian(bytes[at..]), program));
         }
 
-        return new StudioFlexData(descs, controllers, rules, ReadMeshFlexes(bytes, scale));
+        int nameLength = bytes.Slice(12, 64).IndexOf((byte)0);
+
+        return new StudioFlexData(descs, controllers, rules, ReadMeshFlexes(bytes, scale))
+        {
+            ModelName = System.Text.Encoding.ASCII.GetString(bytes.Slice(12, nameLength < 0 ? 64 : nameLength)),
+        };
     }
 
-    private static List<StudioMeshFlex> ReadMeshFlexes(ReadOnlySpan<byte> bytes, float? scale)
+    private static List<StudioMeshFlex> ReadMeshFlexes(ReadOnlySpan<byte> bytes, Fixed scale)
     {
         List<StudioMeshFlex> flexes = [];
 
@@ -236,7 +257,7 @@ public static class StudioFlex
         return flexes;
     }
 
-    private static StudioMeshFlex ReadFlex(ReadOnlySpan<byte> bytes, int at, int meshFirst, float? scale)
+    private static StudioMeshFlex ReadFlex(ReadOnlySpan<byte> bytes, int at, int meshFirst, Fixed scale)
     {
         ReadOnlySpan<byte> flex = bytes.Slice(at, FlexStride);
         int vertices = BinaryPrimitives.ReadInt32LittleEndian(flex[20..]);
@@ -257,7 +278,13 @@ public static class StudioFlex
                 anim[2],
                 anim[3],
                 Three(anim[4..], scale),
-                Three(anim[10..], scale));
+                Three(anim[10..], scale))
+            {
+                // `short wrinkledelta`, always fixed point (`SetWrinkleFixed`, studio.h:1115), times the same scale.
+                RawWrinkle = stride == VertAnimWrinkleStride
+                    ? BinaryPrimitives.ReadInt16LittleEndian(bytes[(verticesAt + (index * stride) + VertAnimStride)..])
+                    : (short)0,
+            };
         }
 
         return new StudioMeshFlex(
@@ -267,18 +294,52 @@ public static class StudioFlex
             BinaryPrimitives.ReadSingleLittleEndian(flex[8..]),
             BinaryPrimitives.ReadSingleLittleEndian(flex[12..]),
             BinaryPrimitives.ReadSingleLittleEndian(flex[16..]),
-            anims);
+            anims)
+        {
+            IsWrinkle = stride == VertAnimWrinkleStride,
+        };
     }
 
-    /// <summary>Three float16s, or three shorts times the fixed-point scale (<c>GetDeltaFixed</c>).</summary>
-    private static (float X, float Y, float Z) Three(ReadOnlySpan<byte> at, float? scale) =>
-        scale is { } fixedScale
-            ? (BinaryPrimitives.ReadInt16LittleEndian(at) * fixedScale,
-               BinaryPrimitives.ReadInt16LittleEndian(at[2..]) * fixedScale,
-               BinaryPrimitives.ReadInt16LittleEndian(at[4..]) * fixedScale)
-            : ((float)BinaryPrimitives.ReadHalfLittleEndian(at),
-               (float)BinaryPrimitives.ReadHalfLittleEndian(at[2..]),
-               (float)BinaryPrimitives.ReadHalfLittleEndian(at[4..]));
+    /// <summary><c>STUDIOHDR_FLAGS_FLEXES_CONVERTED</c>, <c>studio.h:2076</c>.</summary>
+    public const int ConvertedFlag = 0x00004000;
+
+    /// <summary>The scale with no 0x200000 flag: <c>1.0f / 4096.0f</c>.</summary>
+    private const float DefaultScale = 1f / 4096f;
+
+    /// <summary>The fixed-point scale and whether the file's deltas are already shorts.</summary>
+    private readonly record struct Fixed(float Scale, bool Converted);
+
+    /// <summary>Three deltas as studiorender reads them: the loader's short, times the scale.</summary>
+    private static (float X, float Y, float Z) Three(ReadOnlySpan<byte> at, Fixed scale) =>
+        (One(at, scale), One(at[2..], scale), One(at[4..], scale));
+
+    private static float One(ReadOnlySpan<byte> at, Fixed scale)
+    {
+        short stored = scale.Converted
+            ? BinaryPrimitives.ReadInt16LittleEndian(at)
+            : unchecked((short)(int)(Float16(BinaryPrimitives.ReadUInt16LittleEndian(at)) * (1f / scale.Scale)));
+
+        return stored * scale.Scale;
+    }
+
+    /// <summary>Valve's <c>float16::GetFloat</c> (datacache <c>0x18000b4a0</c>): IEEE, except ±infinity is ±65504 and
+    /// a NaN is 0.</summary>
+    public static float Float16(ushort bits)
+    {
+        int mantissa = bits & 0x3FF;
+
+        if ((bits & 0x7C00) == 0x7C00)
+        {
+            if (mantissa != 0)
+            {
+                return 0f;
+            }
+
+            return (bits & 0x8000) == 0 ? 65504f : -65504f;
+        }
+
+        return (float)BitConverter.UInt16BitsToHalf(bits);
+    }
 
     /// <summary>A header count and its file-relative index, checked to fit.</summary>
     private static int Table(ReadOnlySpan<byte> bytes, int countAt, int stride, out int at)

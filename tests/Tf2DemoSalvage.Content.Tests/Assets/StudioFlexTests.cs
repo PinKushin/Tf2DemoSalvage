@@ -43,13 +43,31 @@ public sealed class StudioFlexTests
     }
 
     [Test]
-    public void Read_AFixedPointFile_ScalesTheShortsByTheHeadersScale()
+    public void Read_AFixedPointFile_QuantisesTheHalvesAtTheHeadersScale()
     {
-        StudioMeshFlex mesh = StudioFlex.Read(Mdl(fixedScale: 0.25f)).Flexes.ShouldHaveSingleItem();
+        // datacache 0x180009ff0: (short)(int)( half * ( 1 / scale ) ), drawn × scale — 0.3 at 0.25 truncates to 0.25.
+        StudioMeshFlex mesh = StudioFlex.Read(Mdl(fixedScale: 0.25f, y: 0.3f)).Flexes.ShouldHaveSingleItem();
 
-        // The same six bytes per vector now read as shorts 4, -8, 2 and 1, 0, -4, times 0.25.
-        mesh.Vertices[0].Delta.ShouldBe((1f, -2f, 0.5f));
+        mesh.Vertices[0].Delta.ShouldBe((1f, 0.25f, 0.5f));
         mesh.Vertices[0].NormalDelta.ShouldBe((0.25f, 0f, -1f));
+    }
+
+    [Test]
+    public void Read_AFloat16File_QuantisesAtOneOver4096()
+    {
+        // Without the flag the scale is 1/4096: 0.3 is 1228.8 steps, truncated to 1228.
+        StudioMeshFlex mesh = StudioFlex.Read(Mdl(fixedScale: null, y: 0.3f)).Flexes.ShouldHaveSingleItem();
+
+        mesh.Vertices[0].Delta.Y.ShouldBe((short)(int)((float)(Half)0.3f * 4096f) * (1f / 4096f));
+    }
+
+    [Test]
+    public void Read_AFileAlreadyConverted_ReadsTheShortsAsTheyAre()
+    {
+        // STUDIOHDR_FLAGS_FLEXES_CONVERTED (0x4000): the six bytes are shorts, 4, -8, 2 times 0.25.
+        StudioMeshFlex mesh = StudioFlex.Read(Mdl(fixedScale: 0.25f, converted: true)).Flexes.ShouldHaveSingleItem();
+
+        mesh.Vertices[0].Delta.ShouldBe((1f, -2f, 0.5f));
     }
 
     [Test]
@@ -82,12 +100,14 @@ public sealed class StudioFlexTests
     private const int StringsAt = 1600;
 
     /// <summary>A model with one body part, one model, one mesh carrying one stereo flex of two vertices.</summary>
-    private static byte[] Mdl(float? fixedScale)
+    private static byte[] Mdl(float? fixedScale, float y = -2f, bool converted = false)
     {
         byte[] file = new byte[2048];
         Span<byte> s = file;
 
-        BinaryPrimitives.WriteInt32LittleEndian(s[152..], fixedScale is null ? 0 : StudioFlex.FixedPointScaleFlag);
+        BinaryPrimitives.WriteInt32LittleEndian(
+            s[152..],
+            (fixedScale is null ? 0 : StudioFlex.FixedPointScaleFlag) | (converted ? StudioFlex.ConvertedFlag : 0));
         BinaryPrimitives.WriteSingleLittleEndian(s[392..], fixedScale ?? 0f);
 
         Int(s, 232, 1);
@@ -116,8 +136,9 @@ public sealed class StudioFlexTests
             BinaryPrimitives.WriteUInt16LittleEndian(at, (ushort)(3 + anim));
             at[2] = 255;
             at[3] = 64;
-            Vector(at[4..], fixedScale, 1f, -2f, 0.5f);
-            Vector(at[10..], fixedScale, 0.25f, 0f, -1f);
+            float? shorts = converted ? fixedScale : null;
+            Vector(at[4..], shorts, 1f, y, 0.5f);
+            Vector(at[10..], shorts, 0.25f, 0f, -1f);
         }
 
         int strings = StringsAt;

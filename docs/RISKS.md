@@ -36202,11 +36202,24 @@ demo tests.
 0.8–1.1 ms after against 0.7–1.3 before, `advance` 2.1–2.4 against 2.1–2.5 — no difference beyond noise. Both runs sat
 at ~8 fps with `camera` ~95–135 ms dominating, the same in each, so the absolute rate is not a clean reading.
 
-**Not ported (open):** `FLEXANIMATION` tracks (written into `m_flexWeight`, decayed by 0.95 per FRAME,
-`c_baseflex.cpp:1703`); `SPEAK` lip sync (`ProcessVisemes`, the `.wav` phoneme chunk); several scenes on one actor at
-once (only the VCD gesture slot's scene is read); `EventThink`'s one-frame lag; events named `NULL`; flex on baked
-models; wrinkle maps. **Interpolated:** the per-flex target ramp (`RampFlexWeight`, closed studiorender; the identity on
-[0, 1] for TF2's 0/1/10/11 targets) — to be settled in disassembly. `RunFlexDelay` is skipped because every shipped
-player vertex has speed 255 (measured).
+**Second pass, 2026-10-08 — the remainder** (findings 75): the target ramp, dead band and morph weight read in
+disassembly (`studiorender` `0x18001eb90`); the float16→fixed load conversion (`datacache` `0x180009ff0`); the TF
+player's reset to zero-in-range (`c_tf_player.cpp:5298`); `ActorFace` — per-call 0.95 decay, `FLEXANIMATION`
+(missing controller → 0), every scene on the actor, `EventThink`'s previous-frame test, `NULL` events, expressions,
+visemes from the VPK sound caches (`engine.dll` `0x180053740`), `RunFlexDelay`; worn items and corpses draw their
+player's face; non-player flex models draw zero weights; scene stops recorded (incl. deletion). Wrinkle maps closed as
+unreachable (only `hwm` models, `UseHWMorphModels` false). **Evidence:** `FaceDriverConformanceTests` (9, quoted),
+`FaceFlexTests` (14), `SentenceTests` (6), `StudioFlexTests` (+2), `StudioFlexRulesTests` (+4), `SceneImageTests` (+1);
+output level `FaceLipSyncDemoTests` (granary 2013, scout 9, `scout_HeadRight03`: 2,548 vertices differ from the
+no-sentence control) and `FaceFlexDemoRenderTests` (rest 398 vertices/0.25, laugh 8,105/1.79).
+
+**Frame cost** (`--measure 20`, tf2-2026-pub-pov-clean at 1000, first person, `fps_max 0`, 2026-10-08): moment rebuild
+33.2 ms against 29.1 on main (pose rest 11.8 against 6.7) — every player's face now steps every frame, where the first
+pass cached one resting face per model; a face whose weights repeat is reused, which took the first after-run's 38.6
+down. `draw` 0.7–1.2 ms either side. The rate sits at ~8 fps on both, `camera` ~100 ms dominating.
+
+**Still open:** `m_flexWeight`'s latched interpolation history; the engine's mouth-source registration (voice channels
+2 and 7 are **interpolated**); a corpse after its player respawns; flex on baked props (only 88 HL2 models would move);
+`FLEXANIMATION` has no corpus specimen (no played TF2 scene in the probed demos carries one).
 
 **Owner-visible:** taunting and talking players' faces now move — a laughing soldier opens his mouth.

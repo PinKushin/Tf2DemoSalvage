@@ -40,27 +40,38 @@ public sealed class FaceFlexDemoRenderTests
         (_, _, ModelInstance before) = Posed(TauntStart - 30);
         (_, EntityModelSet models, ModelInstance laughing) = Posed(TauntStart + 130);
 
-        before.Flex.ShouldBeNull("the control: no scene, and the soldier's resting face moves nothing");
         float[] face = laughing.Flex.ShouldNotBeNull("two seconds into the laugh");
         IReadOnlyList<WorldBatch> batches = models.AllFrames(SoldierModel)[laughing.Frame];
         face.Length.ShouldBe(
             (batches.Max(batch => batch.FirstVertex + batch.VertexCount) - batches.Min(batch => batch.FirstVertex)) * 6,
             "one position and one normal delta per vertex of the model's buffer");
 
+        // The control: the same soldier before the scene wears the resting face — every controller at zero in its own
+        // range, which for a TF player is not the bind pose (ResetFlexWeights, c_tf_player.cpp:5291).
+        (int restMoved, float restLargest) = Movement(before.Flex);
+        (int moved, float largest) = Movement(face);
+
+        TestContext.Out.WriteLine(
+            $"soldier at {TauntStart + 130}: {moved} of {face.Length / 6} buffer vertices move, the furthest {largest:0.###} units; " +
+            $"at rest {restMoved}, {restLargest:0.###}");
+
+        largest.ShouldBeGreaterThan(restLargest + 0.25f, "a laugh opens the mouth by a visible amount");
+        moved.ShouldBeGreaterThan(restMoved + 100);
+    }
+
+    private static (int Moved, float Largest) Movement(float[]? face)
+    {
         float largest = 0f;
         int moved = 0;
 
-        for (int at = 0; at < face.Length; at += 6)
+        for (int at = 0; face is not null && at < face.Length; at += 6)
         {
             float length = MathF.Sqrt((face[at] * face[at]) + (face[at + 1] * face[at + 1]) + (face[at + 2] * face[at + 2]));
             largest = MathF.Max(largest, length);
             moved += length > 0.05f ? 1 : 0;
         }
 
-        TestContext.Out.WriteLine($"soldier at {TauntStart + 130}: {moved} of {face.Length / 6} buffer vertices move, the furthest {largest:0.###} units");
-
-        largest.ShouldBeGreaterThan(0.25f, "a laugh opens the mouth by a visible amount");
-        moved.ShouldBeGreaterThan(100);
+        return (moved, largest);
     }
 
     [Test]

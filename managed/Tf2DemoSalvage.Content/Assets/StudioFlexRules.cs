@@ -8,16 +8,13 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// flex's weight and its vertices' share of it (B513).
 /// </summary>
 /// <remarks>
-/// **The controller values are indexed LOCALLY.** The engine indexes <c>src</c> by
-/// <c>pFlexcontroller( i )-&gt;localToGlobal</c>, and its global list is keyed by name
-/// (<c>C_BaseFlex::AddGlobalFlexController</c>), so for one model a local index and its global slot name the same
-/// controller; only two local controllers sharing a name would differ, which no shipped model does.
+/// **The controller values are indexed LOCALLY**, already looked up by name in the actor's global list
+/// (<c>C_BaseFlex::AddGlobalFlexController</c>) — see <c>FaceFlex.Local</c>, which is where the name lookup is.
 ///
-/// **The vertex weight is the published GPU morph's** (<c>morphaccumulate_ps30.fxc</c>): speed lerps delayed to
-/// current, side lerps the descriptor to its stereo partner. The CPU path (<c>R_StudioFlexVerts</c>,
-/// <c>studiorender.dll</c>) is closed; the target ramp below is its <c>RampFlexWeight</c> as the target fields
-/// (<c>studio.h:1149-1152</c>) define it — **interpolated, not read in disassembly**. With TF2's player targets of
-/// 0/1/10/11 (measured, <c>flex</c> probe) it is the identity on [0, 1] and zero below.
+/// **The vertex weight is <c>CStudioRender::R_StudioFlexVerts</c>, read in disassembly** (x64 <c>studiorender.dll</c>
+/// <c>0x18001eb90</c>, B513): the target ramp, the 0.001 dead band on all four weights, speed and side as bytes times
+/// <c>0.003921569f</c>, and <c>((1 - speed)·delayed + current·speed)·(1 - side) + ((1 - speed)·pairDelayed + speed·pair)·side</c>
+/// in that order; the position, normal and tangent each take <c>delta · scale · w</c>.
 /// </remarks>
 public static class StudioFlexRules
 {
@@ -320,8 +317,8 @@ public static class StudioFlexRules
                 w4 = Ramp(flex, At(delayed, flex.FlexPair));
             }
 
-            // A ramped weight is never negative, so "at most zero" is "off".
-            if (w1 <= 0f && w2 <= 0f && w3 <= 0f && w4 <= 0f)
+            // The dead band: skipped only when all four sit strictly inside ±0.001 (0x18001eb90).
+            if (Off(w1) && Off(w2) && Off(w3) && Off(w4))
             {
                 continue;
             }
@@ -335,9 +332,11 @@ public static class StudioFlexRules
                     continue;
                 }
 
-                float speed = anim.Speed / 255f;
-                float side = anim.Side / 255f;
-                float weight = Lerp(Lerp(w2, w1, speed), Lerp(w4, w3, speed), side);
+                // A multiply by 1/255 rounded to float, not a divide, and the SDK's term order.
+                float speed = anim.Speed * ByteScale;
+                float side = anim.Side * ByteScale;
+                float weight = ((((1f - speed) * w2) + (w1 * speed)) * (1f - side)) +
+                    ((((1f - speed) * w4) + (speed * w3)) * side);
 
                 positions[at] += anim.Delta.X * weight;
                 positions[at + 1] += anim.Delta.Y * weight;
@@ -352,13 +351,19 @@ public static class StudioFlexRules
         return applied;
     }
 
+    /// <summary>The constant the disassembly multiplies a speed or side byte by.</summary>
+    private const float ByteScale = 0.003921569f;
+
+    /// <summary>Inside the dead band: <c>-0.001 &lt; w &lt; 0.001</c>, compared as doubles as the SDK's literals are.</summary>
+    private static bool Off(float weight) => weight > -0.001d && weight < 0.001d;
+
     private static float At(ReadOnlySpan<float> values, int index) =>
         index >= 0 && index < values.Length ? values[index] : 0f;
 
-    /// <summary>HLSL <c>lerp( a, b, t )</c>.</summary>
-    private static float Lerp(float a, float b, float t) => a + ((b - a) * t);
-
-    /// <summary>The controller values a model starts from before any scene: the unsent weight 0 rescaled.</summary>
+    /// <summary>
+    /// A <c>C_BaseFlex</c> nothing ever set — zeroed memory, the unsent weight 0 rescaled. A TF player is NOT this: it
+    /// resets to <c>SetFlexWeight( i, 0 )</c> (<c>ActorFace</c>).
+    /// </summary>
     /// <param name="data">The model's tables.</param>
     /// <returns>Each controller's <c>min</c> (<c>c_baseflex.cpp:1222</c> with <c>m_flexWeight</c> zero).</returns>
     public static float[] Resting(StudioFlexData data)

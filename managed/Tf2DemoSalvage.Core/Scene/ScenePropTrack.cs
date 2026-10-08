@@ -657,6 +657,7 @@ public readonly record struct ScenePose
 /// <param name="StaticFade">A static prop's distance fade entry (B430); null everywhere else.</param>
 /// <param name="StaticScreen">A static prop's screen-fade inputs (B432); null everywhere else.</param>
 /// <param name="CorpseInvisibility">A cloaked corpse's own invisibility; 0 everywhere else.</param>
+/// <param name="FaceOf">A corpse's dead player, whose face it draws (B513); null everywhere else.</param>
 /// <param name="AttachmentPoint">
 /// Which of that entity's named attachment points it hangs from, one-based, or <c>null</c> when it
 /// is bone-merged instead.
@@ -812,7 +813,11 @@ public sealed record SceneProp(
 
     // **A cloaked corpse's own invisibility, 0 for everything else** — `C_TFRagdoll::GetPercentInvisible`, which
     // both invisibility proxies read off a ragdoll (`PlayerInvisibility.Ragdoll`). Only `RagdollProps` sets it.
-    float CorpseInvisibility = 0f);
+    float CorpseInvisibility = 0f,
+
+    // **Whose face a corpse draws** (B513): `C_TFRagdoll::SetupWeights` hands its flex to the dead player's own
+    // `SetupWeights` (`c_tf_player.cpp:626`). The player's entity index; null for everything else.
+    int? FaceOf = null);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

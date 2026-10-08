@@ -1035,6 +1035,9 @@ public sealed class DemoTimeline
     /// <summary>`TF_CLASS_HEAVYWEAPONS` (tf_shareddefs.h:212), whose minigun freezes the air-walk while it spins.</summary>
     private const int HeavyClass = 6;
 
+    /// <summary>`SND_IGNORE_PHONEMES`, soundflags.h:128.</summary>
+    private const int IgnorePhonemesFlag = 1 << 8;
+
     /// <summary>`m_bPlayingMannVsMachine` (tf_gamerules.cpp:1517), reached like the round through the proxy.</summary>
     private const string MannVsMachineProperty = "DT_TFGameRules.m_bPlayingMannVsMachine";
 
@@ -2950,6 +2953,9 @@ public sealed class DemoTimeline
                             {
                                 ChangesVolume = (sound.Flags & SoundDecoder.ChangeVolumeFlag) != 0,
                                 ChangesPitch = (sound.Flags & SoundDecoder.ChangePitchFlag) != 0,
+
+                                // `SND_IGNORE_PHONEMES` (soundflags.h:128): the mouth skips this one (B513).
+                                IgnoresPhonemes = (sound.Flags & IgnorePhonemesFlag) != 0,
                             });
                         }
 
@@ -3257,8 +3263,20 @@ public sealed class DemoTimeline
                     // walks the same actor list on the way down — `ClearSceneEvents` then
                     // `RemoveChoreoScene` (`c_sceneentity.cpp:344`) — and what that does to the
                     // gesture depends on whether the scene loops, which only the archive knows.
-                    if (playingScenes.Remove(entity.EntityIndex, out int stopped) &&
-                        scenePrecache.Path(stopped) is { Length: > 0 } was)
+                    bool wasPlaying = playingScenes.Remove(entity.EntityIndex, out int stopped);
+
+                    if (wasPlaying)
+                    {
+                        // The stop, on the run it ends (B513): `StopPlayback` clears every actor's scene events.
+                        int run = choreography.FindLastIndex(one => one.EntityIndex == entity.EntityIndex);
+
+                        if (run >= 0 && choreography[run].StoppedTick is null)
+                        {
+                            choreography[run] = choreography[run] with { StoppedTick = command.Tick };
+                        }
+                    }
+
+                    if (wasPlaying && scenePrecache.Path(stopped) is { Length: > 0 } was)
                     {
                         foreach (int actor in entity.SceneActors())
                         {
@@ -3275,6 +3293,17 @@ public sealed class DemoTimeline
                     already == index)
                 {
                     continue;
+                }
+
+                // A slot that switches scenes while playing ends the first run where the second begins (B513).
+                if (playingScenes.ContainsKey(entity.EntityIndex))
+                {
+                    int previous = choreography.FindLastIndex(one => one.EntityIndex == entity.EntityIndex);
+
+                    if (previous >= 0 && choreography[previous].StoppedTick is null)
+                    {
+                        choreography[previous] = choreography[previous] with { StoppedTick = command.Tick };
+                    }
                 }
 
                 playingScenes[entity.EntityIndex] = index;
@@ -3295,6 +3324,22 @@ public sealed class DemoTimeline
                 foreach (int actor in actors)
                 {
                     gestures.RecordScene(actor, scene, command.Tick * interval);
+                }
+            }
+
+            // **A scene entity deleted while playing has stopped too** (B513): `C_SceneEntity::UpdateOnRemove` unloads
+            // the scene, clearing every actor's events. Only the run's stop is marked; the slot's record is left, so
+            // the gesture keeps what it did before.
+            foreach (int slot in playingScenes.Keys)
+            {
+                if (!entities.TryGet(slot, out _))
+                {
+                    int run = choreography.FindLastIndex(one => one.EntityIndex == slot);
+
+                    if (run >= 0 && choreography[run].StoppedTick is null)
+                    {
+                        choreography[run] = choreography[run] with { StoppedTick = command.Tick };
+                    }
                 }
             }
 

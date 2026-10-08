@@ -28,14 +28,19 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// TF2's client throws it away. Carrying it would invite a consumer to honour a value the game does
 /// not.
 ///
-/// **What is NOT recorded is the stop.** A scene that ends is `m_bIsPlayingBack` going false, and a
-/// gesture layer's own auto-kill already removes it when its cycle passes one
-/// (<c>multiplayer_animstate.cpp:1275</c>) — which is how the engine ends a taunt whose scene the
-/// server has already stopped sending. A LOOP scene held open by the server, such as the high-five
-/// idle, is the case that will need it.
+/// **The stop is <see cref="StoppedTick"/>** (B513): a face drops a stopped scene's events, as
+/// <c>StopPlayback</c> clears them. The gesture does not read it — its layer's own auto-kill removes it when
+/// its cycle passes one (<c>multiplayer_animstate.cpp:1275</c>).
 /// </remarks>
 public sealed record SceneChoreography(
     int Tick,
     int EntityIndex,
     string Scene,
-    IReadOnlyList<int> Actors);
+    IReadOnlyList<int> Actors)
+{
+    /// <summary>
+    /// The tick <c>m_bIsPlayingBack</c> went false (or the slot began another scene), or null while it plays on — where
+    /// <c>C_SceneEntity::StopPlayback</c> clears every actor's scene events (B513).
+    /// </summary>
+    public int? StoppedTick { get; init; }
+}

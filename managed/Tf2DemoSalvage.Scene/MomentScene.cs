@@ -389,6 +389,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         // came from the player.
         _models.BurnLevel = prop => BurnLevelOf(prop.OwnedBy ?? prop.AttachedTo, players);
 
+        // **Every scene and voice line in the recording, for the faces** (B513).
+        _models.Faces = Appearance.Faces;
+
         // **And the jarate tint, resolved the same way** (B336). `CProxyUrineLevel` takes the
         // player from the entity OR from its owner — `pEntity->GetOwnerEntity()->IsPlayer()`
         // (`c_tf_player.cpp:1935`) — which is the same chain, written out in the engine.

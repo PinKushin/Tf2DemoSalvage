@@ -355,7 +355,10 @@ public static class RagdollProps
             // **A Your Eternal Reward victim fades out over a second** — `m_bCloaked`, ramped by
             // `ClientThink` from the corpse's creation (`PlayerInvisibility.Ragdoll`). Zero without a clock.
             CorpseInvisibility: PlayerInvisibility.Ragdoll(
-                corpse.Cloaked, (float)((tick - corpse.FirstTick) * intervalPerTick))));
+                corpse.Cloaked, (float)((tick - corpse.FirstTick) * intervalPerTick)),
+
+            // **The dead player's face** (B513, `C_TFRagdoll::SetupWeights`).
+            FaceOf: corpse.PlayerIndex));
 
         return 1 + Worn(corpse, drawnAs, at, into, items, look.Material);
     }

@@ -100,23 +100,23 @@ public static class DemoAppearance
         // than failing: the same degradation the class models and the item schema take.
         Dictionary<string, SceneTaunt> taunts = new(StringComparer.Ordinal);
 
+        // **Each expression file once** (B513): a match's taunts and voice lines name a handful, over and over.
+        Dictionary<string, FlexSettings?> expressionFiles = new(StringComparer.OrdinalIgnoreCase);
+
+        FlexSettings? Expression(string name)
+        {
+            if (!expressionFiles.TryGetValue(name, out FlexSettings? file))
+            {
+                file = ReadExpression(game, name, log);
+                expressionFiles[name] = file;
+            }
+
+            return file;
+        }
+
         if (game.Archives.Read(ScenePath) is { Length: > 0 } image &&
             SceneImage.Read(image) is { } scenes)
         {
-            // **Each expression file once** (B513): a match's taunts and voice lines name a handful, over and over.
-            Dictionary<string, FlexSettings?> expressionFiles = new(StringComparer.OrdinalIgnoreCase);
-
-            FlexSettings? Expression(string name)
-            {
-                if (!expressionFiles.TryGetValue(name, out FlexSettings? file))
-                {
-                    file = ReadExpression(game, name, log);
-                    expressionFiles[name] = file;
-                }
-
-                return file;
-            }
-
             foreach (SceneChoreography playing in timeline.Scenes)
             {
                 if (playing.Scene.Length > 0 && !taunts.ContainsKey(playing.Scene) &&
@@ -148,7 +148,16 @@ public static class DemoAppearance
         // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
         // for here rather than by the scene for the same reason the class models are — this is the
         // one place that already holds the install. Its `anim_slot` decides the weapon's table too (B105).
-        GameAppearance appearance = new(game.Classes, roles, game.Weapons.Items, taunts);
+        GameAppearance appearance = new(game.Classes, roles, game.Weapons.Items, taunts)
+        {
+            Faces = new FaceSources(
+                timeline.Scenes,
+                scene => taunts.TryGetValue(scene, out SceneTaunt? taunt) ? taunt : null,
+                timeline.Sounds,
+                timeline.IntervalPerTick,
+                Sentences(game, log),
+                Expression),
+        };
 
         // **The role each held weapon is DRAWN with, asked of the appearance the scene will use**, so
         // the report cannot say one table while the pose gets another — the script's answer alone
@@ -166,6 +175,43 @@ public static class DemoAppearance
                         appearance.WeaponSuffix(each.Weapon, each.Class, each.Item))));
 
         return appearance;
+    }
+
+    /// <summary>The VPKs' sound caches that carry sentences (B513) — the voice archive and the misc one.</summary>
+    private static readonly string[] SoundCaches =
+        ["tf2_sound_vo_english.vpk.sound.cache", "tf2_sound_misc.vpk.sound.cache", "tf2_misc.vpk.sound.cache"];
+
+    /// <summary>
+    /// Every cached sentence, by sound path (B513). **TF2's voice lines are MP3s with no phoneme chunk**, so the
+    /// engine's lip sync reads the sentence the sound cache stores beside the VPK (<c>CAudioSourceCachedInfo::Restore</c>,
+    /// x64 <c>engine.dll</c> <c>0x180053740</c>); a missing or unreadable cache moves no mouth.
+    /// </summary>
+    private static Dictionary<string, Sentence> Sentences(GameContent game, ILogger log)
+    {
+        Dictionary<string, Sentence> all = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string name in SoundCaches)
+        {
+            if (game.Archives.Read(name) is not { Length: > 0 } bytes)
+            {
+                continue;
+            }
+
+            try
+            {
+                foreach ((string path, Sentence sentence) in SoundCacheFile.Read(bytes))
+                {
+                    all.TryAdd(path, sentence);
+                }
+            }
+            catch (System.IO.InvalidDataException failure)
+            {
+                log.LogWarning(failure, "sentences: {Cache} could not be read", name);
+            }
+        }
+
+        log.LogInformation("{Message}", $"sentences: {all.Count.ToString(CultureInfo.InvariantCulture)} cached for lip sync");
+        return all;
     }
 
     /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Text;
 
 using Tf2DemoSalvage.Content.Assets;
+using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Content.Tests.Assets;
 
@@ -40,14 +41,17 @@ public sealed class SceneImageTests
     private const string Sequence = "taunt_hi5_start";
 
     /// <summary>The strings the fixture pools, index 0 empty as the compiler's pool starts.</summary>
-    private static string[] Pool => ["", "loop_event", "hi5", Sequence, new string('p', 3000)];
+    private static string[] Pool => ["", "loop_event", "hi5", Sequence, new string('p', 3000), "NULL"];
+
+    /// <summary>Pool slot of the name <c>C_SceneEntity::StartEvent</c> refuses to dispatch.</summary>
+    private const short NullSlot = 5;
 
     /// <summary>Pool slot of a parameter longer than the engine's 2,048-byte buffer.</summary>
     private const short LongSlot = 4;
 
     [TestCase(LongSlot, 2047)]
     [TestCase(SequenceSlot, 15)]
-    [TestCase((short)5, 0)]
+    [TestCase((short)6, 0)]
     [TestCase((short)-1, 0)]
     public void EventsAt_APooledParameter_IsWhatTheEnginesStringPoolCopies(short slot, int length)
     {
@@ -91,6 +95,18 @@ public sealed class SceneImageTests
 
         archive.TauntFor("test/taunt", _ => null).ShouldNotBeNull().Expressions.ShouldBeEmpty();
         archive.TauntFor("test/taunt").ShouldNotBeNull().Duration.ShouldBe(2.5f, "FindStopTime: the latest end");
+    }
+
+    [Test]
+    public void TauntFor_AFlexAnimationNamedNull_IsNeverStarted()
+    {
+        // `if ( !Q_stricmp( event->GetName(), "NULL" ) ) return;` — c_sceneentity.cpp:463, before any dispatch.
+        byte[] kept = [.. Common(10, name: 2, parameters: 2, flexSamples: 3)];
+        byte[] refused = [.. Common(10, name: NullSlot, parameters: 2, flexSamples: 3)];
+        SceneImage archive = SceneImage.Read(Image(TauntCrc, Scene(loose: [], channelled: [kept, refused]))).ShouldNotBeNull();
+
+        SceneFlexAnimation animation = archive.TauntFor("test/taunt", _ => null).ShouldNotBeNull().FlexAnimations.ShouldHaveSingleItem();
+        animation.Tracks.ShouldHaveSingleItem().Controller.ShouldBe("loop_event");
     }
 
     [Test]

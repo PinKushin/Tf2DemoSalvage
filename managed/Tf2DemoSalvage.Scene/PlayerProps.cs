@@ -73,6 +73,9 @@ public interface IPlayerAppearance
     /// for "cannot say".
     /// </remarks>
     public SceneTaunt? TauntForScene(string scene);
+
+    /// <summary>Every scene and sentence-bearing voice line that drives a face (B513), or null for none.</summary>
+    public FaceSources? Faces => null;
 }
 
 /// <summary>What one equipped item does to its wearer's body parts.</summary>
@@ -195,6 +198,9 @@ public sealed record GameAppearance(
 
     /// <inheritdoc/>
     public string? ModelOf(int playerClass) => Classes?.Model(playerClass);
+
+    /// <inheritdoc/>
+    public FaceSources? Faces { get; init; }
 
     /// <inheritdoc/>
     /// <remarks>
