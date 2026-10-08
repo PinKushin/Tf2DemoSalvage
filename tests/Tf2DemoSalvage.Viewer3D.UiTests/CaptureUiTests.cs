@@ -178,8 +178,11 @@ public sealed class CaptureUiTests
     /// <param name="demo">The file named on the command line.</param>
     /// <param name="png">Where the capture is asked to go.</param>
     /// <param name="hang">How long before the run is called hung and killed.</param>
+    /// <param name="tick">The tick to capture.</param>
+    /// <param name="extra">More arguments — console commands such as <c>+cl_drawmonitors 0</c>.</param>
     /// <returns>The process's exit code and everything it wrote to standard error.</returns>
-    private static (int Exit, string Errors) Capture(string demo, string png, TimeSpan hang)
+    internal static (int Exit, string Errors) Capture(
+        string demo, string png, TimeSpan hang, int tick = ShotTick, params string[] extra)
     {
         ProcessStartInfo start = new(ViewerApplication.ExecutablePath)
         {
@@ -191,8 +194,9 @@ public sealed class CaptureUiTests
         foreach (string argument in (string[])
         [
             demo,
-            "--tick", ShotTick.ToString(CultureInfo.InvariantCulture),
+            "--tick", tick.ToString(CultureInfo.InvariantCulture),
             "--shot", png,
+            .. extra,
         ])
         {
             start.ArgumentList.Add(argument);
@@ -232,7 +236,7 @@ public sealed class CaptureUiTests
     /// **Its own folder per run**, for the reason `ViewerApplication` gives: this suite once deleted
     /// every hand-taken screenshot the project had by writing into the folder the owner uses.
     /// </remarks>
-    private static void Clean(string folder)
+    internal static void Clean(string folder)
     {
         try
         {

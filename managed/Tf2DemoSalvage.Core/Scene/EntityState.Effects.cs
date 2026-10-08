@@ -162,6 +162,39 @@ public sealed partial class EntityState
     /// <returns>The index, or null for anything that is not a rope.</returns>
     public int? RopeMaterialIndex() => Integer($"{RopeTable}.m_iRopeMaterialModelIndex");
 
+    /// <summary>An ACTIVE <c>point_camera</c>'s view, or null for an inactive one or anything that is not one (B511).</summary>
+    /// <returns>What <c>DrawOneMonitor</c> reads off <c>C_PointCamera</c> (`viewrender.cpp:3168-3238`).</returns>
+    /// <remarks>
+    /// **The FOV identifies the class**: only <c>DT_PointCamera</c> sends <c>m_FOV</c> (`c_point_camera.cpp:18-29`).
+    /// <c>m_bActive</c> is false in the client constructor, so an absent one is inactive. The fog is read as a fog
+    /// controller's is — the colour a <c>color32</c> — and only when <c>m_bFogEnable</c>; otherwise the monitor
+    /// draws under the view's own fog.
+    /// </remarks>
+    public ScenePointCamera? PointCamera()
+    {
+        string table = PointCameraFeed.Table;
+
+        if (Number($"{table}.m_FOV") is not { } fov || Integer($"{table}.m_bActive") is not 1)
+        {
+            return null;
+        }
+
+        float start = Number($"{table}.m_flFogStart") ?? 0f;
+        float end = Number($"{table}.m_flFogEnd") ?? 0f;
+        uint packed = (uint)(Integer($"{table}.m_FogColor") ?? 0);
+
+        // `end <= start` would divide by zero in the fog shader, the same guard the controller's read keeps.
+        SceneFog? fog = Integer($"{table}.m_bFogEnable") is 1 && end > start
+            ? new SceneFog(
+                start, end, (packed & 0xFF) / 255f, ((packed >> 8) & 0xFF) / 255f, ((packed >> 16) & 0xFF) / 255f,
+                Number($"{table}.m_flFogMaxDensity") ?? 1f, Integer($"{table}.m_bFogRadial") is 1)
+            : null;
+
+        return new ScenePointCamera(
+            EntityIndex, Origin() ?? (0f, 0f, 0f), Angles() ?? (0f, 0f, 0f), fov,
+            Integer($"{table}.m_bUseScreenAspectRatio") is 1, fog);
+    }
+
     /// <summary><c>RecvProxy_Beam_ScrollSpeed</c>'s <c>val *= 0.1</c> (`beam_shared.cpp:90`).</summary>
     /// <remarks>A double, as the literal is: a float times <c>0.1</c> is promoted, multiplied and narrowed back.</remarks>
     internal const double ScrollSpeedReceived = 0.1;

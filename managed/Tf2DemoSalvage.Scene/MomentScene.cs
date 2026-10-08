@@ -179,8 +179,11 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// <summary>The followed player's own model in first person: posed so it can take a decal, never drawn.</summary>
     private readonly List<SceneProp> _undrawn = [];
 
-    /// <summary>Where the undrawn pass writes its instances, which nothing reads.</summary>
+    /// <summary>Where the undrawn pass writes its instances.</summary>
     private readonly List<ModelInstance> _undrawnInstances = [];
+
+    /// <summary>The followed player in first person, posed but not in the main view: what a monitor view adds (B511).</summary>
+    public IReadOnlyList<ModelInstance> UndrawnInstances => _undrawn.Count > 0 ? _undrawnInstances : [];
 
     private readonly List<ModelInstance> _viewmodelInstances = [];
 
@@ -446,15 +449,22 @@ public sealed class MomentScene : IGameSystemPerFrame
             // **Not drawn is not gone** (`C_BasePlayer::ShouldDraw` is false in first person, the entity still animates):
             // `CModelRender::AddDecal` sets up the followed player's bones when a bullet hits him, so his own model is
             // kept to be posed, not drawn — his blood is on him when the camera leaves his eyes.
+            // **And with him what goes with him** — his cosmetics and his held weapon — because TF2 force-draws the local
+            // player into a monitor's view (`ForceTempForceDraw`, `viewrender.cpp:3266-3287`), so a mirror shows all of
+            // him (B511). Holstered weapons stay hidden there too, by the same rule as everywhere.
+            IReadOnlyList<SceneProp> seen = FirstPersonVisibility.Visible(_drawn, looking);
+            HashSet<SceneProp> kept = [.. seen];
+
             foreach (SceneProp prop in _drawn)
             {
-                if (prop.EntityIndex == looking)
+                if (!kept.Contains(prop))
                 {
                     _undrawn.Add(prop);
                 }
             }
 
-            DrawList.KeepOnly(_drawn, FirstPersonVisibility.Visible(_drawn, looking));
+            DrawList.KeepOnly(_undrawn, WeaponVisibility.Visible(_undrawn));
+            DrawList.KeepOnly(_drawn, seen);
         }
 
         // **Every camera, not just first person.** `C_BaseCombatWeapon::ShouldDraw` hides a player's

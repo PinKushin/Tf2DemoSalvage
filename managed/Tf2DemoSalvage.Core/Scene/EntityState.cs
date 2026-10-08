@@ -113,6 +113,13 @@ public sealed partial class EntityState
                 "m_iRopeMaterialModelIndex", "m_Subdiv", "m_TextureScale", "m_Width", "m_flScrollSpeed",
                 ParentProperty, "m_iParentAttachment",
             ],
+
+            // The monitor camera (B511), `c_point_camera.cpp:18-29`; m_Resolution is not read.
+            ["DT_PointCamera"] =
+            [
+                "m_FOV", "m_bFogEnable", "m_FogColor", "m_flFogStart", "m_flFogEnd", "m_flFogMaxDensity",
+                "m_bFogRadial", "m_bActive", "m_bUseScreenAspectRatio",
+            ],
         };
 
     /// <summary>The atmosphere, networked per tick by <c>CFogController</c>.</summary>

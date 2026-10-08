@@ -218,6 +218,41 @@ networked (`DT_PointCamera`, in z1800's schema), and three shipped maps place a 
 the monitor pass is a separate missing feature, filed as B511, and no corpus demo exercises it (`entity-census`: no
 `CPointCamera` in 57 lcor demos or in gcor, with `CRopeKeyframe` found in 80 as the control).
 
+### The monitor is a mirror on boardwalk, and which camera wins is the OLDEST active one (B511; read from published source, measured)
+
+**The specimen had to be recorded, and what it found is a mirror.** `koth_boardwalk`'s `point_camera` is
+`mirror_camera` at (-1168 900 78), yaw 270, FOV 45, with its own black fog 192-1024; its `info_camera_link` targets
+`mirror_camera_model`, two `prop_dynamic`s (`props_sideshow/mirror001`, `mirror_frames`) whose glass material, packed
+in the map (`pak koth_boardwalk sideshow_mirror`), is `UnLitGeneric` with `$basetexture "_rt_Camera"`. The "monitor" is
+the three stage mirrors, and the camera stands behind them looking back at whoever stands in front.
+`b511_boardwalk_mirror.dem` (POV) and `stv_b511_boardwalk_mirror.dem` (SourceTV) are 33 s of the same session on the
+live client, recorded through the tf2 MCP standing at (-1168 700 40) facing the mirrors; both carry the camera, active,
+from their first tick (`entity-census`).
+
+**Why no corpus demo had one: the camera is sent only while its monitor is in view.** `CPointCamera::ShouldTransmit`
+answers `FL_EDICT_ALWAYS` only for players whose bit is set, and `PointCameraSetupVisibility`
+(`info_camera_link.cpp`) clears every bit each frame and sets it only when the link's target is not `EF_NODRAW`, is in
+the player's PVS and is area-connected. A match that never walks past the mirrors never receives the entity; one
+that does sees it go dormant when they leave.
+
+**Several active cameras share ONE target, and the last drawn stays.** `DrawMonitors` walks `GetPointCameraList()`,
+skipping `!IsActive() || IsDormant()`, and every `DrawOneMonitor` clears and draws into the same `GetCameraTexture()`
+(`viewrender.cpp:3240-3287`). The list is a `C_EntityClassList` whose `Insert` prepends (`cliententitylist.h:54-58`),
+called from the constructor, so the walk is newest first and the earliest-constructed active camera is the picture.
+Construction is creation on the client, not PVS entry: a dormant camera that returns is the same object.
+`PointCameraFeed` records that answer per packet; `PointCameraConformanceTests` pins the order.
+
+**The view is the main view with the camera's eye**: origin, angles, `m_FOV`, aspect 1 unless
+`m_bUseScreenAspectRatio`, and under the camera's fog `zFar` = the fog end (`:3168-3238`). Two things the first
+implementation left out were caught by looking at the picture, not by any test:
+
+- **The world drawn was the main view's visible set**, culled by the player's frustum, which leaves out exactly what a
+  mirror shows: everything behind the player. `ViewDrawScene` builds the monitor view's own lists; the viewer now culls
+  from the camera, kept while the camera does not move.
+- **The player was missing from his own reflection.** TF2 calls `ForceTempForceDraw( true )` on the local player for
+  the pass (`:3266-3287`), so the mirror shows him though the first-person view does not. His model, cosmetics and
+  held weapon are now posed in the undrawn pass and handed to the monitor view only.
+
 **A wrong turn worth keeping: the offscreen pictures were not in the window's colour space.** The first synthetic test
 predicted the vertex-colour multiply in linear light and read it halved in STORED values. That was not the shader. The
 offscreen target's view was plain UNORM, while the window's back buffer view is `B8G8R8A8_UNORM_SRGB`, so every

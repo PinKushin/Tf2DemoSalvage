@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**299 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**313 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -153,7 +153,7 @@ Not declared in this SDK.
 | `DT_TFPlayerScoringDataExclusive` | 18 | 20 |
 | `DT_TFPlayerResource` | 17 | 26 |
 | `DT_BaseHumanoid` | 16 | 16 |
-| `DT_ScriptIntro` | 16 | 17 |
+| `DT_ScriptIntro` | 15 | 17 |
 | `DT_EnvProjectedTexture` | 14 | 14 |
 | `DT_RocketTrail` | 14 | 15 |
 | `DT_SmokeTrail` | 14 | 15 |
@@ -168,21 +168,21 @@ Not declared in this SDK.
 | `DT_TFPlayerSharedLocal` | 11 | 14 |
 | `DT_AI_BaseNPC` | 10 | 11 |
 | `DT_FuncSmokeVolume` | 10 | 11 |
-| `DT_PointCamera` | 10 | 10 |
 | `DT_World` | 10 | 10 |
 | `DT_EntityDissolve` | 9 | 10 |
 | `DT_PropCoreBall` | 9 | 9 |
 | `DT_PropScalable` | 9 | 9 |
 | `DT_BaseObject` | 8 | 26 |
 | `DT_BreakableSurface` | 8 | 9 |
-| `DT_PointCommentaryNode` | 8 | 8 |
 | `DT_PointWorldText` | 8 | 8 |
 | `DT_TFPasstimeLogic` | 8 | 8 |
 | `DT_DynamicLight` | 7 | 7 |
 | `DT_EnvTonemapController` | 7 | 7 |
+| `DT_PointCommentaryNode` | 7 | 8 |
 | `DT_SlideshowDisplay` | 7 | 8 |
 | `DT_SporeExplosion` | 7 | 7 |
 | `DT_SporeTrail` | 7 | 7 |
 | `DT_TFPlayerClassShared` | 7 | 10 |
 | `DT_BaseBeam` | 6 | 15 |
 | `DT_LadderMove` | 6 | 6 |
+| `DT_Plasma` | 6 | 7 |
