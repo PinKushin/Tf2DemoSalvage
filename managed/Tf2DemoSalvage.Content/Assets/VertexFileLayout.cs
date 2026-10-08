@@ -96,6 +96,12 @@ internal static class VertexFileLayout
     /// </remarks>
     public const int FixupStride = 12;
 
+    /// <summary>Byte offset of <c>tangentDataStart</c> in <c>vertexFileHeader_t</c> (<c>studio.h:1954</c>).</summary>
+    public const int VvdTangentStartOffset = 60;
+
+    /// <summary>Bytes per tangent: one <c>Vector4D</c>, xyz and the binormal's sign (<c>studio.h:1485-1491</c>).</summary>
+    public const int TangentStride = 16;
+
     /// <summary>Levels of detail a model may declare: <c>MAX_NUM_LODS</c>.</summary>
     public const int MaximumLods = 8;
 }

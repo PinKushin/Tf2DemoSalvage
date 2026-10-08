@@ -16409,10 +16409,9 @@ reads like TF2's is a question for the owner, not a claim.
   five lights where TF2 takes four. That is light SELECTION (`LocalLights.Strongest`), not this shader.
   Interpolated from the four-slot structure and this project's lightcache notes (`engine.dll`
   `0x1801b8e20` traces the skylight in the ranking loop); not re-read in disassembly.
-- **The highlight uses the VERTEX normal.** Valve's uses the normal map through the tangent frame
-  (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`, and the model vertex format here carries
-  no tangent — so where on a model a highlight lands is not yet TF2's, for diffuse and rim too. Not filed
-  anywhere else before this.
+- ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
+  through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
+  format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.
 - `$phongwarptexture` is unimplemented (one shipped player material, `ice_player`), so the ranges always
   scale the mask (`skin_ps20b.fxc:311`).
 - **The `FASTPATH_NOBUMP` combo is not ported** (read from published source). A phong material with no
@@ -36034,9 +36033,9 @@ render. **Survivor, kept and named:** with the cloak pass never drawn, the 0.99 
 green — at 0.99 the pass reproduces its own copy, so "drawn" and "not drawn" are the same picture; the half-cloaked test
 is what sees the pass.
 
-**Not ported, named:** the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
-mesh tangents this vertex format lacks (*interpolated*; it moves only the warp's direction) — a model-path gap, not a
-cloak one: no model batch carries a tangent. The taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped
+**Not ported, named:** ~~the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
+mesh tangents this vertex format lacks~~ — **closed by B512 (2026-10-08)**: the mesh frame now rotates it; the
+cotangent frame remains only for a `.vvd` with no tangent array. The taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped
 non-local read, the tint a `spy_invis` bind leaves in a shared material for the next entity, and the cloak of the
 cosmetics on a cloaked corpse (attached to the PLAYER, `c_tf_player.cpp:10240`) are not reproduced. The translucency
 is decided from this frame's factor; the engine's `ComputeTranslucencyType` sees the last bind's, a frame earlier.
@@ -36139,3 +36138,37 @@ water only) and overlays; nothing measured whether the darker room behind the so
 (the live client's capture shows more of it lit — an open question, not a finding); `pd_circus` and `vsh_skirmish`
 were not recorded; `m_Resolution` is not read (`DrawMonitors` sizes from the target, `GetActualWidth()`; whether anything else reads
 it was not searched).
+
+## B512 — models carried no tangent, so every bump-mapped model lit by its vertex normal — FIXED 2026-10-08
+
+*Read from published source; the mechanism is findings 11 "The tangent array".* The `.vvd`'s `Vector4D` tangents were
+never read, the model vertex had no slot for one, and so: VertexLitGeneric's ambient cube, sun, lamps, phong, rim and
+envmap all read the vertex normal where Valve reads the normal map through T, `cross(N, T) · w`, N (`skin_ps20b.fxc:199-220`,
+`vertexlit_and_unlit_generic_bump_ps2x.fxc:167-177`) — B170's "the highlight uses the VERTEX normal" — and the cloak
+pass rotated its bump by a screen-derivative frame (B508).
+
+**Fix:** `StudioVertices` reads the array through the fixups; `PropVertex`/`WorldVertex` carry it; the vertex is 31
+floats (was 27); `VsMain` skins the tangent by the bones' 3x3 like the normal and normalises it; `ModelShadingNormal`
+feeds every model lighting term, and returns the vertex normal for no `$bumpmap`, an ssbump, `$phong` +
+`$basemapalphaphongmask`, or w zero (brushwork, water, a `.vvd` without tangents). `PsCloakModel` uses the mesh frame
+when there is one. `$selfillum` reads no normal and is unchanged.
+
+**Evidence:** `ModelTangentConformanceTests` (7, quoted); `StudioVertexTangentTests` (4, hand-built VVDs) and
+`StudioVerticesTests.Read_TheTangents_…` (shipped files); `ModelTangentRenderTests` (4: the frame draws the predicted
+normal within 2/255 for both signs; a 90° bone turns it; w zero is ignored); `CloakRenderTests` (+1: edge shift
+7.89 px against 7.88 predicted, mirrored by −T, none without a frame); on a real demo `ModelTangentDemoRenderTests`
+(serveme STV spy 7 through `MomentScene`: at 63600 the uploaded vertices all carry w ±1 and 56 of 409 lit pixels move
+with the frame; at 63730, cloak 0.56, 125 of 391 refracted pixels move when T is turned). **Sabotage, each restored:**
+the binormal's sign dropped reddened both bump cases; the tangent left unskinned reddened the bone test; the cloak's
+mesh frame bypassed reddened the edge test; the tangent read without the fixup's source index reddened the fixup test;
+production's w zeroed reddened both demo tests.
+
+**Not ported:** vertex flex (the tangent takes the normal's delta, `common_vs_fxc.h:387`) — this viewer applies no
+mesh flex at all; baked animated props keep bind-pose normals and tangents, as their normals already were;
+`$selfillumfresnel`; the wrinkle maps. **Frame cost** (`--measure 20`, f12 08-08-2207 at 3000, first person, `fps_max 0`, 2026-10-08): `draw` 1.1–1.5 ms
+after against 1.1–1.2 before, moment cost 7.8 against 8.0 ms — no difference beyond noise. Both runs sat at ~20 fps
+with `camera` ~35 ms dominating, the same in each, so the absolute rate is not a clean reading; the vertex grows
+16 bytes.
+
+**Owner-visible:** every bump-mapped model's shading and highlight now follows its normal map — players, weapons,
+cosmetics — and a cloaking spy's warp follows his suit's folds rather than the screen.

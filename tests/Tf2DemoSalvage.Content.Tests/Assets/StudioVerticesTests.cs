@@ -122,6 +122,52 @@ public sealed class StudioVerticesTests
     }
 
     [Test]
+    public void Read_TheTangents_AreUnitLengthWithASignOfOne()
+    {
+        // The tangent array is the same kind of self-checking content as the normals: xyz a unit vector, w
+        // exactly +1 or -1 (studio.h:1485). Read at a wrong offset or index, neither holds. A model that
+        // carries no array keeps all zeros, which is counted rather than excused, so a reader that lost
+        // every tangent cannot pass.
+        int withTangents = 0;
+        int unit = 0;
+        int total = 0;
+
+        foreach (string path in _paths)
+        {
+            IReadOnlyList<StudioVertex> vertices = StudioVertices.Read(_models.ReadFile(path)!);
+
+            if (vertices.Count == 0 || vertices[0].Tangent.W == 0f)
+            {
+                continue;
+            }
+
+            withTangents++;
+
+            foreach (StudioVertex vertex in vertices)
+            {
+                Math.Abs(vertex.Tangent.W).ShouldBe(1f, path);
+
+                double length = Math.Sqrt(
+                    (vertex.Tangent.X * vertex.Tangent.X) +
+                    (vertex.Tangent.Y * vertex.Tangent.Y) +
+                    (vertex.Tangent.Z * vertex.Tangent.Z));
+
+                // **Not always unit, measured**: demobot_gib_boss_pelvis carries one of 0.135 — studiomdl writes a
+                // degenerate-UV vertex's tangent unnormalised, and the shader normalises after skinning
+                // (skin_vs20.fxc:112). So the bound is one-sided; the sign above is the sharp half.
+                length.ShouldBeLessThan(1.02, path);
+                unit += length > 0.98 ? 1 : 0;
+                total++;
+            }
+        }
+
+        TestContext.Out.WriteLine($"{withTangents} models, {unit} of {total} tangents unit length");
+        unit.ShouldBeGreaterThan(total * 99 / 100, "nearly every tangent is unit length");
+
+        withTangents.ShouldBe(_paths.Count, "every shipped model carries a tangent array");
+    }
+
+    [Test]
     public void Read_ThePositions_AreModelSized()
     {
         // A model's own space is small - a prop is tens of units, the largest are hundreds. Read

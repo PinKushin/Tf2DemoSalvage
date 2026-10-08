@@ -116,6 +116,26 @@ padding, which would produce zeros wholesale and satisfy the first check on ever
 Both sabotages were run: moving `NormalOffset` by four bytes fails one test, and changing the vertex
 stride from 48 to 44 fails five.
 
+## The tangent array (2026-10-08, B512)
+
+*Read from published source.* `tangentDataStart` (header offset 60) points at one `Vector4D` per vertex
+(`studio.h:1485-1491`: "16-bytes in a separate array because it only exists on the high end"), and
+`Studio_LoadVertexes` copies each fixup run's tangents from the same source vertex into the same target slot as its
+vertices (`:3323-3329`) — so a vertex's tangent is the tangent array at the vertex array's index. Zero means none
+(`:1969`). The w is the binormal's handedness, used once: `worldTangentT = cross( worldNormal, worldTangentS ) *
+modelTangentS.w` (`common_vs_fxc.h:740`), after the tangent's xyz went through the bone blend matrix's 3x3
+(`:738`). A flex adds the NORMAL's delta to the tangent (`:387`) — moot here, since no vertex flex is applied.
+
+*Measured on the corpus* (200 models of `tf2_misc_dir.vpk`): every one carries the array; every w is exactly ±1;
+618,886 of 624,858 tangents are unit length and **none is longer, but some are much shorter** —
+`demobot_gib_boss_pelvis` holds one of 0.135. Not a misread: the shader normalises after skinning
+(`skin_vs20.fxc:112`), and a short tangent is what studiomdl writes for a degenerate-UV vertex. **The first test
+asserted unit length both ways and failed on that file**, which is how the one-sided bound came to be.
+
+*Arithmetic, then measured on a device:* a quad drawn through the frame on one texel of `scout_red`'s normal map
+draws within 2/255 of the same quad with no frame and the predicted bumped normal as its vertex normal, for w +1 and
+−1; a bone turning 90° about the view axis turns the frame with the quad (`ModelTangentRenderTests`).
+
 ## Three things about `.mdl` that only real files tell you
 
 *Evidence class: measured on 400 shipped models.* Each of these broke an assertion written from the

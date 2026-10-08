@@ -74,11 +74,12 @@ overlay 13 times; `serveme-627619-stv-2026-08-07`'s spy 7 cloaks from tick 63693
 
 ## What the port does not reproduce
 
-The cloak pass's `BUMPMAP` combo rotates the normal map into world space by the mesh's tangent frame, which this
-vertex format does not carry; the port derives a cotangent frame from screen derivatives of the same surface
-(*interpolated*). It moves only the warp's direction, and the warp shrinks to nothing as the cloak completes. It is
-not a cloak question: the model path carries no tangent anywhere, so VertexLitGeneric's own bump lighting lacks the
-same frame (RISKS "the highlight uses the VERTEX normal"). The rest is named in B508 and B509.
+~~The cloak pass's `BUMPMAP` combo rotates the normal map into world space by the mesh's tangent frame, which this
+vertex format does not carry; the port derives a cotangent frame from screen derivatives (*interpolated*).~~ **Closed
+2026-10-08 (B512, findings 11 "The tangent array"):** the mesh frame is ported, and the cotangent frame survives only
+for a `.vvd` with no tangent array. Measured: over a striped frame a half-cloaked quad on one `spy_red` texel shifts an
+edge by 7.89 px against 7.88 predicted, and turning T to −X mirrors it (`CloakRenderTests`). The rest is named in B508
+and B509.
 
 ## The leftovers, and one wrong filing (read from published source, 2026-10-07)
 
