@@ -2,6 +2,9 @@
 # dedicated server's content. Deleted once the number is recorded.
 name: TF2 content check
 on:
+  push:
+    branches: [ci/scheduled-measurements]
+    paths: ['.github/workflows/tf2-content-check.yml']
   workflow_dispatch:
 permissions:
   contents: read
