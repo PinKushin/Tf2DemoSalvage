@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.IO.Hashing;
+using System.Linq;
 using System.Text;
 
 using Tf2DemoSalvage.Core.Primitives;
@@ -247,7 +248,22 @@ public sealed class SceneImage
     /// **A scene with no gesture returns an empty plan rather than null**, because "plays no
     /// animation" is most of the archive and must be distinguishable from "not in the archive".
     /// </remarks>
-    public SceneTaunt? TauntFor(string scene)
+    public SceneTaunt? TauntFor(string scene) => TauntFor(scene, null);
+
+    /// <summary>What a scene does to the player it animates, its faces included (B351, B513).</summary>
+    /// <param name="scene">The scene's name as the wire spells it.</param>
+    /// <param name="expressions">
+    /// Reads an expression file by the name an event gives it (<c>player\heavy\emotion\emotion</c>), or null when
+    /// absent; null here skips faces altogether.
+    /// </param>
+    /// <returns>The plan, or null when the scene is not in the archive.</returns>
+    /// <remarks>
+    /// **Only EXPRESSION events with an end and a readable setting are kept**: <c>ProcessFlexSettingSceneEvent</c>
+    /// returns at once for an event with no end, and <c>AddFlexSetting</c> does nothing for a setting the file does
+    /// not hold (<c>c_baseflex.cpp:1743</c>, <c>:1865</c>). An event named <c>NULL</c> is ignored by
+    /// <c>C_SceneEntity::StartEvent</c> and is not told apart here — none was seen among the taunts.
+    /// </remarks>
+    public SceneTaunt? TauntFor(string scene, Func<string, FlexSettings?>? expressions)
     {
         ArgumentNullException.ThrowIfNull(scene);
 
@@ -257,8 +273,9 @@ public sealed class SceneImage
         }
 
         List<SceneEvent> events = [];
+        List<SceneCurveSample> sceneRamp = [];
 
-        SequenceIn(Body(entry), events, out _, out _);
+        SequenceIn(Body(entry), events, out _, out _, out _, sceneRamp);
 
         List<SceneTauntGesture> gestures = [];
         float loopsFrom = -1f;
@@ -284,7 +301,45 @@ public sealed class SceneImage
             }
         }
 
-        return new SceneTaunt(gestures, loopsFrom, loopsAt);
+        return new SceneTaunt(gestures, loopsFrom, loopsAt)
+        {
+            Expressions = expressions is null ? [] : ExpressionsOf(events, expressions),
+            SceneRamp = sceneRamp,
+            // `FindStopTime` (choreoscene.cpp:1558): the latest end, or start for an event with none.
+            Duration = events.Count == 0 ? 0f : events.Max(one => HasEndTime(one) ? one.End : one.Start),
+        };
+    }
+
+    /// <summary><c>CChoreoEvent::EXPRESSION</c>.</summary>
+    private const byte Expression = 2;
+
+    /// <summary><c>CChoreoEvent::HasEndTime</c>: <c>m_flEndTime != -1.0f</c>, an exact sentinel compare.</summary>
+#pragma warning disable S1244 // the engine's own sentinel test, exact by design
+    private static bool HasEndTime(SceneEvent one) => one.End != -1f;
+#pragma warning restore S1244
+
+    private static List<SceneExpression> ExpressionsOf(List<SceneEvent> events, Func<string, FlexSettings?> read)
+    {
+        List<SceneExpression> found = [];
+
+        foreach (SceneEvent one in events)
+        {
+            if (one.Type != Expression || !HasEndTime(one) || read(one.Parameters) is not { } file ||
+                file.Setting(one.Parameters2) is not { } setting)
+            {
+                continue;
+            }
+
+            found.Add(new SceneExpression(
+                one.Start,
+                one.End,
+                one.Ramp,
+                [.. setting.Select(weight => new SceneExpressionWeight(weight.Controller, weight.Weight, weight.Influence))]));
+        }
+
+        // CChoreoScene::EventLess: earlier start first, then the LATER end. A stable sort keeps file order after that,
+        // where the engine compares event names (not carried; how often two expressions tie is unmeasured).
+        return [.. found.OrderBy(one => one.Start).ThenByDescending(one => one.End)];
     }
 
     /// <summary>Every event one directory slot's scene declares.</summary>
@@ -526,7 +581,7 @@ public sealed class SceneImage
     /// </remarks>
     private string? SequenceIn(
         ReadOnlyMemory<byte> vcd, List<SceneEvent>? into, out bool complete, out int stopped,
-        out bool overflowed)
+        out bool overflowed, List<SceneCurveSample>? sceneRamp = null)
     {
         EngineBuffer buffer = new(vcd.Span);
 
@@ -565,7 +620,9 @@ public sealed class SceneImage
             buffer.Byte();                                // the actor's active flag
         }
 
-        Ramp(ref buffer);
+        // Read unconditionally: `?.` would skip the argument, and the cursor with it.
+        List<SceneCurveSample> lastRamp = Ramp(ref buffer);
+        sceneRamp?.AddRange(lastRamp);
         buffer.Byte();                                    // m_bIgnorePhonemes
 
         overflowed = buffer.Overflowed;
@@ -595,10 +652,10 @@ public sealed class SceneImage
             float end = buffer.Float();
 
             int parameters = buffer.Short();          // the sequence name, for a gesture
-            buffer.Short();                           // parameters 2
+            int parameters2 = buffer.Short();         // parameters 2: an expression's setting
             buffer.Short();                           // parameters 3
 
-            Ramp(ref buffer);
+            List<SceneCurveSample> ramp = Ramp(ref buffer);
 
             buffer.Byte();                            // flags
             buffer.Float();                           // distance to target
@@ -622,7 +679,7 @@ public sealed class SceneImage
                 buffer.Short();                       // and its wav
             }
 
-            Flex(ref buffer);
+            List<SceneFlexTrack> tracks = Flex(ref buffer);
 
             // **The two per-type trailers, and they are why this walk cannot stop early.** A `LOOP`
             // writes its count and a `SPEAK` its caption type, token and flags after the flex
@@ -641,7 +698,12 @@ public sealed class SceneImage
 
             string named = Pooled(parameters, ParametersBuffer);
 
-            into?.Add(new SceneEvent(type, start, end, named, began));
+            into?.Add(new SceneEvent(type, start, end, named, began)
+            {
+                Parameters2 = Pooled(parameters2, ParametersBuffer),
+                Ramp = ramp,
+                FlexTracks = tracks,
+            });
 
             if (found is null && type is Gesture or Sequence && named.Length > 0)
             {
@@ -657,15 +719,18 @@ public sealed class SceneImage
     /// (<c>choreoevent.cpp:4362</c>), so a ramp of 259 samples reads as 3 and the rest of the scene
     /// is read from the wrong offsets, in TF2 and here.
     /// </remarks>
-    private static void Ramp(ref EngineBuffer buffer)
+    private static List<SceneCurveSample> Ramp(ref EngineBuffer buffer)
     {
         int count = buffer.Byte();
+        List<SceneCurveSample> ramp = new(count);
 
         for (int sample = 0; sample < count; sample++)
         {
-            buffer.Float();
-            buffer.Byte();
+            float time = buffer.Float();
+            ramp.Add(new SceneCurveSample(time, buffer.Byte() / 255f));
         }
+
+        return ramp;
     }
 
     /// <summary>A tag list: a count, then a pooled name and a percentage each.</summary>
@@ -700,38 +765,47 @@ public sealed class SceneImage
     /// <c>RestoreFlexAnimationsFromBuffer</c> reads them (<c>choreoevent.cpp:4473</c>, <c>:4486</c>):
     /// <c>GetShort</c> then <c>GetUnsignedShort</c>. A first count past 32,767 reads no samples.
     /// </remarks>
-    private static void Flex(ref EngineBuffer buffer)
+    private List<SceneFlexTrack> Flex(ref EngineBuffer buffer)
     {
         int tracks = buffer.Byte();
+        List<SceneFlexTrack> read = new(tracks);
 
         for (int track = 0; track < tracks; track++)
         {
-            buffer.Short();                           // name, pooled
+            // `char name[ 256 ]` (choreoevent.cpp:4461).
+            string name = Pooled(buffer.Short(), 256);
 
             int flags = buffer.Byte();
 
-            buffer.Float();                           // min
-            buffer.Float();                           // max
+            float min = buffer.Float();
+            float max = buffer.Float();
 
-            FlexSamples(ref buffer, buffer.Short());
+            List<SceneFlexSample> samples = FlexSamples(ref buffer, buffer.Short());
 
             // **`IsComboType` is bit 1 of the flags**, and a combo track carries a second sample
             // list. Missing it puts the cursor into the middle of the next track.
-            if ((flags & 0x02) != 0)
-            {
-                FlexSamples(ref buffer, buffer.UnsignedShort());
-            }
+            List<SceneFlexSample> balance = (flags & 0x02) != 0
+                ? FlexSamples(ref buffer, buffer.UnsignedShort())
+                : [];
+
+            read.Add(new SceneFlexTrack(name, (flags & 0x01) != 0, (flags & 0x02) != 0, min, max, samples, balance));
         }
+
+        return read;
     }
 
     /// <summary>Flex samples: a float time, a byte value and an unsigned short curve type each.</summary>
-    private static void FlexSamples(ref EngineBuffer buffer, int count)
+    private static List<SceneFlexSample> FlexSamples(ref EngineBuffer buffer, int count)
     {
+        List<SceneFlexSample> samples = new(Math.Max(count, 0));
+
         for (int sample = 0; sample < count; sample++)
         {
-            buffer.Float();
-            buffer.Byte();
-            buffer.UnsignedShort();
+            float time = buffer.Float();
+            float value = buffer.Byte() / 255f;
+            samples.Add(new SceneFlexSample(time, value, buffer.UnsignedShort()));
         }
+
+        return samples;
     }
 }

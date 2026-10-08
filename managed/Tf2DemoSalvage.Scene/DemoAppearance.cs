@@ -103,10 +103,24 @@ public static class DemoAppearance
         if (game.Archives.Read(ScenePath) is { Length: > 0 } image &&
             SceneImage.Read(image) is { } scenes)
         {
+            // **Each expression file once** (B513): a match's taunts and voice lines name a handful, over and over.
+            Dictionary<string, FlexSettings?> expressionFiles = new(StringComparer.OrdinalIgnoreCase);
+
+            FlexSettings? Expression(string name)
+            {
+                if (!expressionFiles.TryGetValue(name, out FlexSettings? file))
+                {
+                    file = ReadExpression(game, name, log);
+                    expressionFiles[name] = file;
+                }
+
+                return file;
+            }
+
             foreach (SceneChoreography playing in timeline.Scenes)
             {
                 if (playing.Scene.Length > 0 && !taunts.ContainsKey(playing.Scene) &&
-                    scenes.TauntFor(playing.Scene) is { } taunt)
+                    scenes.TauntFor(playing.Scene, Expression) is { } taunt)
                 {
                     taunts[playing.Scene] = taunt;
                 }
@@ -157,4 +171,28 @@ public static class DemoAppearance
     /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>
     private const string ScenePath = "scenes/scenes.image";
 
+    /// <summary>
+    /// <c>expressions/%s.vfe</c> (<c>c_baseflex.cpp:465</c>), or null when absent or unreadable — the engine then
+    /// skips the event, and so does the face (B513).
+    /// </summary>
+    private static FlexSettings? ReadExpression(GameContent game, string name, ILogger log)
+    {
+        string path = "expressions/" + name.Replace('\\', '/') + ".vfe";
+
+        if (game.Archives.Read(path) is not { Length: > 0 } bytes)
+        {
+            log.LogInformation("{Message}", $"expressions: {path} is not in the archives, so its events move no face");
+            return null;
+        }
+
+        try
+        {
+            return FlexSettings.Read(bytes);
+        }
+        catch (System.IO.InvalidDataException failure)
+        {
+            log.LogWarning(failure, "expressions: {Path} could not be read", path);
+            return null;
+        }
+    }
 }

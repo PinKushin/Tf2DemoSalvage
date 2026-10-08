@@ -68,7 +68,7 @@ public sealed class ModelTangentConformanceTests
     public void Morph_TheTangent_TakesTheNormalDelta()
     {
         // ApplyMorph, common_vs_fxc.h:387: a flex moves the tangent by the NORMAL's delta, not one of its own.
-        // Recorded because this viewer applies no vertex flex at all yet, so there is nothing to port it into.
+        // Ported with vertex flex in B513; FaceFlexRenderTests draws it.
         Sdk("src/materialsystem/stdshaders/common_vs_fxc.h")
             .ShouldContain("vTangent.xyz  += vNormalDelta;", Case.Sensitive);
     }

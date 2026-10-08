@@ -971,6 +971,23 @@ public static class PropModels
             bool skin = bones.Count > 0 &&
                 (mustSkin || (wantedFrames > affordable && bones.Count > 1));
 
+            // **The face, for a model the GPU poses** (B513): the deltas are in the unposed model space the shader
+            // skins from, which a baked frame is not.
+            // A malformed flex table costs the face, not the model.
+            StudioFlexData flex = StudioFlexData.None;
+
+            if (skin)
+            {
+                try
+                {
+                    flex = StudioFlex.Read(modelFile);
+                }
+                catch (InvalidDataException failure)
+                {
+                    props.LogWarning(failure, "{Path}: its flex tables could not be read, so its face will not move", path);
+                }
+            }
+
             long bakingFrom = System.Diagnostics.Stopwatch.GetTimestamp();
 
             foreach (int index in wanted)
@@ -992,6 +1009,7 @@ public static class PropModels
 
             List<int> cornerMeshes = [];
             List<int> cornerVertices = [];
+            List<int> cornerVvd = [];
             Dictionary<int, int> groupVertices = [];
             List<IReadOnlyList<PropVertex>> baked = new(skeletons.Count);
 
@@ -1192,6 +1210,8 @@ public static class PropModels
                         // corners in the same order, and only their positions differ.
                         if (slot == 0)
                         {
+                            // The `.vvd` vertex this corner IS, which a flex delta is addressed by (B513).
+                            cornerVvd.Add(mesh.FirstVertex + corner.Vertex);
                             cornerMeshes.Add(corner.LightingGroup);
                             cornerVertices.Add(corner.LightingVertex);
                             groupVertices[corner.LightingGroup] = corner.LightingGroupVertices;
@@ -1340,6 +1360,9 @@ public static class PropModels
                 {
                     StudioFlags = model.Flags,
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
+                    Flex = flex,
+                    CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],
+                    VertexCount = vertices.Count,
                 });
         }
         catch (InvalidDataException failure)
@@ -3265,6 +3288,17 @@ public static class PropModels
 
         /// <summary>The model's <c>constdirectionallightdot</c>, the dot its CPU colour mesh uses under flag <c>0x2000</c> (B429).</summary>
         public byte ConstantDirectionalLightDot { get; init; }
+
+        /// <summary>The model's vertex flex tables (B513); <see cref="StudioFlexData.None"/> for a model without.</summary>
+        /// <remarks>Read only for a skinned model: a baked one's corners are pre-posed, so a delta added to them
+        /// would be in the wrong space. A baked model's flexes are therefore not applied (filed under B513).</remarks>
+        public StudioFlexData Flex { get; init; } = StudioFlexData.None;
+
+        /// <summary>Each corner of <see cref="Geometry"/>'s first frame's <c>.vvd</c> vertex, for a model with flexes.</summary>
+        public IReadOnlyList<int> CornerVertex { get; init; } = [];
+
+        /// <summary>How many vertices the model's <c>.vvd</c> holds, which the flex deltas are sized by.</summary>
+        public int VertexCount { get; init; }
 
         /// <summary>The render bounds for one sequence, in model space.</summary>
         /// <param name="sequence">Which sequence is playing.</param>

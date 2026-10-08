@@ -20486,7 +20486,7 @@ on a mini-sentry being built, or anything else TF2 rescales while it exists.
 |---|---|---|
 | `EXCLUDE_AUTO_INTERPOLATE` | `m_flCycle` when `m_bClientSideAnimation`; `c_npc_hydra` | B276, fixed. The hydra is an HL2 NPC and cannot appear in TF2. |
 | `EXCLUDE_AUTO_LATCH` | `c_npc_hydra` only | nothing to do |
-| `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | flexes are not implemented, so nothing to do |
+| `INTERPOLATE_LINEAR_ONLY` | `m_viewtarget` on `C_BaseFlex`, one use | excluded from a TF player's send table, and the eyes are not drawn by flex (B513), so nothing to do |
 | `INTERPOLATE_OMIT_UPDATE_LAST_NETWORKED` | passed by `OnLatchInterpolatedVariables`' caller, never set on a var | nothing to do |
 | extrapolation past the newest sample | `_Extrapolate` when `info.newer == info.older` (`interpolatedvar.h:953`), `cl_extrapolate` defaulting to 1 | **cannot fire on a demo** — see below |
 
@@ -36163,8 +36163,7 @@ the binormal's sign dropped reddened both bump cases; the tangent left unskinned
 mesh frame bypassed reddened the edge test; the tangent read without the fixup's source index reddened the fixup test;
 production's w zeroed reddened both demo tests.
 
-**Not ported:** vertex flex (the tangent takes the normal's delta, `common_vs_fxc.h:387`) — this viewer applies no
-mesh flex at all; baked animated props keep bind-pose normals and tangents, as their normals already were;
+**Not ported:** vertex flex — since ported, with the tangent taking the normal's delta, as B513; baked animated props keep bind-pose normals and tangents, as their normals already were;
 `$selfillumfresnel`; the wrinkle maps. **Frame cost** (`--measure 20`, f12 08-08-2207 at 3000, first person, `fps_max 0`, 2026-10-08): `draw` 1.1–1.5 ms
 after against 1.1–1.2 before, moment cost 7.8 against 8.0 ms — no difference beyond noise. Both runs sat at ~20 fps
 with `camera` ~35 ms dominating, the same in each, so the absolute rate is not a clean reading; the vertex grows
@@ -36172,3 +36171,42 @@ with `camera` ~35 ms dominating, the same in each, so the absolute rate is not a
 
 **Owner-visible:** every bump-mapped model's shading and highlight now follows its normal map — players, weapons,
 cosmetics — and a cloaking spy's warp follows his suit's folds rather than the screen.
+
+## B513 — no vertex flex: every face was the bind pose — FIXED (EXPRESSION path) 2026-10-08
+
+*Read from published source, measured on shipped files and the corpus; the account is findings 75.* The viewer read no
+flex tables and applied no vertex animation, so no player's face ever moved. **What drives a TF2 face is the scene, not
+the wire**: `DT_TFPlayer` excludes `m_flexWeight`, `m_blinktoggle` and `m_viewtarget` (`tf_player.cpp:782-784`), and the
+blink controller is never read by TF2's eyelid rules (`studio.cpp:1584`), so the blink first named as the driver is
+unreachable twice over. Taunt and voice scenes move faces through `EXPRESSION` events and their `.vfe` settings.
+
+**Fix:** `StudioFlex` reads descriptors, controllers, rules and every mesh's flexes (float16 deltas; fixed point under
+the header flag); `StudioFlexRules` is `RunFlexRules` op for op plus the published morph weight (speed, side, stereo
+partner); `ChoreoCurve` is `CCurveData::GetIntensity` with every interpolator; `FlexSettings` reads `.vfe`;
+`SceneImage.TauntFor` keeps each `EXPRESSION` with its setting and ramp; `FaceFlex` blends them (`AddFlexSetting`),
+runs the rules and lays the deltas out in buffer order; the shader adds them before skinning — position, normal, and
+the normal's delta on the tangent (`common_vs_fxc.h:387`, B512's leftover). A third vertex stream, zero at stride zero
+for every other draw; one dynamic buffer, written per flexing draw.
+
+**Evidence:** `VertexFlexConformanceTests` (11, quoted); `StudioFlexTests` (4) and `StudioFlexRulesTests` (40, every
+op incl. NWAY, COMBO, DOMINATE and both DME eyelids), `ChoreoCurveTests` (12), `FlexSettingsTests` (4),
+`SceneImageTests` (+2), `FaceFlexTests` (10); `FaceFlexRenderTests` (2: a stream delta draws exactly the moved vertex;
+flexed 390 = baked 390 against 408 with the normal alone, so the tangent takes the delta). **Output level**,
+`FaceFlexDemoRenderTests` on tf2-2026-pub-pov-clean (lcor): soldier 9 two seconds into `taunt_laugh` (tick 1204) carries a
+face moving 7,965 of 26,922 buffer vertices, furthest 1.79 units; 30 ticks before the scene, none (the control); the
+drawn head changes by up to 76 pixels at 128². **Sabotage, each restored:** the stream ignored in the shader reddened
+the demo render test; the tangent left without the delta reddened the tangent test; expressions ignored reddened both
+demo tests.
+
+**Frame cost** (`--measure 20`, tf2-2026-pub-pov-clean at 1000, first person, `fps_max 0`, 2026-10-08): `draw`
+0.8–1.1 ms after against 0.7–1.3 before, `advance` 2.1–2.4 against 2.1–2.5 — no difference beyond noise. Both runs sat
+at ~8 fps with `camera` ~95–135 ms dominating, the same in each, so the absolute rate is not a clean reading.
+
+**Not ported (open):** `FLEXANIMATION` tracks (written into `m_flexWeight`, decayed by 0.95 per FRAME,
+`c_baseflex.cpp:1703`); `SPEAK` lip sync (`ProcessVisemes`, the `.wav` phoneme chunk); several scenes on one actor at
+once (only the VCD gesture slot's scene is read); `EventThink`'s one-frame lag; events named `NULL`; flex on baked
+models; wrinkle maps. **Interpolated:** the per-flex target ramp (`RampFlexWeight`, closed studiorender; the identity on
+[0, 1] for TF2's 0/1/10/11 targets) — to be settled in disassembly. `RunFlexDelay` is skipped because every shipped
+player vertex has speed 255 (measured).
+
+**Owner-visible:** taunting and talking players' faces now move — a laughing soldier opens his mouth.
