@@ -95,6 +95,7 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Sky">A 2D sky face's shader, constant and sRGB read (B461); null for any other texture.</param>
 /// <param name="Refract">A model's <c>Refract</c> material, drawn by warping the frame (B506); null for any other.</param>
 /// <param name="Cloak">A model material's cloak pass (<c>$cloakpassenabled</c>); null for one without.</param>
+/// <param name="IsCameraTarget">Whether the slot is <c>_rt_Camera</c>, the monitor target (B511).</param>
 /// <remarks>
 /// **Alpha tested and translucent are different operations and never both.** A cut-out surface is
 /// drawn in the opaque pass and needs no ordering; a blended one has to be drawn afterwards, back
@@ -159,8 +160,14 @@ public readonly record struct MapTexture(
     RefractMaterial? Refract = null,
 
     // **A model material's cloak pass** (`$cloakpassenabled`): the frame warped over the model as `$cloakfactor` rises.
-    CloakPass? Cloak = null)
+    CloakPass? Cloak = null,
+
+    // **`_rt_Camera`, the monitor target** (B511): the renderer binds the point_camera view here, not this image.
+    bool IsCameraTarget = false)
 {
+    /// <summary>The render target <c>CTFRenderTargets</c> creates for monitors (`baseclientrendertargets.cpp:37-46`).</summary>
+    public const string CameraTargetName = "_rt_Camera";
+
     /// <summary>A decoded VTF as a plain slot: cut out by nothing, blended with nothing.</summary>
     /// <param name="decoded">The texture as read.</param>
     /// <returns>The texture, carrying both the size decoded and the size authored.</returns>
@@ -3370,6 +3377,17 @@ public sealed class MapAssets
             string bare = name.EndsWith(".vtf", StringComparison.OrdinalIgnoreCase)
                 ? name[..^4]
                 : name;
+
+            // **A named render target is no file** (B511): the material system finds `_rt_Camera` among the targets
+            // `CTFRenderTargets::InitClientRenderTargets` created, and the monitor pass draws into it. A black stand-in
+            // until the first camera view, as a target nothing has drawn reads.
+            if (bare.Equals(MapTexture.CameraTargetName, StringComparison.OrdinalIgnoreCase))
+            {
+                return new MapTexture(
+                    1, 1, 1, 1, TextureImage.Rgba(new byte[] { 0, 0, 0, 255 }), transparent, additive, material.IsTranslucent,
+                    IsNoCull: material.IsNoCull, Modulation: material.IsModulated ? material.Modulation : null,
+                    IsCameraTarget: true);
+            }
 
             if (Find("materials/" + bare + ".vtf") is not { } vtf)
             {

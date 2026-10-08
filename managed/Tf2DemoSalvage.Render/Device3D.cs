@@ -981,6 +981,71 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <remarks>Carried a `HeightCut` until 2026-08-26 (B213).</remarks>
     private (float[] Matrix, bool Colours)? _worldCamera;
 
+    /// <summary>The <c>point_camera</c> whose view <c>_rt_Camera</c> shows this frame, or null for none (B511).</summary>
+    /// <remarks>Set beside the fog before <see cref="SetCamera(FreeCamera, bool)"/>, which builds the view from it.</remarks>
+    public Tf2DemoSalvage.Core.Scene.ScenePointCamera? MonitorCamera { get; set; }
+
+    /// <summary>Whether the monitor pass runs — Valve's <c>cl_drawmonitors</c>, default 1 (`viewrender.cpp:168`).</summary>
+    public bool DrawMonitors { get; set; } = true;
+
+    /// <summary>
+    /// What the main view hides and a monitor draws: the local player, whom TF2 force-draws for the pass
+    /// (<c>ForceTempForceDraw</c>, `viewrender.cpp:3266-3287`).
+    /// </summary>
+    public IReadOnlyList<ModelInstance> MonitorOnlyModels { get; set; } = [];
+
+    /// <summary>This frame's monitor view, from <see cref="MonitorCamera"/> and the main view.</summary>
+    private FreeCamera? _monitorView;
+
+    /// <summary>The world's cull from the monitor's camera, kept while that camera does not move.</summary>
+    private (Tf2DemoSalvage.Core.Scene.ScenePointCamera? For, IReadOnlyList<WorldBatch>? Batches) _monitorCull;
+
+    /// <summary><c>DrawMonitors</c> (`viewrender.cpp:2074-2081`, `:3240-3287`): before the main view, when a material binds the target.</summary>
+    private void DrawMonitorPass(IReadOnlyList<ModelInstance> models, Viewport viewport)
+    {
+        if (!DrawMonitors || _world is not { HasCameraTarget: true } world || _monitorView is not { } view ||
+            MonitorCamera is not { } pointCamera)
+        {
+            return;
+        }
+
+        float[] matrix = view.ToMatrix();
+
+        // **The world from the CAMERA's eye**: `ViewDrawScene` builds the monitor view's own visible set, and the main
+        // view's frustum would leave out exactly what a mirror shows — everything behind the player.
+        if (_monitorCull.For != pointCamera)
+        {
+            _monitorCull = (pointCamera, _culling?.Batches(
+                view.Origin.X, view.Origin.Y, view.Origin.Z, view.Frustum(), world.IsTwoSidedMaterial));
+        }
+
+        IReadOnlyList<WorldBatch>? mainBatches = world.VisibleBatches;
+        List<ModelInstance> drawn = [.. models, .. MonitorOnlyModels];
+
+        world.VisibleBatches = _monitorCull.Batches;
+
+        world.DrawMonitor(
+            _context,
+            matrix,
+            pointCamera.Fog ?? WorldFog,
+            through =>
+            {
+                if (DrawSkybox && _skybox is { HasSky: true } sky)
+                {
+                    sky.Draw(_device, _context, view.Origin, through, SkyReach, world.LinearLightScale);
+                }
+            },
+            () => DrawViewEntities(drawn, view.Origin, view.Basis().Forward),
+            () =>
+            {
+                world.VisibleBatches = mainBatches;
+                _context.RSSetViewports(1, in viewport);
+                _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                _context.OMSetDepthStencilState(_depthOn, 0);
+                ReapplyCamera();
+            });
+    }
+
     /// <summary>Re-sends the remembered world camera with the CURRENT debug modes.</summary>
     /// <remarks>
     /// **Two bugs lived in the three lines this replaces, and they had the same cause.**
@@ -1088,7 +1153,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private void DrawWaterViewEntities(WaterView view)
     {
         _ = view;
+        DrawViewEntities(_waterViewModels, _translucentEye, _translucentForward);
+    }
 
+    /// <summary>A secondary view's renderables — a water view's or the monitor's — opaque then translucent, sorted along its axis.</summary>
+    private void DrawViewEntities(
+        IReadOnlyList<ModelInstance> models, (float X, float Y, float Z) eye, (float X, float Y, float Z) forward)
+    {
         if (_world is null || !DrawEntities)
         {
             return;
@@ -1098,7 +1169,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         List<(int Leaf, float Along, (ModelInstance Instance, bool TwoPass) Entry)> translucent = [];
 
-        foreach (ModelInstance instance in _waterViewModels)
+        foreach (ModelInstance instance in models)
         {
             // The sky room's entities are the sky view's (B262), not a water view's.
             if (instance.InSky)
@@ -1115,7 +1186,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
             if (joinsTranslucent)
             {
-                translucent.Add((0, TranslucentOrder.Along(instance, _translucentEye, _translucentForward), (instance, twoPass)));
+                translucent.Add((0, TranslucentOrder.Along(instance, eye, forward), (instance, twoPass)));
             }
         }
 
@@ -1205,6 +1276,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // would put a shaded grey slab over the map's own textures.
             if (_world is { HasMap: true })
             {
+                // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
+                // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
+                // monitor's material samples it below.
+                DrawMonitorPass(DrawEntities ? models ?? [] : [], viewport);
+
                 // **The 2D skybox first of everything**, because `MATERIAL_VAR_IGNOREZ` means it
                 // neither tests nor writes depth and only draw ORDER puts it behind the world
                 // (`sky_dx9.cpp:28`). It goes ahead of the 3D room too: the room is scenery IN the
@@ -2545,6 +2621,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // frustum came from — one camera or the cull lies, and so would the sort.
         _translucentEye = camera.Origin;
         _translucentForward = camera.Basis().Forward;
+
+        // The monitor view rides on the main one's setup (`DrawMonitors( GetView( STEREO_EYE_MONO ) )`, B511).
+        _monitorView = MonitorCamera is { } pointCamera ? MonitorView.Camera(pointCamera, camera) : null;
 
         SetCamera(camera.ToMatrix(), surfaceColours);
 

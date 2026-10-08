@@ -1984,6 +1984,9 @@ public sealed class DemoTimeline
     /// <summary>When each entity was dormant — left the PVS and still held by the client (B478).</summary>
     public EntityDormancy Dormancy { get; private init; } = new();
 
+    /// <summary>The <c>point_camera</c> whose view is in <c>_rt_Camera</c>, tick by tick (B511).</summary>
+    public PointCameraFeed PointCameras { get; private init; } = new();
+
     /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
     private const string MedigunClass = "CWeaponMedigun";
 
@@ -2576,6 +2579,7 @@ public sealed class DemoTimeline
         HealBeamFeed healBeams = new();
         RopeImpulseFeed ropeImpulses = new();
         EntityDormancy dormancy = new();
+        PointCameraFeed pointCameras = new();
 
         List<TimelineFrame> frames = [];
 
@@ -3075,6 +3079,10 @@ public sealed class DemoTimeline
                 {
                     entities.Apply(entity);
                     dormancy.Observe(entity.EntityIndex, entity.UpdateType, command.Tick);
+                    pointCameras.Observe(
+                        entity.EntityIndex,
+                        entities.TryGet(entity.EntityIndex, out EntityState? observed) ? observed?.ClassName ?? string.Empty : string.Empty,
+                        entity.UpdateType);
 
                     touchedEntities.Add(entity.EntityIndex);
 
@@ -3216,6 +3224,12 @@ public sealed class DemoTimeline
             // **The view's fog, as `UpdateFogController` chooses it** (B139), recorded on change —
             // null included, because a player whose handle leaves every controller loses fog.
             ViewFog viewFog = ViewFog.From(entities);
+
+            // The camera `DrawMonitors` would leave in `_rt_Camera` after this packet (B511), on change.
+            pointCameras.Sample(
+                command.Tick,
+                index => entities.TryGet(index, out EntityState? camera) ? camera : null,
+                index => dormancy.IsDormant(index, command.Tick));
 
             if (fogSamples.Count == 0 ? viewFog != default : fogSamples[^1].Fog != viewFog)
             {
@@ -3933,6 +3947,7 @@ public sealed class DemoTimeline
             HealBeams = healBeams,
             RopeImpulses = ropeImpulses,
             Dormancy = dormancy,
+            PointCameras = pointCameras,
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,

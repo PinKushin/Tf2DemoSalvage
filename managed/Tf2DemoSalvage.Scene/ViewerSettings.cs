@@ -706,6 +706,12 @@ public sealed record ViewerSettings
     /// </remarks>
     public bool Phong { get; init; } = true;
 
+    /// <summary>Whether <c>point_camera</c> monitors render — <c>cl_drawmonitors</c>, default 1 (`viewrender.cpp:168`, B511).</summary>
+    public bool DrawMonitors { get; init; } = true;
+
+    /// <summary>Command name for <see cref="DrawMonitors"/>.</summary>
+    public const string DrawMonitorsCommand = "cl_drawmonitors";
+
     /// <summary>
     /// Whether the local medic's beam is the `_targeted` one — <c>hud_medichealtargetmarker</c>, default <c>"0"</c>
     /// (`tf_weapon_medigun.cpp:205`), read by `CWeaponMedigun::UpdateEffects` for the local player's own beam only.
@@ -895,6 +901,11 @@ public sealed record ViewerSettings
         if (Read(values, PhongCommand) is { } phong)
         {
             settings = settings with { Phong = phong != 0 };
+        }
+
+        if (Read(values, DrawMonitorsCommand) is { } monitors)
+        {
+            settings = settings with { DrawMonitors = monitors != 0 };
         }
 
         if (Read(values, HealTargetMarkerCommand) is { } marker)

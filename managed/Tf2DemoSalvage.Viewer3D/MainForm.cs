@@ -3924,6 +3924,9 @@ internal class MainForm : Form, IFrameSteps
             // in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`.
             _device.Phong = _settings.Phong;
 
+            // `cl_drawmonitors` from the config, for the same reason (B511).
+            _device.DrawMonitors = _settings.DrawMonitors;
+
             // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
             // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
             // the null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`,
@@ -4436,6 +4439,7 @@ internal class MainForm : Form, IFrameSteps
         // view setup, so this is set beside the camera rather than once per map.
         _device.WorldFog = _timeline?.FogAt(_transport.CurrentTick);
         _device.SkyFog = _timeline?.SkyFogAt(_transport.CurrentTick);
+        _device.MonitorCamera = _timeline?.PointCameras.At(_transport.CurrentTick);
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
@@ -8792,6 +8796,9 @@ internal class MainForm : Form, IFrameSteps
             _loaded?.Assets?.ScreenOverlays.TryGetValue(overlayName, out ScreenOverlayMaterial? screenOverlay) == true
                 ? screenOverlay
                 : null;
+
+        // The followed player, whom a monitor view force-draws though the main view does not (B511).
+        _device.MonitorOnlyModels = _moment.UndrawnInstances;
 
         _device.DrawFrame(
             BackgroundRed,

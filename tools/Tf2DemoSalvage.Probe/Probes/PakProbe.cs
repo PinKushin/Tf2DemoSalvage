@@ -56,6 +56,11 @@ public sealed class PakProbe : IProbe
                 : string.Empty;
 
             output.WriteLine($"  {path}{format}");
+
+            if (path.EndsWith(".vmt", StringComparison.OrdinalIgnoreCase) && pak.ReadFile(path) is { } vmt)
+            {
+                output.WriteLine(System.Text.Encoding.UTF8.GetString(vmt));
+            }
         }
     }
 }

@@ -3011,6 +3011,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             ComPtr<ID3D11ShaderResourceView> uploaded = Upload(device, context, texture);
 
+            // `$basetexture _rt_Camera` samples the monitor target, not the stand-in image (B511).
+            if (texture is { IsCameraTarget: true })
+            {
+                uploaded.Dispose();
+                uploaded = CameraTargetReference();
+            }
+
             // **A `Water` material declares no `$basetexture` and is not missing** (B62). Water
             // refracts against `_rt_WaterRefraction` and takes its surface from a normal map;
             // `IsErrorMaterial` is false and the engine has never failed to draw one. Chequering it

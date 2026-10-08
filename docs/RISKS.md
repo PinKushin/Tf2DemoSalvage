@@ -36099,7 +36099,7 @@ left/right foot a player's next step uses carries on from before the jump. The e
 `m_nStepside` counter either, so this matches the game rather than diverging from it. Filed so nobody reads the
 missing reset as a bug; reopen only if a measurement of the game's own playback across a seek shows a reset.
 
-## B511 — `point_camera` monitors are not drawn: `_rt_Camera` is never rendered — OPEN, filed 2026-10-07
+## B511 — `point_camera` monitors are not drawn: `_rt_Camera` is never rendered — FIXED 2026-10-07
 
 *Read from published source, measured on the shipped maps.* TF2 creates `_rt_Camera` at `tf_monitor_resolution` 1024
 (`tf_rendertargets.cpp:16,41`, `baseclientrendertargets.cpp:37-46,62`) and, with `USE_MONITORS` defined for
@@ -36116,3 +36116,26 @@ monitor surface on those maps draws today was not measured.
 
 **What closes it:** a demo on one of the three maps, then a second scene render from the camera entity into a
 1024-square target bound as `_rt_Camera`, as `DrawOneMonitor` does. It adds a render pass, so measure the frame cost.
+
+**Specimen:** `b511_boardwalk_mirror.dem` and `stv_b511_boardwalk_mirror.dem` (lcor), 33 s of one session recorded
+through the tf2 MCP in front of boardwalk's stage mirrors — whose glass is `UnLitGeneric $basetexture _rt_Camera`.
+Full account, including why no match demo carries the entity (it is sent only while its monitor is in the
+recipient's PVS): `docs/findings/73-beams-trails-and-ropes-are-strips-the-client-builds.md`.
+
+**Fix:** `EntityState.PointCamera()` reads `DT_PointCamera`; `PointCameraFeed` records per packet the camera
+`DrawMonitors` leaves in the target — the earliest-constructed active, non-dormant one — and the viewer draws it
+before the main view (`WorldRenderer.DrawMonitor`): cleared black, 2D sky, the world culled from the camera's own eye,
+the renderables plus the force-drawn local player, the translucent world, under the camera's fog with `zFar` at its
+end. A material whose texture is `_rt_Camera` binds that target. `cl_drawmonitors` is read from the config.
+
+**Evidence:** `PointCameraConformanceTests` (5), `MonitorViewConformanceTests` (2), the `DT_PointCamera` names in
+`SendPropConformanceTests`. **Output level:** `MonitorCaptureUiTests` captures the specimen at tick 1900 with the pass on
+and off: the middle mirror reads R 83 G 46 (the soldier) on, R 18 G 21 off. **Frame cost** (`--measure 20`, tick 100,
+first person, Debug, three pairs): the `draw` column 0.65 ms on against 0.45 off, the frame mean 28.1/28.1/31.7 against
+27.6/27.3/26.5 ms — about 0.2 ms of submission and under a millisecond overall, inside this map's run-to-run noise.
+
+**Left, not measured or not ported:** the world inside the monitor view keeps the MAIN view's water views (simple
+water only) and overlays; nothing measured whether the darker room behind the soldier in the mirror matches TF2's
+(the live client's capture shows more of it lit — an open question, not a finding); `pd_circus` and `vsh_skirmish`
+were not recorded; `m_Resolution` is not read (`DrawMonitors` sizes from the target, `GetActualWidth()`; whether anything else reads
+it was not searched).

@@ -413,6 +413,7 @@ internal sealed unsafe partial class WorldRenderer
     private void DisposeWater()
     {
         ReleaseWaters();
+        DisposeMonitor();
         _waterShader.Dispose();
         _cheapWaterShader.Dispose();
         _waterBuffer.Dispose();
