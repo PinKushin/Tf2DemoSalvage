@@ -32,5 +32,9 @@ jobs:
         run: |
           dotnet test "tests/Tf2DemoSalvage.$PROJECT.Tests" --logger "trx;LogFileName=r.trx" --results-directory out || true
           grep -o '<Counters [^>]*>' out/r.trx
-          echo "not executed / skipped outcomes:"
-          grep -o 'outcome="NotExecuted"' out/r.trx | wc -l
+          echo "FAILED tests:"
+          grep 'outcome="Failed"' out/r.trx | grep -o 'testName="[^"]*"' | head -80
+          echo "FAILURE messages:"
+          grep -o '<Message>[^<]\{0,160\}' out/r.trx | sort | uniq -c | sort -rn | head -12
+          echo "skipped (ignored):"
+          grep -c 'outcome="NotExecuted"' out/r.trx || true
