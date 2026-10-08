@@ -45,6 +45,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="WeightA">How much the first bone moves it.</param>
 /// <param name="WeightB">How much the second moves it.</param>
 /// <param name="WeightC">How much the third moves it.</param>
+/// <param name="TangentX">A model vertex's tangent S, model space (<c>studio.h:1485</c>).</param>
+/// <param name="TangentY">Its tangent S.</param>
+/// <param name="TangentZ">Its tangent S.</param>
+/// <param name="TangentW">The binormal's sign, or zero for a vertex with no tangent frame.</param>
 public readonly record struct WorldVertex(
     float X, float Y, float Depth, float U, float V, float LightU, float LightV, float Alpha,
     float Red = 1f, float Green = 1f, float Blue = 1f, float LightStep = 0f,
@@ -52,7 +56,8 @@ public readonly record struct WorldVertex(
     float NextX = 0f, float NextY = 0f, float NextZ = 0f,
     float NextNormalX = 0f, float NextNormalY = 0f, float NextNormalZ = 1f,
     float BoneA = 0f, float BoneB = 0f, float BoneC = 0f,
-    float WeightA = 0f, float WeightB = 0f, float WeightC = 0f);
+    float WeightA = 0f, float WeightB = 0f, float WeightC = 0f,
+    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f);
 
 /// <summary>A run of triangles sharing one texture.</summary>
 /// <param name="MaterialIndex">Which material, indexed into the map's table.</param>

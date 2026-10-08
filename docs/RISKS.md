@@ -16409,10 +16409,9 @@ reads like TF2's is a question for the owner, not a claim.
   five lights where TF2 takes four. That is light SELECTION (`LocalLights.Strongest`), not this shader.
   Interpolated from the four-slot structure and this project's lightcache notes (`engine.dll`
   `0x1801b8e20` traces the skylight in the ranking loop); not re-read in disassembly.
-- **The highlight uses the VERTEX normal.** Valve's uses the normal map through the tangent frame
-  (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`, and the model vertex format here carries
-  no tangent — so where on a model a highlight lands is not yet TF2's, for diffuse and rim too. Not filed
-  anywhere else before this.
+- ~~**The highlight uses the VERTEX normal.**~~ **CLOSED by B512 (2026-10-08).** Valve's uses the normal map
+  through the tangent frame (`skin_ps20b.fxc:199`, :207) unless `$basemapalphaphongmask`; the model vertex
+  format carried no tangent, so where a highlight landed — and the diffuse and rim — was not TF2's.
 - `$phongwarptexture` is unimplemented (one shipped player material, `ice_player`), so the ranges always
   scale the mask (`skin_ps20b.fxc:311`).
 - **The `FASTPATH_NOBUMP` combo is not ported** (read from published source). A phong material with no
@@ -36034,9 +36033,9 @@ render. **Survivor, kept and named:** with the cloak pass never drawn, the 0.99 
 green — at 0.99 the pass reproduces its own copy, so "drawn" and "not drawn" are the same picture; the half-cloaked test
 is what sees the pass.
 
-**Not ported, named:** the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
-mesh tangents this vertex format lacks (*interpolated*; it moves only the warp's direction) — a model-path gap, not a
-cloak one: no model batch carries a tangent. The taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped
+**Not ported, named:** ~~the cloak pass's `BUMPMAP` normal is rotated by a screen-derivative cotangent frame, not the
+mesh tangents this vertex format lacks~~ — **closed by B512 (2026-10-08)**: the mesh frame now rotates it; the
+cotangent frame remains only for a `.vvd` with no tangent array. The taunt `taunt_attr_player_invis_percent` stomp, `vm_invis`'s uncapped
 non-local read, the tint a `spy_invis` bind leaves in a shared material for the next entity, and the cloak of the
 cosmetics on a cloaked corpse (attached to the PLAYER, `c_tf_player.cpp:10240`) are not reproduced. The translucency
 is decided from this frame's factor; the engine's `ComputeTranslucencyType` sees the last bind's, a frame earlier.

@@ -84,6 +84,69 @@ public sealed class CloakRenderTests
     }
 
     /// <remarks>
+    /// **The refract direction is the bump through the MESH's tangent frame** (cloak_blended_pass_ps2x.fxc:56, B508's
+    /// leftover). Over a frame painted on its left half, a half-cloaked quad on one texel of `spy_red`'s normal map shifts
+    /// the edge by `lerp( $refractamount, 0, 0.5 ) · (clip-space normal).x` of the target — the camera scales clip space by
+    /// four so the shift is pixels, not fractions of one. N = −Z and T = +X put the texel's x straight onto clip x, so
+    /// turning T to −X mirrors the shift, and no frame (w zero, one texel so no derivative either) leaves the edge put.
+    /// </remarks>
+    [Test]
+    public void DrawModelPose_HalfCloakedOverAnEdge_ShiftsItAlongTheMeshTangent()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+        MapAssets assets = MapCache.Load(entityModels: [SpyModel]);
+        int material = SpyRed(assets);
+
+        assets.Textures[material]!.Value.Cloak.ShouldNotBeNull();
+        MapTexture map = assets.Bumps[material]!.Value.Texture;
+        byte[] rgba = map.Image.ToRgba(map.Width, map.Height).ToArray();
+        int texel = Enumerable.Range(0, rgba.Length / 4).MaxBy(at => Math.Abs(rgba[at * 4] - 127.5f));
+        float tangentX = (rgba[texel * 4] / 255f * 2f) - 1f;
+        (float U, float V) uv = (((texel % map.Width) + 0.5f) / map.Width, ((texel / map.Width) + 0.5f) / map.Height);
+
+        float Edge((float X, float W) tangent)
+        {
+            target.Clear(0.8f, 0.8f, 0.8f);
+            DrawQuad(target, assets, default, uv, left: true, scaled: true);
+            DrawQuad(target, assets, new CloakBind(0.5f, 0.5f), uv, tangent: tangent, scaled: true);
+
+            float Brightness(int x)
+            {
+                (int r, int g, int b) = target.PixelAt(x, Size / 2);
+                return r + g + b;
+            }
+
+            float suit = Brightness(2);
+            float frame = Brightness(Size - 3);
+            float half = (suit + frame) / 2f;
+
+            for (int x = 1; x < Size; x++)
+            {
+                if ((Brightness(x - 1) - half) * (Brightness(x) - half) <= 0f &&
+                    Math.Abs(Brightness(x) - Brightness(x - 1)) > 0.5f)
+                {
+                    return x - 1 + ((half - Brightness(x - 1)) / (Brightness(x) - Brightness(x - 1))) + 0.5f;
+                }
+            }
+
+            throw new InvalidOperationException("no edge in the row");
+        }
+
+        float predicted = 0.05f * 4f * tangentX * Size;
+        float along = Edge((1f, 1f));
+        float against = Edge((-1f, 1f));
+        float none = Edge((1f, 0f));
+
+        TestContext.Out.WriteLine(
+            $"texel x {tangentX:0.###}, predicted shift {predicted:0.##} px: T +X edge {along:0.##}, T -X {against:0.##}, no frame {none:0.##}");
+
+        none.ShouldBe(Size / 2f, 1f, "the control: no frame, no shift");
+        Math.Abs(predicted).ShouldBeGreaterThan(4f, "the texel leans far enough to measure");
+        (along - none).ShouldBe(-predicted, 1.5f, "the edge moves against the sampled offset");
+        (against - none).ShouldBe(predicted, 1.5f, "and mirrors with the tangent");
+    }
+
+    /// <remarks>
     /// **The jarate overlay over a uniform frame keeps red and darkens blue**: Refract multiplies the copy by
     /// `$refracttint` {255 225 155}, linear, and blends by the normal map's alpha — so red, tinted by 1, is the grey
     /// whatever the alpha, and blue is the most reduced. The control is the frame without it, every channel equal.
@@ -170,19 +233,45 @@ public sealed class CloakRenderTests
         return index;
     }
 
-    private static void DrawQuad(OffscreenTarget target, MapAssets assets, CloakBind cloak)
+    /// <param name="target">Where to draw.</param>
+    /// <param name="assets">The spy's materials.</param>
+    /// <param name="cloak">The cloak bind.</param>
+    /// <param name="texel">One texture coordinate for every corner, or null for the whole texture.</param>
+    /// <param name="tangent">The corners' tangent, along X, and its sign; none by default.</param>
+    /// <param name="left">Cover only the left half of the target.</param>
+    /// <param name="scaled">Draw through a camera that scales clip x and y by four, the quad shrunk to match.</param>
+    private static void DrawQuad(
+        OffscreenTarget target,
+        MapAssets assets,
+        CloakBind cloak,
+        (float U, float V)? texel = null,
+        (float X, float W) tangent = default,
+        bool left = false,
+        bool scaled = false)
     {
+        float extent = scaled ? 0.25f : 1f;
+        float right = left ? 0f : extent;
+
         WorldVertex Corner(float x, float y, float u, float v) =>
-            new(x, y, 0.5f, u, v, 0f, 0f, 1f) { NormalZ = -1f };
+            new(x, y, 0.5f, texel?.U ?? u, texel?.V ?? v, 0f, 0f, 1f)
+            {
+                NormalZ = -1f,
+                TangentX = tangent.X,
+                TangentW = tangent.W,
+            };
 
         WorldVertex[] quad =
         [
-            Corner(-1f, -1f, 0f, 1f), Corner(1f, 1f, 1f, 0f), Corner(1f, -1f, 1f, 1f),
-            Corner(-1f, -1f, 0f, 1f), Corner(-1f, 1f, 0f, 0f), Corner(1f, 1f, 1f, 0f),
+            Corner(-extent, -extent, 0f, 1f), Corner(right, extent, 1f, 0f), Corner(right, -extent, 1f, 1f),
+            Corner(-extent, -extent, 0f, 1f), Corner(-extent, extent, 0f, 0f), Corner(right, extent, 1f, 0f),
         ];
 
+        float[] camera = scaled
+            ? [4f, 0f, 0f, 0f, 0f, 4f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f]
+            : Identity;
+
         target.DrawModelPose(
-            quad, [new WorldBatch(SpyRed(assets), 0, quad.Length)], Identity, Identity, assets, bothSides: true, cloak: cloak);
+            quad, [new WorldBatch(SpyRed(assets), 0, quad.Length)], camera, Identity, assets, bothSides: true, cloak: cloak);
     }
 
     private static void Near((int Red, int Green, int Blue) actual, (int Red, int Green, int Blue) expected)

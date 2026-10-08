@@ -20,12 +20,17 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// <param name="V">Texture coordinate.</param>
 /// <param name="Bones">Which bones move this vertex, up to three.</param>
 /// <param name="Weights">How much each of those bones moves it; sums to one.</param>
+/// <param name="Tangent">
+/// The tangent S in model space and, in W, the binormal's sign (<c>studio.h:1485</c>); all zero when the file
+/// carries no tangent array, which the shader reads as "no tangent frame".
+/// </param>
 public readonly record struct StudioVertex(
     float X, float Y, float Z,
     float NormalX, float NormalY, float NormalZ,
     float U, float V,
     (byte First, byte Second, byte Third) Bones = default,
-    (float First, float Second, float Third) Weights = default);
+    (float First, float Second, float Third) Weights = default,
+    (float X, float Y, float Z, float W) Tangent = default);
 
 /// <summary>
 /// A model's vertices, from its <c>.vvd</c>.
@@ -145,14 +150,19 @@ public static class StudioVertices
 
         ReadOnlySpan<byte> vertices = Region(bytes, vertexStart, "vertex data");
 
+        // **The tangents, a parallel array indexed exactly as the vertices are** (studio.h:1954, :3323-3329).
+        // Zero means the file has none (studio.h:1969); every vertex then keeps a zero sign.
+        int tangentStart = BinaryPrimitives.ReadInt32LittleEndian(bytes[VvdTangentStartOffset..]);
+        ReadOnlySpan<byte> tangents = tangentStart == 0 ? default : Region(bytes, tangentStart, "tangent data");
+
         if (fixups <= 0)
         {
             // No fixups means the array is already in order, and the first `wanted` of it are the
             // level asked for. That is the common case for a simple prop.
-            return ReadRange(vertices, 0, wanted);
+            return ReadRange(vertices, tangents, 0, wanted);
         }
 
-        return ApplyFixups(bytes, vertices, fixupStart, fixups, lod, wanted);
+        return ApplyFixups(bytes, vertices, tangents, fixupStart, fixups, lod, wanted);
     }
 
     /// <summary>Reassembles one level's vertices from the runs the fixup table names.</summary>
@@ -164,6 +174,7 @@ public static class StudioVertices
     private static List<StudioVertex> ApplyFixups(
         ReadOnlySpan<byte> file,
         ReadOnlySpan<byte> vertices,
+        ReadOnlySpan<byte> tangents,
         int fixupStart,
         int fixups,
         int lod,
@@ -209,15 +220,24 @@ public static class StudioVertices
                 continue;
             }
 
-            assembled.AddRange(ReadRange(vertices, source, count));
+            assembled.AddRange(ReadRange(vertices, tangents, source, count));
         }
 
         return assembled;
     }
 
     /// <summary>Reads a run of vertices, checking it lies inside the data.</summary>
-    private static List<StudioVertex> ReadRange(ReadOnlySpan<byte> vertices, int first, int count)
+    private static List<StudioVertex> ReadRange(
+        ReadOnlySpan<byte> vertices, ReadOnlySpan<byte> tangents, int first, int count)
     {
+        bool hasTangents = !tangents.IsEmpty;
+
+        if (hasTangents && first >= 0 && count >= 0 && (long)(first + count) * TangentStride > tangents.Length)
+        {
+            throw new InvalidDataException(
+                $"A vertex file's tangent array ends before vertex {first + count}.");
+        }
+
         if (first < 0 || count < 0 || (long)(first + count) * VertexStride > vertices.Length)
         {
             // Stryker disable all : the String mutator wraps the interpolated literal in a ternary
@@ -236,6 +256,9 @@ public static class StudioVertices
         for (int index = 0; index < count; index++)
         {
             ReadOnlySpan<byte> vertex = vertices.Slice((first + index) * VertexStride, VertexStride);
+            ReadOnlySpan<byte> tangent = hasTangents
+                ? tangents.Slice((first + index) * TangentStride, TangentStride)
+                : default;
 
             // **The bone weights, which a static prop does not need and an animated model
             // cannot do without.** mstudioboneweight_t opens the vertex: three floats of weight,
@@ -253,7 +276,14 @@ public static class StudioVertices
                 (
                     BinaryPrimitives.ReadSingleLittleEndian(vertex),
                     BinaryPrimitives.ReadSingleLittleEndian(vertex[4..]),
-                    BinaryPrimitives.ReadSingleLittleEndian(vertex[8..]))));
+                    BinaryPrimitives.ReadSingleLittleEndian(vertex[8..])),
+                hasTangents
+                    ? (
+                        BinaryPrimitives.ReadSingleLittleEndian(tangent),
+                        BinaryPrimitives.ReadSingleLittleEndian(tangent[4..]),
+                        BinaryPrimitives.ReadSingleLittleEndian(tangent[8..]),
+                        BinaryPrimitives.ReadSingleLittleEndian(tangent[12..]))
+                    : default));
         }
 
         return range;

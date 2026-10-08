@@ -39,6 +39,10 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="LightV">Lightmap atlas coordinate down; zero for anything but brushwork.</param>
 /// <param name="LightStep">How far along the atlas each directional set sits, or zero.</param>
 /// <param name="MaterialSlot">The mesh's own skinref, which a skin family is looked up by.</param>
+/// <param name="TangentX">The <c>.vvd</c> tangent S, model space.</param>
+/// <param name="TangentY">The tangent S.</param>
+/// <param name="TangentZ">The tangent S.</param>
+/// <param name="TangentW">The binormal's sign, or zero where there is no tangent frame.</param>
 public readonly record struct PropVertex(
     float X, float Y, float Z, float U, float V, int MaterialIndex,
     float OriginX = 0f, float OriginY = 0f,
@@ -66,7 +70,11 @@ public readonly record struct PropVertex(
     //
     // −1 for anything with no skin table to index: brush entities, and any geometry not built
     // from a `.mdl`. It can then never match a swap entry, which is what those want.
-    int MaterialSlot = -1);
+    int MaterialSlot = -1,
+
+    // **The `.vvd` tangent S in model space, W the binormal's sign** (`studio.h:1485`). Zero for anything without
+    // one — brushwork, and a model whose file carries no array — which the shader reads as "no tangent frame".
+    float TangentX = 0f, float TangentY = 0f, float TangentZ = 0f, float TangentW = 0f);
 
 /// <summary>A model's triangles as a decal needs them: each corner's position and normal, in the model's own space.</summary>
 /// <param name="Positions">Corner positions, a triangle list.</param>
@@ -1170,7 +1178,13 @@ public static class PropModels
                             // be made here. Carried through to the batching, which keeps each
                             // alternative in its own run so one can be skipped whole at draw time.
                             BodyPart: mesh.BodyPart,
-                            BodyModel: mesh.BodyModel));
+                            BodyModel: mesh.BodyModel,
+
+                            // Unskinned, like the normal beside it: the shader turns both by one matrix.
+                            TangentX: vertex.Tangent.X,
+                            TangentY: vertex.Tangent.Y,
+                            TangentZ: vertex.Tangent.Z,
+                            TangentW: vertex.Tangent.W));
 
                         // **Position by mesh vertex, colour by strip group vertex.** They are
                         // different orderings of the same surface, and using one for both speckles

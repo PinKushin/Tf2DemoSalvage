@@ -5119,7 +5119,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
                         BoneC: corner.Bones.Third,
                         WeightA: corner.Weights.First,
                         WeightB: corner.Weights.Second,
-                        WeightC: corner.Weights.Third));
+                        WeightC: corner.Weights.Third,
+                        TangentX: corner.TangentX,
+                        TangentY: corner.TangentY,
+                        TangentZ: corner.TangentZ,
+                        TangentW: corner.TangentW));
                 }
 
                 foreach (KeyValuePair<(int Material, int Slot, int Part, int Model),

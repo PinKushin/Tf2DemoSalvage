@@ -52,7 +52,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// the NEXT animation frame, so the shader can blend between two baked frames. A model that
     /// does not animate carries its own position in both and blends to itself.
     /// </remarks>
-    private const int VertexStride = sizeof(float) * 27;
+    /// <remarks>
+    /// Thirty-one since the model tangent (B170, B508): the `.vvd`'s `Vector4D` tangent S, w the binormal's sign,
+    /// zero on every vertex that is not a studio model's.
+    /// </remarks>
+    private const int VertexStride = sizeof(float) * 31;
 
     /// <summary>Most bones one model may be skinned by.</summary>
     /// <remarks>
@@ -102,6 +106,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // of a prop with baked colours. Every other draw binds one white element at stride zero, so
             // this multiplies by one.
             float3 baked   : TEXCOORD11;
+
+            // **A studio model's tangent S and, in w, the binormal's sign** — `mstudio_modelvertexdata_t::TangentS`
+            // (studio.h:1485). w is zero on every vertex that has none, and that is the "no tangent frame" test.
+            float4 tangent : TEXCOORD12;
         };
 
         struct VsOut
@@ -147,6 +155,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **The colour mesh, kept apart from the vertex colour** (B424): it multiplies the light where no cube is
             // supplied, and is ADDED to the cube and lamps in the static-plus-dynamic mode (ambientCube[1].w).
             float3 baked : TEXCOORD7;
+
+            // The world tangent and its sign, from which the pixel shader rebuilds the binormal as
+            // `cross( i.vWorldNormal, i.vWorldTangent.xyz ) * i.vWorldTangent.w` (vertexlit_and_unlit_generic_bump_ps2x.fxc:347).
+            float4 tangent : TEXCOORD9;
 
             // **The water views' height clip** — `PushView`'s `SetHeightClipZ`/`SetHeightClipMode`
             // (viewrender.cpp:5307-5326) as a user clip plane: kept where the distance is not negative. The
@@ -689,6 +701,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             float3 posed = lerp(input.pos, input.nextPos, frameBlend.x);
             float3 posedNormal = lerp(input.nrm, input.nextNrm, frameBlend.x);
 
+            // A baked frame's normals are the bind pose's (PropModels does not turn them), so the tangent is too.
+            float3 posedTangent = input.tangent.xyz;
+
             // A skinned model is moved by its bones instead of blended between baked frames. The
             // two are exclusive: a model is either baked or skinned, never both.
             if (skinning.x >= 1.0f)
@@ -697,9 +712,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 // The normal turns with the bones but is not translated by them, so it is skinned
                 // about the origin and normalised afterwards.
+                float3 boneOrigin = SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x);
                 posedNormal = normalize(SkinPosition(
-                    input.nrm, input.bones, input.weights, skinning.x)
-                    - SkinPosition(float3(0.0f, 0.0f, 0.0f), input.bones, input.weights, skinning.x));
+                    input.nrm, input.bones, input.weights, skinning.x) - boneOrigin);
+
+                // **The tangent by the same blend matrix, rotation only** — `worldTangentS = mul3x3(
+                // ( float3 )modelTangentS, ( const float3x3 )blendMatrix )` (common_vs_fxc.h:738). Its w is never
+                // skinned: it is the binormal's handedness, applied after (:740).
+                posedTangent = SkinPosition(input.tangent.xyz, input.bones, input.weights, skinning.x) - boneOrigin;
             }
 
             float4 world = mul(float4(posed, 1.0f), model);
@@ -762,6 +782,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // The normal is in the model's own space, so it turns with the model. Rotation only:
             // the translation would move a direction, and the scale cancels once it is normalised.
             output.nrm = normalize(mul(float4(posedNormal, 0.0f), model).xyz);
+
+            // Normalised, as skin_vs20.fxc:112 does — studiomdl leaves a degenerate-UV tangent short (0.135 measured,
+            // StudioVerticesTests). A vertex with no tangent keeps w zero and a zero direction.
+            float3 worldTangent = mul(float4(posedTangent, 0.0f), model).xyz;
+            output.tangent = input.tangent.w != 0.0f && dot(worldTangent, worldTangent) > 0.0f
+                ? float4(normalize(worldTangent), input.tangent.w)
+                : float4(0.0f, 0.0f, 0.0f, 0.0f);
             output.ls = input.ls;
             return output;
         }
@@ -1004,14 +1031,30 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // **`cloak_blended_pass_ps2x.fxc`**, VertexLitGeneric's cloak pass, over the model vertex shader. It shares the
         // refract cbuffer: refractModelTint is $cloakcolortint (rgb, set raw — SetPixelShaderConstant, not the
         // gamma-to-linear variant) and $refractamount (w); refractModelFlags.x is $cloakfactor, .y the BUMPMAP combo.
-        // **The one approximation**: Valve's BUMPMAP combo rotates the normal map by the mesh's tangent frame, which this
-        // vertex format does not carry; the frame here is the screen-derivative cotangent frame of the same surface.
+        // **The tangent frame, Valve's `Vec3TangentToWorld`** (common_fxc.h:1135), with the binormal rebuilt as
+        // `cross( i.vWorldNormal.xyz, i.vWorldTangent.xyz ) * i.vWorldTangent.w` (vertexlit_and_unlit_generic_bump_ps2x.fxc:347,
+        // the same vector SkinPositionNormalAndTangentSpace builds at common_vs_fxc.h:740). Returned unnormalised, as theirs.
+        float3 TangentToWorld(float3 tangentSpace, float3 normal, float4 tangent)
+        {
+            float3 binormal = cross(normal, tangent.xyz) * tangent.w;
+            return tangentSpace.x * tangent.xyz + tangentSpace.y * binormal + tangentSpace.z * normal;
+        }
+
+        // The BUMPMAP combo rotates the normal map by the mesh's tangent frame (`mul( i.mTangentSpaceTranspose,
+        // vTangentNormal.xyz )`, cloak_blended_pass_ps2x.fxc:56), as since B508's tangent leftover. A model whose `.vvd`
+        // carries no tangent array keeps the screen-derivative cotangent frame of the same surface as its fallback.
         float4 PsCloakModel(VsOut input) : SV_TARGET
         {
             float cloakFactor = saturate(refractModelFlags.x);
             float3 vWorldNormal = normalize(input.nrm);
 
-            if (refractModelFlags.y > 0.5f)
+            if (refractModelFlags.y > 0.5f && input.tangent.w != 0.0f)
+            {
+                // Unnormalised, as Valve's: the frame's T, B, N are unit and the texel decodes to roughly unit.
+                float3 vTangentNormal = bumpMap.Sample(wrapSampler, input.uv).xyz * 2.0f - 1.0f;
+                vWorldNormal = TangentToWorld(vTangentNormal, vWorldNormal, input.tangent);
+            }
+            else if (refractModelFlags.y > 0.5f)
             {
                 float3 vTangentNormal = bumpMap.Sample(wrapSampler, input.uv).xyz * 2.0f - 1.0f;
                 float3 dp1 = ddx(input.wpos);
@@ -1057,6 +1100,27 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             // FinalOutput( result, 0, PIXEL_FOG_TYPE_NONE, TONEMAP_SCALE_NONE ).
             return float4(cRefract, flCloakLerpFactor);
+        }
+
+        // **A model's shading normal: the normal map through the mesh's tangent frame** (B170's tangent leftover).
+        // Every lit term reads it — the ambient cube, the sun, the lamps, phong, the rim and the envmap — as
+        // `worldSpaceNormal` feeds all of them in skin_ps20b.fxc:207-:220 and vertexlit_and_unlit_generic_bump_ps2x.fxc:177.
+        //
+        // The vertex normal, unchanged, where Valve's frame would return it or there is no frame:
+        // - no $bumpmap (bump.x), or an ssbump (bump.y), which a model shader never decodes as a normal;
+        // - $phong with $basemapalphaphongmask (phongControl.z, .w) — `lerp( normal, float3(0, 0, 1), g_fBaseMapAlphaPhongMask )`
+        //   (skin_ps20b.fxc:199) is the flat normal, which the frame turns back into N;
+        // - a vertex with no tangent (w zero): brushwork, water, and a `.vvd` with no tangent array.
+        float3 ModelShadingNormal(VsOut input)
+        {
+            if (input.tangent.w == 0.0f || bump.x < 0.5f || bump.y > 0.5f ||
+                (phongControl.z > 0.5f && phongControl.w > 0.5f))
+            {
+                return input.nrm;
+            }
+
+            float3 tangentSpace = bumpMap.Sample(wrapSampler, input.uv).xyz * 2.0f - 1.0f;
+            return normalize(TangentToWorld(tangentSpace, normalize(input.nrm), input.tangent));
         }
 
         float4 PsMain(VsOut input) : SV_TARGET
@@ -1251,6 +1315,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
             float3 light;
 
+            // The normal every model lighting term below reads: the bump through the tangent frame, or the vertex's.
+            float3 shadingNormal = ModelShadingNormal(input);
+
             if (bump.x > 0.5f && input.ls > 0.0f)
             {
                 // **Set 0 is not read here, and that is the trap.** When a face is bump lit the
@@ -1301,8 +1368,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
             if (ambientCube[0].w > 0.5f)
             {
-                float3 nSquared = input.nrm * input.nrm;
-                int3 isNegative = (int3)(input.nrm < 0.0f);
+                float3 nSquared = shadingNormal * shadingNormal;
+                int3 isNegative = (int3)(shadingNormal < 0.0f);
 
                 light = nSquared.x * ambientCube[isNegative.x].rgb +
                         nSquared.y * ambientCube[isNegative.y + 2].rgb +
@@ -1317,7 +1384,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // which is what gives a model its shape instead of a flat wash.
                 if (sunColour.w > 0.5f)
                 {
-                    float towardsSun = dot(input.nrm, -sunDirection.xyz);
+                    float towardsSun = dot(shadingNormal, -sunDirection.xyz);
 
                     // **Half-Lambert where the material asks for it**, which is Valve's own
                     // wrap from common_vs_fxc.h:826 — map −1..1 onto 0..1 and square it:
@@ -1385,19 +1452,19 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
                 if (lamps > 0.5f)
                 {
-                    light += LampDiffuse(0, input.lampAtten.x, input.wpos, input.nrm);
+                    light += LampDiffuse(0, input.lampAtten.x, input.wpos, shadingNormal);
 
                     if (lamps > 1.5f)
                     {
-                        light += LampDiffuse(1, input.lampAtten.y, input.wpos, input.nrm);
+                        light += LampDiffuse(1, input.lampAtten.y, input.wpos, shadingNormal);
 
                         if (lamps > 2.5f)
                         {
-                            light += LampDiffuse(2, input.lampAtten.z, input.wpos, input.nrm);
+                            light += LampDiffuse(2, input.lampAtten.z, input.wpos, shadingNormal);
 
                             if (lamps > 3.5f)
                             {
-                                light += LampDiffuse(3, input.lampAtten.w, input.wpos, input.nrm);
+                                light += LampDiffuse(3, input.lampAtten.w, input.wpos, shadingNormal);
                             }
                         }
                     }
@@ -1594,7 +1661,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             if (surfaceColours.y > 0.5f && phongControl.z > 0.5f && eyePosition.w > 0.5f)
             {
                 float3 toEye = normalize(eyePosition.xyz - input.wpos);
-                float3 phongNormal = normalize(input.nrm);
+                float3 phongNormal = normalize(shadingNormal);
 
                 // **The EYE reflected through the normal, dotted with the light** — Valve's own
                 // form, with `reflect( -vEyeDir, vWorldNormal )` left commented out beside it:
@@ -1757,7 +1824,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             {
                 float3 toEye = eyePosition.xyz - input.wpos;
                 float3 eyeDirection = normalize(toEye);
-                float3 surfaceNormal = normalize(input.nrm);
+                float3 surfaceNormal = normalize(shadingNormal);
 
                 // The mirrored view direction. reflect() takes the INCIDENT direction, which is
                 // from the eye toward the surface, so the eye vector is negated.
@@ -2523,6 +2590,14 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 SemanticIndex = 9,
                 Format = Silk.NET.DXGI.Format.FormatR32G32B32Float,
                 AlignedByteOffset = sizeof(float) * 24,
+                InputSlotClass = InputClassification.PerVertexData,
+            },
+            new()
+            {
+                SemanticName = texcoord,
+                SemanticIndex = 12,
+                Format = Silk.NET.DXGI.Format.FormatR32G32B32A32Float,
+                AlignedByteOffset = sizeof(float) * 27,
                 InputSlotClass = InputClassification.PerVertexData,
             },
 
@@ -4582,6 +4657,10 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             data[at++] = vertex.WeightA;
             data[at++] = vertex.WeightB;
             data[at++] = vertex.WeightC;
+            data[at++] = vertex.TangentX;
+            data[at++] = vertex.TangentY;
+            data[at++] = vertex.TangentZ;
+            data[at++] = vertex.TangentW;
         }
 
         return data;

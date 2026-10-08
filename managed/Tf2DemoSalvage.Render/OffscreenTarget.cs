@@ -481,6 +481,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// </param>
     /// <param name="locals">The lamps lighting the model, or null (B424's static-plus-dynamic test).</param>
     /// <param name="cloak">What the invisibility proxies bind for the model; nobody cloaked by default.</param>
+    /// <param name="bones">Row-major 3x4 bone matrices to skin the vertices by, or null for an unskinned draw.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **The model path is not the world path and the difference has hidden a defect.** Every
@@ -508,7 +509,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         bool surfaceColours = false,
         bool clearDepth = true,
         IReadOnlyList<LocalLight>? locals = null,
-        CloakBind cloak = default)
+        CloakBind cloak = default,
+        IReadOnlyList<float[]>? bones = null)
     {
         ArgumentNullException.ThrowIfNull(vertices);
         ArgumentNullException.ThrowIfNull(batches);
@@ -568,8 +570,14 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
 
+        // A skinned pose: the matrices as production uploads them, and the count the shader skins by.
+        if (bones is not null)
+        {
+            _world.SetBones(_context, bones);
+        }
+
         _world.DrawModel(
-            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bothSides: bothSides,
+            _context, Posed, model, _world.ModelBatches(Posed), light, sun, bones: bones?.Count ?? 0, bothSides: bothSides,
             origin: origin, locals: locals, overrideMaterial: overrideMaterial, bakedColours: bakedColours, cloak: cloak);
     }
 
