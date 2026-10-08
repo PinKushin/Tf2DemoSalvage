@@ -24,6 +24,8 @@ runs:
         sudo apt-get install -y -q lib32gcc-s1
         mkdir -p ~/steamcmd
         curl -fsSL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar -xz -C ~/steamcmd
+        # The first run self-updates; installing straight away fails with "Missing configuration".
+        ~/steamcmd/steamcmd.sh +quit > /dev/null || true
         start=$SECONDS
         ~/steamcmd/steamcmd.sh +force_install_dir "$HOME/tf2ds" +login anonymous +app_update 232250 validate +quit
         echo "download took $((SECONDS - start)) s"

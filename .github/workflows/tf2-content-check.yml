@@ -1,4 +1,4 @@
-# TEMPORARY (D212): counts the tests that skip or degrade on a hosted runner with the TF2
+# TEMPORARY, rerun 2 (D212): counts the tests that skip or degrade on a hosted runner with the TF2
 # dedicated server's content. Deleted once the number is recorded.
 name: TF2 content check
 on:
