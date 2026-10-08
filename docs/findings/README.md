@@ -247,6 +247,10 @@ in any public writeup found:
   nobody but an enemy ever reaches full invisibility. The overlay is one variable the condition hooks write and only
   clear when it holds their own material — and the spy's own cloak has none
   ([74](74-a-cloak-is-a-second-pass-and-an-overlay-is-a-slot.md)).
+- **A TF2 face is the scene, not the wire.** A player sends no flex weights and no blink, and TF2's eyelid rules never
+  read the blink controller; taunt and voice scenes move faces through `EXPRESSION` events and their `.vfe` settings,
+  run through the model's flex rules and added to position, normal and tangent before skinning
+  ([75](75-a-tf2-face-is-the-scene-not-the-wire.md)).
 
 ## Conventions used throughout
 
