@@ -571,9 +571,20 @@ public sealed class EntityModelSet : Hud.IMdlCache
         {
             float[] weights = FaceFlex.Rules(model.Flex, FaceFlex.Local(model.Flex, global));
             float[] delayed = Delayed(prop.EntityIndex, weights, seconds);
-            face = FaceFlex.Deltas(model.Flex, weights, delayed, model.VertexCount) is { } deltas
-                ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
-                : null;
+
+            // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
+            if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face) last) &&
+                last.Weights.AsSpan().SequenceEqual(weights) && last.Delayed.AsSpan().SequenceEqual(delayed))
+            {
+                face = last.Face;
+            }
+            else
+            {
+                face = FaceFlex.Deltas(model.Flex, weights, delayed, model.VertexCount) is { } deltas
+                    ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
+                    : null;
+                _lastFace[prop.EntityIndex] = (weights, (float[])delayed.Clone(), face);
+            }
         }
         else if (!_restingFace.TryGetValue(RestingKey(prop), out face))
         {
@@ -605,6 +616,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
     /// <summary>Each drawing entity's <c>m_flFlexDelayedWeight</c> and <c>m_flFlexDelayTime</c>.</summary>
     private readonly Dictionary<int, (float[] Delayed, double Time)> _delays = [];
+
+    /// <summary>Each drawing entity's last weights and the face they made, reused while they hold.</summary>
+    private readonly Dictionary<int, (float[] Weights, float[] Delayed, float[]? Face)> _lastFace = [];
 
     /// <summary>What drives faces: every scene and voice in the recording (B513); null drives none.</summary>
     public FaceSources? Faces { get; set; }
@@ -5082,6 +5096,7 @@ public sealed class EntityModelSet : Hud.IMdlCache
         _restingFace.Clear();
         _faces.Clear();
         _delays.Clear();
+        _lastFace.Clear();
         _swaps.Clear();
         _raw.Clear();
         _packedOrder.Clear();

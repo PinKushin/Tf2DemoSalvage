@@ -36213,6 +36213,11 @@ unreachable (only `hwm` models, `UseHWMorphModels` false). **Evidence:** `FaceDr
 output level `FaceLipSyncDemoTests` (granary 2013, scout 9, `scout_HeadRight03`: 2,548 vertices differ from the
 no-sentence control) and `FaceFlexDemoRenderTests` (rest 398 vertices/0.25, laugh 8,105/1.79).
 
+**Frame cost** (`--measure 20`, tf2-2026-pub-pov-clean at 1000, first person, `fps_max 0`, 2026-10-08): moment rebuild
+33.2 ms against 29.1 on main (pose rest 11.8 against 6.7) — every player's face now steps every frame, where the first
+pass cached one resting face per model; a face whose weights repeat is reused, which took the first after-run's 38.6
+down. `draw` 0.7–1.2 ms either side. The rate sits at ~8 fps on both, `camera` ~100 ms dominating.
+
 **Still open:** `m_flexWeight`'s latched interpolation history; the engine's mouth-source registration (voice channels
 2 and 7 are **interpolated**); a corpse after its player respawns; flex on baked props (only 88 HL2 models would move);
 `FLEXANIMATION` has no corpus specimen (no played TF2 scene in the probed demos carries one).
