@@ -36165,7 +36165,10 @@ production's w zeroed reddened both demo tests.
 
 **Not ported:** vertex flex (the tangent takes the normal's delta, `common_vs_fxc.h:387`) — this viewer applies no
 mesh flex at all; baked animated props keep bind-pose normals and tangents, as their normals already were;
-`$selfillumfresnel`; the wrinkle maps. **Frame cost:** see the commit; the vertex grows 16 bytes.
+`$selfillumfresnel`; the wrinkle maps. **Frame cost** (`--measure 20`, f12 08-08-2207 at 3000, first person, `fps_max 0`, 2026-10-08): `draw` 1.1–1.5 ms
+after against 1.1–1.2 before, moment cost 7.8 against 8.0 ms — no difference beyond noise. Both runs sat at ~20 fps
+with `camera` ~35 ms dominating, the same in each, so the absolute rate is not a clean reading; the vertex grows
+16 bytes.
 
 **Owner-visible:** every bump-mapped model's shading and highlight now follows its normal map — players, weapons,
 cosmetics — and a cloaking spy's warp follows his suit's folds rather than the screen.
