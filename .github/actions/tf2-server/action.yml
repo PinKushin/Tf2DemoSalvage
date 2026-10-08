@@ -27,7 +27,13 @@ runs:
         # The first run self-updates; installing straight away fails with "Missing configuration".
         ~/steamcmd/steamcmd.sh +quit > /dev/null || true
         start=$SECONDS
-        ~/steamcmd/steamcmd.sh +force_install_dir "$HOME/tf2ds" +login anonymous +app_update 232250 validate +quit
+        # "Missing configuration" is SteamCMD's transient first-contact failure (seen on 3 of 4
+        # parallel runners); a retry succeeds, so allow three attempts.
+        for attempt in 1 2 3; do
+          ~/steamcmd/steamcmd.sh +force_install_dir "$HOME/tf2ds" +login anonymous +app_update 232250 validate +quit && break
+          echo "attempt $attempt failed"
+          test "$attempt" -lt 3
+        done
         echo "download took $((SECONDS - start)) s"
 
     - name: Trim and export TF2_FOLDER
