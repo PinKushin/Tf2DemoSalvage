@@ -148,6 +148,8 @@ public static class DemoAppearance
         // hides the head it replaces, and only `items_game.txt` says which part that is. Reached
         // for here rather than by the scene for the same reason the class models are — this is the
         // one place that already holds the install. Its `anim_slot` decides the weapon's table too (B105).
+        (Dictionary<string, Sentence> sentences, Dictionary<string, float> lengths) = Sentences(game, log);
+
         GameAppearance appearance = new(game.Classes, roles, game.Weapons.Items, taunts)
         {
             Faces = new FaceSources(
@@ -155,8 +157,13 @@ public static class DemoAppearance
                 scene => taunts.TryGetValue(scene, out SceneTaunt? taunt) ? taunt : null,
                 timeline.Sounds,
                 timeline.IntervalPerTick,
-                Sentences(game, log),
-                Expression),
+                sentences,
+                Expression,
+                lengths)
+            {
+                InterpolationSeconds =
+                    ScenePropTrack.DelayTicksFor(timeline.IntervalPerTick, timeline.ClientInterpAmount) * (double)timeline.IntervalPerTick,
+            },
         };
 
         // **The role each held weapon is DRAWN with, asked of the appearance the scene will use**, so
@@ -186,9 +193,11 @@ public static class DemoAppearance
     /// engine's lip sync reads the sentence the sound cache stores beside the VPK (<c>CAudioSourceCachedInfo::Restore</c>,
     /// x64 <c>engine.dll</c> <c>0x180053740</c>); a missing or unreadable cache moves no mouth.
     /// </summary>
-    private static Dictionary<string, Sentence> Sentences(GameContent game, ILogger log)
+    private static (Dictionary<string, Sentence> Sentences, Dictionary<string, float> Lengths) Sentences(
+        GameContent game, ILogger log)
     {
         Dictionary<string, Sentence> all = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, float> lengths = new(StringComparer.OrdinalIgnoreCase);
 
         foreach (string name in SoundCaches)
         {
@@ -199,9 +208,16 @@ public static class DemoAppearance
 
             try
             {
-                foreach ((string path, Sentence sentence) in SoundCacheFile.Read(bytes))
+                (Dictionary<string, Sentence> sentences, Dictionary<string, float> cached) = SoundCacheFile.ReadAll(bytes);
+
+                foreach ((string path, Sentence sentence) in sentences)
                 {
                     all.TryAdd(path, sentence);
+                }
+
+                foreach ((string path, float length) in cached)
+                {
+                    lengths.TryAdd(path, length);
                 }
             }
             catch (System.IO.InvalidDataException failure)
@@ -210,8 +226,11 @@ public static class DemoAppearance
             }
         }
 
-        log.LogInformation("{Message}", $"sentences: {all.Count.ToString(CultureInfo.InvariantCulture)} cached for lip sync");
-        return all;
+        log.LogInformation(
+            "{Message}",
+            $"sentences: {all.Count.ToString(CultureInfo.InvariantCulture)} cached for lip sync, " +
+            $"{lengths.Count.ToString(CultureInfo.InvariantCulture)} sound lengths");
+        return (all, lengths);
     }
 
     /// <summary>Where the compiled choreography archive sits inside the game's VPKs (B351).</summary>

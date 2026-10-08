@@ -101,9 +101,16 @@ public static class SoundCacheFile
     /// <param name="file">The cache file.</param>
     /// <returns>Sentences by sound path.</returns>
     /// <exception cref="InvalidDataException">An entry runs past the file.</exception>
-    public static Dictionary<string, Sentence> Read(ReadOnlySpan<byte> file)
+    public static Dictionary<string, Sentence> Read(ReadOnlySpan<byte> file) => ReadAll(file).Sentences;
+
+    /// <summary>Every entry's sentence, and every entry's length in seconds whether it carries a sentence or not.</summary>
+    /// <param name="file">The cache file.</param>
+    /// <returns>Sentences and lengths by sound path.</returns>
+    /// <exception cref="InvalidDataException">An entry runs past the file.</exception>
+    public static (Dictionary<string, Sentence> Sentences, Dictionary<string, float> Lengths) ReadAll(ReadOnlySpan<byte> file)
     {
         Dictionary<string, Sentence> sentences = new(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, float> lengths = new(StringComparer.OrdinalIgnoreCase);
         Reader reader = new(file);
 
         reader.Int();
@@ -136,9 +143,16 @@ public static class SoundCacheFile
             {
                 sentences[Normalise(name)] = sentence;
             }
+
+            int rate = (int)((uint)info >> 15);
+
+            if (rate > 0)
+            {
+                lengths[Normalise(name)] = (float)samples / rate;
+            }
         }
 
-        return sentences;
+        return (sentences, lengths);
     }
 
     /// <summary>A sound path as the cache spells it: backslashes, no leading <c>sound\</c> difference ignored.</summary>

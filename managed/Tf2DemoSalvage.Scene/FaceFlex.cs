@@ -157,6 +157,9 @@ public static class FaceFlex
 /// **Frame-rate state is kept as the engine keeps it**: the decay is per call, and a scene event is active while the
 /// scene's clock at the PREVIOUS frame was inside it (<c>CChoreoScene::EventThink</c> tests <c>frame_start_time</c>,
 /// <c>choreoscene.cpp:2514-2529</c>) while its value is read at this frame's time.
+///
+/// **`m_flexWeight` is an interpolated variable**, and the frame starts by interpolating it and latching it before any
+/// draw — see <c>InterpolateAndLatch</c>.
 /// </remarks>
 public sealed class ActorFace
 {
@@ -177,11 +180,31 @@ public sealed class ActorFace
     private readonly Dictionary<string, float> _global = new(StringComparer.OrdinalIgnoreCase);
     private readonly FlexSettings?[] _phonemeClasses = new FlexSettings?[3];
 
+    /// <summary><c>EXTRA_INTERPOLATION_HISTORY_STORED</c>, <c>interpolatedvar.h:41</c>.</summary>
+    private const double ExtraHistory = 0.05d;
+
+    /// <summary><c>cl_extrapolate_amount</c>'s default, 0.25.</summary>
+    private const double ExtrapolateAmount = 0.25d;
+
+    /// <summary><c>m_iv_flexWeight</c>'s entries, newest first; null when the face keeps no history.</summary>
+    private readonly List<(double ChangeTime, float[] Values)>? _history;
+
+    private readonly double _interpolation;
+    private bool _needsToInterpolate;
+    private double _lastInterpolationTime = double.NegativeInfinity;
+    private double _animTime;
+
     /// <summary>A player's face, reset as <c>OnNewModel</c> leaves it.</summary>
     /// <param name="data">The player model's flex tables.</param>
     /// <param name="modelName">The model's internal name (<c>pszName</c>), which the phoneme files are named from.</param>
     /// <param name="sources">Where expression files come from.</param>
-    public ActorFace(StudioFlexData data, string modelName, FaceSources? sources)
+    /// <param name="interpolation">
+    /// <c>GetInterpolationAmount( LATCH_ANIMATION_VAR )</c> in seconds, which turns on <c>m_iv_flexWeight</c>; null keeps
+    /// no history, which is <c>SetupGlobalWeights</c> alone.
+    /// </param>
+    /// <param name="created">When the face was reset, demo seconds.</param>
+    public ActorFace(
+        StudioFlexData data, string modelName, FaceSources? sources, double? interpolation = null, double created = 0d)
     {
         _data = data ?? throw new ArgumentNullException(nameof(data));
         _flexWeight = new float[data.Controllers.Count];
@@ -189,6 +212,22 @@ public sealed class ActorFace
         for (int index = 0; index < _flexWeight.Length; index++)
         {
             Set(index, 0f);
+        }
+
+        if (interpolation is { } amount)
+        {
+            // `ResetFlexWeights` ends `m_iv_flexWeight.Reset()` (c_tf_player.cpp:5304): three entries at curtime
+            // (interpolatedvar.h:740). **Interpolated:** the face is created when it is first drawn, with an animation
+            // time of that moment, as a player already running would have.
+            _interpolation = amount;
+            _history = [];
+
+            for (int copy = 0; copy < 3; copy++)
+            {
+                _history.Insert(0, (created, (float[])_flexWeight.Clone()));
+            }
+
+            _animTime = created;
         }
 
         if (sources is not null)
@@ -245,6 +284,11 @@ public sealed class ActorFace
             _sceneTime.Clear();
             _callers.Clear();
             LastSeconds = seconds;
+
+            if (_history is not null)
+            {
+                InterpolateAndLatch(seconds);
+            }
         }
 
         if (!_callers.Add(caller))
@@ -325,6 +369,211 @@ public sealed class ActorFace
         ProcessVisemes(seconds, voices);
     }
 
+    /// <summary>
+    /// The frame's start, before any draw: <c>InterpolateServerEntities</c> writes <c>m_flexWeight</c> from its history,
+    /// then <c>UpdateClientSideAnimations</c> latches it (<c>cdll_client_int.cpp:2156</c>, <c>:2189</c>).
+    /// </summary>
+    /// <remarks>
+    /// **A TF player latches every frame, not every packet.** Its animation is client-side, so the server never sends
+    /// <c>m_flAnimTime</c> (<c>SendProxy_ClientSideAnimation</c>, <c>baseentity.cpp:148</c>) and the latch comes from
+    /// <c>UpdateClientSideAnimation</c>: <c>OnLatchInterpolatedVariables( LATCH_ANIMATION_VAR )</c>, stamped
+    /// <c>GetAnimTime()</c>, then <c>FrameAdvance</c> sets the anim time to now (<c>c_baseanimating.cpp:5143</c>, <c>:5525</c>).
+    /// **So the history holds what interpolation left, never what the scene wrote**: the latch runs between the
+    /// interpolation and the draw. A scene's write lasts the frame it is made in, unless an interpolation that frame
+    /// was skipped because the history had settled.
+    /// </remarks>
+    private void InterpolateAndLatch(double curtime)
+    {
+        List<(double ChangeTime, float[] Values)> history = _history!;
+
+        // Interp_Interpolate (c_baseentity.cpp:861): a step backwards re-arms every variable.
+        if (curtime < _lastInterpolationTime)
+        {
+            _needsToInterpolate = true;
+        }
+
+        _lastInterpolationTime = curtime;
+
+        if (_needsToInterpolate && Interpolate(history, curtime))
+        {
+            _needsToInterpolate = false;
+        }
+
+        // NoteChanged (interpolatedvar.h:627): "differs" against the head, then AddToHead with bFlushNewer.
+        bool differs = history.Count == 0 || !history[0].Values.AsSpan().SequenceEqual(_flexWeight);
+
+        while (history.Count > 0 && history[0].ChangeTime + 0.0001d > _animTime)
+        {
+            history.RemoveAt(0);
+        }
+
+        history.Insert(0, (_animTime, (float[])_flexWeight.Clone()));
+        RemoveEntriesPreviousTo(history, curtime - _interpolation - ExtraHistory);
+
+        if (differs)
+        {
+            _needsToInterpolate = true;
+        }
+
+        // FrameAdvance moves the anim time only past a millisecond (c_baseanimating.cpp:5481).
+        if (curtime - _animTime > 0.001d)
+        {
+            _animTime = curtime;
+        }
+    }
+
+    /// <summary><c>CInterpolatedVarArrayBase::Interpolate</c> (<c>interpolatedvar.h:967</c>), without extrapolation.</summary>
+    /// <returns><c>noMoreChanges</c>.</returns>
+    private bool Interpolate(List<(double ChangeTime, float[] Values)> history, double currentTime)
+    {
+        double target = currentTime - _interpolation;
+        int older = -1, newer = -1, oldest = -1;
+        bool hermite = false, noMoreChanges = false, found = false;
+        float frac = 0f;
+
+        // GetInterpolationInfo (interpolatedvar.h:799).
+        for (int index = 0; index < history.Count; index++)
+        {
+            older = index;
+            double olderTime = history[index].ChangeTime;
+
+            if (olderTime <= 0d)
+            {
+                break;
+            }
+
+            if (target < olderTime)
+            {
+                newer = older;
+                continue;
+            }
+
+            found = true;
+
+            if (newer < 0)
+            {
+                newer = older;
+                noMoreChanges = true;
+                break;
+            }
+
+            double dt = history[newer].ChangeTime - olderTime;
+
+            if (dt > 0.0001d)
+            {
+                frac = (float)Math.Min((target - olderTime) / dt, 2d);
+
+                if (older + 1 < history.Count && olderTime - history[older + 1].ChangeTime > 0.0001d)
+                {
+                    oldest = older + 1;
+                    hermite = true;
+                }
+
+                if (newer == 0 && history[newer].Values.AsSpan().SequenceEqual(history[older].Values) &&
+                    (!hermite || history[newer].Values.AsSpan().SequenceEqual(history[oldest].Values)))
+                {
+                    noMoreChanges = true;
+                }
+            }
+
+            break;
+        }
+
+        if (!found)
+        {
+            if (newer >= 0)
+            {
+                older = newer;
+            }
+            else if (older < 0)
+            {
+                return false;
+            }
+            else
+            {
+                newer = older;
+            }
+        }
+
+        float[] start = history[older].Values;
+        float[] end = history[newer].Values;
+
+        if (hermite)
+        {
+            // _Interpolate_Hermite with TimeFixup2_Hermite (interpolatedvar.h:1371-1458).
+            float[] previous = history[oldest].Values;
+            double dt1 = history[newer].ChangeTime - history[older].ChangeTime;
+            double dt2 = history[older].ChangeTime - history[oldest].ChangeTime;
+            float[]? fixup = null;
+
+            if (Math.Abs(dt1 - dt2) > 0.0001d && dt2 > 0.0001d)
+            {
+                float f = (float)(dt1 / dt2);
+                fixup = new float[start.Length];
+
+                for (int i = 0; i < fixup.Length; i++)
+                {
+                    fixup[i] = previous[i] + ((start[i] - previous[i]) * (1f - f));
+                }
+            }
+
+            float[] p0 = fixup ?? previous;
+            float t2 = frac * frac;
+            float t3 = frac * t2;
+
+            for (int i = 0; i < _flexWeight.Length && i < start.Length; i++)
+            {
+                float d1 = start[i] - p0[i];
+                float d2 = end[i] - start[i];
+                _flexWeight[i] = (start[i] * ((2 * t3) - (3 * t2) + 1)) + (end[i] * ((-2 * t3) + (3 * t2))) +
+                    (d1 * (t3 - (2 * t2) + frac)) + (d2 * (t3 - t2));
+            }
+        }
+        else if (older == newer && newer + 1 < history.Count && history[newer + 1].ChangeTime > 0d && _interpolation > 0.000001d)
+        {
+            // _Extrapolate (interpolatedvar.h:1345), cl_extrapolate_amount 0.25. Allowed: cl_extrapolate is on, and the
+            // per-frame latch keeps m_LastNetworkedTime at the last packet's stamp. Reached only when a frame is longer
+            // than the interpolation amount — the history's head is always the previous frame.
+            (double oldTime, float[] oldValues) = history[newer + 1];
+            double newTime = history[newer].ChangeTime;
+
+            for (int i = 0; i < _flexWeight.Length && i < end.Length; i++)
+            {
+                _flexWeight[i] = Math.Abs(oldTime - newTime) < 0.001d || target <= newTime
+                    ? end[i]
+                    : oldValues[i] + ((end[i] - oldValues[i]) *
+                        (float)(1d + (Math.Min(target - newTime, ExtrapolateAmount) / (newTime - oldTime))));
+            }
+        }
+        else
+        {
+            for (int i = 0; i < _flexWeight.Length && i < start.Length; i++)
+            {
+                _flexWeight[i] = ReferenceEquals(start, end) ? end[i] : start[i] + ((end[i] - start[i]) * frac);
+            }
+        }
+
+        RemoveEntriesPreviousTo(history, target - ExtraHistory);
+        return noMoreChanges;
+    }
+
+    /// <summary><c>RemoveEntriesPreviousTo</c> (<c>interpolatedvar.h:782</c>): keep the first older entry and two more.</summary>
+    private static void RemoveEntriesPreviousTo(List<(double ChangeTime, float[] Values)> history, double time)
+    {
+        for (int index = 0; index < history.Count; index++)
+        {
+            if (history[index].ChangeTime < time)
+            {
+                if (index + 3 < history.Count)
+                {
+                    history.RemoveRange(index + 3, history.Count - (index + 3));
+                }
+
+                return;
+            }
+        }
+    }
+
     /// <summary>The scene's own ramp at its clock, <c>GetSceneRampIntensity</c>.</summary>
     private static float SceneRamp(SceneTaunt plan, float now) =>
         ChoreoCurve.Intensity(plan.SceneRamp, now, plan.Duration, hasEndTime: true);
@@ -384,7 +633,8 @@ public sealed class ActorFace
             }
 
             float length = voice.Sentence.Length;
-            float elapsed = (float)(seconds - voice.StartedSeconds);
+            // The mixer's sample position over the source's rate: real time scaled by the pitch.
+            float elapsed = (float)((seconds - voice.StartedSeconds) * voice.Rate);
 
             if (elapsed >= length + 2.0f)
             {

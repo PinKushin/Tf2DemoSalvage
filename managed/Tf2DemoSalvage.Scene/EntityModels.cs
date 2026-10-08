@@ -570,7 +570,8 @@ public sealed class EntityModelSet : Hud.IMdlCache
         if (FaceDriving(prop, seconds) is { } global)
         {
             float[] weights = FaceFlex.Rules(model.Flex, FaceFlex.Local(model.Flex, global));
-            float[] delayed = Delayed(prop.EntityIndex, weights, seconds);
+            // A corpse runs its player's whole SetupWeights, so the delay is the player's own (`m_flFlexDelayedWeight`).
+            float[] delayed = Delayed(prop.FaceOf ?? prop.EntityIndex, weights, seconds);
 
             // The same weights draw the same face: an idle loop's expression holds still for seconds at a time.
             if (_lastFace.TryGetValue(prop.EntityIndex, out (float[] Weights, float[] Delayed, float[]? Face) last) &&
@@ -591,10 +592,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **No face of its own**: a bone-merged item whose parent is not a player is a C_BaseFlex at its zeroed
             // controllers (each at its minimum, `c_baseflex.cpp:1222`); anything else is a C_BaseAnimating, whose
             // `SetupWeights` is empty, so it draws with the weights `LockFlexWeights` zeroed (studiorender
-            // 0x1800584b0) — which still moves a flex whose ramp is not zero at zero (B513).
-            float[] weights = prop.AttachedTo is null
-                ? new float[model.Flex.Descriptors.Count]
-                : FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex));
+            // 0x1800584b0) — which still moves a flex whose ramp is not zero at zero (B513). A corpse whose player is
+            // alive again is the first kind: `C_TFRagdoll::SetupWeights` takes its own `BaseClass` branch
+            // (`c_tf_player.cpp:630-633`), a C_BaseFlex nothing ever set.
+            float[] weights = IsCBaseFlex(prop)
+                ? FaceFlex.Rules(model.Flex, StudioFlexRules.Resting(model.Flex))
+                : new float[model.Flex.Descriptors.Count];
             face = FaceFlex.Deltas(model.Flex, weights, weights, model.VertexCount) is { } deltas
                 ? FaceFlex.InBufferOrder(deltas, model.CornerVertex, order)
                 : null;
@@ -609,7 +612,17 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return face;
     }
 
-    private static string RestingKey(SceneProp prop) => (prop.AttachedTo is null ? "0:" : "1:") + prop.ModelPath;
+    private static string RestingKey(SceneProp prop) => (IsCBaseFlex(prop) ? "1:" : "0:") + prop.ModelPath;
+
+    /// <summary>Whether a prop with no player face behind it is still a <c>C_BaseFlex</c>: a worn item or a corpse.</summary>
+    private static bool IsCBaseFlex(SceneProp prop) => prop.AttachedTo is not null || prop.FaceOf is not null;
+
+    /// <summary>
+    /// Whether an entity is a player and alive now (<c>C_TFRagdoll::SetupWeights</c> asks <c>IsAlive()</c>): null for an
+    /// entity that is not a player — a class model placed by a map is a prop, not a face. Unset, every class model is
+    /// taken for a player and every corpse's player for dead.
+    /// </summary>
+    public Func<int, bool?>? PlayerAlive { get; set; }
 
     /// <summary>Each TF player's face, by entity index, with the model it was reset for.</summary>
     private readonly Dictionary<int, (string Model, ActorFace Face)> _faces = [];
@@ -634,25 +647,29 @@ public sealed class EntityModelSet : Hud.IMdlCache
 
         if (prop.FaceOf is { } dead)
         {
+            // `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes the corpse's own face (c_tf_player.cpp:630).
+            if (PlayerAlive?.Invoke(dead) == true)
+            {
+                return null;
+            }
+
             actor = dead;
+
+            // A player who died before the first frame drawn has no face yet; the corpse wears their class model, so
+            // the face is that model's (only when absent: a living player's own draw keeps it current).
+            if (!_faces.ContainsKey(actor))
+            {
+                EnsureFace(actor, prop.ModelPath, seconds);
+            }
         }
         else if (prop.BoneMerged && prop.AttachedTo is { } parent && _faces.ContainsKey(parent))
         {
             actor = parent;
         }
-        else if (IsPlayerModel(prop) && _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? own))
+        else if (IsPlayerModel(prop) && (PlayerAlive is null || PlayerAlive(prop.EntityIndex) is not null))
         {
             actor = prop.EntityIndex;
-
-            if (!_faces.TryGetValue(actor, out (string Model, ActorFace Face) known) ||
-                !string.Equals(known.Model, prop.ModelPath, StringComparison.OrdinalIgnoreCase) ||
-                seconds < known.Face.LastSeconds)
-            {
-                // `C_TFPlayer::OnNewModel` resets the face; a seek back starts it again too (interpolated: the engine
-                // never plays a demo backwards).
-                _faces[actor] = (prop.ModelPath, new ActorFace(own.Flex, own.Flex.ModelName, Faces));
-                _delays.Remove(actor);
-            }
+            EnsureFace(actor, prop.ModelPath, seconds);
         }
         else
         {
@@ -671,6 +688,28 @@ public sealed class EntityModelSet : Hud.IMdlCache
             Faces?.Voices(actor, seconds) ?? []);
 
         return face.Face.Global;
+    }
+
+    /// <summary>A player's face for a model: kept while the model holds, reset when it changes or the clock runs back.</summary>
+    private void EnsureFace(int actor, string modelPath, double seconds)
+    {
+        if (!_frames.TryGetValue(modelPath, out PropModels.ModelFrames? own))
+        {
+            return;
+        }
+
+        if (!_faces.TryGetValue(actor, out (string Model, ActorFace Face) known) ||
+            !string.Equals(known.Model, modelPath, StringComparison.OrdinalIgnoreCase) ||
+            seconds < known.Face.LastSeconds)
+        {
+            // `C_TFPlayer::OnNewModel` resets the face; a seek back starts it again too (interpolated: the engine
+            // never plays a demo backwards).
+            _faces[actor] = (modelPath, new ActorFace(
+                own.Flex, own.Flex.ModelName, Faces,
+                Faces?.InterpolationSeconds ?? ScenePropTrack.DelayTicksFor(IntervalPerTick) * (double)IntervalPerTick,
+                seconds));
+            _delays.Remove(actor);
+        }
     }
 
     /// <summary>A TF class model, <c>models/player/&lt;class&gt;.mdl</c> — the one shape a <c>C_TFPlayer</c> draws.</summary>

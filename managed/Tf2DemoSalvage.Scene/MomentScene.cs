@@ -391,6 +391,9 @@ public sealed class MomentScene : IGameSystemPerFrame
 
         // **Every scene and voice line in the recording, for the faces** (B513).
         _models.Faces = Appearance.Faces;
+        _models.PlayerAlive = index => players.FirstOrDefault(player => player.EntityIndex == index) is { } player
+            ? player.IsAlive
+            : null;
 
         // **And the jarate tint, resolved the same way** (B336). `CProxyUrineLevel` takes the
         // player from the entity OR from its owner — `pEntity->GetOwnerEntity()->IsPlayer()`
