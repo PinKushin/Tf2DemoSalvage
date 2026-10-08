@@ -279,7 +279,9 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - uses: ./.github/actions/tf2-server
+      # Only the projects whose tests read TF2_FOLDER (grep tests/); Scene and Animation do not.
+      - if: contains(fromJSON('["Presentation","Rendering","Content","Audio"]'), matrix.project)
+        uses: ./.github/actions/tf2-server
 
       - run: dotnet tool restore
 
@@ -324,13 +326,16 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # --since needs history to diff against (a shallow clone has no `main` to compare to).
+          fetch-depth: 0
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
         with:
           dotnet-version: '10.0.x'
 
       # Linux projects only; Viewer3D is Windows and the action is bash/apt.
-      - if: runner.os == 'Linux'
+      - if: runner.os == 'Linux' && (contains(inputs.project, 'Presentation') || contains(inputs.project, 'Rendering') || contains(inputs.project, 'Content') || contains(inputs.project, 'Audio'))
         uses: ./.github/actions/tf2-server
 
       - run: dotnet tool restore
@@ -345,7 +350,7 @@ jobs:
         run: |
           args=()
           [ -n "$MUTATE" ] && args+=(--mutate "$MUTATE")
-          [ "$SINCE" = "true" ] && args+=(--since:main)
+          [ "$SINCE" = "true" ] && args+=(--since:origin/main)
           dotnet stryker "${args[@]}"
 
       - name: Upload report
