@@ -1,6 +1,13 @@
-# Tf2DemoSalvage 0.1.0-beta.38
+# Tf2DemoSalvage 0.1.0-beta.39
 
-## Changes since 0.1.0-beta.37
+## Changes since 0.1.0-beta.38
+
+- **Models now light through their normal maps.** Players, weapons and cosmetics that have a bump map now use it
+  for their shading, highlights, rim light and environment reflections, because the viewer reads the model file's
+  tangent frame, as the game does. A cloaking spy's warp now follows the folds of his suit rather than the screen.
+  No measurable change in frame time (B512, B170, B508).
+
+## Changes in 0.1.0-beta.38
 
 - **Camera monitors now show the camera's view.** A `point_camera` feeding a screen is rendered into `_rt_Camera`
   as the game does, so for example the stage mirrors on `koth_boardwalk` show what the camera sees, including the
@@ -408,6 +415,10 @@ Each claim below is a measurement, not an expectation.
   the middle stage mirror reads the soldier (R 83 G 46) with monitors on and a dark R 18 G 21 with
   `cl_drawmonitors 0`, checked by an output-level test. The extra pass cost about 0.2 ms of a 28 ms frame, inside
   that map's run-to-run noise. Not compared with the game by eye.
+- **Model tangent frame (B512):** covered by conformance tests and the merge gate, each part reverted alone and
+  its own test reddened. On the serveme SourceTV demo, spy 7's lit pixels move with the frame (56 of 409) and his
+  cloak refraction follows it (125 of 391). Frame cost showed no difference beyond noise. Checked by eye: the owner
+  looked at a first-person capture of the f12 demo at tick 3000 on 2026-10-08 and said it looks fine.
 - **Recorder landing sounds (B172):** covered by conformance tests and the merge gate. On the 2009 badlands POV
   demo, 4 landings are predicted, each within one packet of a hard landing the server's own fall speed shows, with
   the same volume; the server made 7. Not yet checked by ear in a played demo.
@@ -455,8 +466,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Camera monitor leftovers (B511):** the room in a mirror looks darker than in the game (not measured). The
   monitor's view has no water views of its own and shows the main view's. The camera's `m_Resolution` is not read.
   `pd_circus` and `vsh_skirmish`, which also place a camera, were not checked.
-- **Cloak leftovers (B508):** the cloak's normal map uses a screen-derived frame, not mesh tangents (no model
-  draw carries tangents yet), so only the warp's direction differs. A taunt that sets a spy's invisibility is not
+- **Model lighting leftovers (B512):** the viewer applies no vertex flex at all, so flexed faces keep their
+  unflexed normals. Animated props that are baked into the map keep their bind-pose normals and tangents.
+  `$selfillumfresnel` and wrinkle maps are not ported.
+- **Cloak leftovers (B508):** A taunt that sets a spy's invisibility is not
   applied over the cloak. `vm_invis` is read uncapped for other players. A cloak tint can carry over to the next
   spy that shares the material. The cosmetics on a cloaked Your Eternal Reward corpse are not cloaked.
 - **Rope leftovers (B478):** a holiday bulb's roll uses this project's own random stream, and the pool of 500
