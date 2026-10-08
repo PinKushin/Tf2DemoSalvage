@@ -786,6 +786,45 @@ internal static class StudioLayout
     /// <summary>Byte offset of <c>vertexoffset</c>: this mesh's start within its model's vertices.</summary>
     public const int MeshVertexOffset = 12;
 
+    /// <summary>Byte offset of <c>numflexes</c> in <c>mstudiomesh_t</c> (<c>studio.h:1377</c>).</summary>
+    public const int MeshFlexCountOffset = 16;
+
+    /// <summary>Byte offset of <c>flexindex</c>, relative to the mesh (<c>studio.h:1378</c>).</summary>
+    public const int MeshFlexIndexOffset = 20;
+
+    /// <summary><c>numflexdesc</c>, <c>flexdescindex</c> (<c>studio.h:2275</c>).</summary>
+    public const int HeaderFlexDescCountOffset = 260;
+
+    /// <summary><c>numflexcontrollers</c>, then <c>flexcontrollerindex</c> (<c>studio.h:2279</c>).</summary>
+    public const int HeaderFlexControllerCountOffset = 268;
+
+    /// <summary><c>numflexrules</c>, then <c>flexruleindex</c> (<c>studio.h:2283</c>).</summary>
+    public const int HeaderFlexRuleCountOffset = 276;
+
+    /// <summary><c>flVertAnimFixedPointScale</c> (<c>studio.h:2394</c>).</summary>
+    public const int HeaderVertAnimScaleOffset = 392;
+
+    /// <summary>Bytes per <c>mstudioflexdesc_t</c>: one FACS name offset.</summary>
+    public const int FlexDescStride = 4;
+
+    /// <summary>Bytes per <c>mstudioflexcontroller_t</c>: type, name, localToGlobal, min, max.</summary>
+    public const int FlexControllerStride = 20;
+
+    /// <summary>Bytes per <c>mstudioflexrule_t</c>: flex, numops, opindex.</summary>
+    public const int FlexRuleStride = 12;
+
+    /// <summary>Bytes per <c>mstudioflexop_t</c>: op, then an int-or-float union.</summary>
+    public const int FlexOpStride = 8;
+
+    /// <summary>Bytes per <c>mstudioflex_t</c> (<c>studio.h:1144</c>): 4 + 16 + 8 + 4 + 4 + 24.</summary>
+    public const int FlexStride = 60;
+
+    /// <summary>Bytes per <c>mstudiovertanim_t</c>: index, speed, side, delta[3], ndelta[3].</summary>
+    public const int VertAnimStride = 16;
+
+    /// <summary>Bytes per <c>mstudiovertanim_wrinkle_t</c>: the above plus <c>wrinkledelta</c>.</summary>
+    public const int VertAnimWrinkleStride = 18;
+
     /// <summary>Bytes per <c>mstudiovertex_t</c> in a VVD.</summary>
     public const int VertexStride = 48;
 

@@ -526,7 +526,7 @@ public sealed class SceneImage
     /// </remarks>
     private string? SequenceIn(
         ReadOnlyMemory<byte> vcd, List<SceneEvent>? into, out bool complete, out int stopped,
-        out bool overflowed)
+        out bool overflowed, List<SceneCurveSample>? sceneRamp = null)
     {
         EngineBuffer buffer = new(vcd.Span);
 
@@ -565,7 +565,9 @@ public sealed class SceneImage
             buffer.Byte();                                // the actor's active flag
         }
 
-        Ramp(ref buffer);
+        // Read unconditionally: `?.` would skip the argument, and the cursor with it.
+        List<SceneCurveSample> lastRamp = Ramp(ref buffer);
+        sceneRamp?.AddRange(lastRamp);
         buffer.Byte();                                    // m_bIgnorePhonemes
 
         overflowed = buffer.Overflowed;
@@ -598,7 +600,7 @@ public sealed class SceneImage
             buffer.Short();                           // parameters 2
             buffer.Short();                           // parameters 3
 
-            Ramp(ref buffer);
+            List<SceneCurveSample> ramp = Ramp(ref buffer);
 
             buffer.Byte();                            // flags
             buffer.Float();                           // distance to target
@@ -622,7 +624,7 @@ public sealed class SceneImage
                 buffer.Short();                       // and its wav
             }
 
-            Flex(ref buffer);
+            List<SceneFlexTrack> tracks = Flex(ref buffer);
 
             // **The two per-type trailers, and they are why this walk cannot stop early.** A `LOOP`
             // writes its count and a `SPEAK` its caption type, token and flags after the flex
@@ -641,7 +643,7 @@ public sealed class SceneImage
 
             string named = Pooled(parameters, ParametersBuffer);
 
-            into?.Add(new SceneEvent(type, start, end, named, began));
+            into?.Add(new SceneEvent(type, start, end, named, began) { Ramp = ramp, FlexTracks = tracks });
 
             if (found is null && type is Gesture or Sequence && named.Length > 0)
             {
@@ -657,15 +659,18 @@ public sealed class SceneImage
     /// (<c>choreoevent.cpp:4362</c>), so a ramp of 259 samples reads as 3 and the rest of the scene
     /// is read from the wrong offsets, in TF2 and here.
     /// </remarks>
-    private static void Ramp(ref EngineBuffer buffer)
+    private static List<SceneCurveSample> Ramp(ref EngineBuffer buffer)
     {
         int count = buffer.Byte();
+        List<SceneCurveSample> ramp = new(count);
 
         for (int sample = 0; sample < count; sample++)
         {
-            buffer.Float();
-            buffer.Byte();
+            float time = buffer.Float();
+            ramp.Add(new SceneCurveSample(time, buffer.Byte() / 255f));
         }
+
+        return ramp;
     }
 
     /// <summary>A tag list: a count, then a pooled name and a percentage each.</summary>
@@ -700,38 +705,47 @@ public sealed class SceneImage
     /// <c>RestoreFlexAnimationsFromBuffer</c> reads them (<c>choreoevent.cpp:4473</c>, <c>:4486</c>):
     /// <c>GetShort</c> then <c>GetUnsignedShort</c>. A first count past 32,767 reads no samples.
     /// </remarks>
-    private static void Flex(ref EngineBuffer buffer)
+    private List<SceneFlexTrack> Flex(ref EngineBuffer buffer)
     {
         int tracks = buffer.Byte();
+        List<SceneFlexTrack> read = new(tracks);
 
         for (int track = 0; track < tracks; track++)
         {
-            buffer.Short();                           // name, pooled
+            // `char name[ 256 ]` (choreoevent.cpp:4461).
+            string name = Pooled(buffer.Short(), 256);
 
             int flags = buffer.Byte();
 
-            buffer.Float();                           // min
-            buffer.Float();                           // max
+            float min = buffer.Float();
+            float max = buffer.Float();
 
-            FlexSamples(ref buffer, buffer.Short());
+            List<SceneFlexSample> samples = FlexSamples(ref buffer, buffer.Short());
 
             // **`IsComboType` is bit 1 of the flags**, and a combo track carries a second sample
             // list. Missing it puts the cursor into the middle of the next track.
-            if ((flags & 0x02) != 0)
-            {
-                FlexSamples(ref buffer, buffer.UnsignedShort());
-            }
+            List<SceneFlexSample> balance = (flags & 0x02) != 0
+                ? FlexSamples(ref buffer, buffer.UnsignedShort())
+                : [];
+
+            read.Add(new SceneFlexTrack(name, (flags & 0x01) != 0, (flags & 0x02) != 0, min, max, samples, balance));
         }
+
+        return read;
     }
 
     /// <summary>Flex samples: a float time, a byte value and an unsigned short curve type each.</summary>
-    private static void FlexSamples(ref EngineBuffer buffer, int count)
+    private static List<SceneFlexSample> FlexSamples(ref EngineBuffer buffer, int count)
     {
+        List<SceneFlexSample> samples = new(Math.Max(count, 0));
+
         for (int sample = 0; sample < count; sample++)
         {
-            buffer.Float();
-            buffer.Byte();
-            buffer.UnsignedShort();
+            float time = buffer.Float();
+            float value = buffer.Byte() / 255f;
+            samples.Add(new SceneFlexSample(time, value, buffer.UnsignedShort()));
         }
+
+        return samples;
     }
 }
