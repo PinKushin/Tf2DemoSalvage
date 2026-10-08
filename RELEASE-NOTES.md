@@ -1,6 +1,12 @@
-# Tf2DemoSalvage 0.1.0-beta.37
+# Tf2DemoSalvage 0.1.0-beta.38
 
-## Changes since 0.1.0-beta.36
+## Changes since 0.1.0-beta.37
+
+- **Camera monitors now show the camera's view.** A `point_camera` feeding a screen is rendered into `_rt_Camera`
+  as the game does, so for example the stage mirrors on `koth_boardwalk` show what the camera sees, including the
+  recorder's own player. `cl_drawmonitors 0` in your config turns it off, as in the game (B511).
+
+## Changes in 0.1.0-beta.37
 
 - **Every spy now cloaks the way the game draws it.** Cloak and Dagger (the watch whose cloak fades with how fast
   the spy moves) now applies to every spy, not only the recorder. The recorder's own weapons also stay pinned at
@@ -398,6 +404,10 @@ Each claim below is a measurement, not an expectation.
   the install's schema); the probe over eleven local matches found Cloak and Dagger on spies in eight and 39 Dead
   Ringer corpses, none cloaked. **No demo we hold has a Your Eternal Reward victim or the Halloween stealth
   spell, so those two were not checked on a real demo.** Not yet compared with the game by eye.
+- **Camera monitors (B511):** covered by conformance tests and the merge gate. On the `koth_boardwalk` specimen,
+  the middle stage mirror reads the soldier (R 83 G 46) with monitors on and a dark R 18 G 21 with
+  `cl_drawmonitors 0`, checked by an output-level test. The extra pass cost about 0.2 ms of a 28 ms frame, inside
+  that map's run-to-run noise. Not compared with the game by eye.
 - **Recorder landing sounds (B172):** covered by conformance tests and the merge gate. On the 2009 badlands POV
   demo, 4 landings are predicted, each within one packet of a hard landing the server's own fall speed shows, with
   the same volume; the server made 7. Not yet checked by ear in a played demo.
@@ -440,8 +450,11 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
 - **Some model refract materials still show the checkerboard** (B506): the 13 HL2 and test materials that use
-  `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. Not checked on a real
-  demo.
+  `$envmap` or `_rt_Camera`. `$nowritez` and `$bumptransform` are not applied on models. None of the 242 maps we
+  hold places a model that uses them, so stock TF2 maps never show it; a community map might.
+- **Camera monitor leftovers (B511):** the room in a mirror looks darker than in the game (not measured). The
+  monitor's view has no water views of its own and shows the main view's. The camera's `m_Resolution` is not read.
+  `pd_circus` and `vsh_skirmish`, which also place a camera, were not checked.
 - **Cloak leftovers (B508):** the cloak's normal map uses a screen-derived frame, not mesh tangents (no model
   draw carries tangents yet), so only the warp's direction differs. A taunt that sets a spy's invisibility is not
   applied over the cloak. `vm_invis` is read uncapped for other players. A cloak tint can carry over to the next
