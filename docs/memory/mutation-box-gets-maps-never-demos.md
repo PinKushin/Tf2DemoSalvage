@@ -5,6 +5,8 @@ metadata:
   type: project
 ---
 
+**The box is gone (D212, 2026-10-08); the rule now applies to the hosted runners in `.github/workflows/mutation.yml`.**
+
 Owner: *"we can give the mut runs a real map if we need to, we have the space, but what we cant do is
 give it real demos, they take too long to mut test. The map parsing is bound, while demos are not."*
 Then: *"giving it a real map, means giving it all the vpks... but i might have been underestimating

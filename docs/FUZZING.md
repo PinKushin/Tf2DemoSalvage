@@ -248,7 +248,8 @@ being re-found rather than re-fixed.
 | 2026-08-11 | `snappy` | Declared length overflow in the stream header | `SnappyTests` |
 | 2026-08-11 | `snappy` | **Literal length accumulated signed, so a fourth byte ≥ 0x80 goes negative** | `SnappyTests.ALiteralLengthWithItsTopBitSet_IsRejectedRatherThanGoingNegative` |
 
-The third one is the most instructive, and it was found in under sixty seconds on `fuzz-box`.
+The third one is the most instructive, and it was found in under sixty seconds on `fuzz-box`
+(gone, D212; the fuzz workflow now runs these targets: `.github/workflows/fuzz.yml`).
 A negative length is not a large length: every guard around it was written against a value that
 is too big, and a negative satisfies all of them — the bounds check sees a *smaller* index, and
 the output-capacity check is false for anything below zero. It survived to `Slice`, which threw
