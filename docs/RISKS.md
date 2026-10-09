@@ -36291,7 +36291,11 @@ health cross ("260 : GUMMO"). The viewer draws a timer bar at the top and a name
 56-67 /255 mean across the f12 cases. Crop: `docs/findings/76-golden/b516-60000-hud.png`. Which of TF2's panels are
 `.res`-driven and which are closed is findings 64's question; read that before building.
 
-## B517 — `--help` documents `TF2VIEW_WINDOW_SIZE` as "width height"; only `WIDTHxHEIGHT` is read — OPEN 2026-10-09
+## B517 — `--help` documents `TF2VIEW_WINDOW_SIZE` as "width height"; only `WIDTHxHEIGHT` is read — CLOSED 2026-10-09
+
+**Closed by fixing the help, not the parser** — the UI suite and scripts already use `WIDTHxHEIGHT` and `X,Y`. The
+same page also said `"x y"` for `TF2VIEW_WINDOW_POS`, which splits on a comma; both lines now carry an example, and
+`HelpTests` asserts each example parses through `WindowGeometry`. The 296x169 frame allowance is stated there too.
 
 *Measured.* `TF2VIEW_WINDOW_SIZE="1280 720"` is silently ignored (`WindowGeometry.Size` splits on `x`), so a script
 following the help gets the default window. Also worth saying there: the value is the WINDOW, and the frame adds
