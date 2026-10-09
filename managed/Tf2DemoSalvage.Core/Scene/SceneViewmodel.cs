@@ -51,6 +51,7 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// The held weapon's attribute inputs, from the entity <c>m_hWeapon</c> names, or <c>null</c> when
 /// it has none (B252).
 /// </param>
+/// <param name="OwnerFlipsViewModels">The owner's <c>m_bFlipViewModels</c>, or null when no owner is named (B515).</param>
 public readonly record struct SceneViewmodel(
     string ModelPath,
     int Sequence,
@@ -67,7 +68,12 @@ public readonly record struct SceneViewmodel(
     // Null when the viewmodel names no weapon or that weapon carries no attributes — the arms
     // themselves never have any. Rides here so the first-person weapon prop can answer
     // `IsFestivized` and the attachments delegate exactly as its world twin does.
-    EconAttributeWire? WeaponEcon = null)
+    EconAttributeWire? WeaponEcon = null,
+
+    // **The owner's `m_bFlipViewModels`** (B515) — the server's copy of their `cl_flipviewmodels`, which
+    // `TeamFortress_ShouldFlipClientViewModel` reads for a spectated player (`c_baseviewmodel.cpp:96`). Null when the
+    // viewmodel names no owner (a point-of-view recording), where the WATCHER's own setting decides instead.
+    bool? OwnerFlipsViewModels = null)
 {
     /// <summary>The slot TF2 puts the weapon in the player's hands in.</summary>
     public const int MainHand = 0;

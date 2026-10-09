@@ -21669,8 +21669,7 @@ goal so a big-head effect does not inflate the chain hanging off it. Nothing her
 bone matrix, so there is nothing to divide out — this becomes a real gap the moment a model-scale
 effect is applied per bone rather than per entity.
 
-**`ShouldFlipViewModel`** is passed as false, since this viewer implements no left-handed viewmodel.
-When it does, the flag arrives at one call site.
+**`ShouldFlipViewModel`** is passed through since B515 (`SkeletonPose.Flipped`).
 
 **The six debug overlays**, which draw through an interface the SDK ships no implementation of.
 
@@ -36274,7 +36273,20 @@ plain in ours (`docs/findings/76-golden/b514-free-91000-sky.png`: TF2 | ours | d
 `b514-60000-world.png`. **Not yet separated:** HDR exposure state (D192; TF2's is whatever its seek left), sun glare /
 bloom, and the sun's light itself. Read the exposure and bloom path before measuring further.
 
-## B515 — a left-handed player's viewmodel is drawn right-handed — OPEN 2026-10-09
+## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
+
+**Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
+is the weapon's `m_bFlipViewModel` (its item's `flip_viewmodel`, `econ_item_schema.cpp:3169` — the Huntsman alone)
+XOR the client preference: the spectated player's `m_bFlipViewModels` when the local player observes (always on STV),
+else the watcher's own `cl_flipviewmodels` (`c_baseviewmodel.cpp:96-109, 215-236`). The flip is
+`ApplyBoneMatrixTransform` — a reflection through the player view's forward/up plane — on ROOT bones only
+(`c_baseanimating.cpp:1599-1603`), so children, the merged `c_` weapon and every attachment (muzzle, tracer start)
+follow; the cull reverses (`c_baseviewmodel.cpp:374`, `econ_entity.cpp:860`); jiggle takes the flag (`:1586`).
+Implemented as `ViewmodelFlip`, `SkeletonPose.RootReflection`/`Flipped`, `SceneViewmodel.OwnerFlipsViewModels`,
+`ItemSchema.FlipsViewmodel` and the `cl_flipviewmodels` setting. Viewmodel-region error, f12 in-eye, before → after:
+45000 (viewer 44900) 75.5 → 25.9, 60000 64.6 → 30.9, 75000 72.5 → 31.7, 91000 92.1 → 24.8 /255 (findings 76).
+**Not reproduced:** a POV recorder who is himself spectating in-eye takes the watcher's setting here, because a POV
+viewmodel names no owner; the engine would take the target's. The original report follows.
 
 *Measured by the golden comparison; read from published source.* gummo in f12 plays with `cl_flipviewmodels 1`: TF2,
 spectating him in-eye, draws his rocket launcher on the LEFT; we draw it on the right, which is why the viewmodel

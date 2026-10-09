@@ -128,6 +128,9 @@ internal static class SyntheticPlayer
                 Float("m_flHeadScale", low: 0f, high: 8f, bits: 16),
                 Float("m_flTorsoScale", low: 0f, high: 8f, bits: 16),
                 Float("m_flHandScale", low: 0f, high: 8f, bits: 16),
+
+                // `SendPropBool( SENDINFO( m_bFlipViewModels ) )` — the player's `cl_flipviewmodels` (B515).
+                UnsignedInt("m_bFlipViewModels", bits: 1),
                 Table("baseplayer", "DT_BasePlayer"),
                 .. ExclusiveTables(origin).Select(exclusive => Table(exclusive.Property, exclusive.Table)),
             ]),
@@ -2650,6 +2653,7 @@ internal static class SyntheticPlayer
     /// The same second tick, but with the off hand's MODEL cleared to index 0 rather than flagged.
     /// The other way a viewmodel leaves the screen, and a separate chance to get it wrong.
     /// </param>
+    /// <param name="ownerFlips">Send the player's <c>m_bFlipViewModels</c> as 1 (B515).</param>
     public static byte[] DemoWithViewmodel(
         int? owner,
         int? offHandModelIndex = null,
@@ -2657,22 +2661,27 @@ internal static class SyntheticPlayer
         bool secondUnowned = false,
         bool offHandHidden = false,
         bool offHandHiddenLater = false,
-        bool offHandStowedLater = false)
+        bool offHandStowedLater = false,
+        bool ownerFlips = false)
     {
         DemoSchema schema = SchemaWithViewmodel();
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
-        DecodedEntity player = Entity(
-            decoder,
-            PlayerClassId,
-            1,
-            new Dictionary<string, PropertyValue>
-            {
-                ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
-                ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
-                ["m_lifeState"] = PropertyValue.FromInt(0),
-            });
+        Dictionary<string, PropertyValue> playerProperties = new()
+        {
+            ["m_vecOrigin"] = PropertyValue.FromVectorXY(0f, 0f),
+            ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+            ["m_lifeState"] = PropertyValue.FromInt(0),
+        };
+
+        // Sent only when set, as a delta-compressed false is never sent at all.
+        if (ownerFlips)
+        {
+            playerProperties["m_bFlipViewModels"] = PropertyValue.FromInt(1);
+        }
+
+        DecodedEntity player = Entity(decoder, PlayerClassId, 1, playerProperties);
 
         List<DecodedEntity> entities =
         [

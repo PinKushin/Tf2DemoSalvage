@@ -38,7 +38,7 @@ layer". A mask built from our render would hide exactly the divergence it is mea
 2. `demo_gototick` is not instant here: it fast-forwards with frames drawn. A capture one second after it was mid-seek.
    Waiting on a quiet log, then two captures that agree, is the arrival condition.
 3. The viewer's `TF2VIEW_WINDOW_SIZE="1280 720"` was silently ignored — `--help` documents `width height`, the parser
-   reads `WIDTHxHEIGHT` (B517). And the window is not the viewport: the frame adds 296 x 169 at every size measured,
+   reads `WIDTHxHEIGHT` (B517, since closed by correcting the help). And the window is not the viewport: the frame adds 296 x 169 at every size measured,
    so 1576x889 is what yields 1280x720.
 
 ## Pinned cvars (TF2 side), and what they were
@@ -108,6 +108,22 @@ Sky mean RGB where present: 60000 106 108 129 → 80 73 83; 75000 177 189 206 �
 3. **The STV spectator HUD is a different HUD.** TF2 draws the tournament spectator HUD (both teams' player panels with
    health and respawn timers, the control-point row, the target ID with health cross); we draw a timer bar and a name
    plate. Filed **B516**.
+
+### After B515: the viewmodel on the right side
+
+*Measured, 2026-10-09, branch `fix/b515-flip-viewmodels`, against the SAME stored TF2 captures (live TF2 was not
+driven).* Only the viewer side was re-shot, at the same ticks, args and window as above.
+
+| case | viewmodel before → after | summary before → after | viewmodel mean RGB tf2 / ours after |
+|---|---|---|---|
+| 45000 (viewer 44900) | 75.5 → **25.9** | 46.0 → 38.3 | 96 88 80 / 85 79 72 |
+| 60000 | 64.6 → **30.9** | 52.5 → 48.0 | 101 94 87 / 93 86 81 |
+| 75000 | 72.5 → **31.7** | 38.0 → 31.5 | 51 50 45 / 74 70 64 |
+| 91000 | 92.1 → **24.8** | 68.4 → 58.2 | 103 94 84 / 98 89 79 |
+
+World and HUD moved too (by 1-6), because a weapon drawn on the wrong side covered world pixels TF2 showed and left
+bare ones TF2 covered. What remains in the viewmodel region is mostly the landing-tick offset below — a weapon mid-
+animation at a different moment — and B514's lighting; nothing in it is handedness.
 
 ### The instrument's open fault: TF2 lands earlier than the tick asked for
 

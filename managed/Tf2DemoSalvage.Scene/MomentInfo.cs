@@ -63,6 +63,7 @@ namespace Tf2DemoSalvage.Scene;
 /// exists because the CALLER happened to know the answer is the coupling this record was created to
 /// remove.**
 /// </remarks>
+/// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
 public readonly record struct MomentInfo(
     double Tick,
     int CurrentTick,
@@ -101,7 +102,10 @@ public readonly record struct MomentInfo(
     float ServerTime = 0f,
 
     // `m_halloweenScenario` — Hightower's stealth spell caps a cloak even for its enemies (c_tf_player.cpp:6849).
-    int HalloweenScenario = 0)
+    int HalloweenScenario = 0,
+
+    // The watcher's own `cl_flipviewmodels` (B515), which decides when no spectated player's preference does.
+    bool FlipViewModels = false)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

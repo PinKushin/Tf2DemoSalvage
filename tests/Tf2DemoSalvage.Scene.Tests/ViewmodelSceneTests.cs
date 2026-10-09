@@ -283,6 +283,72 @@ public sealed class ViewmodelSceneTests
         scene.Props.Select(prop => prop.EntityIndex).Distinct().Count().ShouldBe(3);
     }
 
+    [Test]
+    public void Build_AnOwnerWhoFlipsViewmodels_FlipsTheArmsAndTheWeapon()
+    {
+        // **B515.** The owner's networked `m_bFlipViewModels` is the spectated player's preference
+        // (`TeamFortress_ShouldFlipClientViewModel`, `c_baseviewmodel.cpp:96`), and the watcher's own
+        // setting says the opposite here so a rule reading the wrong one fails.
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels
+            {
+                MainHand = Weapon("models/weapons/c_models/c_soldier_arms.mdl") with { OwnerFlipsViewModels = true },
+            },
+            Tick,
+            Player,
+            At,
+            hands: "models/weapons/c_models/c_soldier_arms.mdl",
+            heldWeapon: "models/weapons/c_models/c_rocketlauncher.mdl",
+            watcherFlips: false);
+
+        scene.Props.Count.ShouldBe(2);
+        scene.Props.ShouldAllBe(prop => prop.FlipViewModel);
+    }
+
+    [Test]
+    public void Build_ALeftHandedItemForAnOwnerWhoFlips_DoesNotFlip()
+    {
+        // The Huntsman (`flip_viewmodel 1`) for a left-handed player: the two mirrors cancel.
+        ViewmodelSceneResult scene = new ViewmodelScene().Build(
+            new FakeViewmodels
+            {
+                MainHand = Weapon("models/weapons/c_models/c_sniper_arms.mdl") with { OwnerFlipsViewModels = true, WeaponItem = 56 },
+            },
+            Tick,
+            Player,
+            At,
+            hands: "models/weapons/c_models/c_sniper_arms.mdl",
+            heldWeapon: "models/weapons/c_models/c_bow/c_bow.mdl",
+            itemFlips: item => item == 56);
+
+        scene.Props.ShouldAllBe(prop => !prop.FlipViewModel);
+    }
+
+    [Test]
+    public void Build_AViewmodelNamingNoOwnersPreference_TakesTheWatchers()
+    {
+        // A point-of-view recording names no owner, so `cl_flipviewmodels` — the watcher's — decides.
+        ViewmodelSceneResult flipped = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { OwnerEntityIndex = null } },
+            Tick,
+            Player,
+            At,
+            hands: null,
+            heldWeapon: null,
+            watcherFlips: true);
+
+        ViewmodelSceneResult plain = new ViewmodelScene().Build(
+            new FakeViewmodels { MainHand = Weapon("models/weapons/v_rocketlauncher.mdl") with { OwnerEntityIndex = null } },
+            Tick,
+            Player,
+            At,
+            hands: null,
+            heldWeapon: null);
+
+        flipped.Props[0].FlipViewModel.ShouldBeTrue();
+        plain.Props[0].FlipViewModel.ShouldBeFalse();
+    }
+
     private static ViewmodelPlacement At => new(0f, 0f, 0f, 0f, 0f, 0f);
 
     private static SceneViewmodel Weapon(string path, int sequence = 0) =>

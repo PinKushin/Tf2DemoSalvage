@@ -624,6 +624,7 @@ public readonly record struct ScenePose
 /// renderable rather than per entity — sets it again on each of that corpse's worn items.
 /// </para>
 /// </param>
+/// <param name="FlipViewModel">Whether this viewmodel prop is drawn left-handed — <c>ShouldFlipViewModel</c> (B515).</param>
 /// <param name="FirstTick">
 /// The tick this entity first existed, carried for corpses and null everywhere else (B58).
 /// <para>
@@ -817,7 +818,11 @@ public sealed record SceneProp(
 
     // **Whose face a corpse draws** (B513): `C_TFRagdoll::SetupWeights` hands its flex to the dead player's own
     // `SetupWeights` (`c_tf_player.cpp:626`). The player's entity index; null for everything else.
-    int? FaceOf = null);
+    int? FaceOf = null,
+
+    // **A left-handed viewmodel** (B515): `C_BaseViewModel::ShouldFlipViewModel`, decided by `ViewmodelFlip.ShouldFlip`.
+    // True only on `ViewmodelScene`'s props; the bones are mirrored in view space and the cull reversed.
+    bool FlipViewModel = false);
 
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.

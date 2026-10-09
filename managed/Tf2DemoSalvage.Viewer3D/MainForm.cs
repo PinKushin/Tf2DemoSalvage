@@ -2554,7 +2554,10 @@ internal class MainForm : Form, IFrameSteps
                 // **Paused draws a different pose, not a frozen one** (B399). The engine clears
                 // `s_bInterpolate` while paused, so the transport's own state decides whether the
                 // sampler interpolates at all.
-                _transport.Playing));
+                _transport.Playing,
+
+                // The watcher's `cl_flipviewmodels` (B515).
+                _settings.FlipViewModels));
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it

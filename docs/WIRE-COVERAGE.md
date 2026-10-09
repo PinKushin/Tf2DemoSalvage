@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**313 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**314 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -80,12 +80,12 @@ m_hUseEntity, m_hVehicle, m_hViewModel, m_hZoomOwner, m_iBonusChallenge, m_iBonu
 
 ### DT_TFPlayer
 
-**16 of 44** mentioned.
+**17 of 44** mentioned.
 
 Not mentioned anywhere in a shipped assembly:
 
 ```
-m_AttributeManager, m_PlayerClass, m_Shared, m_bArenaSpectator, m_bFlipViewModels, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flHelpmeButtonPressTime, m_flInspectTime, m_flMvMLastDamageTime, m_flTauntYaw, m_hHighFivePartner, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartState, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
+m_AttributeManager, m_PlayerClass, m_Shared, m_bArenaSpectator, m_bForcedSkin, m_bGlowEnabled, m_bIsABot, m_bIsReadyToHighFive, m_bRegenerating, m_bSaveMeParity, m_bUseBossHealthBar, m_bUsingActionSlot, m_bUsingVRHeadset, m_bViewingCYOAPDA, m_flHelpmeButtonPressTime, m_flInspectTime, m_flMvMLastDamageTime, m_flTauntYaw, m_hHighFivePartner, m_hOffHandWeapon, m_hRagdoll, m_hSecondaryLastWeapon, m_iCampaignMedals, m_iKartState, m_nBotSkill, m_nForceTauntCam, m_nForcedSkin
 ```
 
 ### DT_TFPlayerShared
