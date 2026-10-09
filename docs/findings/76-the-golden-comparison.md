@@ -125,6 +125,73 @@ World and HUD moved too (by 1-6), because a weapon drawn on the wrong side cover
 bare ones TF2 covered. What remains in the viewmodel region is mostly the landing-tick offset below — a weapon mid-
 animation at a different moment — and B514's lighting; nothing in it is handedness.
 
+### B514: the outdoor gap is bloom and exposure, not lighting
+
+*Measured, 2026-10-09, branch `fix/b514-outdoor-brightness`, against the SAME stored TF2 captures; live TF2 was not
+running and was not driven, so no new TF2 capture exists. Engine behaviour read from published source except where
+marked.* "Before" is main at 88916034 re-shot (the free-camera shot reproduces the stored one to the digit, 52.580 —
+the viewer is deterministic); "after" is this branch.
+
+**The instrument grew one column.** `golden-compare` now prints, per region, the ratio of mean LINEAR luminance
+TF2/ours over pixels clipped in neither capture, and each side's clipped share. An exposure difference is one
+multiplier in linear light across world and sky; a lighting difference is world-only; a sky-texture one sky-only.
+
+**Separating the four candidates, on the free camera (no timing in it):**
+
+| candidate | test | result |
+|---|---|---|
+| (d) sun / lightmaps / ambient | the sky has no lighting at all; is it short by the world's factor? | yes — 1.56 sky vs 1.54 world (linear). Not a world-only term |
+| (c) the sky texture's HDR scale | the same comparison read the other way | the world is short too, so not sky-only |
+| (b) bloom | read `GetBloomAmount`, `Generate8BitBloomTexture` | missing entirely, and large: on a flat 0.5-linear frame bloom 0.5 adds 48 levels (`BloomRenderTests`). TF2 clips 69.5% of the sky; we clipped 0.1% |
+| (a) auto-exposure | read `viewpostprocess.cpp` and the controller | the map pins the range to `[0.5, 0.7]`, so it can only DARKEN relative to a scale of 1 — the opposite of the gap. Left open (below) |
+
+**What the engine does, branch by branch** (*read from published source*):
+
+- `C_EnvTonemapController::OnDataChanged` copies all seven fields to the `g_bUseCustom*`/`g_flCustom*` globals and
+  claims `g_hTonemapControllerInUse`; its destructor clears the three flags only (`c_env_tonemap_controller.cpp:70-96`).
+  cp_process_f12 has one controller per round: tick 1 (and 347, 41686, 47773, 56070, 75982, 100887 in `f12.dem`) it is
+  0.5 / 0.7 / bloom 0.5, and at each round restart the old one is deleted and a fresh all-zero one sends for thirteen
+  ticks before the map's `logic_auto` re-applies the values (*measured*, `autoexposure f12`). **So for thirteen ticks a
+  round, exposure and bloom fall back to the cvars** — a mapper's choice no viewer of the map would guess.
+- `GetBloomAmount` (`:1421-1468`) walks `currentBloomAmount` toward the controller's scale (or `mat_bloomscale` 1) by
+  5% of the gap per FRAME, from a static of 1 that is never reset — frame-rate dependent as written.
+- `Generate8BitBloomTexture` (`:1522-1598`): a quarter-size downsample whose four taps are `pow(c, 2.2) · dot(c, (0.3,
+  0.59, 0.11))` on GAMMA values (`Downsample_nohdr_ps2x.fxc`, sRGB read off on Windows), a 13-tap horizontal blur, the
+  same vertically times the bloom amount. **The vertical blur steps one over the target's WIDTH**
+  (`BlurFilterY.cpp:88-89`: `int height = src_texture->GetActualWidth()`), so on a 16:9 screen it reaches 56% as far
+  as the horizontal one. A Valve bug, kept: it is what TF2 draws, and `BloomRenderTests` pins it with a sabotage that
+  turned it red (9 vs 0 at 32 px on a 2:1 frame; 7 vs 7 when "fixed").
+- **Interpolated: the add.** `engine_post`'s source is not published; this adds in gamma, as the 2007 `bloomadd` did.
+
+**Before → after, all five stored cases** (per-region mean error /255; world mean RGB, TF2 in brackets):
+
+| case | summary | world | sky | world mean ours | linear world TF2/ours |
+|---|---|---|---|---|---|
+| 45000 (viewer 44900) | 38.2 → 41.8 | 38.3 → 42.6 | — | 111 106 96 → 123 116 105 (102 96 85) | 0.90 → 0.80 |
+| 60000 | 48.0 → 45.3 | 49.0 → 45.6 | 51.9 → 51.4 | 77 73 77 → 84 80 83 (109 104 104) | 2.06 → 1.92 |
+| 75000 | 31.5 → 31.9 | 26.0 → 26.3 | 107.3 → 102.7 | 83 83 76 → 91 90 82 (88 89 82) | 1.15 → 0.99 |
+| 91000 | 57.6 → 57.2 | 57.6 → 58.1 | 82.9 → 69.4 | 110 103 104 → 127 119 118 (142 132 123) | 1.29 → 1.04 |
+| free 91000 | 52.6 → 46.1 | 50.9 → 44.5 | 52.8 → 24.7 | 105 98 99 → 120 111 111 (142 132 126) | 1.54 → 1.18 |
+
+Free-camera sky mean: 143 156 180 → 171 191 212 against TF2's 188 210 233. The in-eye rows still carry the landing-tick
+offset below; 60000 most of all.
+
+**What is left is exposure, and the one number that would settle it is closed.** With the range pinned at
+`[0.5, 0.7]`, TF2 at its brightest draws 0.7 of its unscaled light — yet outdoors it is still 1.18× ours after bloom,
+and indoors at 45000 now 0.80×. Both fit TF2's unscaled light being roughly 1.5-2× the viewer's, with the auto-exposure
+then putting indoor scenes near the floor and outdoor ones nearer the ceiling. That factor would live in what the
+shader API loads into `cLightScale.x` (`LINEAR_LIGHT_SCALE`, `common_ps_fxc.h:50`) under `HDR_TYPE_INTEGER`, which is
+`shaderapidx9.dll` and unpublished. **The auto-exposure itself is ported as an instrument**, not into the renderer:
+`AutoExposure` (the histogram's sixteen `(i/16)^1.5` bins over the centre 90 × 85%, the 2%-at-60% target with its
+sticky bin, the 3% average floor, the ten-frame history weighted `|i - 5| / 5`, `:615-713`, `:1130-1182`) and the
+`autoexposure` probe, which replays it on a stored frame. At a factor of 1 the viewer's frames settle at 0.646 (45000)
+and 0.700 (75000, 60000, free) in the linear read. *Interpolated*: which space `dev/lumcompare` samples, and how the
+current scale walks to the goal — both in closed code.
+
+**Wrong turn, kept**: the first reading of the free camera's equal sky and world ratios was "exposure, so port the
+exposure". The controller's 0.7 ceiling killed it: a scale capped below 1 cannot brighten. The equal ratios were bloom
+— an add that, over a mostly bright frame, looks like a multiplier.
+
 ### The instrument's open fault: TF2 lands earlier than the tick asked for
 
 *Measured, interpolation flagged.* At the free camera, the camera IS gummo's eye as TF2 reported it (`spec_pos` the

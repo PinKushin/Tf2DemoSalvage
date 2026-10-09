@@ -114,6 +114,19 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private string? _captureTo;
     private ComPtr<ID3D11RenderTargetView> _backBufferView;
 
+    /// <summary>A plain-UNORM view of the back buffer: the bloom is added to the stored gamma values (B514).</summary>
+    private ComPtr<ID3D11RenderTargetView> _gammaView;
+
+    private BloomRenderer? _bloom;
+
+    private readonly BloomAmount _bloomAmount = new();
+
+    /// <summary>The map's <c>env_tonemap_controller</c> overrides in force (B514), set per frame beside the fog.</summary>
+    public Core.Scene.SceneTonemap Tonemap { get; set; }
+
+    /// <summary>Whether the post-processing has settled, which a comparison capture waits for (D192).</summary>
+    public bool PostProcessingSettled => _bloomAmount.Settled;
+
     /// <summary>Depth buffer, so a roof covers the floor beneath it rather than the draw order.</summary>
     /// <remarks>
     /// **Batching by material destroyed the ordering the flat fill relied on.** That version sorted
@@ -1577,6 +1590,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 {
                     _world.DrawScreenOverlay(_context, screenOverlay, _world.Seconds);
                 }
+
+                // **`DoEnginePostProcessing`, after the overlay and before the HUD** (viewrender.cpp:2194): the bloom
+                // (B514). The HUD is drawn after it, so the HUD neither blooms nor is bloomed over.
+                float bloom = _bloomAmount.Next(
+                    _world.HdrType != Content.Bsp.HdrType.None, Tonemap.UseBloom, Tonemap.Bloom);
+
+                if (bloom > 0f)
+                {
+                    DrawBloom(bloom);
+                }
             }
             else
             {
@@ -1651,6 +1674,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         }
     }
 
+    /// <summary>Runs <see cref="BloomRenderer"/> over the back buffer, then puts the frame's target and viewport back.</summary>
+    private void DrawBloom(float amount)
+    {
+        SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0u, out ComPtr<ID3D11Texture2D> back));
+
+        try
+        {
+            _bloom ??= BloomRenderer.Create(_device);
+            _bloom.Draw(_device, _context, back, _gammaView, _width, _height, amount);
+        }
+        finally
+        {
+            back.Dispose();
+        }
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+        WorldRenderer.ResetBlend(_context);
+    }
+
     /// <summary>Rebuilds the back buffer at a new size.</summary>
     /// <param name="width">New width in pixels.</param>
     /// <param name="height">New height in pixels.</param>
@@ -1672,6 +1716,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         _backBufferView.Dispose();
         _backBufferView = default;
+        _gammaView.Dispose();
+        _gammaView = default;
         ReleaseDepth();
 
         SilkMarshal.ThrowHResult(_swapChain.ResizeBuffers(
@@ -4190,6 +4236,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _depthOn.Dispose();
         _depthOff.Dispose();
         _backBufferView.Dispose();
+        _gammaView.Dispose();
+        _bloom?.Dispose();
         _swapChain.Dispose();
         _context.Dispose();
         _device.Dispose();
@@ -4233,6 +4281,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
         ComPtr<ID3D11RenderTargetView> view = default;
         SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(buffer, in description, ref view));
+
+        RenderTargetViewDesc gamma = description with { Format = Silk.NET.DXGI.Format.FormatB8G8R8A8Unorm };
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(buffer, in gamma, ref _gammaView));
 
         buffer.Dispose();
         _backBufferView = view;
