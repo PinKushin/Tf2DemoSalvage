@@ -1,0 +1,244 @@
+using System;
+using System.Linq;
+
+namespace Tf2DemoSalvage.Probe.Probes;
+
+/// <summary>TF2's auto-exposure: the tone-map scale the main view's shaders multiply by (B514, D192).</summary>
+/// <remarks>
+/// **An instrument, not the renderer's** — it lives with the <c>autoexposure</c> probe because B514 found the viewer's
+/// indoor frames already match TF2's on f12, where the map pins the range to <c>[0.5, 0.7]</c> — consistent only with
+/// TF2's unscaled light being about twice ours and settling at the 0.5 floor (findings 76) — so production does not
+/// run it. Porting it into the renderer waits on the one factor
+/// it cannot account for: what <c>cLightScale.x</c> is under <c>HDR_TYPE_INTEGER</c> in the closed shader API.
+///
+///
+/// A port of <c>viewpostprocess.cpp</c> with <c>mat_tonemap_algorithm 1</c>, TF2's (only dod, cstrike, lostcoast and hl1
+/// are forced to 0, `:836` — and its loop reads three of the four). Every number is Valve's:
+///
+/// - **The histogram**: sixteen luminance bins with edges <c>(i/16)^1.5</c>, the last capped bin counting everything
+///   above 1 (`:426`, `:877-882`), over the centre of the view — <c>mat_exposure_center_region_x/y</c> 0.9 / 0.85 skip
+///   5% and 7.5% at each edge (`:449-453`). Luminance is <c>luminance_compare_ps2x.fxc</c>'s 0.2125 0.7154 0.0721.
+/// - **The target**: where the brightest <c>mat_tonemap_percent_bright_pixels</c> (2%) begin should sit at
+///   <c>mat_tonemap_percent_target</c> (60%); if that border is already in the bin holding 60% the scale is held
+///   (the "sticky bin"); a dark frame whose median sits under <c>mat_tonemap_min_avglum</c> (3%) is lifted to it
+///   instead; and the frame was drawn at last frame's scale, so the result multiplies it (`:615-713`).
+/// - **The range**: <c>mat_autoexposure_min/max</c> 0.5 / 2, unless an <c>env_tonemap_controller</c> set a positive
+///   one (`GetExposureRange`, `:778-812`).
+/// - **The goal**: a ten-entry history whose weighted average, clamped, is the goal (<c>SetToneMapScale</c>,
+///   `:1130-1182`) — the weights are <c>|i - 5| / 5</c>, oldest and newest heaviest, as written.
+///
+/// **Interpolated: how the CURRENT scale walks to the goal.** That lives in the closed material system
+/// (<c>SetGoalToneMappingScale</c>); this approaches it at <see cref="RatePerSecond"/>. A settled frame — the only kind
+/// a comparison capture uses (D192) — does not depend on it.
+///
+/// **Interpolated: which space the histogram reads.** <c>dev/lumcompare</c>'s sampler state is in the closed
+/// shader DLL. The probe reads both; on f12 they differ only in how bright a frame must be to reach the 0.5 floor.
+/// </remarks>
+public sealed class AutoExposure
+{
+    /// <summary><c>N_LUMINANCE_RANGES_NEW - 1</c>: the bins that hold pixels.</summary>
+    public const int Bins = 16;
+
+    /// <summary><c>mat_tonemap_percent_target</c>.</summary>
+    public const float PercentTarget = 60f;
+
+    /// <summary><c>mat_tonemap_percent_bright_pixels</c>.</summary>
+    public const float PercentBrightPixels = 2f;
+
+    /// <summary><c>mat_tonemap_min_avglum</c>.</summary>
+    public const float MinAverageLuminance = 3f;
+
+    /// <summary><c>mat_autoexposure_min</c>.</summary>
+    public const float DefaultMin = 0.5f;
+
+    /// <summary><c>mat_autoexposure_max</c>.</summary>
+    public const float DefaultMax = 2f;
+
+    /// <summary><c>mat_exposure_center_region_x</c>.</summary>
+    public const float CentreRegionX = 0.9f;
+
+    /// <summary><c>mat_exposure_center_region_y</c>.</summary>
+    public const float CentreRegionY = 0.85f;
+
+    /// <summary>How far the current scale moves toward the goal per second, as a fraction (interpolated, above).</summary>
+    public const float RatePerSecond = 1f;
+
+    private const int History = 10;
+
+    /// <summary>The seventeen bin edges, computed once: a counter over a million pixels cannot afford the powers.</summary>
+    private static readonly float[] Edges = [.. System.Linq.Enumerable.Range(0, Bins + 1).Select(i => MathF.Pow(i / (float)Bins, 1.5f))];
+
+    private readonly float[] _history = new float[History];
+
+    private int _inHistory;
+
+    /// <summary>The scale the shaders use now, <c>GetToneMappingScaleLinear().x</c>.</summary>
+    public float Current { get; private set; } = 1f;
+
+    /// <summary>The goal the current scale walks toward.</summary>
+    public float Goal { get; private set; } = 1f;
+
+    /// <summary>Lower edge of bin <paramref name="bin"/>, <c>m_min_lum</c>.</summary>
+    /// <param name="bin">0 to 15.</param>
+    /// <returns>The edge.</returns>
+    public static float BinMin(int bin) => MathF.Pow(bin / (float)Bins, 1.5f);
+
+    /// <summary>Upper edge of bin <paramref name="bin"/>, <c>m_max_lum</c>.</summary>
+    /// <param name="bin">0 to 15.</param>
+    /// <returns>The edge.</returns>
+    public static float BinMax(int bin) => MathF.Pow((bin + 1) / (float)Bins, 1.5f);
+
+    /// <summary>Adds one pixel to the histogram as the occlusion queries count it.</summary>
+    /// <param name="counts">Sixteen counts.</param>
+    /// <param name="luminance">The pixel's luminance as drawn.</param>
+    /// <remarks>
+    /// <c>step(min, L) * step(L, max)</c> is inclusive at both edges, so a pixel exactly on an edge counts in both
+    /// bins, as the queries count it; the top bin's ceiling is 10000, so everything clipped lands there.
+    /// </remarks>
+    public static void Count(Span<int> counts, float luminance)
+    {
+        for (int bin = 0; bin < Bins; bin++)
+        {
+            float max = bin == Bins - 1 ? 10000f : Edges[bin + 1];
+
+            if (luminance >= Edges[bin] && luminance <= max)
+            {
+                counts[bin]++;
+            }
+        }
+    }
+
+    /// <summary><c>FindLocationOfPercentBrightPixels</c>: the luminance where the brightest percentage begins.</summary>
+    /// <param name="counts">Sixteen counts.</param>
+    /// <param name="percentBright">The percentage, 0-100.</param>
+    /// <param name="snapTarget">A target percentage to hold at if the border is in its bin, or negative for none.</param>
+    /// <returns>The location, 0-1, or -1 for an empty histogram.</returns>
+    public static float LocationOfPercentBrightPixels(ReadOnlySpan<int> counts, float percentBright, float snapTarget = -1f)
+    {
+        long total = 0;
+
+        foreach (int count in counts[..Bins])
+        {
+            total += count;
+        }
+
+        if (total == 0)
+        {
+            return -1f;
+        }
+
+        float rangeTested = 0f;
+        float pixelsTested = 0f;
+
+        for (int bin = Bins - 1; bin >= 0; bin--)
+        {
+            float needed = (percentBright / 100f) - pixelsTested;
+            float share = counts[bin] / (float)total;
+            float range = BinMax(bin) - BinMin(bin);
+
+            if (share >= needed)
+            {
+                if (snapTarget >= 0f && BinMin(bin) <= snapTarget / 100f && BinMax(bin) >= snapTarget / 100f)
+                {
+                    return snapTarget / 100f;
+                }
+
+                float border = 1f - (rangeTested + (range * (needed / share)));
+
+                return Math.Clamp(border, BinMin(bin), BinMax(bin));
+            }
+
+            pixelsTested += share;
+            rangeTested += range;
+        }
+
+        return -1f;
+    }
+
+    /// <summary><c>GetTargetTonemapScalar</c>: the scale this histogram asks for, before clamping.</summary>
+    /// <param name="counts">Sixteen counts of a frame drawn at <paramref name="lastScale"/>.</param>
+    /// <param name="lastScale">The scale the frame was drawn at.</param>
+    /// <returns>The target.</returns>
+    public static float TargetScalar(ReadOnlySpan<int> counts, float lastScale)
+    {
+        float location = LocationOfPercentBrightPixels(counts, PercentBrightPixels, PercentTarget);
+
+        if (location < 0f)
+        {
+            location = PercentTarget / 100f;
+        }
+
+        float target = (PercentTarget / 100f) / MathF.Max(0.0001f, location);
+        float average = LocationOfPercentBrightPixels(counts, 50f);
+
+        if (average > 0f)
+        {
+            target = MathF.Max(target, (MinAverageLuminance / 100f) / average);
+        }
+
+        return MathF.Max(0.001f, target * lastScale);
+    }
+
+    /// <summary><c>GetExposureRange</c>: the cvars, unless a controller set a positive value.</summary>
+    /// <param name="useMin">The controller overrides the minimum.</param>
+    /// <param name="min">Its minimum.</param>
+    /// <param name="useMax">The controller overrides the maximum.</param>
+    /// <param name="max">Its maximum.</param>
+    /// <returns>The range, min never above max.</returns>
+    public static (float Min, float Max) Range(bool useMin, float min, bool useMax, float max)
+    {
+        float low = useMin && min > 0f ? min : DefaultMin;
+        float high = useMax && max > 0f ? max : DefaultMax;
+
+        return (low, MathF.Max(low, high));
+    }
+
+    /// <summary>One frame of <c>DoPreBloomTonemapping</c> and <c>SetToneMapScale</c>, then the walk toward the goal.</summary>
+    /// <param name="counts">The histogram of the frame just drawn at <see cref="Current"/>.</param>
+    /// <param name="range">The exposure range.</param>
+    /// <param name="seconds">Seconds since the last update.</param>
+    public void Update(ReadOnlySpan<int> counts, (float Min, float Max) range, float seconds)
+    {
+        float target = Math.Clamp(TargetScalar(counts, Current), range.Min, range.Max);
+        target = MathF.Max(0.001f, target);
+
+        Goal = target;
+
+        if (_inHistory < History)
+        {
+            _history[_inHistory++] = target;
+        }
+        else
+        {
+            Array.Copy(_history, 1, _history, 0, History - 1);
+            _history[^1] = target;
+        }
+
+        if (_inHistory == History)
+        {
+            float sum = 0f;
+            float weights = 0f;
+
+            for (int i = 0; i < History; i++)
+            {
+                float weight = Math.Abs(i - (History / 2)) * (1f / (History / 2));
+                weights += weight;
+                sum += weight * _history[i];
+            }
+
+            Goal = Math.Clamp(sum / weights, range.Min, range.Max);
+        }
+
+        float step = Math.Clamp(seconds * RatePerSecond, 0f, 1f);
+        Current += (Goal - Current) * step;
+    }
+
+    /// <summary><c>ResetToneMapping</c>: a cut — the history empties and the scale jumps.</summary>
+    /// <param name="value">The scale.</param>
+    public void Reset(float value)
+    {
+        _inHistory = 0;
+        Current = value;
+        Goal = value;
+    }
+}

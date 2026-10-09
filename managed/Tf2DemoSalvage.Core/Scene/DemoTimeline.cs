@@ -1990,6 +1990,9 @@ public sealed class DemoTimeline
     /// <summary>The <c>point_camera</c> whose view is in <c>_rt_Camera</c>, tick by tick (B511).</summary>
     public PointCameraFeed PointCameras { get; private init; } = new();
 
+    /// <summary>The <c>env_tonemap_controller</c> overrides the client holds, tick by tick (B514).</summary>
+    public TonemapFeed Tonemap { get; private init; } = new();
+
     /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
     private const string MedigunClass = "CWeaponMedigun";
 
@@ -2583,6 +2586,7 @@ public sealed class DemoTimeline
         RopeImpulseFeed ropeImpulses = new();
         EntityDormancy dormancy = new();
         PointCameraFeed pointCameras = new();
+        TonemapFeed tonemap = new();
 
         List<TimelineFrame> frames = [];
 
@@ -3092,6 +3096,10 @@ public sealed class DemoTimeline
                         entity.EntityIndex,
                         entities.TryGet(entity.EntityIndex, out EntityState? observed) ? observed?.ClassName ?? string.Empty : string.Empty,
                         entity.UpdateType);
+                    tonemap.Observe(
+                        entity.EntityIndex,
+                        entities.TryGet(entity.EntityIndex, out EntityState? controller) ? controller : null,
+                        entity.UpdateType);
 
                     touchedEntities.Add(entity.EntityIndex);
 
@@ -3235,6 +3243,7 @@ public sealed class DemoTimeline
             ViewFog viewFog = ViewFog.From(entities);
 
             // The camera `DrawMonitors` would leave in `_rt_Camera` after this packet (B511), on change.
+            tonemap.Sample(command.Tick);
             pointCameras.Sample(
                 command.Tick,
                 index => entities.TryGet(index, out EntityState? camera) ? camera : null,
@@ -3996,6 +4005,7 @@ public sealed class DemoTimeline
             RopeImpulses = ropeImpulses,
             Dormancy = dormancy,
             PointCameras = pointCameras,
+            Tonemap = tonemap,
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,
