@@ -1,6 +1,16 @@
-# Tf2DemoSalvage 0.1.0-beta.39
+# Tf2DemoSalvage 0.1.0-beta.40
 
-## Changes since 0.1.0-beta.38
+## Changes since 0.1.0-beta.39
+
+- **TF2 faces now move.** Taunt and voice-line scene expressions and flex animations drive the face as the game
+  does, and a voice line's sentence data lip-syncs the mouth. Overlapping scenes blend, faces keep running while
+  off-screen so they are right when they come into view, and a respawned player's corpse shows its own face. Flexed
+  vertices also move their normals and tangents, so the lighting follows (B513).
+- **Cached sound lengths were doubled and are now correct.** The sample rate of a cached sound was read at the
+  wrong bit, which halved the rate and doubled every length. Sounds that end by length now end on time.
+- Measurement runs moved to GitHub Actions (D212). Nothing changes for users.
+
+## Changes in 0.1.0-beta.39
 
 - **Models now light through their normal maps.** Players, weapons and cosmetics that have a bump map now use it
   for their shading, highlights, rim light and environment reflections, because the viewer reads the model file's
@@ -415,6 +425,11 @@ Each claim below is a measurement, not an expectation.
   the middle stage mirror reads the soldier (R 83 G 46) with monitors on and a dark R 18 G 21 with
   `cl_drawmonitors 0`, checked by an output-level test. The extra pass cost about 0.2 ms of a 28 ms frame, inside
   that map's run-to-run noise. Not compared with the game by eye.
+- **Face flex (B513):** covered by conformance tests and the merge gate, each part reverted alone and its test
+  reddened. Medic 687 flex animation on `koth_product` (medic 12: 3,785 vertices differ from the no-animation
+  control); scout voice-line lip sync on granary 2013 (2,548 vertices differ from the no-sentence control); soldier
+  laugh taunt (7,965 to 8,105 vertices moving, furthest 1.79 units, none before the scene); spy corpse 24 wears its
+  own face. Frame cost showed no difference beyond noise. Not compared with the game by eye.
 - **Model tangent frame (B512):** covered by conformance tests and the merge gate, each part reverted alone and
   its own test reddened. On the serveme SourceTV demo, spy 7's lit pixels move with the frame (56 of 409) and his
   cloak refraction follows it (125 of 391). Frame cost showed no difference beyond noise. Checked by eye: the owner
@@ -466,9 +481,7 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 - **Camera monitor leftovers (B511):** the room in a mirror looks darker than in the game (not measured). The
   monitor's view has no water views of its own and shows the main view's. The camera's `m_Resolution` is not read.
   `pd_circus` and `vsh_skirmish`, which also place a camera, were not checked.
-- **Model lighting leftovers (B512):** the viewer applies no vertex flex at all, so flexed faces keep their
-  unflexed normals. Animated props that are baked into the map keep their bind-pose normals and tangents.
-  `$selfillumfresnel` and wrinkle maps are not ported.
+- **Model lighting leftovers (B512):** `$selfillumfresnel` is not ported.
 - **Cloak leftovers (B508):** A taunt that sets a spy's invisibility is not
   applied over the cloak. `vm_invis` is read uncapped for other players. A cloak tint can carry over to the next
   spy that shares the material. The cosmetics on a cloaked Your Eternal Reward corpse are not cloaked.
