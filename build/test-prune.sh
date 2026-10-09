@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RETIRED: the Oracle measurement boxes were disabled 2026-10-08 and dropped (D212). Kept for reference, not run.
 # Proves the run-directory prune deletes only this project's runs, and only the excess.
 #
 # The prune function is EXTRACTED from run-measurements.sh rather than restated here. A test that

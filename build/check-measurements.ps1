@@ -1,3 +1,4 @@
+# RETIRED: the Oracle measurement boxes were disabled 2026-10-08 and dropped (D212). Kept for reference, not run.
 <#
 .SYNOPSIS
     Tf2DemoSalvage: are OUR measurement runs still happening, and what did they score?

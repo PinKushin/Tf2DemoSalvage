@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# RETIRED: the Oracle measurement boxes were disabled 2026-10-08 and dropped (D212). Kept for reference, not run.
 # Proves the box lock survives the runner's own re-exec, and still refuses a real second holder.
 #
 # The lock function is EXTRACTED from run-measurements.sh rather than restated, as test-prune.sh does:

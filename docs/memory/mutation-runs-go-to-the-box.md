@@ -5,6 +5,8 @@ metadata:
   type: feedback
 ---
 
+**The box is gone (D212, 2026-10-08): "the box" now means `.github/workflows/mutation.yml` (dispatch with `project=`).**
+
 2026-10-03: a local `dotnet stryker --mutate **/EntityModels.cs` held the desktop lock for hours; the UI and playback
 gates and another agent queued behind it. Owner: *"that run will take forever locally, unless its extreamly narrow
 scoped, you verify that by waiting on a box run, or running it manuall on the box if nothing is running or would

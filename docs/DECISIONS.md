@@ -9614,3 +9614,64 @@ Which protocols have specimens is a fact in `docs/TIMELINE.md`, never a test gat
 by a protocol RANGE is fine — that is the wire format; a closed set of accepted values is not. A grep of
 `tests/`, `managed/` and `tools/` found no other closed set (the list was the only `ShouldBeOneOf` over a
 protocol, and nothing in Core refuses or skips an unlisted protocol).
+
+## D212 — the Oracle measurement boxes are gone; mutation and fuzzing run as scheduled GitHub Actions workflows (2026-10-08)
+
+**Trigger.** Oracle disabled both measurement boxes (`mutation-box`: 3 OCPU / 18 GB, `fuzz-box`: 1 OCPU /
+6 GB, 47 GB boot volume each) at the end of the free trial on 2026-10-08. All usage was inside Always
+Free. Support was unreachable past an AI bot.
+
+**Owner, verbatim:** *"all my stuff is public, and no I DONT WANT TO PAY AT ALL. the reason i dont put
+my CC into oracle is because this CS is so bad, its pissed me off so much I dont even wwant to deal with
+them anymore."*
+
+**Decision.** Everything the boxes ran moves to scheduled workflows on GitHub-hosted runners, which are
+free for a public repository. Paid hosting is not an option and is not to be proposed.
+
+- `.github/workflows/fuzz.yml`: a Saturday `0 8 * * 6` schedule carries the long budgets (container and
+  snappy 4 h, netmessage 2 h); the nightly run keeps the short ones. `netmessage`, `voiceopus`,
+  `voicecelt` and `voicespeex` join the matrix; the voice targets also instrument `Audio.dll`, which they
+  decode entirely inside (the Core-only run grew nothing).
+- `.github/workflows/mutation.yml`: a weekly `projects` job covers Scene, Presentation, Rendering,
+  Animation, Content and Audio.
+- `build/run-measurements.sh`, `check-measurements.ps1`, `install-measurement-check-task.ps1`,
+  `test-box-lock.sh` and `test-prune.sh` are marked retired and kept for reference. Nothing in
+  `build/gate.sh` or `test.yml` depends on a box.
+
+**What is lost, measured 2026-10-08** (`dotnet test` on a hosted ubuntu runner after installing the TF2
+dedicated server with SteamCMD, `.github/actions/tf2-server`; TF2_FOLDER at its `tf` directory). The
+server is 15 GB (`tf` 14 GB), too large for the 10 GB Actions cache, so it is downloaded each run:
+about 4-6 minutes, and the runner had 93 GB free afterwards. SteamCMD failed its first install on 3 of
+4 parallel runners with "Missing configuration" and succeeded on retry. The server carries no
+`tf2_textures_*.vpk` and no client models, and the runner has no OpenAL, Direct3D, Source SDK checkout or
+native celt/speex/silk:
+
+| project | tests | skipped | failed |
+|---|---:|---:|---:|
+| Presentation | 605 | 0 | 0 |
+| Audio | 295 | 38 | 16 |
+| Content | 1636 | 200 | 10 |
+| Rendering | 1018 | 336 | 32 |
+
+**Follow-up, same day: the environment was provided, not skipped** (coordinator decision: a test that
+needs real data gets it; failures are never converted to skips). `.github/actions/test-env` builds the
+native voice codecs with `tools/native-audio/build.sh`, installs OpenAL Soft with `ALSOFT_DRIVERS=null`,
+clones `ValveSoftware/source-sdk-2013` to `SOURCE_SDK`, and fetches the one committed demo
+(`z1800.dem`) a Rendering test reads. Remeasured:
+
+| project | tests | skipped | failing | what remains |
+|---|---:|---:|---:|---|
+| Presentation | 605 | 0 | 0 | |
+| Audio | 295 | 14 | 1 | `tf2_sound_misc_003.vpk` absent |
+| Content | 1636 | 70 | 10 | `tf2_textures_*.vpk` absent |
+| Rendering | 1018 | 186 | 31 | materials unresolved, `tf2_textures_*.vpk` absent |
+
+Every remaining failure is client-only content: the dedicated server ships the archive directories but
+not the data archives, and app 440 needs a logged-in account, which this project never uses. That is
+the accepted known loss. Skips left are Direct3D (64+ in Rendering), Windows-only tests, diagnostics
+marked to run deliberately, and tests that need a map the server lacks. No real defect turned up.
+**Correction to the first draft of this entry:** a failing baseline does not abort Stryker; it logs
+"N tests are failing. Stryker will continue but outcome will be impacted" and runs on. Baselines were
+confirmed with dispatch runs mutating one small file per project. The Oracle box had the owner's full
+install under `~/tf2-data`, so these projects' mutation scores are understated meanwhile: the failing
+tests are failing against every mutant.

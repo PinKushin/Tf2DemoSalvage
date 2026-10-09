@@ -7,6 +7,10 @@ the half that happens to run without a 20 MB demo or an 8.2 GB game install.**
 Status lives in the session task list; this file holds the reasoning, the measurements, and the
 decisions, so a later session does not re-derive them.
 
+> **The boxes are gone (D212, 2026-10-08).** Mutation and fuzzing run as scheduled GitHub Actions
+> workflows: `.github/workflows/mutation.yml` and `.github/workflows/fuzz.yml`. What follows is
+> history.
+
 ## Where it stands (measured 2026-08-18)
 
 `mutation-box` runs exactly one mode for this repo: `core`, nightly at 09:00. Everything else is

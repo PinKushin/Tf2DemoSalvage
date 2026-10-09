@@ -20,6 +20,9 @@ on:
   schedule:
     # 05:00 UTC daily, before the mutation run so the two never contend for a runner.
     - cron: '0 5 * * *'
+    # Saturday: the long budgets the Oracle fuzz-box used to run (container/snappy 4 h, netmessage
+    # 2 h, per build/run-measurements.sh); D212.
+    - cron: '0 8 * * 6'
   workflow_dispatch:
     inputs:
       seconds:
@@ -36,7 +39,8 @@ jobs:
   fuzz:
     name: ${{ matrix.target }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # 4 h fuzz + minimise; 6 h is GitHub's ceiling.
+    timeout-minutes: ${{ github.event.schedule == '0 8 * * 6' && 330 || 30 }}
     strategy:
       # One job per target so the dashboard names which decoder failed, and so one crashing
       # target does not hide the other's result.
@@ -53,10 +57,23 @@ jobs:
           # above which merely stay inside a fixed contract.
           - target: container
             seconds: '600'
+            weekly: '14400'
           - target: snappy
             seconds: '600'
+            weekly: '14400'
+          # Box-only targets moved here (D212). netmessage fronts every message decoder; the voice
+          # targets are native decoders behind a thin managed wrapper, so they saturate fast.
+          - target: netmessage
+            seconds: '600'
+            weekly: '7200'
+          - target: voiceopus
+            seconds: '600'
+          - target: voicecelt
+            seconds: '600'
+          - target: voicespeex
+            seconds: '600'
     env:
-      MAX_TOTAL_TIME: ${{ inputs.seconds || matrix.seconds }}
+      MAX_TOTAL_TIME: ${{ inputs.seconds || (github.event.schedule == '0 8 * * 6' && matrix.weekly) || matrix.seconds }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -124,6 +141,15 @@ jobs:
           # The only proof instrumentation actually happened. Without it the fuzzer runs happily
           # and explores nothing, which looks identical to a clean run.
           test "$after" -gt "$before"
+          # The voice targets decode entirely inside Audio, so Core alone gives libFuzzer no signal
+          # (build/run-measurements.sh: voiceopus did 1.07M executions and grew nothing).
+          if [[ "${{ matrix.target }}" == voice* ]]; then
+            before=$(stat -c%s publish/Tf2DemoSalvage.Audio.dll)
+            sharpfuzz publish/Tf2DemoSalvage.Audio.dll
+            after=$(stat -c%s publish/Tf2DemoSalvage.Audio.dll)
+            echo "Audio.dll $before -> $after bytes"
+            test "$after" -gt "$before"
+          fi
 
       - name: Restore fuzz corpus
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
