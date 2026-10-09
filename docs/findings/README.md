@@ -251,6 +251,10 @@ in any public writeup found:
   read the blink controller; taunt and voice scenes move faces through `EXPRESSION` events and their `.vfe` settings,
   run through the model's flex rules and added to position, normal and tangent before skinning
   ([75](75-a-tf2-face-is-the-scene-not-the-wire.md)).
+- **The golden comparison runs.** Real TF2 driven to a tick through the MCP and the viewer's `--shot`, diffed per
+  region with masks taken from TF2 itself: two TF2 captures of one tick agree to under 1/255, a 5° camera error costs
+  35. Against that, outdoors we are 25-35% darker, a left-handed player's viewmodel is on the wrong side, and the STV
+  spectator HUD is a different HUD ([76](76-the-golden-comparison.md)).
 
 ## Conventions used throughout
 

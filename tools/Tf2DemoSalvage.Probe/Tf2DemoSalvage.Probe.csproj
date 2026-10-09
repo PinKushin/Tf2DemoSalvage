@@ -48,6 +48,10 @@
     <!-- Audio, for the voice decoders `decode-census` runs: the same Speex, CELT and Opus
          wrappers the corpus voice tests call. Plain net10.0. -->
     <ProjectReference Include="../../managed/Tf2DemoSalvage.Audio/Tf2DemoSalvage.Audio.csproj" />
+
+    <!-- Render, for PngWriter: `golden-compare` (B161) writes its diff and crops with the same
+         encoder the viewer's own captures use. Plain net10.0. -->
+    <ProjectReference Include="../../managed/Tf2DemoSalvage.Render/Tf2DemoSalvage.Render.csproj" />
   </ItemGroup>
 
   <!--
