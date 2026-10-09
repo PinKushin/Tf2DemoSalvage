@@ -91,7 +91,7 @@ public sealed class SentenceTests
 
         b.Write(Encoding.ASCII.GetBytes(name + "\0"));
         b.Write(0);
-        b.Write(22050 << 15);
+        b.Write(22050 << 14);
         b.Write((byte)(sentence ? 1 : 0));
         b.Write(0);
         b.Write(0);

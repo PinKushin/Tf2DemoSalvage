@@ -36234,8 +36234,19 @@ no-animation control) and `FaceCorpseDemoTests` (corpse 24 at 22364: own face; r
 **Frame cost** (same run as above, 2026-10-08): moment rebuild 30.8 ms against 31.2 on main 8f63dde3 (pose rest 8.3
 against 8.1), `draw` 0.7–0.9 against 0.6–0.8 — no difference beyond noise.
 
-**Remaining, named:** the mouth's speaker entity (`SND_SPEAKER`) is not decoded, and a sound the cache lists no length
-for never ends by itself — both **interpolated**; the face steps only on frames its entity is drawn, where the engine's
-client-side latch runs every frame.
+**Last pass, 2026-10-08 — the three named above, CLOSED** (findings 75): every player's face does its frame's
+bookkeeping whether drawn or not — the latch, the history and each scene's clock (`UpdateClientSideAnimations` walks the
+whole list, `c_baseanimating.cpp:6372`); only `SetupGlobalWeights` waits for a draw. The speaker entity
+(`soundinfo.h:366`, read on every protocol, cleared by a stop) was already decoded and is now carried: the mouth is the
+speaker's when named (`engine.dll` `0x180046cf0`), and a stop reaches every mouth its entity has fed — 0 of 1,129,637
+sounds across all 69 corpus demos name one (*measured*, `flex speakers`). A sound the cache does not count ends at its
+file's own length (`SoundLength`: a wave's `data` over its block size, an MP3's frames): the cache's 2,815 WAV counts
+agree within half a millisecond, and 300 voice MP3s agree with a full decode (*measured*, `flex lengths`); the engine
+caches no MP3 count at all (`0x180047c80` stores the rate and the file size) and frees the channel when the decoder runs
+dry. **Correction found by that control:** the cache's sample rate is `info >> 14 & 0x1ffff` (`0x18004f870`), not `>> 15`
+— the remainder pass halved every cached rate and doubled every sentence length. **Evidence:** `FaceDriverConformanceTests`
+(+2, 16), `FaceFlexTests` (+3), `SoundLengthTests` (4). **Frame cost** (same run, main 92dbf9a9): moment rebuild 35.2 ms
+against 38.0, `simulate` 5.9 against 1.8 (the every-frame stepping lives there), `rest` 7.9 against 16.0 — within the
+run-to-run swing.
 
 **Owner-visible:** taunting and talking players' faces now move — a laughing soldier opens his mouth.
