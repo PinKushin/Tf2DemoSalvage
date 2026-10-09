@@ -1402,6 +1402,15 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // downstream has to know where a wearer stands — see D88 and finding 35 section 7a.
             posed.EntityTransform = PlacementOf(prop);
 
+            // **B515: a left-handed viewmodel's mirror, on its ROOT bones** — `C_BaseViewModel::ApplyBoneMatrixTransform`
+            // through the player's view. Not on a bone-merged `c_` weapon: its merged bones arrive mirrored, and
+            // `C_ViewmodelAttachmentModel` inherits the base body, which mirrors nothing. Its jiggle still takes the
+            // flag, through `C_BaseAnimating::ShouldFlipViewModel`'s parent walk (`c_baseanimating.cpp:2097`).
+            posed.RootReflection = prop.FlipViewModel && prop.AttachedTo is null && ViewmodelProjection is { } view
+                ? ViewmodelFlip.Reflection(view.Eye, view.Right)
+                : null;
+            posed.Flipped = prop.FlipViewModel;
+
             // **IsEnabled first, because the KEY allocates.** `path + "#skin"` builds a string per
             // prop per frame before the set is even consulted, and this sits in Simulate, which
             // walks every prop (B191).
@@ -6155,7 +6164,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
                 // different from "not on fire" when the engine does not.
                 Burn: BurnLevel?.Invoke(prop) ?? 0f,
                 Urine: UrineTint?.Invoke(prop) ?? (1f, 1f, 1f),
-                Mirrored: false,
+
+                // `CullMode( MATERIAL_CULLMODE_CW )` around a flipped viewmodel's draw (`c_baseviewmodel.cpp:374`), B515.
+                Mirrored: prop.FlipViewModel,
                 Origin: origin,
 
                 // Only a brush entity has one; everything else answers null (B219).
@@ -6254,7 +6265,9 @@ public sealed class EntityModelSet : Hud.IMdlCache
                     SkinSwap(attachment, skin),
                     attachedParts?.BodyParts,
                     prop.Pose.Body,
-                    Mirrored: false,
+
+                    // Drawn from the item's `OnPostInternalDrawModel`, inside the cull its item set (B515).
+                    Mirrored: prop.FlipViewModel,
                     Origin: origin,
                     Tint: EntityTint(attachment),
                     Locals: locals,

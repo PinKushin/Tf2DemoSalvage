@@ -1398,7 +1398,11 @@ public sealed class MomentScene : IGameSystemPerFrame
                 // followed player's (B242). In first person the viewer follows the recording's own
                 // camera and `info.Followed` is null, so `held` is null and passing its team passed
                 // nothing at all. The viewmodel knows who owns it; ask about that entity.
-                entity => TeamOf(entity, players));
+                entity => TeamOf(entity, players),
+
+                // B515: the watcher's `cl_flipviewmodels`, and each item's own `flip_viewmodel`.
+                info.FlipViewModels,
+                item => Weapons.Items?.FlipsViewmodel(item) ?? false);
 
         if (scene.Props.Count == 0)
         {

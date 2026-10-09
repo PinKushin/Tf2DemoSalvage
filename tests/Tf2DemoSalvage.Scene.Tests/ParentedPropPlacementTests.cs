@@ -207,6 +207,10 @@ public sealed class ParentedPropPlacementTests
 
                 // **`FaceOf` (B513)**: only a corpse draws another entity's face; null is "its own", true elsewhere.
                 nameof(SceneProp.FaceOf),
+
+                // **`FlipViewModel`** (B515): `ViewmodelScene`'s three set it; every other site is not a
+                // viewmodel, and `ShouldFlipViewModel` is false for anything that is not (`c_baseanimating.cpp:2097`).
+                nameof(SceneProp.FlipViewModel),
             ],
             ignoreOrder: true,
             "a defaulted field on SceneProp is a claim every construction site makes silently. "

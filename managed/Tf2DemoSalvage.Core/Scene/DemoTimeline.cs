@@ -4427,6 +4427,9 @@ public sealed class DemoTimeline
             or "CTFSniperRifleClassic"
             or "CTFCompoundBow";
 
+    /// <summary>`DT_TFPlayer.m_bFlipViewModels`, the player's `cl_flipviewmodels` as the server copied it (B515).</summary>
+    private const string FlipViewModelsProperty = "DT_TFPlayer.m_bFlipViewModels";
+
     private static void RecordViewmodels(
         EntityStateTable entities,
         ModelPrecache precache,
@@ -4579,18 +4582,28 @@ public sealed class DemoTimeline
                 seen ? before.AnimationStartTick : 0,
                 tick);
 
+            // **The owner's handedness, read with the sample** (B515). `m_bFlipViewModels` is the server's copy of the
+            // owner's `cl_flipviewmodels` (`tf_gamerules.cpp:10281`); unsent is the engine's false. It is not watched
+            // by the gate above: the cvar is `FCVAR_NOT_CONNECTED` (`c_baseviewmodel.cpp:44`), so it cannot change
+            // while the owner is connected, and the player's own entity arrives with it before any viewmodel sample.
+            int? owner = entity.ViewmodelOwner();
+            bool? ownerFlips = owner is { } ownerIndex && entities.TryGet(ownerIndex, out EntityState? holder)
+                ? (holder.Integer(FlipViewModelsProperty) ?? 0) != 0
+                : null;
+
             SceneViewmodel weapon = new(
                 path,
                 entity.ViewmodelSequence() ?? 0,
                 entity.ViewmodelPlaybackRate() ?? 1f,
-                entity.ViewmodelOwner(),
+                owner,
                 entity.ViewmodelSlot(),
                 entity.IsDrawn,
                 weaponItem,
                 weaponClass,
                 parity,
                 startedAt,
-                weaponEcon);
+                weaponEcon,
+                ownerFlips);
 
             // Unchanged since this entity was last sampled, so there is nothing new to record.
             if (seen && before == weapon)

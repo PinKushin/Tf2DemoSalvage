@@ -713,6 +713,15 @@ public sealed record ViewerSettings
     public const string DrawMonitorsCommand = "cl_drawmonitors";
 
     /// <summary>
+    /// The watcher's own <c>cl_flipviewmodels</c>, default 0 (`c_baseviewmodel.cpp:44`), B515. It decides only
+    /// when no spectated player's preference applies — a point-of-view recording whose recorder is not observing.
+    /// </summary>
+    public bool FlipViewModels { get; init; }
+
+    /// <summary>Command name for <see cref="FlipViewModels"/>.</summary>
+    public const string FlipViewModelsCommand = "cl_flipviewmodels";
+
+    /// <summary>
     /// Whether the local medic's beam is the `_targeted` one — <c>hud_medichealtargetmarker</c>, default <c>"0"</c>
     /// (`tf_weapon_medigun.cpp:205`), read by `CWeaponMedigun::UpdateEffects` for the local player's own beam only.
     /// </summary>
@@ -906,6 +915,11 @@ public sealed record ViewerSettings
         if (Read(values, DrawMonitorsCommand) is { } monitors)
         {
             settings = settings with { DrawMonitors = monitors != 0 };
+        }
+
+        if (Read(values, FlipViewModelsCommand) is { } flip)
+        {
+            settings = settings with { FlipViewModels = flip != 0 };
         }
 
         if (Read(values, HealTargetMarkerCommand) is { } marker)

@@ -30,6 +30,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// view is a setting. Everything else a moment needs — who is where, at what tick rate — belongs to
 /// the recording and is read from <see cref="IMomentSource"/>.
 /// </remarks>
+/// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
 public readonly record struct MomentView(
     int CurrentTick,
     bool FirstPerson,
@@ -43,7 +44,10 @@ public readonly record struct MomentView(
     // (`c_baseentity.cpp:3226`), and a paused client then draws last-received positions (B399).
     // Genuinely the window's, like the transport tick beside it: the recording cannot know whether
     // someone has pressed pause.
-    bool Playing = true);
+    bool Playing = true,
+
+    // The watcher's `cl_flipviewmodels` (B515), a setting like `r_drawviewmodel`.
+    bool FlipViewModels = false);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -245,7 +249,8 @@ public sealed class MomentPresenter
             source.Recorder,
             source.HolidayVisionFlagsAt(tick),
             source.ServerTimeAt(tick),
-            source.HalloweenScenarioAt(tick));
+            source.HalloweenScenarioAt(tick),
+            view.FlipViewModels);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

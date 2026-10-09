@@ -6,8 +6,8 @@
 #
 # Builds first (never run a stale binary), takes the machine-wide lock (the viewer takes the desktop).
 # 1576x889 is the WINDOW that yields a 1280x720 viewport: the frame adds 296 x 169 at every size
-# measured (1280x720 -> 984x551, 1700x1000 -> 1404x831). The format is WIDTHxHEIGHT; `--help` says
-# "width height", which is silently ignored. cl_showfps is forced off because the owner's settings.cfg
+# measured (1280x720 -> 984x551, 1700x1000 -> 1404x831). The format is WIDTHxHEIGHT; any other form is
+# silently ignored (B517). cl_showfps is forced off because the owner's settings.cfg
 # turns it on and the overlay would be a divergence of our own making. Recipe and pinned cvars:
 # docs/findings/76-the-golden-comparison.md.
 set -euo pipefail

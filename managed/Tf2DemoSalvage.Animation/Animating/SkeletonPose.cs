@@ -225,6 +225,22 @@ public sealed class SkeletonPose : IBonePose
     /// </remarks>
     public IReadOnlyList<float>? EntityTransform { get; set; }
 
+    /// <summary>
+    /// `ApplyBoneMatrixTransform` for a left-handed viewmodel: a row-major 3x4 the ROOT bones are
+    /// premultiplied by, or null for none (B515).
+    /// </summary>
+    /// <remarks>
+    /// Roots only, after the bone is built — `if (hdr->boneParent(i) == -1) ApplyBoneMatrixTransform(...)`
+    /// (`c_baseanimating.cpp:1599-1603`) — so children inherit it through their parent, and a bone the
+    /// merge wrote is skipped with the rest of the loop, as the engine's `continue` skips it.
+    /// </remarks>
+    public IReadOnlyList<float>? RootReflection { get; set; }
+
+    /// <summary>`ShouldFlipViewModel()`, which the jiggle simulation is handed (`c_baseanimating.cpp:1586`).</summary>
+    public bool Flipped { get; set; }
+
+    private readonly float[] _reflected = new float[12];
+
     /// <summary>The layers accumulated over the base pose, in order.</summary>
     /// <remarks>
     /// **<c>C_BaseAnimatingOverlay::AccumulateLayers</c>, in order of <c>m_nOrder</c>**
@@ -505,6 +521,12 @@ public sealed class SkeletonPose : IBonePose
             QuatInterp(bone, into, destination);
 
             Jiggle(bone, currentTime, destination);
+
+            if (rest.Parent < 0 && RootReflection is { } reflection)
+            {
+                StudioBones.Concatenate(AsSpan(reflection), destination, _reflected);
+                _reflected.CopyTo(destination, 0);
+            }
 
             alreadyWritten.Mark(bone);
         }
@@ -1201,11 +1223,8 @@ public sealed class SkeletonPose : IBonePose
             destination,
             destination,
 
-            // **False, and it is a viewmodel question rather than a jiggle one.**
-            // `ShouldFlipViewModel` is true for a left-handed viewmodel (`cl_flipviewmodels`),
-            // which this viewer does not implement — see B292's neighbour. When it is, this is
-            // where the flag arrives.
-            flipped: false);
+            // `this->ShouldFlipViewModel()` (`c_baseanimating.cpp:1586`), B515.
+            flipped: Flipped);
     }
 
     /// <summary>Runs a bone's <c>STUDIO_PROC_QUATINTERP</c> rule, if it has one.</summary>

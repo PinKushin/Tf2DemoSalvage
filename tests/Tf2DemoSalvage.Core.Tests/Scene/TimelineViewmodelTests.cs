@@ -199,6 +199,38 @@ public sealed class TimelineViewmodelTests
     }
 
     [Test]
+    public void ViewmodelAt_AnOwnerWhoFlipsViewmodels_CarriesTheirPreference()
+    {
+        // B515: the owner's `m_bFlipViewModels` travels with the sample, because a SourceTV viewer
+        // spectating in-eye uses the spectated player's handedness (`c_baseviewmodel.cpp:96-109`).
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: Follower, ownerFlips: true));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull().OwnerFlipsViewModels.ShouldBe(true);
+    }
+
+    [Test]
+    public void ViewmodelAt_AnOwnerWhoNeverSentIt_IsRightHanded()
+    {
+        // The control: an unsent bool is the engine's false, not "unknown" — the owner IS known.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: Follower));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull().OwnerFlipsViewModels.ShouldBe(false);
+    }
+
+    [Test]
+    public void ViewmodelAt_APointOfViewViewmodelNamingNoOwner_HasNoPreference()
+    {
+        // No owner, so no spectated player to ask: the watcher's own `cl_flipviewmodels` decides,
+        // which null leaves for the viewer to supply.
+        DemoTimeline timeline = DemoTimeline.Build(
+            SyntheticPlayer.DemoWithViewmodel(owner: null, ownerFlips: true));
+
+        timeline.ViewmodelAt(66, Follower).ShouldNotBeNull().OwnerFlipsViewModels.ShouldBeNull();
+    }
+
+    [Test]
     public void ViewmodelAt_ADemoWithNone_IsNothing()
     {
         // Every era demo before the modern ones carries a viewmodel, but a recording that does not

@@ -974,6 +974,14 @@ public sealed class ItemSchema
     public bool AttachesToHands(int definitionIndex) =>
         Inherited(definitionIndex, entry => entry.AttachToHands is true ? "1" : null) is not null;
 
+    /// <summary>Whether the item's viewmodel is built left-handed — <c>flip_viewmodel</c> (B515).</summary>
+    /// <remarks>
+    /// `m_bFlipViewModel = m_pKVItem->GetInt( "flip_viewmodel", 0 ) != 0;` (`econ_item_schema.cpp:3169`), after the
+    /// prefabs are folded in. One shipped item sets it: the Huntsman's `c_bow.mdl`.
+    /// </remarks>
+    public bool FlipsViewmodel(int definitionIndex) =>
+        GetInt(Inherited(definitionIndex, entry => entry.Keys.GetValueOrDefault("flip_viewmodel")) ?? "0", 0) != 0;
+
     /// <summary>
     /// <c>ITEM_DROP_TYPE_NONE</c> — the item stays attached to the body (<c>econ_wearable.h:33</c>),
     /// and what <see cref="DropType"/> answers for an item that does not say.
@@ -2403,7 +2411,7 @@ public sealed class ItemSchema
 
     /// <summary>The scalar item keys the model panel's calls read (econ_item_schema.cpp:3159-3171, tf_item_schema.cpp:1015).</summary>
     private static readonly HashSet<string> PanelKeys = new(
-        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin", "particle_suffix"],
+        ["model_world", "extra_wearable", "extra_wearable_vm", "anim_slot", "act_as_wearable", "act_as_weapon", "default_skin", "particle_suffix", "flip_viewmodel"],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>One scalar key of a style (tf_item_schema.cpp:1154-1160, econ_item_schema.cpp:2831).</summary>

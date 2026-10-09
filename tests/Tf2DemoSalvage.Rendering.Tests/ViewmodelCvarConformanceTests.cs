@@ -118,4 +118,14 @@ public sealed class ViewmodelCvarConformanceTests
 
         off.DrawViewmodel.ShouldBeFalse();
     }
+
+    [Test]
+    public void FlipViewModels_ByDefaultAndFromAConfig_IsValvesCvar()
+    {
+        // `cl_flipviewmodels "0"` (`c_baseviewmodel.cpp:44`), B515: a pasted config's `1` makes the
+        // watcher's own viewmodels left-handed where no spectated player's preference decides.
+        ViewerSettings.FlipViewModelsCommand.ShouldBe("cl_flipviewmodels");
+        new ViewerSettings().FlipViewModels.ShouldBeFalse();
+        ViewerSettings.Parse("cl_flipviewmodels 1").FlipViewModels.ShouldBeTrue();
+    }
 }

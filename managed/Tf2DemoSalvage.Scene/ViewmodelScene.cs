@@ -150,6 +150,8 @@ public sealed class ViewmodelScene
     /// than the `hands` lookup that needs a followed player. Green tests, correct rule, no effect.
     /// </para>
     /// </param>
+    /// <param name="watcherFlips">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
+    /// <param name="itemFlips">Whether an item's viewmodel is built left-handed — <c>flip_viewmodel</c>.</param>
     public ViewmodelSceneResult Build(
         IViewmodelSource viewmodels,
         int tick,
@@ -159,9 +161,20 @@ public sealed class ViewmodelScene
         string? heldWeapon,
         double seconds = 0d,
         float intervalPerTick = 0f,
-        Func<int, int?>? teamOf = null)
+        Func<int, int?>? teamOf = null,
+        bool watcherFlips = false,
+        Func<int, bool>? itemFlips = null)
     {
         ArgumentNullException.ThrowIfNull(viewmodels);
+
+        // **B515: `ShouldFlipViewModel`, per viewmodel** — its weapon's item against the owner's preference, or the
+        // watcher's `cl_flipviewmodels` when the viewmodel names no owner. The attached `c_` weapon takes its
+        // viewmodel's answer: same item, and `C_ViewmodelAttachmentModel::InternalDrawModel` tests the same pair
+        // (`econ_entity.cpp:860`).
+        bool Flips(SceneViewmodel held) => ViewmodelFlip.ShouldFlip(
+            held.WeaponItem is { } item && (itemFlips?.Invoke(item) ?? false),
+            held.OwnerFlipsViewModels,
+            watcherFlips);
 
         // **The team's skin family, which nothing here set** (B242). `CEconItemView::GetSkin`
         // (`econ_item_view.cpp:975`) takes the owner's team and returns the per-team visual's skin;
@@ -227,7 +240,8 @@ public sealed class ViewmodelScene
                 // unconditionally — a different mechanism from `m_bClientSideAnimation`, which a
                 // viewmodel never has, but the same branch of `EntityModelSet.Simulate`. Without
                 // it every viewmodel holds frame zero and no draw, reload or fire ever plays.
-                ClientSideAnimated: true),
+                ClientSideAnimated: true,
+                FlipViewModel: Flips(weapon)),
         ];
 
         // **The comparison is a PATH comparison and the separators differ.** A model named in the
@@ -307,7 +321,8 @@ public sealed class ViewmodelScene
                 FirstPerson: true,
 
                 // The bone-merged attachment animates with the weapon it hangs on (B283).
-                ClientSideAnimated: true));
+                ClientSideAnimated: true,
+                FlipViewModel: Flips(weapon)));
         }
 
         // **A player has two viewmodels, and the second is not a duplicate of the first.** Slot 1 is
@@ -332,7 +347,8 @@ public sealed class ViewmodelScene
 
                 // The off hand takes the same rule as the main hand (B283); a flag set on one
                 // construction site and not the other animates one hand and freezes the other.
-                ClientSideAnimated: true));
+                ClientSideAnimated: true,
+                FlipViewModel: Flips(offHand)));
         }
 
         return new ViewmodelSceneResult(
