@@ -12326,6 +12326,19 @@ collecting the result and cleaning up as usual.
 
 **The golden comparison is still NOT DONE**, and B373's last item stays open.
 
+### B161 RUNS 2026-10-09 — through the tf2 MCP, with one open fault in the instrument
+
+*Measured; the account, recipe, pinned cvars and every number are in `docs/findings/76-the-golden-comparison.md`.*
+The shutter is the MCP's `screenshot` (`devshots_screenshot`), which does write during playback; the seek is
+`host_timescale 0.001` then `demo_gototick <t> 0 0`; regions are masks taken from TF2 itself (`cl_drawhud`,
+`r_drawviewmodel`, `r_drawskybox` off in turn); the comparison is the probe `golden-compare`, the viewer half
+`tools/golden-viewer-shot.sh`. **Controls:** TF2 vs TF2 at one tick 0.000-0.889 /255; a 5° camera yaw 35.5. **Found:**
+B514, B515, B516, B517. **Still open:** TF2 lands EARLIER than the requested tick (in the order of 100 ticks at f12
+45000, not measured exactly — no console command printed a tick), so in-eye numbers carry a camera offset; a tick
+readout is the next step. The modern POV case was blocked by a stuck options dialog the owner's desktop use kept from
+being clicked; the 2009 case wedged the live client (`unknown net message (52)`), so era references need a period
+client. `tools/tf2-reference-capture.ps1` predates the MCP and is superseded for stills.
+
 ### B160, measured at last: two defects stacked (2026-08-23)
 
 Five aimed changes were made at this entry today and four fixed nothing, every one reasoned from a
@@ -36250,3 +36263,36 @@ against 38.0, `simulate` 5.9 against 1.8 (the every-frame stepping lives there),
 run-to-run swing.
 
 **Owner-visible:** taunting and talking players' faces now move — a laughing soldier opens his mouth.
+
+## B514 — outdoors the frame is 25-35% darker than TF2; indoors it matches — OPEN 2026-10-09
+
+*Measured by the golden comparison (B161, findings 76), f12, HDR on both sides.* Mean world colour TF2 → ours: indoor
+45000 102 96 85 → 106 102 93 and 75000 88 89 82 → 85 84 78 (agree); outdoor 60000 109 104 104 → 73 69 73, 91000
+142 132 123 → 103 97 98, and at a fixed free camera (no timing in it) 142 132 126 → 105 98 99. Sky: 188 210 233 →
+143 156 180 at the free camera. The worst sky tile there is the sunlit tower beside the sun — washed out in TF2,
+plain in ours (`docs/findings/76-golden/b514-free-91000-sky.png`: TF2 | ours | diff x4); the world's worst at 60000 is
+`b514-60000-world.png`. **Not yet separated:** HDR exposure state (D192; TF2's is whatever its seek left), sun glare /
+bloom, and the sun's light itself. Read the exposure and bloom path before measuring further.
+
+## B515 — a left-handed player's viewmodel is drawn right-handed — OPEN 2026-10-09
+
+*Measured by the golden comparison; read from published source.* gummo in f12 plays with `cl_flipviewmodels 1`: TF2,
+spectating him in-eye, draws his rocket launcher on the LEFT; we draw it on the right, which is why the viewmodel
+region is the worst one in every in-eye f12 case (64.6-92.1 /255 mean). The server copies the player's userinfo cvar
+into `m_bFlipViewModels` (`tf_gamerules.cpp:10281`), which is on the wire (`docs/WIRE-COVERAGE.md`), and the viewer
+passes `ShouldFlipViewModel` as false (RISKS line ~21659, "implements no left-handed viewmodel"). Crop:
+`docs/findings/76-golden/b515-45000-viewmodel.png`.
+
+## B516 — the STV in-eye spectator HUD is a different HUD — OPEN 2026-10-09
+
+*Measured by the golden comparison.* Spectating a player in-eye in an STV demo, TF2 draws the tournament spectator
+HUD: both teams' player panels with health and respawn timers, the control-point lock row, and a target ID with a
+health cross ("260 : GUMMO"). The viewer draws a timer bar at the top and a name plate in the middle. HUD region error
+56-67 /255 mean across the f12 cases. Crop: `docs/findings/76-golden/b516-60000-hud.png`. Which of TF2's panels are
+`.res`-driven and which are closed is findings 64's question; read that before building.
+
+## B517 — `--help` documents `TF2VIEW_WINDOW_SIZE` as "width height"; only `WIDTHxHEIGHT` is read — OPEN 2026-10-09
+
+*Measured.* `TF2VIEW_WINDOW_SIZE="1280 720"` is silently ignored (`WindowGeometry.Size` splits on `x`), so a script
+following the help gets the default window. Also worth saying there: the value is the WINDOW, and the frame adds
+296 x 169 at every size measured (1576x889 gives a 1280x720 viewport). Found building B161's viewer half.
