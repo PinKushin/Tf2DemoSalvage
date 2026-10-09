@@ -24,3 +24,8 @@ runs:
       run: |
         git clone --depth 1 https://github.com/ValveSoftware/source-sdk-2013.git "$HOME/source-sdk-2013"
         echo "SOURCE_SDK=$HOME/source-sdk-2013" >> "$GITHUB_ENV"
+
+    - name: OpenAL null backend
+      shell: bash
+      # A hosted runner has no sound card; OpenAL Soft's null backend is a real device with no output.
+      run: echo "ALSOFT_DRIVERS=null" >> "$GITHUB_ENV"

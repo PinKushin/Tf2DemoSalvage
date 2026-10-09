@@ -32,7 +32,8 @@ jobs:
         run: |
           dotnet test "tests/Tf2DemoSalvage.$PROJECT.Tests" --logger "trx;LogFileName=r.trx" --results-directory out || true
           grep -o '<Counters [^>]*>' out/r.trx
-          echo "FAILED tests with message:"
-          grep -oE 'testName="[^"]*"|<Message>[^<]{0,200}' out/r.trx | grep -A1 'testName=' | grep -B1 '<Message>' | head -150
-          echo "skip reasons:"
-          grep -o '<Message>[^<]\{0,120\}' out/r.trx | sort | uniq -c | sort -rn | head -15
+          echo "FAILED:"
+          awk '/<UnitTestResult /{n="";f=0; if(match($0,/testName="[^"]*"/)) n=substr($0,RSTART,RLENGTH); if($0~/outcome="Failed"/)f=1} f&&/<Message>/{sub(/.*<Message>/,""); print n " :: " substr($0,1,200); f=0}' out/r.trx
+          echo "IGNORED reasons:"
+          awk '/<UnitTestResult /{f=($0~/outcome="NotExecuted"/)} f&&/<Message>/{sub(/.*<Message>/,""); print substr($0,1,110)}' out/r.trx | sort | uniq -c | sort -rn | head -20
+          echo "IGNORED total: $(grep -c 'outcome="NotExecuted"' out/r.trx)"
