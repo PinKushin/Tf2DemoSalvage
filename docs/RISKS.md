@@ -36218,8 +36218,24 @@ no-sentence control) and `FaceFlexDemoRenderTests` (rest 398 vertices/0.25, laug
 pass cached one resting face per model; a face whose weights repeat is reused, which took the first after-run's 38.6
 down. `draw` 0.7–1.2 ms either side. The rate sits at ~8 fps on both, `camera` ~100 ms dominating.
 
-**Still open:** `m_flexWeight`'s latched interpolation history; the engine's mouth-source registration (voice channels
-2 and 7 are **interpolated**); a corpse after its player respawns; flex on baked props (only 88 HL2 models would move);
-`FLEXANIMATION` has no corpus specimen (no played TF2 scene in the probed demos carries one).
+**Final pass, 2026-10-08 — the last four, CLOSED** (findings 75): `m_iv_flexWeight` ported — a TF player latches every
+frame between interpolation and the draw (client-side animation; `c_baseanimating.cpp:5143`, `cdll_client_int.cpp:2156`,
+`:2189`), with the engine's flush, arming, Hermite, three-entry pruning and extrapolation; the mouth's channels read in
+disassembly (`MIX_MixChannelsToPaintbuffer` `0x18003f7f0`, update `0x180046cf0`, free `0x1800449d0`): voice channels OR
+any channel whose source has a sentence, pitch-scaled elapsed time, and a sentence-less voice line's end empties the
+mouth — the remainder's voice-channels-only rule was wrong; a corpse whose player is alive wears its own unset face
+(`c_tf_player.cpp:630`), and a class model a map places is a prop, not a face; flex on baked props closed as
+unreachable by census — 239 maps, 380,679 placements, 18 flexed models placed, none moving at zero weight. The
+`FLEXANIMATION` specimen exists after all: three TF player scenes carry one, and medic `687.vcd` plays in two lcor
+koth_product demos. **Evidence:** `FaceDriverConformanceTests` (+5, 14), `FaceFlexTests` (+7: history, extrapolation,
+four mouth rules), output level `FaceFlexAnimationDemoTests` (medic 12 at 61145: 3,785 vertices differ from the
+no-animation control) and `FaceCorpseDemoTests` (corpse 24 at 22364: own face; reported dead, the player's).
+
+**Frame cost** (same run as above, 2026-10-08): moment rebuild 30.8 ms against 31.2 on main 8f63dde3 (pose rest 8.3
+against 8.1), `draw` 0.7–0.9 against 0.6–0.8 — no difference beyond noise.
+
+**Remaining, named:** the mouth's speaker entity (`SND_SPEAKER`) is not decoded, and a sound the cache lists no length
+for never ends by itself — both **interpolated**; the face steps only on frames its entity is drawn, where the engine's
+client-side latch runs every frame.
 
 **Owner-visible:** taunting and talking players' faces now move — a laughing soldier opens his mouth.

@@ -69,8 +69,12 @@ soldier's resting face moves nothing — the control.
 - **FLEXANIMATION** writes `m_flexWeight` after a ×0.95 decay **per SetupGlobalWeights call** — and a worn item and a
   dead player's corpse each call the player's (`econ_entity.cpp:1377`, `c_tf_player.cpp:636`), so the decay runs once
   per drawing entity per frame (*source*). A track naming a controller the model lacks writes controller 0
-  (`MAX( FindFlexController, 0 )`, `:1987`). No scene any lcor demo we probed plays carries one (*measured*,
-  `flex played`), so this is synthetic-only.
+  (`MAX( FindFlexController, 0 )`, `:1987`). Of the 5,308 scene names TF2's `scripts/` mention, 4,910 resolve and 46
+  carry a flex animation — three of them a TF player's: `Player/Medic/low/605` and `687` (twenty viseme tracks) and
+  `Player/Spy/low/3032` (*measured*, `flex flexanim`). `687` plays twice in lcor (koth_product, ticks 61085 and 80988):
+  sixty ticks in, 3,785 medic vertices differ from the same playback with the animation removed
+  (`FaceFlexAnimationDemoTests`). An earlier sweep of three demos found none and called it synthetic-only — wrong,
+  because the denominator was three demos.
 - **Every scene, not the gesture slot's.** A real match runs idle loops, attack and voice scenes on one player at once:
   1,417 of 1,824 runs in tf2-2026-pub-pov-clean overlap another on the same actor (*measured*). A scene's stop is now
   recorded — `m_bIsPlayingBack` false, the slot switching scenes, or the entity deleted.
@@ -89,9 +93,37 @@ soldier's resting face moves nothing — the control.
 - **Non-player flex models** draw with the zero weights `LockFlexWeights` leaves (`0x1800584b0`). 88 shipped HL2
   character models move at zero weight (their ramp is not zero there); none is a TF2 player.
 
-## Still open, named
+## The last four, closed (B513, final pass)
 
-The interpolation history `m_flexWeight` carries as a `LATCH_ANIMATION_VAR` (`c_baseflex.cpp:134`); the engine's mouth
-registration (which channels, pitch) was not located in `engine.dll`, so the voice channels are an **interpolation**;
-a corpse whose player has respawned should switch to its own unset face (`c_tf_player.cpp:630`); flex on baked
-(unskinned) props is not applied — the only models it would change are the 88 HL2 ones.
+- **`m_flexWeight` is interpolated, and a TF player latches it every frame.** `AddVar( m_flexWeight, &m_iv_flexWeight,
+  LATCH_ANIMATION_VAR )` (`c_baseflex.cpp:134`). A TF player animates client-side, so the server never sends
+  `m_flAnimTime` (`SendProxy_ClientSideAnimation`, `baseentity.cpp:156`); the latch is `UpdateClientSideAnimation`'s,
+  every frame, stamped with the previous frame's anim time, and `FrameAdvance` then sets it to now
+  (`c_baseanimating.cpp:5143`, `:5525`). The frame order decides what that means: `InterpolateServerEntities` writes
+  `m_flexWeight` from the history, `UpdateClientSideAnimations` latches it, and only then does a draw run the scene
+  (`cdll_client_int.cpp:2156`, `:2189`). **So the history only ever holds what interpolation left — a scene's write
+  lasts the frame it is made in**, except when the history had settled and the next interpolation was skipped. Ported
+  as the engine has it: the three-entry `Reset`, `NoteChanged`'s flush and "differs" arming, `GetInterpolationInfo`
+  with the Hermite third sample and `frac` capped at 2, `RemoveEntriesPreviousTo` keeping three, and the extrapolation
+  `cl_extrapolate` allows — reached when a frame is longer than half the interpolation amount, since the history's head
+  is always the frame before (*source*; `FaceFlexTests` predicts both, exactly). Mid-event at full weight it changes
+  nothing (the medic count is 3,785 with and without it, by sabotage); it shapes the ramps and the fade after an event.
+- **Which channels feed the mouth, read in disassembly — and the first guess was wrong.** `snd_mix.cpp`'s
+  `MIX_MixChannelsToPaintbuffer` (x64 `engine.dll` `0x18003f7f0`) updates a mouth for a channel from the local player,
+  OR on `CHAN_VOICE`/`CHAN_VOICE2`, OR **whose source carries a sentence, on any channel**; the update
+  (`0x180046cf0`, the "out of voice sources, won't lipsync" message) adds a sentence-bearing source, refusing a fifth,
+  and sets an existing one's elapsed time to the mixer's sample position over the source's rate, so pitch speeds it.
+  Freeing a channel (`0x1800449d0`) removes its source — and **empties the mouth when the source is not in it**, so a
+  voice line without a sentence ending clears every sentence still playing. The remainder pass took the two voice
+  channels and nothing else; the burp (`CHAN_STATIC`) moves a mouth too. A channel's end is the cache's sample count
+  over its pitch (**interpolated** for sounds the cache does not list); the speaker entity is not decoded.
+- **A corpse whose player is alive again wears its own face** — `( pPlayer && pPlayer->IsAlive() ) || !pPlayer` takes
+  `BaseClass::SetupWeights` (`c_tf_player.cpp:630`), a C_BaseFlex nothing set, every controller at its minimum, which
+  on a class model moves nothing. tf2-2026-pub-pov-clean's corpse 24 (spy, player 2) at tick 22364 draws the bind face;
+  reported dead, the same corpse wears the player's (`FaceCorpseDemoTests`). A class model a map places is a prop, not a
+  face: only an entity the recording names as a player gets one.
+- **Flex on baked props is unreachable, by census.** Over the 239 maps the install ships (VPK, loose and
+  `download/maps`) — 380,679 static-prop and entity placements of 10,287 distinct models — 18 placed models carry vertex
+  flex (class and `hwm` models as statues, one workshop cosmetic) and **none moves at zero weight**, which is the only
+  way a prop with no `SetupWeights` could show flex (*measured*, `flex placed`). The 88 HL2 models that would are placed
+  by no TF2 map.

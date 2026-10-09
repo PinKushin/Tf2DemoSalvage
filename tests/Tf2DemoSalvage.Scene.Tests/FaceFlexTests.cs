@@ -137,6 +137,103 @@ public sealed class FaceFlexTests
     }
 
     [Test]
+    public void Step_WithTheLatchedHistory_StartsEachFrameFromWhatInterpolationLeft()
+    {
+        // Frames every 0.03 s from a reset at 1.0, interpolation 0.1 s, a half-weight track toward 1. Frames 1 and 2 match
+        // the plain face (0.5, 0.7375): nothing has needed interpolating. Frame 2's latch stores 0.5 at 1.03 and arms it,
+        // so frame 3 interpolates at 0.99 — before every latch but the reset's 0 at 1.0 — and the draw blends from 0:
+        // 0.5, where the plain face gives 0.7375 × 0.95 × 0.5 + 0.5. The scene's own write never reached the history.
+        List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
+        ActorFace latched = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+        ActorFace plain = new(Model, "m.mdl", null);
+
+        // Inside the ramp's interior samples, where it is exactly 0.5.
+        foreach (double t in (double[])[1.03d, 1.06d, 1.09d])
+        {
+            latched.Step(t, 1, scenes, []);
+            plain.Step(t, 1, scenes, []);
+        }
+
+        latched.Global["smile"].ShouldBe(0.5f, 1e-5f);
+        plain.Global["smile"].ShouldBe((float)((0.7375f * 0.95d * 0.5d) + 0.5d), 1e-5f);
+    }
+
+    [Test]
+    public void Step_FramesTooLongForTheHistory_Extrapolate()
+    {
+        // At 0.1 s a frame, frame 3 asks for 1.2 while the newest latch is 1.1 (0.5) after 1.0 (0): _Extrapolate takes
+        // Lerp( 1 + 0.1 / 0.1, 0, 0.5 ) = 1, and the draw blends from there: 1 × 0.95 × 0.5 + 0.5.
+        List<FaceScene> scenes = [new(Scene(Animation(0f, 4f, "smile", 0.5f)), 0d, null)];
+        ActorFace face = new(Model, "m.mdl", null, interpolation: 0.1d, created: 1d);
+
+        foreach (double t in (double[])[1.1d, 1.2d, 1.3d])
+        {
+            face.Step(t, 1, scenes, []);
+        }
+
+        face.Global["smile"].ShouldBe(0.975f, 1e-5f);
+    }
+
+    [Test]
+    public void Voices_ASentenceOnAnyChannel_FeedsTheMouth()
+    {
+        // MIX_MixChannelsToPaintbuffer (engine.dll 0x18003f7f0): a sentence qualifies on any channel, CHAN_STATIC too.
+        FaceSources sources = Sources([Sound(0, "player/taunt_burp.wav", channel: 6)]);
+
+        sources.Voices(1, 0.5d).ShouldHaveSingleItem().StartedSeconds.ShouldBe(0d);
+    }
+
+    [Test]
+    public void Voices_AVoiceLineWithoutASentenceEnding_ClearsTheMouth()
+    {
+        // S_FreeChannel (0x1800449d0): a CHAN_VOICE channel whose source is not in the mouth empties it.
+        FaceSources sources = Sources(
+        [
+            Sound(0, "player/taunt_burp.wav", channel: 6),
+            Sound(10, "vo/silent.wav", channel: 2),
+        ]);
+
+        sources.Voices(1, 0.2d).Count.ShouldBe(1, "the line is playing; nothing has ended");
+        sources.Voices(1, 0.4d).ShouldBeEmpty("the silent line ended at 0.15 + 0.1 and cleared the burp");
+    }
+
+    [Test]
+    public void Voices_AnOrdinaryChannelEnding_LeavesTheMouth()
+    {
+        FaceSources sources = Sources(
+        [
+            Sound(0, "player/taunt_burp.wav", channel: 6),
+            Sound(10, "vo/silent.wav", channel: 1),
+        ]);
+
+        sources.Voices(1, 0.4d).Count.ShouldBe(1);
+    }
+
+    [Test]
+    public void Voices_ThePitch_ScalesTheElapsedTime()
+    {
+        FaceSources sources = Sources([Sound(0, "player/taunt_burp.wav", channel: 6, pitch: 200)]);
+
+        sources.Voices(1, 0.25d).ShouldHaveSingleItem().Rate.ShouldBe(2d);
+        sources.Voices(1, 0.6d).ShouldBeEmpty("a one-second sound at double pitch ends at half a second");
+    }
+
+    private static FaceSources Sources(List<SceneSound> sounds) =>
+        new([], _ => null, sounds, 0.015, new Dictionary<string, Sentence>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sound\\player\\taunt_burp.wav"] = new([new SentencePhoneme(0, 0f, 1f)], [], 22050, 22050),
+        },
+        _ => null,
+        new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["sound\\player\\taunt_burp.wav"] = 1f,
+            ["sound\\vo\\silent.wav"] = 0.1f,
+        });
+
+    private static SceneSound Sound(int tick, string name, int channel, int pitch = 100) =>
+        new(tick, name, 0, 1, channel, 1f, 75, pitch, 0f, 0f, 0f, 0f);
+
+    [Test]
     public void Delay_TheFirstFrame_BlendsNothing()
     {
         float[] delayed = [0f];

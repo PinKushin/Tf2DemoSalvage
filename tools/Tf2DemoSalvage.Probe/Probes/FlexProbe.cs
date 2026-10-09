@@ -142,6 +142,60 @@ public sealed class FlexProbe : IProbe
             return;
         }
 
+        // Every scene the game's scripts name — talker rules, items_game taunts, anything under scripts/ — and which of
+        // them carry FLEXANIMATION. The control is the resolved count: a name list that resolves nothing is the probe's fault.
+        if (arguments[0] == "flexanim" && game.Archives.Read("scenes/scenes.image") is { } sceneBytes &&
+            SceneImage.Read(sceneBytes) is { } scenesImage)
+        {
+            HashSet<string> named = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in game.Archives.Paths().Where(p =>
+                p.StartsWith("scripts/", StringComparison.OrdinalIgnoreCase) && p.EndsWith(".txt", StringComparison.OrdinalIgnoreCase)))
+            {
+                if (game.Archives.Read(path) is not { } text)
+                {
+                    continue;
+                }
+
+                foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(
+                    System.Text.Encoding.UTF8.GetString(text), @"scenes[/\\][^""\s]+?\.vcd", System.Text.RegularExpressions.RegexOptions.IgnoreCase, TimeSpan.FromSeconds(10)))
+                {
+                    named.Add(match.Value.Replace('\\', '/'));
+                }
+            }
+
+            int resolved = 0, withAnimation = 0, tracks = 0;
+
+            foreach (string name in named.Order(StringComparer.OrdinalIgnoreCase))
+            {
+                if (scenesImage.TauntFor(name, _ => null) is not { } plan)
+                {
+                    continue;
+                }
+
+                resolved++;
+
+                if (plan.FlexAnimations.Count > 0)
+                {
+                    withAnimation++;
+                    tracks += plan.FlexAnimations.Sum(a => a.Tracks.Count);
+                    output.WriteLine($"    {name}: {plan.FlexAnimations.Count} flex animations, tracks " +
+                        string.Join(",", plan.FlexAnimations.SelectMany(a => a.Tracks).Select(t => t.Controller).Distinct()));
+                }
+            }
+
+            output.WriteLine($"{named.Count} scene names in scripts/, {resolved} in scenes.image, {withAnimation} with FLEXANIMATION ({tracks} tracks)");
+            return;
+        }
+
+        // Every map the install ships, plus any extra folders named: which models its static props and entities place,
+        // and which of those move at zero weight. The control is the placement count.
+        if (arguments[0] == "placed")
+        {
+            Placed(output, game, folder, arguments.Skip(1).ToList());
+            return;
+        }
+
         if (arguments[0] == "census")
         {
             Census(output, game);
@@ -211,6 +265,89 @@ public sealed class FlexProbe : IProbe
                         ? op.Value.ToString("0.###", CultureInfo.InvariantCulture)
                         : $"op{op.Op}:{op.Index}")));
             }
+        }
+    }
+
+    /// <summary>
+    /// Every map the install ships (VPK and loose) and every <c>.bsp</c> under the extra folders: the models its static
+    /// props and entity lump place, and which carry vertex flex, and which of those move at zero weight.
+    /// </summary>
+    private static void Placed(TextWriter output, GameContent game, string folder, List<string> extra)
+    {
+        List<(string Name, Func<byte[]?> Read)> maps = [.. game.Archives.Paths()
+            .Where(p => p.StartsWith("maps/", StringComparison.OrdinalIgnoreCase) && p.EndsWith(".bsp", StringComparison.OrdinalIgnoreCase))
+            .Select(p => (p, (Func<byte[]?>)(() => game.Archives.Read(p))))];
+
+        foreach (string root in extra.Append(Path.Combine(folder, "download", "maps")).Where(Directory.Exists))
+        {
+            maps.AddRange(Directory.EnumerateFiles(root, "*.bsp", SearchOption.AllDirectories)
+                .Select(p => (p, (Func<byte[]?>)(() => File.ReadAllBytes(p)))));
+        }
+
+        Dictionary<string, (bool Flexed, bool MovesAtZero)> models = new(StringComparer.OrdinalIgnoreCase);
+        int placements = 0, read = 0;
+        List<string> hits = [];
+
+        foreach ((string name, Func<byte[]?> load) in maps.DistinctBy(m => Path.GetFileName(m.Name), StringComparer.OrdinalIgnoreCase))
+        {
+            if (load() is not { } bsp)
+            {
+                continue;
+            }
+
+            List<string> used = [];
+
+            try
+            {
+                used.AddRange(Tf2DemoSalvage.Content.Bsp.BspStaticProps.Read(bsp).Select(p => p.Model));
+                used.AddRange(Tf2DemoSalvage.Content.Bsp.BspEntities.ReadFrom(bsp)
+                    .Select(e => e.TryGetValue("model", out string? m) ? m : null)
+                    .OfType<string>().Where(m => m.EndsWith(".mdl", StringComparison.OrdinalIgnoreCase)));
+            }
+            catch (InvalidDataException failure)
+            {
+                output.WriteLine($"    {name}: {failure.Message}");
+                continue;
+            }
+
+            read++;
+            placements += used.Count;
+
+            foreach (string model in used.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!models.TryGetValue(model, out (bool Flexed, bool MovesAtZero) known))
+                {
+                    StudioFlexData flex = game.Archives.Read(model) is { } mdl ? SafeFlex(mdl) : StudioFlexData.None;
+                    known = (flex.HasVertexAnimation, flex.Flexes.Any(f => StudioFlexRules.Ramp(f, 0f) != 0f));
+                    models[model] = known;
+                }
+
+                if (known.Flexed)
+                {
+                    hits.Add($"{Path.GetFileName(name)}: {model}{(known.MovesAtZero ? " MOVES AT ZERO WEIGHT" : "")}");
+                }
+            }
+        }
+
+        foreach (string hit in hits)
+        {
+            output.WriteLine("    " + hit);
+        }
+
+        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+            $"{read} maps, {placements} placements, {models.Count} distinct models, {models.Count(m => m.Value.Flexed)} with vertex flex, " +
+            $"{models.Count(m => m.Value.MovesAtZero)} that move at zero weight"));
+    }
+
+    private static StudioFlexData SafeFlex(byte[] mdl)
+    {
+        try
+        {
+            return StudioFlex.Read(mdl);
+        }
+        catch (InvalidDataException)
+        {
+            return StudioFlexData.None;
         }
     }
 

@@ -1,3 +1,5 @@
+using System;
+
 using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
@@ -92,6 +94,53 @@ public sealed class FaceDriverConformanceTests
         // baseplayer_shared.cpp:104: the hwm player models — the only shipped models with wrinkle flexes — are never used.
         Sdk("src/game/shared/baseplayer_shared.cpp").ShouldContain("bool UseHWMorphModels()\n{", Case.Sensitive);
         Sdk("src/game/shared/baseplayer_shared.cpp").ShouldContain("// #endif\n\treturn false;\n}", Case.Sensitive);
+    }
+
+    [Test]
+    public void FlexWeight_IsALatchedAnimationVariable()
+    {
+        // c_baseflex.cpp:134 and c_tf_player.cpp:5304: interpolated with LATCH_ANIMATION_VAR, reset with the face.
+        Sdk("src/game/client/c_baseflex.cpp").ShouldContain("AddVar( m_flexWeight, &m_iv_flexWeight, LATCH_ANIMATION_VAR );", Case.Sensitive);
+        Sdk("src/game/client/tf/c_tf_player.cpp").ShouldContain("m_iv_flexWeight.Reset();", Case.Sensitive);
+    }
+
+    [Test]
+    public void ClientSideAnimation_LatchesEveryFrameAtTheAnimTimeThenAdvancesIt()
+    {
+        // A client-animated entity is not sent m_flAnimTime (baseentity.cpp:156); it latches in
+        // UpdateClientSideAnimation (c_baseanimating.cpp:5143) and FrameAdvance stamps now (:5525).
+        Sdk("src/game/server/baseentity.cpp").ShouldContain(
+            "return NULL;	// Don't send animtime unless the client needs it.", Case.Sensitive);
+        string animating = Sdk("src/game/client/c_baseanimating.cpp");
+        animating.ShouldContain("OnLatchInterpolatedVariables( LATCH_ANIMATION_VAR );", Case.Sensitive);
+        animating.ShouldContain("m_flAnimTime = curtime;", Case.Sensitive);
+    }
+
+    [Test]
+    public void OnRenderStart_InterpolatesBeforeTheClientSideLatch()
+    {
+        // cdll_client_int.cpp:2156 then :2189 — both before any draw runs SetupWeights.
+        string frame = Sdk("src/game/client/cdll_client_int.cpp");
+        frame.IndexOf("C_BaseEntity::InterpolateServerEntities();", StringComparison.Ordinal)
+            .ShouldBeLessThan(frame.IndexOf("C_BaseAnimating::UpdateClientSideAnimations();", StringComparison.Ordinal));
+    }
+
+    [Test]
+    public void InterpolatedVar_KeepsThreeEntriesBeyondTheWindowAndExtrapolatesAQuarterSecond()
+    {
+        string history = Sdk("src/game/client/interpolatedvar.h");
+        history.ShouldContain("#define EXTRA_INTERPOLATION_HISTORY_STORED 0.05f", Case.Sensitive);
+        history.ShouldContain("m_VarHistory.Truncate( i + 3 );", Case.Sensitive);
+        history.ShouldContain("pInfo->frac = MIN( pInfo->frac, 2.0f );", Case.Sensitive);
+        Sdk("src/game/client/c_baseentity.cpp").ShouldContain("context.EnableExtrapolation( true );", Case.Sensitive);
+    }
+
+    [Test]
+    public void TfRagdoll_APlayerAliveAgain_LeavesTheCorpseItsOwnFace()
+    {
+        // c_tf_player.cpp:630-633.
+        Sdk("src/game/client/tf/c_tf_player.cpp").ShouldContain(
+            "if ( ( pPlayer && pPlayer->IsAlive()) || !pPlayer )", Case.Sensitive);
     }
 
     private static string Sdk(string path) =>
