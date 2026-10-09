@@ -9653,9 +9653,25 @@ native celt/speex/silk:
 | Content | 1636 | 200 | 10 |
 | Rendering | 1018 | 336 | 32 |
 
-Most failures are environment (native audio libraries, missing texture archives), not defects. **A
-failing baseline aborts Stryker's initial run, so the weekly `projects` job will fail for Audio, Content
-and Rendering until those are fixed** (build the native libraries and clone the Source SDK in the job, or
-make the tests skip rather than fail). Scene and Animation read no game content. The Oracle box had the
-owner's full install under `~/tf2-data`; the mutation score of these projects is understated or absent
-meanwhile.
+**Follow-up, same day: the environment was provided, not skipped** (coordinator decision: a test that
+needs real data gets it; failures are never converted to skips). `.github/actions/test-env` builds the
+native voice codecs with `tools/native-audio/build.sh`, installs OpenAL Soft with `ALSOFT_DRIVERS=null`,
+clones `ValveSoftware/source-sdk-2013` to `SOURCE_SDK`, and fetches the one committed demo
+(`z1800.dem`) a Rendering test reads. Remeasured:
+
+| project | tests | skipped | failing | what remains |
+|---|---:|---:|---:|---|
+| Presentation | 605 | 0 | 0 | |
+| Audio | 295 | 14 | 1 | `tf2_sound_misc_003.vpk` absent |
+| Content | 1636 | 70 | 10 | `tf2_textures_*.vpk` absent |
+| Rendering | 1018 | 186 | 31 | materials unresolved, `tf2_textures_*.vpk` absent |
+
+Every remaining failure is client-only content: the dedicated server ships the archive directories but
+not the data archives, and app 440 needs a logged-in account, which this project never uses. That is
+the accepted known loss. Skips left are Direct3D (64+ in Rendering), Windows-only tests, diagnostics
+marked to run deliberately, and tests that need a map the server lacks. No real defect turned up.
+**Correction to the first draft of this entry:** a failing baseline does not abort Stryker; it logs
+"N tests are failing. Stryker will continue but outcome will be impacted" and runs on. Baselines were
+confirmed with dispatch runs mutating one small file per project. The Oracle box had the owner's full
+install under `~/tf2-data`, so these projects' mutation scores are understated meanwhile: the failing
+tests are failing against every mutant.

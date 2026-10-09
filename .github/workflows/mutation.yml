@@ -260,11 +260,13 @@ jobs:
     name: Projects (${{ matrix.project }}, weekly)
     # The projects the Oracle mutation-box used to run (D212). Tests that read the installed game
     # (TF2_FOLDER, D184) get the TF2 dedicated server's content from the tf2-server action. It is
-    # server content only - no tf2_textures_*.vpk or client models - so, measured 2026-10-08 by
-    # `dotnet test` with it installed (D212): Presentation 605/605 run; Audio 38 of 295 skipped and
-    # 16 failed (native celt/speex/silk and OpenAL absent); Content 200 of 1636 skipped and 10
-    # failed; Rendering 336 of 1018 skipped and 32 failed. A failing baseline makes Stryker abort
-    # its initial test run, so those three projects need the failures fixed before a real run.
+    # server content only - no tf2_textures_*.vpk, sound archives or client models, and anonymous
+    # SteamCMD cannot fetch them (app 440 needs an account; we never use credentials). With the
+    # test-env action as well (native codecs, OpenAL null backend, Source SDK, one LFS demo),
+    # measured 2026-10-09 (D212): Presentation 605 tests, 0 failing; Audio 14 skipped, 1 failing;
+    # Content 70 skipped, 10 failing; Rendering 186 skipped, 31 failing. Every failure is a missing
+    # client-only archive. Stryker continues past a failing baseline ("outcome will be impacted"),
+    # so these projects run, with those tests counted failing against every mutant.
     if: inputs.project == '' && (github.event.schedule == '0 7 * * 0' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     # measured healthy: ~350 min is a ceiling, not a measurement (not yet run; replace from the first run)
