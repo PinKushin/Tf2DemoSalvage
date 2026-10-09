@@ -127,3 +127,20 @@ soldier's resting face moves nothing — the control.
   flex (class and `hwm` models as statues, one workshop cosmetic) and **none moves at zero weight**, which is the only
   way a prop with no `SetupWeights` could show flex (*measured*, `flex placed`). The 88 HL2 models that would are placed
   by no TF2 map.
+
+## The last three (B513, last pass)
+
+- **A face is kept current off screen.** `UpdateClientSideAnimations` walks the whole client-animation list every frame
+  (`c_baseanimating.cpp:6372`), and every scene thinks every frame, so the latch, the history and the scene clock
+  `EventThink` reads move whether or not the player is drawn; only `SetupGlobalWeights` waits for a draw. Counting only
+  drawn frames starts an event a frame early on the first frame back (`FaceFlexTests`).
+- **The speaker entity was decoded all along and dropped.** `nSpeakerEntity` is the last field of every sound message
+  on every protocol (`soundinfo.h:366`) and a stop clears it (`:153`); the mouth update takes it before the source
+  (`engine.dll` `0x180046cf0`). Now carried; 0 of 1,129,637 sounds in 69 corpus demos name one (*measured*).
+- **A sound the cache does not count ends at its file.** The cache stores no MP3 count (`0x180047c80` records the rate
+  and the file size), so the channel ends when the decoder runs dry. `SoundLength` reads a wave's `data` over its block
+  size and walks an MP3's frames; against the cache's 2,815 WAV counts and a full decode of 300 voice MP3s, all within
+  half a millisecond (*measured*, `flex lengths`).
+- **And a wrong turn it caught.** That control first disagreed by exactly two on every file: the cache's rate is
+  `info >> 14 & 0x1ffff` (`CAudioSourceWave` from the cache, `0x18004f870`), and the remainder pass had shifted by 15 —
+  every sentence length it reported was doubled, which nothing downstream could have shown.
