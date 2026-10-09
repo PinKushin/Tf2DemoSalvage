@@ -36231,6 +36231,9 @@ koth_product demos. **Evidence:** `FaceDriverConformanceTests` (+5, 14), `FaceFl
 four mouth rules), output level `FaceFlexAnimationDemoTests` (medic 12 at 61145: 3,785 vertices differ from the
 no-animation control) and `FaceCorpseDemoTests` (corpse 24 at 22364: own face; reported dead, the player's).
 
+**Frame cost** (same run as above, 2026-10-08): moment rebuild 30.8 ms against 31.2 on main 8f63dde3 (pose rest 8.3
+against 8.1), `draw` 0.7–0.9 against 0.6–0.8 — no difference beyond noise.
+
 **Remaining, named:** the mouth's speaker entity (`SND_SPEAKER`) is not decoded, and a sound the cache lists no length
 for never ends by itself — both **interpolated**; the face steps only on frames its entity is drawn, where the engine's
 client-side latch runs every frame.
