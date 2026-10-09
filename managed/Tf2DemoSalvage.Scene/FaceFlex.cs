@@ -271,25 +271,7 @@ public sealed class ActorFace
         ArgumentNullException.ThrowIfNull(scenes);
         ArgumentNullException.ThrowIfNull(voices);
 
-        if (double.IsNaN(LastSeconds) || seconds < LastSeconds || seconds > LastSeconds)
-        {
-            // A new frame: the scenes' clocks of the frame before become the previous ones `EventThink` tests.
-            FrameTime = double.IsNaN(LastSeconds) ? 0d : seconds - LastSeconds;
-
-            foreach ((double started, float now) in _sceneTime)
-            {
-                _previousSceneTime[started] = now;
-            }
-
-            _sceneTime.Clear();
-            _callers.Clear();
-            LastSeconds = seconds;
-
-            if (_history is not null)
-            {
-                InterpolateAndLatch(seconds);
-            }
-        }
+        BeginFrame(seconds, scenes);
 
         if (!_callers.Add(caller))
         {
@@ -301,6 +283,7 @@ public sealed class ActorFace
         foreach (FaceScene scene in scenes)
         {
             float now = scene.Plan.TimeAt((float)(seconds - scene.StartedSeconds));
+
             // A scene first seen this frame — its first frame, or the first after a seek — has no earlier clock; its
             // own is taken, as the frame before would have been at most a frame behind.
             float previous = _previousSceneTime.TryGetValue(scene.StartedSeconds, out float before) ? before : now;
@@ -367,6 +350,44 @@ public sealed class ActorFace
         }
 
         ProcessVisemes(seconds, voices);
+    }
+
+    /// <summary>
+    /// A frame's bookkeeping, drawn or not — once per distinct time: each scene's clock moves on, so the one
+    /// <c>EventThink</c> tests next frame is this frame's, and the history interpolates and latches.
+    /// </summary>
+    /// <param name="seconds">Demo seconds now.</param>
+    /// <param name="scenes">The scenes the actor is in.</param>
+    public void BeginFrame(double seconds, IReadOnlyList<FaceScene> scenes)
+    {
+        ArgumentNullException.ThrowIfNull(scenes);
+
+        if (!double.IsNaN(LastSeconds) && !(seconds < LastSeconds) && !(seconds > LastSeconds))
+        {
+            return;
+        }
+
+        FrameTime = double.IsNaN(LastSeconds) ? 0d : seconds - LastSeconds;
+
+        foreach ((double started, float now) in _sceneTime)
+        {
+            _previousSceneTime[started] = now;
+        }
+
+        _sceneTime.Clear();
+        _callers.Clear();
+        LastSeconds = seconds;
+
+        // `C_SceneEntity::ClientThink` runs whatever is drawn: this frame's clock is the next frame's previous.
+        foreach (FaceScene scene in scenes)
+        {
+            _sceneTime[scene.StartedSeconds] = scene.Plan.TimeAt((float)(seconds - scene.StartedSeconds));
+        }
+
+        if (_history is not null)
+        {
+            InterpolateAndLatch(seconds);
+        }
     }
 
     /// <summary>

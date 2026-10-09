@@ -690,6 +690,28 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return face.Face.Global;
     }
 
+    /// <summary>
+    /// Every player's frame start, drawn or not: the engine interpolates and latches each client-animated entity every
+    /// frame (`InterpolateServerEntities`, `UpdateClientSideAnimations`, `cdll_client_int.cpp:2156`, `:2189`) and each
+    /// scene thinks every frame (`C_SceneEntity::ClientThink`), whatever is on screen — so a face that returns to view is
+    /// current. Only `SetupGlobalWeights` — the decay, the flex animations, the expressions — waits for a draw.
+    /// </summary>
+    private void BeginFaces(IReadOnlyList<SceneProp> props, double seconds)
+    {
+        foreach (SceneProp prop in props)
+        {
+            if (IsPlayerModel(prop) && (PlayerAlive is null || PlayerAlive(prop.EntityIndex) is not null))
+            {
+                EnsureFace(prop.EntityIndex, prop.ModelPath, seconds);
+
+                if (_faces.TryGetValue(prop.EntityIndex, out (string Model, ActorFace Face) face))
+                {
+                    face.Face.BeginFrame(seconds, Faces?.Scenes(prop.EntityIndex, seconds) ?? GestureScenes(prop));
+                }
+            }
+        }
+    }
+
     /// <summary>A player's face for a model: kept while the model holds, reset when it changes or the clock runs back.</summary>
     private void EnsureFace(int actor, string modelPath, double seconds)
     {
@@ -5604,6 +5626,11 @@ public sealed class EntityModelSet : Hud.IMdlCache
         long simulatedAt = System.Diagnostics.Stopwatch.GetTimestamp();
 
         Simulate(props, seconds, fireEvents: !string.Equals(pass, UndrawnPass, StringComparison.Ordinal));
+
+        if (string.Equals(pass, WorldPass, StringComparison.Ordinal))
+        {
+            BeginFaces(props, seconds);
+        }
 
         // **After the pass, not during it** (B347). Every barrel in this frame differences against
         // the SAME previous time, which is what one `gpGlobals->frametime` means; advancing it per

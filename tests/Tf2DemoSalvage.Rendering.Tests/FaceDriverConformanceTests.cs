@@ -143,6 +143,23 @@ public sealed class FaceDriverConformanceTests
             "if ( ( pPlayer && pPlayer->IsAlive()) || !pPlayer )", Case.Sensitive);
     }
 
+    [Test]
+    public void SoundInfo_TheSpeakerEntity_IsReadOnEveryProtocolAndClearedByAStop()
+    {
+        // soundinfo.h:366 (no nProtoVersion test around it) and :153.
+        string info = Sdk("src/public/soundinfo.h");
+        info.ShouldContain("READ_DELTA_SINT( nSpeakerEntity, MAX_EDICT_BITS + 1 );", Case.Sensitive);
+        info.ShouldContain("nSpeakerEntity = -1;\n\t}", Case.Sensitive);
+    }
+
+    [Test]
+    public void UpdateClientSideAnimations_WalksTheWholeList_NotWhatIsDrawn()
+    {
+        // c_baseanimating.cpp:6372-6379: every listed entity latches each frame, on screen or not.
+        Sdk("src/game/client/c_baseanimating.cpp").ShouldContain(
+            "int c = g_ClientSideAnimationList.Count();\n\tfor ( int i = 0; i < c ; ++i )", Case.Sensitive);
+    }
+
     private static string Sdk(string path) =>
         (SourceSdk.Text(path) ?? throw new System.InvalidOperationException($"{path} is missing from the SDK"))
             .Replace("\r\n", "\n", System.StringComparison.Ordinal);

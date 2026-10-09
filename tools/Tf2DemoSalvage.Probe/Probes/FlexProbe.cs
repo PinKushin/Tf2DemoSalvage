@@ -190,6 +190,83 @@ public sealed class FlexProbe : IProbe
 
         // Every map the install ships, plus any extra folders named: which models its static props and entities place,
         // and which of those move at zero weight. The control is the placement count.
+        // The control for SoundLength: every cached sound's own sample count against the length read from its file.
+        if (arguments[0] == "lengths")
+        {
+            int compared = 0, agree = 0, unread = 0;
+            double worst = 0;
+
+            foreach (string cache in Directory.GetFiles(folder, "*.sound.cache"))
+            {
+                foreach ((string name, float cached) in SoundCacheFile.ReadAll(File.ReadAllBytes(cache)).Lengths)
+                {
+                    string path = name.Replace('\\', '/');
+
+                    if ((game.Archives.Read(path) ?? game.Archives.Read(Path.ChangeExtension(path, ".mp3"))) is not { } bytes ||
+                        SoundLength.Seconds(bytes) is not { } read)
+                    {
+                        unread++;
+                        continue;
+                    }
+
+                    compared++;
+                    double difference = Math.Abs(read - cached);
+                    agree += difference < 0.0005 ? 1 : 0;
+
+                    if (difference > worst || (arguments.Count > 1 && name.Contains(arguments[1], StringComparison.OrdinalIgnoreCase)))
+                    {
+                        worst = difference;
+                        output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                            $"    {name}: cache {cached:0.#####} s, file {read:0.#####} s"));
+                    }
+                }
+            }
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"{compared} compared, {agree} within half a millisecond, {unread} unread, worst {worst:0.#####} s"));
+
+            // MP3s: the cache holds no count, so the frame walk is checked against a full decode instead.
+            int mp3s = 0, mp3Agree = 0;
+            double mp3Worst = 0;
+
+            foreach (string path in game.Archives.Paths()
+                .Where(p => p.StartsWith("sound/vo/", StringComparison.OrdinalIgnoreCase) && p.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase))
+                .Take(300))
+            {
+                if (game.Archives.Read(path) is not { } bytes || SoundLength.Seconds(bytes) is not { } walked ||
+                    Tf2DemoSalvage.Audio.SoundSampleReader.Read(bytes).Sample is not { } decoded)
+                {
+                    continue;
+                }
+
+                mp3s++;
+                double difference = Math.Abs(walked - decoded.Duration.TotalSeconds);
+                mp3Agree += difference < 0.0005 ? 1 : 0;
+                mp3Worst = Math.Max(mp3Worst, difference);
+            }
+
+            output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                $"{mp3s} voice MP3s, {mp3Agree} within half a millisecond of a full decode, worst {mp3Worst:0.#####} s"));
+            return;
+        }
+
+        // Sounds whose message names a speaker entity — the control is the total sound count beside it.
+        if (arguments[0] == "speakers" && arguments.Count > 1 && DemoCorpus.Find(arguments[1], output) is { } heard)
+        {
+            DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(heard));
+            List<SceneSound> named = [.. timeline.Sounds.Where(s => s.SpeakerEntity >= 0)];
+
+            output.WriteLine($"{timeline.Sounds.Count} sounds, {named.Count} naming a speaker");
+
+            foreach (SceneSound sound in named.Take(10))
+            {
+                output.WriteLine(string.Create(CultureInfo.InvariantCulture,
+                    $"    tick {sound.Tick} entity {sound.EntityIndex} speaker {sound.SpeakerEntity} channel {sound.Channel} '{sound.Name}'"));
+            }
+
+            return;
+        }
+
         if (arguments[0] == "placed")
         {
             Placed(output, game, folder, arguments.Skip(1).ToList());

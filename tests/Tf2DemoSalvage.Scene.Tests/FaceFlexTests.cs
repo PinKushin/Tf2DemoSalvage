@@ -218,6 +218,61 @@ public sealed class FaceFlexTests
         sources.Voices(1, 0.6d).ShouldBeEmpty("a one-second sound at double pitch ends at half a second");
     }
 
+    [Test]
+    public void Voices_ASoundNamingASpeaker_MovesTheSpeakersMouth()
+    {
+        // The mouth update reads the channel's speaker entity first (engine.dll 0x180046cf0): entity 50's sound with
+        // speaker 1 moves 1's mouth and not its own; a stop from 50 (which carries no speaker) still frees it.
+        FaceSources sources = Sources(
+        [
+            Sound(0, "player/taunt_burp.wav", channel: 6, entity: 50) with { SpeakerEntity = 1 },
+            Sound(20, "player/taunt_burp.wav", channel: 6, entity: 50) with { IsStop = true },
+        ]);
+
+        sources.Voices(1, 0.1d).ShouldHaveSingleItem();
+        sources.Voices(50, 0.1d).ShouldBeEmpty();
+        sources.Voices(1, 0.4d).ShouldBeEmpty("the stop at 0.3 freed the speaker's channel");
+    }
+
+    [Test]
+    public void Voices_ASoundTheCacheDoesNotCount_EndsAtItsFilesLength()
+    {
+        // vo/uncounted.wav is in no cache; its file says 0.1 s, so on CHAN_VOICE it ends at 0.25 and empties the mouth.
+        FaceSources sources = new(
+            [],
+            _ => null,
+            [Sound(0, "player/taunt_burp.wav", channel: 6), Sound(10, "vo/uncounted.wav", channel: 2)],
+            0.015,
+            new Dictionary<string, Sentence>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["sound\\player\\taunt_burp.wav"] = new([new SentencePhoneme(0, 0f, 1f)], [], 22050, 22050),
+            },
+            _ => null,
+            new Dictionary<string, float>(StringComparer.OrdinalIgnoreCase) { ["sound\\player\\taunt_burp.wav"] = 1f },
+            path => path.EndsWith("uncounted.wav", StringComparison.OrdinalIgnoreCase) ? 0.1f : null);
+
+        sources.Voices(1, 0.2d).Count.ShouldBe(1);
+        sources.Voices(1, 0.3d).ShouldBeEmpty();
+    }
+
+    [Test]
+    public void BeginFrame_OnFramesNotDrawn_KeepsTheScenesClockMoving()
+    {
+        // An event from 1.01. The frame at 1.0 passes undrawn; at 1.02 the previous frame's clock is 1.0, before the event,
+        // so EventThink has not started it yet. A face that only counted drawn frames would take 1.02 for the previous
+        // time and start it a frame early.
+        List<FaceScene> scenes = [new(Scene(Animation(1.01f, 2f, "smile")), 0d, null)];
+        ActorFace stepped = new(Model, "m.mdl", null);
+        ActorFace drawnOnly = new(Model, "m.mdl", null);
+
+        stepped.BeginFrame(1.0d, scenes);
+        stepped.Step(1.02d, 1, scenes, []);
+        drawnOnly.Step(1.02d, 1, scenes, []);
+
+        stepped.FlexWeight(0).ShouldBe(0f);
+        drawnOnly.FlexWeight(0).ShouldBeGreaterThan(0f);
+    }
+
     private static FaceSources Sources(List<SceneSound> sounds) =>
         new([], _ => null, sounds, 0.015, new Dictionary<string, Sentence>(StringComparer.OrdinalIgnoreCase)
         {
@@ -230,8 +285,8 @@ public sealed class FaceFlexTests
             ["sound\\vo\\silent.wav"] = 0.1f,
         });
 
-    private static SceneSound Sound(int tick, string name, int channel, int pitch = 100) =>
-        new(tick, name, 0, 1, channel, 1f, 75, pitch, 0f, 0f, 0f, 0f);
+    private static SceneSound Sound(int tick, string name, int channel, int pitch = 100, int entity = 1) =>
+        new(tick, name, 0, entity, channel, 1f, 75, pitch, 0f, 0f, 0f, 0f);
 
     [Test]
     public void Delay_TheFirstFrame_BlendsNothing()

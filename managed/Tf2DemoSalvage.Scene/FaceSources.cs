@@ -54,6 +54,8 @@ public sealed class FaceSources
     private readonly Dictionary<int, List<(SceneSound Sound, double Start)>> _voices = [];
     private readonly IReadOnlyDictionary<string, Sentence> _sentences;
     private readonly IReadOnlyDictionary<string, float> _lengths;
+    private readonly Func<string, float?>? _readLength;
+    private readonly Dictionary<string, float?> _readLengths = new(StringComparer.OrdinalIgnoreCase);
     private readonly Func<string, FlexSettings?> _expressions;
 
     /// <summary>Indexes a recording's scenes and voice sounds.</summary>
@@ -64,6 +66,9 @@ public sealed class FaceSources
     /// <param name="sentences">Lip-sync data by sound path (<see cref="SoundCacheFile.Normalise"/>).</param>
     /// <param name="expressions">Reads an expression file by name, for the phoneme classes.</param>
     /// <param name="lengths">Each cached sound's length in seconds, by path; null knows none.</param>
+    /// <param name="readLength">
+    /// A sound's length read from its own file, for one the cache does not list (<see cref="SoundLength"/>); null reads none.
+    /// </param>
     public FaceSources(
         IEnumerable<SceneChoreography> scenes,
         Func<string, SceneTaunt?> plan,
@@ -71,8 +76,10 @@ public sealed class FaceSources
         double intervalPerTick,
         IReadOnlyDictionary<string, Sentence> sentences,
         Func<string, FlexSettings?> expressions,
-        IReadOnlyDictionary<string, float>? lengths = null)
+        IReadOnlyDictionary<string, float>? lengths = null,
+        Func<string, float?>? readLength = null)
     {
+        _readLength = readLength;
         ArgumentNullException.ThrowIfNull(scenes);
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(sounds);
@@ -102,15 +109,35 @@ public sealed class FaceSources
             }
         }
 
+        Dictionary<int, HashSet<int>> mouthsOf = [];
+
         foreach (SceneSound sound in sounds)
         {
-            if (!_voices.TryGetValue(sound.EntityIndex, out List<(SceneSound, double)>? list))
+            // The mouth is the speaker's when there is one, else the sound's own entity — the mouth update reads the
+            // channel's speaker entity first (engine.dll 0x180046cf0: `+0xb4` when not -1, else the source `+0xac`).
+            // A stop carries no speaker (ClearStopFields, soundinfo.h:153), so it reaches every mouth its entity's sounds
+            // have fed, where Voices matches it by entity and channel.
+            int mouth = sound.SpeakerEntity >= 0 ? sound.SpeakerEntity : sound.EntityIndex;
+            double start = (sound.Tick * intervalPerTick) + sound.DelaySeconds;
+
+            if (!mouthsOf.TryGetValue(sound.EntityIndex, out HashSet<int>? fed))
             {
-                list = [];
-                _voices[sound.EntityIndex] = list;
+                fed = [sound.EntityIndex];
+                mouthsOf[sound.EntityIndex] = fed;
             }
 
-            list.Add((sound, (sound.Tick * intervalPerTick) + sound.DelaySeconds));
+            fed.Add(mouth);
+
+            foreach (int target in sound.IsStop ? fed : [mouth])
+            {
+                if (!_voices.TryGetValue(target, out List<(SceneSound, double)>? list))
+                {
+                    list = [];
+                    _voices[target] = list;
+                }
+
+                list.Add((sound, start));
+            }
         }
 
         // A delayed sound starts after later ticks' sounds: the walk in Voices needs start order (stable, so one tick's
@@ -144,9 +171,8 @@ public sealed class FaceSources
     /// (<c>0x1800449d0</c>) removes the source, and **when the source is not in the mouth, empties it**: a voice line
     /// without a sentence ending clears every sentence still playing.
     ///
-    /// **Interpolated:** a channel's end is its cached length over its pitch; a sound the cache does not list never ends
-    /// by itself, only by a stop or by a later sound on its channel. The speaker entity (<c>SND_SPEAKER</c>) is not
-    /// decoded, so the mouth is the sound's own entity.
+    /// A channel ends when its source runs out: the cache's sample count over the pitch, or for a sound the cache does not
+    /// count, the file's own length (<see cref="SoundLength"/>). The mouth is the speaker entity's when the sound names one.
     /// </remarks>
     public IReadOnlyList<FaceVoice> Voices(int entity, double seconds)
     {
@@ -210,7 +236,7 @@ public sealed class FaceSources
             {
                 for (int at = playing.Count - 1; at >= 0; at--)
                 {
-                    if (playing[at].Channel == sound.Channel &&
+                    if (playing[at].Channel == Slot(sound) &&
                         (!sound.IsStop || string.Equals(playing[at].Path, path, StringComparison.OrdinalIgnoreCase)))
                     {
                         Free(at);
@@ -226,9 +252,9 @@ public sealed class FaceSources
             _sentences.TryGetValue(path, out Sentence? sentence);
             bool feeds = sound.Channel is VoiceChannel or VoiceChannel2 || sentence is not null;
             double rate = sound.Pitch > 0 ? sound.Pitch / 100d : 1d;
-            double end = _lengths.TryGetValue(path, out float length) ? start + (length / rate) : double.PositiveInfinity;
+            double end = LengthOf(path) is { } length ? start + (length / rate) : double.PositiveInfinity;
 
-            playing.Add((sound.Channel, path, end, feeds));
+            playing.Add((Slot(sound), path, end, feeds));
 
             if (sentence is null)
             {
@@ -251,6 +277,34 @@ public sealed class FaceSources
         EndBefore(seconds);
         return [.. mouth.Select(one => one.Voice)];
     }
+
+    /// <summary>
+    /// How long a sound plays: the cache's count when it lists one, else the file's own (read once). The mixer frees a
+    /// channel when its source runs out — a wave's data chunk, an MP3's last frame.
+    /// </summary>
+    private float? LengthOf(string path)
+    {
+        if (_lengths.TryGetValue(path, out float cached))
+        {
+            return cached;
+        }
+
+        if (_readLength is null)
+        {
+            return null;
+        }
+
+        if (!_readLengths.TryGetValue(path, out float? read))
+        {
+            read = _readLength(path);
+            _readLengths[path] = read;
+        }
+
+        return read;
+    }
+
+    /// <summary>A channel's identity: the entity that made the sound and its channel, three bits (soundinfo.h:299).</summary>
+    private static int Slot(SceneSound sound) => (sound.EntityIndex << 3) | (sound.Channel & 7);
 
     /// <summary>The playing channel that ends first at or before a time, or -1.</summary>
     private static int EarliestEnd(List<(int Channel, string Path, double End, bool Feeds)> playing, double time)

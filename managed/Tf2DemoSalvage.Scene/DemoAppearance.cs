@@ -159,7 +159,17 @@ public static class DemoAppearance
                 timeline.IntervalPerTick,
                 sentences,
                 Expression,
-                lengths)
+                lengths,
+
+                // A sound the cache lists no count for — every MP3, an ADPCM wave, a map's own — is read from its file;
+                // the path is the cache's spelling, and a .wav name may be served by its .mp3.
+                path =>
+                {
+                    string file = path.Replace('\\', '/');
+                    return (game.Archives.Read(file) ?? game.Archives.Read(System.IO.Path.ChangeExtension(file, ".mp3"))) is { } bytes
+                        ? SoundLength.Seconds(bytes)
+                        : null;
+                })
             {
                 InterpolationSeconds =
                     ScenePropTrack.DelayTicksFor(timeline.IntervalPerTick, timeline.ClientInterpAmount) * (double)timeline.IntervalPerTick,

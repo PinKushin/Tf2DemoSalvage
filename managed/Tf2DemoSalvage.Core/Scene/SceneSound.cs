@@ -83,6 +83,12 @@ public readonly record struct SceneSound(
     public bool IgnoresPhonemes { get; init; }
 
     /// <summary>
+    /// `nSpeakerEntity` (soundinfo.h:366), -1 for none: the entity whose mouth this sound moves when it is not the one
+    /// that made it — a speaker playing a player's line (B513).
+    /// </summary>
+    public int SpeakerEntity { get; init; } = -1;
+
+    /// <summary>
     /// For a sound the client resolved from a soundscript: which script, and the draw its wave is picked with — so the wave
     /// is chosen when it plays, from the script's availability flags at that moment (B503). Null for the demo's own sounds,
     /// which name a wave already. <see cref="Name"/> is then the wave a full deck would give.

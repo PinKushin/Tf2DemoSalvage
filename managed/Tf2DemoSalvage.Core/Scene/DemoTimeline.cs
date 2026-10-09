@@ -2956,6 +2956,9 @@ public sealed class DemoTimeline
 
                                 // `SND_IGNORE_PHONEMES` (soundflags.h:128): the mouth skips this one (B513).
                                 IgnoresPhonemes = (sound.Flags & IgnorePhonemesFlag) != 0,
+
+                                // `nSpeakerEntity` (soundinfo.h:366): the mouth the mixer moves when not -1 (B513).
+                                SpeakerEntity = sound.SpeakerEntity,
                             });
                         }
 

@@ -134,7 +134,13 @@ public static class SoundCacheFile
             reader.Int();
             int samples = reader.Int();
 
-            Sentence? sentence = (flags & 1) != 0 ? ReadSentence(ref reader, samples, (int)((uint)info >> 15)) : null;
+            // `info` packs the format at bits 12-13 and the sample rate at 14-30: CAudioSourceWave's constructor from the
+            // cache, `info >> 0xe & 0x1ffff` and `info >> 0xc & 3` (engine.dll 0x18004f870). The remainder pass read the
+            // rate from bit 15, half the real one, so every cached length came out doubled.
+            int rate = (int)(((uint)info >> 14) & 0x1FFFF);
+            int format = (int)(((uint)info >> 12) & 3);
+
+            Sentence? sentence = (flags & 1) != 0 ? ReadSentence(ref reader, samples, rate) : null;
 
             // The cached audio and header blobs follow; the record length steps over them.
             reader.Seek(next);
@@ -144,9 +150,9 @@ public static class SoundCacheFile
                 sentences[Normalise(name)] = sentence;
             }
 
-            int rate = (int)((uint)info >> 15);
-
-            if (rate > 0)
+            // An ADPCM wave (format 2) caches its data size in bytes, which the constructor converts by block; an MP3
+            // caches no count at all. Both are left to the file (SoundLength).
+            if (rate > 0 && samples > 0 && format != 2)
             {
                 lengths[Normalise(name)] = (float)samples / rate;
             }
