@@ -1,0 +1,26 @@
+name: Test environment (Linux)
+description: >
+  What the game-reading test projects need besides the game: OpenAL Soft (its null backend),
+  the native voice codecs built from source (tools/native-audio/build.sh), and a Source SDK
+  checkout at SOURCE_SDK (D212).
+runs:
+  using: composite
+  steps:
+    - name: OpenAL
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q libopenal1
+
+    - name: Native voice codecs
+      shell: bash
+      run: |
+        sudo apt-get install -y -q unzip curl
+        bash tools/native-audio/build.sh
+        ls -la tools/native-audio
+
+    - name: Source SDK
+      shell: bash
+      run: |
+        git clone --depth 1 https://github.com/ValveSoftware/source-sdk-2013.git "$HOME/source-sdk-2013"
+        echo "SOURCE_SDK=$HOME/source-sdk-2013" >> "$GITHUB_ENV"

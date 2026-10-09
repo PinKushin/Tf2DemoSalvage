@@ -287,6 +287,9 @@ jobs:
       - if: contains(fromJSON('["Presentation","Rendering","Content","Audio"]'), matrix.project)
         uses: ./.github/actions/tf2-server
 
+      - if: contains(fromJSON('["Presentation","Rendering","Content","Audio"]'), matrix.project)
+        uses: ./.github/actions/test-env
+
       - run: dotnet tool restore
 
       - name: Stryker (${{ matrix.project }})
@@ -341,6 +344,9 @@ jobs:
       # Linux projects only; Viewer3D is Windows and the action is bash/apt.
       - if: runner.os == 'Linux' && (contains(inputs.project, 'Presentation') || contains(inputs.project, 'Rendering') || contains(inputs.project, 'Content') || contains(inputs.project, 'Audio'))
         uses: ./.github/actions/tf2-server
+
+      - if: runner.os == 'Linux' && (contains(inputs.project, 'Presentation') || contains(inputs.project, 'Rendering') || contains(inputs.project, 'Content') || contains(inputs.project, 'Audio'))
+        uses: ./.github/actions/test-env
 
       - run: dotnet tool restore
 

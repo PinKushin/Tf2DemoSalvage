@@ -1,0 +1,38 @@
+# TEMPORARY (D212), run 4: baseline failures with the full Linux test environment.
+name: TF2 content check
+on:
+  push:
+    branches: [ci/scheduled-measurements]
+    paths: ['.github/workflows/tf2-content-check.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    name: ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    # measured healthy: ~12 min (run 37860138253)
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [Rendering, Content, Audio]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          lfs: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68  # v6.0.0
+        with:
+          dotnet-version: '10.0.x'
+      - uses: ./.github/actions/tf2-server
+      - uses: ./.github/actions/test-env
+      - name: Test
+        env:
+          PROJECT: ${{ matrix.project }}
+        run: |
+          dotnet test "tests/Tf2DemoSalvage.$PROJECT.Tests" --logger "trx;LogFileName=r.trx" --results-directory out || true
+          grep -o '<Counters [^>]*>' out/r.trx
+          echo "FAILED tests with message:"
+          grep -oE 'testName="[^"]*"|<Message>[^<]{0,200}' out/r.trx | grep -A1 'testName=' | grep -B1 '<Message>' | head -150
+          echo "skip reasons:"
+          grep -o '<Message>[^<]\{0,120\}' out/r.trx | sort | uniq -c | sort -rn | head -15
