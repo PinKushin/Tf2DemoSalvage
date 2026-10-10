@@ -503,7 +503,8 @@ public sealed class MomentSceneTests
             scene.WorldLights, atlas, _ => 1f, [], WorldDynamicLights.BrushesOf([door], models));
 
         FaceTexel(atlas, 0, 0, 0).ShouldBe((byte)71);
-        FaceTexel(atlas, 1, 0, 0).ShouldBe((byte)132);
+        // 132 to the byte; R11G11B10's six-bit mantissa can land it on 133 (B514).
+        FaceTexel(atlas, 1, 0, 0).ShouldBeInRange((byte)132, (byte)133);
     }
 
     /// <summary>Face 0 a displacement whose first luxel is 10 above its plane; face 1 the door's floor under head node 1.</summary>
@@ -528,24 +529,21 @@ public sealed class MomentSceneTests
 
     private static Content.Bsp.BspFaceLighting Black(int size)
     {
+        // All zero bits is black in R11G11B10 (B514).
         byte[] black = new byte[size * size * 4];
-
-        for (int luxel = 0; luxel < size * size; luxel++)
-        {
-            black[(luxel * 4) + 3] = 255;
-        }
 
         return new Content.Bsp.BspFaceLighting(new Content.Bsp.BspLightmap(size, size, black), []);
     }
 
-    /// <summary>The red byte of one face's luxel on the flat page.</summary>
+    /// <summary>One face's red on the flat page, in the halved-byte units these tests were written in (B514).</summary>
     private static byte FaceTexel(LightmapAtlas atlas, int face, int column, int row)
     {
         AtlasRect rect = atlas.Rectangles[face];
         int x = (int)MathF.Round((rect.U * atlas.Width) - 0.5f);
         int y = (int)MathF.Round((rect.V * atlas.Height) - 0.5f);
+        int at = (((y + row) * atlas.Width) + x + column) * 4;
 
-        return atlas.Pixels[((((y + row) * atlas.Width) + x + column) * 4)];
+        return (byte)Math.Min(255f, Content.Bsp.BspLightmaps.Load(atlas.Pixels.AsSpan(at, 4)).Red / 2f);
     }
 
     [Test]

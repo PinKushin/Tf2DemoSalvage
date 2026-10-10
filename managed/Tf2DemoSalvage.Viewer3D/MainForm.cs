@@ -4452,6 +4452,10 @@ internal class MainForm : Form, IFrameSteps
         _device.MonitorCamera = _timeline?.PointCameras.At(_transport.CurrentTick);
         _device.Tonemap = _timeline?.Tonemap.At(_transport.CurrentTick) ?? default;
 
+        // The exposure walks by game frame time and resets when the followed player changes (B514).
+        _device.ExposureSeconds = (float)_demoFrameSeconds;
+        _device.ObserverTarget = FollowedEntity();
+
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
         long particlesAt = Stopwatch.GetTimestamp();

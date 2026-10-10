@@ -480,11 +480,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             float4 tintControl;
         };
 
-        // **Valve's overbright.** A lightmap is stored halved so that light brighter than white
-        // survives eight bits, and the shader doubles it back - Source's own shaders multiply an
-        // LDR lightmap by two for exactly this reason. Both halves have to be present or the map
-        // is out by a factor of two in one direction.
+        // **Valve's overbright, for the fullbright substitute only.** The lightmap itself is now stored as its light
+        // (R11G11B10_FLOAT, BspLightmaps.Store), up to LIGHT_MAP_SCALE 16 as integer HDR holds it (B514); it used to be
+        // halved into a byte and doubled here, which clipped every luxel above 2 — the sunlit outdoors.
         static const float OverbrightScale = 2.0f;
+        static const float LightmapScale = 1.0f;
 
         Texture2D    albedoMap   : register(t0);
         Texture2D    lightMap    : register(t1);
@@ -1335,9 +1335,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // engine reads sets 1, 2 and 3 - the three ARE the lighting. Treating the flat set
                 // as a base with the others adding to it gives a plausible picture that is roughly
                 // twice as bright and flat where it should be shaped.
-                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb * OverbrightScale;
-                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * OverbrightScale;
-                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * OverbrightScale;
+                float3 first  = lightMap.Sample(clampSampler, input.luv + float2(input.ls, 0)).rgb * LightmapScale;
+                float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * LightmapScale;
+                float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * LightmapScale;
 
                 float4 texel = bumpMap.Sample(wrapSampler, input.uv);
 
@@ -1350,7 +1350,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             }
             else
             {
-                light = lightMap.Sample(clampSampler, input.luv).rgb * OverbrightScale;
+                light = lightMap.Sample(clampSampler, input.luv).rgb * LightmapScale;
             }
 
             // **No doubling here.** Source's own shaders multiply an LDR lightmap by two, but that
@@ -3784,13 +3784,15 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
         // **Linear, not sRGB.** A lightmap is light rather than a picture: linearising it on
         // sampling would apply the curve to values that never had it, darkening every shadow.
-        _lightmap = CreateTexture(
+        // Four bytes a luxel of R11G11B10_FLOAT, as BspLightmaps.Store packs them (B514).
+        _lightmap = CreatePixelTexture(
             device,
             context,
             assets.Lightmaps.Width,
             assets.Lightmaps.Height,
-            TextureImage.Rgba(assets.Lightmaps.Pixels),
-            SamplerSrgb.ReadsAsSrgb(MaterialSampler.Lightmap));
+            assets.Lightmaps.Pixels,
+            srgb: false,
+            Silk.NET.DXGI.Format.FormatR11G11B10Float);
 
         // Counted, because "we now skip additive materials" is a capability and this is the output.
         _render.LogInformation(
@@ -8053,7 +8055,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         int width,
         int height,
         ReadOnlySpan<byte> pixels,
-        bool srgb)
+        bool srgb,
+        Silk.NET.DXGI.Format? format = null)
     {
         Texture2DDesc description = new()
         {
@@ -8063,9 +8066,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // Zero means "every level down to 1x1", which the driver fills in.
             MipLevels = 0,
             ArraySize = 1,
-            Format = srgb
+            Format = format ?? (srgb
                 ? Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
-                : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm,
+                : Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm),
             SampleDesc = new Silk.NET.DXGI.SampleDesc(1, 0),
             Usage = Usage.Default,
             BindFlags = (uint)(BindFlag.ShaderResource | BindFlag.RenderTarget),

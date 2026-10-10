@@ -56,21 +56,21 @@ public sealed class LightStyleLightmapConformanceTests
     /// <remarks>
     /// At TF2's default HDR level the engine lights faces from `LUMP_LIGHTING_HDR` (53) through `LUMP_FACES_HDR` (58), each
     /// taken whenever it is non-empty, and `LUMP_LIGHTING`/`LUMP_FACES` only otherwise. The HDR pair here says red 100 at
-    /// offset 4; the LDR pair says 64 at offset 0. Stored halved for the shader's overbright: 50 against 32.
+    /// offset 4; the LDR pair says 64 at offset 0. Stored as the light itself (B514), to R11G11B10's six-bit mantissa.
     /// </remarks>
     [Test]
     public void ReadAll_AMapCarryingBothLightings_IsLitByTheHdrPair()
     {
         byte[] map = HdrMap();
 
-        BspLightmaps.ReadAll(map)[0].Flat.Pixels.Span[0].ShouldBe((byte)50);
-        BspLightmaps.Read(map)[0].Pixels.Span[0].ShouldBe((byte)50);
+        BspLightmaps.Load(BspLightmaps.ReadAll(map)[0].Flat.Pixels.Span).Red.ShouldBe(100f, 1.6f);
+        BspLightmaps.Load(BspLightmaps.Read(map)[0].Pixels.Span).Red.ShouldBe(100f, 1.6f);
     }
 
     [Test]
     public void ReadAll_AMapWithOnlyLdrLighting_IsLitByIt()
     {
-        BspLightmaps.ReadAll(Map((0, 255, 255, 255)))[0].Flat.Pixels.Span[0].ShouldBe((byte)32);
+        BspLightmaps.Load(BspLightmaps.ReadAll(Map((0, 255, 255, 255)))[0].Flat.Pixels.Span).Red.ShouldBe(64f, 1f);
     }
 
     /// <summary>One face, one luxel, lit red 64 by the LDR pair and red 100 by the HDR pair at a different offset.</summary>

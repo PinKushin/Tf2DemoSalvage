@@ -125,7 +125,40 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     public Core.Scene.SceneTonemap Tonemap { get; set; }
 
     /// <summary>Whether the post-processing has settled, which a comparison capture waits for (D192).</summary>
+    /// <remarks>
+    /// The bloom only: it walks per FRAME, so it settles even on a paused still. The exposure walks by frame TIME and holds
+    /// while paused, exactly as TF2's does (<see cref="AutoExposure.Walk"/>), so a still keeps whatever playback left it.
+    /// </remarks>
     public bool PostProcessingSettled => _bloomAmount.Settled;
+
+    private readonly AutoExposure _exposure = new();
+
+    private readonly ExposureHistogram _histogram = new();
+
+    private readonly int[] _exposureCounts = new int[AutoExposure.Bins];
+
+    private int? _observerTarget;
+
+    /// <summary>The tone-map scale the main view draws at now, <c>LINEAR_LIGHT_SCALE</c> (B514).</summary>
+    public float ToneMapScale => _exposure.Current;
+
+    /// <summary>The game time this frame advanced: what the material system's exposure walk is given (zero when paused).</summary>
+    public float ExposureSeconds { get; set; }
+
+    /// <summary>The player the view follows, or null; a change resets the exposure as <c>SetObserverTarget</c> does.</summary>
+    public int? ObserverTarget
+    {
+        get => _observerTarget;
+        set
+        {
+            if (value != _observerTarget)
+            {
+                _exposure.Reset(1f);
+            }
+
+            _observerTarget = value;
+        }
+    }
 
     /// <summary>Depth buffer, so a roof covers the floor beneath it rather than the draw order.</summary>
     /// <remarks>
@@ -460,11 +493,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                     if (_render.IsEnabled(LogLevel.Information))
                     {
                         _render.LogInformation(
-                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB",
+                            "wrote {File}, {Width}x{Height}, {Kilobytes} KB, tone-map scale {Scale}, bloom {Bloom}",
                             Path.GetFileName(path),
                             description.Width,
                             description.Height,
-                            new FileInfo(path).Length / 1024);
+                            new FileInfo(path).Length / 1024,
+                            _exposure.Current,
+                            _bloomAmount.Current);
                     }
                 }
                 finally
@@ -1296,6 +1331,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // would put a shaded grey slab over the map's own textures.
             if (_world is { HasMap: true })
             {
+                // **`LINEAR_LIGHT_SCALE` is the exposure's current scale under integer HDR, and one otherwise**
+                // (`SetToneMappingScaleLinear`, shaderapidx9.dll 0x180023be0; B514). Set before anything of this view.
+                _world.LinearLightScale = _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f;
+
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
                 // `SceneBegin` (`viewrender.cpp:2074-2081`), so `_rt_Camera` holds this frame's camera view when the
                 // monitor's material samples it below.
@@ -1593,6 +1632,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
                 // **`DoEnginePostProcessing`, after the overlay and before the HUD** (viewrender.cpp:2194): the bloom
                 // (B514). The HUD is drawn after it, so the HUD neither blooms nor is bloomed over.
+                // **`DoPreBloomTonemapping` first** (viewpostprocess.cpp:1600-1661): the histogram of the frame as drawn,
+                // the goal from it, then the material system's walk by this frame's game time.
+                UpdateExposure();
+
                 float bloom = _bloomAmount.Next(
                     _world.HdrType != Content.Bsp.HdrType.None, Tonemap.UseBloom, Tonemap.Bloom);
 
@@ -1671,6 +1714,36 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         {
             _captureTo = null;
             SaveBackBuffer(file);
+        }
+    }
+
+    /// <summary>One frame of auto-exposure: histogram (when a read-back is ready), goal, walk (B514).</summary>
+    private void UpdateExposure()
+    {
+        if (_world is not { HdrType: Content.Bsp.HdrType.IntegerHdr })
+        {
+            return;
+        }
+
+        SilkMarshal.ThrowHResult(_swapChain.GetBuffer(0u, out ComPtr<ID3D11Texture2D> back));
+
+        try
+        {
+            _histogram.Capture(_device, _context, back, _width, _height);
+        }
+        finally
+        {
+            back.Dispose();
+        }
+
+        if (_histogram.TryRead(_context, _exposureCounts))
+        {
+            _exposure.Update(
+                _exposureCounts, AutoExposure.Range(Tonemap.UseMin, Tonemap.Min, Tonemap.UseMax, Tonemap.Max), ExposureSeconds);
+        }
+        else
+        {
+            _exposure.Walk(ExposureSeconds);
         }
     }
 
@@ -2971,6 +3044,9 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _world?.Dispose();
         _world = null;
 
+        // `ResetToneMapping( 1.0 )` in `LevelInitPreEntity` (B514).
+        _exposure.Reset(1f);
+
         // The renderer's buffers went with it, so the slices that fed them must go too — otherwise
         // a path from the previous map resolves to geometry nothing holds any more.
         _packedModels.Clear();
@@ -4238,6 +4314,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _backBufferView.Dispose();
         _gammaView.Dispose();
         _bloom?.Dispose();
+        _histogram.Dispose();
         _swapChain.Dispose();
         _context.Dispose();
         _device.Dispose();

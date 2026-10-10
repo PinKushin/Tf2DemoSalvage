@@ -116,17 +116,23 @@ public sealed class LightmapAtlas
             {
                 int at = ((((y + (luxel / setWidth)) * Width) + x + (set * setWidth) + (luxel % setWidth)) * 4);
 
+                (float bakedRed, float bakedGreen, float bakedBlue) = BspLightmaps.Load(_baked.AsSpan(at, 4));
+                Span<float> light = [bakedRed, bakedGreen, bakedBlue];
+
                 for (int channel = 0; channel < 3; channel++)
                 {
-                    float light = layers.Count > 0 ? Styled(layers, set, luxel, channel, scale) : _baked[at + channel] * 2f;
+                    if (layers.Count > 0)
+                    {
+                        light[channel] = Styled(layers, set, luxel, channel, scale);
+                    }
 
                     if (!added.IsEmpty)
                     {
-                        light += added[(((set * luxels) + luxel) * 3) + channel];
+                        light[channel] += added[(((set * luxels) + luxel) * 3) + channel];
                     }
-
-                    Pixels[at + channel] = BspLightmaps.Overbright(light);
                 }
+
+                BspLightmaps.Store(Pixels.AsSpan(at, 4), light[0], light[1], light[2]);
             }
         }
 
@@ -313,11 +319,8 @@ public sealed class LightmapAtlas
         int atlasHeight = Math.Max(2, shelfY + shelfHeight + Padding);
         byte[] pixels = new byte[atlasWidth * atlasHeight * 4];
 
-        // The reserved texel, white and opaque, for faces with no baked light.
-        pixels[(WhiteTexel * 4) + 0] = 255;
-        pixels[(WhiteTexel * 4) + 1] = 255;
-        pixels[(WhiteTexel * 4) + 2] = 255;
-        pixels[(WhiteTexel * 4) + 3] = 255;
+        // The reserved texel for faces with no baked light: light 2.0, what a full byte times the old overbright gave.
+        BspLightmaps.Store(pixels.AsSpan(WhiteTexel * 4, 4), 510f, 510f, 510f);
 
         (int, int, int, int, int, IReadOnlyList<BspStyleLayer>)?[] faces = new (int, int, int, int, int, IReadOnlyList<BspStyleLayer>)?[lightmaps.Count];
 

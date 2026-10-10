@@ -36289,6 +36289,26 @@ captures.* Full account and numbers: findings 76, "B514". In short:
   now overshoots (45000 world 111 → 123 against 102), which is what a missing exposure DROP indoors would look like.
   `autoexposure` probe + `AutoExposure` (Valve's histogram, in the probe) are the instrument for it.
 
+**2026-10-09, part 2 (`fix/b514-exposure`): the closed code read; exposure and lightmap range ported; still OPEN.**
+*Read in disassembly* (Ghidra, `shaderapidx9.dll`, `materialsystem.dll`; output on `D:`) and from published source.
+Findings 76, "B514 part 2", has every address and number. In short:
+
+- **The light-scale register hides no factor.** `SetToneMappingScaleLinear` (`0x180023be0`) loads the scale unchanged
+  into `cLightScale.x` under integer HDR; `.y` (`LIGHT_MAP_SCALE`) is 16 (`0x18001be90`), `.z` 16. The "1.5-2× ours"
+  above was a wrong inference.
+- **The lightmap atlas clipped sunlight.** The engine writes an integer-HDR lightmap texel as `light · 4096` in 16
+  bits (`materialsystem.dll 0x180036450`) — light up to 16; ours held half the light in a byte, so up to 2. 9.7% of
+  cp_process_f12's flat luxels are above 2. Now `R11G11B10_FLOAT` (`BspLightmaps.Store`), four bytes as before.
+- **Auto-exposure is ported** (`AutoExposure`, `ExposureHistogram`, Device3D): Valve's histogram of LINEAR light
+  (`screenspace_general.cpp:124-132` — settled), goal, controller range, and the material system's walk
+  (`0x180035fa0`: rate 2, ×3 down, ≤1/64 a frame, nothing at a frame time of zero); reset to 1 on level load and on
+  an observer-target change (`c_baseplayer.cpp:611-614`). Respawn reset not wired.
+- **Why it does not move the golden numbers**: every stored TF2 capture followed `spec_player` (a reset to 1) under
+  `host_timescale 0.001`, and the walk is scaled by the frame time the engine hands the material system — so TF2 was at
+  1, as the viewer's paused shots are (*interpolated*: that frame time is timescaled, not read in `engine.dll`).
+- **Left**: outdoor world still short (free camera mean 123 114 112 against 142 132 126, partly the camera-offset
+  player in frame), indoor 45000 still over (124 against 102) — bloom's add space is the open interpolation there.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`

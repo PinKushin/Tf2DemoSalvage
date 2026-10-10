@@ -192,6 +192,56 @@ current scale walks to the goal — both in closed code.
 exposure". The controller's 0.7 ceiling killed it: a scale capped below 1 cannot brighten. The equal ratios were bloom
 — an add that, over a mostly bright frame, looks like a multiplier.
 
+### B514 part 2: what the closed code says, and what it does not fix
+
+*Read in disassembly, 2026-10-09 (Ghidra MCP; projects on `D:`), and from published source; measured against the same
+stored captures, viewer re-shot at `59c9f1a0` (before) and `fix/b514-exposure` (after).*
+
+**The wrong inference of part 1, killed.** Part 1 concluded TF2's unscaled light "must be 1.5-2× ours" and hoped the
+closed shader API hid the factor in `cLightScale.x`. It does not:
+
+| what | where | value under `HDR_TYPE_INTEGER` |
+|---|---|---|
+| `cLightScale.x`, `LINEAR_LIGHT_SCALE` | `shaderapidx9.dll 0x180023be0` (`SetToneMappingScaleLinear`) | the tone-map scale, unchanged (1 under none) |
+| `cLightScale.y`, `LIGHT_MAP_SCALE` | `0x18001be90` | 16 (1 under float) |
+| `cLightScale.z`, `ENV_MAP_SCALE` | `0x180023be0` | 16 |
+| integer-HDR lightmap texel | `materialsystem.dll 0x180036450`, from page writer `0x180028550` | `min(light · 4096, 65535)` in 16 bits |
+| the walk, once a frame | `materialsystem.dll 0x180035fa0` | rate `mat_hdr_manual_tonemap_rate`·2; down: `min(6, (cur−goal)·4·⅔ + 2)`; ×frame time; ≤ 1/64; `cur = lerp(cur, goal, r)`; nothing when frame time ≤ 0 |
+
+**What it did find: the lightmap atlas clipped sunlight.** An integer-HDR lightmap holds light to 16 (65535/4096); the
+viewer's held `light / 2` in a byte, so it clipped at 2. `lightmap-range` on cp_process_f12: 8.91% of the HDR lump's
+luxels have a channel above 2, 0.01% above 4 — the sunlit outdoors, no interiors. The atlas is now `R11G11B10_FLOAT`
+(the same four bytes a luxel; six-bit mantissa), and the shader reads the light without the doubling.
+
+**The histogram's colour space, settled from published source**: `dev/lumcompare` is `screenspace_general` (shipped
+VMT), which reads sampler 0 through sRGB unless `$linearread_basetexture` or a 16-bit target
+(`screenspace_general.cpp:124-132`); neither applies, so the histogram is of LINEAR light.
+
+**Resets** (`ResetToneMapping(1.0)`): `LevelInitPreEntity`, `C_TFPlayer::ClientPlayerRespawn` (`c_tf_player.cpp:7946`)
+and the local player's `SetObserverTarget` (`c_baseplayer.cpp:611-614`). The viewer resets on map load and on the
+followed player changing; not on the recorder's respawn.
+
+**Why the golden numbers barely move, and why that is right**: the capture recipe runs `spec_player` — an observer
+target change, so a reset to 1 — under `host_timescale 0.001`, and the walk is multiplied by the frame time the engine
+hands the material system. So every stored TF2 capture is at a scale of (nearly) 1, and the viewer's `--shot`, a paused
+still after the same reset, is at exactly 1 (logged: `tone-map scale 1, bloom 0.5001852` for all five). *Interpolated*:
+that the frame time passed to the material system is the timescaled one (not read in `engine.dll`).
+
+| case | summary | world | sky | world mean ours (TF2) | world linear TF2/ours |
+|---|---|---|---|---|---|
+| 45000 | 41.8 → 41.9 | 42.6 → 42.7 | — | 123 116 105 → 124 117 106 (102 96 85) | 0.80 → 0.80 |
+| 60000 | 45.3 → 45.2 | 45.6 → 45.4 | 51.4 → 51.3 | 84 80 83 → 84 80 83 (109 104 104) | 1.92 → 1.92 |
+| 75000 | 31.9 → 31.7 | 26.3 → 26.0 | 102.7 → 102.6 | 91 90 82 → 91 90 83 (88 89 82) | 0.99 → 0.98 |
+| 91000 | 57.2 → 57.9 | 58.1 → 58.8 | 69.4 → 69.6 | 127 119 118 → 131 122 119 (142 132 123) | 1.04 → 1.25 |
+| free 91000 | 46.2 → 46.9 | 44.7 → 45.5 | 24.7 → 24.7 | 120 112 111 → 123 114 112 (142 132 126) | 1.17 → 1.31 |
+
+Sunlit surfaces brighten (world mean +3 to +4 outdoors; our clipped share at the free camera 9.0% → 16.4%) and the
+error barely moves, because the brightened pixels were already near white in ours. **The free-camera "no timing in it"
+claim above is too strong**: its diff is dominated by gummo, who stands in front of our camera and not TF2's — the
+landing-tick fault below reaches the free camera too, through what is IN the frame. **Still open**: outdoor world short
+by ~19 levels, indoor 45000 over by ~22. The likeliest remaining term is bloom's add space, the one interpolation left
+in it.
+
 ### The instrument's open fault: TF2 lands earlier than the tick asked for
 
 *Measured, interpolation flagged.* At the free camera, the camera IS gummo's eye as TF2 reported it (`spec_pos` the

@@ -333,25 +333,23 @@ public sealed class WorldDynamicLightConformanceTests
     /// <summary>The floor's baked lighting, black, with three directional sets when bumped.</summary>
     internal static LightmapAtlas Atlas(bool bumped = false, int size = Size)
     {
+        // All zero bits is black in R11G11B10 (B514).
         byte[] black = new byte[size * size * 4];
-
-        for (int luxel = 0; luxel < size * size; luxel++)
-        {
-            black[(luxel * 4) + 3] = 255;
-        }
 
         BspLightmap flat = new(size, size, black);
 
         return LightmapAtlas.PackAll([new BspFaceLighting(flat, bumped ? [flat, flat, flat] : [])]);
     }
 
-    /// <summary>The red byte of face 0's luxel in a set.</summary>
+    /// <summary>Face 0's red in a set, in the halved-byte units these tests were written in (light × 127.5, truncated).</summary>
+    /// <remarks>The atlas holds the light itself since B514; halving it back keeps every prediction above as written.</remarks>
     internal static byte Texel(LightmapAtlas atlas, int set, int column, int row, int size = Size)
     {
         AtlasRect rect = atlas.Rectangles[0];
         int x = (int)MathF.Round((rect.U * atlas.Width) - 0.5f);
         int y = (int)MathF.Round((rect.V * atlas.Height) - 0.5f);
+        int at = (((y + row) * atlas.Width) + x + (set * size) + column) * 4;
 
-        return atlas.Pixels[((((y + row) * atlas.Width) + x + (set * size) + column) * 4)];
+        return (byte)Math.Min(255f, BspLightmaps.Load(atlas.Pixels.AsSpan(at, 4)).Red / 2f);
     }
 }

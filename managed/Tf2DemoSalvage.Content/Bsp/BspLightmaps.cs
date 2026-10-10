@@ -283,10 +283,7 @@ public static class BspLightmaps
                 blue += samples[(luxel * 3) + 2] * value;
             }
 
-            into[luxel * 4] = Overbright(red);
-            into[(luxel * 4) + 1] = Overbright(green);
-            into[(luxel * 4) + 2] = Overbright(blue);
-            into[(luxel * 4) + 3] = 255;
+            Store(into.Slice(luxel * 4, 4), red, green, blue);
         }
     }
 
@@ -516,14 +513,9 @@ public static class BspLightmaps
     /// them directly gives a map lit uniformly at full brightness, with every shadow gone. That is
     /// a picture rather than an error, which is the failure this codebase keeps meeting.
     ///
-    /// **Left LINEAR, and halved.** Light is not a picture: the gamma curve belongs at the end of
-    /// the pipeline, applied once by the sRGB render target, so applying it here put every later
-    /// multiply in the wrong space (B54). Halving is Valve's overbright - a lightmap holds light
-    /// brighter than white, and storing it halved is how that survives eight bits. The shader
-    /// doubles it back, which is what Source's own shaders do.
-    ///
-    /// Both halves have to move together: gamma here with doubling in the shader blows the map
-    /// out, and that is exactly the wrong turn this comment used to record.
+    /// **Left LINEAR.** Light is not a picture: the gamma curve belongs at the end of the pipeline, applied once by the
+    /// sRGB render target, so applying it here put every later multiply in the wrong space (B54). Stored with an
+    /// integer-HDR lightmap's range, <see cref="Store"/> — it used to be halved into a byte, which clipped sunlight (B514).
     /// </remarks>
     private static byte[] Decode(ReadOnlySpan<byte> samples, int count)
     {
@@ -534,10 +526,7 @@ public static class BspLightmaps
             ReadOnlySpan<byte> sample = samples.Slice(index * SampleBytes, SampleBytes);
             float scale = MathF.Pow(2f, (sbyte)sample[3]);
 
-            pixels[(index * 4) + 0] = Overbright(sample[0] * scale);
-            pixels[(index * 4) + 1] = Overbright(sample[1] * scale);
-            pixels[(index * 4) + 2] = Overbright(sample[2] * scale);
-            pixels[(index * 4) + 3] = 255;
+            Store(pixels.AsSpan(index * 4, 4), sample[0] * scale, sample[1] * scale, sample[2] * scale);
         }
 
         return pixels;
@@ -550,11 +539,55 @@ public static class BspLightmaps
     /// <see cref="SourceGamma"/>, because static prop vertex lighting needs the same one and two
     /// copies would drift apart.
     /// </remarks>
-    /// <summary>Stores one linear channel halved, so the shader's overbright restores it.</summary>
+    /// <summary>
+    /// <c>LIGHT_MAP_SCALE</c> under <c>HDR_TYPE_INTEGER</c>: what <c>shaderapidx9.dll</c> loads into
+    /// <c>cLightScale.y</c> (<c>0x18001be90</c>, called from <c>SetToneMappingScaleLinear</c> at <c>0x180023be0</c>).
+    /// </summary>
     /// <remarks>
-    /// A sample of 255 at exponent 0 is full brightness, so the range is a byte; halving leaves
-    /// room for light above white, which is what "overbright" means and why the shader doubles.
+    /// *Read in disassembly* — 16 for integer HDR, 1 for float, the LDR overbright otherwise. A lightmap texel times it is
+    /// the light, so an integer-HDR lightmap holds light up to sixteen; *interpolated*: that the page stores it divided by
+    /// sixteen, which the material system's closed lightmap upload decides.
     /// </remarks>
-    public static byte Overbright(float linear) =>
-        (byte)Math.Clamp(linear / 2f, 0f, 255f);
+    public const float HdrLightMapScale = 16f;
+
+    /// <summary>Stores one luxel's linear light — <c>R11G11B10_FLOAT</c>, four bytes — clamped to <see cref="HdrLightMapScale"/>.</summary>
+    /// <param name="into">Four bytes.</param>
+    /// <param name="red">Red, in sample units: the stored byte times two to its exponent (255 is 1.0).</param>
+    /// <param name="green">Green, likewise.</param>
+    /// <param name="blue">Blue, likewise.</param>
+    /// <remarks>
+    /// **This replaced a byte holding half the light, which clipped everything above 2.0** (B514): 8.9% of
+    /// cp_process_f12's HDR luxels — the sunlit outdoors, and nothing indoors (`lightmap-range`). TF2 keeps them, so
+    /// the viewer drew sunlight at up to half its strength and interiors exactly. Four bytes a luxel still, so the atlas
+    /// and its uploads keep their layout; the shader reads the light itself and multiplies by nothing.
+    /// </remarks>
+    public static void Store(Span<byte> into, float red, float green, float blue)
+    {
+        uint packed = Channel(red, 6) | (Channel(green, 6) << 11) | (Channel(blue, 5) << 22);
+
+        BinaryPrimitives.WriteUInt32LittleEndian(into, packed);
+
+        static uint Channel(float sample, int mantissa)
+        {
+            float light = Math.Clamp(sample / 255f, 0f, HdrLightMapScale);
+            int shift = 10 - mantissa;
+            uint half = BitConverter.HalfToUInt16Bits((Half)light) & 0x7FFFu;
+
+            // Round to nearest by adding half the dropped ulp; a carry into the exponent is the correct rounding.
+            return Math.Min((half + (1u << (shift - 1))) >> shift, (0x1Fu << mantissa) - 1u);
+        }
+    }
+
+    /// <summary>Reads a luxel <see cref="Store"/> wrote, in sample units.</summary>
+    /// <param name="luxel">Four bytes.</param>
+    /// <returns>Red, green and blue; 255 is 1.0.</returns>
+    public static (float Red, float Green, float Blue) Load(ReadOnlySpan<byte> luxel)
+    {
+        uint packed = BinaryPrimitives.ReadUInt32LittleEndian(luxel);
+
+        return (Channel(packed & 0x7FF, 6), Channel((packed >> 11) & 0x7FF, 6), Channel(packed >> 22, 5));
+
+        static float Channel(uint bits, int mantissa) =>
+            (float)BitConverter.UInt16BitsToHalf((ushort)(bits << (10 - mantissa))) * 255f;
+    }
 }
