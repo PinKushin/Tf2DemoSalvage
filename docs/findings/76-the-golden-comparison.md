@@ -361,4 +361,7 @@ Sub-tick interpolation, particles and tracers are in all of these.
 - **B518 — closed 2026-10-10**; at the outdoor camera the frame error fell 42.7 → 21.5 /255 and the patches now sit at
   the same pixels (`docs/RISKS.md` B518). As found: TF2 widens the world field of view by the aspect ratio (`view.cpp:1075-1083`); we do not. At 16:9 TF2's 90
   is 106.26° across and ours is 90°. Measured at the fixed camera: the same wall is 4/3 as far from the centre in ours.
+- **B519 and B520 — closed 2026-10-10** (`docs/RISKS.md`). The sky shader was right and the main view never handed it
+  the scale; a still now lets the exposure walk before it is taken. Unforced shots settle at 0.701 outdoors and at the
+  sky camera (TF2 0.700) and 0.501 indoors (TF2 0.550, ours pinned to the floor by a brighter indoor frame).
 - **B521**: the cones under the indoor lamps are large near-opaque white beams in ours and a faint glow in TF2.

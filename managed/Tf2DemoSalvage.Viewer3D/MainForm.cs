@@ -1910,6 +1910,9 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private const int SettleFrames = 5;
 
+    /// <summary>The frame time the exposure walks by while a capture waits for it: one 66.67 Hz tick (B520).</summary>
+    private const float CaptureExposureSeconds = 0.015f;
+
     /// <summary>Frames a capture run waits for a demo before giving up and writing nothing.</summary>
     /// <remarks>
     /// **A backstop, not a timing parameter** (B401). Ordering the capture after the opening state
@@ -4461,7 +4464,11 @@ internal class MainForm : Form, IFrameSteps
         _device.Tonemap = _timeline?.Tonemap.At(_transport.CurrentTick) ?? default;
 
         // The exposure walks by game frame time and resets when the followed player changes (B514).
-        _device.ExposureSeconds = (float)_demoFrameSeconds;
+        // **A pending capture is a paused frame, and gets a tick of time anyway** (B520): TF2 arrives at a tick by playing
+        // to it, so its exposure has had seconds; a still that held the reset value of 1 was 1/0.70 too bright outdoors.
+        _device.ExposureSeconds = _launch.ShotPath is not null && !_opening.Finished
+            ? CaptureExposureSeconds
+            : (float)_demoFrameSeconds;
         _device.ObserverTarget = FollowedEntity();
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);

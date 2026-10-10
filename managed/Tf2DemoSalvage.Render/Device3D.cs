@@ -126,10 +126,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
     /// <summary>Whether the post-processing has settled, which a comparison capture waits for (D192).</summary>
     /// <remarks>
-    /// The bloom only: it walks per FRAME, so it settles even on a paused still. The exposure walks by frame TIME and holds
-    /// while paused, exactly as TF2's does (<see cref="AutoExposure.Walk"/>), so a still keeps whatever playback left it.
+    /// The bloom walks per FRAME, so it settles even on a paused still. The exposure walks by frame TIME and holds while
+    /// paused, exactly as TF2's does (<see cref="AutoExposure.Walk"/>) — so a capture gives it time
+    /// (<see cref="ExposureSeconds"/>) and waits here, or it photographs the reset value of 1 (B520).
     /// </remarks>
-    public bool PostProcessingSettled => _bloomAmount.Settled;
+    public bool PostProcessingSettled => _bloomAmount.Settled && (!ExposureWalks || _exposure.Settled);
+
+    /// <summary>Whether the exposure is being measured at all: integer HDR, and not forced.</summary>
+    private bool ExposureWalks => _world is { HdrType: Content.Bsp.HdrType.IntegerHdr } && ForceToneMapScale <= 0f;
 
     private readonly AutoExposure _exposure = new();
 
@@ -1370,7 +1374,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 if (DrawSkybox && _skybox is { HasSky: true } flatSky &&
                     _skyVisible != SkyboxVisibility.None && _worldCamera is { } through)
                 {
-                    flatSky.Draw(_device, _context, _eye, through.Matrix, SkyReach);
+                    // `sky_ps2x.fxc` ends in `FinalOutput( ..., TONEMAP_SCALE_LINEAR, ... )`: the sky takes the scale like any surface (B519).
+                    flatSky.Draw(_device, _context, _eye, through.Matrix, SkyReach, _world.LinearLightScale);
                 }
 
                 _context.OMSetDepthStencilState(_depthOn, 0);
@@ -1738,7 +1743,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>One frame of auto-exposure: histogram (when a read-back is ready), goal, walk (B514).</summary>
     private void UpdateExposure()
     {
-        if (_world is not { HdrType: Content.Bsp.HdrType.IntegerHdr } || ForceToneMapScale > 0f)
+        if (!ExposureWalks)
         {
             return;
         }
