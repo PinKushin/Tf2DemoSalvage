@@ -358,6 +358,7 @@ Sub-tick interpolation, particles and tracers are in all of these.
 
 ### Found on the way
 
-- **B518**: TF2 widens the world field of view by the aspect ratio (`view.cpp:1075-1083`); we do not. At 16:9 TF2's 90
+- **B518 — closed 2026-10-10**; at the outdoor camera the frame error fell 42.7 → 21.5 /255 and the patches now sit at
+  the same pixels (`docs/RISKS.md` B518). As found: TF2 widens the world field of view by the aspect ratio (`view.cpp:1075-1083`); we do not. At 16:9 TF2's 90
   is 106.26° across and ours is 90°. Measured at the fixed camera: the same wall is 4/3 as far from the centre in ours.
 - **B521**: the cones under the indoor lamps are large near-opaque white beams in ours and a faint glow in TF2.

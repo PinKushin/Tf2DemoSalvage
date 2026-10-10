@@ -2154,7 +2154,7 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().World);
+        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
 
     /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
     /// <remarks>
@@ -2435,7 +2435,7 @@ internal class MainForm : Form, IFrameSteps
     /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
     /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().World);
+        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -2449,12 +2449,15 @@ internal class MainForm : Form, IFrameSteps
         // the viewer runs, and a field of view latched at construction would ignore it — which is
         // the shape of no-op this project keeps catching: the setting exists, the config is read,
         // and nothing downstream asks.
-        _freeCamera.FieldOfView = ViewFovNow().World;
+        // The controller holds the player's fov, clamped as `demo_fov_override` is; the widening is `CViewRender::Render`'s,
+        // applied to the finished view, so it goes on after (B518 — set through the clamp, 106° came back as 90°).
+        ViewFov fov = ViewFovNow();
+        _freeCamera.FieldOfView = fov.World;
 
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
             _loaded?.Outline,
-            _loaded?.HeightRange is { } range ? range.Highest : 0f);
+            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect));
     }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on
@@ -2551,7 +2554,7 @@ internal class MainForm : Form, IFrameSteps
                 _firstPerson ? FirstPersonCamera() : null,
 
                 // `fovViewmodel`: the setting moved by however far the view is from `default_fov` (view.cpp:725).
-                ViewFovNow().Viewmodel(_settings.ViewmodelFieldOfView),
+                ViewFovNow().RenderedViewmodel(_settings.ViewmodelFieldOfView, Aspect),
 
                 // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
                 // the field of view because they are the same kind of thing: a setting the watcher

@@ -36386,7 +36386,16 @@ same page also said `"x y"` for `TF2VIEW_WINDOW_POS`, which splits on a comma; b
 following the help gets the default window. Also worth saying there: the value is the WINDOW, and the frame adds
 296 x 169 at every size measured (1576x889 gives a 1280x720 viewport). Found building B161's viewer half.
 
-## B518 — the world field of view is not widened by the aspect ratio — OPEN 2026-10-09
+## B518 — the world field of view is not widened by the aspect ratio — CLOSED 2026-10-10
+
+**Closed.** `ViewFov.Rendered` / `RenderedViewmodel` are `view.cpp:1075-1084`, and all three cameras and the viewmodel
+take them (`ViewFovConformanceTests`). The HUD keeps the unwidened `GetFOV()`, as the engine's does. *Measured* at
+`-526 -422 575 0 15`, 1280x720, exposure forced to 1 and bloom off on both sides: `golden-compare` mean error 42.749
+before, 21.460 after, and the brick wall spans the same columns as TF2's. **A wrong turn on the way:** the first build
+changed nothing, because the free camera's setter clamps to `demo_fov_override`'s 10..90 and 106° came back as 90° —
+the widening goes on the finished view, after the clamp, which is also where the engine does it. **Not done:**
+`sv_restrict_aspect_ratio_fov` is not read from the demo; the 1.85:1 cap is always on (its default, 1, in a window on a
+multiplayer server). Only a server that set 0, watched wider than 1.85:1, differs.
 
 *Read from published source; measured by the golden comparison at an exact camera.* `CViewRender::Render` scales the
 view's fov by the screen's width ratio before drawing: `aspectRatio = engine->GetScreenAspectRatio() * 0.75f` and
