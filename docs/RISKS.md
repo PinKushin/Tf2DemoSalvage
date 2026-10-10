@@ -12339,6 +12339,19 @@ readout is the next step. The modern POV case was blocked by a stuck options dia
 being clicked; the 2009 case wedged the live client (`unknown net message (52)`), so era references need a period
 client. `tools/tf2-reference-capture.ps1` predates the MCP and is superseded for stills.
 
+### B161 second pass 2026-10-09 — the tick is read, the cameras are exact, and the "landing offset" was not one
+
+*Measured; findings 76, "The instrument, second pass".* **`demoui` prints the tick** (`Tick: 45002 / 106313` after
+`demo_gototick 45000 0 0`; 91004; 100005), in the viewer's own numbering; left open in the capture and excluded with
+`golden-compare --exclude`, each capture carries its tick, and the viewer is shot at the tick TF2 landed on. **So TF2
+lands within a few ticks, and "earlier by ~100" above is withdrawn**: it was `spec_mode 6` (point-of-interest, not
+roaming — that is 7) following the player, plus B518's narrower view. **Exact empty cameras come from a listen server**
+(`map`, `jointeam spectator`, `spec_mode 7`, `spec_goto`), since `spec_goto` is a server command and does nothing in a
+demo. **Each term is isolated in TF2 itself** with `mat_force_tonemap_scale` and `mat_disable_bloom`, and the viewer has
+the same switches plus `cl_drawhud` (`ViewerSettings`, read from the config). The probe gained `--exclude`, `--rect` and
+per-side mean linear luminance. Every TF2 cvar touched was read before and read back equal after. First-person cases
+stay indicative (sub-tick interpolation, particles, B518). Found: B518-B521; B514's remainder is itemised there.
+
 ### B160, measured at last: two defects stacked (2026-08-23)
 
 Five aimed changes were made at this entry today and four fixed nothing, every one reasoned from a
@@ -36309,6 +36322,30 @@ Findings 76, "B514 part 2", has every address and number. In short:
 - **Left**: outdoor world still short (free camera mean 123 114 112 against 142 132 126, partly the camera-offset
   player in frame), indoor 45000 still over (124 against 102) — bloom's add space is the open interpolation there.
 
+**2026-10-09, part 3 (`fix/b161-instrument`): each term isolated in TF2 itself; the remainder is four things.**
+*Measured; table and method in findings 76, "The instrument, second pass".* Exact empty cameras on a listen server,
+TF2's exposure read from `mat_hdr_tonemapscale` and pinned with `mat_force_tonemap_scale`, bloom switched with
+`mat_disable_bloom`, the same three switches now in the viewer. Linear luminance ×1000:
+
+| patch | TF2 exposure | ours in a `--shot` | both off, TF2 / ours | bloom added at TF2's exposure, TF2 / ours |
+|---|---|---|---|---|
+| outdoor sunlit wall | 0.700 | 1.0 | 438.6 / 533.1 | +117.2 / +180.9 |
+| outdoor shaded container | 0.700 | 1.0 | 41.4 / 43.7 | +2.0 / +2.3 |
+| outdoor sunlit ground | 0.700 | 1.0 | 621.1 / 546.6 | +195.0 / +128.9 |
+| sky (sky camera) | 0.700, sky responds 0.760 | 1.0, sky responds 1.000 | 483.4 / 483.3 | +164.8 / saturated |
+| indoor wall | 0.55 | 1.0 | 448.4 / 456.7 | +75.3 / +104.7 |
+| indoor panel face | 0.55 | 1.0 | 319.3 / 383.5 | +35.2 / +74.6 |
+| indoor ceiling by the lamps | 0.55 | 1.0 | 79.5 / 53.8 | +1.7 / +0.6 |
+
+- **The "TF2 was at 1" interpolation above is wrong where it could be checked**: the indoor DEMO capture, taken after
+  about a second of real-time playback at that camera, measured an effective 0.61 against a goal of 0.529.
+- **The remainder, in order of size**: (1) exposure STATE — a `--shot` is at 1.0 where TF2 sits at 0.70/0.55 (B520);
+  (2) bloom adds 1.4-2.1× TF2's linear amount on bright surfaces at the same exposure; (3) the sky ignores the scale
+  (B519); (4) lighting proper — flat walls and the sky texture agree to 0-6%, but the sunlit brick wall is +22%, the
+  sunlit ground −12%, the panel +20%, the ceiling by the lamps −32%.
+- **And the outdoor "25-35% darker" this entry is named for is no longer true**: with both forced to 1 and bloom off the
+  outdoor patches are within −12%..+22% and the first-person mean is 133 120 109 → 130 119 109.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
@@ -36348,3 +36385,41 @@ same page also said `"x y"` for `TF2VIEW_WINDOW_POS`, which splits on a comma; b
 *Measured.* `TF2VIEW_WINDOW_SIZE="1280 720"` is silently ignored (`WindowGeometry.Size` splits on `x`), so a script
 following the help gets the default window. Also worth saying there: the value is the WINDOW, and the frame adds
 296 x 169 at every size measured (1576x889 gives a 1280x720 viewport). Found building B161's viewer half.
+
+## B518 — the world field of view is not widened by the aspect ratio — OPEN 2026-10-09
+
+*Read from published source; measured by the golden comparison at an exact camera.* `CViewRender::Render` scales the
+view's fov by the screen's width ratio before drawing: `aspectRatio = engine->GetScreenAspectRatio() * 0.75f` and
+`viewEye.fov = ScaleFOVByWidthRatio( viewEye.fov, limitedAspectRatio )`, the viewmodel's likewise (`view.cpp:1075-1084`).
+So TF2's 90 is 90° at 4:3 and **106.26° across at 16:9**; ours is 90° across at any shape — `ScaleFovByWidthRatio`
+exists here only in `VguiModelPanel`. Measured at `-526 -422 575 0 15`, both 1280x720: the brick wall's centre is 99 px
+right of the frame's centre in TF2 and 132 px in ours, 4/3 exactly; first person shows the same (a door 130 px wide in
+TF2, 180 px in ours, at f12 45000). Every per-pixel golden number is dominated by this until it is fixed.
+`sv_restrict_aspect_ratio_fov` caps it at 1.85:1 in windowed multiplayer (`:1077-1081`) — read that branch too.
+
+## B519 — the sky does not take the tone-map scale — OPEN 2026-10-09
+
+*Measured.* Forced to 0.7 against forced to 1, our sky is unchanged — linear 483.3 / 483.3 at the sky camera, 438.2 /
+446.1 near the horizon — where our lightmapped surfaces scale by exactly 0.700. TF2's sky at its own 0.70: 367.2 / 483.4
+= 0.760 at the sky camera and 315.4 / 449.7 = 0.701 near the horizon. With both at 1 the sky texture itself matches to
+0.0% (165 186 215 both). So at TF2's operating exposure our sky is 1.3-1.4× too bright going into the bloom, and
+saturates it (201 230 255 over the whole patch against TF2's 171 197 234). Why TF2's own response is 0.76 rather than
+0.70 straight up is not known — B461's `Sky_HDR_DX9` branches are where to read.
+
+## B520 — a `--shot` photographs the exposure at its reset value — OPEN 2026-10-09
+
+*Measured.* Every viewer capture in the comparison logged `tone-map scale 1` with nothing forced, at cameras where TF2
+reads 0.700 (outdoors) and 0.5496 (indoors) once it has had a few seconds — `mat_hdr_tonemapscale`, confirmed by the
+linear ratio of TF2's own auto and forced-1 captures. A shot is one paused frame and the walk does nothing at a frame
+time of zero, so a still is 1/0.70 to 1/0.55 brighter in linear light than the game at the same place. D192 settled the
+bloom amount before a capture for exactly this reason; the exposure wants the same. **Not measured:** whether live
+playback reaches TF2's values — log the scale during a `--measure` run at these three cameras.
+
+## B521 — the cones under indoor lamps are near-opaque white beams — OPEN 2026-10-09
+
+*Measured, by eye and by patch.* At `146 -1831.6 728 -28.7 -36.5` (cp_process_f12, indoors) each
+ceiling lamp in ours throws a broad white cone to the pipes below it; TF2 shows the lit bulb and a faint glow. It was
+visible in the first pass too (f12 45000). The patches around them do not scale with exposure as TF2's do — forced to
+0.55, ours go to 0.610-0.644 of their forced-1 value where TF2's go to 0.549 — and the lamp patch itself barely moves
+(207.2 / 217.3). Which material the cone is and how it blends has not been read; `ask about the entity you are
+drawing` before measuring more.

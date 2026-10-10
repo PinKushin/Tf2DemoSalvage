@@ -1040,6 +1040,18 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Whether the monitor pass runs — Valve's <c>cl_drawmonitors</c>, default 1 (`viewrender.cpp:168`).</summary>
     public bool DrawMonitors { get; set; } = true;
 
+    /// <summary>Valve's <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass.</summary>
+    public bool DisableBloom { get; set; }
+
+    /// <summary>
+    /// Valve's <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, the tone-map
+    /// scale is reset to exactly this every frame and the histogram is not consulted (`SetToneMapScale`, `:1143-1148`).
+    /// </summary>
+    public float ForceToneMapScale { get; set; }
+
+    /// <summary>Valve's <c>cl_drawhud</c>, default 1: whether the HUD pass runs.</summary>
+    public bool DrawHud { get; set; } = true;
+
     /// <summary>
     /// What the main view hides and a monitor draws: the local player, whom TF2 force-draws for the pass
     /// (<c>ForceTempForceDraw</c>, `viewrender.cpp:3266-3287`).
@@ -1333,6 +1345,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             {
                 // **`LINEAR_LIGHT_SCALE` is the exposure's current scale under integer HDR, and one otherwise**
                 // (`SetToneMappingScaleLinear`, shaderapidx9.dll 0x180023be0; B514). Set before anything of this view.
+                // `mat_force_tonemap_scale` wins first, as `SetToneMapScale` lets it (viewpostprocess.cpp:1143).
+                if (ForceToneMapScale > 0f)
+                {
+                    _exposure.Reset(ForceToneMapScale);
+                }
+
                 _world.LinearLightScale = _world.HdrType == Content.Bsp.HdrType.IntegerHdr ? _exposure.Current : 1f;
 
                 // **The monitors before anything of this view** (B511): `RenderView` calls `DrawMonitors` ahead of
@@ -1639,7 +1657,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 float bloom = _bloomAmount.Next(
                     _world.HdrType != Content.Bsp.HdrType.None, Tonemap.UseBloom, Tonemap.Bloom);
 
-                if (bloom > 0f)
+                if (bloom > 0f && !DisableBloom)
                 {
                     DrawBloom(bloom);
                 }
@@ -1681,7 +1699,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         // Last, so it is over everything, with depth off because a HUD is not in the world. Before
         // Present, so it lands in the presented frame and therefore in an F12 capture, which reads
         // the back buffer afterwards.
-        if (vgui is not null && (vgui.Quads.Count > 0 || vgui.Models.Count > 0) && _vguiResolve is not null)
+        if (DrawHud && vgui is not null && (vgui.Quads.Count > 0 || vgui.Models.Count > 0) && _vguiResolve is not null)
         {
             Viewport vguiViewport = new(0f, 0f, _width, _height, 0f, 1f);
             _context.RSSetViewports(1, in vguiViewport);
@@ -1720,7 +1738,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>One frame of auto-exposure: histogram (when a read-back is ready), goal, walk (B514).</summary>
     private void UpdateExposure()
     {
-        if (_world is not { HdrType: Content.Bsp.HdrType.IntegerHdr })
+        if (_world is not { HdrType: Content.Bsp.HdrType.IntegerHdr } || ForceToneMapScale > 0f)
         {
             return;
         }

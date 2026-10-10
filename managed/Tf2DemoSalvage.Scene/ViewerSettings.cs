@@ -722,6 +722,30 @@ public sealed record ViewerSettings
     public const string FlipViewModelsCommand = "cl_flipviewmodels";
 
     /// <summary>
+    /// <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass at all. One of three switches
+    /// the golden comparison isolates a term with (B161) — Valve's names, so one line pins TF2 and the viewer alike.
+    /// </summary>
+    public bool DisableBloom { get; init; }
+
+    /// <summary>Command name for <see cref="DisableBloom"/>.</summary>
+    public const string DisableBloomCommand = "mat_disable_bloom";
+
+    /// <summary>
+    /// <c>mat_force_tonemap_scale</c>, default 0 (`viewpostprocess.cpp:1128`): above zero, `SetToneMapScale` resets
+    /// the tone-map scale to exactly this every frame and auto-exposure is not consulted (`:1143-1148`).
+    /// </summary>
+    public float ForceToneMapScale { get; init; }
+
+    /// <summary>Command name for <see cref="ForceToneMapScale"/>.</summary>
+    public const string ForceToneMapScaleCommand = "mat_force_tonemap_scale";
+
+    /// <summary><c>cl_drawhud</c>, default 1 (`hud.cpp`, "Enable the rendering of the hud").</summary>
+    public bool DrawHud { get; init; } = true;
+
+    /// <summary>Command name for <see cref="DrawHud"/>.</summary>
+    public const string DrawHudCommand = "cl_drawhud";
+
+    /// <summary>
     /// Whether the local medic's beam is the `_targeted` one — <c>hud_medichealtargetmarker</c>, default <c>"0"</c>
     /// (`tf_weapon_medigun.cpp:205`), read by `CWeaponMedigun::UpdateEffects` for the local player's own beam only.
     /// </summary>
@@ -920,6 +944,21 @@ public sealed record ViewerSettings
         if (Read(values, FlipViewModelsCommand) is { } flip)
         {
             settings = settings with { FlipViewModels = flip != 0 };
+        }
+
+        if (Read(values, DisableBloomCommand) is { } noBloom)
+        {
+            settings = settings with { DisableBloom = noBloom != 0 };
+        }
+
+        if (ReadNumber(values, ForceToneMapScaleCommand) is { } forcedScale)
+        {
+            settings = settings with { ForceToneMapScale = forcedScale };
+        }
+
+        if (Read(values, DrawHudCommand) is { } drawHud)
+        {
+            settings = settings with { DrawHud = drawHud != 0 };
         }
 
         if (Read(values, HealTargetMarkerCommand) is { } marker)

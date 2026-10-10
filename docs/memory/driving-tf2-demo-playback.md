@@ -19,4 +19,17 @@ Measured 2026-09-23 driving `f12.dem` through the `tf2` MCP server:
   (minimized window suspected).
 - Demo must be under `tf/` (`playdemo f12` for `tf/f12.dem`).
 
+Measured 2026-10-09 for the golden comparison (B161, findings 76):
+
+- **`demoui` prints the tick** (`Tick: n / total`, the viewer's numbering). Leave it open in the capture;
+  `demo_gototick` lands within a few ticks, so follow TF2's tick rather than forcing one.
+- **Slow with `host_timescale`, not `demo_timescale`** (a seek resets the latter) — and it slows RCON
+  too: 0.002 is ~15 s a call, 0.0001 times out.
+- **`spec_goto` is a SERVER command** — nothing in a demo. An exact camera is a listen server:
+  `map <name>`, `jointeam spectator`, `spec_mode 7`, `spec_goto x y z pitch yaw`; `spec_pos` reads it.
+  Roaming is mode 7 (6 is POI and follows the player).
+- **Exposure**: read `mat_hdr_tonemapscale`, pin with `mat_force_tonemap_scale` (cheat), bloom off with
+  `mat_disable_bloom`. Read every cvar before changing it and read all back after restoring.
+- Never play a 2009 demo in live TF2 — it wedges the client.
+
 **How to apply:** use the MCP tools, never manual RCON scripts — built for token savings.

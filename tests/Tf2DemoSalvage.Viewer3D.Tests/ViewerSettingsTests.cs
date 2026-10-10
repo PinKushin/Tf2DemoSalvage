@@ -475,4 +475,31 @@ public sealed class ViewerSettingsTests
         new ViewerSettings { Developer = 9 }.Verbosity
             .ShouldBe(Microsoft.Extensions.Logging.LogLevel.Trace);
     }
+
+    /// <summary>
+    /// The three switches the golden comparison isolates a term with (B161): Valve's own names, so the same line
+    /// pins both sides. Defaults are the engine's — bloom on, no forced scale, HUD drawn.
+    /// </summary>
+    [Test]
+    public void Load_NoFile_LeavesPostProcessingAndHudAtTheEngineDefaults()
+    {
+        ViewerSettings settings = ViewerSettings.Load(Path.Combine(_folder, "absent.cfg"));
+
+        settings.DisableBloom.ShouldBeFalse();
+        settings.ForceToneMapScale.ShouldBe(0f);
+        settings.DrawHud.ShouldBeTrue();
+    }
+
+    [Test]
+    public void Load_PostProcessingSwitches_ReadsEachOne()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, "mat_disable_bloom 1\nmat_force_tonemap_scale 0.7\ncl_drawhud 0\n");
+
+        ViewerSettings settings = ViewerSettings.Load(file);
+
+        settings.DisableBloom.ShouldBeTrue();
+        settings.ForceToneMapScale.ShouldBe(0.7f);
+        settings.DrawHud.ShouldBeFalse();
+    }
 }

@@ -254,7 +254,10 @@ in any public writeup found:
 - **The golden comparison runs.** Real TF2 driven to a tick through the MCP and the viewer's `--shot`, diffed per
   region with masks taken from TF2 itself: two TF2 captures of one tick agree to under 1/255, a 5° camera error costs
   35. Against that, outdoors we are 25-35% darker, a left-handed player's viewmodel is on the wrong side, and the STV
-  spectator HUD is a different HUD ([76](76-the-golden-comparison.md)).
+  spectator HUD is a different HUD. Second pass: `demoui` prints TF2's tick, a listen server gives exact empty
+  cameras, and TF2's own switches isolate exposure and bloom — TF2 sits at 0.70 outdoors and 0.55 indoors where a
+  `--shot` is at 1, our bloom adds 1.4-2.1× TF2's, the sky ignores the scale, and our world view is 90° across where
+  TF2's is 106° ([76](76-the-golden-comparison.md)).
 
 ## Conventions used throughout
 

@@ -3937,6 +3937,11 @@ internal class MainForm : Form, IFrameSteps
             // `cl_drawmonitors` from the config, for the same reason (B511).
             _device.DrawMonitors = _settings.DrawMonitors;
 
+            // The golden comparison's three switches, applied where the others are (B161).
+            _device.DisableBloom = _settings.DisableBloom;
+            _device.ForceToneMapScale = _settings.ForceToneMapScale;
+            _device.DrawHud = _settings.DrawHud;
+
             // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
             // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
             // the null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`,
