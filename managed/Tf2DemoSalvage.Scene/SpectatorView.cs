@@ -114,6 +114,22 @@ public readonly record struct ViewFov(float World, int Default)
     /// <summary>`fovViewmodel = GetViewModelFOV() - ( default_fov - fov )` (view.cpp:725): the viewmodel follows a zoom.</summary>
     /// <param name="viewmodelFov">`GetViewModelFOV()`.</param>
     public float Viewmodel(float viewmodelFov) => viewmodelFov - (Default - World);
+
+    /// <summary>`viewEye.fov` as `CViewRender::Render` draws it: widened by the screen's width against 4:3 (view.cpp:1075-1083).</summary>
+    /// <param name="aspect">`engine->GetScreenAspectRatio()`.</param>
+    /// <remarks>
+    /// `limitedAspectRatio = MIN( aspectRatio, 1.85f * 0.75f )` when `sv_restrict_aspect_ratio_fov` is above zero in a
+    /// window on a multiplayer server, or is 2. **The cap is always on here:** the viewer is a window, a TF2 demo is a
+    /// multiplayer server, and the cvar's default is 1. A demo whose server set it to 0 is not read (B518).
+    /// </remarks>
+    public float Rendered(float aspect) =>
+        Hud.VguiModelPanel.ScaleFovByWidthRatio(World, MathF.Min(aspect * 0.75f, 1.85f * 0.75f));
+
+    /// <summary>`viewEye.fovViewmodel` as drawn: <see cref="Viewmodel"/> widened by the uncapped ratio (view.cpp:1084).</summary>
+    /// <param name="viewmodelFov">`GetViewModelFOV()`.</param>
+    /// <param name="aspect">`engine->GetScreenAspectRatio()`.</param>
+    public float RenderedViewmodel(float viewmodelFov, float aspect) =>
+        Hud.VguiModelPanel.ScaleFovByWidthRatio(Viewmodel(viewmodelFov), aspect * 0.75f);
 }
 
 public sealed class SpectatorView

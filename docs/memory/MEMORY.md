@@ -134,3 +134,5 @@
 - [A sweep of three is not a census](a-sweep-of-three-is-not-a-census.md) — enumerate the reachable set from shipped data; a log string finds the function.
 - [No known-protocol list](no-known-protocol-list.md) — floor 11, coverage is TIMELINE, never a gate (D211).
 - [A TF2 face is the scene](a-tf2-face-is-the-scene.md) — no flex/blink on the wire; EXPRESSION + .vfe drive it (B513).
+- [Steerable work is done inline](steerable-work-is-done-inline.md) — live TF2/visual/instrument work in the main session; engine ports to opus agents; compact at task boundaries.
+- [Agents ask the owner client questions](agents-ask-the-owner-client-questions.md) — stuck on TF2 client behaviour = stop and ask; one line in every brief.
