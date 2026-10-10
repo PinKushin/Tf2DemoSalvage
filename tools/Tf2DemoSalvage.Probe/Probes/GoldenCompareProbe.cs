@@ -185,6 +185,56 @@ public sealed class GoldenCompareProbe : IProbe
             output.WriteLine(Invariant(
                 $"{RegionNames[r],-9} {100.0 * pixels[r] / region.Length,5:0.0} {error[r] / pixels[r],8:0.000} {100.0 * bad[r] / pixels[r],6:0.0} {worstPixel[r],7:0.0}   ({x},{y}) {worst:0.00}   {Mean(referenceSum, r, pixels[r])}  {Mean(oursSum, r, pixels[r])}"));
         }
+
+        // B514: an exposure difference is ONE multiplier in linear light across every region, where a lighting
+        // difference is world-only and a sky-texture one sky-only. Pixels clipped in either capture are left out,
+        // since a clipped pixel no longer carries the multiplier.
+        output.WriteLine("region     linear-light luminance tf2/ours (unclipped px)   clipped% tf2 / ours");
+
+        for (int r = 0; r < count; r++)
+        {
+            (double ratio, double clippedReference, double clippedOurs) = LinearRatio(reference, ours, region, (byte)r);
+
+            if (!double.IsNaN(ratio))
+            {
+                output.WriteLine(Invariant($"{RegionNames[r],-9}  {ratio,6:0.000}                                           {clippedReference,5:0.0} / {clippedOurs:0.0}"));
+            }
+        }
+    }
+
+    /// <summary>Ratio of mean linear luminance, TF2 over ours, over the region's pixels clipped in neither capture.</summary>
+    private static (double Ratio, double ClippedReference, double ClippedOurs) LinearRatio(Image reference, Image ours, byte[] region, byte index)
+    {
+        const int Clip = 250;
+        double sumReference = 0;
+        double sumOurs = 0;
+        long n = 0;
+        long clippedReference = 0;
+        long clippedOurs = 0;
+
+        for (int p = 0; p < region.Length; p++)
+        {
+            if (region[p] != index)
+            {
+                continue;
+            }
+
+            n++;
+            bool a = reference.MaxChannel(p) >= Clip;
+            bool b = ours.MaxChannel(p) >= Clip;
+            clippedReference += a ? 1 : 0;
+            clippedOurs += b ? 1 : 0;
+
+            if (!a && !b)
+            {
+                sumReference += reference.LinearLuminance(p);
+                sumOurs += ours.LinearLuminance(p);
+            }
+        }
+
+        return n == 0 || sumOurs <= 0
+            ? (double.NaN, 0, 0)
+            : (sumReference / sumOurs, 100.0 * clippedReference / n, 100.0 * clippedOurs / n);
     }
 
     /// <summary>The <see cref="Tile"/>-pixel tile, on a half-tile grid, with the highest mean error over this region's pixels.</summary>
@@ -266,7 +316,7 @@ public sealed class GoldenCompareProbe : IProbe
     /// refused rather than half-decoded, because a picture read slightly wrong is a divergence that
     /// is not there. All five row filters are undone (RFC 2083 §6), since another encoder may use them.
     /// </remarks>
-    private sealed class Image
+    internal sealed class Image
     {
         public required int Width { get; init; }
 
@@ -280,6 +330,23 @@ public sealed class GoldenCompareProbe : IProbe
             int i = pixel * 4;
 
             return Math.Abs(Rgba[i] - other.Rgba[i]) + Math.Abs(Rgba[i + 1] - other.Rgba[i + 1]) + Math.Abs(Rgba[i + 2] - other.Rgba[i + 2]);
+        }
+
+        public int MaxChannel(int pixel) => Math.Max(Rgba[pixel * 4], Math.Max(Rgba[(pixel * 4) + 1], Rgba[(pixel * 4) + 2]));
+
+        /// <summary>Rec. 709 luminance of the sRGB-decoded pixel — the weights of Valve's <c>luminance_compare_ps2x.fxc</c>.</summary>
+        public double LinearLuminance(int pixel)
+        {
+            int i = pixel * 4;
+
+            return (0.2125 * Decode(Rgba[i])) + (0.7154 * Decode(Rgba[i + 1])) + (0.0721 * Decode(Rgba[i + 2]));
+        }
+
+        private static double Decode(byte value)
+        {
+            double c = value / 255.0;
+
+            return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4);
         }
 
         public static Image Read(string path)

@@ -1965,6 +1965,13 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        // **A capture waits for the post-processing to settle** (D192, B514): the bloom amount walks to the map's
+        // value at 5% a frame from 1, so the opening's 45 frames would photograph it 10% high.
+        if (_opening.Applied && _device is { PostProcessingSettled: false })
+        {
+            return;
+        }
+
         switch (_opening.Advance())
         {
             case OpeningStep.ApplyOpeningState:
@@ -4443,6 +4450,7 @@ internal class MainForm : Form, IFrameSteps
         _device.WorldFog = _timeline?.FogAt(_transport.CurrentTick);
         _device.SkyFog = _timeline?.SkyFogAt(_transport.CurrentTick);
         _device.MonitorCamera = _timeline?.PointCameras.At(_transport.CurrentTick);
+        _device.Tonemap = _timeline?.Tonemap.At(_transport.CurrentTick) ?? default;
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 

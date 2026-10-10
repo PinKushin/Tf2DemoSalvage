@@ -114,6 +114,9 @@ public sealed partial class EntityState
                 ParentProperty, "m_iParentAttachment",
             ],
 
+            // The mapmaker's exposure range and bloom scale (B514).
+            [TonemapFeed.Table] = TonemapFeed.Properties,
+
             // The monitor camera (B511), `c_point_camera.cpp:18-29`; m_Resolution is not read.
             ["DT_PointCamera"] =
             [

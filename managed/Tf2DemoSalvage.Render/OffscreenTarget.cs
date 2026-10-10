@@ -600,6 +600,32 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         return _world.DrawScreenOverlay(_context, overlay, seconds);
     }
 
+    private BloomRenderer? _bloom;
+
+    /// <summary>Blooms what this target holds, as <c>Device3D</c> does before the HUD (B514).</summary>
+    /// <param name="amount">The vertical blur's <c>$bloomamount</c>.</param>
+    public void DrawBloom(float amount)
+    {
+        RenderTargetViewDesc gamma = new()
+        {
+            Format = Format.FormatB8G8R8A8Unorm,
+            ViewDimension = RtvDimension.Texture2D,
+        };
+
+        ComPtr<ID3D11RenderTargetView> gammaView = default;
+        SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(_texture, in gamma, ref gammaView));
+
+        try
+        {
+            _bloom ??= BloomRenderer.Create(_device);
+            _bloom.Draw(_device, _context, _texture, gammaView, _width, _height, amount);
+        }
+        finally
+        {
+            gammaView.Dispose();
+        }
+    }
+
     /// <summary>
     /// Saves what has been drawn as a PNG, so a person can look at what a test verified.
     /// </summary>
@@ -735,6 +761,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.Flush();
 
         _points?.Dispose();
+        _bloom?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();
         _sprites?.Dispose();

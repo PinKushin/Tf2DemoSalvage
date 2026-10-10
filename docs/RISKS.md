@@ -36273,6 +36273,22 @@ plain in ours (`docs/findings/76-golden/b514-free-91000-sky.png`: TF2 | ours | d
 `b514-60000-world.png`. **Not yet separated:** HDR exposure state (D192; TF2's is whatever its seek left), sun glare /
 bloom, and the sun's light itself. Read the exposure and bloom path before measuring further.
 
+**2026-10-09, separated; bloom built, exposure left open.** *Read from published source; measured on the stored
+captures.* Full account and numbers: findings 76, "B514". In short:
+
+- **Not lighting.** At the free camera the sky — pure texture, no lightmap — is short by the same LINEAR factor as the
+  world (1.56 vs 1.54, `golden-compare`'s new linear-ratio rows), so (d) cannot be the main term.
+- **Bloom was missing, and is now Valve's** (`Generate8BitBloomTexture`, `viewpostprocess.cpp:1522-1598`):
+  `BloomRenderer`, `BloomAmount`, driven by the map's `env_tonemap_controller` (`TonemapFeed`, decoded from the wire).
+  cp_process_f12 sets bloom 0.5. Free camera: summary 52.6 → 46.1, sky 52.8 → 24.7, world 50.9 → 44.5 /255; world mean
+  105 98 99 → 120 111 111 against TF2's 142 132 126.
+- **Exposure is the residue, and not ported.** The map pins `[0.5, 0.7]` (its `logic_auto`, re-applied 13 ticks after
+  every round restart), so TF2's scale is at most 0.7 — yet the viewer at an effective 1 is still darker outdoors. The
+  frames are consistent with TF2's unscaled light being 1.5-2× ours, which only the closed shader API's
+  `cLightScale.x` under `HDR_TYPE_INTEGER` can settle (`shaderapidx9.dll`; a Ghidra read is the next step). Indoors
+  now overshoots (45000 world 111 → 123 against 102), which is what a missing exposure DROP indoors would look like.
+  `autoexposure` probe + `AutoExposure` (Valve's histogram, in the probe) are the instrument for it.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
