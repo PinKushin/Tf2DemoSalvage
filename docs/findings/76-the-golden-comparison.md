@@ -162,6 +162,8 @@ multiplier in linear light across world and sky; a lighting difference is world-
   as the horizontal one. A Valve bug, kept: it is what TF2 draws, and `BloomRenderTests` pins it with a sabotage that
   turned it red (9 vs 0 at 32 px on a 2:1 frame; 7 vs 7 when "fixed").
 - **Interpolated: the add.** `engine_post`'s source is not published; this adds in gamma, as the 2007 `bloomadd` did.
+  **Wrong on the first half, 2026-10-10**: `Engine_Post_ps2x.fxc` and `Engine_Post_dx9.cpp` are both in the SDK checkout
+  and were not looked for — only the generated `.inc` was. They say gamma, in as many words ("B514 part 4" below).
 
 **Before → after, all five stored cases** (per-region mean error /255; world mean RGB, TF2 in brackets):
 
