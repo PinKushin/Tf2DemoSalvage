@@ -88,6 +88,10 @@ public sealed class AutoExposure
     /// <summary>The goal the current scale walks toward.</summary>
     public float Goal { get; private set; } = 1f;
 
+    /// <summary>Whether the scale has reached the goal of a full history — what a still capture waits for (B520, D192).</summary>
+    /// <remarks>Ours, not Valve's: the engine has no such question, because it is never asked for one settled frame.</remarks>
+    public bool Settled => _inHistory == History && MathF.Abs(Current - Goal) < 0.002f;
+
     /// <summary>Lower edge of bin <paramref name="bin"/>, <c>m_min_lum</c>.</summary>
     /// <param name="bin">0 to 15.</param>
     /// <returns>The edge.</returns>

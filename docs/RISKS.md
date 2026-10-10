@@ -36406,7 +36406,16 @@ right of the frame's centre in TF2 and 132 px in ours, 4/3 exactly; first person
 TF2, 180 px in ours, at f12 45000). Every per-pixel golden number is dominated by this until it is fixed.
 `sv_restrict_aspect_ratio_fov` caps it at 1.85:1 in windowed multiplayer (`:1077-1081`) — read that branch too.
 
-## B519 — the sky does not take the tone-map scale — OPEN 2026-10-09
+## B519 — the sky does not take the tone-map scale — CLOSED 2026-10-10
+
+**Closed.** *Read from published source:* all three sky pixel shaders end in `FinalOutput( ..., PIXEL_FOG_TYPE_NONE,
+TONEMAP_SCALE_LINEAR, ... )` (`sky_ps2x.fxc:26`, `sky_hdr_compressed_rgbs_ps2x.fxc:80`), so the sky is multiplied by
+`LINEAR_LIGHT_SCALE` like any surface. Our shader already did that; the MAIN view's draw in `Device3D` never passed the
+scale and took the parameter's default of 1, while the monitor and water views passed it. The default is gone, so a
+caller that forgets no longer compiles. *Measured* at the sky camera, f12 45091, bloom off: the sky patch settled
+(scale 0.7010) against forced to 1 is 0.7009 in linear light, where it was 1.000. **Still not known:** why TF2's own
+sky patch at that camera responds 0.760 rather than 0.700 (the horizon patch gives 0.701).
+
 
 *Measured.* Forced to 0.7 against forced to 1, our sky is unchanged — linear 483.3 / 483.3 at the sky camera, 438.2 /
 446.1 near the horizon — where our lightmapped surfaces scale by exactly 0.700. TF2's sky at its own 0.70: 367.2 / 483.4
@@ -36415,7 +36424,16 @@ TF2, 180 px in ours, at f12 45000). Every per-pixel golden number is dominated b
 saturates it (201 230 255 over the whole patch against TF2's 171 197 234). Why TF2's own response is 0.76 rather than
 0.70 straight up is not known — B461's `Sky_HDR_DX9` branches are where to read.
 
-## B520 — a `--shot` photographs the exposure at its reset value — OPEN 2026-10-09
+## B520 — a `--shot` photographs the exposure at its reset value — CLOSED 2026-10-10
+
+**Closed.** A pending capture now gives the exposure one tick of frame time (0.015 s) a frame although the demo is
+paused, and waits for `AutoExposure.Settled` — a full ten-entry history and the scale within 0.002 of its goal — beside
+the bloom amount (`Device3D.PostProcessingSettled`). The walk itself is untouched: paused playback still holds its
+exposure, as TF2's does. *Measured*, f12 45091, nothing forced: outdoor camera **0.7010** (TF2 0.700), sky camera
+**0.7010** (TF2 0.700), indoor camera **0.5010** (TF2 0.5496). The indoor shot sits on the range's floor of 0.5 where
+TF2 stops above it — our indoor frame is brighter going in (B521's lamp cones, the panel's +20%), so that difference
+belongs to those entries and not to the exposure. **Not measured:** live playback, still.
+
 
 *Measured.* Every viewer capture in the comparison logged `tone-map scale 1` with nothing forced, at cameras where TF2
 reads 0.700 (outdoors) and 0.5496 (indoors) once it has had a few seconds — `mat_hdr_tonemapscale`, confirmed by the

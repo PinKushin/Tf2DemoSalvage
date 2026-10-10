@@ -319,7 +319,7 @@ public sealed unsafe class SkyboxRenderer : IDisposable
         (float X, float Y, float Z) eye,
         float[] viewProjection,
         float reach,
-        float linearLightScale = 1f)
+        float linearLightScale)
     {
         ArgumentNullException.ThrowIfNull(viewProjection);
 

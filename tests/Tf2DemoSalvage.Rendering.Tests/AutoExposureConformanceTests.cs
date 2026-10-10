@@ -123,4 +123,33 @@ public sealed class AutoExposureConformanceTests
 
         (0.3f * exposure.Current).ShouldBeInRange(AutoExposure.BinMin(11), AutoExposure.BinMax(11));
     }
+
+    /// <remarks>Ours, not Valve's: what a still capture waits for (B520). An empty history has no goal to have reached.</remarks>
+    [Test]
+    public void Settled_RightAfterAReset_IsFalse()
+    {
+        AutoExposure exposure = new();
+
+        exposure.Reset(1f);
+
+        exposure.Settled.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Settled_OnceTheWalkReachesAFullHistorysGoal_IsTrue()
+    {
+        AutoExposure exposure = new();
+
+        exposure.Update(Frame(15), (0.5f, 0.7f), 1f / 60f);
+        exposure.Settled.ShouldBeFalse("one frame in: the history is not full");
+
+        for (int frame = 0; frame < 1000; frame++)
+        {
+            exposure.Update(Frame(15), (0.5f, 0.7f), 1f / 60f);
+        }
+
+        exposure.Settled.ShouldBeTrue();
+        // The same histogram every frame asks for less than the last scale every frame, so the goal is the range's floor.
+        exposure.Current.ShouldBe(0.5f, 0.002f);
+    }
 }
