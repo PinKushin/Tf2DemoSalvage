@@ -42,7 +42,7 @@ public sealed class GoldenCompareProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "TF2 capture vs viewer capture, per region (B161): golden-compare <tf2.png> <ours.png> <outdir> [--hud <tf2-nohud.png>] [--viewmodel <tf2-nohud-novm.png>] [--sky <tf2-nohud-novm-nosky.png>]";
+        "TF2 capture vs viewer capture, per region (B161): golden-compare <tf2.png> <ours.png> <outdir> [--hud <tf2-nohud.png>] [--viewmodel <tf2-nohud-novm.png>] [--sky <tf2-nohud-novm-nosky.png>] [--exclude x0,y0,x1,y1] [--rect x0,y0,x1,y1]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -69,8 +69,51 @@ public sealed class GoldenCompareProbe : IProbe
         Dictionary<string, string> masks = Options(arguments);
         byte[] region = Regions(reference, masks);
 
+        // `--exclude` drops a rectangle from every region — the demoui panel left open in a TF2 capture so the
+        // capture carries its own tick. `--rect` keeps only a rectangle — one surface of an empty-world frame.
+        if (masks.TryGetValue("exclude", out string? excluded))
+        {
+            Mark(region, reference.Width, Rectangle(excluded), inside: true);
+        }
+
+        if (masks.TryGetValue("rect", out string? kept))
+        {
+            Mark(region, reference.Width, Rectangle(kept), inside: false);
+        }
+
         Directory.CreateDirectory(folder);
         Report(output, reference, ours, region, folder);
+    }
+
+    /// <summary>Region value of a pixel no number counts.</summary>
+    private const byte Excluded = 255;
+
+    /// <summary><c>x0,y0,x1,y1</c>, the far edges exclusive.</summary>
+    private static (int X0, int Y0, int X1, int Y1) Rectangle(string text)
+    {
+        string[] parts = text.Split(',');
+
+        return (
+            int.Parse(parts[0], CultureInfo.InvariantCulture),
+            int.Parse(parts[1], CultureInfo.InvariantCulture),
+            int.Parse(parts[2], CultureInfo.InvariantCulture),
+            int.Parse(parts[3], CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Excludes the pixels inside the rectangle, or the ones outside it.</summary>
+    private static void Mark(byte[] region, int width, (int X0, int Y0, int X1, int Y1) rectangle, bool inside)
+    {
+        for (int p = 0; p < region.Length; p++)
+        {
+            int x = p % width;
+            int y = p / width;
+            bool within = x >= rectangle.X0 && x < rectangle.X1 && y >= rectangle.Y0 && y < rectangle.Y1;
+
+            if (within == inside)
+            {
+                region[p] = Excluded;
+            }
+        }
     }
 
     /// <summary>The <c>--name path</c> pairs after the three positional arguments.</summary>
@@ -140,12 +183,21 @@ public sealed class GoldenCompareProbe : IProbe
         double[] oursSum = new double[count * 3];
         byte[] diff = new byte[reference.Width * reference.Height * 4];
         double total = 0;
+        long counted = 0;
 
         for (int p = 0; p < region.Length; p++)
         {
-            double e = ours.Distance(reference, p) / 3.0;
             int r = region[p];
 
+            if (r == Excluded)
+            {
+                diff[(p * 4) + 3] = 255;
+                continue;
+            }
+
+            double e = ours.Distance(reference, p) / 3.0;
+
+            counted++;
             pixels[r]++;
             error[r] += e;
             total += e;
@@ -168,7 +220,7 @@ public sealed class GoldenCompareProbe : IProbe
 
         PngWriter.Write(Path.Combine(folder, "diff.png"), reference.Width, reference.Height, diff);
 
-        output.WriteLine(Invariant($"summary: mean |error| {total / region.Length:0.000} /255 per channel over {region.Length} px"));
+        output.WriteLine(Invariant($"summary: mean |error| {total / Math.Max(1, counted):0.000} /255 per channel over {counted} px"));
         output.WriteLine("region      px%     mean   bad%  max px   worst tile (x,y) mean   tf2 rgb      ours rgb");
 
         for (int r = 0; r < count; r++)
@@ -183,7 +235,7 @@ public sealed class GoldenCompareProbe : IProbe
             WriteCrop(Path.Combine(folder, $"crop-{RegionNames[r]}.png"), reference, ours, x, y);
 
             output.WriteLine(Invariant(
-                $"{RegionNames[r],-9} {100.0 * pixels[r] / region.Length,5:0.0} {error[r] / pixels[r],8:0.000} {100.0 * bad[r] / pixels[r],6:0.0} {worstPixel[r],7:0.0}   ({x},{y}) {worst:0.00}   {Mean(referenceSum, r, pixels[r])}  {Mean(oursSum, r, pixels[r])}"));
+                $"{RegionNames[r],-9} {100.0 * pixels[r] / Math.Max(1, counted),5:0.0} {error[r] / pixels[r],8:0.000} {100.0 * bad[r] / pixels[r],6:0.0} {worstPixel[r],7:0.0}   ({x},{y}) {worst:0.00}   {Mean(referenceSum, r, pixels[r])}  {Mean(oursSum, r, pixels[r])}"));
         }
 
         // B514: an exposure difference is ONE multiplier in linear light across every region, where a lighting
@@ -193,17 +245,23 @@ public sealed class GoldenCompareProbe : IProbe
 
         for (int r = 0; r < count; r++)
         {
-            (double ratio, double clippedReference, double clippedOurs) = LinearRatio(reference, ours, region, (byte)r);
+            (double ratio, double clippedReference, double clippedOurs, double meanReference, double meanOurs) =
+                LinearRatio(reference, ours, region, (byte)r);
 
             if (!double.IsNaN(ratio))
             {
-                output.WriteLine(Invariant($"{RegionNames[r],-9}  {ratio,6:0.000}                                           {clippedReference,5:0.0} / {clippedOurs:0.0}"));
+                // The two means are printed as well as their ratio, so one image compared with itself under
+                // `--rect` gives a surface's linear luminance on its own — what a pair with different
+                // projections needs, where the same surface is not at the same pixels.
+                output.WriteLine(Invariant(
+                    $"{RegionNames[r],-9}  {ratio,6:0.000}                                           {clippedReference,5:0.0} / {clippedOurs:0.0}   mean linear x1000: {1000 * meanReference:0.0} / {1000 * meanOurs:0.0}"));
             }
         }
     }
 
     /// <summary>Ratio of mean linear luminance, TF2 over ours, over the region's pixels clipped in neither capture.</summary>
-    private static (double Ratio, double ClippedReference, double ClippedOurs) LinearRatio(Image reference, Image ours, byte[] region, byte index)
+    private static (double Ratio, double ClippedReference, double ClippedOurs, double MeanReference, double MeanOurs) LinearRatio(
+        Image reference, Image ours, byte[] region, byte index)
     {
         const int Clip = 250;
         double sumReference = 0;
@@ -211,6 +269,7 @@ public sealed class GoldenCompareProbe : IProbe
         long n = 0;
         long clippedReference = 0;
         long clippedOurs = 0;
+        long unclipped = 0;
 
         for (int p = 0; p < region.Length; p++)
         {
@@ -229,12 +288,13 @@ public sealed class GoldenCompareProbe : IProbe
             {
                 sumReference += reference.LinearLuminance(p);
                 sumOurs += ours.LinearLuminance(p);
+                unclipped++;
             }
         }
 
         return n == 0 || sumOurs <= 0
-            ? (double.NaN, 0, 0)
-            : (sumReference / sumOurs, 100.0 * clippedReference / n, 100.0 * clippedOurs / n);
+            ? (double.NaN, 0, 0, 0, 0)
+            : (sumReference / sumOurs, 100.0 * clippedReference / n, 100.0 * clippedOurs / n, sumReference / unclipped, sumOurs / unclipped);
     }
 
     /// <summary>The <see cref="Tile"/>-pixel tile, on a half-tile grid, with the highest mean error over this region's pixels.</summary>

@@ -253,6 +253,13 @@ and only the free-camera case's static world and sky are clean of it.** The fix 
 moment of capture — none of `demo_info`, `demo_debug 1`, `cl_showdemooverlay 1` printed one — and is the next step for
 B161, not a reason to distrust the controls, which do not depend on it.
 
+**WRONG, and what killed it (2026-10-09, `fix/b161-instrument`).** `demoui` is the readout: its panel prints
+`Tick: 45002 / 106313` after `demo_gototick 45000 0 0`, 91004 after 91000, 100005 after 100000 — TF2 lands within a
+few ticks, never a hundred. The "offset" was two other things read as one: **`spec_mode 6` is not free roam in TF2**
+(6 is `OBS_MODE_POI`, roaming is 7 — `shareddefs.h:499-500`), so that "free camera" was a chase view that kept following gummo; and **our
+world view is a third narrower than TF2's** (B518), which is what the 44900 "minimum" was fitting. See "The instrument,
+second pass" below.
+
 ## Non-determinism: what the numbers include
 
 | source | in the numbers? |
@@ -273,3 +280,84 @@ B161, not a reason to distrust the controls, which do not depend on it.
   then `Out of memory or address space. Texture quality setting may be too high.` and stopped answering RCON; the
   process stayed up. Never quit or relaunched. **The live client cannot be the reference for a 2009 demo** — the same
   wall as B201 — so era cases need a period client.
+
+## The instrument, second pass: a tick readout, exact cameras, and each term isolated (2026-10-09)
+
+*Measured on live TF2 build 11087207 against the viewer at main b0c8e408 plus this branch's three switches; read from
+published source where cited. Every number is `golden-compare`'s own; a ratio written `a/b` is two of its printed means
+divided.*
+
+### What changed in the recipe
+
+| need | how |
+|---|---|
+| TF2's actual tick | `demoui` — the panel prints `Tick: n / total`, the same numbering the viewer's `--tick` takes. Leave it open in the capture and pass `--exclude 197,378,499,603` so the capture carries its own tick (owner's suggestion). **Follow TF2: shoot the viewer at the tick TF2 landed on**, never force TF2 onto one |
+| an exact, empty camera | not the demo: `map cp_process_f12`, `jointeam spectator`, `spec_mode 7`, `spec_goto x y z pitch yaw` — a listen server has no players and `spec_goto` is a SERVER command (`player.cpp:6692`), which is why it did nothing during demo playback. `spec_pos` reads the pose back |
+| TF2's exposure | `mat_hdr_tonemapscale` is written by `SetToneMapScale` every frame (`viewpostprocess.cpp:1150,1180`), so reading the cvar reads the goal scale |
+| exposure pinned | `mat_force_tonemap_scale 1` — `SetToneMapScale` resets to exactly it (`:1143-1148`) |
+| bloom off | `mat_disable_bloom 1` |
+| the same switches in the viewer | `+mat_force_tonemap_scale`, `+mat_disable_bloom`, `+cl_drawhud 0` — Valve's names, read from the config (D210), added here |
+| a surface, not a frame | `--rect x0,y0,x1,y1`; an image compared with itself under it prints that surface's mean colour and mean linear luminance |
+
+**Per camera, four TF2 captures and five of ours**: TF2 auto+bloom, auto, forced 1, forced 1+bloom; ours forced 1, forced
+1+bloom, forced to TF2's measured scale with and without bloom, and our own auto. **Control on the method:** the linear
+ratio auto/forced-1 over a lightmapped surface reproduces the cvar — 307.0/438.6 = 0.700 against a read 0.700 outdoors,
+246.0/448.4 = 0.549 against a read 0.5496 indoors.
+
+**Things learned about the client on the way**: `host_timescale` slows RCON itself (at 0.0001 a console call timed out
+at 30 s; 0.002 costs ~15 s a call, ~2 ticks of drift across four calls — which is the argument for the tick being IN the
+capture); `spec_mode 7` during an STV demo keeps the position where in-eye left it but takes its ANGLES from the
+recording's own view angles, so it cannot be aimed; `+lookup` does not turn it.
+
+**Every TF2 cvar touched was read first and read back after**: `mat_hdr_level` 0, `mat_picmip` -1, `cl_detaildist` 8592,
+`con_drawnotify` 1, `hud_saytext_time` 10, `sv_cheats` 0, `cl_drawhud` 1, `host_timescale` 1, `mat_disable_bloom` 0,
+`mat_force_tonemap_scale` 0, `mat_hdr_tonemapscale` 1.0 — all at those values in the final readback.
+
+### The empty-world table (cp_process_f12, no player or particle in any patch)
+
+Cameras: **outdoor** `-526 -422 575 0 15`, **sky** `-526 -422 575 -70 300`, **indoor** `146 -1831.6 728 -28.7 -36.5`. Ours
+at tick 45091. Linear luminance ×1000, mean over the patch. Because of B518 the same surface is not at the same pixels,
+so each patch is one rectangle in TF2's frame and that rectangle scaled 4/3 about the centre in ours.
+
+| patch | TF2 exposure (read / measured) | ours in a `--shot` | residual, both off: TF2 / ours | bloom added at TF2's exposure: TF2 / ours |
+|---|---|---|---|---|
+| outdoor, sunlit brick wall | 0.700 / 0.700 | 1.0 | 438.6 / 533.1 (**×1.22**) | +117.2 / +180.9 |
+| outdoor, shaded container face | 0.700 / 0.700 | 1.0 | 41.4 / 43.7 (×1.06) | +2.0 / +2.3 |
+| outdoor, sunlit ground | 0.700 / 0.704 | 1.0 | 621.1 / 546.6 (×0.88) | +195.0 / +128.9 (TF2 21% clipped) |
+| outdoor, sky near the horizon | 0.700 / 0.701 | 1.0 | 449.7 / 446.1 (×0.99) | +137.4 / clipped (79%) |
+| sky camera, sky | 0.700 / **0.760** | 1.0 | 483.4 / 483.3 (**×1.000**) | +164.8 / saturated (201 230 255) |
+| indoor, wall | 0.5496 / 0.549 | 1.0 | 448.4 / 456.7 (×1.02) | +75.3 / +104.7 |
+| indoor, control-panel face | — / 0.549 | 1.0 | 319.3 / 383.5 (**×1.20**) | +35.2 / +74.6 |
+| indoor, ceiling by the lamps | — / 0.542 | 1.0 | 79.5 / 53.8 (**×0.68**) | +1.7 / +0.6 |
+
+**What our surfaces do when forced to TF2's scale** (ours forced-s / ours forced-1): outdoor wall 373.3/533.1 = 0.700 and
+container 30.6/43.7 = 0.700 — exact. **Sky 483.3/483.3 = 1.000 and 438.2/446.1 = 0.98: our sky ignores the scale**
+(B519). Indoors at a forced 0.55: wall 0.610, panel 0.644, ceiling 0.617 where TF2's are 0.549 — something in those
+patches is not scaled either, and the lamp cones (B521) are in every one of them.
+
+**So B514's remainder is four separate things, in order of size:**
+
+1. **Exposure state, not exposure maths.** TF2 sits at 0.70 outdoors and 0.55 indoors at these cameras; a viewer `--shot`
+   is at 1.0, because the walk does nothing at a frame time of zero and a shot is one paused frame (B520). Whether live
+   playback reaches TF2's values is the next measurement, with `--measure`-style playback and the scale logged.
+2. **Bloom adds 1.4-2.1× TF2's linear amount** on bright surfaces at the same exposure (+180.9 vs +117.2, +104.7 vs
+   +75.3, +74.6 vs +35.2) and less on dark ones — partly because what goes in is brighter (the wall's ×1.22, the unscaled
+   sky), partly not: the container goes in equal and comes out +2.3 against +2.0.
+3. **The sky does not take the tone-map scale** (B519) — at TF2's 0.70 our sky is 1/0.70-1/0.76 too bright before
+   bloom, and then saturates it.
+4. **Pure lighting, both off**: flat walls agree to 2% indoors and 6% in shade, the sky texture to 0.0%. What does not:
+   the sunlit brick wall +22%, the sunlit ground −12%, the control panel +20%, the ceiling by the lamps −32%.
+
+### First person, indicative only
+
+TF2 landed on 91004 and 100005; the viewer was shot at those ticks, `demoui` excluded, HUD off both sides. Per-pixel
+error is 57.3 and 40.5 /255 and **means nothing while B518 stands** — the two frames are different projections. Mean
+world colour: 146 140 131 → 137 129 126 (91004, mid, outdoors) and 147 131 118 → 146 133 121 (100005, last point). With
+both forced to 1 and bloom off (TF2 at ~100009, ours at 100009): 133 120 109 → 130 119 109, a linear ratio of 1.02.
+Sub-tick interpolation, particles and tracers are in all of these.
+
+### Found on the way
+
+- **B518**: TF2 widens the world field of view by the aspect ratio (`view.cpp:1075-1083`); we do not. At 16:9 TF2's 90
+  is 106.26° across and ours is 90°. Measured at the fixed camera: the same wall is 4/3 as far from the centre in ours.
+- **B521**: the cones under the indoor lamps are large near-opaque white beams in ours and a faint glow in TF2.
