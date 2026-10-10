@@ -1,16 +1,14 @@
 using System;
 using System.Linq;
 
-namespace Tf2DemoSalvage.Probe.Probes;
+namespace Tf2DemoSalvage.Render;
 
 /// <summary>TF2's auto-exposure: the tone-map scale the main view's shaders multiply by (B514, D192).</summary>
 /// <remarks>
-/// **An instrument, not the renderer's** — it lives with the <c>autoexposure</c> probe because B514 found the viewer's
-/// indoor frames already match TF2's on f12, where the map pins the range to <c>[0.5, 0.7]</c> — consistent only with
-/// TF2's unscaled light being about twice ours and settling at the 0.5 floor (findings 76) — so production does not
-/// run it. Porting it into the renderer waits on the one factor
-/// it cannot account for: what <c>cLightScale.x</c> is under <c>HDR_TYPE_INTEGER</c> in the closed shader API.
-///
+/// **What the scale IS, read in disassembly**: <c>SetToneMappingScaleLinear</c> (<c>shaderapidx9.dll 0x180023be0</c>) loads
+/// the current scale unchanged into <c>cLightScale.x</c> = <c>LINEAR_LIGHT_SCALE</c> under <c>HDR_TYPE_INTEGER</c>
+/// (1 under none), with <c>cLightScale.y</c> 16 and <c>z</c> 16. So every <c>TONEMAP_SCALE_LINEAR</c> output is multiplied
+/// by exactly <see cref="Current"/> — the viewer's <c>LinearLightScale</c>.
 ///
 /// A port of <c>viewpostprocess.cpp</c> with <c>mat_tonemap_algorithm 1</c>, TF2's (only dod, cstrike, lostcoast and hl1
 /// are forced to 0, `:836` — and its loop reads three of the four). Every number is Valve's:
@@ -27,12 +25,18 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// - **The goal**: a ten-entry history whose weighted average, clamped, is the goal (<c>SetToneMapScale</c>,
 ///   `:1130-1182`) — the weights are <c>|i - 5| / 5</c>, oldest and newest heaviest, as written.
 ///
-/// **Interpolated: how the CURRENT scale walks to the goal.** That lives in the closed material system
-/// (<c>SetGoalToneMappingScale</c>); this approaches it at <see cref="RatePerSecond"/>. A settled frame — the only kind
-/// a comparison capture uses (D192) — does not depend on it.
-///
-/// **Interpolated: which space the histogram reads.** <c>dev/lumcompare</c>'s sampler state is in the closed
-/// shader DLL. The probe reads both; on f12 they differ only in how bright a frame must be to reach the 0.5 floor.
+/// - **The walk, read in disassembly** (<c>materialsystem.dll 0x180035fa0</c>, run once a frame): nothing at all when the
+///   frame time is not positive — a paused demo holds its exposure; the rate is <c>mat_hdr_manual_tonemap_rate</c> (1),
+///   doubled under <c>mat_tonemap_algorithm 1</c>; walking DOWN it is raised toward
+///   <c>rate · mat_accelerate_adjust_exposure_down</c> (3) by <c>(current − goal) · (fast − rate) · ⅔</c> and capped
+///   there; times the frame time, capped at 1/64 a frame under algorithm 1, then
+///   <c>current = (1 − r) · current + r · goal</c>. Then <c>SetToneMappingScaleLinear( current )</c>.
+/// - **The colour space the histogram reads, read from published source**: <c>dev/lumcompare</c> is
+///   <c>screenspace_general</c> (its shipped VMT), whose sampler 0 reads sRGB unless <c>$linearread_basetexture</c>
+///   — which the VMT does not set — or the target is 16-bit (`screenspace_general.cpp:124-132`). The integer-HDR frame
+///   is eight-bit, so the histogram is of LINEAR light.
+/// - **Resets** to 1 (<c>ResetToneMapping</c>, `:1121`): level init, the local player's respawn
+///   (<c>c_tf_player.cpp:7946</c>), and the local player's observer target changing (<c>c_baseplayer.cpp:611-614</c>).
 /// </remarks>
 public sealed class AutoExposure
 {
@@ -60,8 +64,14 @@ public sealed class AutoExposure
     /// <summary><c>mat_exposure_center_region_y</c>.</summary>
     public const float CentreRegionY = 0.85f;
 
-    /// <summary>How far the current scale moves toward the goal per second, as a fraction (interpolated, above).</summary>
-    public const float RatePerSecond = 1f;
+    /// <summary><c>mat_hdr_manual_tonemap_rate</c>, doubled as <c>mat_tonemap_algorithm 1</c> doubles it.</summary>
+    public const float Rate = 2f;
+
+    /// <summary><c>mat_accelerate_adjust_exposure_down</c>.</summary>
+    public const float AccelerateDown = 3f;
+
+    /// <summary>The per-frame cap on the walk under <c>mat_tonemap_algorithm 1</c>.</summary>
+    public const float MaximumStep = 1f / 64f;
 
     private const int History = 10;
 
@@ -229,8 +239,30 @@ public sealed class AutoExposure
             Goal = Math.Clamp(sum / weights, range.Min, range.Max);
         }
 
-        float step = Math.Clamp(seconds * RatePerSecond, 0f, 1f);
-        Current += (Goal - Current) * step;
+        Walk(seconds);
+    }
+
+    /// <summary>The material system's per-frame step of <see cref="Current"/> toward <see cref="Goal"/>.</summary>
+    /// <param name="seconds">The frame time; zero or less holds the scale, as a paused game's does.</param>
+    public void Walk(float seconds)
+    {
+        if (seconds <= 0f)
+        {
+            return;
+        }
+
+        float rate = Rate;
+
+        if (Goal < Current)
+        {
+            float fast = Rate * AccelerateDown;
+            rate = MathF.Min(fast, ((Current - Goal) * (fast - Rate) * (2f / 3f)) + Rate);
+        }
+
+        float step = Math.Clamp(MathF.Min(rate * seconds, MaximumStep), 0f, 1f);
+        float next = ((1f - step) * Current) + (step * Goal);
+
+        Current = float.IsFinite(next) ? next : Goal;
     }
 
     /// <summary><c>ResetToneMapping</c>: a cut — the history empties and the scale jumps.</summary>
