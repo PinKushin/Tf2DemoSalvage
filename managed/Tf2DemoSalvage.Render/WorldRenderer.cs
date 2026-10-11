@@ -1191,7 +1191,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // (lightmappedgeneric_vs20.fxc:166-169), which is every shipped material but two.
             float blendfactor = saturate(input.a);
 
-            if (combine.z > 0.5f)
+            // `PIXELFOGTYPE != PIXEL_FOG_TYPE_HEIGHT` (:319): under a water volume's height fog the mask is not read
+            // and the mix is the raw vertex blend -- `BlendModulation.Applies`'s fourth guard, which is the draw's.
+            if (combine.z > 0.5f && heightFog.x < 0.5f)
             {
                 float4 modt = blendModulationMap.Sample(wrapSampler, input.uv);
                 float minb = saturate(modt.g - modt.r);

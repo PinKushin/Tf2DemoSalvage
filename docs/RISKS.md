@@ -36448,6 +36448,17 @@ WorldVertexTransition (`vmt-param`). **Not reproduced, each read in the same fil
 - With `FANCY_BLENDING` the cubemap's contrast and saturation are skipped (`ps2_3_x.h:538-543`); 4 of the 87 declare
   `$envmap`, and the viewer still applies both.
 
+**2026-10-11 (`fix/parity-leftovers`): the height-fog guard and the skipped cubemap shaping are reproduced.**
+*Read from published source.* Under a water volume's height fog the pixel shader now leaves the mask unread and mixes
+by the vertex blend (`BlendModulation.Applies`'s fourth guard, applied per draw from the same constant the height fog
+itself reads). A lightmapped material whose `$blendmodulatetexture` is defined carries contrast 0 and saturation 1
+(`BlendModulation.EnvMapShaping`) — `FANCY_BLENDING` is the mask being a texture and nothing else
+(`helper:315-317`, `:568`), so the block is out with one base texture or self-illumination too.
+`Applies_UnderHeightFog_IsNotRead`, `EnvMapShaping_WithAMask_IsNeitherContrastNorSaturation`,
+`Sdk_TheCubemapsShapingUnderFancyBlending_IsCompiledOut`. **No picture-level test of the under-water mix**: it
+needs a blended displacement seen through a refraction view, and no map in the test set has one. `$bumpmap2` is
+still not read.
+
 **2026-10-10 (`fix/b514-static-prop-phong`): a phong or bump-mapped static prop is not vertex lit; ported; not yet
 looked at on screen.** The observatory dome (`models/props_hydro/observatory_dome.mdl`, `$phong 1`, no `$bumpmap`)
 drew at 17-82% of TF2 because the viewer drew its `.vhv` colours with no cube and no light. The chain:

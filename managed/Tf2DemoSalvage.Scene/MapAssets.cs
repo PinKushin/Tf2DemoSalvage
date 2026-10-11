@@ -3209,8 +3209,11 @@ public sealed class MapAssets
 
                 // **The skin shader has neither** (`skin_ps20b.fxc:237-241`: mask, Fresnel, cube and tint, nothing after),
                 // so a `$phong` material's `$envmapcontrast` and `$envmapsaturation` are read by no one.
-                material.SkinEnvMapMask is null ? material.EnvMapContrast : 0f,
-                material.SkinEnvMapMask is null ? material.EnvMapSaturation : 1f,
+                //
+                // **And a lightmapped material with a `$blendmodulatetexture` has neither** (B514): `FANCY_BLENDING`
+                // compiles the block out (`BlendModulation.EnvMapShaping`).
+                Shaping().Contrast,
+                Shaping().Saturation,
                 material.UsesBaseAlphaAsEnvMapMask,
                 Fresnel(),
                 material.UsesNormalMapAlphaAsEnvMapMask,
@@ -3228,11 +3231,24 @@ public sealed class MapAssets
             // Decided by the shader NAME rather than by whether the material came from the map or a
             // model, because that is what the engine dispatches on. A brush face painted with a
             // VertexLitGeneric material gets the model's rule, which is right.
-            bool lightmapped =
-                material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
-                material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+            return Lightmapped() ? material.FresnelReflection : 1f;
+        }
 
-            return lightmapped ? material.FresnelReflection : 1f;
+        bool Lightmapped() =>
+            material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+            material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+
+        (float Contrast, float Saturation) Shaping()
+        {
+            if (material.SkinEnvMapMask is not null)
+            {
+                return (0f, 1f);
+            }
+
+            return BlendModulation.EnvMapShaping(
+                Lightmapped() && material.BlendModulateTexture is not null,
+                material.EnvMapContrast,
+                material.EnvMapSaturation);
         }
 
         MapCubemap? ResolveCubemap()
