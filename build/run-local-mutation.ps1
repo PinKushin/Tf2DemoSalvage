@@ -8,13 +8,19 @@
 # It takes the machine-wide lock (run-exclusive.ps1): Stryker rebuilds mutated copies continuously and
 # holds obj/, so it must never overlap a UI suite or a manual check. It waits rather than refusing.
 #
-#   pwsh build/run-local-mutation.ps1                 # all three
+#   pwsh build/run-local-mutation.ps1                 # Audio, the only one that fits a night
 #   pwsh build/run-local-mutation.ps1 -Project Audio  # one
+#
+# Audio alone by default (2026-10-11): the first scheduled run finished Audio in six minutes, then spent
+# seven and a half hours inside Content without finishing and never reached Rendering - holding the
+# machine-wide lock the whole time. Stryker writes its report only at the end, so a stopped run leaves
+# nothing. Content and Rendering stay out of the default until they are cut to a slice that fits
+# (-Project Content still runs one by hand).
 #
 # Runs against a dedicated worktree at -Checkout, reset to origin/main each time, so it never touches a
 # worktree an agent is working in. Reports land in -OutRoot\<yyyy-MM-dd>\<project>.
 param(
-    [string[]]$Project = @('Audio', 'Content', 'Rendering'),
+    [string[]]$Project = @('Audio'),
     [string]$Repo = 'C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage',
     [string]$Checkout = 'F:\Tf2DemoSalvage-mutation',
     [string]$OutRoot = "$env:LOCALAPPDATA\Tf2DemoSalvage\mutation",
