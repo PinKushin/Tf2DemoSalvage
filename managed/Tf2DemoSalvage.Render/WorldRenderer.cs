@@ -395,6 +395,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // whichever of the two the vertices happen to ask for.
             //
             // z: 1 when a `$blendmodulatetexture` shapes that mix (BlendModulation.Applies), 0 otherwise.
+            //
+            // w: 1 for a shader that reads no diffuse light — UnlitGeneric, UnlitTwoTexture
+            //    (ModelMaterialShading.TakesDiffuseLighting), 0 otherwise.
             float4 combine;
 
             // **The baked reflection's shading, xyz tint and w contrast.** Packed together because
@@ -1521,6 +1524,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 light = staticTerm;
             }
 
+            // **An unlit shader's diffuse is one, whatever the draw carries** (B514). `hasDiffuseLighting =
+            // bVertexLitGeneric` (vertexlitgeneric_dx9_helper.cpp:394) and the pixel shader's
+            //
+            //     float3 diffuseLighting = float3( 1.0f, 1.0f, 1.0f );
+            //     if( bDiffuseLighting || bVertexColor )
+            //         diffuseLighting = i.color.rgb;
+            //
+            // (vertexlit_and_unlit_generic_ps2x.fxc:344-348). No lightmap, no colour mesh, no cube, no sun, no lamp:
+            // a static prop's baked colours multiplied into an UnlitGeneric card were light the engine never reads.
+            // The vertex colour below is the `bVertexColor` half and still applies.
+            if (combine.w > 0.5f)
+            {
+                light = float3(1.0f, 1.0f, 1.0f);
+            }
+
             // **mat_fullbright, and it is a texture SUBSTITUTION in the engine rather than a
             // branch.** Valve replaces the lightmap with TEXTURE_LIGHTMAP_FULLBRIGHT for 1 and the
             // albedo with TEXTURE_GREY for 2 (BaseVSShader.cpp:1094, ishaderdynamic.h:60), which is
@@ -2306,6 +2324,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
+
+    /// <summary>
+    /// Whether each material's shader sends its modulation colour to the pixel shader in linear space
+    /// (<see cref="ModelMaterialShading.ConvertsModulation"/>, B514).
+    /// </summary>
+    private readonly List<bool> _convertsModulation = [];
 
     /// <summary>Each material's <c>$blendmodulatetexture</c>, or a null handle where it has none or the shader would not read it.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendModulations = [];
@@ -3457,6 +3481,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // shade and reading as a silhouette.
             float wrapsLight = surface is { IsHalfLambert: true } ? 1f : 0f;
 
+            // **An unlit shader reads no light, and a model shader's `$color` is a gamma colour** (B514;
+            // `ModelMaterialShading`). The first rides to the pixel shader in combine.w; the second is applied where
+            // the constants are written, after the proxies, since a proxy writes the same gamma colour.
+            float unlit = ModelMaterialShading.TakesDiffuseLighting(shader) ? 0f : 1f;
+
+            _convertsModulation.Add(ModelMaterialShading.ConvertsModulation(shader));
+
             // **The material's own $color and $alpha, which is the rest value of the same slot a
             // proxy animates.** White and opaque for a material naming neither, which is the great
             // majority — so this changes nothing for them and is the whole effect for a tinted
@@ -3738,7 +3769,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
-                    multiplies, wrapsLight, hasBlendModulation, 0f,
+                    multiplies, wrapsLight, hasBlendModulation, unlit,
 
                     // The baked reflection's tint and contrast, then its saturation, mask and
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
@@ -3798,7 +3829,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
-                    multiplies, wrapsLight, hasBlendModulation, 0f,
+                    multiplies, wrapsLight, hasBlendModulation, unlit,
 
                     // The baked reflection's tint and contrast, then its saturation, mask and
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
@@ -5862,6 +5893,20 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 urine ?? (1f, 1f, 1f));
         }
 
+        // **`SetModulationPixelShaderDynamicState_LinearColorSpace`** (B514, `BaseVSShader.cpp:652-661`): a model
+        // shader's modulation colour is a gamma colour, converted per channel as it is handed to the pixel shader —
+        // after the proxies above, which write `$color` and `$color2` in the same gamma space. The lightmapped
+        // shaders send theirs as it is.
+        if (materialIndex >= 0 && materialIndex < _convertsModulation.Count && _convertsModulation[materialIndex])
+        {
+            contents = Scratch(contents);
+
+            for (int channel = 0; channel < 3; channel++)
+            {
+                contents[ModulationRed + channel] = ModelMaterialShading.ModulationToLinear(contents[ModulationRed + channel]);
+            }
+        }
+
         // **Every array feeding this buffer must be exactly the shader struct's length, and this is
         // the third time that has mattered.** The file already records a buffer created 160 bytes
         // wide against a declared 192 — written and read out of bounds, and it WORKED, because this
@@ -6717,6 +6762,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _placements.Clear();
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
+        _convertsModulation.Clear();
         _blendModulations.Clear();
         _selfIllumMasks.Clear();
         _phongExponentMaps.Clear();

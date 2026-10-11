@@ -153,8 +153,15 @@ public sealed class TranslucentWorldOrderRenderTests
         (int red, int green, int blue) glassOver = Draw(() => { Model(); target.DrawTranslucentLeaf(0); });
         (int red, int green, int blue) modelOver = Draw(() => { target.DrawTranslucentLeaf(0); Model(); });
 
-        TestContext.Out.WriteLine($"GLASS OVER {glassOver}  MODEL OVER {modelOver}");
-        Distance(glassOver, modelOver).ShouldBeGreaterThan(6, "the two orders draw the same pixel, so this test cannot fail");
+        TestContext.Out.WriteLine(
+            $"GLASS OVER {glassOver}  MODEL OVER {modelOver}; glass '{assets.Materials[glassMaterial].Name}' ({assets.Shaders[glassMaterial]}), " +
+            $"model '{assets.Materials[modelMaterial].Name}' ({assets.Shaders[modelMaterial]})");
+
+        // More than the 3 the two assertions below allow, which is what the control has to guarantee. It was 6 until
+        // B514: the model quad's material here is `OVERLAYS/DUST_GRADIENT01`, an `UnLitGeneric`, which now draws at a
+        // diffuse of 1 as the engine's does (`vertexlit_and_unlit_generic_ps2x.fxc:344-348`) where it took the white
+        // lightmap texel's 2 — so the two orders differ by exactly 6 instead of twice that.
+        Distance(glassOver, modelOver).ShouldBeGreaterThan(3, "the two orders draw the same pixel, so this test cannot fail");
 
         (int red, int green, int blue) behind = Planned(1);
         (int red, int green, int blue) inFront = Planned(0);

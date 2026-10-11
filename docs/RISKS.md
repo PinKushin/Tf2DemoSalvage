@@ -36481,6 +36481,50 @@ So the dome's state is now its computed cube, the sun (travelling 0.2113 −0.36
 cp_process_f12, paid as each prop is first drawn rather than at load. **Wider than the dome:** the mask reaches every
 model's sun (`SunAt` shares the trace), and the computed cube also lights the CPU-baked props (B429).
 
+**2026-10-11 (`fix/b514-skybox-cards`): the pale lavender tree cards were two things in the model shader, neither of
+them fog; ported; not yet looked at on screen.** The 3D skybox's tree line (`models/props_skybox/skycards_forest*`,
+21 placements on cp_process_f12) drew at 117-355% of TF2. The four candidates, each answered:
+
+- **(a) Light on an unlit material — yes, a divergence.** *Read from published source:* `hasDiffuseLighting =
+  bVertexLitGeneric` (`vertexlitgeneric_dx9_helper.cpp:394`), the light state is never fetched for `UnlitGeneric`
+  (`:1250-1254`), and the pixel shader's diffuse starts at 1 and is replaced only under `DIFFUSELIGHTING` or
+  `$vertexcolor` (`vertexlit_and_unlit_generic_ps2x.fxc:344-348`). The viewer multiplied every model material by
+  whatever light its draw carried — for these cards their `.vhv` colours, means from (0.059 0.074 0.175) to
+  (1.297 1.261 1.307) (*measured*, `prop-shade cp_process_f12 skycards`).
+- **(c′) `$color2` is a gamma colour on a model shader — yes, the larger divergence, and not on the candidate
+  list.** *Read from published source:* `VertexLitGeneric`, `UnlitGeneric`, the skin path and `UnlitTwoTexture` send
+  `ComputeModulationColor` through `SetModulationPixelShaderDynamicState_LinearColorSpace`
+  (`vertexlitgeneric_dx9_helper.cpp:1456`, `skin_dx9_helper.cpp:731`, `unlittwotexture_dx9.cpp:218`), per channel
+  `c > 1 ? c : GammaToLinear( c )` (`BaseVSShader.cpp:652-661`); `GammaToLinear` is 0 below 0, 1 from 0.95, else
+  `pow( round( c · 255 ) / 255, 2.2 )` (`mathlib/color_conversion.cpp:210, 273-291`). `LightmappedGeneric` sends the
+  numbers as they are. The viewer multiplied its linear albedo by the gamma numbers. Findings 26 quoted the
+  conversion line to explain why colour is not clamped, and never applied it.
+- **(b) Fog — no.** The map's `sky_camera` has `fogenable 0`. `$nofog` (on two of the three card materials used) is
+  not read by the viewer at all and still is not: its meaning is in the closed shaderlib (`DefaultFog`), 655 shipped
+  materials declare it, and nothing here turns on it.
+- **(c) `$translucent` with `$alphatest` — no divergence found.** `EvaluateBlendRequirements`
+  (`BaseVSShader.cpp:1580-1606`) drops the texture's alpha from the translucency test under `$alphatest`, so the
+  cards are alpha tested and not blended; `VmtMaterial.IsTranslucent` already says so.
+- **(d) Skin — no divergence, but the brief's mapping was off.** Skins 0, 1, 2 are `skycards_forest1`, `1a`, `1b`
+  (`$color2` .23 .25 .30, .37 .37 .46, .46 .46 .64), not `forest1/2/3`; each placement draws its own.
+
+**One far-ridge placement, both ways** — #477, `skycards_forest512dip` at (−2151 4145 2741), skin 2,
+`skycards_forest1b`, `UnLitGeneric`, `$nofog 1`, no fog in the room: the viewer's factor on the texture was
+`$color2` × baked = (0.46 0.46 0.64) × (1.186 1.165 1.292) = (0.546 0.536 0.827); the engine's is
+`GammaToLinear( $color2 )` × 1 = (0.180 0.180 0.374). Ours over the engine's: 3.03, 2.98, 2.21 — the top of the
+measured range, and the excess is strongest in red and green, which is the lavender.
+
+**Built:** `ModelMaterialShading` (`ModulationToLinear`, `ConvertsModulation`, `TakesDiffuseLighting`);
+`WorldRenderer.SetMaterial` converts a model shader's modulation after its proxies; the pixel shader sets the light
+to 1 for an unlit shader (`combine.w`). Tests: `UnlitModelMaterialConformanceTests`, whose render test draws the
+real `skycards_forest1b` under nothing, under #477's baked colours, and under a cube and a lamp: (246 246 255),
+(195 193 234), (255 255 255) before, (118 118 164) — the engine's — in all three after. New probe `prop-shade`.
+
+**Wider than the cards.** 6,030 shipped materials declare `$color2` (5,921 `VertexLitGeneric`) and 159 `$color`:
+every tinted or painted model material is now darker wherever a channel is below 0.95. Every `UnlitGeneric` and
+`UnlitTwoTexture` surface, brush faces included, now draws at light 1 where it took its draw's light.
+**Not modeled:** `$hdrcolorscale` (0 shipped materials declare it); shaders outside these four keep the raw colour.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
