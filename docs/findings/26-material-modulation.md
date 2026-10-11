@@ -67,6 +67,11 @@ published conversion it is built on, not the whole engine path. The render state
 entity's alpha, a per-instance colour — is not a material property and does not belong in a material
 reader.
 
+**The conversion quoted above was not applied until 2026-10-11** (B514). This page used the `GammaToLinear` line as
+evidence about clamping and left the colour as written — *interpolated:* harmless while the renderer worked in
+display space, wrong from B54 on. A model shader's modulation is a gamma colour. `ModelMaterialShading.ModulationToLinear`
+now applies it where the constants are written; `docs/RISKS.md` B514, 2026-10-11.
+
 ## The placement bug: `* modulation` inside a ternary
 
 The renderer already had a modulation constant, already uploaded it, and already multiplied by it.

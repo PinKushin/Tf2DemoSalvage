@@ -439,3 +439,16 @@ so a lighting point inside a non-opaque brush started solid here and reaches the
 934 units to `TOOLS/TOOLSSKYBOX`). And the cube was assumed to be the leaf's: for a static prop the light cache
 computes it from 162 rays at the lightmaps (`FUN_1801b74f0`, `r_radiosity` 4) — on the dome the same sky above, a
 darker and warmer underside. All three ported (RISKS B514); not yet compared on screen.
+
+**The lavender tree line in the 3D skybox was not fog** (`fix/b514-skybox-cards`, 2026-10-11). The cards are
+`UnlitGeneric` static props tinted by `$color2`, and the room's `sky_camera` has fog switched off. *Read from
+published source:* an unlit shader reads no light — `hasDiffuseLighting = bVertexLitGeneric`, its pixel shader's
+diffuse is 1 (`vertexlitgeneric_dx9_helper.cpp:394`, `vertexlit_and_unlit_generic_ps2x.fxc:344-348`) — and a model
+shader's modulation colour is a GAMMA colour, converted `c > 1 ? c : GammaToLinear( c )` on its way to the pixel
+shader (`BaseVSShader.cpp:652-661`). The viewer multiplied the cards by their baked vertex colours AND by the raw
+`$color2`. *Measured* (`prop-shade`, placement #477, `skycards_forest1b`): (0.546 0.536 0.827) on the texture where
+the engine's is (0.180 0.180 0.374) — 3.0, 3.0 and 2.2 times, the top of the 117-355% the tiles showed. **The wrong
+turn is an old one:** findings 26 quoted the conversion line to explain why a colour is not clamped and stopped
+there. *Interpolated:* that was harmless while the renderer worked in display space, and became wrong when B54
+moved it to linear light and nobody went back for the line. Ported for the four model shaders (RISKS B514) — which darkens every tinted model
+material, not only these cards. Not yet compared on screen.
