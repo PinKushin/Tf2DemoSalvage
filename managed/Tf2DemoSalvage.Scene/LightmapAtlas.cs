@@ -110,44 +110,60 @@ public sealed class LightmapAtlas
         (int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) = placed;
         int luxels = setWidth * height;
 
+        if (layers.Count > 0)
+        {
+            // Every bump-lit face `BspLightmaps.ReadAll` reads comes this way, so the added light is inside the
+            // page writer's normalization, as it is in the engine.
+            Write(placed, scale, added);
+            dirty.Add(new AtlasRegion(x, y, setWidth * sets, height));
+
+            return;
+        }
+
+        // An unstyled face: one set as packed, plus the light. (A hand-packed bump-lit face with no layers also lands
+        // here and gets the light added raw; nothing in production builds one.)
         for (int set = 0; set < sets; set++)
         {
             for (int luxel = 0; luxel < luxels; luxel++)
             {
                 int at = ((((y + (luxel / setWidth)) * Width) + x + (set * setWidth) + (luxel % setWidth)) * 4);
 
-                (float bakedRed, float bakedGreen, float bakedBlue) = BspLightmaps.Load(_baked.AsSpan(at, 4));
-                Span<float> light = [bakedRed, bakedGreen, bakedBlue];
+                (float red, float green, float blue) = BspLightmaps.Load(_baked.AsSpan(at, 4));
 
-                for (int channel = 0; channel < 3; channel++)
+                if (!added.IsEmpty)
                 {
-                    if (layers.Count > 0)
-                    {
-                        light[channel] = Styled(layers, set, luxel, channel, scale);
-                    }
+                    int from = ((set * luxels) + luxel) * 3;
 
-                    if (!added.IsEmpty)
-                    {
-                        light[channel] += added[(((set * luxels) + luxel) * 3) + channel];
-                    }
+                    red += added[from];
+                    green += added[from + 1];
+                    blue += added[from + 2];
                 }
 
-                BspLightmaps.Store(Pixels.AsSpan(at, 4), light[0], light[1], light[2]);
+                BspLightmaps.Store(Pixels.AsSpan(at, 4), red, green, blue);
             }
         }
 
         dirty.Add(new AtlasRegion(x, y, setWidth * sets, height));
+    }
 
-        static float Styled(IReadOnlyList<BspStyleLayer> layers, int set, int luxel, int channel, Func<int, float> scale)
+    /// <summary>Composes a layered face — styles, added light, bump normalization — and writes its strip into the atlas.</summary>
+    private void Write(
+        (int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers) placed,
+        Func<int, float> scale,
+        ReadOnlySpan<float> added)
+    {
+        int stride = placed.SetWidth * 4;
+        byte[] built = new byte[placed.Sets * placed.Height * stride];
+
+        BspLightmaps.Compose(placed.Layers, scale, added, built);
+
+        for (int set = 0; set < placed.Sets; set++)
         {
-            float sum = 0f;
-
-            foreach (BspStyleLayer layer in layers)
+            for (int line = 0; line < placed.Height; line++)
             {
-                sum += layer.Sets[set][(luxel * 3) + channel] * scale(layer.Style);
+                built.AsSpan((((set * placed.Height) + line) * stride), stride)
+                    .CopyTo(Pixels.AsSpan((((placed.Y + line) * Width) + placed.X + (set * placed.SetWidth)) * 4));
             }
-
-            return sum;
         }
     }
 
@@ -167,34 +183,15 @@ public sealed class LightmapAtlas
             return;
         }
 
-        byte[] row = [];
-
         foreach ((int X, int Y, int SetWidth, int Height, int Sets, IReadOnlyList<BspStyleLayer> Layers)? face in _faces)
         {
-            if (face is not (int x, int y, int setWidth, int height, int sets, IReadOnlyList<BspStyleLayer> layers) ||
-                layers.Count == 0 ||
-                !Answers(layers, changed))
+            if (face is not { } placed || placed.Layers.Count == 0 || !Answers(placed.Layers, changed))
             {
                 continue;
             }
 
-            if (row.Length != setWidth * height * 4)
-            {
-                row = new byte[setWidth * height * 4];
-            }
-
-            for (int set = 0; set < sets; set++)
-            {
-                BspLightmaps.Compose(layers, set, scale, row);
-
-                for (int line = 0; line < height; line++)
-                {
-                    row.AsSpan(line * setWidth * 4, setWidth * 4)
-                        .CopyTo(Pixels.AsSpan((((y + line) * Width) + x + (set * setWidth)) * 4));
-                }
-            }
-
-            dirty.Add(new AtlasRegion(x, y, setWidth * sets, height));
+            Write(placed, scale, []);
+            dirty.Add(new AtlasRegion(placed.X, placed.Y, placed.SetWidth * placed.Sets, placed.Height));
         }
 
         static bool Answers(IReadOnlyList<BspStyleLayer> layers, IReadOnlyCollection<int> changed)

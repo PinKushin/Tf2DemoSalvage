@@ -23,9 +23,12 @@ namespace Tf2DemoSalvage.Render;
 ///    vertical blur is narrower than the horizontal by the aspect ratio. Kept, because it is what TF2 draws.
 /// 4. The add: the bloom target, bilinearly upsampled, added to the frame.
 ///
-/// **Interpolated: the add.** It is <c>engine_post</c>'s, whose source is not published (only its combo header,
-/// `include/engine_post_ps20b.inc`, which names <c>LINEAR_INPUT</c>/<c>LINEAR_OUTPUT</c>). This adds in gamma, as the
-/// 2007 <c>bloomadd</c> shader did and as the gamma-space bloom target implies; the golden comparison is what checks it.
+/// **The add is in gamma, and that is read, not inferred**: <c>outColor.rgb += BloomFactor * bloom</c> with the factor
+/// 1 and sRGB read and write both off (`Engine_Post_ps2x.fxc:420-421`, `Engine_Post_dx9.cpp:78-84, 99-104`, which says
+/// why: it emulates pre-DX10 hardware adding sRGB values directly). Without software AA or colour correction the engine
+/// draws <c>dev/bloomadd</c> instead — additive, <c>$linearread_basetexture</c> and <c>$linearwrite</c> — the same sum.
+/// Checked against the client: this arithmetic over TF2's own bloom-off capture gives TF2's bloom-on capture to 0-5%
+/// (findings 76, "B514 part 4").
 ///
 /// **Interpolated: the tap positions within a block.** The downsample's four taps sit 0.5 and 2.5 texels into each
 /// 4×4 block; where the quad's half-texel offset lands them is D3D9 rasterisation this does not reproduce to the
