@@ -32526,6 +32526,15 @@ Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the 
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
 through it.
 
+**2026-10-11, later — why those three are still not modeled, each for the same reason: its only caller does not
+exist here yet.** `bSizeInScreenspace` is set by `CGlowOverlay` alone (`glow_overlay.cpp:168`, `:213`), and the
+viewer has no `CGlowOverlay` at all: no `env_sun` is decoded and no sun glow is drawn, on any map. That is a missing
+FEATURE — `C_Sun`'s fields, the overlay's sprites, its sky obstruction — not a missing branch of this one, and
+cp_process_f12 has no `env_sun` to look at (`entity-keys cp_process_f12 env_sun`: 0). A query per view is asked for
+by a glow drawn INSIDE a reflection, a refraction or a monitor, and those views draw no sprites or beams here
+(`Device3D.DrawParticleBatches` runs for the main view and the model panels). Porting either half without its
+caller would be code nothing reads. Filed as the sun overlay's and the sub-views' work, not this entry's.
+
 **Found by the `viewer-census` probe the owner asked for**, on its first run against a real match:
 
 ```
@@ -36423,6 +36432,18 @@ and why the entry stays OPEN**: the observatory dome (a prop) at 17-82%; the fen
 117-355%; `$blendmodulatetexture` is not implemented, so the dirt-to-grass edge is soft where TF2's is sharp
 (`lightmappedgeneric_ps2_3_x.h:319-332`); indoors the lamp area is B521 and the left wall sits at 72-90%. A dark band
 across the foreground at ticks 45091 and 46500, absent at 60000, is dynamic and not yet identified.
+
+**2026-10-11 (`fix/parity-leftovers`): the band is two explosion scorch decals, and the 83% tile is the control point.**
+*Measured, by manipulation, at `-526 -422 575 0 15`.* The same camera at ticks 46500 and 60000 differs in the bottom-left
+tiles alone (60000 is 164-210% of 46500 there, 100% everywhere else); `+r_decals 0` at 46500 gives the 60000 picture
+to the digit. Cropped, the band is two soft dark blotches on the concrete in front of the camera, each stopping at
+the edge of the dirt displacement — scorch marks from explosions shortly before, gone by 60000. Nothing was changed:
+whether TF2 draws the same two marks at that tick is a comparison against TF2 at that tick, which this pass did not
+take. **One thing seen and not followed:** both marks end exactly at the displacement's edge, where a decal's radius
+would carry it onto the terrain. The remaining 83% tile (row 3, col 5 at tick 60000) is the control point's
+hologram: TF2's capture is an empty listen server, where the point is neutral and mid-rotation, and the viewer's is
+the demo, where BLU owns it. A difference of state, not of drawing; no tile there can be compared until the
+reference is the demo's.
 
 **2026-10-10 (`fix/b514-blendmodulate`): `$blendmodulatetexture` ported; not yet looked at on screen.** *Read from
 published source; measured on shipped data.* A WorldVertexTransition's mix is
