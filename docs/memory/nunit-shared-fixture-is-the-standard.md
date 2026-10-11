@@ -29,4 +29,15 @@ is made of exactly that kind of state. The same bug is findable with per-test is
 stuffing the whole sequence into one test — a shared fixture buys that sequence coverage
 incidentally, keeping tests one-thing-each while combinations still get exercised.
 
+## Unit tests share IMMUTABLE loaded inputs and stay parallel (owner, 2026-10-11)
+
+Owner: *"if theres a way to share the stuff and run parallel, then thats what we should probably be doing"*.
+
+Isolation is about MUTABLE state. A parsed archive index, a parsed map, a decoded model, a built timeline is
+read-only once loaded: load it once per assembly (lazy, thread-safe — `Lazy<T>`, as `TimelineCache` does for demos)
+and let parallel tests read it. Keep per test only what a test mutates: a `Device3D`, a playing scene, a decoder.
+A test that loads its own copy of a map pays the load once per test and, in parallel, once per worker at the same
+moment. Found with D213 ([[no-unit-test-opens-a-real-demo]]): Rendering.Tests is `Parallelizable(ParallelScope.All)`
+and its real-input tests each loaded their own.
+
 See also [[tests-before-codecs]].

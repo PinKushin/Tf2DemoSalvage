@@ -9702,6 +9702,11 @@ about Valve's data, which is a measurement or a probe (D38, D126). The output-le
 assertion has read the output on real data", `CLAUDE.md`) is met with a real map or model in the unit suite, or
 with a real demo in `Corpus.Tests`.
 
+**Shared inputs, also the owner's, same day:** *"if theres a way to share the stuff and run parallel, then thats
+what we should probably be doing"*. A loaded map, model or archive index is immutable, so one copy per assembly
+(lazy and thread-safe, as `TimelineCache` already is for demos) serves every parallel test; only what a test mutates
+stays per test. The unit suites are `Parallelizable(ParallelScope.All)` and stay that way.
+
 **Not yet done.** The existing real-demo tests are not converted by this entry; each needs reading to choose its
 synthetic equivalent (never a mechanical rewrite). `MutationHeavy` keeps them out of mutation runs meanwhile.
 
