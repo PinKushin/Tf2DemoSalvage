@@ -2506,7 +2506,7 @@ public sealed class MapAssets
                 vmt?.SpriteOrientation ?? SpriteOrientation.ParallelUpright,
                 vmt?.SpriteOrigin,
                 vmt?.SpriteConstantColor ?? (1f, 1f, 1f, 1f),
-                vmt?.IgnoresVertexColors ?? true,
+                vmt?.IgnoresVertexColors ?? false,
                 vmt?.Shader ?? EngineSprite.SpriteShader,
                 vmt?.Modulation,
                 vmt?.TakesVertexColour ?? false,

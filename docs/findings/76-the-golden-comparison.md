@@ -452,3 +452,16 @@ turn is an old one:** findings 26 quoted the conversion line to explain why a co
 there. *Interpolated:* that was harmless while the renderer worked in display space, and became wrong when B54
 moved it to linear light and nobody went back for the line. Ported for the four model shaders (RISKS B514) — which darkens every tinted model
 material, not only these cards. Not yet compared on screen.
+
+**The white cones under the indoor lamps were a shader default read off its declaration** (`fix/b521-spotlight-cones`,
+2026-10-11). Each lamp is a `point_spotlight` the server turns into a `CBeam` with a halo; the client dims the shaft
+to `64/255` of its colour, fades it to nothing along its length and again as the eye nears its axis — all into the
+VERTEX colour. The `Sprite` shader's additive mode uses that colour `if( !params[ IGNOREVERTEXCOLORS ] )`, and the
+parameter is declared `SHADER_PARAM( …, "1", … )`, so B391 took the default to be one and dropped it. *Read in
+disassembly* (`materialsystem.dll` `0x18004fe52`): the material system zeroes every `BOOL` a material did not set and
+never looks at the declared string — which the published shader had been saying all along by setting its own real
+defaults by hand four lines below. *Measured* (`beam-view`, entity 676, the comparison's indoor camera): the shaft's
+colour at the lamp was 1.000 where the engine's is 0.1656, and 1.000 at the far end where the engine's is 0. **A
+declared default is documentation; the default is whatever the initialiser does.** The halo already matched the engine
+value for value, so the missing warm glow on the ceiling is not a missing halo — undecided until a capture (RISKS
+B521, which also files the sprite pass's missing tone-map scale).

@@ -214,7 +214,7 @@ public static class EntitySprites
     /// **The Sprite shader's own branches** (`sprite_dx9.cpp:227-484`): <c>kRenderNormal</c> declares no vertex colour
     /// (<c>SetSpriteCommonShadowState( 0 )</c>), so the texture alone reaches the screen; <c>kRenderTransAdd</c> multiplies
     /// the material's constant <c>$color</c> and <c>$alpha</c>, and the vertex colour only when
-    /// <c>$ignorevertexcolors</c> is cleared — it defaults to one (`:39`, `:332-338`);
+    /// <c>$ignorevertexcolors</c> is clear — which it is unless a material sets it (`:332-338`, B521);
     /// <c>kRenderTransAddFrameBlend</c> is <c>$alpha</c> as grey; every other mode is the vertex colour.
     ///
     /// **A non-Sprite shader is the material's modulation, and the vertex colour where it asks for it** —
@@ -257,8 +257,8 @@ public static class EntitySprites
     ///
     /// and the pixel shader multiplies the texture by each one present — <c>sample *= i.color;</c>, then
     /// <c>sample *= g_Color;</c> (`sprite_ps2x.fxc:35-41`). The constant is the MATERIAL's <c>$color</c> and
-    /// <c>$alpha</c>. `$ignorevertexcolors` defaults to one, so by default the entity's tint and brightness never reach
-    /// the pixels.
+    /// <c>$alpha</c>. `$ignorevertexcolors` is zero unless a material sets it (<see cref="VmtMaterial.IgnoresVertexColors"/>,
+    /// B521), so the entity's tint and brightness reach the pixels.
     /// </remarks>
     private static (Vector3 Color, float Alpha) TransAdd(EngineSprite sprite, Vector3 vertexColor, float vertexAlpha)
     {

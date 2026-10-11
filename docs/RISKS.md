@@ -33866,6 +33866,11 @@ a compile error in place of a test result. It was replaced before any run.
 | `$ignorevertexcolors 0` keeps the vertex color but not its alpha | `Build_ATransAddSpriteThatKeepsVertexColors_MultipliesTheTwo` |
 | every mode takes mode 5's color | `Build_AWorldGlow_IgnoresTheMaterialsConstantColor`, `Build_ATintedGlow_CarriesItsRenderColorIntoEveryCorner` |
 
+**Corrected 2026-10-11 (B521): the default this entry gives `$ignorevertexcolors` is wrong.** It is zero, not one —
+the declaration's `"1"` is never applied — so an additive sprite DOES take the entity's color and brightness by
+default. The second row's test is now `IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsFalse`. The rule in the
+table above is right; only which side of it an ordinary material lands on was not.
+
 Two first attempts at the fourth break did not compile. Dropping the alpha left a parameter unused
 (S1172), and the rewrite nested a ternary (S3358). Both were analyzer errors, so no test ran. They
 were replaced before any result was read.
@@ -36629,3 +36634,78 @@ visible in the first pass too (f12 45000). The patches around them do not scale 
 0.55, ours go to 0.610-0.644 of their forced-1 value where TF2's go to 0.549 — and the lamp patch itself barely moves
 (207.2 / 217.3). Which material the cone is and how it blends has not been read; `ask about the entity you are
 drawing` before measuring more.
+
+**2026-10-11 — the cone was the shaft's texture at full strength; the shader's vertex colour was believed dropped and
+is not. PARTLY FIXED (`fix/b521-spotlight-cones`), not yet compared on screen.**
+
+*What they are — measured* (`entity-keys cp_process_f12 spot 283 -1977 845 130`). Three `point_spotlight` at
+(280 −1856.55 844.77), (283 −1976.55 844.77) and (286 −2096.55 844.77): `angles 86 132.001 0`, `spotlightlength 400`,
+`spotlightwidth 64`, `rendercolor 255 255 255`, `renderamt 160`, `HDRColorScale 1.0`, `mindxlevel 90`,
+`spawnflags 3`. Each sits 3 units above a `light_spot` (`_light 255 255 255 800`, `_cone 70`, `_inner_cone 20`) and
+in a `props_2fort/groundlight002` static prop. Unnamed and unparented, so the server makes each an "efficient"
+spotlight (*read from published source*, `point_spotlight.cpp`): a `CBeam` on `sprites/glow_test02.vmt` with a halo
+of `sprites/light_glow03.vmt`, halo scale 60, `FBEAM_SHADEOUT | FBEAM_NOTILE`, **brightness 64 — a literal, not
+`renderamt`** — and the `point_spotlight` itself is then removed. *On the wire* (`beam-view`, entity 676, tick
+60000): start (283.03 −1976.54 844.78), end (274.16 −1966.72 656.03), width 64.037, end width 30.270, fade length
+189.20 (the whole shaft), render alpha 64, mode 2, HDR scale 1.
+
+*How the client draws one — read from published source.* `DrawBeam` (`view_beams.cpp:1936-2019`) makes
+`color = rendercolor / 255 · brightness / 255` and sends a `TE_BEAMPOINTS` with a halo to `DrawBeamWithHalo`
+(`:1777-1865`): the shaft is `DrawSegs` at the START width at both ends in two segments, at `kRenderTransAdd`, its
+colour times `dotScale` — one beyond four widths from the beam's axis, falling to zero at one width — and
+`FBEAM_SHADEOUT` takes it to black along the fade length (`beamdraw.cpp:312-374`). The halo is a quad at the lamp, at
+`kRenderGlow`, of half-size `haloScale · clamp( RemapVal( dist, 4w, w / 2, 1, 2 ), 1, 2 )`, coloured by the SOURCE
+colour (no brightness) times `clamp( ( 2 · dot )², 0, 1 )` and the occlusion fraction, and only from in front of the
+lamp. Both materials are the bare `Sprite` shader: `kRenderTransAdd` is `SRC_ALPHA, ONE` with the texture times
+`$color`/`$alpha` and times the vertex colour `if( !params[ IGNOREVERTEXCOLORS ] )`; `kRenderGlow` is the same blend
+with no depth test and always the vertex colour (`sprite_dx9.cpp:260-355`).
+
+*The fault.* `SHADER_PARAM( IGNOREVERTEXCOLORS, …, "1", … )` was read (B391) as a default of one. **It is zero.**
+*Read in disassembly* (`materialsystem.dll`, `CShaderSystem::InitShaderParameters`, loop `0x18004fe52`-`0x18004ff40`):
+every parameter still undefined after the shader's `InitShaderParams` is switched on its type, and `BOOL` and
+`INTEGER` both go to `SetIntValue( 0 )` (jump table `0x18004ff74`); the declared default string is never fetched.
+*Read from published source*, the same file agrees: it sets `$hdrcolorscale` (declared "1.0") to 1 by hand and
+`$nosrgb` (declared "0") to 1. So the vertex colour reaches the pixels, and with it everything `DrawBeamWithHalo`
+computed. *Measured* with `beam-view` for entity 676 from the camera above, beside the engine's arithmetic:
+
+| | viewer before | engine | viewer after |
+|---|---|---|---|
+| shaft colour at the lamp | 1.0000 | 64/255 · 0.65986 = 0.16561 | 0.1647 (42/255 — a strip's colour is bytes) |
+| shaft colour at the far end | 1.0000 | 0 | 0.0000 |
+| shaft half-width, both ends | 64.04 | 64.04 | 64.04 |
+| halo half-size | 77.49 | 77.49 | 77.49 |
+| halo colour | 1.0000 | 1 (fade 1.129, squared, clamped) | 1.0000 |
+| shaft blend / halo blend | additive, depth-tested / additive, no depth | the same | the same |
+
+(distance from the eye to the beam's axis 190.80; `dot` 0.5644.) The shaft was six times too bright at the lamp and
+did not fade at all. Fixed where the value is produced: `VmtMaterial.IgnoresVertexColors` is false unless the
+material sets it. **That reaches every additive entity sprite as well as every beam** — an `env_sprite` at
+`kRenderTransAdd` now takes its render colour and brightness.
+
+| | |
+|---|---|
+| an unset `$ignorevertexcolors` is zero | `IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsFalse` |
+| the shader never sets it itself | `IgnoreVertexColors_InTheSpriteShaderSource_IsDeclaredAndReadButNeverSet` |
+| lamp 676, shipped materials, this camera | `Build_ProcessLamp676OnItsShippedMaterials_ShadesTheShaftAndKeepsTheHalo` |
+
+**The wrong turn worth keeping:** `lampbeam`. `glow_test02.vmt` carries a `lampbeam` proxy that fades `$alpha` as the
+viewer nears the lamp's height, and it looked like the missing fade. It does nothing for a beam: the proxy is a
+`CEntityMaterialProxy`, `Draw_SetSpriteTexture` binds the material with no renderable (`beamdraw.cpp:52`), and
+`OnBind( NULL )` returns through `OnBindNotEntity` without touching the variable (`proxyentity.cpp:26-32`). Not
+ported, on purpose.
+
+**Left open, and why this stays OPEN:**
+
+- **The sprite pass ignores the tone-map scale.** `sprite_ps2x.fxc` ends in `FinalOutput( …, TONEMAP_SCALE_GAMMA )`
+  for a material that is not `$nosrgb 0` — which is every sprite, since the shader sets `$nosrgb` to 1 — so the engine
+  multiplies shaft and halo by the gamma-space exposure scale, and reads their textures without an sRGB decode. The
+  viewer's sprite pass applies no scale. This is the measured "the lamp patch barely moves with exposure"
+  (207.2 / 217.3). Not fixed here: it is the renderer's shared sprite pass, and it wants a capture to check against.
+- **The warm glow on the ceiling band and the darker wall (47-66% and 72-90%) are not decided.** The halo is built
+  with the engine's size and colour (table above) and was before, so it is not a missing halo; whether it was only
+  hidden under the saturated shaft, or the difference is the `light_spot`'s lightmap, needs the capture this branch
+  was not allowed to take. Two things the engine does that the viewer does not could both dim our halo relative to
+  TF2's: the halo's occlusion is a pixel-visibility FRACTION over a proxy of size `1 + haloScale · width / endWidth`
+  (`view_beams.cpp:2266-2271`, 127.9 here) where ours is an all-or-nothing trace (B378), and the tone-map scale above.
+- **`$hdrcolorscale`** is written to both materials per draw (`beamdraw.cpp:88-95`, `:241-249`) and not modeled; it
+  is 1 on every beam in the corpus.

@@ -48,15 +48,16 @@ public sealed class EntityBeamsConformanceTests
     }
 
     /// <remarks>
-    /// **The Sprite shader's additive mode ignores the vertex colour by default**, so the shaft's shade — dark at the
-    /// bottom under <c>FBEAM_SHADEOUT</c> — never reaches the pixels: every corner carries the material's constant colour
-    /// (`sprite_dx9.cpp:332-338`, <c>$ignorevertexcolors</c> defaulting to one at `:39`). The control clears the flag,
-    /// and the far end goes black.
+    /// **On a material that sets <c>$ignorevertexcolors</c>, the Sprite shader's additive mode drops the vertex colour**,
+    /// so the shaft's shade — dark at the bottom under <c>FBEAM_SHADEOUT</c> — never reaches the pixels: every corner
+    /// carries the material's constant colour (`sprite_dx9.cpp:332-338`). The control leaves the flag clear — which is
+    /// what an unset one is (B521; this test once called the ignoring material "the default") — and the far end goes
+    /// black.
     /// </remarks>
     [Test]
-    public void Build_ASpotlightOnTheDefaultSpriteMaterial_DrawsTheConstantColourNotTheShade()
+    public void Build_ASpotlightOnAMaterialIgnoringVertexColours_DrawsTheConstantColourNotTheShade()
     {
-        List<DetailSpriteVertex> ignored = ShaftOf(Build(new EntityBeams(), Spotlight()));
+        List<DetailSpriteVertex> ignored = ShaftOf(Build(new EntityBeams(), Spotlight(), ignoresVertexColours: true));
         List<DetailSpriteVertex> taken = ShaftOf(Build(new EntityBeams(), Spotlight(), ignoresVertexColours: false));
 
         ignored.ConvertAll(corner => (corner.Red, corner.Alpha)).Distinct().ShouldBe([(0.5f, 0.75f)]);
