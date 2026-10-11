@@ -10,24 +10,20 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real <c>CBeam</c>, out of a real demo, drawn by the real renderer.</summary>
+/// <summary>A <c>CBeam</c> as a recording networks it, on the materials the game ships, drawn by the real renderer.</summary>
 /// <remarks>
 /// **The output-level half of the beam suites.** `BeamStateConformanceTests` prove the decode, `EntityBeamsConformanceTests`
-/// the strip; neither can see whether the pieces are wired — whether a beam the timeline hands over reaches a batch with
-/// a sheet the renderer can draw. This runs the whole chain the viewer runs: <see cref="DemoTimeline.Build"/>,
-/// <see cref="DemoTimeline.PropsAt"/>, the sprite materials <see cref="DemoModels.Sprites"/> asks the map load for,
-/// <see cref="EntityBeams.Build"/>, and <see cref="OffscreenTarget.DrawSprites"/>.
+/// the strip; neither can see whether the pieces are wired — whether a beam reaches a batch with a sheet the renderer
+/// can draw. This runs the chain the viewer runs after the timeline: the sprite materials the map load reads from the
+/// install, <see cref="EntityBeams.Build"/>, and <see cref="OffscreenTarget.DrawSprites"/>.
 ///
-/// **The specimen is the committed 2011 <c>koth_viaduct</c> SourceTV demo**, whose 68 live <c>point_spotlight</c> beams at
-/// mid-match are each a 100-unit vertical shaft of <c>sprites/glow_test02</c> (`effect-entities` probe, 2026-10-04). The
-/// camera is placed from the data (`docs/memory/point-the-camera-from-the-data.md`): 200 units off the first beam's
-/// middle, level, facing it, so the shaft stands across the middle of the picture and the corners see nothing but the
-/// cleared black.
+/// **The beams are written down, not read from a recording** (D213). The first is entity 233 of the committed 2011
+/// <c>koth_viaduct</c> SourceTV demo at tick 7879 — one of its 68 <c>point_spotlight</c> shafts, a 100-unit vertical
+/// strip of <c>sprites/glow_test02</c> — as `moment-dump` printed it on 2026-10-11. That the timeline produces such a
+/// prop from the wire is `BeamStateConformanceTests`' and the corpus suite's to say.
 /// </remarks>
 public sealed class EntityBeamRenderTests
 {
-    private const string DemoName = "tf2-2011-build4604-stv-koth_viaduct.dem";
-
     private const int Size = 64;
 
     private const float StandOff = 200f;
@@ -39,22 +35,20 @@ public sealed class EntityBeamRenderTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_ASpotlightBeamFromARealDemo_LightsItsShaftAndNotTheCorners()
+    public void Render_AViaductSpotlightBeam_LightsItsShaftAndNotTheCorners()
     {
-        string demo = CommittedDemo.Require(DemoName);
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_viaduct.bsp"));
-
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        MapAssets assets = MapAssets.Load(
-            map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: DemoModels.Sprites(timeline));
+        MapAssets assets = MapCache.Effects();
 
-        List<SceneProp> props = [];
-        timeline.PropsAt(timeline.Frames[timeline.Frames.Count / 2].Tick, props);
-
-        SceneProp beam = props.First(prop => prop.Pose.Beam is not null);
+        SceneProp beam = Spotlight(
+            entity: 233,
+            start: new Vector3(-2351.9736f, -1983.9727f, 400.03125f),
+            end: new Vector3(-2352f, -1984f, 300f),
+            width: 102.3f,
+            endWidth: 102.3f,
+            fadeLength: 100f,
+            colour: (230, 227, 200));
         (float endX, float endY, float endZ) = beam.Pose.Beam.ShouldNotBeNull().EndPosition;
         Vector3 middle = new((beam.Pose.X + endX) / 2f, (beam.Pose.Y + endY) / 2f, (beam.Pose.Z + endZ) / 2f);
 
@@ -110,13 +104,10 @@ public sealed class EntityBeamRenderTests
     /// <c>RemapVal( 190.805, 4w, w / 2, 1, 2 ) · 60 = 77.49</c> units either side of the lamp.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Build_ProcessLamp676OnItsShippedMaterials_ShadesTheShaftAndKeepsTheHalo()
     {
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_viaduct.bsp"));
-
-        MapAssets assets = MapAssets.Load(
-            map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: [LampShaft, LampHalo]);
+        MapAssets assets = MapCache.Effects();
 
         FreeCamera camera = new()
         {
@@ -126,7 +117,16 @@ public sealed class EntityBeamRenderTests
             Aspect = 1f,
         };
 
-        IReadOnlyList<ParticleBatch> batches = Build(Lamp676(), camera, assets.SpriteMaterials, out int drawn);
+        SceneProp lamp676 = Spotlight(
+            entity: 676,
+            start: new Vector3(283.03125f, -1976.5352f, 844.7832f),
+            end: new Vector3(274.15625f, -1966.7188f, 656.03125f),
+            width: 64.03741f,
+            endWidth: 30.27041f,
+            fadeLength: 189.19966f,
+            colour: (255, 255, 255));
+
+        IReadOnlyList<ParticleBatch> batches = Build(lamp676, camera, assets.SpriteMaterials, out int drawn);
 
         drawn.ShouldBe(1);
 
@@ -165,19 +165,23 @@ public sealed class EntityBeamRenderTests
     /// <summary><c>INVALID_NETWORKED_EHANDLE_VALUE</c>.</summary>
     private const int NoHandle = (1 << 21) - 1;
 
-    /// <summary>cp_process_f12's <c>point_spotlight</c> at (283, −1976.55, 844.77), as its <c>CBeam</c> is networked.</summary>
-    private static SceneProp Lamp676() => new(
-        EntityIndex: 676,
+    /// <summary>
+    /// A <c>point_spotlight</c>'s <c>CBeam</c> as it is networked: every field both recordings' spotlights share, and the
+    /// six that differ between them.
+    /// </summary>
+    private static SceneProp Spotlight(
+        int entity, Vector3 start, Vector3 end, float width, float endWidth, float fadeLength, (byte, byte, byte) colour) => new(
+        EntityIndex: entity,
         ModelPath: LampShaft,
         Kind: SceneModelKind.Sprite,
         Pose: new ScenePose
         {
-            X = 283.03125f,
-            Y = -1976.5352f,
-            Z = 844.7832f,
+            X = start.X,
+            Y = start.Y,
+            Z = start.Z,
             RenderMode = RenderModes.TransTexture,
             RenderAlpha = 64,
-            RenderColor = ((byte)255, (byte)255, (byte)255),
+            RenderColor = colour,
             Beam = new SceneBeam(
                 Type: EntityBeams.BeamPoints,
                 Flags: BeamDraw.ShadeOutFlag | BeamDraw.NoTileFlag,
@@ -185,16 +189,16 @@ public sealed class EntityBeamRenderTests
                 Ends: [.. Enumerable.Repeat((NoHandle, 0), SceneBeam.MaximumEnds)],
                 HaloIndex: 1,
                 HaloScale: 60f,
-                Width: 64.03741f,
-                EndWidth: 30.27041f,
-                FadeLength: 189.19966f,
+                Width: width,
+                EndWidth: endWidth,
+                FadeLength: fadeLength,
                 Amplitude: 0f,
                 StartFrame: 0f,
                 Speed: 0f,
                 FrameRate: 0f,
                 HdrColourScale: 1f,
                 Frame: 0f,
-                EndPosition: (274.15625f, -1966.7188f, 656.03125f),
+                EndPosition: (end.X, end.Y, end.Z),
                 MinDxLevel: 90) { HaloPath = LampHalo },
         },
         ClassName: "CBeam");

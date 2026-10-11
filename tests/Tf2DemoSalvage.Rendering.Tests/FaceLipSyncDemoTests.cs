@@ -1,29 +1,25 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-
-using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
-/// Lip sync on a real voice line, through the production path to the flex stream (B513): the scene builds the scout's
-/// instance with the recording's sounds and the install's sound caches, and the mouth follows the cached sentence.
+/// Lip sync on a voice line, through the production path to the flex stream (B513): the scene builds the scout's
+/// instance with the moment's sounds and the install's sound caches, and the mouth follows the cached sentence.
 /// </summary>
 /// <remarks>
-/// **The subject**: 20130519_0130_cp_granary (lcor), entity 9, whose <c>vo/scout_HeadRight03.wav</c> starts on
-/// <c>CHAN_VOICE</c> at tick 58230 (<c>flex lipsync</c>) — one of the 51 sounds TF2's caches carry a sentence for, and the
-/// only one played in the 60 lcor demos swept. **The control** is the same moment built with no sentences at all, so the
-/// difference is the visemes and nothing else.
+/// **The moment is written down, not read from a recording** (D213): scout 9 of 20130519_0130_cp_granary, whose
+/// <c>vo/scout_HeadRight03.wav</c> starts on <c>CHAN_VOICE</c> at tick 58230, with the four scenes he is in at tick
+/// 58270, as `moment-dump … 58270 9` printed them on 2026-10-11. The sentence is the install's: the line is one of the 51
+/// sounds TF2's caches carry one for (<c>flex lipsync</c>), and was the only one played in the 60 lcor demos swept.
+/// **The control** is the same moment built with no sentences at all, so the difference is the visemes and nothing else.
 /// </remarks>
 public sealed class FaceLipSyncDemoTests
 {
-    private const string Demo = "20130519_0130_cp_granary_red_-----.dem";
     private const string ScoutModel = "models/player/scout.mdl";
     private const int Scout = 9;
     private const int LineStart = 58230;
@@ -32,12 +28,36 @@ public sealed class FaceLipSyncDemoTests
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_AScoutSpeakingACachedLine_MovesItsMouthBeyondTheSameMomentWithoutTheSentence()
     {
-        string demo = CommittedDemo.RequireLocal(Demo);
-        string folder = GameInstall.Require();
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        GameContent content = GameContent.Open(folder, NullLoggerFactory.Instance);
-        GameAppearance appearance = (GameAppearance)new PlayerAppearances(NullLogger.Instance) { Timeline = timeline, Game = content }
-            .Ensure(NoAppearance.Instance);
+        ScenePlayer scout = new(
+            EntityIndex: Scout,
+            X: -1347.375f,
+            Y: 2014.625f,
+            Z: -369.625f,
+            Team: 3,
+            Health: 157,
+            PlayerClass: 1,
+            Yaw: -130.55719f,
+            LifeState: 0,
+            Flags: 256,
+            ClientSideAnimated: true);
+
+        DemoTimeline timeline = SyntheticMatch.Timeline(
+            [scout],
+            scenes:
+            [
+                new SceneChoreography(0, 773, "scenes/player/scout/low/idleloopHurt01.vcd", [Scout]),
+                new SceneChoreography(56890, 619, "scenes/Player/Scout/low/2765.vcd", [Scout]),
+                new SceneChoreography(58097, 504, "scenes/player/scout/low/idleloop01.vcd", [Scout]) { StoppedTick = 59207 },
+                new SceneChoreography(LineStart, 494, "scenes/Player/Scout/low/403.vcd", [Scout]) { StoppedTick = 58302 },
+            ],
+            sounds:
+            [
+                new SceneSound(
+                    LineStart, "vo/scout_HeadRight03.wav", 1555, Scout, Channel: 2, Volume: 0.81889766f, SoundLevel: 95,
+                    Pitch: 100, DelaySeconds: 0f, OriginX: -1224f, OriginY: 2128f, OriginZ: -368f),
+            ]);
+
+        GameAppearance appearance = SyntheticMatch.Appearance(timeline);
         FaceSources speaking = appearance.Faces.ShouldNotBeNull();
         FaceSources silent = new(
             timeline.Scenes, appearance.TauntForScene, timeline.Sounds, timeline.IntervalPerTick,
@@ -46,8 +66,8 @@ public sealed class FaceLipSyncDemoTests
         int tick = LineStart + 40;
         speaking.Voices(Scout, tick * timeline.IntervalPerTick).ShouldHaveSingleItem("the line is on the scout's mouth");
 
-        (int movedSpeaking, float largestSpeaking, float[] withLine) = Face(timeline, content, appearance, tick);
-        (int movedSilent, float largestSilent, float[] without) = Face(timeline, content, appearance with { Faces = silent }, tick);
+        (int movedSpeaking, float largestSpeaking, float[] withLine) = Face(timeline, scout, appearance, tick);
+        (int movedSilent, float largestSilent, float[] without) = Face(timeline, scout, appearance with { Faces = silent }, tick);
 
         int changed = 0;
 
@@ -68,37 +88,14 @@ public sealed class FaceLipSyncDemoTests
     }
 
     private static (int Moved, float Largest, float[] Face) Face(
-        DemoTimeline timeline, GameContent content, IPlayerAppearance appearance, int tick)
+        DemoTimeline timeline, ScenePlayer scout, IPlayerAppearance appearance, int tick)
     {
-        TimelineMoments moments = new(timeline);
         MapAssets assets = MapCache.Load(entityModels: [ScoutModel]);
         EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
+        MomentScene scene = SyntheticMatch.Scene(models, appearance);
+        MomentInfo info = SyntheticMatch.Info(timeline, tick);
 
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
-        {
-            Weapons = content.Weapons,
-            Appearance = appearance,
-        };
-        List<ScenePlayer> players = [];
-        List<SceneProp> props = [];
-
-        timeline.PlayersAt(tick, players);
-        timeline.PropsAt(tick, props);
-
-        MomentInfo info = new(
-            Tick: tick,
-            CurrentTick: tick,
-            FirstPerson: false,
-            Followed: -1,
-            EyeCamera: null,
-            IntervalPerTick: timeline.IntervalPerTick,
-            ViewmodelFieldOfView: 54f,
-            Recorder: timeline.RecorderEntityIndex)
-        {
-            ServerTime = moments.ServerTimeAt(tick),
-        };
-
-        scene.Build(players, props, info);
+        scene.Build([scout], [], info);
         scene.Pose(info);
 
         float[] face = scene.Instances.Single(

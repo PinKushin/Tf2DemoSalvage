@@ -1,32 +1,33 @@
-using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real rocket's real trail, out of a real demo, through the effect the viewer runs (B490-B496).</summary>
+/// <summary>A rocket's trail through the effect the viewer runs, on the install's own `rockettrail` (B490-B496).</summary>
 /// <remarks>
-/// **The output-level half of the particle follow-ups.** The chain is `MainForm`'s: <see cref="DemoTimeline.PropsAt"/>
-/// each tick, the rocket's frame from <see cref="AngleVectors"/>, <see cref="ParticleEffects.Update"/> with the install's own
-/// `rockettrail` as <see cref="MapAssets"/> loads it, and <see cref="ParticleEffects.Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>.
+/// **The output-level half of the particle follow-ups.** The chain is `MainForm`'s: the rocket's frame from
+/// <see cref="AngleVectors"/>, <see cref="ParticleEffects.Update"/> with the install's own `rockettrail` as
+/// <see cref="MapAssets"/> loads it, and
+/// <see cref="ParticleEffects.Build(Vector3, Vector3, Vector3, IReadOnlyDictionary{string, ParticleMaterial})"/>.
 ///
-/// **The specimen is z1800's entity 573**, a `CTFProjectile_Rocket` live from tick 17318 to 17346 (`projectiles` probe,
-/// 2026-10-04). The installed `rockettrail` declares `initial_particles 1` and `emission_rate 150` (measured through this
-/// test, 2026-10-04 — not the 128 older notes quote); one tick is 0.015 s, one sub-step.
+/// **The rocket is written down, not read from a recording** (D213): z1800's entity 573, a `CTFProjectile_Rocket`, as
+/// `moment-dump z1800 17318 573` printed it on 2026-10-11 — the only things this test takes from it are where it is,
+/// which way it points and what class it is. The installed `rockettrail` declares `initial_particles 1` and
+/// `emission_rate 150` (measured through this test, 2026-10-04 — not the 128 older notes quote); one tick is 0.015 s,
+/// one sub-step.
 /// </remarks>
 public sealed class RocketTrailOutputTests
 {
-    private const string DemoName = "z1800.dem";
-
     private const int Rocket = 573;
 
     private const int FirstTick = 17318;
+
+    /// <summary>z1800's tick: 66.67 a second.</summary>
+    private const float IntervalPerTick = 0.015f;
 
     /// <remarks>
     /// **The first tick draws three puffs where it drew two.** `SimulateFirstFrame` makes the initial particle on the
@@ -36,29 +37,24 @@ public sealed class RocketTrailOutputTests
     /// corners per particle drawn.
     /// </remarks>
     [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Update_ARocketsFirstTickFromARealDemo_DrawsItsInitialPuffOnTheRocket()
+    public void Update_ARocketsFirstTick_DrawsItsInitialPuffOnTheRocket()
     {
-        string demo = CommittedDemo.Require(DemoName);
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_harvest_final.bsp"));
-
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        MapAssets assets = MapAssets.Load(map, GameArchives.Open(tf), maximumTextureSize: 64);
+        MapAssets assets = MapCache.Load();
         ParticleSystem trail = assets.RocketTrail.ShouldNotBeNull("the install's rockettrail must load");
 
-        List<SceneProp> props = [];
-        timeline.PropsAt(FirstTick, props);
-
-        SceneProp rocket = props.Single(prop => prop.EntityIndex == Rocket);
-        rocket.ClassName.ShouldBe(ParticleEffects.RocketClass, "the specimen must still be the rocket this test was written against");
+        SceneProp rocket = new(
+            EntityIndex: Rocket,
+            ModelPath: "models/weapons/w_models/w_rocket.mdl",
+            Kind: SceneModelKind.Studio,
+            Pose: new ScenePose { X = -921f, Y = -1549f, Z = 91f, Pitch = 5.714286f, Yaw = 85.71429f },
+            ClassName: ParticleEffects.RocketClass);
 
         ParticleControlPoint here = Frame(rocket);
         ParticleEffects effects = new();
 
         // Playback arrives from the tick before, with the rocket not yet alive; a first call from nowhere is a seek.
-        effects.Update([], trail, timeline.IntervalPerTick, assets.ParticleSystemsByName, FirstTick - 1);
-        effects.Update([(Rocket, here, null, 0)], trail, timeline.IntervalPerTick, assets.ParticleSystemsByName, FirstTick);
+        effects.Update([], trail, IntervalPerTick, assets.ParticleSystemsByName, FirstTick - 1);
+        effects.Update([(Rocket, here, null, 0)], trail, IntervalPerTick, assets.ParticleSystemsByName, FirstTick);
 
         ParticleStore puffs = effects.TrailEffect(Rocket).ShouldNotBeNull().Particles;
 

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Numerics;
 
@@ -10,28 +9,34 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real <c>CSpriteTrail</c>, sampled tick by tick out of a real demo and drawn by the real renderer (B475).</summary>
+/// <summary>A <c>CSpriteTrail</c> as a recording networks it, stepped tick by tick and drawn by the real renderer (B475).</summary>
 /// <remarks>
-/// **The output-level half of `EntityTrailsConformanceTests`**, through the chain the viewer runs:
-/// <see cref="DemoTimeline.PropsAt"/> each tick, <see cref="EntityTrails.Build"/> each tick so the ring fills as it does in
-/// playback, the sprite materials <see cref="DemoModels.Sprites"/> asks the map load for, and
-/// <see cref="OffscreenTarget.DrawSprites"/>.
+/// **The output-level half of `EntityTrailsConformanceTests`**, through the chain the viewer runs after the timeline:
+/// <see cref="EntityTrails.Build"/> each tick so the ring fills as it does in playback, the trail's material as the map
+/// load reads it from the install, and <see cref="OffscreenTarget.DrawSprites"/>.
 ///
-/// **The specimen is z1800's entity 806**, a Rescue Ranger bolt's <c>effects/repair_claw_trail_blue</c> that flies 1,583
-/// units between ticks 4326 and 4378 with its projectile present throughout (`trails` probe, 2026-10-04). After twenty
-/// ticks the camera is placed from the data (`docs/memory/point-the-camera-from-the-data.md`): level, 100 units to the
-/// side of the middle of the last eight ticks of flight and facing it, so the five-unit ribbon crosses the picture's
-/// centre column and the corners see only the cleared black.
+/// **The trail is written down, not read from a recording** (D213): z1800's entity 806, a Rescue Ranger bolt's
+/// <c>effects/repair_claw_trail_blue</c>, and the bolt it is attached to, entity 794, as `moment-dump z1800 4326 806 794`
+/// and `… 4345 …` printed them on 2026-10-11. Between those two ticks the bolt goes from (984, −17, 68) to
+/// (588, −13.546875, 71.75) — 20.84 units a tick — and here it flies that line at that speed for twenty ticks. The
+/// camera is placed from the data (`docs/memory/point-the-camera-from-the-data.md`): level, 100 units to the side of
+/// the middle of the last eight ticks of flight and facing it, so the five-unit ribbon crosses the picture's centre
+/// column and the corners see only the cleared black.
 /// </remarks>
 public sealed class EntityTrailRenderTests
 {
-    private const string DemoName = "z1800.dem";
-
     private const int TrailEntity = 806;
+
+    private const int Bolt = 794;
+
+    /// <summary>The trail's <c>m_hAttachedToEntity</c> as networked: entity 794 under its serial number.</summary>
+    private const int BoltHandle = 1530650;
 
     private const int FirstTick = 4326;
 
     private const int Ticks = 20;
+
+    private const float IntervalPerTick = 0.015f;
 
     private const int Size = 128;
 
@@ -39,40 +44,69 @@ public sealed class EntityTrailRenderTests
 
     private const int SlotMask = (1 << 11) - 1;
 
+    private static readonly Vector3 Launched = new(984f, -17f, 68f);
+
+    /// <summary>The bolt's travel in one tick: (588, −13.546875, 71.75) less <see cref="Launched"/>, over nineteen.</summary>
+    private static readonly Vector3 PerTick = (new Vector3(588f, -13.546875f, 71.75f) - Launched) / 19f;
+
     /// <remarks>
-    /// **The ribbon crosses the centre column; nothing reaches the corners.** The bolt moves about thirty units a tick and
-    /// its trail lives 0.3 seconds, so the strip runs the width of a 200-unit view; at five units wide it is three or four
-    /// pixels tall where it crosses the middle.
+    /// **The ribbon crosses the centre column; nothing reaches the corners.** The bolt moves about twenty units a tick and
+    /// its trail lives 0.3 seconds — twenty ticks — so the strip runs the width of a 200-unit view; at five units wide it
+    /// is three or four pixels tall where it crosses the middle.
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_ARescueRangerBoltsTrailFromARealDemo_CrossesThePictureAndNotTheCorners()
+    public void Render_ARescueRangerBoltsTrail_CrossesThePictureAndNotTheCorners()
     {
-        string demo = CommittedDemo.Require(DemoName);
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_harvest_final.bsp"));
-
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        MapAssets assets = MapAssets.Load(
-            map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: DemoModels.Sprites(timeline));
+        MapAssets assets = MapCache.Effects();
+
+        SceneProp trail = new(
+            EntityIndex: TrailEntity,
+            ModelPath: "effects/repair_claw_trail_blue.vmt",
+            Kind: SceneModelKind.Sprite,
+            Pose: new ScenePose
+            {
+                RenderMode = RenderModes.TransAlpha,
+                RenderAlpha = 255,
+                RenderColor = ((byte)255, (byte)255, (byte)255),
+                SpriteTrail = new SceneSpriteTrail(
+                    LifeTime: 0.3f,
+                    StartWidth: 5f,
+                    EndWidth: -1f,
+                    StartWidthVariance: 0f,
+                    TextureRes: 0.010416667f,
+                    MinFadeLength: 0f,
+                    SkyboxOrigin: (0f, 0f, 0f),
+                    SkyboxScale: 1f,
+                    AttachedTo: BoltHandle,
+                    Attachment: 0),
+            },
+            ClassName: "CSpriteTrail");
 
         EntityTrails trails = new();
-        List<SceneProp> props = [];
         List<Vector3> heads = [];
         IReadOnlyList<ParticleBatch> batches = [];
         Vector3 camera = Vector3.Zero;
 
         for (int tick = FirstTick; tick < FirstTick + Ticks; tick++)
         {
-            timeline.PropsAt(tick, props);
+            Vector3 at = Launched + (PerTick * (tick - FirstTick));
 
-            SceneProp trail = props.Single(prop => prop.EntityIndex == TrailEntity);
-            trail.Pose.SpriteTrail.ShouldNotBeNull("the specimen must still be the trail this test was written against");
+            List<SceneProp> props =
+            [
+                trail,
+                new SceneProp(
+                    EntityIndex: Bolt,
+                    ModelPath: "models/weapons/w_models/w_repair_claw.mdl",
+                    Kind: SceneModelKind.Studio,
+                    Pose: new ScenePose { X = at.X, Y = at.Y, Z = at.Z, Pitch = 360f, Yaw = 177.14285f },
+                    ClassName: "CTFProjectile_Arrow"),
+            ];
 
             Vector3? head = Head(trail, props);
-            heads.Add(head.ShouldNotBeNull("the bolt is present for every tick of this window"));
+            heads.Add(head.ShouldNotBeNull("the trail's handle resolves to the bolt through its slot bits"));
 
             if (tick == FirstTick + Ticks - 1)
             {
@@ -80,7 +114,7 @@ public sealed class EntityTrailRenderTests
             }
 
             batches = trails.Build(
-                props, camera, assets.SpriteMaterials, prop => Head(prop, props), tick * timeline.IntervalPerTick);
+                props, camera, assets.SpriteMaterials, prop => Head(prop, props), tick * IntervalPerTick);
         }
 
         trails.Drawn.ShouldBeGreaterThanOrEqualTo(1, "the trail must be drawn for the picture to mean anything");
@@ -102,7 +136,7 @@ public sealed class EntityTrailRenderTests
             .Select(row => target.PixelAt(Size / 2, row))
             .Max(pixel => pixel.Red + pixel.Green + pixel.Blue);
 
-        // Measured 142 on 2026-10-04 (B475); half of it is the floor.
+        // Measured 142 on 2026-10-04 (B475) on the recording itself; half of it is the floor.
         brightest.ShouldBeGreaterThan(71, "the ribbon crosses the centre column");
 
         foreach ((int x, int y) in (ReadOnlySpan<(int, int)>)[(1, 1), (Size - 2, 1), (1, Size - 2), (Size - 2, Size - 2)])
