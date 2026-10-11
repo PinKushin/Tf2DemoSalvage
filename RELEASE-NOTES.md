@@ -26,6 +26,13 @@ in many places, so most scenes look different from beta.40 (usually brighter or 
 - **Tinted model materials are darker, and unlit ones take no light.** A model's colour tint now acts in the
   right colour space, which darkens tinted and painted models, and cards the game draws unlit (such as
   3D skybox trees) no longer pick up baked shading (B514).
+- **Player and model skin shading is always half-Lambert**, as the game's skin shader draws it, so the shadowed
+  side of a player or weapon is softer (B514).
+- **Reflections on models are weaker where the game masks them.** A shiny model's reflection is masked by its
+  texture the way the game masks it, and a plain model's reflection tint acts in the right colour space. Pipes,
+  lamp fixtures, weapons and players lose a reflection that was too strong (B521).
+- **Glows fade by how much of them is covered.** A lamp halo or sprite glow partly hidden by a wall or a model
+  is dimmed by the covered share and fades in and out, as in the game, instead of switching on and off (B378).
 - **Glowing sprites, beams, halos and trails match TF2's brightness.** They are now added the way the game adds
   them, which is brighter over dark surfaces. Lamp spotlight shafts also take the right brightness and fade out
   along their length, where they had been near-solid white cones (B521).
@@ -406,11 +413,11 @@ Each claim below is a measurement, not an expectation.
 
 - **Picture parity (beta.41, B514 to B521):** the viewer was compared against the live game with a golden
   comparison on the f12 demo, and each fix above was made from the game's published source or its engine binary
-  and covered by tests and the merge gate. The only merge message that records a result: with the sprite and
-  lightmap fixes, the indoor comparison camera at tick 60000 reads 96 to 104% of TF2 on most tiles, where it
-  read 47 to 126% (B521). The viewer-wide merge gate and UI suite passed on that branch. **Several of these
-  fixes were merged without being looked at on screen** (for example the tint and unlit-model change), and the
-  outdoor frame was not re-measured after the last fixes, so outdoor brightness against TF2 is not confirmed.
+  and covered by tests and the merge gate. Measured on the final build at tick 60000, as
+  linear brightness over a 16 by 9 grid of tiles against the game's own screenshot from the same camera: the
+  indoor comparison camera reads 96 to 102% of TF2 in every tile, where it read 47 to 126% (B521), and the
+  outdoor camera reads 92 to 105% in every tile but one. The merge gate and the UI suite (50 of 50) passed.
+  **Players, weapons and tinted models were not compared with the game on screen** after the shading changes.
 
 - **Refracting models (B506):** covered by the 0.1.0-beta.33 test suite and the merge gate. Refract trails cost no
   measurable frame rate on sanctum. No demo we hold contains a Bazaar Bargain, so this was not checked on a real
@@ -509,14 +516,13 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **Glow occlusion is all-or-nothing (B378).** A sprite glow is either fully hidden or fully shown by a line of
-  sight test, where the game fades it by how much of it is covered, and models do not hide a glow.
-- **Lamps and props near lights can still look slightly over-bright (B521).** The cones under indoor lamps were
-  improved but not yet compared with the game on screen.
+- **The sun's own glow is not drawn**, and a glow seen through a water reflection or a monitor is not tested
+  separately for being covered (B378).
 - **The spectator HUD of a SourceTV demo viewed in-eye differs from the game's** (B516): TF2 draws the
   tournament spectator HUD with both teams' panels, and the viewer draws a timer bar and a name plate.
-- **Outdoor scenes may still differ in brightness from the game** (B514 is open): the exposure and bloom were
-  ported but the outdoor frame has not been re-measured since the last fixes.
+- **Some outdoor details still differ in brightness from the game** (B514 is open): a band of ground changes
+  brightness at some moments of the f12 demo, and players and weapons have not been compared with the game since
+  the shading changes.
 - **Downloaded maps carry no checksum.** A fetched map is cached by name, not by checksum, so the
   checksum-named cache of D162 is not used for it (B507).
 
