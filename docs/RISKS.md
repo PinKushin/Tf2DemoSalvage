@@ -36358,8 +36358,16 @@ displacement ground (`NATURE/BLENDGROUNDTOGRASS007`, `$ssbump 1`) flat 230.7 aga
 pinned and bloom off. Now `BspLightmaps.NormalizeBumped`, behind the one `StoreSets` both the static read (`ReadAll`)
 and every rebuild (`Compose`: styles, then dlights, then normalize) go through; the pixel shader was already Valve's
 and is unchanged. `BumpedLightmapNormalizationConformanceTests`, including the output-level assertion on the f12 map
-(894,758 channels of 1,380 bump-lit faces average to flat). **Not yet re-measured against the TF2 captures** — the
-golden comparison takes the desktop; the entry stays OPEN until it is. Findings 76, "B514 part 4".
+(894,758 channels of 1,380 bump-lit faces average to flat). Findings 76, "B514 part 4".
+
+**Re-measured the same day, and the ground closed.** *Measured: outdoor camera, tick 60000, exposure forced to 1, bloom
+and HUD off, linear luminance per tile of a 16x9 grid, ours over TF2.* The foreground displacement ground went from
+59-78% to 98-112%; the 0.88 in part 3's table was the sunlit concrete at the platform edge, a different surface from
+the dirt and grass in front of it, which is why the two figures disagree. Phase 1 above every floor, UI 50/50. **Left,
+and why the entry stays OPEN**: the observatory dome (a prop) at 17-82%; the fence and trees at the top right at
+117-355%; `$blendmodulatetexture` is not implemented, so the dirt-to-grass edge is soft where TF2's is sharp
+(`lightmappedgeneric_ps2_3_x.h:319-332`); indoors the lamp area is B521 and the left wall sits at 72-90%. A dark band
+across the foreground at ticks 45091 and 46500, absent at 60000, is dynamic and not yet identified.
 
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
