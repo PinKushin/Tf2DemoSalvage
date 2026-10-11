@@ -95,6 +95,7 @@ public sealed class EntityModelProxyTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EntityModelProxies_AnEntityModel_ExtendsTheMaterialTable()
     {
         // The precondition for either of the above meaning anything: naming models must actually

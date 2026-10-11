@@ -131,6 +131,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void CubemapLoading_AReflectiveModelMaterial_IsMaskedByItsNormalMapAlpha()
     {
         // **The wiring assertion for the mask, and the reason it needs one.** Every piece under it

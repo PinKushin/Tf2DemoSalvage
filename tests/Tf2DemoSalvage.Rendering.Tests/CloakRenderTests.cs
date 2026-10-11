@@ -70,6 +70,7 @@ public sealed class CloakRenderTests
     /// over red 0.4 — whatever the view angle.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_HalfCloakedRedSpy_IsTheFrameTimesTheTeamTint()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -92,6 +93,7 @@ public sealed class CloakRenderTests
     /// turning T to −X mirrors the shift, and no frame (w zero, one texel so no derivative either) leaves the edge put.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_HalfCloakedOverAnEdge_ShiftsItAlongTheMeshTangent()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -153,6 +155,7 @@ public sealed class CloakRenderTests
     /// whatever the alpha, and blue is the most reduced. The control is the frame without it, every channel equal.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawScreenOverlay_JarateOverAUniformFrame_KeepsRedAndDarkensBlue()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -175,6 +178,7 @@ public sealed class CloakRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ScreenOverlays_ImCookin_LoadsAndDrawsNothing()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -190,6 +194,7 @@ public sealed class CloakRenderTests
     /// three channels. The control is the frame before it.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawScreenOverlay_StealthOverAUniformFrame_DarkensEveryChannelAlike()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");

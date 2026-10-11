@@ -20,6 +20,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class StaticPropModelsWiringTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheReferenceMap_DrawsEveryPropAsAModelAndTheBakedOnesWithTheirColours()
     {
         MapCache.LoadedMap loaded = MapCache.With();
@@ -81,6 +82,7 @@ public sealed class StaticPropModelsWiringTests
     /// The control: some drawn value exceeds one, which the old <c>min( 1, 2c )</c> could never produce.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_TheReferenceMapsFirstBakedProp_DrawItsVhvBytesThroughGammaToLinearOfTwice()
     {
         byte[] map = MapCache.Bytes();
@@ -391,6 +393,7 @@ public sealed class StaticPropModelsWiringTests
     /// their lump point and nothing else may carry one.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_KothHarvest_CarriesEachFlaggedPropsLumpLightingOrigin()
     {
         const string Map = "koth_harvest_final";

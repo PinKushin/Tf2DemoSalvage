@@ -42,7 +42,6 @@ public sealed class SdkConstantTests
     }
 
     [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TheBspVersionsWeAccept_AreTheOnesTheEngineDeclares()
     {
         // bspfile.h: MINBSPVERSION 19, BSPVERSION 20. TF2 ships 20, and 19 exists because the

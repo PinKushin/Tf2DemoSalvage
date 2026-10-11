@@ -130,6 +130,7 @@ public sealed class LightScaleConformanceTests
     /// survives the fix.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LightingLumps_DecodedIdentically_AgreeOnScale()
     {
         ReadOnlyMemory<byte> map = MapCache.Bytes();
@@ -219,6 +220,7 @@ public sealed class LightScaleConformanceTests
     /// which is the input that decision needs.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LightingLumps_AcrossTheEraAxis_AreReported()
     {
         // `bspfile.h`, named locally because BspLumpIndex is internal to Content.

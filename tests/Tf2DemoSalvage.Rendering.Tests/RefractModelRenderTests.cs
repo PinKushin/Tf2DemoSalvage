@@ -24,6 +24,7 @@ public sealed class RefractModelRenderTests
     /// missing-material chequer.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheBazaarLensOnAModel_ResolvesARefractSlot()
     {
         MapAssets assets = MapCache.Load(entityModels: [Rifle]);

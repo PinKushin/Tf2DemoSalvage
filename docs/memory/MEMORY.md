@@ -16,7 +16,7 @@
 - [Measure the output](measure-the-output-not-the-capability.md); [output-level assertion or not done](output-level-assertion-or-it-is-not-done.md).
 - [The engine accepts authored demos](engine-accepts-authored-demos.md) — the 2007 client plays ours; [a test demo is not demo repair](a-test-demo-is-not-demo-repair.md).
 - [A changelog dates the complaint](a-changelog-dates-the-complaint.md) — only a REPAIR note lags.
-- [Fixture lifetime per test-kind](nunit-shared-fixture-is-the-standard.md) — isolated unit, shared UI.
+- [Fixture lifetime per test-kind](nunit-shared-fixture-is-the-standard.md) — isolated unit, shared UI; [an assembly attribute does not travel with its tests](an-assembly-attribute-does-not-travel-with-its-tests.md) (D213).
 - [Branch granularity is fine](branch-granularity-is-fine-here.md) — a drifting name means too big; [a parent branch defers the gate](parent-branch-defers-the-gate.md).
 - [A header written last is absent](a-header-written-last-is-absent.md) — 43% declare zero ticks; [ticks don't start at zero](demo-ticks-do-not-start-at-zero.md).
 - [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic ≠ the lump](vrad-key-arithmetic-is-not-the-lump.md).

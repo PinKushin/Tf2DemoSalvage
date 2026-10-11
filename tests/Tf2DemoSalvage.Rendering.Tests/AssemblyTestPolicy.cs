@@ -19,6 +19,17 @@
 [assembly: FixtureLifeCycle(LifeCycle.InstancePerTestCase)]
 
 // **A cap on workers, for the reason Viewer3D.Tests has one** (B185): these tests load whole maps,
-// and one worker per processor holds more of them at once than the machine has memory for. The
-// number is measured — see docs/DECISIONS.md D213 for the runs.
+// and one worker per processor would start more loads at once than the machine has memory for.
+//
+// Three, measured 2026-10-11 with the loads shared (`MapCache`, `SharedGame`), the test host's
+// working set sampled every five seconds:
+//
+//     3 workers   336 s wall   16.1 GB peak
+//     6 workers   274 s, 272 s   16.8 GB, 18.0 GB peak
+//
+// Every run passed, so this is not a correctness choice. Six buys a minute and spends up to two
+// gigabytes of the margin under the 21 GB B185 found to be the ceiling, on a machine that is often
+// also running the game. The peak is mostly what the caches RETAIN — one whole map per distinct
+// request, for the life of the run — so bounding what `MapCache` keeps is what would lower it, and
+// a new distinct request adds its whole map to that figure: prefer an existing one.
 [assembly: LevelOfParallelism(3)]

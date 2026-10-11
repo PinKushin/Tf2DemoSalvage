@@ -20,6 +20,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class Tf2ConfigFilesTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheInstalledGame_FindsTheConfigsAndTheyBind()
     {
         // **End to end on the real install: find the files, run them, check the camera can fly.**
@@ -104,7 +105,6 @@ public sealed class Tf2ConfigFilesTests
     }
 
     [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_AConfigInACustomVpk_IsFoundThroughTheArchives()
     {
         // **The owner asked for VPKs by name** — "in .cfg or vpk form like comfig's configs" — and

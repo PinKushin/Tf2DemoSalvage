@@ -269,3 +269,21 @@ gets the tag. To re-derive: `dotnet test <project> --logger "trx;LogFileName=tim
 durations per method, tag what exceeds one second. A mutation run that stops fitting its ceiling is
 the signal that one was missed - look for the newest slow test before raising a timeout.
 
+**Rendering, re-derived 2026-10-11 after D213** (`docs/DECISIONS.md`): the suite is about 1,000 s
+summed where it was 1,381 s (968 s and 1,060 s in two runs at three workers). Six tags came off and
+thirty-nine went on, leaving 146 methods tagged.
+
+**From the UNION of several runs, and that is now the procedure for an assembly that shares its
+loads.** The suite runs in parallel and shares its loaded maps through lazy caches, so a test's
+duration includes waiting on a load another test started, and which test pays for a load is
+whichever asked first. One run therefore tags a different set each time: across four runs here the
+set over a second was 118, 134, and then sixteen more that the first two had not shown. Tag what
+reaches a second in ANY run; untag only what stays under in ALL of them. The list converges on
+"every test that touches a shared map", which is the honest reading: under a mutant only that test
+covers, it is the one that pays for the load.
+
+**The conversions did not make the converted tests light.** The fourteen tests that opened a real
+demo now build their state, and run in under a second each once the shared map is loaded - but the
+first of them to run still pays that load, so most keep the tag. What a mutation run gains is the
+suite's total, not their absence from the list.
+
