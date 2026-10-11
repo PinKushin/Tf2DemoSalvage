@@ -92,6 +92,7 @@ public sealed class OverlayOcclusionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AMarkingBehindAWall_DoesNotShowThrough()
     {
         // **The case a depth bias actually decides, and the two tests above cannot.** With depth
@@ -160,6 +161,7 @@ public sealed class OverlayOcclusionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AnOccluderOnlyJustInFrontOfAMarking_StillHidesIt()
     {
         // **INVERTED 2026-08-23, and the inversion is the finding.** This test used to assert that
@@ -272,6 +274,7 @@ public sealed class OverlayOcclusionRenderTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_APropInFrontOfAMarkedWall_HidesTheMarking()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -332,6 +335,7 @@ public sealed class OverlayOcclusionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AMarkingOnAWall_DoesNotWriteDepthOverIt()
     {
         // **The second half of the same rule, and the one B135 actually broke.** An overlay that

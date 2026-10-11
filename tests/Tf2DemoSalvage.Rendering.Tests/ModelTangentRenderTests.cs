@@ -38,6 +38,7 @@ public sealed class ModelTangentRenderTests
 
     [TestCase(1f)]
     [TestCase(-1f)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_ABumpThroughTheFrame_DrawsTheNormalTheFramePredicts(float sign)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);

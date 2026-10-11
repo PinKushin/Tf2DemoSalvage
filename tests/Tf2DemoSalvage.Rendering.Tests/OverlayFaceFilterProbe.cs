@@ -47,6 +47,7 @@ public sealed class OverlayFaceFilterProbe
     private const float Threshold = 0.9f;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void OverlayFaces_TheOrientationFilter_ReportsWhatItRefuses()
     {
         if (!File.Exists(MapPath))

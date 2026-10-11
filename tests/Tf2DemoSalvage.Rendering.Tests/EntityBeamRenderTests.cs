@@ -38,6 +38,7 @@ public sealed class EntityBeamRenderTests
     /// and every corner is a hundred units clear of it.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ASpotlightBeamFromARealDemo_LightsItsShaftAndNotTheCorners()
     {
         string demo = CommittedDemo.Require(DemoName);

@@ -133,6 +133,7 @@ public sealed class BumpedLightmapNormalizationConformanceTests
     /// mantissa on each of four values.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadAll_CpProcessF12BumpLitFaces_AverageTheirDirectionalSetsToTheFlatSet()
     {
         string map = Path.Combine(GameInstall.Require(), "maps", "cp_process_f12.bsp");

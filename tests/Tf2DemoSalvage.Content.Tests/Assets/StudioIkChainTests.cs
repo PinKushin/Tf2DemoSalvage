@@ -107,6 +107,7 @@ public sealed class StudioIkChainTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_APlayerModelTf2Ships_DeclaresTheChainsItsFeetNeed()
     {
         IReadOnlyList<StudioIkChain> chains = Chains("models/player/heavy.mdl");

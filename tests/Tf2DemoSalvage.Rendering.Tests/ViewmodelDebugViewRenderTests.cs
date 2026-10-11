@@ -59,6 +59,7 @@ public sealed class ViewmodelDebugViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_WithDrawFlat_ChangesThePicture()
     {
         // **`mat_drawflat` replaces the texture with flat white and keeps the lighting**, so a

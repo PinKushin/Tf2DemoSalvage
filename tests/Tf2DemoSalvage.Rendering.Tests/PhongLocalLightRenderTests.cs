@@ -119,6 +119,7 @@ public sealed class PhongLocalLightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_ALocalLightBehindTheSurface_AddsNoHighlight()
     {
         // `specularLighting *= saturate(dot( vWorldNormal, vLightDir ))` (common_vertexlitgeneric_dx9.h:186),
@@ -158,6 +159,7 @@ public sealed class PhongLocalLightRenderTests
     [TestCase("models/player/scout/scout_red", 70, 30, 30)]
     [TestCase("models/props_spytech/TV001", 41, 40, 40)]
     [TestCase("models/props_gameplay/bottle001", 216, 212, 206)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_TheSunAlone_DrawsWhatItDrewBefore(string name, int red, int green, int blue)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
@@ -214,6 +216,7 @@ public sealed class PhongLocalLightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RimRender_ARimMaskOfZero_RemovesTheAmbientRim()
     {
         // `float fRimMultiply = fRimMask * fRimFresnel;` (skin_ps20b.fxc:353), and it is fRimMultiply that the

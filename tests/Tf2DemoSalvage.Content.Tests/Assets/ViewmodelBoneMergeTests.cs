@@ -90,6 +90,7 @@ public sealed class ViewmodelBoneMergeTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Bones_TheOriginalAgainstTheStockLauncher_AreReported()
     {
         if (Bones(SoldierArms) is not { } arms)

@@ -9,6 +9,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class FindMaterialProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void HydroPipeMaterial_ItsLocation_IsReported()
     {
         string tf = GameInstall.Require();

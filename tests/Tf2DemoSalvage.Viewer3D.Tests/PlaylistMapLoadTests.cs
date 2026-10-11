@@ -39,6 +39,7 @@ public sealed class PlaylistMapLoadTests
     private const string DemoSprite = "materials/Sprites/light_glow03.vmt";
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public async Task LoadDemoAsync_TheFirstDemoOpened_ReadsItsMapWithItsOwnTimeline()
     {
         if (!File.Exists(DemoPath))

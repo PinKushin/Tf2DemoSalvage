@@ -25,6 +25,7 @@ public sealed class FaceFlexRenderTests
     private static readonly float[] IdentityBone = [1f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_APositionDelta_MovesTheVerticesAsIfTheyStoodThere()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);
@@ -48,6 +49,7 @@ public sealed class FaceFlexRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_ANormalDelta_TurnsTheNormalAndTheTangentTogether()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);

@@ -26,6 +26,7 @@ public sealed class FaceCorpseDemoTests
     private const int FirstCorpse = 2048;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_ACorpseWhosePlayerRespawned_DrawsItsOwnUnsetFaceNotThePlayers()
     {
         string demo = CommittedDemo.RequireLocal(Demo);

@@ -46,6 +46,7 @@ public sealed class PropMaterialResolutionTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheMapTheOwnerSawTheChequerOn_PlacesNoPropWithAnUnresolvedMaterial()
     {
         // No explicit guard: MapCache skips the calling test when the map is not installed, which

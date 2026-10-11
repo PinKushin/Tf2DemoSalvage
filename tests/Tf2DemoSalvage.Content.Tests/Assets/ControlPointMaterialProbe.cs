@@ -22,6 +22,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class ControlPointMaterialProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ControlPointFloor_ItsMaterialRequests_AreReported()
     {
         string tf = GameInstall.Require();

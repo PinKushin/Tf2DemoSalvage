@@ -101,6 +101,7 @@ public sealed class TintBlendRenderTests
     /// would paint every tintable region flat, cannot pass.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TintOverBase_TheLoadedCosmetics_KeepTheirTextureUnderTheColour()
     {
         if (Assets is not { } assets)

@@ -11,6 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class StaleLightingProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void StaleLighting_PropsMismatchingTheirModel_AreReported()
     {
         string tf = GameInstall.Require();

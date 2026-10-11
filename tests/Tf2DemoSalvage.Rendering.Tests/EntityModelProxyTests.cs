@@ -42,6 +42,7 @@ public sealed class EntityModelProxyTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EntityModelProxies_AnEntityModel_BringsItsMaterialProxies()
     {
         MapAssets assets = LoadWithEntityModels();

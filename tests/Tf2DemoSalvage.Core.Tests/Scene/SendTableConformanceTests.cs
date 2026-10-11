@@ -60,6 +60,7 @@ public sealed class SendTableConformanceTests
         ["DT_BaseAnimating.m_flModelWidthScale"];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void SendTables_EveryProperty_IsDeclaredInTheTableItIsLookedForIn()
     {
         Dictionary<string, HashSet<string>> tables = SendTables();
@@ -94,6 +95,7 @@ public sealed class SendTableConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void SendTables_TheScan_FindsTheTablesThisTestDependsOn()
     {
         // **The control, and this test is worthless without it.** A regex that matched nothing would

@@ -31,6 +31,7 @@ public sealed class RefractTrailRenderTests
     /// </remarks>
     [TestCase(0.25f, true)]
     [TestCase(0f, false)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ARefractStripOverAHalfLitFrame_ShowsTheFrameOffsetByTheNormal(float amount, bool showsWall)
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -50,6 +51,7 @@ public sealed class RefractTrailRenderTests
     /// offscreen target's view is the window's <c>B8G8R8A8_UNORM_SRGB</c> (<c>Device3D.CreateBackBufferView</c>).
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AVertexColourWithColorModulate_TintsTheWarpedFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -68,6 +70,7 @@ public sealed class RefractTrailRenderTests
     /// </remarks>
     [TestCase(true)]
     [TestCase(false)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ARefractStripInFullFog_IsTheFogColourUnlessNoFog(bool fogged)
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -96,6 +99,7 @@ public sealed class RefractTrailRenderTests
     /// the tint <c>2 · white</c>, so where the strip is opaque the grey doubles. The corners see only the grey.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ABeam001TrailFromARealMatch_BrightensTheGreyItCrosses()
     {
         const int Player = 7;

@@ -29,6 +29,7 @@ public sealed class FaceFlexAnimationDemoTests
     private const int SceneStart = 61085;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_AMedicPlayingAFlexAnimation_MovesVerticesTheControlDoesNot()
     {
         string demo = CommittedDemo.RequireLocal(Demo);

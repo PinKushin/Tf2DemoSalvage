@@ -67,6 +67,7 @@ public sealed class WornModelSkinningTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_AOneBoneModelAskedToSkin_IsSkinned()
     {
         if (Load(Original) is not { } assets)
@@ -91,6 +92,7 @@ public sealed class WornModelSkinningTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_AMultiBoneModelAskedToSkin_IsAlsoSkinned()
     {
         if (Load(Stock) is not { } assets)

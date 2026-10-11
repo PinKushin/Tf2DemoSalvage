@@ -54,6 +54,7 @@ public sealed class StudioTrianglesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_EveryModel_ProducesWholeTriangles()
     {
         int withTriangles = 0;
@@ -81,6 +82,7 @@ public sealed class StudioTrianglesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_EveryIndex_LandsInsideTheMeshTheModelDeclared()
     {
         // **The cross-file relationship.** A mesh owns a run of the vertex file's vertices, and
@@ -104,6 +106,7 @@ public sealed class StudioTrianglesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheTriangles_AreLocalToTheirOwnMesh()
     {
         // **The measurement a shuffled index buffer cannot survive.** Fetch each triangle's three

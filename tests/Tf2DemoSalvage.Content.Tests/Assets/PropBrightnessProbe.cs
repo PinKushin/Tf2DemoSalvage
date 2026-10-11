@@ -11,6 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class PropBrightnessProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PropBrightness_TheDarkestPropsAfterOverbright_AreReported()
     {
         string mapPath = Path.Combine(

@@ -76,6 +76,7 @@ public sealed class StudioVerticesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheNormals_AreUnitLengthOrDegenerate()
     {
         // **A value the file records that this reader can check without trusting the file.** Three
@@ -122,6 +123,7 @@ public sealed class StudioVerticesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheTangents_AreUnitLengthWithASignOfOne()
     {
         // The tangent array is the same kind of self-checking content as the normals: xyz a unit vector, w
@@ -168,6 +170,7 @@ public sealed class StudioVerticesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_ThePositions_AreModelSized()
     {
         // A model's own space is small - a prop is tens of units, the largest are hundreds. Read

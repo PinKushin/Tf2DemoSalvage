@@ -125,6 +125,7 @@ public sealed class GameAssetIntegrationTests
     [TestCase("cp_process_final")]
     [TestCase("cp_badlands")]
     [TestCase("koth_viaduct")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void GameAssets_EveryBrushworkCorner_LandsInsideItsLightmap(string map)
     {
         // **The check that says the lightmap coordinates are RIGHT rather than merely present.**
@@ -176,6 +177,7 @@ public sealed class GameAssetIntegrationTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void GameAssets_Displacements_AreIdentifiedNotSilentlyWrong()
     {
         // The control for the exclusion above. If nothing were identified as a displacement, the

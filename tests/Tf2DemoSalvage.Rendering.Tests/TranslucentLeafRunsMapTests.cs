@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class TranslucentLeafRunsMapTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BlendedRuns_ForCpProcessFromOneEye_DrawEveryReachedTranslucentSurfaceOnceAndNothingElse()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
@@ -63,6 +64,7 @@ public sealed class TranslucentLeafRunsMapTests
     /// first leaf, or filing a node's surfaces one leaf late, would pass.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BlendedRuns_ForCpProcessInFrontOfGlass_FileEachSurfaceUnderTheLeafTheWalkWasIn()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();

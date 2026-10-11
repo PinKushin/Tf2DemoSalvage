@@ -35,6 +35,7 @@ public sealed class FaceFlexDemoRenderTests
     private static readonly StrongBox<GameContent?> Content = new();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_ASoldierLaughing_CarriesAFaceThatMovesItsVertices()
     {
         (_, _, ModelInstance before) = Posed(TauntStart - 30);
@@ -75,6 +76,7 @@ public sealed class FaceFlexDemoRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ASoldierLaughing_DrawsADifferentFaceFromTheSameBonesWithoutIt()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");

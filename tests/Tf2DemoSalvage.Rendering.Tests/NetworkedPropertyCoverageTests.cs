@@ -89,6 +89,7 @@ public sealed class NetworkedPropertyCoverageTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WireCoverage_EveryNetworkedProperty_IsCountedAndReported()
     {
         if (SdkInventory.Root is null)

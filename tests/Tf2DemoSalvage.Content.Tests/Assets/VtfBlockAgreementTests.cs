@@ -30,6 +30,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class VtfBlockAgreementTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheGamesOwnTextures_ExpandToExactlyWhatDecodeProduces()
     {
         if (GameInstall.Root is not { } tf)
@@ -120,6 +121,7 @@ public sealed class VtfBlockAgreementTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_ACubemapsFaces_EachAgreeWithDecode()
     {
         // **Faces are where the arithmetic is hardest and a wrong answer looks fine.** A cubemap

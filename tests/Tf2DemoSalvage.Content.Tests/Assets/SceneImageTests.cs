@@ -320,6 +320,7 @@ public sealed class SceneImageTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void SequenceAt_EverySceneTheGameShips_LandsExactlyExceptTheTwoTheEngineDesyncs()
     {
         // **The census as an assertion** (B376): every compiled scene in the installed game, not

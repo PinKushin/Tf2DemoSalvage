@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class WallStripeProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WallStripes_TheirMaterials_AreReported()
     {
         // The authored f12 map first, then the stock one — the preference is the point, so this

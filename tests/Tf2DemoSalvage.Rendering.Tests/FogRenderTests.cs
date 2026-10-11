@@ -41,6 +41,7 @@ public sealed class FogRenderTests
     private const float Depth = 0.9f;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_FullDensityFogAtTheSurfacesDepth_IsTheFogColour()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -61,6 +62,7 @@ public sealed class FogRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_MaxDensityHalf_BlendsAQuarterInLinearLight()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -88,6 +90,7 @@ public sealed class FogRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_AnAdditiveMaterialInFullFog_FogsToBlackSoAddsNothing()
     {
         // An additive surface ADDS its output to what is behind it, so fogging it toward the fog
@@ -132,6 +135,7 @@ public sealed class FogRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_RadialFogAtTheEdgeOfTheView_FogsByDistanceNotDepth()
     {
         // **The condition separates the two by construction.** At pixel (2, 32) the wall is at

@@ -29,6 +29,7 @@ public sealed class FaceLipSyncDemoTests
     private const int LineStart = 58230;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_AScoutSpeakingACachedLine_MovesItsMouthBeyondTheSameMomentWithoutTheSentence()
     {
         string demo = CommittedDemo.RequireLocal(Demo);

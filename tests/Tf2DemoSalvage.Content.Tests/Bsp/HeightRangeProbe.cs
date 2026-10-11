@@ -10,6 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class HeightRangeProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MapHeight_ItsDistribution_IsReported()
     {
         string path = Path.Combine(

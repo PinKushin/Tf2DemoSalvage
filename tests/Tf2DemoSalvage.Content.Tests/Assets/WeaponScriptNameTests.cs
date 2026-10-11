@@ -28,6 +28,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class WeaponScriptNameTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponScriptNames_EveryWeaponInTheSdk_ResolvesToItsOwnScriptName()
     {
         Dictionary<string, string> pairs = Pairs();
@@ -68,6 +69,7 @@ public sealed class WeaponScriptNameTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponScriptNames_TheMacroRegistrations_AreInTheDenominator()
     {
         // **A denominator that cannot see a weapon cannot report it missing** (B290). The scan above

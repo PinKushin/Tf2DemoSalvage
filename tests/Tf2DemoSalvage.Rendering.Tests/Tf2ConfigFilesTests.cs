@@ -104,6 +104,7 @@ public sealed class Tf2ConfigFilesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_AConfigInACustomVpk_IsFoundThroughTheArchives()
     {
         // **The owner asked for VPKs by name** — "in .cfg or vpk form like comfig's configs" — and

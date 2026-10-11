@@ -45,6 +45,7 @@ public sealed class EntityTrailRenderTests
     /// pixels tall where it crosses the middle.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ARescueRangerBoltsTrailFromARealDemo_CrossesThePictureAndNotTheCorners()
     {
         string demo = CommittedDemo.Require(DemoName);

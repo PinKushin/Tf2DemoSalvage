@@ -32,6 +32,7 @@ public sealed class ProxyRenderTests
         }.ToMatrix();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ProxyRender_AProxiedMaterial_DrawsDifferentlyOverTime()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -71,6 +72,7 @@ public sealed class ProxyRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ProxyRender_AMaterialWithNoProxy_IsUnaffectedByTime()
     {
         // **The control.** Without it, "the picture changed" could be anything else in the renderer

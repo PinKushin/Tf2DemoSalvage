@@ -23,6 +23,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class PropLightingSpaceProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PropLighting_ComparedWithLightmapLighting_IsReported()
     {
         string map = GameInstall.RequireFile("maps/cp_process_final.bsp");

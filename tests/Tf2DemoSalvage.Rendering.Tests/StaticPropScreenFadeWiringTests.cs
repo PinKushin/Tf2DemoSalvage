@@ -22,6 +22,7 @@ public sealed class StaticPropScreenFadeWiringTests
 {
     [TestCase(645f, 140)]
     [TestCase(400f, 255)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_OnKothOvercast_AStaticPropFadesByItsScreenWidth(float distancePerRadius, int expected)
     {
         if (GameInstall.Find(Path.Combine("maps", "koth_overcast_final.bsp")) is not { } mapPath)

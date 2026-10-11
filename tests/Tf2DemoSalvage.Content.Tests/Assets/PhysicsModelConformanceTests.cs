@@ -159,6 +159,7 @@ public sealed class PhysicsModelConformanceTests
     /// repeated — and the tree property has to hold for all of them.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_EveryClassModel_HoldsACompleteJointTree()
     {
         foreach ((string model, int solids) in Classes)

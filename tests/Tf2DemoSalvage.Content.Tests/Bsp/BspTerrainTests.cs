@@ -50,6 +50,7 @@ public sealed class BspTerrainTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadTriangles_MatchesThePerFacePath_CornerForCorner()
     {
         BspTerrain terrain = BspTerrain.Create(_map);
@@ -70,6 +71,7 @@ public sealed class BspTerrainTests
     /// start corner or a misread field would fail everywhere.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadCollisionTree_EveryDrawnVertex_IsOneOfTheTreesVertices()
     {
         BspTerrain terrain = BspTerrain.Create(_map);
@@ -89,6 +91,7 @@ public sealed class BspTerrainTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadTriangles_ReadsAWholeMapFasterThanThePerFacePath()
     {
         // **A timing assertion, deliberately, because speed is the whole reason this type exists.**
@@ -121,6 +124,7 @@ public sealed class BspTerrainTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadTriangles_ANonDisplacementFace_HasNoTerrain()
     {
         BspTerrain terrain = BspTerrain.Create(_map);

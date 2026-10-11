@@ -34,6 +34,7 @@ public sealed class StudioMotionTests
     [TestCase("models/player/scout_animations.mdl", 400f)]
     [TestCase("models/player/soldier_animations.mdl", 240f)]
     [TestCase("models/player/heavy_animations.mdl", 230f)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void StudioMotion_TheForwardRun_TravelsAtTheClassSpeed(string path, float expected)
     {
         if (Read(path) is not { } file)

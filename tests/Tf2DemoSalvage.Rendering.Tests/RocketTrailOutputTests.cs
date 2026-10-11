@@ -36,6 +36,7 @@ public sealed class RocketTrailOutputTests
     /// corners per particle drawn.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Update_ARocketsFirstTickFromARealDemo_DrawsItsInitialPuffOnTheRocket()
     {
         string demo = CommittedDemo.Require(DemoName);

@@ -26,6 +26,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class DevGridTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DevGrid_LoadedFromTheGame_CarriesStructureRatherThanOneColour()
     {
         string tf = GameInstall.Root ?? string.Empty;

@@ -21,6 +21,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class ShaderParityProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ShaderParameters_TheMapsMaterials_AreReported()
     {
         string tf = GameInstall.Root ?? string.Empty;

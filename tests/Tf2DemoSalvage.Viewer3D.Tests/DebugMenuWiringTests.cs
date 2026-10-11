@@ -35,6 +35,7 @@ public sealed class DebugMenuWiringTests
     [TestCase("BumpBasis")]
     [TestCase("LeafVis")]
     [TestCase("ShowLowResImage")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Check_ADebugMenuItem_SetsTheModeItIsNamedAfter(string mode)
     {
         // **Every mode is a case, rather than only the broken one.** The five that worked are the

@@ -20,6 +20,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class DarkAreaProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DarkestMaterials_WeightedByArea_AreReported()
     {
         string path = GameInstall.RequireFile("maps/cp_process_final.bsp");

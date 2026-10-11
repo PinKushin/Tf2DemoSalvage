@@ -52,6 +52,7 @@ public sealed class BumpedLightmapTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadAll_LeavesTheFlatSetExactlyWhereReadFoundIt()
     {
         // **The control, and the only thing that can catch a wrong set stride.** Every face's flat
@@ -81,6 +82,7 @@ public sealed class BumpedLightmapTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadAll_FindsBumpLitFacesAndGivesThemThreeDirectionalSets()
     {
         // The condition has to exist before the measurement means anything: if this map had no
@@ -193,6 +195,7 @@ public sealed class BumpedLightmapTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReadAll_TheDirectionalSetsAreNotCopiesOfTheFlatOne()
     {
         // **Three sets of the right size prove nothing about where they were read from.** An

@@ -42,6 +42,7 @@ public sealed class DarkMaterialsDiagnostic
     private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DarkestMaterials_ByArea_AreReported()
     {
         if (MapFile is not { } path)

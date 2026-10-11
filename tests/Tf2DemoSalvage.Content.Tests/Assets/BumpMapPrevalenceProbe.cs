@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Content.Tests.Assets;
 public sealed class BumpMapPrevalenceProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BumpMaps_ByKind_AreReported()
     {
         string tf = GameInstall.Require();

@@ -24,6 +24,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class ErrorModelTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_AModelThatDoesNotExist_IsDrawnAsValvesErrorMesh()
     {
         string tf = GameInstall.Root ?? string.Empty;

@@ -99,6 +99,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LoadedDemo_LoadingFromThePlaylist_FillsTheTransport()
     {
         // The end-to-end wiring: a demo in the library, selected, loaded, and the scrub bar comes
@@ -186,6 +187,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LoadedDemo_ATruncatedDemo_EnablesTheTransport()
     {
         // What the user actually saw: play unavailable, no timeline, after double-clicking a demo
@@ -234,6 +236,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public async Task OpenCommandLineDemo_OneFileOnTheCommandLine_OpensIt()
     {
         // The file-association case. Double-clicking a .dem in Explorer has to end with the demo
@@ -289,6 +292,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public async Task LoadDemoAsync_ADemo_LoadsItAndSaysSo()
     {
         // **The load moved off the UI thread (B146)**, because decoding a real match took 4.9
@@ -333,6 +337,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public async Task LoadDemoAsync_ASecondDemoAskedForFirst_DiscardsTheSlowerOne()
     {
         // **Double-clicking two demos in a row, which is ordinary and used to be safe only because
@@ -360,6 +365,7 @@ public sealed class LoadedDemoTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public async Task LoadDemoAsync_ASupersededLoad_IsNotAFailure()
     {
         // **Three outcomes rather than a bool, and this is why.** A demo abandoned because the user

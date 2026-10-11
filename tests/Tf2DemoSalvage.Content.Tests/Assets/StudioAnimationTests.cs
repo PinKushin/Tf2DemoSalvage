@@ -31,6 +31,7 @@ public sealed class StudioAnimationTests
     [TestCase("models/player/scout.mdl")]
     [TestCase("models/player/soldier.mdl")]
     [TestCase("models/player/heavy.mdl")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void APosedPlayerModel_StandsUp(string model)
     {
         if (Read(model) is not { } files)
@@ -192,6 +193,7 @@ public sealed class StudioAnimationTests
     /// negated count is zero and the last assertion fails.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Pose_WithAFixedAlignmentBone_AlignsTheRotationToTheBonesOwnOrientation()
     {
         if (AnimatedRotationTrack() is not var (model, bones, animation, subject))
@@ -219,6 +221,7 @@ public sealed class StudioAnimationTests
     /// here while passing the test above.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Pose_WithAnAlignmentTheRotationAlreadyMatches_LeavesItAlone()
     {
         // The same track the test above uses, so "unchanged" here means the alignment DECLINED to
@@ -253,6 +256,7 @@ public sealed class StudioAnimationTests
     /// `qAlignment` means nothing without the flag, while a decode missing the gate flips it.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Pose_WithAnAlignmentButNoFlag_IgnoresTheAlignmentEntirely()
     {
         if (AnimatedRotationTrack() is not var (model, bones, animation, subject))

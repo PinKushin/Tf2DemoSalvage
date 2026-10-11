@@ -131,6 +131,7 @@ public sealed class StaticPropModelsWiringTests
     /// </remarks>
     [TestCase("n", true)]
     [TestCase("a", false)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_KothDryfieldWithStyleOne_KeepBakedColoursAndCarryTheLampWhileItIsLit(string pattern, bool on)
     {
         const string Map = "koth_dryfield";
@@ -190,6 +191,7 @@ public sealed class StaticPropModelsWiringTests
     /// every placement on the map that takes the same path.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun()
     {
         const string Map = "cp_process_f12";
@@ -303,6 +305,7 @@ public sealed class StaticPropModelsWiringTests
     /// one must reach the draw on the path its flags choose.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_KothHarvestUnbakedPlacements_TakeACpuColourMeshExactlyWhenCompiledStatic()
     {
         const string Map = "koth_harvest_final";

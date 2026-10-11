@@ -29,6 +29,7 @@ public sealed class StudioIkLockTests
     /// the reader, not the content.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_ForAPlayerAnimationModel_FindsTheLocksItDeclares()
     {
         if (Read("models/player/engineer_animations.mdl") is not { } model)
@@ -89,6 +90,7 @@ public sealed class StudioIkLockTests
     /// test above. Most of a player model's sequences declare none.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_ForASequenceThatDeclaresNoLocks_IsEmpty()
     {
         if (Read("models/player/engineer_animations.mdl") is not { } model)

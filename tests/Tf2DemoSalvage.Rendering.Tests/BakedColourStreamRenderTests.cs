@@ -78,6 +78,7 @@ public sealed class BakedColourStreamRenderTests
     /// writes pow( 128 / 255, 2.2 ) = 0.2196, stored through the target's sRGB view as 129.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_ABakedByteWithNoCube_WritesGammaToLinearOfTwiceIt()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

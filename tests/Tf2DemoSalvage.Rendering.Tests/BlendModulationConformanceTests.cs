@@ -106,6 +106,7 @@ public sealed class BlendModulationConformanceTests
     /// The output-level half: the production material table for the parity map carries the mask for its ground.
     /// </summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_CpProcessF12_CarriesTheBlendModulationTextureForItsGround()
     {
         if (!MapCache.Exists("cp_process_f12"))
