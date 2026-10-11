@@ -36914,3 +36914,13 @@ so its check marks follow. *Measured* at the indoor camera: `+mat_specular 0` no
 `Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne`, `Load_AFullbrightOutsideItsThreeStates_IsOff`. **What this
 does not fix, and it is the wider fault:** a `+cvar` the viewer does not implement is still logged as set. The log
 line is the launch options', not the setting's.
+
+**2026-10-11, later — `$envmapfresnel`, and the skin shader's reflection has no contrast or saturation**
+(`fix/parity-leftovers`). *Read from published source*, `skin_ps20b.fxc:237-241`: the reflection is
+`ENV_MAP_SCALE * lerp(1, fFresnelRanges, g_EnvMapFresnel.x) * mask * texCUBE * tint` and nothing after it — the
+`$envmapcontrast` and `$envmapsaturation` the generic shader applies are not in this one, so a `$phong` material's
+are now carried as 0 and 1. `$envmapfresnel` is zero unless set (`skin_dx9_helper.cpp:114-117`) and is not clamped.
+*Measured* (`vmt-param $envmapfresnel`): 33 shipped materials set it, all cosmetics — 18 at 1, 12 at 0, 3 at −0.34.
+`SkinEnvMapFresnel_ByDegree_BlendsFromOneToThePhongFresnelTerm`, `EnvMapFresnel_WrittenNegative_IsKept`. **No
+picture-level test**: the arithmetic is one HLSL line stated twice (`ModelMaterialShading.SkinEnvMapFresnel` and the
+shader), and nothing on cp_process_f12 carries the key.

@@ -1298,6 +1298,13 @@ public sealed class VmtMaterial
     public bool UsesNormalMapAlphaAsEnvMapMask => Flag("$normalmapalphaenvmapmask");
 
     /// <summary>
+    /// <c>$envmapfresnel</c> — "Degree to which Fresnel should be applied to env map" (<c>vertexlitgeneric_dx9.cpp:61</c>),
+    /// zero unless set (<c>skin_dx9_helper.cpp:114-117</c>). Read by the skin shader alone; not clamped, and three
+    /// shipped materials write it negative.
+    /// </summary>
+    public float EnvMapFresnel => Number("$envmapfresnel", 0f);
+
+    /// <summary>
     /// The reflection mask the skin shader applies, or null where the material does not draw with it —
     /// <c>VertexLitGeneric</c> routes there on <c>$phong</c> (<c>vertexlitgeneric_dx9_helper.cpp:263-270</c>).
     /// </summary>

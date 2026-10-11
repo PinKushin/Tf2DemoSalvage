@@ -91,7 +91,7 @@ public static class ModelMaterialShading
     /// `fEnvMapMask = lerp( baseColor.a, SELFILLUMFRESNEL ? g_fInvertPhongMask : fSpecMask, normalmapalphaenvmapmask )`,
     /// then `lerp( fEnvMapMask, 1-fEnvMapMask, g_fInvertPhongMask )`, with
     /// `fSpecMask = lerp( normalTexel.a, baseColor.a, g_fBaseMapAlphaPhongMask )`. `$basealphaenvmapmask` is not read
-    /// here at all. Not modeled: `$envmapfresnel`, `lerp( 1, fFresnelRanges, g_EnvMapFresnel.x )`.
+    /// here at all. `$envmapfresnel` is <see cref="SkinEnvMapFresnel"/>.
     /// </remarks>
     public static EnvMapMask SkinEnvMapMask(
         bool normalMapAlphaEnvMapMask, bool baseMapAlphaPhongMask, bool invertPhongMask, bool selfIllumFresnel)
@@ -108,6 +108,13 @@ public static class ModelMaterialShading
 
         return invertPhongMask ? EnvMapMask.InvertedBaseAlpha : EnvMapMask.BaseAlpha;
     }
+
+    /// <summary>What <c>$envmapfresnel</c> multiplies a skin-shader reflection by — <c>lerp(1, fFresnelRanges, g_EnvMapFresnel.x)</c> (`skin_ps20b.fxc:238`).</summary>
+    /// <param name="degree"><c>$envmapfresnel</c>; unclamped.</param>
+    /// <param name="fresnel">The phong Fresnel term at the pixel, <c>Fresnel( normal, eye, $phongfresnelranges )</c>.</param>
+    /// <returns>One at degree zero, the term at degree one.</returns>
+    /// <remarks>The pixel shader's arithmetic, stated here so it has a test; `WorldRenderer`'s HLSL is the same line.</remarks>
+    public static float SkinEnvMapFresnel(float degree, float fresnel) => 1f + ((fresnel - 1f) * degree);
 
     /// <summary>Whether a shader sends its modulation colour through <see cref="ModulationToLinear"/>.</summary>
     /// <param name="shader">The material's shader name.</param>

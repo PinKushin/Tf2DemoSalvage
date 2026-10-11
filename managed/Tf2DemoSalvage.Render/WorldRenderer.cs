@@ -1962,8 +1962,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 //
                 // envmapControl.w is R. It is 1 for every model material regardless of the VMT,
                 // because VertexLitGeneric's envmap block has no Fresnel term at all.
-                float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
-                specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
+                //
+                // **From 5 up it is the skin shader's instead** (B521): w is 10 + $envmapfresnel, and the term is
+                // `lerp(1, fFresnelRanges, g_EnvMapFresnel.x)` (skin_ps20b.fxc:238) with the phong pass's own
+                // Fresnel( normal, eye, $phongfresnelranges ) -- `ModelMaterialShading.SkinEnvMapFresnel`.
+                if (envmapControl.w > 5.0f)
+                {
+                    float skinEdge = saturate(1.0f - dot(surfaceNormal, eyeDirection));
+                    skinEdge = (skinEdge * skinEdge) - 0.5f;
+
+                    float skinFresnel = phongFresnel.y + ((skinEdge >= 0.0f ? phongFresnel.z : phongFresnel.x) * skinEdge);
+
+                    specular *= 1.0f + ((skinFresnel - 1.0f) * (envmapControl.w - 10.0f));
+                }
+                else
+                {
+                    float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+                    specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
+                }
 
                 // **mat_specular, and Valve's own wording for it is "get rid of envmap".** The
                 // engine does it one level up, by undefining $envmap when the config says
@@ -2332,6 +2348,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// model material on the map — and the reason a prop needs a search a wall does not.
     /// </remarks>
     private readonly HashSet<int> _usesLocalCubemap = [];
+
+    /// <summary>What <c>envmapControl.w</c> is offset by for a skin-shader material; the pixel shader's 10.</summary>
+    private const float SkinFresnelBase = 10f;
 
     /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
@@ -3746,7 +3765,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // "1.0 == mirror, 0.0 == water" and defaults to 1; a model is always 1 because
             // VertexLitGeneric has no Fresnel term. Resting at zero would apply full Schlick to
             // every reflective surface on the map, which is the state this replaced.
-            float envmapFresnel = shading?.Fresnel ?? 1f;
+            //
+            // **A skin-shader material rides the same slot ten higher** (B521): 10 + `$envmapfresnel`, which the
+            // pixel shader reads as the degree of the phong Fresnel term rather than as $fresnelreflection.
+            float envmapFresnel = shading is { SkinMask: not null } skin
+                ? SkinFresnelBase + skin.SkinFresnel
+                : shading?.Fresnel ?? 1f;
 
             _cubemaps.Add(reflection is { } cube ? UploadCube(_assets, device, cube.Faces) : default);
 
