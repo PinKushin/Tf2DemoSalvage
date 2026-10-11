@@ -36,24 +36,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class OpaquePassBlendStateRenderTests
 {
     /// <summary>The map, for real materials with real alpha channels.</summary>
-    private static MapAssets? Assets
-    {
-        get
-        {
-            string tf = GameInstall.Root ?? string.Empty;
-            string map = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
-
-            if (!System.IO.Directory.Exists(tf) || !System.IO.File.Exists(map))
-            {
-                return null;
-            }
-
-            return MapAssets.Load(
-                System.IO.File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 256);
-        }
-    }
+    private static MapAssets? Assets => MapCache.TryLoad("cp_process_f12", maximumTextureSize: 256);
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]

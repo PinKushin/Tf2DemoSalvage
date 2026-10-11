@@ -31,21 +31,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class LowResImageRenderTests
 {
-    private static MapAssets? Assets
-    {
-        get
-        {
-            string tf = GameInstall.Root ?? string.Empty;
-            string map = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
-
-            return Directory.Exists(tf) && File.Exists(map)
-                ? MapAssets.Load(
-                    File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 256)
-                : null;
-        }
-    }
+    private static MapAssets? Assets => MapCache.TryLoad("cp_process_f12", maximumTextureSize: 256);
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]

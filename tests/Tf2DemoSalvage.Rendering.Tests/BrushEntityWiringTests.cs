@@ -114,7 +114,7 @@ public sealed class BrushEntityWiringTests
 
         MapAssets assets = MapAssets.Load(
             bytes,
-            GameArchives.Open(GamePath),
+            SharedGame.Archives,
             maximumTextureSize: 64,
             brushModels: atlas => BrushModels.Build(models, surfaces, atlas));
 
@@ -149,7 +149,7 @@ public sealed class BrushEntityWiringTests
 
         MapAssets assets = MapAssets.Load(
             bytes,
-            GameArchives.Open(GamePath),
+            SharedGame.Archives,
             maximumTextureSize: 64,
             brushModels: atlas =>
                 BrushModels.Build(BspModels.Read(bytes), BspSurfaces.Read(bytes), atlas));

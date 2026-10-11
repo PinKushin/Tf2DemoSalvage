@@ -81,7 +81,7 @@ public sealed class ModulationWiringTests
         // materials are skipped — resolving an include here would be re-implementing MapAssets'
         // own resolution, and two copies of one algorithm can agree while both being wrong.
         MapAssets assets = LoadTheMap();
-        GameArchives archives = GameArchives.Open(GameInstall.Root);
+        GameArchives archives = SharedGame.Archives;
 
         List<string> compared = [];
 

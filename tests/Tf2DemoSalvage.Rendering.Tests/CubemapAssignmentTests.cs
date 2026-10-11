@@ -289,7 +289,7 @@ public sealed class CubemapAssignmentTests
         return (
             MapCache.Load(),
             PakFile.ReadFrom(map),
-            GameArchives.Open(game),
+            SharedGame.Archives,
             map);
     }
 }

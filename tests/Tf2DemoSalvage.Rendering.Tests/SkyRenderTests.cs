@@ -86,16 +86,13 @@ public sealed class SkyRenderTests
 
     private static MapAssets? Load(string name)
     {
-        string tf = GameInstall.Root ?? string.Empty;
-        string map = System.IO.Path.Combine(tf, "maps", $"{name}.bsp");
-
-        if (!Direct3DApi.IsAvailable || !System.IO.File.Exists(map))
+        if (!Direct3DApi.IsAvailable || !MapCache.Exists(name))
         {
             Assert.Ignore($"needs Direct3D and TF2's {name}");
             return null;
         }
 
-        return MapAssets.Load(System.IO.File.ReadAllBytes(map), GameArchives.Open(tf), MaximumTextureSize);
+        return MapCache.Load(MaximumTextureSize, mapName: name);
     }
 
     /// <summary>The face's top level as the device receives it, widened to RGBA for reading.</summary>

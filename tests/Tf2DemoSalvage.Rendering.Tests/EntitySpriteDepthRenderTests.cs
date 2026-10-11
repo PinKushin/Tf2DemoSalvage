@@ -224,11 +224,7 @@ public sealed class EntitySpriteDepthRenderTests
                 return null;
             }
 
-            return MapAssets.Load(
-                System.IO.File.ReadAllBytes(map),
-                GameArchives.Open(tf),
-                maximumTextureSize: 256,
-                spriteMaterials: [Glow]);
+            return MapCache.Load(256, mapName: "cp_process_f12", spriteMaterials: [Glow]);
         }
     }
 }
