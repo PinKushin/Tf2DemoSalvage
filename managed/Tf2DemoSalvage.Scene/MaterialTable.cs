@@ -42,6 +42,7 @@ public sealed class MaterialTable
     private readonly List<MapPhong?> _phong = [];
     private readonly List<MapTexture?> _lightWarps = [];
     private readonly List<MapTexture?> _blendModulations = [];
+    private readonly List<bool> _marksModelBumpMapped = [];
 
     private readonly List<MapTexture?> _selfIllumMasks = [];
     private readonly List<MapTexture?> _phongExponentMaps = [];
@@ -105,6 +106,9 @@ public sealed class MaterialTable
     /// <summary>The <c>$blendmodulatetexture</c> for each material, null for those that name none.</summary>
     public IReadOnlyList<MapTexture?> BlendModulations => _blendModulations;
 
+    /// <summary>Whether each material flags a model drawing it <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> (B514).</summary>
+    public IReadOnlyList<bool> MarksModelBumpMapped => _marksModelBumpMapped;
+
     /// <summary>
     /// The self-illumination mask for each material, null where the base map's alpha decides it.
     /// </summary>
@@ -163,6 +167,7 @@ public sealed class MaterialTable
         _phong.Add(resolved.Phong);
         _lightWarps.Add(resolved.LightWarp);
         _blendModulations.Add(resolved.BlendModulation);
+        _marksModelBumpMapped.Add(resolved.MarksModelBumpMapped);
         _selfIllumMasks.Add(resolved.SelfIllumMask);
         _phongExponentMaps.Add(resolved.PhongExponentMap);
         _variables.Add(resolved.Variables);

@@ -90,7 +90,10 @@ public sealed class ModelTangentRenderTests
 
         TestContext.Out.WriteLine($"skinned {skinned}, the frame on +X {expected}, left on +Z {unturned}");
 
-        Sum(Minus(expected, unturned)).ShouldBeGreaterThan(12, "the control: the two frames draw differently");
+        // Six, down from twelve (B514): scout_red is a skin-shader material, whose diffuse is half-Lambert whatever it
+        // asks (`skin_ps20b.fxc:220-222`), and the wrap halves how far a turned normal moves the pixel — 8 here, still
+        // four times the tolerance below.
+        Sum(Minus(expected, unturned)).ShouldBeGreaterThan(6, "the control: the two frames draw differently");
         Near(skinned, expected, 2, "the bone turns the tangent with the quad");
     }
 

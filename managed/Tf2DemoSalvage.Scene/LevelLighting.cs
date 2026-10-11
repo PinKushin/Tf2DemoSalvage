@@ -396,6 +396,61 @@ public sealed class LevelLighting
     /// </remarks>
     public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
+        List<BspWorldLight> lights = StyledAndDynamic(entity, x, y, z);
+
+        if (lights.Count == 0)
+        {
+            return [];
+        }
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return nearest;
+    }
+
+    /// <summary>
+    /// The whole lighting state of a static prop that draws WITHOUT a colour mesh — a model flagged
+    /// `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (B514): `FUN_1801ba590(handle, …, 7)`, `engine.dll` `0x1800f1bd0` at
+    /// `LAB_1800f1f3b`.
+    /// </summary>
+    /// <param name="entity">The prop's entity index, which keys its handle's list.</param>
+    /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <returns>The leaf cube at the origin, at most four lights — style 0, styled and dynamic — and the sun.</returns>
+    /// <remarks>
+    /// *Read in disassembly.* The model draw's caller (`FUN_1800eb1a0`) refuses static lighting when the DX support
+    /// level is at least 80 and the model carries `MODELFLAG_STUDIOHDR_USES_BUMPMAPPING` (`0x200`); `*param_7` is then
+    /// false, no colour mesh is handed to the studio render, and with the prop's lighting handle the state is flags 7:
+    /// bit 1 the static state (<see cref="StaticPropLightingAt"/>), bit 4 the handle's styled lights at their current
+    /// values, bit 2 its live dlights (<see cref="StaticPlusDynamicLights"/>).
+    /// ponytail: one ranking over all three sets; the engine ranks the static four first and then each added light
+    /// against them, which differs only past four lights at one prop.
+    /// </remarks>
+    public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
+    {
+        (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
+        List<BspWorldLight> added = StyledAndDynamic(entity, x, y, z);
+
+        if (added.Count == 0)
+        {
+            return (lighting, sun);
+        }
+
+        added.AddRange(_worldLights.Where(static light => light.Style == 0));
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(added, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return (new PointLighting(lighting.Cube, nearest), sun);
+    }
+
+    /// <summary>A handle's styled lights (bit 4) and the live dlights that reach it (bit 2), unranked.</summary>
+    private List<BspWorldLight> StyledAndDynamic(int entity, float x, float y, float z)
+    {
         if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
         {
             listed = StyledLights(x, y, z);
@@ -421,16 +476,7 @@ public sealed class LevelLighting
             }
         }
 
-        if (lights.Count == 0)
-        {
-            return [];
-        }
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
-        Array.Resize(ref nearest, found);
-
-        return nearest;
+        return lights;
     }
 
     /// <summary>

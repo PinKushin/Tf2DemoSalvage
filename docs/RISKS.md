@@ -36393,6 +36393,49 @@ WorldVertexTransition (`vmt-param`). **Not reproduced, each read in the same fil
 - With `FANCY_BLENDING` the cubemap's contrast and saturation are skipped (`ps2_3_x.h:538-543`); 4 of the 87 declare
   `$envmap`, and the viewer still applies both.
 
+**2026-10-10 (`fix/b514-static-prop-phong`): a phong or bump-mapped static prop is not vertex lit; ported; not yet
+looked at on screen.** The observatory dome (`models/props_hydro/observatory_dome.mdl`, `$phong 1`, no `$bumpmap`)
+drew at 17-82% of TF2 because the viewer drew its `.vhv` colours with no cube and no light. The chain:
+
+- *Read in disassembly*, `studiorender.dll FUN_180057da0` (a model's materials loading), per texture: `$bumpmap`
+  defined on a material that needs a tangent space, OR `$phong` defined with a nonzero integer value, sets
+  `studiohdr_t.flags |= 0x80` — `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (`studio.h:2051`).
+- *Read in disassembly*, `engine.dll FUN_1800eb1a0` (the model draw's caller): static lighting needs draw flag 8,
+  `STUDIOHDR_FLAGS_STATIC_PROP`, an instance, `SupportsColorOnSecondStream` (`+0x148`), and NOT
+  (`GetDXSupportLevel()` (`+0x100`) `>= 80` and `model->flags & 0x200`, `MODELFLAG_STUDIOHDR_USES_BUMPMAPPING`).
+  Refused, no colour mesh reaches the studio render, and `0x1800f1bd0` takes `FUN_1801ba590(handle, …, 7)` at
+  `LAB_1800f1f3b`: the static state, the styled lights, the dlights. *Interpolated*: that `model_t` `0x200` mirrors
+  `studiohdr_t` `0x80` — the two published names; the copy itself was not read.
+- *Read from published source*, `skin_ps20b.fxc:220-222`: the phong shader's diffuse is
+  `PixelShaderDoLighting( …, float3( 0, 0, 0 ), false, true, …, true, … )` — no static colour, the cube, and
+  half-Lambert ALWAYS (`common_vertexlitgeneric_dx9.h:259-264`), whatever `$halflambert` says.
+
+**Built:** `VmtMaterial.MarksModelBumpMapped` and `.UsesSkinShader` (`WantsSkinShader`,
+`vertexlitgeneric_dx9_helper.cpp:38-59`); `PropModels.Read` ORs `StudioModelFlags.UsesBumpmapping` into
+`ModelFrames.StudioFlags` from the model's materials; `StaticPropVertexLighting.RefusesColourMesh`;
+`LevelLighting.StaticPropFullLightingAt` (flags 7); `EntityModelSet` gives such a prop no baked or CPU colours and
+that state; a skin-shader material wraps its light. Tests: `BumpMappedStaticPropLightingConformanceTests`,
+`MomentSceneTests.Pose_AStaticPropWithBakedColours_DrawsThemUnlessItsModelIsFlaggedBumpMapped`,
+`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_…`.
+
+**Measured:** 394 of cp_process_f12's 1,353 placements, 35 models, take this path (the test prints them — mostly
+`props_hydro` and `props_mining` pipes, `sign_gameplay01`, `generator01`); 392 of cp_process_final's 1,625 baked
+placements; `koth_harvest_final`'s `tractor_tire001` (flags `0x91` once loaded) is no longer CPU-baked.
+
+**The wrong turns, kept.** (1) B426/B424 read the model draw and concluded "a baked prop draws its colours" without
+reading how its caller decides a prop is baked — one function up. (2) This entry's own first guess was that the dome
+is sunlit: it is not. The sun's trace from its lighting origin never reaches the sky; what lights it is a `light` of
+intensity 31,373 the mapper stood 290 units from each dome, which is in the prop's state and was never in front of the
+phong term. (3) The half-Lambert change moves every skin-shader material that did not ask for it — `scout_red` says
+`$halflambert 0` — so the golden values in `PhongLocalLightRenderTests.PhongRender_TheSunAlone_…` were re-pinned
+(measured, not predicted).
+
+**Not reproduced:** the engine walks the model's whole texture list, the port the textures some skin family paints a
+mesh with; `$phong` reset to 0 by `mat_phong 0` or pre-ps_2_b hardware (`vertexlitgeneric_dx9_helper.cpp:105-109`);
+a `$bumpmap` on a shader outside the VertexLitGeneric family is assumed to need a tangent space; one ranking over
+static, styled and dynamic lights; and a `.vhv` on a model NOT compiled `$staticprop` — which the same test refuses
+static lighting — still draws its colours here.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`

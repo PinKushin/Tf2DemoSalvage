@@ -3,6 +3,11 @@
 **A correction to B424.** A static prop with a colour mesh (vrad's `.vhv`, or the CPU-lit mesh of
 [65](65-an-unbaked-static-prop-is-lit-once.md)) beside a flickering or switched lamp.
 
+**Not every prop with a `.vhv` has a colour mesh** (2026-10-10, B514): a model flagged
+`STUDIOHDR_FLAGS_USES_BUMPMAPPING` — any `$phong` or `$bumpmap` material — is refused static lighting one function
+above this draw (`engine.dll FUN_1800eb1a0`) and takes flags 7. See `docs/RISKS.md` B514 and
+[76](76-the-golden-comparison.md), "B514 part 4".
+
 ## The wrong turn
 
 The model draw, `engine.dll` `0x1800f1bd0`, handles a static prop's colour mesh in two branches, split by

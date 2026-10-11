@@ -137,3 +137,4 @@
 - [Steerable work is done inline](steerable-work-is-done-inline.md) — live TF2/visual/instrument work in the main session; engine ports to opus agents; compact at task boundaries.
 - [Agents ask the owner client questions](agents-ask-the-owner-client-questions.md) — stuck on TF2 client behaviour = stop and ask; one line in every brief.
 - [The engine rewrites data between the file and the shader](the-engine-rewrites-data-between-the-file-and-the-shader.md) — bumped lightmaps renormalized on upload; check the upload step first (B514 part 4).
+- [A phong static prop is not vertex lit](a-phong-static-prop-is-not-vertex-lit.md) — `$phong`/`$bumpmap` flags the model; no `.vhv` colours, flags 7; read the caller (B514).

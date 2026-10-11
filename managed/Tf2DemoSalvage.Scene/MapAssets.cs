@@ -431,6 +431,7 @@ public readonly record struct MapPlacedCubemap(
 /// </param>
 /// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
 /// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
+/// <param name="MarksModelBumpMapped"><see cref="VmtMaterial.MarksModelBumpMapped"/>: a model drawing it loses its baked colours (B514).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -453,7 +454,8 @@ public readonly record struct ResolvedMaterial(
     IReadOnlyList<MapTexture>? AnimationFrames = null,
     string? DetailAnimation = null,
     MapWater? Water = null,
-    MapTexture? BlendModulation = null);
+    MapTexture? BlendModulation = null,
+    bool MarksModelBumpMapped = false);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -2861,7 +2863,8 @@ public sealed class MapAssets
             ResolveAnimationFrames(),
             ResolveDetailAnimation(),
             ResolveWater(),
-            ResolveBlendModulation());
+            ResolveBlendModulation(),
+            material.MarksModelBumpMapped);
 
         MapTexture? ResolveBlendModulation()
         {
@@ -3479,7 +3482,9 @@ public sealed class MapAssets
                     material.IsModulateTwice,
                     material.IsNoCull,
                     material.IsTwoTexture,
-                    material.IsHalfLambert,
+
+                    // The skin shader wraps its light whether the material asks or not (`skin_ps20b.fxc:222`, B514).
+                    material.IsHalfLambert || material.UsesSkinShader,
                     material.AlphaTestReference,
 
                     // **Null rather than white when the material names neither**, so the renderer

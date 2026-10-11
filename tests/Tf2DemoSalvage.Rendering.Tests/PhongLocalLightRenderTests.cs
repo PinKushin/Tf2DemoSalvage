@@ -148,10 +148,16 @@ public sealed class PhongLocalLightRenderTests
     /// uniform cube — which leaves nothing the fix may change: one light, a white tint, no rim mask, and a
     /// cube that reads the same along the eye as against it. A second sun term, a lost one, or a changed
     /// order of the same multiplications moves these.
+    ///
+    /// **Re-pinned 2026-10-10 (B514), measured and not predicted:** the skin shader's diffuse is half-Lambert whatever
+    /// `$halflambert` says (`skin_ps20b.fxc:220-222`, the literal `true` in the `bHalfLambert` slot of
+    /// `common_vertexlitgeneric_dx9.h:259-264`), and none of these three materials asks for it — scout_red says
+    /// `$halflambert 0` outright. At this grazing sun the wrapped term is larger than the clamped one: scout_red was
+    /// 36 25 26 and bottle001 207 204 199; TV001 moved by one, inside the tolerance.
     /// </remarks>
-    [TestCase("models/player/scout/scout_red", 36, 25, 26)]
+    [TestCase("models/player/scout/scout_red", 70, 30, 30)]
     [TestCase("models/props_spytech/TV001", 41, 40, 40)]
-    [TestCase("models/props_gameplay/bottle001", 207, 204, 199)]
+    [TestCase("models/props_gameplay/bottle001", 216, 212, 206)]
     public void PhongRender_TheSunAlone_DrawsWhatItDrewBefore(string name, int red, int green, int blue)
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(Size, Size);

@@ -51,6 +51,19 @@ public sealed class StaticPropModelsWiringTests
         List<ModelInstance> coloured = [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
 
         coloured.Count.ShouldBe(baked, "every baked placement is drawn");
+
+        // **Except a model flagged bump mapped** (B514): a `$phong` or `$bumpmap` material takes the whole model off
+        // its colours (`studiorender.dll FUN_180057da0`, `engine.dll FUN_1800eb1a0`).
+        Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
+        bool Refused(ModelInstance instance) =>
+            StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags);
+
+        List<ModelInstance> refused = [.. coloured.Where(Refused)];
+        coloured = [.. coloured.Where(instance => !Refused(instance))];
+
+        TestContext.Out.WriteLine($"REFERENCE MAP {refused.Count} of {baked} baked placements are bump mapped and draw no colour mesh");
+        refused.Count.ShouldBeInRange(1, baked - 1, "the control: the map has both kinds");
+        refused.Count(instance => instance.BakedColours is not null).ShouldBe(0, "a bump-mapped placement drawn with a colour mesh");
         coloured.Count(instance => instance.BakedColours is null)
             .ShouldBe(0, "a baked placement drawn without its colour mesh");
         coloured.Count(instance => instance.Light is not null || instance.Locals is { Count: > 0 })
@@ -139,7 +152,17 @@ public sealed class StaticPropModelsWiringTests
         List<ModelInstance> drawn = [];
         models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
 
-        List<ModelInstance> baked = [.. drawn.Where(instance => assets.StaticModelColours.ContainsKey(instance.EntityIndex))];
+        // A model flagged bump mapped never had the colour mesh to keep (B514); those are not this test's subject.
+        Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
+
+        List<ModelInstance> baked =
+        [
+            .. drawn.Where(instance =>
+                assets.StaticModelColours.ContainsKey(instance.EntityIndex) &&
+                !StaticPropVertexLighting.RefusesColourMesh(assets.Geometry(byEntity[instance.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags)),
+        ];
+
+        baked.Count.ShouldBeGreaterThan(0, "the control: the map has baked placements that keep their colours");
         baked.Count(instance => instance.BakedColours is null).ShouldBe(0, "DX9 never drops the colour mesh");
 
         List<ModelInstance> lit = [.. baked.Where(instance => instance.Locals is { Count: > 0 })];
@@ -153,6 +176,95 @@ public sealed class StaticPropModelsWiringTests
         {
             lit.ShouldBeEmpty();
         }
+    }
+
+    /// <remarks>
+    /// **B514, on the parity map.** `models/props_hydro/observatory_dome.mdl` draws
+    /// `materials/models/props_hydro/observatory_dome.vmt`, a `VertexLitGeneric` with `$phong 1` and no `$bumpmap`.
+    /// `studiorender.dll FUN_180057da0` flags the model `STUDIOHDR_FLAGS_USES_BUMPMAPPING` for the `$phong`, and
+    /// `engine.dll FUN_1800eb1a0` then refuses it static lighting: its `.vhv` colours are never drawn, and it is lit by
+    /// its handle's full state (`FUN_1801ba590` flags 7) — the leaf cube and its local lights. The viewer drew the
+    /// colours with no cube and no light for the phong term, at 17-82% of TF2. The census at the end is every
+    /// placement on the map that takes the same path.
+    /// </remarks>
+    [Test]
+    public void Instances_CpProcessF12ObservatoryDome_DrawsWithoutItsBakedColoursUnderItsFullStateAndTheSun()
+    {
+        const string Map = "cp_process_f12";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("cp_process_f12 or the game is not installed");
+            return;
+        }
+
+        MapAssets assets = MapCache.With(mapName: Map).Assets;
+        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+
+        EntityModelSet models = new()
+        {
+            Geometry = assets.Geometry,
+            StaticPropColours = assets.StaticModelColours,
+            StaticPlusDynamicLights = lighting.StaticPlusDynamicLights,
+            StaticPropLighting = lighting.StaticPropLightingAt,
+            StaticPropFullLighting = lighting.StaticPropFullLightingAt,
+        };
+
+        models.Add(assets.StaticModels);
+
+        List<ModelInstance> drawn = [];
+        models.Instances(assets.StaticModels, drawn, lighting.ModelLightingAt, lighting.ModelSunAt);
+
+        Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
+        List<ModelInstance> domes =
+            [.. drawn.Where(instance => byEntity[instance.EntityIndex].ModelPath.Contains("observatory_dome", StringComparison.OrdinalIgnoreCase))];
+
+        domes.Count.ShouldBe(2, "the control: the map places the dome twice");
+
+        foreach (ModelInstance dome in domes)
+        {
+            int flags = assets.Geometry(byEntity[dome.EntityIndex].ModelPath).ShouldNotBeNull().StudioFlags;
+
+            (flags & Content.Assets.StudioModelFlags.UsesBumpmapping).ShouldNotBe(0, "its $phong material flags the model at load");
+            assets.StaticModelColours.ContainsKey(dome.EntityIndex).ShouldBeTrue("the control: vrad baked colours for it, which the engine does not draw");
+            Core.Scene.ScenePose at = byEntity[dome.EntityIndex].Pose;
+
+            TestContext.Out.WriteLine(
+                $"F12 DOME entity {dome.EntityIndex} at ({at.X:0} {at.Y:0} {at.Z:0}): sun {(dome.Sun is null ? "none" : "yes")}, lamps " +
+                string.Join(" | ", (dome.Locals ?? []).Select(lamp => $"({lamp.X:0} {lamp.Y:0} {lamp.Z:0}) {lamp.Red:0} {lamp.Green:0} {lamp.Blue:0}")));
+
+            dome.BakedColours.ShouldBeNull("refused its colour mesh");
+
+            // **The light that makes it bright in TF2 is not the sun** — the sun's trace from its lighting origin does
+            // not reach the sky — but a `light` the mapper stood beside each dome: intensity 31,373, 290 units away.
+            dome.Locals.ShouldNotBeNull().ShouldContain(
+                lamp => lamp.Red > 30000f && MathF.Abs(lamp.X - at.X) < 400f && MathF.Abs(lamp.Y - at.Y) < 400f,
+                "the lamp beside the dome is in its state, which its colours alone never gave the phong term");
+            dome.Light.ShouldNotBeNull("lit by its handle's cube");
+        }
+
+        // The census, for what else changes on screen: every placement whose model is flagged, by model.
+        List<IGrouping<string, Core.Scene.SceneProp>> refused =
+        [
+            .. assets.StaticModels
+                .Where(prop => assets.Geometry(prop.ModelPath) is { } frames && StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags))
+                .GroupBy(prop => prop.ModelPath, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(group => group.Count()),
+        ];
+
+        TestContext.Out.WriteLine(
+            $"F12 BUMP-MAPPED STATIC PROPS {refused.Sum(group => group.Count())} of {assets.StaticModels.Count} placements, {refused.Count} models");
+
+        foreach (IGrouping<string, Core.Scene.SceneProp> group in refused)
+        {
+            TestContext.Out.WriteLine($"  {group.Count(),4}  {group.Key}");
+        }
+
+        drawn.Count(instance =>
+                assets.Geometry(byEntity[instance.EntityIndex].ModelPath) is { } frames &&
+                StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags) &&
+                instance.BakedColours is not null)
+            .ShouldBe(0, "a flagged placement drawn with a colour mesh");
     }
 
     /// <remarks>
@@ -192,12 +304,18 @@ public sealed class StaticPropModelsWiringTests
 
         Dictionary<int, Core.Scene.SceneProp> byEntity = assets.StaticModels.ToDictionary(prop => prop.EntityIndex);
         int compiledStatic = 0;
+        int bumpMapped = 0;
 
         foreach (ModelInstance instance in unbaked)
         {
             string path = byEntity[instance.EntityIndex].ModelPath;
             int flags = assets.Geometry(path).ShouldNotBeNull().StudioFlags;
-            bool cpu = StaticPropVertexLighting.Lights(flags);
+
+            // A model flagged bump mapped is refused a colour mesh of either kind (B514, `engine.dll FUN_1800eb1a0`).
+            bool cpu = StaticPropVertexLighting.Lights(flags) && !StaticPropVertexLighting.RefusesColourMesh(flags);
+
+            bumpMapped += StaticPropVertexLighting.RefusesColourMesh(flags) ? 1 : 0;
+            TestContext.Out.WriteLine($"HARVEST UNBAKED {path} flags 0x{flags:X} cpu {cpu}");
 
             if (cpu)
             {
@@ -212,7 +330,8 @@ public sealed class StaticPropModelsWiringTests
             }
         }
 
-        compiledStatic.ShouldBe(8, "measured 2026-09-28: all eight are box_cluster01/02 and tractor_tire001, flags 0x11");
+        (compiledStatic + bumpMapped).ShouldBe(8, "measured 2026-09-28: all eight are box_cluster01/02 and tractor_tire001, flags 0x11 in the file");
+        compiledStatic.ShouldBeGreaterThan(0, "the control: some are still CPU-lit");
     }
 
     /// <summary>A measurement, not a test (D38): per map, placements refused at the header and those with `.vhv` meshes `FUN_1800f1550` never writes (B436).</summary>

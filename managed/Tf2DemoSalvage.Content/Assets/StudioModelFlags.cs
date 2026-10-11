@@ -72,5 +72,15 @@ public static class StudioModelFlags
     /// static prop's CPU colour mesh takes <see cref="StudioModelInfo.ConstantDirectionalLightDot"/> / 255 in place of
     /// each light's N·L (B429).
     /// </summary>
+    /// <summary>
+    /// <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> (<c>studio.h:2051</c>): "set at loadtime, not mdl build time".
+    /// </summary>
+    /// <remarks>
+    /// *Read in disassembly*, <c>studiorender.dll FUN_180057da0</c>: OR'd in while the model's materials load, for
+    /// any one of them that marks it (<see cref="VmtMaterial.MarksModelBumpMapped"/>). The engine draws a static prop
+    /// carrying it without its colour mesh (<c>engine.dll FUN_1800eb1a0</c>).
+    /// </remarks>
+    public const int UsesBumpmapping = 0x00000080;
+
     public const int ConstantDirectionalLightDot = 0x00002000;
 }
