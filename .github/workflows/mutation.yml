@@ -53,10 +53,13 @@ jobs:
     name: Core (synthetic)
     if: inputs.project == ''
     runs-on: ubuntu-latest
-    # 33m05s measured on the Oracle box; this runner's speed relative to that is not yet known,
-    # so the ceiling is set well clear of it rather than tuned. A job killed at the timeout uploads
-    # nothing and the `if-no-files-found: error` below then reports a second, misleading failure.
-    timeout-minutes: 90
+    # Measured on THIS runner, 2026-10-11 (run 38150295652): 8,357 mutants in 1h35m33s with the
+    # MutationHeavy tests filtered out (tests/STRYKER-NOTES.md). The old 90 was sized from the Oracle
+    # box's 33m05s and the job was cancelled at it every day from 2026-09-30, uploading nothing. 150
+    # leaves room for the mutant count to grow by half; when a run nears it, look for a new slow
+    # test before raising it again. A job killed at the timeout uploads nothing and the
+    # `if-no-files-found: error` below then reports a second, misleading failure.
+    timeout-minutes: 150
     steps:
       # No Git LFS here at all. After the D25 split this project is entirely synthetic - it does
       # not read a single demo - so it costs none of the account's 1 GiB/month LFS bandwidth and
