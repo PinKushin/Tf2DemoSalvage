@@ -625,6 +625,15 @@ public sealed class VmtMaterial
     /// </remarks>
     public (float Red, float Green, float Blue) DetailTint => Colour("$detailtint");
 
+    /// <summary>The texture whose red and green shape a two-texture material's blend edge, without extension, or null.</summary>
+    /// <remarks>
+    /// `$blendmodulatetexture` (`worldvertextransition.cpp:59`, `lightmappedgeneric_dx9.cpp:58`): see
+    /// <see cref="BlendModulation"/>. Its companions `$maskedblending` and `$blendmasktransform` are not read: no
+    /// shipped material declares either, and the engine only loads the transform when masked blending is on
+    /// (`lightmappedgeneric_dx9_helper.cpp:627-631`).
+    /// </remarks>
+    public string? BlendModulateTexture => Value("$blendmodulatetexture");
+
     /// <summary>The normal or self-shadowing bump map, without extension, or null.</summary>
     public string? BumpMap => Value("$bumpmap");
 

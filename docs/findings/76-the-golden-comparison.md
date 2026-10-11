@@ -410,3 +410,14 @@ Valve's, while "lighting proper" sat fourth in the list of remainders.
 *Interpolated, not measured:* the same arithmetic also pulls DOWN a bump-lit face whose raw average exceeds its flat
 set, which may be part of the sunlit brick wall's +22% and the panel's +20% in the table above. The golden comparison
 has not been re-run since the change.
+
+**The soft dirt-to-grass edge was a second missing step on the same material** (`fix/b514-blendmodulate`). *Read from
+published source; measured on shipped data.* A WorldVertexTransition does not mix its two base textures by the vertex
+alpha: where the material names a `$blendmodulatetexture` the alpha goes through
+`smoothstep( saturate( g − r ), saturate( g + r ), alpha )` of that texture's texel first
+(`lightmappedgeneric_ps2_3_x.h:319-333`) — green is where the edge sits, red half its width, so the line follows the
+mask's pattern and a red of zero is a hard step. 87 shipped materials declare one, every one a WorldVertexTransition,
+none with `$maskedblending` or `$blendmasktransform` (`vmt-param`); `blendgroundtograss007` names
+`Nature/grass_blendmask`. Ported as `BlendModulation` and the pixel shader's own lines; what the branch does not
+reproduce (the non-fast-path coordinate, height fog, `$bumpmap2`'s blended normals, the envmap terms it skips) is
+listed in `docs/RISKS.md` B514. Not yet compared on screen.

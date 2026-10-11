@@ -34,6 +34,9 @@ internal static class MaterialCensus
         "$basetexture",
         "$basetexture2",
 
+        // The edge between the two (B514): `VmtMaterial.BlendModulateTexture`, `BlendModulation`, WorldRenderer.
+        "$blendmodulatetexture",
+
         // Implemented together with UnLitTwoTexture and the Modulate blend: the second texture is
         // decoded and multiplied, $nocull turns culling off for its material, and $mod2x selects
         // the doubled modulate factors. Moved here the moment they were consumed, which is what

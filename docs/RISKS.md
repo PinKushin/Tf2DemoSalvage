@@ -36369,6 +36369,30 @@ and why the entry stays OPEN**: the observatory dome (a prop) at 17-82%; the fen
 (`lightmappedgeneric_ps2_3_x.h:319-332`); indoors the lamp area is B521 and the left wall sits at 72-90%. A dark band
 across the foreground at ticks 45091 and 46500, absent at 60000, is dynamic and not yet identified.
 
+**2026-10-10 (`fix/b514-blendmodulate`): `$blendmodulatetexture` ported; not yet looked at on screen.** *Read from
+published source; measured on shipped data.* A WorldVertexTransition's mix is
+`smoothstep( saturate( g − r ), saturate( g + r ), vertex alpha )` of the mask texel
+(`lightmappedgeneric_ps2_3_x.h:319-333`), read raw on sampler 3 (`lightmappedgeneric_dx9_helper.cpp:315-317,
+430-434, 568, 858-861`) at the base texture coordinate (`lightmappedgeneric_vs20.fxc:166-169`). Now
+`BlendModulation.Factor`/`Applies`, the same lines in `WorldRenderer`'s pixel shader, `MapAssets.BlendModulations`;
+`BlendModulationConformanceTests`, whose real-data assertion is that cp_process_f12's material table carries the mask
+for `NATURE/BLENDGROUNDTOGRASS007` (3 of its 368 materials carry one). **No test reads a pixel of it** — the edge on
+screen is a question for the golden comparison, which takes the desktop. Shipped: 87 materials, all
+WorldVertexTransition (`vmt-param`). **Not reproduced, each read in the same files:**
+
+- `$maskedblending` (`modt.g` alone, `:321-327`) and `$blendmasktransform`: 0 shipped materials declare either, and
+  the engine loads the transform only when masked blending is on AND `$bumptransform` is not identity (`helper:627-631`
+  — it tests the bump transform, not the mask's).
+- The 2 of 87 that also declare `$detail` leave the vertex shader's fast path (`helper:646-649`), where the mask
+  coordinate is `cBlendMaskTexCoordTransform` — a register that material never sets. What it holds is whatever the
+  last material to set it left; the viewer uses the base coordinate there too. *Interpolated.*
+- `PIXELFOGTYPE != PIXEL_FOG_TYPE_HEIGHT`: under water the engine drops back to the raw vertex blend; the viewer keeps
+  the mask.
+- `$bumpmap2` (34 of the 87): the engine mixes the two normal maps by the same factor (`ps2_3_x.h:376-383`); the
+  viewer reads no `$bumpmap2` at all, so those faces are lit through the first bump map alone.
+- With `FANCY_BLENDING` the cubemap's contrast and saturation are skipped (`ps2_3_x.h:538-543`); 4 of the 87 declare
+  `$envmap`, and the viewer still applies both.
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
