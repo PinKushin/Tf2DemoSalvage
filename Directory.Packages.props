@@ -30,7 +30,7 @@
 
   <ItemGroup Label="Analyzers">
     <!-- Referenced from Directory.Build.props, so it applies to every project. -->
-    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.34.0.3385" />
+    <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" />
   </ItemGroup>
 
   <ItemGroup Label="Runtime">
@@ -108,7 +108,7 @@
     <PackageVersion Include="NUnit3TestAdapter" Version="6.3.0" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
-    <PackageVersion Include="coverlet.collector" Version="10.0.1" />
+    <PackageVersion Include="coverlet.collector" Version="10.1.0" />
 
     <!-- Property-based testing, and the fuzzing bridge. -->
     <PackageVersion Include="CsCheck" Version="4.9.1" />
