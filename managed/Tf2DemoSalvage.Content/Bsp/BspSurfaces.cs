@@ -52,12 +52,21 @@ public readonly record struct LuxelMapping(
     /// <returns>The coordinate, unclamped.</returns>
     public (float U, float V) Project(float x, float y, float z) =>
         (
-            Width > 0
-                ? ((Across.X * x) + (Across.Y * y) + (Across.Z * z) + Across.Offset - MinU) / Width
-                : 0f,
-            Height > 0
-                ? ((Down.X * x) + (Down.Y * y) + (Down.Z * z) + Down.Offset - MinV) / Height
-                : 0f);
+            Coordinate((Across.X * x) + (Across.Y * y) + (Across.Z * z) + Across.Offset - MinU, Width),
+            Coordinate((Down.X * x) + (Down.Y * y) + (Down.Z * z) + Down.Offset - MinV, Height));
+
+    /// <summary>A luxel coordinate past the face's mins as the face's own 0-to-1: 0 on the first luxel, 1 on the last.</summary>
+    /// <param name="luxel">The coordinate in luxels, from the face's mins.</param>
+    /// <param name="count">How many luxels the face has along that axis.</param>
+    /// <returns><c>luxel / ( count − 1 )</c>, or zero for a face one luxel wide.</returns>
+    /// <remarks>
+    /// **Over the SPAN, <c>count − 1</c>, not the count** (B521). vrad evaluates luxel <c>s</c> at luxel-space <c>s</c>
+    /// (`utils/vrad/lightmap.cpp:847-866`), so the first luxel's centre is coordinate 0 and the last's is
+    /// <c>count − 1</c> — and 0 and 1 are where <c>LightmapAtlas</c> puts those two centres. The engine says the same
+    /// as <c>( s − mins + 0.5 ) / count</c> of a rectangle <c>count</c> texels wide. Dividing by the count instead
+    /// drew every brush face's light squeezed toward its mins, by up to a luxel at the far edge.
+    /// </remarks>
+    public static float Coordinate(float luxel, int count) => count > 1 ? luxel / (count - 1) : 0f;
 }
 
 /// <summary>A face ready to draw: its corners, its material and its baked lighting.</summary>
@@ -246,12 +255,10 @@ public static class BspSurfaces
                 // texinfo. Subtracting this face's own mins is what places it inside its own
                 // lightmap; without that every face samples the wrong patch of light, and the map
                 // still looks lit.
-                float lightU = luxelWidth > 0
-                    ? (Project(info, TexinfoLightmapVecsOffset, x, y, z) - luxelMinU) / luxelWidth
-                    : 0f;
-                float lightV = luxelHeight > 0
-                    ? (Project(info, TexinfoLightmapVecsOffset + 16, x, y, z) - luxelMinV) / luxelHeight
-                    : 0f;
+                float lightU = LuxelMapping.Coordinate(
+                    Project(info, TexinfoLightmapVecsOffset, x, y, z) - luxelMinU, luxelWidth);
+                float lightV = LuxelMapping.Coordinate(
+                    Project(info, TexinfoLightmapVecsOffset + 16, x, y, z) - luxelMinV, luxelHeight);
 
                 vertices.Add(new SurfaceVertex(x, y, z, u, v, lightU, lightV));
             }

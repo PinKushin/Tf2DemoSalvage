@@ -383,6 +383,19 @@ public sealed class VmtMaterial
     public bool IgnoresVertexColors => Flag("$ignorevertexcolors");
 
     /// <summary>
+    /// Whether a <c>Sprite</c> material reads and writes without the sRGB curve — <c>$nosrgb</c>, TRUE unless the
+    /// material clears it (B521).
+    /// </summary>
+    /// <remarks>
+    /// <c>if ( !params[NOSRGB]-&gt;IsDefined() ) params[NOSRGB]-&gt;SetIntValue( 1 )</c>, "Disable sRGB reads and writes
+    /// by default" (`sprite_dx9.cpp:63-67`) — a default the shader sets itself, so unlike
+    /// <see cref="IgnoresVertexColors"/>'s it is real. Set, the texture is bound with <c>EnableSRGBRead( false )</c>,
+    /// the pixel shader scales by <c>TONEMAP_SCALE_GAMMA</c> and the write is <c>EnableSRGBWrite( false )</c>
+    /// (`:124`, `:163`, `sprite_ps2x.fxc:51`): stored texel onto stored frame.
+    /// </remarks>
+    public bool SpriteNoSrgb => Value("$nosrgb") is null || Flag("$nosrgb");
+
+    /// <summary>
     /// How a <c>Sprite</c> material's quad is turned — <c>$spriteorientation</c>, as the shader
     /// translates it (B390).
     /// </summary>

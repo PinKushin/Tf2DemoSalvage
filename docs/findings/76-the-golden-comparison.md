@@ -465,3 +465,21 @@ colour at the lamp was 1.000 where the engine's is 0.1656, and 1.000 at the far 
 declared default is documentation; the default is whatever the initialiser does.** The halo already matched the engine
 value for value, so the missing warm glow on the ceiling is not a missing halo — undecided until a capture (RISKS
 B521, which also files the sprite pass's missing tone-map scale).
+
+**The dim ceiling band and the darker wall beside the lamps were two faults, and neither was the lamps' light**
+(`fix/b521-indoor-light`, 2026-10-11). The halo was right in size and colour and wrong in SPACE: *read from published
+source*, the Sprite shader sets `$nosrgb` on itself, reads its texture and writes its result without the sRGB curve,
+and scales by the gamma light scale — so a glow's stored texel is added to the frame's stored value, where the viewer
+decoded it and added it in linear light. Over a dark surface the engine's sum is far brighter; *measured*, predicting
+TF2's pixels from ours by that rule lands within 5 of 255 across the first lamp's glow, where the pictures differed by
+45. The wall was something older and wider: a brush face's lightmap coordinate divided by its luxel COUNT where vrad
+puts luxel `s` AT coordinate `s`, so the span is one less (*read from published source*, `utils/vrad/lightmap.cpp`).
+Every brush face in every map had its light squeezed toward its origin by up to a luxel. *Measured* with `pixel-face`
+at five points on two walls: TF2's pixels imply the face's own luxels at the true coordinate to within twelve
+percent; ours implied the value half a luxel back — 0.185 against 0.459 under the lamps. **Why two months of tile
+comparisons did not show it:** a displaced pattern averages to the same number over a flat wall, and reads over in
+one tile and under in the next where a pool of light has an edge — exactly the 116-126% patch beside the 72-90% one.
+**The wrong turn:** the brief, and the first hour, went looking for a missing light — a dlight from the spotlight's
+end, a styled lightmap, a specular term. The face under the pixel had one style, no bump map and no envmap; the
+light was all there, a third of a luxel to one side. The instrument that settled it is new: a ray from the capture's
+own camera through the pixel, naming the face (RISKS B521).

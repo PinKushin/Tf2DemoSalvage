@@ -73,6 +73,7 @@ public readonly record struct EngineSprite(
     /// <param name="modulation">Its <c>$color</c> × <c>$color2</c> and <c>$alpha</c>, for a non-Sprite shader.</param>
     /// <param name="vertexColour">Its <c>$vertexcolor</c>.</param>
     /// <param name="vertexAlpha">Its <c>$vertexalpha</c>.</param>
+    /// <param name="noSrgb">Its <c>$nosrgb</c>, true when absent; see <see cref="VmtMaterial.SpriteNoSrgb"/>.</param>
     /// <returns>The sprite.</returns>
     /// <remarks>
     /// **Sized by the MAPPING size, the texture as authored** (B390):
@@ -98,9 +99,14 @@ public readonly record struct EngineSprite(
         string shader = SpriteShader,
         (float Red, float Green, float Blue, float Alpha)? modulation = null,
         bool vertexColour = false,
-        bool vertexAlpha = false) =>
+        bool vertexAlpha = false,
+        bool noSrgb = true) =>
         new(
-            new ParticleMaterial(texture, sequences, blend),
+            // The Sprite shader alone has a gamma path, and takes it unless the material clears `$nosrgb` (B521).
+            new ParticleMaterial(texture, sequences, blend)
+            {
+                GammaSpace = noSrgb && string.Equals(shader, SpriteShader, System.StringComparison.OrdinalIgnoreCase),
+            },
             texture.MappingWidth,
             texture.MappingHeight,
             orientation,

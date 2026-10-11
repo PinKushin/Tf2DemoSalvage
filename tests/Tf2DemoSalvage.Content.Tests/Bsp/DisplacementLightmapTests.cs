@@ -79,6 +79,12 @@ public sealed class DisplacementLightmapTests
         // Valve's own assignment runs 0.5 to size + 0.5 luxels, so a corner sits at a texel CENTRE
         // and never at the image edge. Running corner to corner instead samples half a texel of the
         // neighbouring face along every border, which is a bright seam around each patch.
+        //
+        // **In this project's coordinate that is exactly 0 and exactly 1** (B521): `LightmapAtlas` puts a
+        // face's first texel centre at 0 and its last at 1, so the patch's edge-to-edge run is the whole
+        // unit. This test asked only for "inside (0, 1)", and passed for years on a coordinate that was
+        // half a luxel inside the first centre and half a luxel short of the last — the same
+        // count-for-span slip `LuxelCoordinateConformanceTests` pins for brush faces, from the other side.
         if (MapFile is not { } path)
         {
             Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run this.");
@@ -93,7 +99,9 @@ public sealed class DisplacementLightmapTests
 
         IReadOnlyList<SurfaceVertex> triangles = terrain.ReadTriangles(displacement);
 
-        triangles.Min(vertex => vertex.LightU).ShouldBeGreaterThan(0f);
-        triangles.Max(vertex => vertex.LightU).ShouldBeLessThan(1f);
+        triangles.Min(vertex => vertex.LightU).ShouldBe(0f, 1e-6f);
+        triangles.Max(vertex => vertex.LightU).ShouldBe(1f, 1e-6f);
+        triangles.Min(vertex => vertex.LightV).ShouldBe(0f, 1e-6f);
+        triangles.Max(vertex => vertex.LightV).ShouldBe(1f, 1e-6f);
     }
 }

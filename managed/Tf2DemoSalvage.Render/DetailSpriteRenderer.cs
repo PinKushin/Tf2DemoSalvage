@@ -54,6 +54,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         cbuffer Camera : register(b4)
         {
             row_major float4x4 viewProjection;
+            float4 colourScale;     // sprite_ps2x.fxc's GAMMA_LIGHT_SCALE for a gamma-space batch, else one (B521)
         };
 
         Texture2D sheet : register(t0);
@@ -82,7 +83,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
             VsOut output;
             output.pos = mul(float4(input.pos, 1.0f), viewProjection);
             output.uv = input.uv;
-            output.col = input.col;
+            output.col = input.col * colourScale;
             output.next = input.next;
 
             // Refract_vs20.fxc: "Map projected position to the refraction texture", y inverted, divided per pixel.
@@ -529,6 +530,12 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
     /// <param name="depth">The depth state; particles and detail sprites keep the default, tested and unwritten.</param>
     public void SetDepth(SpriteDepth depth) => _depth = depth;
 
+    /// <summary>What every corner's colour is multiplied by — the gamma light scale for a gamma-space batch, else one (B521).</summary>
+    /// <param name="scale"><c>FinalOutput( …, TONEMAP_SCALE_GAMMA )</c>'s factor; see <see cref="GammaLightScale"/>.</param>
+    public void SetColourScale(float scale) => _colourScale = scale;
+
+    private float _colourScale = 1f;
+
     /// <summary>Whether there is anything to draw.</summary>
     public bool HasSprites => _sheet.Handle is not null && _corners > 0;
 
@@ -781,7 +788,7 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         {
             BufferDesc description = new()
             {
-                ByteWidth = CameraConstants * sizeof(float),
+                ByteWidth = (CameraConstants + 4) * sizeof(float),
                 Usage = Usage.Dynamic,
                 BindFlags = (uint)BindFlag.ConstantBuffer,
                 CPUAccessFlags = (uint)CpuAccessFlag.Write,
@@ -881,6 +888,14 @@ public sealed unsafe class DetailSpriteRenderer : IDisposable
         fixed (float* first = viewProjection)
         {
             Unsafe.CopyBlock(mapped.PData, first, CameraConstants * sizeof(float));
+        }
+
+        // `colourScale`, after the matrix: rgb the scale, alpha untouched.
+        Span<float> scale = [_colourScale, _colourScale, _colourScale, 1f];
+
+        fixed (float* first = scale)
+        {
+            Unsafe.CopyBlock((float*)mapped.PData + CameraConstants, first, 4 * sizeof(float));
         }
 
         context.Unmap(_camera, 0);

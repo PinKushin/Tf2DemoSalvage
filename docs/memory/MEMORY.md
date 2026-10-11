@@ -39,7 +39,7 @@
 - [Death is EF_NODRAW](death-is-ef-nodraw-not-an-animation.md); [a corpse is simulated](a-tf2-corpse-is-simulated-not-sent.md), not sent.
 - [Pose parameters live in the included model](pose-parameters-live-in-the-included-model.md) — paramindex is group-local.
 - [Material variables split three ways](material-variables-split-three-ways.md) — proxies per draw.
-- [Struct padding is on disk](struct-padding-is-on-disk.md) — stride is sizeof(); [address a struct by name](address-a-struct-by-name-not-from-its-end.md).
+- [Struct padding is on disk](struct-padding-is-on-disk.md) — stride is sizeof(); [address a struct by name](address-a-struct-by-name-not-from-its-end.md); [a count is not a span](a-count-is-not-a-span.md) — lightmap coords (B521).
 - [Test naming](test-naming-convention.md) — {Subject}_{Scenario}_{Expected}.
 - [A nullable pattern on a struct is dead code](nullable-pattern-on-a-struct-is-dead-code.md).
 - [A player has two viewmodels](a-player-has-two-viewmodels.md); [a player is not a prop track](a-player-is-not-a-prop-track.md).

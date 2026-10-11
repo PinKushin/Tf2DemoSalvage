@@ -194,6 +194,49 @@ public sealed class SpriteMaterialConformanceTests
     }
 
     /// <remarks>
+    /// **A Sprite material works in GAMMA space unless it says otherwise** (B521) — *read from published source*:
+    /// <c>if ( !params[NOSRGB]-&gt;IsDefined() ) params[NOSRGB]-&gt;SetIntValue( 1 )</c>, under "Disable sRGB reads and
+    /// writes by default" (`sprite_dx9.cpp:63-67`). This default IS applied, because the shader sets it itself — the
+    /// opposite of <c>$ignorevertexcolors</c> above, whose declared "1" nobody applies. With it set the texture is
+    /// bound with <c>EnableSRGBRead( false )</c>, the vertex colour is not converted (<c>sprite_vs20.fxc:52-56</c>),
+    /// the pixel shader scales by <c>TONEMAP_SCALE_GAMMA</c>, and the write is <c>EnableSRGBWrite( false )</c>: the
+    /// stored texel is added to the stored frame. Neither lamp material names <c>$nosrgb</c>.
+    /// </remarks>
+    [Test]
+    public void SpriteNoSrgb_WhenTheMaterialDeclaresNone_IsTrue()
+    {
+        Sprite(string.Empty).SpriteNoSrgb.ShouldBeTrue();
+    }
+
+    /// <remarks>The control: a material that asks for sRGB gets the linear path the viewer always drew.</remarks>
+    [TestCase("0", false)]
+    [TestCase("1", true)]
+    public void SpriteNoSrgb_WhenTheMaterialSetsIt_IsWhatItSays(string value, bool expected)
+    {
+        Sprite($"\"$nosrgb\" \"{value}\"").SpriteNoSrgb.ShouldBe(expected);
+    }
+
+    /// <remarks>
+    /// **The four lines the gamma path rests on, as the published shader has them.** A reading of the SDK that stops
+    /// being true of the file should fail here rather than in a picture.
+    /// </remarks>
+    [Test]
+    public void SpriteShaderSource_ForANoSrgbMaterial_ReadsAndWritesStoredValuesAtTheGammaScale()
+    {
+        SourceSdk.Require();
+
+        string shader = SourceSdk.Text("src/materialsystem/stdshaders/sprite_dx9.cpp")
+            ?? throw new System.InvalidOperationException("sprite_dx9.cpp is missing from the SDK");
+        string pixel = SourceSdk.Text("src/materialsystem/stdshaders/sprite_ps2x.fxc")
+            ?? throw new System.InvalidOperationException("sprite_ps2x.fxc is missing from the SDK");
+
+        shader.ShouldContain("params[NOSRGB]->SetIntValue( 1 );");
+        shader.ShouldContain("pShaderShadow->EnableSRGBRead( SHADER_SAMPLER0, bSRGB );");
+        shader.ShouldContain("s_pShaderShadow->EnableSRGBWrite( bSRGB || ( IsOSX() && !g_pHardwareConfig->FakeSRGBWrite() ) );");
+        pixel.ShouldContain("result = FinalOutput( sample, fogFactor, PIXELFOGTYPE, TONEMAP_SCALE_GAMMA );");
+    }
+
+    /// <remarks>
     /// **Both halves of `SetPixelShaderConstant( 0, COLOR, ALPHA )` at once** (`BaseVSShader.cpp:69-78`):
     /// a scalar color is broadcast — <c>val[0] = val[1] = val[2] = pPixelVar-&gt;GetFloatValue()</c> — and
     /// the alpha is copied with no clamp, so two stays two. The lit shaders' modulation clamps it to
