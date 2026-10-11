@@ -32474,7 +32474,34 @@ on was a modern POV that is not yet identified — *"idk whos pov it was, maybe 
 *Evidence class: measured, both demos, same instrument. The causal link to B377 is read-from-source plus
 arithmetic; it has NOT been confirmed by watching.*
 
-### B378 DRAWN (185c1199, fa04d312; residual: no fractional GPU occlusion, and models do not hide a glow; heading corrected 2026-09-29) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+### B378 DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521 — the fraction is the GPU's and models hide a glow; heading corrected 2026-09-29) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+
+**2026-10-11 — the residual is closed: `PixelVisibility_FractionVisible` is ported whole** (`fix/b521-lamp-fixtures`).
+*Read from published source*, `c_pixel_visibility.cpp`. `PixelVisibility` (Scene) is `CPixelVisibilitySystem` without
+a device — a set per entity, the proxy quad of `PixelVisibility_DrawProxy` (pulled toward the eye by the proxy size,
+grown to five pixels, clipped against the frustum), the target `pixels / pixelsPossible` with 0.95 and up counted
+whole, `Approach` at `frametime / fadeTime`, a set freed after two frames unasked — and `OcclusionQueries` (Render)
+is `EndView`: two D3D11 occlusion queries a proxy, one untested and one against the view's finished depth, no colour
+and no depth written, issued before the viewmodels. An `env_sprite` asks with `m_flGlowProxySize` and its aspect
+(`CSprite::GlowBlend`), a beam's halo with `clamp( 1 + haloScale · width / endWidth, 1, 8 )`. So a static prop, a
+player or a door now hides a glow, in the proportion it covers the proxy, where the trace saw brushes and props and
+answered yes or no. `GlowSight` is no longer called by the viewer; it is the engine's path for a client without
+queries and is kept with its tests.
+
+**Three readings that are this project's, named so they can be overruled:**
+
+- **The frame time is the frame's real duration, where the engine's is the demo's** — zero while paused, so a paused
+  TF2 holds every glow where the pause found it. This viewer's camera flies while paused; held glows would then be
+  wrong for as long as it stayed paused.
+- **The counting query has its depth test off** where the engine squeezes the depth range to `0..0.01`. The same
+  count, unless something stands within a hundredth of the depth range past the near plane.
+- **A count is waited for** (`GetData` until it answers) where the engine takes whatever the query last held. It is
+  asked a frame after the draw. A `--shot` additionally waits for `PixelVisibility.Settled`, or it photographs a
+  halo part way through its sixteenth of a second.
+
+Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
+nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
+through it.
 
 **Found by the `viewer-census` probe the owner asked for**, on its first run against a real match:
 
@@ -36626,7 +36653,7 @@ time of zero, so a still is 1/0.70 to 1/0.55 brighter in linear light than the g
 bloom amount before a capture for exactly this reason; the exposure wants the same. **Not measured:** whether live
 playback reaches TF2's values — log the scale during a `--measure` run at these three cameras.
 
-## B521 — the cones under indoor lamps are near-opaque white beams — OPEN 2026-10-09
+## B521 — the cones under indoor lamps are near-opaque white beams — the indoor camera is within 96-102% of TF2 in every tile 2026-10-11 (last entry); what is left is listed there — was OPEN 2026-10-09
 
 *Measured, by eye and by patch.* At `146 -1831.6 728 -28.7 -36.5` (cp_process_f12, indoors) each
 ceiling lamp in ours throws a broad white cone to the pipes below it; TF2 shows the lit bulb and a faint glow. It was
@@ -36794,3 +36821,62 @@ not measured on their own — they carry baked vertex colours here (`world-near`
 light state, and the halo and shaft draw over them, so their change waits for the capture; the halo's occlusion is
 still all-or-nothing against the engine's fraction; a translucent Sprite material's blend is now also in gamma
 space, by the same reading, and has no picture-level test; and the model panel's sprites keep the linear path.
+
+**2026-10-11, third pass — the fixture rims, the pipes and the two far lamps were three faults, one each**
+(`fix/b521-lamp-fixtures`). After the merge the indoor camera read 96-104% of TF2 except around the lamps and along
+the pipes (105-130%). Separated by switching one term off at a time in the viewer and re-shooting — the reflection,
+then the halo — before anything was fixed:
+
+| tiles (ours / TF2, %, 16×9 linear luminance; forced scale 1, bloom off) | before | reflection off | halo off | after |
+|---|---|---|---|---|
+| row 2, cols 2-6 | 126 111 101 112 109 | 92 98 101 98 97 | 95 69 30 50 25 | 96 101 101 101 100 |
+| row 3, cols 2-9 | 123 112 109 106 106 103 114 113 | 94 94 94 97 97 103 113 112 | 97 85 60 36 21 41 36 45 | 98 99 100 99 99 101 100 100 |
+| row 4, cols 6-10 | 105 117 121 122 130 | 95 97 107 112 119 | 70 74 52 36 50 | 98 99 101 100 98 |
+| row 5, cols 9-10 | 110 110 | 97 106 | 83 80 | 97 98 |
+
+Every tile of the frame is now 96-102%.
+
+1. **The fixture's rim: `$envmaptint` is a gamma colour on `VertexLitGeneric`.** *Read from published source*:
+   `SetEnvMapTintPixelShaderDynamicStateGammaToLinear` (`vertexlitgeneric_dx9_helper.cpp:1094-1101`) hands the pixel
+   shader `GetLinearVecValue` (`commandbuilder.h:279-287`), where the skin path and `LightmappedGeneric` hand it the
+   numbers as written (`skin_dx9_helper.cpp:785-786`, `lightmappedgeneric_dx9_helper.cpp:677`). *Interpolated*: that
+   `GetLinearVecValue` is `GammaToLinear` per component — `cmaterialvar.cpp` is not published. `groundlight001_sheet`
+   says `[.2 .2 .2]`; linear that is 0.029, so the lamp's rim drew a reflection of the room about seven times TF2's —
+   sharp and blue-white where TF2 shows a dull ring. *Measured*: with the reflection off the rim tiles fall to 92-98%,
+   so TF2's reflection is between a seventh and a third of ours by tile, and the picture after matches to the tile.
+   `ModelMaterialShading.EnvMapTint`, applied where the shading is resolved. It reaches every `VertexLitGeneric`
+   material without `$phong` and every `UnlitGeneric` one that reflects, on every map.
+2. **The pipes: the skin shader has no unmasked reflection.** `water_pipes` is `$phong` with `$envmap` and
+   `$basemapalphaenvmapmask`, which is not a parameter (the real one is `$basealphaenvmapmask`), so the viewer drew
+   its reflection unmasked. *Read from published source*, `skin_ps20b.fxc:228-242`: a `$phong` material's
+   reflection is ALWAYS multiplied by `lerp( baseColor.a, fSpecMask, normalmapalphaenvmapmask )`, inverted by
+   `$invertphongmask` — the base map's alpha, as it is, when the material names no mask at all — and by zero when
+   `$selfillumfresnel` meets `$normalmapalphaenvmapmask`. `$basealphaenvmapmask` is not read on that path.
+   `ModelMaterialShading.SkinEnvMapMask`; two new shader modes (the base alpha as it is, the bump alpha inverted).
+   This reaches every phong model that reflects — weapons and players among them — and is a candidate for what is
+   left of B170, unmeasured.
+3. **The two far lamps: the halo's occlusion is a fraction** — B378, ported whole; see its entry of this date.
+   *Measured* from the tiles above, before any of it was written: the halo's share that makes each tile 100% is
+   about 1.0 at the near lamp, 0.82 at the second and 0.72 at the third. The lamp is recessed in
+   `groundlight002`, and an 8-unit proxy seen at a slant is partly behind the fixture's own rim.
+
+| | |
+|---|---|
+| the tint through `GammaToLinear` by shader and `$phong`; clamped at 1, no pass-through | `ModelEnvMapTintConformanceTests` (5) |
+| the lamp's own material carries 0.029 | `CubemapLoading_AVertexLitMaterialWithoutPhong_CarriesItsTintInLinearSpace` |
+| the skin mask's six cases | `SkinEnvMapMaskConformanceTests` (8) |
+| the proxy, the target, the approach, the frustum's share, a set's life | `PixelVisibilityConformanceTests` (20) |
+| a beam asks as its entity with an 8-unit proxy; a half-hidden halo is half as bright | `Build_ASpotlight_AsksAboutItsLampWithAnEightUnitProxy`, `Build_AHaloHalfHidden_IsHalfAsBright` |
+| a glow asks with its own proxy size | `Build_AWorldGlowHalfHidden_AsksAsItsEntityAndDrawsHalfAsBright` |
+| the two queries on a device: half behind a wall is half; in front is whole; a proxy writes no depth or colour | `PixelVisibilityRenderTests` (3) |
+
+**The instrument fault worth keeping:** `+mat_specular 0` and `+mat_fullbright 1` on a `--shot` command line changed
+nothing — the log says "from the command line" and the picture is byte-identical — so the first attempt to switch
+the reflection off measured nothing and read as "the reflection is not the cause". The shader's branch was switched
+off by hand instead, and put back. Listed below rather than fixed here.
+
+**What is still open:** `$envmapfresnel` on the skin path (`lerp( 1, fFresnelRanges, g_EnvMapFresnel.x )`) is not
+modeled; the skin mask has no picture-level test of its own beyond this camera; `mat_specular` and `mat_fullbright`
+do not take effect from a `--shot` command line; the comparison is ONE indoor camera — the outdoor rows of finding
+76 were not re-shot; and the items of the entry above that this pass did not touch (a translucent Sprite material's
+gamma blend, the model panel's sprites).

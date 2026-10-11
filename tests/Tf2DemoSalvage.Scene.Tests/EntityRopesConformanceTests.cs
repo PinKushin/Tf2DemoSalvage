@@ -183,7 +183,7 @@ public sealed class EntityRopesConformanceTests
             viewUp: Vector3.UnitZ,
             viewForward: Vector3.UnitY,
             sprites: Sprites(fakeAntialiasing: true),
-            visible: _ => true);
+            visible: _ => 1f);
 
         sprites.Drawn.ShouldBe(0);
     }

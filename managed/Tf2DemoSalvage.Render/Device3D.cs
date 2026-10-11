@@ -83,6 +83,27 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     private WorldLineRenderer? _worldLines;
     private WorldRenderer? _world;
 
+    /// <summary>The glows' occlusion queries, made when the first proxy arrives.</summary>
+    private OcclusionQueries? _occlusion;
+
+    /// <summary>The proxies to count through at the end of this frame's main view.</summary>
+    private IReadOnlyList<PixelVisibilityProxy> _occlusionProxies = [];
+
+    /// <summary>Sets the occlusion proxies the next frame counts — <c>PixelVisibility_EndCurrentView</c>'s list (B378).</summary>
+    /// <param name="proxies">The quads; the list is read when the frame is drawn, so it must not be reused before then.</param>
+    /// <exception cref="ArgumentNullException"><paramref name="proxies"/> is null.</exception>
+    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies)
+    {
+        ArgumentNullException.ThrowIfNull(proxies);
+
+        _occlusionProxies = proxies;
+    }
+
+    /// <summary>What an entity's proxy counted in the last frame that drew it.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <returns>Pixels that passed the depth test and pixels on screen, or null where none was ever counted.</returns>
+    public (int Pixels, int Possible)? OcclusionResult(int entity) => _occlusion?.Result(_context, entity);
+
     /// <summary>Each model's own vertices and rebased runs, built once per model (D86).</summary>
     /// <remarks>
     /// Cleared with the world, because the packed set is rebuilt for a new map and the paths in it
@@ -1622,6 +1643,17 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 {
                     _context.OMSetDepthStencilState(_depthOn, 0);
                     ReapplyCamera();
+                }
+
+                // **"issue the pixel visibility tests"** (viewrender.cpp:1446-1450, B378): at the end of the main view,
+                // against its finished depth and before the viewmodels, which the engine draws after the view and which
+                // write the nearest tenth of this buffer.
+                if (_occlusionProxies.Count > 0 && _worldCamera is { } occlusionCamera)
+                {
+                    _occlusion ??= OcclusionQueries.Create(_device);
+                    _occlusion.Issue(_device, _context, _occlusionProxies, occlusionCamera.Matrix);
+                    WorldRenderer.ResetBlend(_context);
+                    _context.OMSetDepthStencilState(_depthOn, 0);
                 }
 
                 DrawViewmodels(viewmodels, viewmodelCamera);
@@ -4356,6 +4388,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         _vgui?.Dispose();
         _points?.Dispose();
         _worldLines?.Dispose();
+        _occlusion?.Dispose();
         _detailSprites?.Dispose();
         _detailSheet.Dispose();
         ReleaseDepth();

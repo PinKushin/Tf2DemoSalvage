@@ -263,13 +263,18 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// most. The opposite sense from <paramref name="MaskedByBaseAlpha"/>, and mutually exclusive with
 /// it: a bumped material cannot use the base-alpha mask at all, so this is the one TF2's models use.
 /// </param>
+/// <param name="SkinMask">
+/// The mask for a material the skin shader draws (<c>VmtMaterial.SkinEnvMapMask</c>), which overrides the two flags;
+/// null on every other shader.
+/// </param>
 public readonly record struct MapEnvmapShading(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
     float Saturation,
     bool MaskedByBaseAlpha,
     float Fresnel,
-    bool MaskedByNormalMapAlpha);
+    bool MaskedByNormalMapAlpha,
+    EnvMapMask? SkinMask = null);
 
 /// <summary>A material's specular highlight, <c>$phong</c>.</summary>
 /// <param name="Exponent">How tight the highlight is; 5 by default, which is broad.</param>
@@ -3194,12 +3199,14 @@ public sealed class MapAssets
 
         MapEnvmapShading Shading() =>
             new(
-                material.EnvMapTint,
+                // In the space the shader sends it: gamma-to-linear on VertexLitGeneric without phong (B521).
+                ModelMaterialShading.EnvMapTint(material.Shader, material.HasPhong, material.EnvMapTint),
                 material.EnvMapContrast,
                 material.EnvMapSaturation,
                 material.UsesBaseAlphaAsEnvMapMask,
                 Fresnel(),
-                material.UsesNormalMapAlphaAsEnvMapMask);
+                material.UsesNormalMapAlphaAsEnvMapMask,
+                material.SkinEnvMapMask);
 
         float Fresnel()
         {

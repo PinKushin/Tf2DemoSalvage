@@ -1297,6 +1297,20 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool UsesNormalMapAlphaAsEnvMapMask => Flag("$normalmapalphaenvmapmask");
 
+    /// <summary>
+    /// The reflection mask the skin shader applies, or null where the material does not draw with it —
+    /// <c>VertexLitGeneric</c> routes there on <c>$phong</c> (<c>vertexlitgeneric_dx9_helper.cpp:263-270</c>).
+    /// </summary>
+    /// <remarks>The rule and its citation: <see cref="ModelMaterialShading.SkinEnvMapMask"/> (B521).</remarks>
+    public EnvMapMask? SkinEnvMapMask =>
+        HasPhong && Shader.StartsWith("VertexLitGeneric", StringComparison.OrdinalIgnoreCase)
+            ? ModelMaterialShading.SkinEnvMapMask(
+                UsesNormalMapAlphaAsEnvMapMask,
+                UsesBaseMapAlphaAsPhongMask,
+                Flag("$invertphongmask"),
+                IsSelfIlluminated && Flag("$selfillumfresnel"))
+            : null;
+
     /// <summary>Whether this is a tool material the player never sees.</summary>
     /// <remarks>
     /// A second line of defence behind the surface flags. A map can paint a nodraw-ish material

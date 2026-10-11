@@ -174,7 +174,7 @@ public sealed class EntitySpriteDepthRenderTests
             viewUp: Vector3.UnitY,
             viewForward: Vector3.UnitZ,
             sprites: assets.SpriteMaterials,
-            visible: _ => true);
+            visible: _ => 1f);
 
         sprites.Drawn.ShouldBe(1, "the glow must be built for the picture to mean anything");
 

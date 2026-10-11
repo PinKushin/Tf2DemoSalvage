@@ -1901,7 +1901,18 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 // mutually exclusive by construction -- the shader declares
                 // `SKIP: $NORMALMAPALPHAENVMAPMASK && $BASEALPHAENVMAPMASK` -- so a mode is exactly
                 // the right shape and a pair of flags would admit a state Valve forbids.
-                if (envmapControl.y > 1.5f)
+                // **3 and 4 are the skin shader's** (B521, `EnvMapMask`): a $phong material's reflection is
+                // always masked -- `lerp( baseColor.a, fSpecMask, w )`, then inverted by $invertphongmask
+                // (skin_ps20b.fxc:228-242) -- so 3 is the base alpha as it is and 4 the bump alpha inverted.
+                if (envmapControl.y > 3.5f)
+                {
+                    specular *= 1.0f - bumpMap.Sample(wrapSampler, input.uv).a;
+                }
+                else if (envmapControl.y > 2.5f)
+                {
+                    specular *= albedo.a;
+                }
+                else if (envmapControl.y > 1.5f)
                 {
                     // **NOT inverted**, which is the whole reason this is a separate branch:
                     // `specularFactor = normalTexel.a`, assigned rather than subtracted from one
@@ -3537,7 +3548,13 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // bound.
             float envmapMask = 0f;
 
-            if (shading is { MaskedByNormalMapAlpha: true } && bump is not null)
+            if (shading is { SkinMask: { } skinMask })
+            {
+                // The skin shader's own rule, which reads neither flag below (B521). With no bump map the slot
+                // holds flat white, as the engine's holds TEXTURE_NORMALMAP_FLAT.
+                envmapMask = (float)skinMask;
+            }
+            else if (shading is { MaskedByNormalMapAlpha: true } && bump is not null)
             {
                 envmapMask = 2f;
             }
@@ -3546,7 +3563,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 envmapMask = 1f;
             }
 
-            float hasEnvmap = shading is null ? 0f : 1f;
+            float hasEnvmap = shading is null or { SkinMask: EnvMapMask.Nothing } ? 0f : 1f;
 
             // **What each reflecting material actually got, said once** (B170). Fixing which CUBE a
             // skinned model reflects did not fix the wash, and the owner's manipulation is

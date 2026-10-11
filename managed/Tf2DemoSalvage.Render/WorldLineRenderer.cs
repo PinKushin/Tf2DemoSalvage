@@ -222,7 +222,46 @@ public sealed unsafe class WorldLineRenderer : IDisposable
             Append(vertices, ref at, to, red, green, blue);
         }
 
-        EnsureCapacity(device, segments.Count * 2);
+        Draw(device, context, vertices, viewProjection, D3DPrimitiveTopology.D3DPrimitiveTopologyLinelist);
+    }
+
+    /// <summary>Draws world-space triangles, uncoloured — an occlusion proxy's shape (B378).</summary>
+    /// <param name="device">Device, for growing the buffers.</param>
+    /// <param name="context">Context to issue the draw on.</param>
+    /// <param name="corners">Three corners a triangle, in Source units.</param>
+    /// <param name="viewProjection">The camera, row major, sixteen floats.</param>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    /// <remarks>The caller sets depth, blend and culling, as it does for the lines.</remarks>
+    public void DrawTriangles(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        ReadOnlySpan<Vector3> corners,
+        float[] viewProjection)
+    {
+        ArgumentNullException.ThrowIfNull(viewProjection);
+
+        float[] vertices = new float[corners.Length * 6];
+        int at = 0;
+
+        foreach (Vector3 corner in corners)
+        {
+            Append(vertices, ref at, (corner.X, corner.Y, corner.Z), 0f, 0f, 0f);
+        }
+
+        Draw(device, context, vertices, viewProjection, D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
+    }
+
+    /// <summary>Uploads and draws vertices of six floats each under one topology.</summary>
+    private void Draw(
+        ComPtr<ID3D11Device> device,
+        ComPtr<ID3D11DeviceContext> context,
+        float[] vertices,
+        float[] viewProjection,
+        D3DPrimitiveTopology topology)
+    {
+        int count = vertices.Length / 6;
+
+        EnsureCapacity(device, count);
         Upload(context, vertices);
         UploadCamera(device, context, viewProjection);
 
@@ -230,13 +269,13 @@ public sealed unsafe class WorldLineRenderer : IDisposable
         uint offset = 0;
 
         context.IASetInputLayout(_layout);
-        context.IASetPrimitiveTopology(D3DPrimitiveTopology.D3DPrimitiveTopologyLinelist);
+        context.IASetPrimitiveTopology(topology);
         context.IASetVertexBuffers(0, 1, ref _vertices, in stride, in offset);
         context.VSSetShader(_vertexShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
         context.VSSetConstantBuffers(CameraSlot, 1, ref _camera);
         context.PSSetShader(_pixelShader, ref Unsafe.NullRef<ComPtr<ID3D11ClassInstance>>(), 0);
 
-        context.Draw((uint)(segments.Count * 2), 0);
+        context.Draw((uint)count, 0);
     }
 
     /// <inheritdoc/>

@@ -132,6 +132,24 @@ public sealed class CubemapLoadingTests
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void CubemapLoading_AVertexLitMaterialWithoutPhong_CarriesItsTintInLinearSpace()
+    {
+        // **The wiring half of `ModelEnvMapTintConformanceTests` (B521).** cp_process_f12's ceiling lamps are this
+        // model; its material is VertexLitGeneric, no $phong, `$envmaptint "[.2 .2 .2]"`, and the engine sends that
+        // through GetLinearVecValue (vertexlitgeneric_dx9_helper.cpp:1096, commandbuilder.h:285). Carried raw, the
+        // lamp's rim drew a reflection about seven times TF2's.
+        MapAssets assets = MapCache.Load(entityModels: ["models/props_2fort/groundlight002.mdl"]);
+
+        int index = Enumerable.Range(0, assets.Materials.Count)
+            .First(at => assets.Materials[at].Name.Contains("groundlight001_sheet", StringComparison.OrdinalIgnoreCase));
+
+        MapEnvmapShading shading = assets.LocalReflections[index].ShouldNotBeNull();
+
+        shading.Tint.Red.ShouldBe(MathF.Pow(51f / 255f, 2.2f), 1e-6f);
+    }
+
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void CubemapLoading_AReflectiveModelMaterial_IsMaskedByItsNormalMapAlpha()
     {
         // **The wiring assertion for the mask, and the reason it needs one.** Every piece under it
