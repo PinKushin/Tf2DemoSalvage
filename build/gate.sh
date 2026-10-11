@@ -1906,6 +1906,15 @@ run Tf2DemoSalvage.Corpus.Tests   corpus     156
 # 780 -> 781 on 2026-09-12: MapPhysicsPlacementConformanceTests, the output-level assertion for
 # B400. Sabotaged with the exact defect (ToSource applying the forward map twice), it is the ONLY
 # test of 428 in this assembly that reddens — which is the case for it existing.
+#
+# Floor unchanged on 2026-10-11, and a DROP in what runs recorded here because the script's rule asks
+# for one: 1095 -> 1090 executed. Five fixtures whose whole content was a report MOVED to
+# tools/Tf2DemoSalvage.Probe (D213, D126) — DarkMaterialsDiagnostic, ShaderParityProbe,
+# OverlayFaceFilterProbe, OverlayQuadExtentProbe and the [Explicit] WorldCullingDiagnostic, one test
+# each — as `dark-materials`, `shader-parity`, `overlay-face-filter`, `overlay-quad-extent` and
+# `world-culling`. No test was deleted and none stopped asserting: the fourteen tests that opened a
+# real demo were converted in place and still run. The same branch made this assembly parallel, which
+# it had never been (its AssemblyTestPolicy.cs was left in Viewer3D.Tests by B184): 19 minutes to 5.
 run Tf2DemoSalvage.Rendering.Tests rendering 781
 # 101 -> 103 on 2026-08-29: LaunchOptionWiringTests (B223, D118). Two tests, and they cost about
 # seventeen seconds EACH, because each builds a real MainForm and loads a corpus demo — which reads

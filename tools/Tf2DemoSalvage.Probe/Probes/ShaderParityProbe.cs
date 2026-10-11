@@ -5,9 +5,10 @@ using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
-namespace Tf2DemoSalvage.Rendering.Tests;
+namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
 /// What the map's materials ask for that this renderer does not yet do.
@@ -17,27 +18,42 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// Source features matter, count what the map's own materials declare, weighted by the world area
 /// they cover - the same method that found tools/toolsblack covering 4.8 million units while a
 /// brightness ranking put a 4,096 pixel tool texture at the top.
+///
+/// **A probe since D213**; it was a test in `Rendering.Tests` that asserted only that its report was not empty. The
+/// control is the shader table: a map with brushwork lists <c>LightmappedGeneric</c>.
 /// </remarks>
-public sealed class ShaderParityProbe
+public sealed class ShaderParityProbe : IProbe
 {
-    [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void ShaderParameters_TheMapsMaterials_AreReported()
-    {
-        string tf = GameInstall.Root ?? string.Empty;
-        string mapPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
+    private static readonly string[] Features =
+    [
+        "$bumpmap", "$envmap", "$detail", "$selfillum", "$phong", "$translucent",
+        "$alphatest", "$additive", "$basetexture2", "$surfaceprop",
+    ];
 
-        if (!Directory.Exists(tf) || !File.Exists(mapPath))
+    /// <inheritdoc/>
+    public string Name => "shader-parity";
+
+    /// <inheritdoc/>
+    public string Summary => "a map's world materials by shader and by feature key, weighted by face area: shader-parity [map]";
+
+    /// <inheritdoc/>
+    public void Run(TextWriter output, IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        string name = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
+
+        if (locator.Find(name) is not { } mapPath || locator.FindGameFolder() is not { } folder)
         {
-            Assert.Ignore("the map or the game is not installed");
+            output.WriteLine($"No map named '{name}', or no game.");
             return;
         }
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(mapPath);
         PakFile pak = PakFile.ReadFrom(map);
-        GameArchives archives = GameArchives.Open(tf);
+        GameArchives archives = GameArchives.Open(folder);
         IReadOnlyList<BspMaterial> materials = BspMaterials.Read(map);
         IReadOnlyList<BspSurface> surfaces = BspSurfaces.Read(map);
 
@@ -77,34 +93,25 @@ public sealed class ShaderParityProbe
 
             Add(byShader, material.Shader, area);
 
-            foreach (string key in new[]
+            foreach (string key in Features.Where(key => material.Value(key) is not null))
             {
-                "$bumpmap", "$envmap", "$detail", "$selfillum", "$phong", "$translucent",
-                "$alphatest", "$additive", "$basetexture2", "$surfaceprop",
-            })
-            {
-                if (material.Value(key) is not null)
-                {
-                    Add(byFeature, key, area);
-                }
+                Add(byFeature, key, area);
             }
         }
 
-        TestContext.Out.WriteLine("PARITY shaders by area");
+        output.WriteLine($"{name}: {materials.Count} materials; shaders by area");
 
         foreach ((string shader, (int count, double area)) in byShader.OrderByDescending(e => e.Value.Area))
         {
-            TestContext.Out.WriteLine($"PARITY   {area,16:N0}  {count,4} materials  {shader}");
+            output.WriteLine($"  {area,16:N0}  {count,4} materials  {shader}");
         }
 
-        TestContext.Out.WriteLine("PARITY features by area");
+        output.WriteLine("features by area");
 
         foreach ((string feature, (int count, double area)) in byFeature.OrderByDescending(e => e.Value.Area))
         {
-            TestContext.Out.WriteLine($"PARITY   {area,16:N0}  {count,4} materials  {feature}");
+            output.WriteLine($"  {area,16:N0}  {count,4} materials  {feature}");
         }
-
-        byShader.ShouldNotBeEmpty();
     }
 
     private static void Add(Dictionary<string, (int Count, double Area)> into, string key, double area)

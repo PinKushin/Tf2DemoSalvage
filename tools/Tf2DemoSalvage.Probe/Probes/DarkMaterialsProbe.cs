@@ -4,10 +4,10 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
-namespace Tf2DemoSalvage.Rendering.Tests;
+namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
 /// Which materials the map draws nearly black, and how much of it they cover.
@@ -36,23 +36,35 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// So the tool stays and its conclusion does not. What it can honestly report is which materials
 /// are dark and how much they cover; what it cannot do is tell a bug from an art choice, and any
 /// list it produces has to be read by someone who knows the map.
+///
+/// **A probe since D213**; it was `DarkMaterialsDiagnostic` in `Rendering.Tests`, a test that asserted only that its
+/// report was not empty. The control is the same line: a map that loads lists materials.
 /// </remarks>
-public sealed class DarkMaterialsDiagnostic
+public sealed class DarkMaterialsProbe : IProbe
 {
-    private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
+    /// <inheritdoc/>
+    public string Name => "dark-materials";
 
-    [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void DarkestMaterials_ByArea_AreReported()
+    /// <inheritdoc/>
+    public string Summary => "a map's unresolved materials and its fifteen darkest by mean texture brightness: dark-materials [map]";
+
+    /// <inheritdoc/>
+    public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
-        if (MapFile is not { } path)
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        MapLocator locator = new(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder);
+        string mapName = arguments.Count > 0 ? arguments[0] : "cp_process_final";
+
+        if (locator.Find(mapName) is not { } path || locator.FindGameFolder() is not { } folder)
         {
-            Assert.Ignore("Team Fortress 2 is not installed; set TF2_FOLDER to run these.");
+            output.WriteLine($"No map named '{mapName}', or no game.");
             return;
         }
 
         ReadOnlyMemory<byte> map = File.ReadAllBytes(path);
-        GameArchives archives = GameArchives.Open(Path.GetDirectoryName(Path.GetDirectoryName(path)));
+        GameArchives archives = GameArchives.Open(folder);
         MapAssets assets = MapAssets.Load(map, archives, 0);
 
         List<(string Name, double Luminance, long Pixels)> report = [];
@@ -83,24 +95,24 @@ public sealed class DarkMaterialsDiagnostic
                 (long)texture.Width * texture.Height));
         }
 
-        TestContext.Out.WriteLine("=== materials with no texture (drawn white or skipped) ===");
+        output.WriteLine("=== materials with no texture (drawn white or skipped) ===");
 
         foreach ((string name, _, _) in report.Where(entry => entry.Luminance < 0))
         {
-            TestContext.Out.WriteLine("  MISSING " + name);
+            output.WriteLine("  MISSING " + name);
         }
 
-        TestContext.Out.WriteLine("=== darkest materials that resolved ===");
+        output.WriteLine("=== darkest materials that resolved ===");
 
         foreach ((string name, double luminance, long pixels) in report
             .Where(entry => entry.Luminance >= 0)
             .OrderBy(entry => entry.Luminance)
             .Take(15))
         {
-            TestContext.Out.WriteLine(
+            output.WriteLine(
                 $"  {luminance:F3}  {pixels,9:N0}px  {name}");
         }
 
-        report.ShouldNotBeEmpty();
+        output.WriteLine($"{report.Count} materials examined");
     }
 }

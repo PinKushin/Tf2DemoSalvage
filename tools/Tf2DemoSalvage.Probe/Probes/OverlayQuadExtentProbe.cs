@@ -4,9 +4,10 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
-namespace Tf2DemoSalvage.Rendering.Tests;
+namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
 /// Does an overlay's quad actually span the faces it names?
@@ -28,22 +29,35 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// Comparing the quad's own length along BasisU against the extent of the faces it names tells them
 /// apart. vbsp only lists faces generated from sides the mapper assigned, so a quad covering its
 /// list is the expected shape; a quad a fraction of the list's extent is a reader defect.
+///
+/// **A probe since D213**; it was a test in `Rendering.Tests` asserting only that a stripe overlay was measured, which
+/// the last line printed now states.
 /// </remarks>
-public sealed class OverlayQuadExtentProbe
+public sealed class OverlayQuadExtentProbe : IProbe
 {
-    /// <summary>The authored f12 map, when it has been placed in the install.</summary>
-    private static string? MapPath => GameInstall.Find("maps/cp_process_f12.bsp");
+    /// <inheritdoc/>
+    public string Name => "overlay-quad-extent";
 
-    [Test]
-    public void OverlayQuads_AgainstTheFacesTheyName_AreReported()
+    /// <inheritdoc/>
+    public string Summary =>
+        "each overlay's quad size against the extent of the faces it names: overlay-quad-extent [map] [material substring]";
+
+    /// <inheritdoc/>
+    public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
-        if (!File.Exists(MapPath))
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        string map = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
+        string wanted = arguments.Count > 1 ? arguments[1] : "stripe";
+
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(map) is not { } mapPath)
         {
-            Assert.Ignore("cp_process_f12.bsp is not on this machine.");
+            output.WriteLine($"No map named '{map}'.");
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(MapPath);
+        byte[] bytes = File.ReadAllBytes(mapPath);
 
         Dictionary<int, BspSurface> byFace = [];
 
@@ -63,7 +77,7 @@ public sealed class OverlayQuadExtentProbe
                 ? materials[overlay.MaterialIndex].Name
                 : string.Empty;
 
-            if (!name.Contains("stripe", StringComparison.OrdinalIgnoreCase) || reported >= 10)
+            if (!name.Contains(wanted, StringComparison.OrdinalIgnoreCase) || reported >= 10)
             {
                 continue;
             }
@@ -93,7 +107,7 @@ public sealed class OverlayQuadExtentProbe
             float facesAlongU = Spread(named, overlay.BasisU);
             float facesAlongV = Spread(named, overlay.BasisV);
 
-            TestContext.Out.WriteLine(
+            output.WriteLine(
                 $"QUAD {name} #{overlay.Id}: {overlay.Faces.Count} faces; " +
                 $"quad {quadAlongU:0}x{quadAlongV:0} along U:V, " +
                 $"named faces span {facesAlongU:0}x{facesAlongV:0}, " +
@@ -102,7 +116,7 @@ public sealed class OverlayQuadExtentProbe
             reported++;
         }
 
-        reported.ShouldBeGreaterThan(0, "no stripe overlay was measured");
+        output.WriteLine($"{reported} overlays measured of {overlays.Count} (first ten whose material contains '{wanted}')");
     }
 
     /// <summary>How far a set of points spreads along one axis.</summary>
