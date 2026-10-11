@@ -1,6 +1,43 @@
-# Tf2DemoSalvage 0.1.0-beta.40
+# Tf2DemoSalvage 0.1.0-beta.41
 
-## Changes since 0.1.0-beta.39
+## Changes since 0.1.0-beta.40
+
+This release is about making the picture match TF2's. Brightness, glow and light now follow the game's own rules
+in many places, so most scenes look different from beta.40 (usually brighter or closer to the game's).
+
+- **Widescreen field of view matches TF2.** On a wide window the world's field of view is widened by the aspect
+  ratio as the game does it, instead of staying at the 4:3 value (B518).
+- **Left-handed viewmodels flip.** A weapon the game draws mirrored, or a spectated player who has
+  `m_bFlipViewModels` set, is mirrored in first person. Your own `cl_flipviewmodels` setting is read for the
+  recorder (B515).
+- **Bloom.** The glow around bright areas such as the sun and the sky is drawn, driven by the map's tone-map
+  settings, as in the game (B514).
+- **Auto-exposure.** The scene's brightness adapts to what you are looking at and settles over a moment, as in
+  the game, instead of staying at one fixed exposure. The sky takes the same brightness scale as the world, and a
+  screenshot of a still waits for the exposure to settle before it is taken (B514, B519, B520).
+- **Lightmaps keep the game's full range.** Very bright map light (overbright) is kept instead of being
+  clipped, so lit areas that were flat now show their gradation (B514).
+- **Surfaces with bump maps are brighter, as in the game.** Their baked light is normalized the way the game
+  does it, which lifts bump-lit walls and floors (B514).
+- **Blended terrain edges follow the blend texture.** Where two ground materials meet, the edge follows the
+  material's blend-modulate texture rather than a straight fade (B514).
+- **Props with bump or shiny materials are lit like TF2.** They take the map's light at their position instead
+  of baked vertex colours, and props under the open sky pick up the sun (B514).
+- **Tinted model materials are darker, and unlit ones take no light.** A model's colour tint now acts in the
+  right colour space, which darkens tinted and painted models, and cards the game draws unlit (such as
+  3D skybox trees) no longer pick up baked shading (B514).
+- **Glowing sprites, beams, halos and trails match TF2's brightness.** They are now added the way the game adds
+  them, which is brighter over dark surfaces. Lamp spotlight shafts also take the right brightness and fade out
+  along their length, where they had been near-solid white cones (B521).
+- **Map lighting shifts by up to one lightmap texel on every brush face.** Shadow edges and light now sit where
+  TF2 puts them, instead of being squeezed toward one corner of each face. This changes the look of nearly
+  every map slightly (B521).
+- **The viewer reads more of your config.** `cl_flipviewmodels`, `mat_disable_bloom`,
+  `mat_force_tonemap_scale` and `cl_drawhud` now take effect, read the way the game reads them (B515, B514).
+- The `--help` text for `TF2VIEW_WINDOW_POS` and `TF2VIEW_WINDOW_SIZE` now shows the formats the viewer reads
+  (`85,78` and `1576x889`) (B517).
+
+## Changes in 0.1.0-beta.40
 
 - **TF2 faces now move.** Taunt and voice-line scene expressions and flex animations drive the face as the game
   does, and a voice line's sentence data lip-syncs the mouth. Overlapping scenes blend, faces keep running while
@@ -367,6 +404,14 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Picture parity (beta.41, B514 to B521):** the viewer was compared against the live game with a golden
+  comparison on the f12 demo, and each fix above was made from the game's published source or its engine binary
+  and covered by tests and the merge gate. The only merge message that records a result: with the sprite and
+  lightmap fixes, the indoor comparison camera at tick 60000 reads 96 to 104% of TF2 on most tiles, where it
+  read 47 to 126% (B521). The viewer-wide merge gate and UI suite passed on that branch. **Several of these
+  fixes were merged without being looked at on screen** (for example the tint and unlit-model change), and the
+  outdoor frame was not re-measured after the last fixes, so outdoor brightness against TF2 is not confirmed.
+
 - **Refracting models (B506):** covered by the 0.1.0-beta.33 test suite and the merge gate. Refract trails cost no
   measurable frame rate on sanctum. No demo we hold contains a Bazaar Bargain, so this was not checked on a real
   demo; see `docs/RISKS.md` B506.
@@ -464,6 +509,14 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
+- **Glow occlusion is all-or-nothing (B378).** A sprite glow is either fully hidden or fully shown by a line of
+  sight test, where the game fades it by how much of it is covered, and models do not hide a glow.
+- **Lamps and props near lights can still look slightly over-bright (B521).** The cones under indoor lamps were
+  improved but not yet compared with the game on screen.
+- **The spectator HUD of a SourceTV demo viewed in-eye differs from the game's** (B516): TF2 draws the
+  tournament spectator HUD with both teams' panels, and the viewer draws a timer bar and a name plate.
+- **Outdoor scenes may still differ in brightness from the game** (B514 is open): the exposure and bloom were
+  ported but the outdoor frame has not been re-measured since the last fixes.
 - **Downloaded maps carry no checksum.** A fetched map is cached by name, not by checksum, so the
   checksum-named cache of D162 is not used for it (B507).
 
