@@ -366,18 +366,21 @@ public sealed class VmtMaterial
     }
 
     /// <summary>
-    /// Whether <c>kRenderTransAdd</c> drops the vertex color — <c>$ignorevertexcolors</c>, true unless
-    /// the material says otherwise (B391).
+    /// Whether <c>kRenderTransAdd</c> drops the vertex color — <c>$ignorevertexcolors</c>, false unless
+    /// the material sets it (B391, corrected by B521).
     /// </summary>
     /// <remarks>
-    /// <c>SHADER_PARAM( IGNOREVERTEXCOLORS, SHADER_PARAM_TYPE_BOOL, "1", … )</c> (`sprite_dx9.cpp:39`), so
-    /// absent is TRUE, and the additive modes add the vertex color only
-    /// <c>if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )</c> (`:335`, `:361`). The vertex color is
-    /// the entity's <c>m_clrRender</c> and brightness, so by default an additive sprite's tint and
-    /// brightness never reach its pixels.
+    /// The additive modes add the vertex color <c>if( !params[ IGNOREVERTEXCOLORS ]-&gt;GetIntValue() )</c>
+    /// (`sprite_dx9.cpp:335`, `:361`), and a parameter no material set is ZERO: the <c>"1"</c> in
+    /// <c>SHADER_PARAM( IGNOREVERTEXCOLORS, SHADER_PARAM_TYPE_BOOL, "1", … )</c> (`:39`) is a string the
+    /// material system never applies — <c>CShaderSystem::InitShaderParameters</c> gives an undefined
+    /// <c>BOOL</c> <c>SetIntValue( 0 )</c> (read in disassembly, `materialsystem.dll` `0x18004fe9d`), and
+    /// the shader sets by hand every default it actually wants (`:53-67`). The vertex color is the entity's
+    /// <c>m_clrRender</c> and brightness, so an additive sprite's tint and a beam's brightness, shade and
+    /// axis fade all reach its pixels. B391 read the declaration as the default; a spotlight's shaft drew
+    /// six times too bright for it (`docs/RISKS.md` B521).
     /// </remarks>
-    public bool IgnoresVertexColors =>
-        Value("$ignorevertexcolors") is null || Flag("$ignorevertexcolors");
+    public bool IgnoresVertexColors => Flag("$ignorevertexcolors");
 
     /// <summary>
     /// How a <c>Sprite</c> material's quad is turned — <c>$spriteorientation</c>, as the shader

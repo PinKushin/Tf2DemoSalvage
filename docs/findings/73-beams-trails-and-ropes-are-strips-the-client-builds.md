@@ -71,6 +71,12 @@ and its fade comes from the texture alone. The port routes beam vertex colours t
 entity sprites (`EntitySprites.ShaderInput`). An `UnlitGeneric` beam material takes `$vertexcolor` as that shader
 reads it.
 
+**This section's conclusion was WRONG, and is kept for how** (corrected 2026-10-11, `docs/RISKS.md` B521). The `"1"`
+at `sprite_dx9.cpp:39` is the declaration's default STRING, which the material system never applies: an unset `BOOL`
+is zeroed (*read in disassembly*, `materialsystem.dll` `0x18004fe9d`). So `$ignorevertexcolors` is 0 on `glow_test02`,
+the shade IS visible on a spotlight, and so are the brightness and the axis fade — the shaft drew six times too bright
+until the default was corrected.
+
 ## `CBeamSegDraw` is closed (disassembly)
 
 `tier2/beamsegdraw.h` ships with the SDK, but the implementation does not. It is compiled into `tier2.lib`, which is

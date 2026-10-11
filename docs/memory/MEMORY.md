@@ -45,7 +45,7 @@
 - [A player has two viewmodels](a-player-has-two-viewmodels.md); [a player is not a prop track](a-player-is-not-a-prop-track.md).
 - [The client builds what the demo omits](the-client-builds-what-the-demo-omits.md) — index plus items_game.txt.
 - [Two matrix conventions](two-matrix-conventions-on-purpose.md) — cross once; IVP a THIRD, metres (D173).
-- [A default is not a constant](a-default-is-not-a-constant.md) — grep `ConVar`; [a constant carries no scope](a-constant-carries-no-scope.md).
+- [A default is not a constant](a-default-is-not-a-constant.md) — grep `ConVar`; [a constant carries no scope](a-constant-carries-no-scope.md); [a SHADER_PARAM default string is not applied](a-shader-param-default-string-is-not-applied.md) — unset is 0 (B521).
 - [Where the game and clients live](where-the-game-and-clients-live.md) — game `F:`, decompilation `D:`, 2010 client from archive.org.
 - [A filed design choice may not be one](a-filed-design-choice-may-not-be-one.md) — a dilemma means unread source.
 - [Clip the surface to the projection](clip-the-surface-to-the-projection.md) — an overlay is a volume.

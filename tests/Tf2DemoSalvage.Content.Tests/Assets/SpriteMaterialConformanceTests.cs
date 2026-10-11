@@ -141,13 +141,50 @@ public sealed class SpriteMaterialConformanceTests
     }
 
     /// <remarks>
-    /// **Absent is TRUE**: <c>SHADER_PARAM( IGNOREVERTEXCOLORS, SHADER_PARAM_TYPE_BOOL, "1", … )</c>
-    /// (`sprite_dx9.cpp:39`). `light_glow03` does not name it, and nor do most sprites.
+    /// **Absent is FALSE, whatever the declaration's third argument says** (B521). <c>SHADER_PARAM( IGNOREVERTEXCOLORS,
+    /// SHADER_PARAM_TYPE_BOOL, "1", … )</c> (`sprite_dx9.cpp:39`) names a default the material system never applies:
+    /// the string is only what <c>GetParamDefault</c> returns to a tool. What a parameter nobody set holds is decided by
+    /// <c>CShaderSystem::InitShaderParameters</c> — *read in disassembly*, `materialsystem.dll` `0x18004fe52`-`0x18004ff40`:
+    /// for each parameter still undefined after the shader's own <c>InitShaderParams</c>, a switch on its type whose
+    /// <c>BOOL</c> and <c>INTEGER</c> cases both land on <c>SetIntValue( 0 )</c> (jump table `0x18004ff74`, entries 1 and
+    /// 8 to `0x18004fe9d`), and nothing in the loop calls for the default string.
+    ///
+    /// **The published file says the same thing twice** — *read from published source*: <c>HDRCOLORSCALE</c> is declared
+    /// <c>"1.0"</c> and <c>NOSRGB</c> <c>"0"</c>, and <c>SHADER_INIT_PARAMS</c> still sets the first to 1 by hand and the
+    /// second to ONE, under "Disable sRGB reads and writes by default" (`:58-67`). A declared default that applied would
+    /// make the first redundant and the second wrong.
+    ///
+    /// **The wrong turn, kept**: B391 read the declaration as the default, so every additive sprite and every beam shaft
+    /// drew its texture at full strength — a spotlight's 64-of-255 brightness, its shade-out and its axis fade all
+    /// multiplied into a vertex colour the shader was believed to drop. `glow_test02` and `light_glow03` name no
+    /// `$ignorevertexcolors`, and nor do most sprites.
     /// </remarks>
     [Test]
-    public void IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsTrue()
+    public void IgnoresVertexColors_WhenTheMaterialDeclaresNone_IsFalse()
     {
-        Sprite(string.Empty).IgnoresVertexColors.ShouldBeTrue();
+        Sprite(string.Empty).IgnoresVertexColors.ShouldBeFalse();
+    }
+
+    /// <remarks>
+    /// **Nothing in the shader initialises it either**: the name appears three times in `sprite_dx9.cpp` — its
+    /// declaration and the two additive branches that read it — so the material system's zero is what those branches see.
+    /// </remarks>
+    [Test]
+    public void IgnoreVertexColors_InTheSpriteShaderSource_IsDeclaredAndReadButNeverSet()
+    {
+        SourceSdk.Require();
+
+        string shader = SourceSdk.Text("src/materialsystem/stdshaders/sprite_dx9.cpp")
+            ?? throw new System.InvalidOperationException("sprite_dx9.cpp is missing from the SDK");
+
+        System.Text.RegularExpressions.Regex.Count(shader, "IGNOREVERTEXCOLORS").ShouldBe(3);
+        shader.ShouldContain("if( !params[ IGNOREVERTEXCOLORS ]->GetIntValue() )");
+    }
+
+    [Test]
+    public void IgnoresVertexColors_SetToOne_IsTrue()
+    {
+        Sprite("\"$ignorevertexcolors\" \"1\"").IgnoresVertexColors.ShouldBeTrue();
     }
 
     [Test]

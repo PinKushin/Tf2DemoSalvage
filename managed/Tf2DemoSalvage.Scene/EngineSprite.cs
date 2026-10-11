@@ -68,7 +68,7 @@ public readonly record struct EngineSprite(
     /// <param name="orientation">Its <c>$spriteorientation</c>, as the shader translated it.</param>
     /// <param name="origin">Its <c>$spriteorigin</c>, or null when it declares no vector.</param>
     /// <param name="constantColor">Its <c>$color</c> and <c>$alpha</c>, as the Sprite shader packs them.</param>
-    /// <param name="ignoresVertexColors">Its <c>$ignorevertexcolors</c>, true when absent.</param>
+    /// <param name="ignoresVertexColors">Its <c>$ignorevertexcolors</c>, false when absent (B521).</param>
     /// <param name="shader">Its shader, <c>Sprite</c> unless the material names another.</param>
     /// <param name="modulation">Its <c>$color</c> × <c>$color2</c> and <c>$alpha</c>, for a non-Sprite shader.</param>
     /// <param name="vertexColour">Its <c>$vertexcolor</c>.</param>
