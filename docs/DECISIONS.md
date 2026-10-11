@@ -9675,3 +9675,29 @@ marked to run deliberately, and tests that need a map the server lacks. No real 
 confirmed with dispatch runs mutating one small file per project. The Oracle box had the owner's full
 install under `~/tf2-data`, so these projects' mutation scores are understated meanwhile: the failing
 tests are failing against every mutant.
+
+## D213 — no unit test opens a real demo (2026-10-11)
+
+**Owner, in his words:** *"its breaking my rules using a real demo anyway, those are suppose to be unit tests are
+they not? no unit test should ever use a real demo, at least not a full fledged 30+min long demo"*.
+
+**What prompted it.** The Rendering suite's own gate run took 18.6 minutes (`rendering.trx`, 2026-10-11 00:41-01:00;
+the figure may include contention from viewer captures taken at the same time, and is to be re-timed idle). In it
+27 tests over ten seconds hold 739 of 1,117 seconds, led by real-demo face and trail tests at 30-114 seconds each
+— one match demo and its map loaded per test, with no shared fixture. The same tests are part of why mutation runs
+stopped finishing (`tests/STRYKER-NOTES.md`, "MutationHeavy"). When this was written, files naming a real demo:
+Core.Tests 13, Rendering.Tests 12, Viewer3D.Tests 4, Presentation.Tests 3, Scene.Tests 1.
+
+**The rule.** A test in a unit test project builds its state — `SyntheticDemo`, or the entity directly — or reads
+a short authored specimen. A real recorded match belongs to `Corpus.Tests` and to probes. This is D38 applied
+where it had been let slip, not a new principle: D38 already says a synthetic fixture is the stronger one and the
+corpus keeps only what real bytes alone can prove.
+
+**How it sits with the output-level rule** ("not done until an assertion has read the output on a real demo",
+`CLAUDE.md`). *The assistant's reading, not the owner's words:* that assertion is met in `Corpus.Tests`, or with a
+real map or model file in the unit suite — the owner named demos, and a map is not a match recording. If he means
+maps too, this entry changes.
+
+**Not yet done.** The existing real-demo tests are not converted by this entry; each needs reading to choose its
+synthetic equivalent (never a mechanical rewrite). `MutationHeavy` keeps them out of mutation runs meanwhile.
+
