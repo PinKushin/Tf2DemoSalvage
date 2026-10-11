@@ -36709,3 +36709,88 @@ ported, on purpose.
   (`view_beams.cpp:2266-2271`, 127.9 here) where ours is an all-or-nothing trace (B378), and the tone-map scale above.
 - **`$hdrcolorscale`** is written to both materials per draw (`beamdraw.cpp:88-95`, `:241-249`) and not modeled; it
   is 1 on every beam in the corpus.
+
+**2026-10-11, second pass (`fix/b521-indoor-light`) — two faults, neither of them the lamps' light: the glow was
+added in the wrong space, and every brush face's lightmap was drawn squeezed toward its origin. FIXED in code and
+tests; NOT yet compared on screen, so this stays open until the capture.**
+
+*Measured after the cone fix*, ours / TF2 by tile: the band and ceiling strip 47-77%, the wall left of the lamps
+72-90%, a patch at columns 2-3 OVER at 116-126%, the right half and everything below row 6 at 94-102%.
+
+**1. The Sprite shader works in gamma space, and the viewer added its glows in linear light.** *Read from published
+source:* a Sprite material that does not set `$nosrgb` has it set to 1 by the shader itself (`sprite_dx9.cpp:63-67`,
+"Disable sRGB reads and writes by default" — a default that IS applied, unlike `$ignorevertexcolors` above); then the
+texture is bound `EnableSRGBRead( false )` (`:124`), the vertex colour is not converted (`sprite_vs20.fxc:52-56`),
+the pixel shader ends `FinalOutput( …, TONEMAP_SCALE_GAMMA )` (`sprite_ps2x.fxc:51`), and the write is
+`EnableSRGBWrite( false )` (`:163`). So the stored texel, times the colour, is added to the frame's STORED value.
+Valve's own comment beside that line says what the other way looks like: sRGB writes make "glow sprites … way too
+dark". *Read in disassembly:* `GAMMA_LIGHT_SCALE` is `pow( tone-map scale, 1 / 2.2 )` (`shaderapidx9.dll`
+`0x180023be0` stores `FUN_18003ddd0( cLightScale.x )` in `.w`; that function is `pow( x, 0.4545 )`). The viewer
+decoded the texel and added it in linear light with no scale. Over a dark surface that is far dimmer: a stored 77
+plus a stored texel of 60 is 137; the same texel decoded and added in linear light stores as 97.
+
+*Measured* on the two captures, along the band through the first lamp (y 150): predicting TF2's stored pixel from
+the viewer's by this rule — background from the viewer at x 262, where the two pictures agree at (76, 64, 50) against
+(78, 64, 50) — lands within 5 of 255 from x 422 to 582, where the pictures differ by 40 to 45:
+
+| x | ours | predicted TF2 | TF2 |
+|---|---|---|---|
+| 462 | (97, 82, 69) | (137, 115, 96) | (142, 120, 99) |
+| 502 | (100, 84, 70) | (142, 118, 98) | (143, 121, 99) |
+| 542 | (93, 80, 66) | (130, 111, 91) | (133, 113, 92) |
+| 582 | (85, 73, 59) | (113, 97, 78) | (114, 99, 80) |
+
+The warm pools on the band ARE the halos, as the first pass suspected and could not show. Ported: a Sprite-shader
+material under `$nosrgb` carries `ParticleMaterial.GammaSpace`; its texture is uploaded without the curve, its colour
+is scaled by `GammaLightScale.From( tone-map scale )`, and it is blended through the back buffer's view without the
+curve — the one the bloom already adds through. That also closes the first bullet above (the tone-map scale).
+**It changes every Sprite-shader entity sprite, beam, halo and trail in every map**, not these lamps alone.
+
+**2. A brush face's lightmap coordinate was divided by its luxel COUNT instead of the span between its first and
+last luxel.** *Read from published source* (`utils/vrad/lightmap.cpp:847-866`): a face has `size + 1` luxels and
+luxel `s` is lit AT luxel coordinate `s` past the face's mins. `LightmapAtlas` places a face's rectangle from its
+first texel centre to its last, so the face's own coordinate must be `( s − mins ) / size`; `BspSurfaces` divided by
+`size + 1`. Every brush face's light was drawn squeezed toward its mins by `size / ( size + 1 )`: nothing at the
+first luxel, almost a whole luxel — sixteen units — at the last, a quarter of the face on a four-luxel one. A flat
+wall hides that completely, which is why tile averages elsewhere read 98-102%; the edge of a spotlight's pool does
+not. *Measured* with the new `pixel-face` probe on three walls of one material, the light each capture's pixel
+implies (pixel over 0.55, the ratio both pictures give on the flat wall at (900, 300)) beside the face's own luxels
+blended at the point:
+
+| pixel | face, luxels | luxels at the point | TF2 implies | ours implied |
+|---|---|---|---|---|
+| (600, 420) wall under the lamps | 8882, 19x5 | 0.459 | 0.515 | 0.185 |
+| (100, 250) left wall | 8913, 4x13 | 0.366 | 0.385 | 0.27 |
+| (60, 300) left wall | 8913 | 0.575 | 0.59 | 0.41 |
+| (130, 200) left wall | 8913 | 0.175 | 0.169 | 0.131 |
+| (40, 150) left wall | 8913 | 0.172 | 0.18 | 0.149 |
+
+At (600, 420) the old divisor reads the atlas at luxel (9.62, 1.99) where the point is (10.15, 2.49), and the atlas
+there holds 0.177 — the viewer's 0.185 (`Sample_TheWallUnderTheLampsAtTheComparisonsPixel_…`, sabotaged). The left
+wall's 72-90% and the over-bright patch are this: one pattern, displaced. A displacement had the same slip from the
+other side — its coordinate ran half a luxel inside the first centre to half a luxel short of the last — and is
+fixed with it (`LuxelMapping.Coordinate`), as are the decals and overlays that project onto a face.
+
+*Ruled out, with the reading:* a dynamic light. `spawnflags 3` includes `SF_SPOTLIGHT_NO_DYNAMIC_LIGHT`, which
+zeroes the end's `m_flLightScale` (`point_spotlight.cpp:221-224`, `:384-387`), and `C_SpotlightEnd::ClientThink`
+returns before allocating anything at zero (`c_spotlight_end.cpp:99-101`); an unnamed, unparented spotlight removes
+its `spotlight_end` altogether (`point_spotlight.cpp:276-284`). The faces carry style 0 alone; their materials are
+plain `LightmappedGeneric` with a `$detail` and no `$bumpmap`, `$envmap` or `$selfillum`.
+
+| | |
+|---|---|
+| a bare Sprite material is gamma space; `$nosrgb 0` is not | `SpriteNoSrgb_WhenTheMaterialDeclaresNone_IsTrue`, `SpriteNoSrgb_WhenTheMaterialSetsIt_IsWhatItSays` |
+| the four shader lines | `SpriteShaderSource_ForANoSrgbMaterial_ReadsAndWritesStoredValuesAtTheGammaScale` |
+| the gamma light scale | `From_ALinearToneMapScale_IsThatScaleToTheOneOverTwoPointTwo` |
+| only the Sprite shader; the shipped lamp materials | `Init_AMaterialsShaderAndNoSrgb_…`, `SpriteMaterials_AsTheMapLoadReadsThem_…` |
+| lamp 676's halo adds the same stored amount to two frames (+38, +38; was +53, +22) | `Render_Lamp676sHaloOverTwoFrames_AddsTheSameStoredAmountToBoth` |
+| a luxel coordinate over the span | `Project_APointOnAFiveLuxelFace_…`, `Project_OnAFaceOneLuxelWide_IsZero` |
+| real brush faces reach exactly 1 (4,056 of 12,531; none did) | `Read_CpProcessFinalsBrushFaces_ReachOneAtACornerOnTheLastLuxelAndNeverPassIt` |
+| a displacement runs exactly 0 to 1 | `DisplacementLightmaps_TerrainCoordinates_SpanTexelCentres` |
+| the wall under the lamps, atlas against its own luxels | `Sample_TheWallUnderTheLampsAtTheComparisonsPixel_IsItsOwnLuxelsBlendedAtItsLuxelCoordinate` |
+
+**What is NOT accounted for, which is why this is not closed:** the pipes (their left half cooler and darker) were
+not measured on their own — they carry baked vertex colours here (`world-near`: mean 0.41 to 0.97), not the static
+light state, and the halo and shaft draw over them, so their change waits for the capture; the halo's occlusion is
+still all-or-nothing against the engine's fraction; a translucent Sprite material's blend is now also in gamma
+space, by the same reading, and has no picture-level test; and the model panel's sprites keep the linear path.

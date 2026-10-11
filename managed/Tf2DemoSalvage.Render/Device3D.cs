@@ -2316,7 +2316,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -2328,13 +2328,16 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             // **Uploaded once per material, not per frame**: re-creating a texture sixty times a
             // second for an effect that keeps the same material all its life is pure cost. The key
             // is the texture instance, which `MapAssets` resolved once at load.
-            if (!_particleSheets.TryGetValue(sheet, out ComPtr<ID3D11ShaderResourceView> view))
+            bool gamma = batch.Material.GammaSpace;
+            Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> sheets = gamma ? _storedSheets : _particleSheets;
+
+            if (!sheets.TryGetValue(sheet, out ComPtr<ID3D11ShaderResourceView> view))
             {
-                view = WorldRenderer.UploadTexture(_device, _context, sheet);
-                _particleSheets[sheet] = view;
+                view = WorldRenderer.UploadTexture(_device, _context, sheet, srgb: !gamma);
+                sheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma));
         }
     }
 
@@ -2356,7 +2359,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="viewProjection">The camera.</param>
     /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump)> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace)> batches,
         float[] viewProjection,
         WaterFrameTarget? frame = null)
     {
@@ -2372,7 +2375,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                   SpriteDepth depth,
                   IReadOnlyList<DetailSpriteVertex> corners,
                   RefractMaterial? refract,
-                  MapTexture? cableBump) in batches)
+                  MapTexture? cableBump,
+                  bool gammaSpace) in batches)
         {
             // A `Cable` material's normal map, raw like the refract one (B478); none for everything else.
             ComPtr<ID3D11ShaderResourceView> bump = default;
@@ -2420,7 +2424,22 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             _particleSprites.SetBlend(blend);
             _particleSprites.SetDepth(depth);
             _particleSprites.Upload(_device, _context, corners);
-            _particleSprites.Draw(_device, _context, viewProjection);
+
+            // **The Sprite shader's gamma path** (B521): the stored texel, times GAMMA_LIGHT_SCALE, blended onto the
+            // frame's STORED values — the back buffer through its view without the curve, the one the bloom adds
+            // through. Only where the frame IS the back buffer; a model panel's few sprites keep the bound target.
+            if (gammaSpace && frame is not null)
+            {
+                _particleSprites.SetColourScale(GammaLightScale.From(_world?.LinearLightScale ?? 1f));
+                _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);
+                _particleSprites.Draw(_device, _context, viewProjection);
+                _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
+                _particleSprites.SetColourScale(1f);
+            }
+            else
+            {
+                _particleSprites.Draw(_device, _context, viewProjection);
+            }
         }
     }
 
@@ -2436,7 +2455,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners,
         RefractMaterial? Refract,
-        MapTexture? CableBump)> _panelParticles = [];
+        MapTexture? CableBump,
+        bool GammaSpace)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
@@ -2445,7 +2465,14 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         SpriteDepth Depth,
         IReadOnlyList<DetailSpriteVertex> Corners,
         RefractMaterial? Refract,
-        MapTexture? CableBump)> _particleBatches = [];
+        MapTexture? CableBump,
+        bool GammaSpace)> _particleBatches = [];
+
+    /// <summary>
+    /// A gamma-space material's texture, uploaded WITHOUT the sRGB curve — <c>EnableSRGBRead( false )</c> (B521) — and
+    /// kept for the map's lifetime beside <see cref="_particleSheets"/>.
+    /// </summary>
+    private readonly Dictionary<MapTexture, ComPtr<ID3D11ShaderResourceView>> _storedSheets = [];
 
     /// <summary>
     /// Each refract material's normal map and each cable's, uploaded raw — a bump map is a direction, not a colour

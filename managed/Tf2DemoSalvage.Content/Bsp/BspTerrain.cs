@@ -368,8 +368,14 @@ public sealed class BspTerrain
                 // their own lightmap, worst case by a factor of 389. Those were then clamped, so
                 // each drew in one flat shade taken from an edge texel: the diffuse dark patches
                 // scattered over the map's terrain.
-                float luxelU = (0.5f + (columnFraction * luxelSpanU)) / luxelWidth;
-                float luxelV = (0.5f + (rowFraction * luxelSpanV)) / luxelHeight;
+                //
+                // **Those are texel CENTRES — the first and the last — and in this project's coordinate
+                // that is 0 and 1** (`LuxelMapping.Coordinate`, B521). This divided `0.5 + f · span` by
+                // the luxel count, the engine's form for a rectangle `count` texels wide; the atlas
+                // rectangle runs centre to centre, so that put every patch half a luxel inside its
+                // first centre and half a luxel short of its last.
+                float luxelU = LuxelMapping.Coordinate(columnFraction * luxelSpanU, (int)luxelWidth);
+                float luxelV = LuxelMapping.Coordinate(rowFraction * luxelSpanV, (int)luxelHeight);
 
                 grid[(row * side) + column] = flat with
                 {

@@ -41,6 +41,19 @@ public readonly record struct ParticleMaterial(
     /// </summary>
     public MapTexture? CableBump { get; init; }
 
+    /// <summary>
+    /// Whether the material is drawn in GAMMA space: its texture read as stored, its colour scaled by the gamma light
+    /// scale, and the result blended onto the frame's stored values — the <c>Sprite</c> shader under <c>$nosrgb</c>,
+    /// which is its default (`sprite_dx9.cpp:63-67`, `:124`, `:163`; B521). False for every other shader, which work
+    /// in linear light.
+    /// </summary>
+    /// <remarks>
+    /// **Why it is a property of the material and not a detail of the draw**: adding a glow in gamma space and adding
+    /// it in linear light are different pictures. Over a dark surface the stored sum is far brighter — a lamp's halo
+    /// read 47-77% of TF2's until this was carried.
+    /// </remarks>
+    public bool GammaSpace { get; init; }
+
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);
 }

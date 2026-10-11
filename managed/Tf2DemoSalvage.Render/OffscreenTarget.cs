@@ -405,7 +405,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         // Uploaded afresh each call; a test draws a handful.
         _spriteSheet.Dispose();
-        _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet);
+        // A gamma-space material's texture is read as stored: EnableSRGBRead( false ) (B521).
+        _spriteSheet = WorldRenderer.UploadTexture(_device, _context, sheet, srgb: !batch.Material.GammaSpace);
 
         _sprites.SetSheet(_spriteSheet);
 
@@ -435,9 +436,36 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
+
+        // No tone-map scale in an offscreen picture, so the gamma light scale is one.
+        _sprites.SetColourScale(1f);
         _sprites.Upload(_device, _context, batch.Corners);
+
+        if (!batch.Material.GammaSpace)
+        {
+            _sprites.Draw(_device, _context, camera);
+            return;
+        }
+
+        // EnableSRGBWrite( false ): the same texture through a view without the curve, so the blend runs on the stored
+        // values — as `Device3D` draws it through its own gamma view.
+        if (_gammaView.Handle is null)
+        {
+            RenderTargetViewDesc stored = new()
+            {
+                Format = Format.FormatB8G8R8A8Unorm,
+                ViewDimension = RtvDimension.Texture2D,
+            };
+
+            SilkMarshal.ThrowHResult(_device.CreateRenderTargetView(_texture, in stored, ref _gammaView));
+        }
+
+        _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);
         _sprites.Draw(_device, _context, camera);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
     }
+
+    private ComPtr<ID3D11RenderTargetView> _gammaView;
 
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
@@ -769,6 +797,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _refractNormal.Dispose();
         _refractTint.Dispose();
         _world?.Dispose();
+        _gammaView.Dispose();
         _view.Dispose();
         _depthView.Dispose();
         _depthTexture.Dispose();

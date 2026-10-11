@@ -2510,7 +2510,8 @@ public sealed class MapAssets
                 vmt?.Shader ?? EngineSprite.SpriteShader,
                 vmt?.Modulation,
                 vmt?.TakesVertexColour ?? false,
-                vmt?.TakesVertexAlpha ?? false);
+                vmt?.TakesVertexAlpha ?? false,
+                vmt?.SpriteNoSrgb ?? true);
 
             // **A rope's `Cable` material shades by its normal map** (`cable_ps2x.fxc:40-49`, B478), loaded raw beside it.
             if (vmt?.CableBumpMap is { } bump &&

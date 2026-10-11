@@ -68,9 +68,15 @@ public sealed class EntityBeamRenderTests
 
         (int red, int green, int blue) = target.PixelAt(Size / 2, Size / 2);
 
-        // Measured (25, 24, 24) on 2026-10-04 — a spotlight shaft is faint by design — and (1, 0, 0) with the strip's
-        // half-width sabotaged to zero. Half the healthy sum is the floor.
-        (red + green + blue).ShouldBeGreaterThan(36, $"the shaft's middle, measured ({red}, {green}, {blue})");
+        // A spotlight shaft is faint by design, and fainter than this test first recorded. The engine's arithmetic for
+        // the middle of this shaft from 200 units: colour (230, 227, 200) / 255, times brightness 64 / 255, times
+        // dotScale RemapVal( 200, 4w, w, 1, 0 ) = 0.318 at w 102.3, times the shade-out's 0.5 half way down — 0.036,
+        // 0.036, 0.031 — onto the STORED frame (B521's gamma path): 9, 9 and 8 of 255 at a white texel.
+        // Measured (9, 8, 6) on 2026-10-11. It was (25, 24, 24) on 2026-10-04, when the vertex colour was dropped and
+        // the texel added in linear light, and (1, 0, 0) with the strip's half-width sabotaged to zero. Half the
+        // healthy sum is the floor.
+        (red + green + blue).ShouldBeGreaterThan(11, $"the shaft's middle, measured ({red}, {green}, {blue})");
+        red.ShouldBeLessThanOrEqualTo(10, "no brighter than the engine's 0.036 of a white texel");
 
         foreach ((int x, int y) in (ReadOnlySpan<(int, int)>)[(1, 1), (Size - 2, 1), (1, Size - 2), (Size - 2, Size - 2)])
         {
@@ -156,6 +162,84 @@ public sealed class EntityBeamRenderTests
         {
             Vector3.Distance(new Vector3(corner.X, corner.Y, corner.Z), lamp).ShouldBe(77.4928f * MathF.Sqrt(2f), 0.01f);
         }
+    }
+
+    /// <remarks>
+    /// **The halo's stored texel is ADDED TO THE STORED FRAME — in gamma space — because the Sprite shader reads and
+    /// writes without the sRGB curve** (B521; `SpriteMaterialConformanceTests` has the four lines). Lamp 676's halo, on
+    /// the shipped <c>sprites/light_glow03</c>, seen from 300 units at a quarter of the way round from the beam's axis:
+    /// <c>dot = 0.25</c>, so the halo's colour is <c>clamp( ( 2 · 0.25 )², 0, 1 ) = 0.25</c> of white
+    /// (`view_beams.cpp:1855-1860`).
+    ///
+    /// **So what the halo adds to a pixel's STORED value does not depend on what was there**:
+    /// <c>stored' = stored + alpha · colour · texel</c>, the same over a dark frame as over a mid grey one. Added in
+    /// linear light it is nothing like the same — the curve is steep where the frame is dark — and that is the control,
+    /// measured before the fix on these two frames: +53 over 0.02 (stored 39) and +22 over 0.2 (stored 124). The
+    /// background is read from a corner the quad does not reach, so nothing here is the renderer's own arithmetic.
+    ///
+    /// **The wrong turn, kept**: the first form of this test predicted the centre pixel from the texture's centre
+    /// texel, and PASSED against the linear path — 92 drawn, 93 predicted — by an accident of a half this test's author
+    /// had not accounted for. A prediction that needs the texture's own filtering is the renderer's arithmetic again;
+    /// the invariance needs none.
+    ///
+    /// *Measured* against TF2 (the golden comparison's indoor pair, 2026-10-11): predicting TF2's pixels from the
+    /// viewer's by this rule lands within 5 of 255 across the first lamp's glow, where the two pictures differed by 45.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Render_Lamp676sHaloOverTwoFrames_AddsTheSameStoredAmountToBoth()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        MapAssets assets = MapCache.Effects();
+
+        Vector3 lamp = new(283.03125f, -1976.5352f, 844.7832f);
+        Vector3 end = new(274.15625f, -1966.7188f, 656.03125f);
+        Vector3 along = Vector3.Normalize(end - lamp);
+        Vector3 across = Vector3.Normalize(Vector3.Cross(along, Vector3.UnitZ));
+
+        // A unit vector a quarter along the beam: dot( beamDir, toEye ) is 0.25.
+        Vector3 toEye = (0.25f * along) + (MathF.Sqrt(1f - 0.0625f) * across);
+        Vector3 eye = lamp + (300f * toEye);
+        Vector3 look = -toEye;
+
+        FreeCamera camera = new()
+        {
+            Origin = (eye.X, eye.Y, eye.Z),
+            Angles = (
+                -float.RadiansToDegrees(MathF.Asin(look.Z)),
+                float.RadiansToDegrees(MathF.Atan2(look.Y, look.X)),
+                0f),
+            FieldOfView = 90f,
+            Aspect = 1f,
+        };
+
+        SceneProp lamp676 = Spotlight(676, lamp, end, 64.03741f, 30.27041f, 189.19966f, (255, 255, 255));
+        ParticleBatch halo = Build(lamp676, camera, assets.SpriteMaterials, out _)
+            .Single(batch => batch.Material.Depth == SpriteDepth.Off);
+
+        float colour = halo.Corners[0].Red;
+        colour.ShouldBe(0.25f, 0.005f, "the instrument: the halo's fade at a quarter round");
+
+        int Added(float frame, int stored)
+        {
+            StripPicture.Draw(target, camera.ToMatrix(), assets, [halo], background: frame);
+
+            (int background, int _, int _) = target.PixelAt(1, 1);
+            (int red, int _, int _) = target.PixelAt(Size / 2, Size / 2);
+
+            background.ShouldBeInRange(stored - 1, stored + 1, $"{frame} in linear light is stored as {stored}");
+
+            return red - background;
+        }
+
+        int overDark = Added(0.02f, 39);
+        int overGrey = Added(0.2f, 124);
+
+        TestContext.Out.WriteLine($"HALO colour {colour}: +{overDark} over the dark frame, +{overGrey} over the grey");
+
+        overDark.ShouldBeGreaterThan(10, "the instrument: the glow reaches the centre pixel");
+        overGrey.ShouldBeInRange(overDark - 1, overDark + 1, "the stored texel is added to the stored frame, whatever the frame");
     }
 
     private const string LampShaft = "sprites/glow_test02.vmt";
