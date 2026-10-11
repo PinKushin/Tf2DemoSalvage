@@ -15,23 +15,21 @@ namespace Tf2DemoSalvage.Render;
 /// <c>engine/occlusionproxy</c> — the <c>Occlusion</c> shader with <c>$writez 0</c>, so no colour and no depth is left
 /// behind — once as the counting query under <c>DepthRange( 0.0f, 0.01f )</c> and once against the scene.
 ///
-/// **The counting draw has its depth test off rather than its range squeezed.** A range of a hundredth puts the proxy
-/// in front of everything further than about a hundredth past the near plane, which is everything a view holds; the
-/// test being off is the same count without a second viewport.
+/// **The counting draw is squeezed, not untested**: the same depth test in a viewport whose depth runs 0 to 0.01, so
+/// something nearer than a hundredth of the proxy's depth hides the count as it hides the proxy.
 ///
-/// **<see cref="Result"/> waits for the device.** The engine reads whatever the query last returned and can be a
-/// frame staler than that; a still has to be the same picture twice, so this asks until the count is in. It is asked
-/// a frame after the draw, when it is.
+/// **<see cref="Result"/> takes what the query last held.** *Read from published source* (the comment in
+/// `CPixelVisibilityQuery::ResetOcclusionQueries`): "if the query isn't done yet, it will use the last queried value",
+/// and a query never read answers below zero — which `GetFractionVisible` treats as failed, skipping the next draw.
+/// *Interpolated*: that the engine's read does not flush; `shaderapidx9` is not published. A test target, which has
+/// one frame and no next one, may ask to wait.
 /// </remarks>
 public sealed unsafe class OcclusionQueries : IDisposable
 {
     private readonly Dictionary<int, Pair> _pairs = [];
-    private readonly Dictionary<int, (int Pixels, int Possible)> _results = [];
-    private readonly List<int> _pending = [];
     private readonly Vector3[] _corners = new Vector3[6];
     private readonly WorldLineRenderer _shape;
     private ComPtr<ID3D11DepthStencilState> _tested;
-    private ComPtr<ID3D11DepthStencilState> _untested;
     private ComPtr<ID3D11BlendState> _noColour;
     private ComPtr<ID3D11RasterizerState> _bothSides;
 
@@ -53,10 +51,6 @@ public sealed unsafe class OcclusionQueries : IDisposable
         };
 
         SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in tested, ref queries._tested));
-
-        DepthStencilDesc untested = new() { DepthEnable = new Silk.NET.Core.Bool32(false), DepthWriteMask = DepthWriteMask.Zero };
-
-        SilkMarshal.ThrowHResult(device.CreateDepthStencilState(in untested, ref queries._untested));
 
         BlendDesc noColour = default;
         noColour.RenderTarget[0].RenderTargetWriteMask = 0;
@@ -90,9 +84,6 @@ public sealed unsafe class OcclusionQueries : IDisposable
         ArgumentNullException.ThrowIfNull(proxies);
         ArgumentNullException.ThrowIfNull(viewProjection);
 
-        // Last frame's counts first: a query begun again before it is read loses what it held.
-        Collect(context);
-
         if (proxies.Count == 0)
         {
             return;
@@ -105,18 +96,34 @@ public sealed unsafe class OcclusionQueries : IDisposable
 
         context.RSGetState(ref culling);
         context.OMSetBlendState(_noColour, factor, 0xFFFFFFFF);
+        context.OMSetDepthStencilState(_tested, 0);
         context.RSSetState(_bothSides);
+
+        // `pRenderContext->DepthRange( 0.0f, 0.01f )` for the counting queries, `( 0.0f, 1.0f )` after.
+        uint one = 1;
+        Viewport whole = default;
+
+        context.RSGetViewports(ref one, ref whole);
+
+        Viewport squeezed = whole;
+
+        squeezed.MinDepth = 0f;
+        squeezed.MaxDepth = 0.01f;
 
         foreach (PixelVisibilityProxy proxy in proxies)
         {
-            if (!_pairs.TryGetValue(proxy.Key, out Pair pair))
+            if (!_pairs.TryGetValue(proxy.Key, out Pair? pair))
             {
                 QueryDesc description = new() { Query = Query.Occlusion };
 
+                pair = new Pair();
                 SilkMarshal.ThrowHResult(device.CreateQuery(in description, ref pair.Possible));
                 SilkMarshal.ThrowHResult(device.CreateQuery(in description, ref pair.Visible));
                 _pairs[proxy.Key] = pair;
             }
+
+            // What it holds now, before it is begun again and loses it.
+            Poll(context, pair, wait: false);
 
             _corners[0] = proxy.First;
             _corners[1] = proxy.Second;
@@ -126,10 +133,11 @@ public sealed unsafe class OcclusionQueries : IDisposable
             _corners[5] = proxy.Fourth;
 
             // `IssueCountingQuery`, then `IssueQuery`.
-            Count(device, context, pair.Possible, _untested, viewProjection);
-            Count(device, context, pair.Visible, _tested, viewProjection);
-
-            _pending.Add(proxy.Key);
+            context.RSSetViewports(1, in squeezed);
+            Count(device, context, pair.Possible, viewProjection);
+            context.RSSetViewports(1, in whole);
+            Count(device, context, pair.Visible, viewProjection);
+            pair.Begun = true;
         }
 
         context.RSSetState(culling);
@@ -139,12 +147,21 @@ public sealed unsafe class OcclusionQueries : IDisposable
     /// <summary>What an entity's proxy last counted.</summary>
     /// <param name="context">The context, to read counts that are still on the device.</param>
     /// <param name="key">The entity.</param>
-    /// <returns>Pixels that passed the depth test and pixels on screen; null where no query was ever issued for it.</returns>
-    public (int Pixels, int Possible)? Result(ComPtr<ID3D11DeviceContext> context, int key)
+    /// <param name="wait">Ask until the device answers, where there is no later frame to ask in.</param>
+    /// <returns>
+    /// Pixels that passed the depth test and pixels on screen, as last read; null where neither query has answered
+    /// yet — the engine's count below zero.
+    /// </returns>
+    public (int Pixels, int Possible)? Result(ComPtr<ID3D11DeviceContext> context, int key, bool wait = false)
     {
-        Collect(context);
+        if (!_pairs.TryGetValue(key, out Pair? pair))
+        {
+            return null;
+        }
 
-        return _results.TryGetValue(key, out (int Pixels, int Possible) counted) ? counted : null;
+        Poll(context, pair, wait);
+
+        return pair.VisibleCount < 0 || pair.PossibleCount < 0 ? null : (pair.VisibleCount, pair.PossibleCount);
     }
 
     /// <inheritdoc/>
@@ -159,7 +176,6 @@ public sealed unsafe class OcclusionQueries : IDisposable
         _pairs.Clear();
         _bothSides.Dispose();
         _noColour.Dispose();
-        _untested.Dispose();
         _tested.Dispose();
         _shape.Dispose();
     }
@@ -168,30 +184,28 @@ public sealed unsafe class OcclusionQueries : IDisposable
         ComPtr<ID3D11Device> device,
         ComPtr<ID3D11DeviceContext> context,
         ComPtr<ID3D11Query> query,
-        ComPtr<ID3D11DepthStencilState> depth,
         float[] viewProjection)
     {
-        context.OMSetDepthStencilState(depth, 0);
         context.Begin((ID3D11Asynchronous*)query.Handle);
         _shape.DrawTriangles(device, context, _corners, viewProjection);
         context.End((ID3D11Asynchronous*)query.Handle);
     }
 
-    /// <summary>Reads every count still on the device.</summary>
-    private void Collect(ComPtr<ID3D11DeviceContext> context)
+    /// <summary>Takes each query's count if the device has it; otherwise leaves the last one.</summary>
+    private static void Poll(ComPtr<ID3D11DeviceContext> context, Pair pair, bool wait)
     {
-        foreach (int key in _pending)
+        // A query never begun has nothing to give, and asking it is an invalid call.
+        if (!pair.Begun)
         {
-            Pair pair = _pairs[key];
-
-            _results[key] = (Read(context, pair.Visible), Read(context, pair.Possible));
+            return;
         }
 
-        _pending.Clear();
+        pair.VisibleCount = Read(context, pair.Visible, wait) ?? pair.VisibleCount;
+        pair.PossibleCount = Read(context, pair.Possible, wait) ?? pair.PossibleCount;
     }
 
-    /// <summary>One query's sample count, waited for: <c>GetData</c> answers S_FALSE until the device has it.</summary>
-    private static int Read(ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Query> query)
+    /// <summary>One query's sample count, or null while the device has none: <c>GetData</c> answers S_FALSE until it does.</summary>
+    private static int? Read(ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Query> query, bool wait)
     {
         ulong samples = 0;
         int result;
@@ -201,14 +215,18 @@ public sealed unsafe class OcclusionQueries : IDisposable
             result = context.GetData((ID3D11Asynchronous*)query.Handle, &samples, sizeof(ulong), 0);
             SilkMarshal.ThrowHResult(result);
         }
-        while (result != 0);
+        while (result != 0 && wait);
 
-        return (int)Math.Min(samples, int.MaxValue);
+        return result == 0 ? (int)Math.Min(samples, int.MaxValue) : null;
     }
 
-    private struct Pair
+    /// <summary>A proxy's two queries and what each last answered; below zero until it has.</summary>
+    private sealed class Pair
     {
         public ComPtr<ID3D11Query> Possible;
         public ComPtr<ID3D11Query> Visible;
+        public int PossibleCount = -1;
+        public int VisibleCount = -1;
+        public bool Begun;
     }
 }

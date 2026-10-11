@@ -92,6 +92,42 @@ public sealed class BlendModulationConformanceTests
     public void Applies_EachOfTheShadersGuards_DecidesWhetherTheMaskIsRead(bool mask, bool second, bool selfIllum, bool expected) =>
         BlendModulation.Applies(mask, second, selfIllum).ShouldBe(expected);
 
+    /// <remarks>
+    /// The third guard, `PIXELFOGTYPE != PIXEL_FOG_TYPE_HEIGHT` (`lightmappedgeneric_ps2_3_x.h:319`): under a water
+    /// volume's height fog the mask is not sampled and the mix is the raw vertex blend.
+    /// </remarks>
+    [TestCase(false, true)]
+    [TestCase(true, false)]
+    public void Applies_UnderHeightFog_IsNotRead(bool heightFog, bool expected) =>
+        BlendModulation.Applies(hasMask: true, hasSecondBaseTexture: true, selfIllum: false, heightFog).ShouldBe(expected);
+
+    /// <remarks>
+    /// `FANCY_BLENDING` is the mask being a texture and nothing else (`lightmappedgeneric_dx9_helper.cpp:315-317`,
+    /// `:568`), and under it the cubemap's contrast and saturation are compiled out (`ps2_3_x.h:538-543`,
+    /// <c>#if FANCY_BLENDING == 0</c>) — with one base texture, self-illuminated or under water alike.
+    /// </remarks>
+    [TestCase(true, 0.7f, 0.2f, 0f, 1f)]
+    [TestCase(false, 0.7f, 0.2f, 0.7f, 0.2f)]
+    public void EnvMapShaping_WithAMask_IsNeitherContrastNorSaturation(
+        bool hasMask, float contrast, float saturation, float expectedContrast, float expectedSaturation) =>
+        BlendModulation.EnvMapShaping(hasMask, contrast, saturation).ShouldBe((expectedContrast, expectedSaturation));
+
+    [Test]
+    public void Sdk_TheCubemapsShapingUnderFancyBlending_IsCompiledOut()
+    {
+        string shader = Sdk(PixelShader);
+
+        int guard = shader.IndexOf("#if FANCY_BLENDING == 0", StringComparison.Ordinal);
+        int contrast = shader.IndexOf("specularLighting = lerp( specularLighting, specularLightingSquared, g_EnvmapContrast );", StringComparison.Ordinal);
+        int saturation = shader.IndexOf("specularLighting = lerp( greyScale, specularLighting, g_EnvmapSaturation );", StringComparison.Ordinal);
+        int end = shader.IndexOf("#endif", saturation, StringComparison.Ordinal);
+
+        guard.ShouldBeGreaterThan(0);
+        contrast.ShouldBeGreaterThan(guard);
+        saturation.ShouldBeGreaterThan(contrast);
+        shader.IndexOf("#if", guard + 1, StringComparison.Ordinal).ShouldBeGreaterThan(end, "nothing else opens inside the guard");
+    }
+
     [Test]
     public void BlendModulateTexture_AMaterialNamingOne_IsThatTexture()
     {
@@ -133,6 +169,11 @@ public sealed class BlendModulationConformanceTests
         carrying.ShouldBeLessThan(assets.BlendModulations.Count / 2, "the control: a mask is the exception, not every material");
     }
 
-    private static string Sdk(string path) =>
-        SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");
+    /// <summary>An SDK file; skips where there is no checkout (the Windows runner), fails where the checkout lacks the file.</summary>
+    private static string Sdk(string path)
+    {
+        SourceSdk.Require();
+
+        return SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");
+    }
 }

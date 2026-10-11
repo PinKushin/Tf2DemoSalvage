@@ -541,6 +541,11 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // to the refract and water passes.
         Texture2D    blendModulationMap : register(t15);
 
+        // **`$bumpmap2`, a blended surface's second normal map** (B514, `SecondBumpMaps`): sampled where the first
+        // is and mixed with it by the blend factor (lightmappedgeneric_ps2_3_x.h:345-384). Read only when bump.x is
+        // 2 or 3; raw, as the first is.
+        Texture2D    bumpMap2 : register(t16);
+
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
 
@@ -1145,6 +1150,29 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             return normalize(TangentToWorld(tangentSpace, normalize(input.nrm), input.tangent));
         }
 
+        // The bump texel a lightmapped surface lights and masks with. The second map is decoded exactly as the first
+        // (`BUMPMAP == 2` raw, otherwise DecompressNormal, :353-356) and the decode is affine, so mixing the texels
+        // and decoding once is `lerp( vNormal, vNormal2, blendfactor )`. Mode 3 mixes the alpha too:
+        // `if ( FANCY_BLENDING && bNormalMapAlphaEnvmapMask ) vNormal = lerp( vNormal, vNormal2, blendfactor);` (:376-383).
+        float4 BumpTexel(float2 uv, float blendfactor)
+        {
+            float4 texel = bumpMap.Sample(wrapSampler, uv);
+
+            if (bump.x > 1.5f)
+            {
+                float4 second = bumpMap2.Sample(wrapSampler, uv);
+
+                texel.rgb = lerp(texel.rgb, second.rgb, blendfactor);
+
+                if (bump.x > 2.5f)
+                {
+                    texel.a = lerp(texel.a, second.a, blendfactor);
+                }
+            }
+
+            return texel;
+        }
+
         float4 PsMain(VsOut input) : SV_TARGET
         {
             // **Two textures mixed by the vertex's alpha, which is what terrain is.** A
@@ -1191,7 +1219,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // (lightmappedgeneric_vs20.fxc:166-169), which is every shipped material but two.
             float blendfactor = saturate(input.a);
 
-            if (combine.z > 0.5f)
+            // `PIXELFOGTYPE != PIXEL_FOG_TYPE_HEIGHT` (:319): under a water volume's height fog the mask is not read
+            // and the mix is the raw vertex blend -- `BlendModulation.Applies`'s fourth guard, which is the draw's.
+            if (combine.z > 0.5f && heightFog.x < 0.5f)
             {
                 float4 modt = blendModulationMap.Sample(wrapSampler, input.uv);
                 float minb = saturate(modt.g - modt.r);
@@ -1371,7 +1401,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 float3 second = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 2, 0)).rgb * LightmapScale;
                 float3 third  = lightMap.Sample(clampSampler, input.luv + float2(input.ls * 3, 0)).rgb * LightmapScale;
 
-                float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+                float4 texel = BumpTexel(input.uv, blendfactor);
 
                 // An ssbump is sampled raw; an ordinary normal map is signed and needs decoding.
                 // Applying the signed decode to an ssbump sends a flat 128 to zero and the surface
@@ -1595,7 +1625,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // simply being uneven.
             if (debugModes.w > 0.5f)
             {
-                float4 texel = bumpMap.Sample(wrapSampler, input.uv);
+                float4 texel = BumpTexel(input.uv, blendfactor);
                 float3 normal = bump.y > 0.5f ? texel.rgb : texel.rgb * 2.0f - 1.0f;
 
                 float3 weights;
@@ -1922,7 +1952,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     // because that branch only runs for a world face with three lightmap sets --
                     // and this mask is on MODELS, which have none. Valve samples the bump once and
                     // takes .a for the mask regardless of whether it lights with it.
-                    specular *= bumpMap.Sample(wrapSampler, input.uv).a;
+                    specular *= BumpTexel(input.uv, blendfactor).a;
                 }
                 else if (envmapControl.y > 0.5f)
                 {
@@ -1962,8 +1992,24 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 //
                 // envmapControl.w is R. It is 1 for every model material regardless of the VMT,
                 // because VertexLitGeneric's envmap block has no Fresnel term at all.
-                float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
-                specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
+                //
+                // **From 5 up it is the skin shader's instead** (B521): w is 10 + $envmapfresnel, and the term is
+                // `lerp(1, fFresnelRanges, g_EnvMapFresnel.x)` (skin_ps20b.fxc:238) with the phong pass's own
+                // Fresnel( normal, eye, $phongfresnelranges ) -- `ModelMaterialShading.SkinEnvMapFresnel`.
+                if (envmapControl.w > 5.0f)
+                {
+                    float skinEdge = saturate(1.0f - dot(surfaceNormal, eyeDirection));
+                    skinEdge = (skinEdge * skinEdge) - 0.5f;
+
+                    float skinFresnel = phongFresnel.y + ((skinEdge >= 0.0f ? phongFresnel.z : phongFresnel.x) * skinEdge);
+
+                    specular *= 1.0f + ((skinFresnel - 1.0f) * (envmapControl.w - 10.0f));
+                }
+                else
+                {
+                    float schlick = pow(saturate(1.0f - dot(surfaceNormal, eyeDirection)), 5.0f);
+                    specular *= (schlick * (1.0f - envmapControl.w)) + envmapControl.w;
+                }
 
                 // **mat_specular, and Valve's own wording for it is "get rid of envmap".** The
                 // engine does it one level up, by undefining $envmap when the config says
@@ -2333,6 +2379,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     /// </remarks>
     private readonly HashSet<int> _usesLocalCubemap = [];
 
+    /// <summary>What <c>envmapControl.w</c> is offset by for a skin-shader material; the pixel shader's 10.</summary>
+    private const float SkinFresnelBase = 10f;
+
     /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
 
@@ -2344,6 +2393,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>Each material's <c>$blendmodulatetexture</c>, or a null handle where it has none or the shader would not read it.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendModulations = [];
+
+    /// <summary>Each lightmapped material's <c>$bumpmap2</c>, or a null handle where it has none (B514).</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _bumps2 = [];
 
     /// <summary>Each material's <c>$selfillummask</c>, or a null handle where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _selfIllumMasks = [];
@@ -3425,13 +3477,25 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // **Not sRGB**: an ssbump texel is three light weights and a normal map is a direction (SamplerSrgb).
             _bumps.Add(bump is { } mapped ? Upload(device, context, mapped.Texture, SamplerSrgb.ReadsAsSrgb(MaterialSampler.Bump)) : default);
 
+            // **`$bumpmap2`** (B514): raw like the first, and only where there is a first — `hasBump2 = hasBump && …`.
+            MapTexture? bump2 = bump is not null && index < assets.Bumps2.Count ? assets.Bumps2[index] : null;
+
+            _bumps2.Add(bump2 is { } second2 ? Upload(device, context, second2, SamplerSrgb.ReadsAsSrgb(MaterialSampler.Bump)) : default);
+
             // **Mode -1 is "no detail", and it has to be a value rather than an absence.** The
             // shader reads the same constant buffer for every draw, so a material without a detail
             // texture needs something in it that says so; leaving the previous material's numbers
             // there would apply one material's grain to the next one's surface.
             // Pulled out of the array initialisers: the analyser rejects a ternary inside one, and
             // the two values are the same whichever branch builds the rest.
-            float hasBump = bump is null ? 0f : 1f;
+            //
+            // **1, 2 or 3 with a bump map**: one map, two mixed by the blend, or two with their alphas mixed as well
+            // (`SecondBumpMaps.Mode`). Every reader but `BumpTexel` asks only whether it is above a half.
+            float hasBump = (float)SecondBumpMaps.Mode(
+                bump is not null,
+                bump2 is not null,
+                index < assets.BlendModulations.Count && assets.BlendModulations[index] is not null,
+                index < assets.Cubemaps.Count && assets.Cubemaps[index] is { Shading.MaskedByNormalMapAlpha: true });
             float isSelfShadowing = bump is { IsSelfShadowing: true } ? 1f : 0f;
 
             MapTexture? surface = index < assets.Textures.Count ? assets.Textures[index] : null;
@@ -3746,7 +3810,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // "1.0 == mirror, 0.0 == water" and defaults to 1; a model is always 1 because
             // VertexLitGeneric has no Fresnel term. Resting at zero would apply full Schlick to
             // every reflective surface on the map, which is the state this replaced.
-            float envmapFresnel = shading?.Fresnel ?? 1f;
+            //
+            // **A skin-shader material rides the same slot ten higher** (B521): 10 + `$envmapfresnel`, which the
+            // pixel shader reads as the degree of the phong Fresnel term rather than as $fresnelreflection.
+            float envmapFresnel = shading is { SkinMask: not null } skin
+                ? SkinFresnelBase + skin.SkinFresnel
+                : shading?.Fresnel ?? 1f;
 
             _cubemaps.Add(reflection is { } cube ? UploadCube(_assets, device, cube.Faces) : default);
 
@@ -6517,6 +6586,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             material >= 0 && material < _blendModulations.Count ? _blendModulations[material] : default;
 
         context.PSSetShaderResources(15, 1, ref mask);
+
+        // `$bumpmap2` rides with it, to slot 16, for the same reason: the three world draws that bind one bind the other.
+        ComPtr<ID3D11ShaderResourceView> second =
+            material >= 0 && material < _bumps2.Count ? _bumps2[material] : default;
+
+        context.PSSetShaderResources(16, 1, ref second);
     }
 
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
@@ -6760,7 +6835,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
-                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_blendModulations).Concat(_selfIllumMasks)
+                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_blendModulations).Concat(_bumps2).Concat(_selfIllumMasks)
                      .Concat(_phongExponentMaps).Concat(_animationFrames.SelectMany(frames => frames))
                      .Concat(_detailAnimations.Values.SelectMany(frames => frames))
                      .Concat(_thumbnails)
@@ -6781,6 +6856,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _lightWarps.Clear();
         _convertsModulation.Clear();
         _blendModulations.Clear();
+        _bumps2.Clear();
         _selfIllumMasks.Clear();
         _phongExponentMaps.Clear();
         _tintBases.Clear();

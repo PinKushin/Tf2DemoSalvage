@@ -53,3 +53,16 @@ constants it borrows. Ask what OTHER function would satisfy the same description
 you've described the convention, not the function. A published enum or written field settles it in
 lines where shape-matching took months. Related: [[instrument-bugs-outnumber-decoder-bugs]],
 [[a-flag-with-no-field-is-set-by-the-loop]], [[nothing-is-closed]].
+
+## "Not used" after a port can be an illusion (2026-10-11)
+
+Owner, when `GlowSight` (the engine's glow-occlusion fallback) lost its last caller to the occlusion-query port
+and deletion under D180 was proposed: *"are we sure no maps or demos will need it"*, then *"our NOT USED, can
+sometimes be a bit ilusionary if you are not careful"*. A fallback with no caller in OUR code may still be a
+branch the ENGINE takes: a cvar a user's config sets (`r_dopixelvisibility 0`, D69), a caller that passes no
+handle, a first frame. **How to apply:** before deleting something as unread by production
+([[unread-by-production-is-dead]]), read every engine branch that reaches its counterpart; if one is reachable,
+the missing caller is the defect, not the dead code.
+Outcome: one branch was reachable — `m_hwCanTestGlows`, latched from `r_dopixelvisibility` at level init
+(`c_pixel_visibility.cpp:522`, `:567`). `GlowSight` kept, wired through `PixelVisibility.LevelInit`. Table of every
+branch: RISKS B378.

@@ -653,6 +653,9 @@ public sealed class VmtMaterial
     /// <summary>The normal or self-shadowing bump map, without extension, or null.</summary>
     public string? BumpMap => Value("$bumpmap");
 
+    /// <summary>A blended surface's second bump map, without extension, or null — <c>$bumpmap2</c> (<see cref="SecondBumpMaps"/>).</summary>
+    public string? BumpMap2 => Value("$bumpmap2");
+
     /// <summary>Whether the bump map stores three light weights rather than a direction.</summary>
     /// <remarks>
     /// **Two textures that look alike and decode completely differently.** An ordinary normal map
@@ -1296,6 +1299,13 @@ public sealed class VmtMaterial
     /// <c>SKIP: $NORMALMAPALPHAENVMAPMASK &amp;&amp; $BASEALPHAENVMAPMASK</c>.
     /// </remarks>
     public bool UsesNormalMapAlphaAsEnvMapMask => Flag("$normalmapalphaenvmapmask");
+
+    /// <summary>
+    /// <c>$envmapfresnel</c> — "Degree to which Fresnel should be applied to env map" (<c>vertexlitgeneric_dx9.cpp:61</c>),
+    /// zero unless set (<c>skin_dx9_helper.cpp:114-117</c>). Read by the skin shader alone; not clamped, and three
+    /// shipped materials write it negative.
+    /// </summary>
+    public float EnvMapFresnel => Number("$envmapfresnel", 0f);
 
     /// <summary>
     /// The reflection mask the skin shader applies, or null where the material does not draw with it —

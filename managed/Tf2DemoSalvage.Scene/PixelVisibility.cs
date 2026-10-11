@@ -86,8 +86,30 @@ public sealed class PixelVisibility
     private readonly List<int> _order = [];
     private readonly List<PixelVisibilityProxy> _proxies = [];
     private Func<int, (int Pixels, int Possible)?> _results = static _ => null;
+    private Func<Vector3, bool> _sight = static _ => true;
     private float _frameTime;
     private int _frame;
+
+    /// <summary><c>m_hwCanTestGlows</c>: <c>r_dopixelvisibility</c> as the level's load found it.</summary>
+    private bool _hardwareCanTestGlows = true;
+
+    /// <summary><c>r_dopixelvisibility</c> as it is now — <c>PixelVisibility_IsAvailable()</c>'s reading.</summary>
+    public bool DoPixelVisibility { get; set; } = true;
+
+    /// <summary><c>LevelShutdownPostEntity</c> then <c>LevelInitPreEntity</c> (`c_pixel_visibility.cpp:517-563`).</summary>
+    /// <param name="doPixelVisibility"><c>r_dopixelvisibility</c> at the moment the level loads.</param>
+    /// <remarks>
+    /// The engine also requires fast queries and DirectX 8; this renderer has both. With the switch off every glow's
+    /// fraction is <see cref="GlowSight"/>'s line of sight for the whole level, whatever the cvar does afterwards.
+    /// </remarks>
+    public void LevelInit(bool doPixelVisibility)
+    {
+        _sets.Clear();
+        _order.Clear();
+        _proxies.Clear();
+        DoPixelVisibility = doPixelVisibility;
+        _hardwareCanTestGlows = doPixelVisibility;
+    }
 
     /// <summary>Whether every glow asked about has reached what its query last counted — a still is ready.</summary>
     public bool Settled
@@ -196,14 +218,21 @@ public sealed class PixelVisibility
     /// <summary>Starts a frame: the counts the last frame's queries came back with, and how long this one is.</summary>
     /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>.</param>
     /// <param name="results">The two counts for an entity's proxy, or null where the renderer has none.</param>
+    /// <param name="sight">
+    /// Whether the view reaches a point — <c>GlowSightDistance( position, true ) &gt; 0</c>, asked only when the level
+    /// loaded with <c>r_dopixelvisibility 0</c>. Everything is in sight when omitted.
+    /// </param>
     /// <exception cref="ArgumentNullException"><paramref name="results"/> is null.</exception>
     /// <remarks>
     /// Also the last frame's <c>PixelVisibility_EndScene</c>: a set nobody asked about for more than a frame is freed
     /// (<c>CPixelVisSet::IsActive</c>, <c>DeleteUnusedSets</c>), so its glow starts from zero when it is next seen.
     /// </remarks>
-    public void BeginFrame(float frameTime, Func<int, (int Pixels, int Possible)?> results)
+    public void BeginFrame(
+        float frameTime, Func<int, (int Pixels, int Possible)?> results, Func<Vector3, bool>? sight = null)
     {
         ArgumentNullException.ThrowIfNull(results);
+
+        _sight = sight ?? (static _ => true);
 
         for (int at = _order.Count - 1; at >= 0; at--)
         {
@@ -225,6 +254,12 @@ public sealed class PixelVisibility
     /// <returns><c>m_brightnessTarget * m_clipFraction</c>.</returns>
     public float FractionVisible(in GlowQuery query, float fadeTime = DefaultFadeTime)
     {
+        // `if ( !m_hwCanTestGlows || building_cubemaps.GetBool() ) return GlowSightDistance( … ) > 0 ? 1.0f : 0.0f;`
+        if (!_hardwareCanTestGlows)
+        {
+            return _sight(query.Position) ? 1f : 0f;
+        }
+
         if (!_sets.TryGetValue(query.Entity, out Set? set) ||
             Differs(set.ProxySize, query.ProxySize) || Differs(set.ProxyAspect, query.ProxyAspect))
         {
@@ -280,6 +315,12 @@ public sealed class PixelVisibility
         ArgumentNullException.ThrowIfNull(view);
 
         _proxies.Clear();
+
+        // `if ( !PixelVisibility_IsAvailable() && CurrentViewID() >= 0 ) return;` — the cvar as it is NOW.
+        if (!DoPixelVisibility || !_hardwareCanTestGlows)
+        {
+            return _proxies;
+        }
 
         foreach (int entity in _order)
         {

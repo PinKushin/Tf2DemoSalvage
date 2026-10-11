@@ -55,4 +55,28 @@ public sealed class SkinEnvMapMaskConformanceTests
     [Test]
     public void SkinEnvMapMask_WithSelfIllumFresnelAlone_IsTheBaseAlpha() =>
         ModelMaterialShading.SkinEnvMapMask(false, false, false, selfIllumFresnel: true).ShouldBe(EnvMapMask.BaseAlpha);
+
+    /// <remarks>
+    /// `$envmapfresnel`: "Degree to which Fresnel should be applied to env map" (`vertexlitgeneric_dx9.cpp:61`),
+    /// zero when unset (`skin_dx9_helper.cpp:114-117`), sent as `g_EnvMapFresnel.x` (`:791-792`) and used as
+    /// <c>lerp(1, fFresnelRanges, g_EnvMapFresnel.x)</c> (`skin_ps20b.fxc:238`).
+    /// </remarks>
+    [TestCase(0f, 0.3f, 1f)]
+    [TestCase(1f, 0.3f, 0.3f)]
+    [TestCase(0.5f, 0.3f, 0.65f)]
+    [TestCase(-0.34f, 0.3f, 1.238f)]
+    public void SkinEnvMapFresnel_ByDegree_BlendsFromOneToThePhongFresnelTerm(float degree, float fresnel, float expected) =>
+        ModelMaterialShading.SkinEnvMapFresnel(degree, fresnel).ShouldBe(expected, 1e-5f);
+
+    [Test]
+    public void EnvMapFresnel_WhenTheMaterialDeclaresNone_IsZero() =>
+        Parse("\"$phong\" \"1\"").EnvMapFresnel.ShouldBe(0f);
+
+    /// <remarks>Three shipped materials write a NEGATIVE degree (`vmt-param $envmapfresnel`: -0.34), and it is not clamped.</remarks>
+    [Test]
+    public void EnvMapFresnel_WrittenNegative_IsKept() =>
+        Parse("\"$envmapfresnel\" \"-0.340000\"").EnvMapFresnel.ShouldBe(-0.34f, 1e-6f);
+
+    private static VmtMaterial Parse(string line) =>
+        VmtMaterial.Parse(System.Text.Encoding.UTF8.GetBytes("\"VertexLitGeneric\"\n{\n" + line + "\n}\n"));
 }

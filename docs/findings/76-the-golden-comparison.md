@@ -503,3 +503,18 @@ is not applied, the texture that is read without its curve, the tint that is gam
 **The instrument that lied:** `+mat_specular 0` on the command line of a `--shot` does nothing, and says in the log
 that it was set; the first "reflection off" picture was byte-identical to the control, which is the only reason it
 was not believed (RISKS B521, B378).
+
+**The leftovers, and what two of them turned out to be** (`fix/parity-leftovers`, 2026-10-11). The instrument is
+mended first: `mat_specular`, `mat_fullbright` and `r_dopixelvisibility` are settings now, so a term is switched off
+from the command line and not by editing the shader. That is how the two unexplained patches were named without a
+theory. **The dark band on the outdoor ground** at ticks 45091 and 46500 is two explosion scorch marks: the frame at
+46500 with `+r_decals 0` is the frame at 60000, to the digit. **The one 83% tile outdoors** is the control point's
+hologram, neutral and turning on the empty server TF2 was captured on and BLU's in the demo — the reference and the
+subject are in different states there, which no rendering change can close. Three things did change the picture:
+`$bumpmap2` (the slope behind the fence, 92-97% to 99-100%), the squeezed counting query and the last-held read-back
+(no tile moved, as they should not on this frame), and nothing else — `$envmapfresnel`, the fancy-blending branches
+and the aspect cap have no subject on this map at this window shape, and say so in RISKS. **The line-of-sight
+fallback was nearly deleted as dead code** and is the engine's branch for `r_dopixelvisibility 0`, which a config
+may carry: with the cvar off the indoor frame returns to the trace-era tiles exactly (113 112 / 111 114 121), which
+is the control that the fallback and the query are both wired. **Still not the engine's:** the glow's fade runs on
+the frame's real time; the engine's clock stops while a demo is paused (RISKS B378, a question for the owner).

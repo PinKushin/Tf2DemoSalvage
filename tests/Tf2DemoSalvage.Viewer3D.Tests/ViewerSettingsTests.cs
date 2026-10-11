@@ -502,4 +502,47 @@ public sealed class ViewerSettingsTests
         settings.ForceToneMapScale.ShouldBe(0.7f);
         settings.DrawHud.ShouldBeFalse();
     }
+
+    /// <remarks>
+    /// Three of Valve's switches a config or a command line may carry, which were logged as set and reached nothing
+    /// (B521): `mat_specular` ("If mat_specular 0, then get rid of envmap"), `mat_fullbright` (0, 1 or 2) and
+    /// `r_dopixelvisibility` (`c_pixel_visibility.cpp:24`), under which a glow's occlusion is a line trace.
+    /// </remarks>
+    [Test]
+    public void Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, "mat_specular 0\nmat_fullbright 2\nr_dopixelvisibility 0\n");
+
+        ViewerSettings settings = ViewerSettings.Load(file);
+
+        settings.Specular.ShouldBeFalse();
+        settings.Fullbright.ShouldBe(2);
+        settings.DoPixelVisibility.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Load_WithNoneOfTheThree_KeepsValvesDefaults()
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, "cl_drawhud 0\n");
+
+        ViewerSettings settings = ViewerSettings.Load(file);
+
+        settings.Specular.ShouldBeTrue();
+        settings.Fullbright.ShouldBe(0);
+        settings.DoPixelVisibility.ShouldBeTrue();
+    }
+
+    /// <remarks>`mat_fullbright` has three states and no fourth: anything else is not one of the substitutions.</remarks>
+    [TestCase("3", 0)]
+    [TestCase("-1", 0)]
+    [TestCase("1", 1)]
+    public void Load_AFullbrightOutsideItsThreeStates_IsOff(string written, int expected)
+    {
+        string file = Path.Combine(_folder, "settings.cfg");
+        File.WriteAllText(file, $"mat_fullbright {written}\n");
+
+        ViewerSettings.Load(file).Fullbright.ShouldBe(expected);
+    }
 }

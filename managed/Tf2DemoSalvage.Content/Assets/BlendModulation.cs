@@ -38,12 +38,20 @@ public static class BlendModulation
     /// <param name="hasSecondBaseTexture">`bBaseTexture2`: the sample sits inside that branch (`lightmappedgeneric_ps2_3_x.h:317`).</param>
     /// <param name="selfIllum">`SELFILLUM`, which the branch excludes (`:319`).</param>
     /// <returns>True when the mix goes through <see cref="Factor"/>.</returns>
-    /// <remarks>
-    /// The third guard, `PIXELFOGTYPE != PIXEL_FOG_TYPE_HEIGHT`, is the camera being under water and is not reproduced:
-    /// a submerged view keeps the modulated edge here where the engine falls back to the raw vertex blend.
-    /// </remarks>
-    public static bool Applies(bool hasMask, bool hasSecondBaseTexture, bool selfIllum) =>
-        hasMask && hasSecondBaseTexture && !selfIllum;
+    /// <param name="heightFog">
+    /// `PIXELFOGTYPE == PIXEL_FOG_TYPE_HEIGHT`: the draw is under a water volume's height fog. A property of the DRAW,
+    /// so the renderer's material table asks without it and the pixel shader applies it.
+    /// </param>
+    public static bool Applies(bool hasMask, bool hasSecondBaseTexture, bool selfIllum, bool heightFog = false) =>
+        hasMask && hasSecondBaseTexture && !selfIllum && !heightFog;
+
+    /// <summary>A cubemap's contrast and saturation as a lightmapped material draws them — `#if FANCY_BLENDING == 0` (`lightmappedgeneric_ps2_3_x.h:538-543`).</summary>
+    /// <param name="hasMask">`FANCY_BLENDING`: the mask is a texture (`lightmappedgeneric_dx9_helper.cpp:315-317`, `:568`).</param>
+    /// <param name="contrast">`$envmapcontrast`.</param>
+    /// <param name="saturation">`$envmapsaturation`.</param>
+    /// <returns>The pair as given, or the two values that change nothing when the block is compiled out.</returns>
+    public static (float Contrast, float Saturation) EnvMapShaping(bool hasMask, float contrast, float saturation) =>
+        hasMask ? (0f, 1f) : (contrast, saturation);
 
     /// <summary>HLSL's `saturate`, NaN to zero included.</summary>
     private static float Saturate(float value) => value > 0f ? System.MathF.Min(value, 1f) : 0f;

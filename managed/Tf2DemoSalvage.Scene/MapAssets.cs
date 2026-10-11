@@ -267,6 +267,10 @@ public readonly record struct MapBump(MapTexture Texture, bool IsSelfShadowing);
 /// The mask for a material the skin shader draws (<c>VmtMaterial.SkinEnvMapMask</c>), which overrides the two flags;
 /// null on every other shader.
 /// </param>
+/// <param name="SkinFresnel">
+/// <c>$envmapfresnel</c>, the degree to which the skin shader's reflection takes the phong Fresnel term
+/// (<c>skin_ps20b.fxc:238</c>); read only beside a <paramref name="SkinMask"/>.
+/// </param>
 public readonly record struct MapEnvmapShading(
     (float Red, float Green, float Blue) Tint,
     float Contrast,
@@ -274,7 +278,8 @@ public readonly record struct MapEnvmapShading(
     bool MaskedByBaseAlpha,
     float Fresnel,
     bool MaskedByNormalMapAlpha,
-    EnvMapMask? SkinMask = null);
+    EnvMapMask? SkinMask = null,
+    float SkinFresnel = 0f);
 
 /// <summary>A material's specular highlight, <c>$phong</c>.</summary>
 /// <param name="Exponent">How tight the highlight is; 5 by default, which is broad.</param>
@@ -436,6 +441,7 @@ public readonly record struct MapPlacedCubemap(
 /// </param>
 /// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
 /// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
+/// <param name="Bump2">The <c>$bumpmap2</c> of a lightmapped material that has a first one; null otherwise (B514).</param>
 /// <param name="MarksModelBumpMapped"><see cref="VmtMaterial.MarksModelBumpMapped"/>: a model drawing it loses its baked colours (B514).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
@@ -460,7 +466,8 @@ public readonly record struct ResolvedMaterial(
     string? DetailAnimation = null,
     MapWater? Water = null,
     MapTexture? BlendModulation = null,
-    bool MarksModelBumpMapped = false);
+    bool MarksModelBumpMapped = false,
+    MapTexture? Bump2 = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -991,6 +998,9 @@ public sealed class MapAssets
     /// (<see cref="BlendModulation"/>): 87 shipped materials, every one a terrain blend.
     /// </remarks>
     public IReadOnlyList<MapTexture?> BlendModulations { get; private init; } = [];
+
+    /// <summary>Each lightmapped material's <c>$bumpmap2</c>, null for those without one (<see cref="SecondBumpMaps"/>).</summary>
+    public IReadOnlyList<MapTexture?> Bumps2 { get; private init; } = [];
 
     /// <summary>Which parts of each material light themselves, where a texture says so.</summary>
     /// <remarks>
@@ -1819,6 +1829,7 @@ public sealed class MapAssets
             Phong = table.Phong,
             LightWarps = table.LightWarps,
             BlendModulations = table.BlendModulations,
+            Bumps2 = table.Bumps2,
             SelfIllumMasks = table.SelfIllumMasks,
             PhongExponentMaps = table.PhongExponentMaps,
             Variables = table.Variables,
@@ -2870,7 +2881,31 @@ public sealed class MapAssets
             ResolveDetailAnimation(),
             ResolveWater(),
             ResolveBlendModulation(),
-            material.MarksModelBumpMapped);
+            material.MarksModelBumpMapped,
+            ResolveBump2());
+
+        // `hasBump2 = hasBump && params[info.m_nBumpmap2]->IsTexture()` (`lightmappedgeneric_dx9_helper.cpp:310`), on
+        // the lightmapped shaders alone: the one VertexLitGeneric material that names a `$bumpmap2` has it read by nothing.
+        MapTexture? ResolveBump2()
+        {
+            if (!Lightmapped() || material.BumpMap is null || material.BumpMap2 is not { } name)
+            {
+                return null;
+            }
+
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            if (Load(name) is not { } decoded)
+            {
+                assets.LogWarning(
+                    "{Message}",
+                    $"second bump map {name}, named by materials/{materialName}.vmt, could not be read");
+
+                return null;
+            }
+
+            return MapTexture.Of(decoded);
+        }
 
         MapTexture? ResolveBlendModulation()
         {
@@ -3201,12 +3236,19 @@ public sealed class MapAssets
             new(
                 // In the space the shader sends it: gamma-to-linear on VertexLitGeneric without phong (B521).
                 ModelMaterialShading.EnvMapTint(material.Shader, material.HasPhong, material.EnvMapTint),
-                material.EnvMapContrast,
-                material.EnvMapSaturation,
+
+                // **The skin shader has neither** (`skin_ps20b.fxc:237-241`: mask, Fresnel, cube and tint, nothing after),
+                // so a `$phong` material's `$envmapcontrast` and `$envmapsaturation` are read by no one.
+                //
+                // **And a lightmapped material with a `$blendmodulatetexture` has neither** (B514): `FANCY_BLENDING`
+                // compiles the block out (`BlendModulation.EnvMapShaping`).
+                Shaping().Contrast,
+                Shaping().Saturation,
                 material.UsesBaseAlphaAsEnvMapMask,
                 Fresnel(),
                 material.UsesNormalMapAlphaAsEnvMapMask,
-                material.SkinEnvMapMask);
+                material.SkinEnvMapMask,
+                material.EnvMapFresnel);
 
         float Fresnel()
         {
@@ -3219,11 +3261,24 @@ public sealed class MapAssets
             // Decided by the shader NAME rather than by whether the material came from the map or a
             // model, because that is what the engine dispatches on. A brush face painted with a
             // VertexLitGeneric material gets the model's rule, which is right.
-            bool lightmapped =
-                material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
-                material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+            return Lightmapped() ? material.FresnelReflection : 1f;
+        }
 
-            return lightmapped ? material.FresnelReflection : 1f;
+        bool Lightmapped() =>
+            material.Shader.StartsWith("LightmappedGeneric", StringComparison.OrdinalIgnoreCase) ||
+            material.Shader.StartsWith("WorldVertexTransition", StringComparison.OrdinalIgnoreCase);
+
+        (float Contrast, float Saturation) Shaping()
+        {
+            if (material.SkinEnvMapMask is not null)
+            {
+                return (0f, 1f);
+            }
+
+            return BlendModulation.EnvMapShaping(
+                Lightmapped() && material.BlendModulateTexture is not null,
+                material.EnvMapContrast,
+                material.EnvMapSaturation);
         }
 
         MapCubemap? ResolveCubemap()

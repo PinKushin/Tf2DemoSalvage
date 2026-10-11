@@ -2459,8 +2459,13 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
 
             // **The Sprite shader's gamma path** (B521): the stored texel, times GAMMA_LIGHT_SCALE, blended onto the
             // frame's STORED values — the back buffer through its view without the curve, the one the bloom adds
-            // through. Only where the frame IS the back buffer; a model panel's few sprites keep the bound target.
-            if (gammaSpace && frame is not null)
+            // through. **A model panel's sprites too**: `CPotteryWheelPanel::Paint` draws its models and
+            // `CBaseModelPanel::PostPaint3D` its particles through the same materials on the same frame buffer
+            // (potterywheelpanel.cpp:842-905, basemodel_panel.cpp:904-912; `render_texture` 0), so the shader's path is
+            // the material's there as here. They kept the linear target until 2026-10-11, with the texture already
+            // uploaded raw for this path — read as linear light, which is neither. *Interpolated*: that the tone-map
+            // scale in force while the HUD paints is the frame's, as this renderer's panel models assume.
+            if (gammaSpace)
             {
                 _particleSprites.SetColourScale(GammaLightScale.From(_world?.LinearLightScale ?? 1f));
                 _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);

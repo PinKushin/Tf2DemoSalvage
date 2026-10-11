@@ -1674,6 +1674,10 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
+            // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
+            // device counts their occlusion is decided here for the whole level (B378).
+            _pixelVisibility.LevelInit(_settings.DoPixelVisibility);
+
             // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
             // material with none, as the engine's pointer is.
             _particles.Sheets = map.Assets?.ParticleMaterials is { } sheetsFrom
@@ -2164,7 +2168,23 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
+        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
+
+    /// <summary>Whether the fov's widening stops at 1.85:1 this frame — `view.cpp:1077-1078`, `ViewFov.RestrictsAspect`.</summary>
+    /// <remarks>
+    /// `sv_restrict_aspect_ratio_fov` is the SERVER's, so it is the demo's: 1 unless a `net_SetConVar` said otherwise
+    /// (*interpolated*: the default, which the engine declares and the SDK does not publish). The viewer is a window
+    /// unless it is full screen in the exclusive mode.
+    /// </remarks>
+    private bool FovRestricted()
+    {
+        string? sent = _timeline?.ServerConVarsAt(_transport.CurrentTick).Value(ViewFov.RestrictAspectConVar);
+
+        return ViewFov.RestrictsAspect(
+            int.TryParse(sent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : 1,
+            windowed: !(IsFullScreen && FullScreenMode == FullScreenMode.Exclusive),
+            _timeline?.MaxClients ?? 0);
+    }
 
     /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
     /// <remarks>
@@ -2445,7 +2465,7 @@ internal class MainForm : Form, IFrameSteps
     /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
     /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
+        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -2467,7 +2487,7 @@ internal class MainForm : Form, IFrameSteps
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
             _loaded?.Outline,
-            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect));
+            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect, FovRestricted()));
     }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on
@@ -3954,6 +3974,20 @@ internal class MainForm : Form, IFrameSteps
             _device.DisableBloom = _settings.DisableBloom;
             _device.ForceToneMapScale = _settings.ForceToneMapScale;
             _device.DrawHud = _settings.DrawHud;
+
+            // **`mat_specular` and `mat_fullbright` from the config or the command line** (B521). Both were menu items
+            // only: a `+mat_specular 0` was logged as set by the launch options and reached nothing, so a picture taken
+            // to switch reflections off was byte-identical to its control. Through the menu's own item and method, so
+            // the check marks follow: unchecking Reflections is what calls `SetSpecular`.
+            if (!_settings.Specular)
+            {
+                _menu.Specular.Checked = false;
+            }
+
+            if (_settings.Fullbright != 0)
+            {
+                SetFullbright((Fullbright)_settings.Fullbright);
+            }
 
             // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
             // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
@@ -7375,7 +7409,20 @@ internal class MainForm : Form, IFrameSteps
             // flies while paused, and a glow held where the pause found it would then be wrong for good.
             Device3D occluding = _device;
 
-            _pixelVisibility.BeginFrame((float)_clock.LastFrameSeconds, occluding.OcclusionResult);
+            // **`r_dopixelvisibility 0` is the engine's line of sight** (`GlowSight`, `c_pixel_visibility.cpp:567-570`),
+            // and a user's config may say so (D69): brushes AND static props, as `MASK_OPAQUE` is — on
+            // `koth_harvest_final` a lamp's halo sits under a roof of `corrugated_metal` props. Latched at the level's
+            // load (`LoadMap`); the live reading only stops new queries.
+            _pixelVisibility.DoPixelVisibility = _settings.DoPixelVisibility;
+            _pixelVisibility.BeginFrame(
+                (float)_clock.LastFrameSeconds,
+                occluding.OcclusionResult,
+                glow => _loaded?.Level is not { } level ||
+                    GlowSight.Visible(
+                        new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                        new Vector3(ahead, across, above),
+                        glow,
+                        (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
 
             float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
 

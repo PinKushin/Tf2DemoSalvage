@@ -54,6 +54,13 @@ internal static class MaterialCensus
         "$mod2x",
         "$halflambert",
         "$bumpmap",
+
+        // The second normal map of a blended surface (B514): `VmtMaterial.BumpMap2`, `SecondBumpMaps`, WorldRenderer.
+        "$bumpmap2",
+
+        // The skin shader's reflection (B521): `VmtMaterial.EnvMapFresnel` and `SkinEnvMapMask`.
+        "$envmapfresnel",
+        "$invertphongmask",
         "$ssbump",
         "$detail",
         "$detailscale",

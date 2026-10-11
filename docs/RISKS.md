@@ -32485,23 +32485,55 @@ is `EndView`: two D3D11 occlusion queries a proxy, one untested and one against 
 and no depth written, issued before the viewmodels. An `env_sprite` asks with `m_flGlowProxySize` and its aspect
 (`CSprite::GlowBlend`), a beam's halo with `clamp( 1 + haloScale · width / endWidth, 1, 8 )`. So a static prop, a
 player or a door now hides a glow, in the proportion it covers the proxy, where the trace saw brushes and props and
-answered yes or no. `GlowSight` is no longer called by the viewer; it is the engine's path for a client without
-queries and is kept with its tests.
+answered yes or no.
 
-**Three readings that are this project's, named so they can be overruled:**
+**2026-10-11, later — `GlowSight` is KEPT and called again, and two of the three readings below are now the engine's
+form** (`fix/parity-leftovers`). Deleting it under D180 was proposed and the owner asked *"are we sure no maps or
+demos will need it"*. Every branch that reaches the engine's fallback, *read from published source*:
 
-- **The frame time is the frame's real duration, where the engine's is the demo's** — zero while paused, so a paused
-  TF2 holds every glow where the pause found it. This viewer's camera flies while paused; held glows would then be
-  wrong for as long as it stayed paused.
-- **The counting query has its depth test off** where the engine squeezes the depth range to `0..0.01`. The same
-  count, unless something stands within a hundredth of the depth range past the near plane.
-- **A count is waited for** (`GetData` until it answers) where the engine takes whatever the query last held. It is
-  asked a frame after the draw. A `--shot` additionally waits for `PixelVisibility.Settled`, or it photographs a
-  halo part way through its sixteenth of a second.
+| branch | where | reachable here |
+|---|---|---|
+| `!m_hwCanTestGlows` — `r_dopixelvisibility 0` when the level loaded (also no fast queries, DirectX under 8) | `c_pixel_visibility.cpp:522`, `:567-570` | **yes**: a user's config may set it (D69) |
+| `building_cubemaps` | `:567` | no: the viewer builds none |
+| a null query handle | `:827-830` | no: `CSprite` and `C_SpriteRenderer` always pass their own (`c_sprite.cpp:206`, `:215`); a `C_Beam` passes one whenever it has a halo (`view_beams.cpp:2264-2277`). A TEMP-ENTITY beam's `Beam_t` keeps the constructor's null (`:303`) and would trace — the viewer draws no temp-entity beams; when it does, that halo is `GlowSight`'s |
+| `CurrentViewID() < 0` | `:571-572` | no: answers 0, not the trace |
+| `EffectOccluded( pos, NULL )`, `C_NPC_CombineGunship` | `fx_sparks.cpp:49-56`, `c_npc_combinegunship.cpp:250` | no: a different trace of its own, and not TF2 |
+
+So `r_dopixelvisibility` is read (`ViewerSettings.DoPixelVisibility`), latched by `PixelVisibility.LevelInit` when a
+map loads as `LevelInitPreEntity` latches it, and at 0 every glow's fraction is `GlowSight` for that level. The live
+value only stops new queries (`PixelVisibility_IsAvailable()` in `EndView`, `:585`), as in the engine. *Measured*:
+`+r_dopixelvisibility 0` at the indoor camera gives the trace-era tiles back to the digit (113 112 / 111 114 121
+where the query gives 100 100 / 101 100 98).
+
+**The readings, as they stand:**
+
+- **The counting query is squeezed, as the engine's is** — a viewport whose depth runs 0 to 0.01 with the depth test
+  on. It had its depth test off. `Count_AnOccluderNearerThanTheSqueezedRange_HidesTheCountingQueryToo` is the case
+  that tells the two apart.
+- **A count is whatever the query last held, as the engine's is** — one `GetData`, no wait; a query that has never
+  answered is the engine's count below zero, which fails the set and skips its next draw. *Interpolated*: that the
+  engine's read does not flush (`shaderapidx9` is not published; the SDK's own comment says only "if the query isn't
+  done yet, it will use the last queried value"). A `--shot` still waits for `PixelVisibility.Settled`.
+- **STILL OURS — the frame time is the frame's real duration, where the engine's is `gpGlobals->frametime`**, which
+  this project already treats as zero while a demo is paused (`BuildEffectEntities`). Ported literally, a paused
+  viewer would hold every glow where the pause found it while its camera flies, and a `--shot` — a seek that lands
+  paused — would photograph every halo at zero, since a new set starts there and only frame time raises it. That is
+  a visible change from what is drawn now, so it is NOT made: it waits for the owner (asked in the report of
+  2026-10-11). What TF2's own free camera does to a glow while a demo is paused has not been read; `engine.dll`'s
+  `CClientState::GetFrameTime` is closed.
 
 Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
 through it.
+
+**2026-10-11, later — why those three are still not modeled, each for the same reason: its only caller does not
+exist here yet.** `bSizeInScreenspace` is set by `CGlowOverlay` alone (`glow_overlay.cpp:168`, `:213`), and the
+viewer has no `CGlowOverlay` at all: no `env_sun` is decoded and no sun glow is drawn, on any map. That is a missing
+FEATURE — `C_Sun`'s fields, the overlay's sprites, its sky obstruction — not a missing branch of this one, and
+cp_process_f12 has no `env_sun` to look at (`entity-keys cp_process_f12 env_sun`: 0). A query per view is asked for
+by a glow drawn INSIDE a reflection, a refraction or a monitor, and those views draw no sprites or beams here
+(`Device3D.DrawParticleBatches` runs for the main view and the model panels). Porting either half without its
+caller would be code nothing reads. Filed as the sun overlay's and the sub-views' work, not this entry's.
 
 **Found by the `viewer-census` probe the owner asked for**, on its first run against a real match:
 
@@ -36401,6 +36433,18 @@ and why the entry stays OPEN**: the observatory dome (a prop) at 17-82%; the fen
 (`lightmappedgeneric_ps2_3_x.h:319-332`); indoors the lamp area is B521 and the left wall sits at 72-90%. A dark band
 across the foreground at ticks 45091 and 46500, absent at 60000, is dynamic and not yet identified.
 
+**2026-10-11 (`fix/parity-leftovers`): the band is two explosion scorch decals, and the 83% tile is the control point.**
+*Measured, by manipulation, at `-526 -422 575 0 15`.* The same camera at ticks 46500 and 60000 differs in the bottom-left
+tiles alone (60000 is 164-210% of 46500 there, 100% everywhere else); `+r_decals 0` at 46500 gives the 60000 picture
+to the digit. Cropped, the band is two soft dark blotches on the concrete in front of the camera, each stopping at
+the edge of the dirt displacement — scorch marks from explosions shortly before, gone by 60000. Nothing was changed:
+whether TF2 draws the same two marks at that tick is a comparison against TF2 at that tick, which this pass did not
+take. **One thing seen and not followed:** both marks end exactly at the displacement's edge, where a decal's radius
+would carry it onto the terrain. The remaining 83% tile (row 3, col 5 at tick 60000) is the control point's
+hologram: TF2's capture is an empty listen server, where the point is neutral and mid-rotation, and the viewer's is
+the demo, where BLU owns it. A difference of state, not of drawing; no tile there can be compared until the
+reference is the demo's.
+
 **2026-10-10 (`fix/b514-blendmodulate`): `$blendmodulatetexture` ported; not yet looked at on screen.** *Read from
 published source; measured on shipped data.* A WorldVertexTransition's mix is
 `smoothstep( saturate( g − r ), saturate( g + r ), vertex alpha )` of the mask texel
@@ -36424,6 +36468,29 @@ WorldVertexTransition (`vmt-param`). **Not reproduced, each read in the same fil
   viewer reads no `$bumpmap2` at all, so those faces are lit through the first bump map alone.
 - With `FANCY_BLENDING` the cubemap's contrast and saturation are skipped (`ps2_3_x.h:538-543`); 4 of the 87 declare
   `$envmap`, and the viewer still applies both.
+
+**2026-10-11 (`fix/parity-leftovers`): the height-fog guard and the skipped cubemap shaping are reproduced.**
+*Read from published source.* Under a water volume's height fog the pixel shader now leaves the mask unread and mixes
+by the vertex blend (`BlendModulation.Applies`'s fourth guard, applied per draw from the same constant the height fog
+itself reads). A lightmapped material whose `$blendmodulatetexture` is defined carries contrast 0 and saturation 1
+(`BlendModulation.EnvMapShaping`) — `FANCY_BLENDING` is the mask being a texture and nothing else
+(`helper:315-317`, `:568`), so the block is out with one base texture or self-illumination too.
+`Applies_UnderHeightFog_IsNotRead`, `EnvMapShaping_WithAMask_IsNeitherContrastNorSaturation`,
+`Sdk_TheCubemapsShapingUnderFancyBlending_IsCompiledOut`. **No picture-level test of the under-water mix**: it
+needs a blended displacement seen through a refraction view, and no map in the test set has one. `$bumpmap2` is
+still not read.
+
+**2026-10-11 (`fix/parity-leftovers`): `$bumpmap2` is read.** *Read from published source*
+(`lightmappedgeneric_dx9_helper.cpp:310`, `lightmappedgeneric_ps2_3_x.h:345-384`): a lightmapped material with a
+first bump map and a second mixes the two by the blend factor — the same factor the base textures take, mask and
+all — and mixes their alphas too only under `FANCY_BLENDING && $normalmapalphaenvmapmask`. The second map is sampled
+at the first's coordinate and decoded as the first is, ssbump or normal, so the viewer mixes the texels and decodes
+once (the decode is affine). `VmtMaterial.BumpMap2`, `SecondBumpMaps.Mode` (the shader's `bump.x`: 1, 2 or 3),
+`MapAssets.Bumps2`, slot 16. *Measured* (`vmt-param $bumpmap2`): 65 shipped materials, 63 WorldVertexTransition, one
+LightmappedGeneric, and one VertexLitGeneric that nothing reads it on. *Measured at the outdoor camera, tick 60000*:
+the slope behind the fence, the one f12 surface with the key, goes from 97 97 92 / 99 to 99 100 99 / 101 of TF2 (row
+2, cols 12-14; row 3, col 12), and nothing else in the frame moves. `SecondBumpMapConformanceTests` (10). Not
+modeled: `$bumpmask` (it needs NO second base texture, so no terrain blend has it) and `$basetexture2noenvmap`.
 
 **2026-10-10 (`fix/b514-static-prop-phong`): a phong or bump-mapped static prop is not vertex lit; ported; not yet
 looked at on screen.** The observatory dome (`models/props_hydro/observatory_dome.mdl`, `$phong 1`, no `$bumpmap`)
@@ -36607,6 +36674,13 @@ changed nothing, because the free camera's setter clamps to `demo_fov_override`'
 the widening goes on the finished view, after the clamp, which is also where the engine does it. **Not done:**
 `sv_restrict_aspect_ratio_fov` is not read from the demo; the 1.85:1 cap is always on (its default, 1, in a window on a
 multiplayer server). Only a server that set 0, watched wider than 1.85:1, differs.
+
+**2026-10-11 — done** (`fix/parity-leftovers`). `ViewFov.RestrictsAspect` is `view.cpp:1077-1078` whole:
+`( switch > 0 && windowed && maxClients > 1 ) || switch == 2`. The switch is the demo's — `ServerConVarsAt( tick )`,
+1 where no `net_SetConVar` named it (*interpolated*: the engine's declared default, which the SDK does not publish);
+windowed is everything but full screen in the exclusive mode; `maxClients` is `svc_ServerInfo`'s. The world's fov
+takes it and the viewmodel's still takes the uncapped ratio. **A visible change**: in exclusive full screen wider
+than 1.85:1 the view is now wider than it was, as TF2's is. `RestrictsAspect_ByTheServersSwitchTheWindowAndTheServersSize_IsTheEnginesCondition`.
 
 *Read from published source; measured by the golden comparison at an exact camera.* `CViewRender::Render` scales the
 view's fov by the screen's width ratio before drawing: `aspectRatio = engine->GetScreenAspectRatio() * 0.75f` and
@@ -36880,3 +36954,36 @@ modeled; the skin mask has no picture-level test of its own beyond this camera; 
 do not take effect from a `--shot` command line; the comparison is ONE indoor camera — the outdoor rows of finding
 76 were not re-shot; and the items of the entry above that this pass did not touch (a translucent Sprite material's
 gamma blend, the model panel's sprites).
+
+**2026-10-11, later — `mat_specular` and `mat_fullbright` are read from a config and the command line**
+(`fix/parity-leftovers`). They were menu items and nothing else: `LaunchOptions` logs every `+cvar value` it is
+handed as set, `ViewerSettings` had no entry for either, and so the two reached no one. Both are settings now
+(`ViewerSettings.Specular`, `.Fullbright`), applied when the device is made through the menu's own item and method
+so its check marks follow. *Measured* at the indoor camera: `+mat_specular 0` now gives the hand-switched picture
+(row 3, cols 2-4: 94 94 94 where reflections give 98 99 100) and `+mat_fullbright 1` draws the unlit frame.
+*Interpolated*: a `mat_fullbright` other than 1 or 2 is treated as 0 — the shaders test for each by value.
+`Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne`, `Load_AFullbrightOutsideItsThreeStates_IsOff`. **What this
+does not fix, and it is the wider fault:** a `+cvar` the viewer does not implement is still logged as set. The log
+line is the launch options', not the setting's.
+
+**2026-10-11, later — `$envmapfresnel`, and the skin shader's reflection has no contrast or saturation**
+(`fix/parity-leftovers`). *Read from published source*, `skin_ps20b.fxc:237-241`: the reflection is
+`ENV_MAP_SCALE * lerp(1, fFresnelRanges, g_EnvMapFresnel.x) * mask * texCUBE * tint` and nothing after it — the
+`$envmapcontrast` and `$envmapsaturation` the generic shader applies are not in this one, so a `$phong` material's
+are now carried as 0 and 1. `$envmapfresnel` is zero unless set (`skin_dx9_helper.cpp:114-117`) and is not clamped.
+*Measured* (`vmt-param $envmapfresnel`): 33 shipped materials set it, all cosmetics — 18 at 1, 12 at 0, 3 at −0.34.
+`SkinEnvMapFresnel_ByDegree_BlendsFromOneToThePhongFresnelTerm`, `EnvMapFresnel_WrittenNegative_IsKept`. **No
+picture-level test**: the arithmetic is one HLSL line stated twice (`ModelMaterialShading.SkinEnvMapFresnel` and the
+shader), and nothing on cp_process_f12 carries the key.
+
+**2026-10-11, later — the translucent gamma blend has its picture, and a model panel's sprites take the same path**
+(`fix/parity-leftovers`). `Render_ATranslucentSpriteMaterialOverThreeFrames_BlendsTheStoredValues`: lamp 676's halo
+batch re-blended `SRC_ALPHA, INV_SRC_ALPHA` at half alpha over frames stored 39, 124 and 203. *Measured*: the pixel
+rises by 0.494 and 0.506 of the stored frame's rise — one share, as `texel·a + frame·(1 − a)` on stored values is —
+where the same batch through the linear target gives 0.482 and 0.658 (the control, asserted). The model panel:
+*read from published source*, `CPotteryWheelPanel::Paint` (`potterywheelpanel.cpp:842-905`) and
+`CBaseModelPanel::PostPaint3D` (`basemodel_panel.cpp:904-912`) switch no shader and no target — the panel's
+particles are drawn by their own materials on the frame buffer — so `Device3D.DrawParticleBatches` no longer keeps
+them off the gamma path. They had the worst of both: the texture uploaded raw for the gamma path, then written
+through the sRGB target. **No test of the panel itself**: `Device3D` has no offscreen harness; the path is the one
+the picture test above draws. *Interpolated*: the tone-map scale while the HUD paints.
