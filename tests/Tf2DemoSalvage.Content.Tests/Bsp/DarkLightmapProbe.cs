@@ -10,6 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class DarkLightmapProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Lighting_DisplacementsAgainstBrushwork_IsReported()
     {
         string path = GameInstall.RequireFile("maps/cp_process_final.bsp");

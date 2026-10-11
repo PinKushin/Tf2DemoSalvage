@@ -248,6 +248,7 @@ public sealed class LevelSystemsTests
     /// the wave does not open (the control); after the LEVEL is loaded through the production path, it decodes.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_PlVenice_HandsTheSoundCacheTheLevelsPakfile()
     {
         const string Gust = "ambient/venice_wind_gust_01.mp3";

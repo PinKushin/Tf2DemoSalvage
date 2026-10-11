@@ -83,6 +83,7 @@ public sealed class ItemSchemaConformanceTests
     [TestCase(35, 0f)]
     [TestCase(411, 2f)]
     [TestCase(998, 3f)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void HookValue_TheShippedMediguns_GiveTheirWeaponModes(int item, float mode)
     {
         if (!File.Exists(SchemaPath))
@@ -292,6 +293,7 @@ public sealed class ItemSchemaConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DefaultLoadoutSlot_TheFootballHelmet_ResolvesToMiscNotHeadOnRealData()
     {
         // **The quirk that makes this whole feature worth having, confirmed on Valve's own file

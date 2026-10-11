@@ -28,6 +28,7 @@ public sealed class OverlayCoverageProbe
     private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void OverlayCoverage_EachDecalOnItsNamedFaces_IsReported()
     {
         if (MapFile is not { } path)

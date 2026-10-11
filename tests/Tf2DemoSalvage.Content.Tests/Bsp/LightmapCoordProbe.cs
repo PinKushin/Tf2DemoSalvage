@@ -10,6 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class LightmapCoordProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LightmapCoords_FacesOutsideTheirOwnLightmap_AreReported()
     {
         string path = GameInstall.RequireFile("maps/cp_process_final.bsp");

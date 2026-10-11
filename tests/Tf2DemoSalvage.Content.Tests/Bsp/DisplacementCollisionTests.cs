@@ -39,6 +39,7 @@ public sealed class DisplacementCollisionTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void From_AMapBuiltOnTerrain_ReadsEveryDisplacement()
     {
         if (Map() is not { } map)
@@ -60,6 +61,7 @@ public sealed class DisplacementCollisionTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Sweep_DroppedOntoTerrain_IsStoppedByIt()
     {
         if (Map() is not { } map)
@@ -182,6 +184,7 @@ public sealed class DisplacementCollisionTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Sweep_HighAboveTheMap_IsNotStopped()
     {
         // **The control, and without it every assertion above is satisfied by a sweep that always

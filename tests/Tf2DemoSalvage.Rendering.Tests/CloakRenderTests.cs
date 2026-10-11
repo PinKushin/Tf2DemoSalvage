@@ -38,6 +38,7 @@ public sealed class CloakRenderTests
     /// own copy; the half-cloaked test below is what sees the pass.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_FullyAndNearlyCloakedOverAUniformFrame_IsTheFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");

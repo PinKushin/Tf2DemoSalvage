@@ -44,6 +44,7 @@ public sealed class BoneFlagContentTests
     [TestCase("models/player/soldier.mdl")]
     [TestCase("models/weapons/c_models/c_rocketlauncher/c_rocketlauncher.mdl")]
     [TestCase("models/player/items/scout/scout_cap.mdl")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_AShippedModelsBoneFlags_SetNoBitTheEngineDoesNotDeclare(string path)
     {
         IReadOnlyList<StudioBone> bones = Bones(path);
@@ -77,6 +78,7 @@ public sealed class BoneFlagContentTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_AWornItem_DoesNotMarkMergeBonesBecauseTheWearerDoes()
     {
         // **A worn item carries no merge marks and that is correct, not a gap.** The mask is read
@@ -90,6 +92,7 @@ public sealed class BoneFlagContentTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheScoutsHelperForearms_AreQuaternionInterpolatedProceduralBones()
     {
         IReadOnlyList<StudioBone> bones = Bones("models/player/scout.mdl");
@@ -103,6 +106,7 @@ public sealed class BoneFlagContentTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheSoldier_HasNoProceduralBonesAtAll()
     {
         // **The control for the test above, and it is a shipped model rather than a fixture.**
@@ -116,6 +120,7 @@ public sealed class BoneFlagContentTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_EveryControllerSlotOnAPlayerModel_IsUnusedOrAValidIndex()
     {
         // **Measured: TF2's player models drive no bone from a controller at all.** That is worth

@@ -119,6 +119,7 @@ public sealed class ClassAirwalkTests
     /// model does declare — the control. A table that leaves the crouch walk to the weapon is the next test's.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void HasCrouchWalk_TheShippedClassModels_LackOnlyTheLosersCrouchWalk()
     {
         if (Reader() is not { } read)
@@ -144,6 +145,7 @@ public sealed class ClassAirwalkTests
     /// soldier holding the launcher is the control on the class.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void HasCrouchWalk_TheHeldWeapon_IsTranslatedThroughItsRoleAndItem()
     {
         // items_game.txt ships loose in the tf folder, not in a VPK.
@@ -183,6 +185,7 @@ public sealed class ClassAirwalkTests
     /// the all-class melee every class has, and the engineer's own PDA and building tables.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DeclaresActivity_EveryRolesCrouchWalk_MeasuredPerClass()
     {
         if (Reader() is not { } read)

@@ -48,6 +48,7 @@ public sealed class LowResImageRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ShowLowResImage_OnAMaterialWithAThumbnail_DrawsADifferentPicture()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

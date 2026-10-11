@@ -26,6 +26,7 @@ public sealed class WeaponRolesTests
     private static string Game => GameInstall.Require();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponRoles_AWeapon_ReportsTheSlotItIsCarriedIn()
     {
         if (Reader() is not { } read)
@@ -71,6 +72,7 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponRoles_TheShotgun_IsPrimaryOrSecondaryByHolder()
     {
         // **The case that proves a weapon's role is not a property of the weapon.**
@@ -107,6 +109,7 @@ public sealed class WeaponRolesTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponRoles_AClassWithNoTranslation_KeepsTheBaseScript()
     {
         // The control for the test above: the table has an entry for the shotgun and empty slots

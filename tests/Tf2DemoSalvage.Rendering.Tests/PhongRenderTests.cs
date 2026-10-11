@@ -54,6 +54,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class PhongRenderTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_TurningTheLight_MovesTheHighlight()
     {
         // **The whole claim in one row.** Same model, same camera, same normal, same everything
@@ -109,6 +110,7 @@ public sealed class PhongRenderTests
     /// that surface was showing.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_WithPhongOff_LeavesNoHighlight()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -152,6 +154,7 @@ public sealed class PhongRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_AMaterialWithoutPhong_DoesNotMoveWithTheLight()
     {
         // **The control, and it is what separates the highlight from the diffuse.** The sun's
@@ -188,6 +191,7 @@ public sealed class PhongRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_ALightBehindTheSurface_LeavesNoHighlight()
     {
         // **The N·L mask, and reaching it takes a condition the other tests cannot supply.**
@@ -247,6 +251,7 @@ public sealed class PhongRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RimRender_AGrazingSurface_IsBrighterThanOneFacingTheEye()
     {
         // **The rim's discriminator is the ANGLE TO THE EYE, not the light**, which is what makes it
@@ -290,6 +295,7 @@ public sealed class PhongRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LightWarpRender_TheRamp_ReplacesTheLinearFalloff()
     {
         // **The ramp is read where the linear falloff would have been**, so the discriminator is a

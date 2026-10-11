@@ -54,6 +54,7 @@ public sealed class StudioVertexLightingTests
         StudioVertexLighting.PathsFor((int)index, mapFlags).SingleOrDefault().ShouldBe(expected);
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TheMapsPakfile_CarriesLightingForItsProps()
     {
         // **The premise, checked before anything is decoded.** If a map did not embed these, every
@@ -73,6 +74,7 @@ public sealed class StudioVertexLightingTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void VertexLighting_EveryCorner_IndexesAColourThatExists()
     {
         // **The contract, stated exactly.** vrad writes one .vhv mesh header per STRIP GROUP and
@@ -143,6 +145,7 @@ public sealed class StudioVertexLightingTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheColours_MatchTheirModelsMeshesOneForOne()
     {
         // **The oracle comes from the writer, not from a guess.** Valve's
@@ -229,6 +232,7 @@ public sealed class StudioVertexLightingTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheColours_AreNotAllTheSame()
     {
         // **Baked lighting varies across a prop**, which is the whole reason it exists: one side

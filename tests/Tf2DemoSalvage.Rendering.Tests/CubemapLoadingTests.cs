@@ -74,6 +74,7 @@ public sealed class CubemapLoadingTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void CubemapLoading_AModelMaterial_CarriesALocalReflectionAndNoCubemap()
     {
         // **The capture point, which is the object this was built for.** B83 spent five hypotheses

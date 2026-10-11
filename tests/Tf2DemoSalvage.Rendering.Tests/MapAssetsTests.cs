@@ -129,6 +129,7 @@ public sealed class MapAssetsTests
     /// from `MapCache`, because this empties what it loads.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReleaseUploaded_OnARealMap_EmptiesImagesAndKeepsEverythingElse()
     {
         if (GameFolder is not { } game || Path.Combine(game, "maps", "cp_process_final.bsp") is not { } map || !File.Exists(map))
@@ -158,6 +159,7 @@ public sealed class MapAssetsTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MapAssets_ARealMap_ResolvesAlmostEveryMaterial()
     {
         if (GameFolder is not { } game)
@@ -202,6 +204,7 @@ public sealed class MapAssetsTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MapAssets_AMapsOwnContent_IsMostlyPatchesOverStockMaterials()
     {
         // **A map's pakfile is not a self-contained copy of what it needs**, which is worth

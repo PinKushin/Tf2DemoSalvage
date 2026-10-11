@@ -47,6 +47,7 @@ public sealed class ReflectionRenderTests
         }.ToMatrix();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_AReflectiveSurface_ChangesColourWithItsNormal()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -85,6 +86,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_ASurfaceWithNoCubemap_DoesNotChangeWithItsNormal()
     {
         // **The control, and it is the half that makes the test above mean anything.** If some
@@ -177,6 +179,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_AModelAtTwoPlacements_TakesTheNearerCubemap()
     {
         // **The assertion that the position actually chooses the cube**, which nothing else can
@@ -245,6 +248,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_AModelWithNoCubemap_DoesNotChangeWithItsPlacement()
     {
         // **The control for the test above, and it is what separates "the cube is chosen by
@@ -281,6 +285,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_ANormalMapAlphaMask_ShinesWhereItsAlphaIsHigh()
     {
         // **The branch that a whole suite could not see.** Inverting this mask — writing

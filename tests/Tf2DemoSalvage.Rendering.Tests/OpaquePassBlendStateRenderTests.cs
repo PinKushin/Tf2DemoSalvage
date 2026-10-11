@@ -56,6 +56,7 @@ public sealed class OpaquePassBlendStateRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Draw_AnOpaquePropAfterADecalPass_IgnoresItsTexturesAlphaChannel()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

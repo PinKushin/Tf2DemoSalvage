@@ -27,6 +27,7 @@ public sealed class OverlayPlacementTests
     private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void OverlayPlacement_AnOverlay_FacesTheSameWayAsItsSurfaces()
     {
         // **The check that the basis means what it is being read to mean.** A decal is painted on a
@@ -142,6 +143,7 @@ public sealed class OverlayPlacementTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void OverlayPlacement_AnOverlay_SitsOnTheSurfaceNotAboveIt()
     {
         // **Distance from the face's plane, which is what "pinned to" has to mean.** A decal is on

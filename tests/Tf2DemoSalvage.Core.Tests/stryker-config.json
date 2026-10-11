@@ -24,6 +24,7 @@
         "**/tools/**"
       ]
     },
-    "additional-timeout": 10000
+    "additional-timeout": 10000,
+    "test-case-filter": "TestCategory!=MutationHeavy"
   }
 }

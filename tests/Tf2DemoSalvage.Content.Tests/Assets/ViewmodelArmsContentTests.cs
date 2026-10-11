@@ -168,6 +168,7 @@ public sealed class ViewmodelArmsContentTests
     /// </remarks>
     [TestCase("models/weapons/c_models/c_grenadelauncher/c_grenadelauncher.mdl")]
     [TestCase("models/weapons/c_models/c_stickybomb_launcher/c_stickybomb_launcher.mdl")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Shows_ADemomanWeaponAtBodyZero_DrawsEachMeshOnce(string weapon)
     {
         if (Arms(weapon) is not { } model)

@@ -26,6 +26,7 @@ public sealed class DisplacementLightmapTests
     private static string? MapFile => GameInstall.Find("maps/cp_process_final.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DisplacementLightmaps_EveryTerrainVertex_LandsInsideItsOwnLightmap()
     {
         // **The measurement that found the defect, stated as a rule.** A coordinate outside [0,1]
@@ -72,6 +73,7 @@ public sealed class DisplacementLightmapTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DisplacementLightmaps_TerrainCoordinates_SpanTexelCentres()
     {
         // Valve's own assignment runs 0.5 to size + 0.5 luxels, so a corner sits at a texel CENTRE

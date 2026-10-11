@@ -60,6 +60,7 @@ public sealed class VtfLowResolutionConformanceTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheLowResolutionThumbnail_IsAlwaysDxt1()
     {
         if (Archives() is not { } archives)
@@ -104,6 +105,7 @@ public sealed class VtfLowResolutionConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheLowResolutionThumbnail_IsRetainedForDrawing()
     {
         if (Archives() is not { } archives)

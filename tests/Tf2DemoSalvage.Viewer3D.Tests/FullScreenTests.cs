@@ -49,6 +49,7 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 public sealed class FullScreenTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EnteringFullScreen_HidesTheChromeAndTakesTheTransportBar()
     {
         using MainForm form = new();

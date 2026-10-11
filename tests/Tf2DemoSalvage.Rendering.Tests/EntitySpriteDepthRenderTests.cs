@@ -32,6 +32,7 @@ public sealed class EntitySpriteDepthRenderTests
     /// `kRenderTransAdd`, the same blend with the test on.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AWorldGlowBehindAnOccluder_AddsOverIt()
     {
         if (Setup() is not var (target, assets))
@@ -54,6 +55,7 @@ public sealed class EntitySpriteDepthRenderTests
     /// draw, which separates "hidden by the test" from "never drew at all".
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ATransAddSpriteBehindAnOccluder_IsHiddenByIt()
     {
         if (Setup() is not var (target, assets))
@@ -80,6 +82,7 @@ public sealed class EntitySpriteDepthRenderTests
     /// </remarks>
     [TestCase(RenderModes.Normal, false)]
     [TestCase(RenderModes.TransColor, true)]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ASpriteThenAQuadBehindIt_TheQuadShowsOnlyWhereNothingWroteDepth(
         int renderMode, bool quadShows)
     {

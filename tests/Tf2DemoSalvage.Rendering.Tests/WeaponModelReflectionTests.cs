@@ -45,6 +45,7 @@ public sealed class WeaponModelReflectionTests
     private const string WeaponModel = "models/weapons/c_models/c_shotgun/c_shotgun.mdl";
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionOnARealWeaponModel_TurnedOnAndOff_AddsNoMoreThanItsTint()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(128, 128);
@@ -127,6 +128,7 @@ public sealed class WeaponModelReflectionTests
     /// makes this and the test above a controlled pair rather than two separate measurements.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionOnARealWeaponModel_DrawnAtTheEye_AddsNoMoreThanItsTint()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(128, 128);

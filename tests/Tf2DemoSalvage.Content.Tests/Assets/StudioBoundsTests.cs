@@ -41,6 +41,7 @@ public sealed class StudioBoundsTests
     /// worth a red test.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RenderBounds_ForTheScoutsFirstSequence_EqualTheHull()
     {
         ReadOnlyMemory<byte> model = Read(Scout);
@@ -129,6 +130,7 @@ public sealed class StudioBoundsTests
     /// one number evidence instead of a restatement.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MovementHull_ForTheScout_RoundsToThePinnedPlayerHeight()
     {
         MathF.Round(StudioBounds.MovementHull(Read(Scout)).MaxZ).ShouldBe(83f);
@@ -171,6 +173,7 @@ public sealed class StudioBoundsTests
     /// sequence box is tighter, which for an idle animation it usually is.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RenderBounds_WithASequence_AreNeverSmallerThanWithout()
     {
         ReadOnlyMemory<byte> model = Read(Scout);
@@ -188,6 +191,7 @@ public sealed class StudioBoundsTests
 
     /// <summary>That an out-of-range sequence is ignored rather than read.</summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RenderBounds_ForASequenceTheModelDoesNotHave_AreTheHeadersAlone()
     {
         ReadOnlyMemory<byte> model = Read(Scout);

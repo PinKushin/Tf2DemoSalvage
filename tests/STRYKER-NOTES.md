@@ -232,3 +232,40 @@ is a `ref struct` passed by ref, so the rewritten form does not compile. This co
 idiom for every culture-safe message, so a large fraction of mutants are dead on arrival. Not a
 defect to fix in the source — worth knowing so the created-versus-tested gap is not read as
 something else.
+
+## `MutationHeavy`: the tests a mutation run leaves out (2026-10-11)
+
+**Stryker reruns every test that covers a mutant, once per mutant.** A test that takes seconds and
+covers a whole reader is therefore paid thousands of times, and a handful of them decide whether a
+run finishes at all.
+
+*Measured.* The scheduled CI run was green daily through 2026-09-29 and cancelled at its ceiling
+every day from 2026-09-30: Core finished 6,909 mutants in 54 minutes, then could not finish 7,031 in
+90, after one 3.3-second test (`PropsAt_ManyThreadsSharingOneTimeline_MatchATimelinePerThread`,
+B438) began covering most of `DemoTimeline`. The whole rest of Core's suite is 4 seconds. The first
+local run of Content was stopped after seven and a half hours.
+
+| project | suite, summed | methods over 1 s | their share |
+|---|---|---|---|
+| Core | 26 s | 3 | 5 s |
+| Content | 502 s | 95 | 439 s |
+| Rendering | 1,381 s | 123 | 1,350 s |
+| Viewer3D | 150 s | 11 | 133 s |
+| Presentation | 22 s | 1 | 21 s |
+
+Scene and Animation have none; Audio has 20 at 1-2 s and runs in six minutes untagged.
+
+**The mechanism.** Those methods carry
+`[Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]`, and each of the five
+`stryker-config.json` files has `"test-case-filter": "TestCategory!=MutationHeavy"`. Nothing else
+filters on it: `dotnet test`, the gate and its floors run every test as before.
+
+**The trade, stated.** A mutant only a tagged test would have killed is reported as surviving. That
+is a true statement about the fast suite, and the remedy is the project's own rule (D38): write the
+synthetic test that kills it rather than leaning on a real map.
+
+**Keeping the list honest.** A new test over about a second, measured on the owner's machine,
+gets the tag. To re-derive: `dotnet test <project> --logger "trx;LogFileName=timing.trx"`, sum
+durations per method, tag what exceeds one second. A mutation run that stops fitting its ceiling is
+the signal that one was missed - look for the newest slow test before raising a timeout.
+

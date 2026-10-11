@@ -49,6 +49,7 @@ public sealed class LaunchOptionWiringTests
         "tools", "corpus", "demos", "tf2-2013-build1729296-pov-cp_badlands.dem"));
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LoadDemo_WithAutoplay_LeavesTheTransportPlaying()
     {
         RequireTheDemo();
@@ -75,6 +76,7 @@ public sealed class LaunchOptionWiringTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void LoadDemo_WithoutAutoplay_LeavesTheTransportPaused()
     {
         // **The control, and without it the test above cannot fail for the right reason.** A viewer

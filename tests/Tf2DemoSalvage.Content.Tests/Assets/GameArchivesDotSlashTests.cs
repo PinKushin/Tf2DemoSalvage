@@ -23,6 +23,7 @@ public sealed class GameArchivesDotSlashTests
     public void RemoveDotSlashes_ClimbingAboveTheRoot_Fails(string path) => GameArchives.RemoveDotSlashes(path).ShouldBeNull();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheStockHealthCross_IsFoundThroughItsDotDotName()
     {
         GameArchives archives = GameArchives.Open(GameInstall.Require());

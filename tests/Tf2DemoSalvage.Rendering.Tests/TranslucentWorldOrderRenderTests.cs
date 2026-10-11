@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class TranslucentWorldOrderRenderTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawTranslucentWorld_AModelBehindWorldGlass_IsCoveredByTheGlass()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -88,6 +89,7 @@ public sealed class TranslucentWorldOrderRenderTests
     /// by hand, and the two hand orders must differ or the test cannot fail.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawTranslucentLeaf_ATranslucentModelBehindWorldGlass_IsCoveredAndOneInFrontIsNot()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -179,6 +181,7 @@ public sealed class TranslucentWorldOrderRenderTests
     /// by its hand order, and the two hand orders must differ or the test cannot fail.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DetailSprites_InTheTranslucentPass_AreHiddenByAnOpaqueModelAndSplitAroundATranslucentOne()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

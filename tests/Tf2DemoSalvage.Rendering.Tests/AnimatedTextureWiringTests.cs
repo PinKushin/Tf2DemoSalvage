@@ -28,6 +28,7 @@ public sealed class AnimatedTextureWiringTests
     /// and is selective — not that a particular material is present.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void AnimationFrames_ARealMapsMaterials_ArriveOnlyWhereAProxyAsks()
     {
         if (Assets is not { } assets)

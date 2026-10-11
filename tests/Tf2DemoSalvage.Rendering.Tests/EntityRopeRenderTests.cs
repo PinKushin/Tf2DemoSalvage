@@ -42,6 +42,7 @@ public sealed class EntityRopeRenderTests
     /// three pixels thick where it crosses the middle.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AViaductCableFromARealDemo_DarkensItsLineAndNotTheCorners()
     {
         (OffscreenTarget picture, MapAssets assets, EntityRopes ropes, List<SceneProp> scene, List<SceneProp> props,
@@ -78,6 +79,7 @@ public sealed class EntityRopeRenderTests
     /// same with and without it, so the measured effect is an overall darkening, not a profile.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AViaductCablesBackPass_IsDarkenedByItsNormalMap()
     {
         (OffscreenTarget target, MapAssets assets, EntityRopes ropes, List<SceneProp> scene, List<SceneProp> props,
@@ -111,6 +113,7 @@ public sealed class EntityRopeRenderTests
     /// none.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_AViaductCableAtChristmas_HangsColouredBulbs()
     {
         (OffscreenTarget target, MapAssets assets, EntityRopes ropes, List<SceneProp> scene, List<SceneProp> props,

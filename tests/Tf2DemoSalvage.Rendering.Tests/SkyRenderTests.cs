@@ -22,6 +22,7 @@ public sealed class SkyRenderTests
     private static readonly FreeCamera AlongX = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f), Aspect = 1f };
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawSky_Ctf2fortUnderIntegerHdr_IsTheRgbsFaceTimesEight()
     {
         if (Load("ctf_2fort") is not { } assets)
@@ -51,6 +52,7 @@ public sealed class SkyRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawSky_KothHarvestEventUnderIntegerHdr_IsThePlainShaderOnTheHdrBase()
     {
         // sky_halloween names only $hdrbasetexture, so Sky_HDR_DX9 binds it with sky_ps2x.fxc, read through the sRGB

@@ -11,6 +11,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class StaleModelProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PackedModels_AgainstTheirLighting_AreReported()
     {
         string tf = GameInstall.Require();

@@ -98,6 +98,7 @@ public sealed class BrushEntityWiringTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ARealMapsBrushEntities_ReachTheEntityModelTable()
     {
         if (!Directory.Exists(GamePath) || !File.Exists(MapPath))
@@ -135,6 +136,7 @@ public sealed class BrushEntityWiringTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BrushEntities_TheWorldModel_IsExcluded()
     {
         if (!Directory.Exists(GamePath) || !File.Exists(MapPath))

@@ -46,6 +46,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class SkinnedModelCubemapTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ModelCubemap_ChosenForASkinnedModel_ComesFromItsOwnPositionNotItsMatrix()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

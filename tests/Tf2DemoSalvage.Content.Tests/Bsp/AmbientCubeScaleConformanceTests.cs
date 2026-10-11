@@ -66,6 +66,7 @@ public sealed class AmbientCubeScaleConformanceTests
     ];
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ColorRGBExp32_TheTwoLumpsThatCarryIt_AreInOneScale()
     {
         if (Candidates.FirstOrDefault(File.Exists) is not { } mapPath)

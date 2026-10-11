@@ -105,6 +105,7 @@ public sealed class WorldCullingMapTests
     /// so it also exercises the leaf-orphan path at a scale the default map does not.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForBadlands_NeverMergeAcrossAMaterialBoundary()
     {
         const string Badlands = "cp_badlands";
@@ -160,6 +161,7 @@ public sealed class WorldCullingMapTests
     /// which is the mistake the span recording is most exposed to.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForACameraInsideTheMap_CoverOnlyVerticesTheFullWorldDraws()
     {
         (MapLevel level, MapWorld world) = Built();
@@ -212,6 +214,7 @@ public sealed class WorldCullingMapTests
     /// denominator.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForACameraInsideTheMap_CoverEveryDrawnFaceOfEveryVisibleLeaf()
     {
         (MapLevel level, MapWorld world) = Built();
@@ -288,6 +291,7 @@ public sealed class WorldCullingMapTests
     /// face up in the leaves rather than by trusting it.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForACameraInsideTheMap_DropNothingThatIsOnScreenAndUnoccluded()
     {
         (MapLevel level, MapWorld world) = Built();
@@ -389,6 +393,7 @@ public sealed class WorldCullingMapTests
     /// frame rate.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Corners_ForACameraInsideTheMap_AreFewerThanTheWholeWorld()
     {
         (MapLevel level, MapWorld world) = Built();

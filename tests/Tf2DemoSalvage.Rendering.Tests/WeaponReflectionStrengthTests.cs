@@ -48,6 +48,7 @@ public sealed class WeaponReflectionStrengthTests
     private const float Headroom = 2f;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponReflection_OnAMaterialTintedToATwelfth_StaysWithinThatTint()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -129,6 +130,7 @@ public sealed class WeaponReflectionStrengthTests
     /// which is what makes the pair a controlled comparison rather than two measurements.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponReflection_AtViewmodelRange_StaysWithinItsTint()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -199,6 +201,7 @@ public sealed class WeaponReflectionStrengthTests
     /// channel by more than the tint times 255.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void WeaponReflection_TurnedOnAndOff_ContributesNoMoreThanItsTint()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

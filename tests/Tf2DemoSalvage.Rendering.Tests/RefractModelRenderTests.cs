@@ -43,6 +43,7 @@ public sealed class RefractModelRenderTests
     /// model draw that is not the refract shader does with this slot) is lilac, not grey.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_TheLensOverAUniformFrame_IsTheFrameTimesTheTint()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -73,6 +74,7 @@ public sealed class RefractModelRenderTests
     /// (<see cref="RefractTrailRenderTests"/>).
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_TheLensOverAHalfLitFrame_ShowsOnlyTheFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");

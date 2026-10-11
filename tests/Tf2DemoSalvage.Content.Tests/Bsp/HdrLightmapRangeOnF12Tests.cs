@@ -13,6 +13,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class HdrLightmapRangeOnF12Tests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_CpProcessF12_KeepsItsSunlitLuxelsAboveTwo()
     {
         string tf = GameInstall.Require();

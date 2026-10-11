@@ -25,6 +25,7 @@ public sealed class MapLevelSweepTests
     private const string Terrain = "cp_badlands";
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Sweep_DroppedOntoTerrain_IsStoppedWhereTheBrushTraceAloneIsNot()
     {
         MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
@@ -105,6 +106,7 @@ public sealed class MapLevelSweepTests
     /// harvest's terrain fell through the ground: measured 125 units under the red spawn's floor.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TraceBrushOnly_DroppedOntoTerrain_IsStoppedWhereTheBspTreeIsNot()
     {
         MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
@@ -144,6 +146,7 @@ public sealed class MapLevelSweepTests
     /// hillside first is shaded — where the old leaf-stepping test walked through the hill to open air.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void StrikesSky_UpFromTheGroundAndDownIntoIt_AnswerEachWay()
     {
         MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
@@ -187,6 +190,7 @@ public sealed class MapLevelSweepTests
     /// z = 2240. `StrikesSky` traced `MASK_SOLID`, started solid, and called the dome unlit by the sun.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void StrikesSky_FromAPointInsideABrushThatIsNotOpaque_StrikesTheSkyBeyondIt()
     {
         const string Map = "cp_process_f12";
@@ -217,6 +221,7 @@ public sealed class MapLevelSweepTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Sweep_IntoABrushWall_IsStillStoppedByTheBrush()
     {
         // **The control for the test above, and it guards the other direction.** Adding a terrain
@@ -244,6 +249,7 @@ public sealed class MapLevelSweepTests
     /// a hull given by its origin and bounds is the centred box with three extents.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TraceHull_APlayersBounds_IsTheCentredBoxWithThreeExtents()
     {
         MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance);
@@ -266,6 +272,7 @@ public sealed class MapLevelSweepTests
     /// would pin itself to its subject; a movement simulation told "clear" falls forever, so it is told there is no world.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TraceHull_OnAMapWithNoTree_IsNull()
     {
         MapLevel level = MapLevel.Read(MapCache.Bytes(Terrain), NullLogger.Instance) with { Leaves = null };

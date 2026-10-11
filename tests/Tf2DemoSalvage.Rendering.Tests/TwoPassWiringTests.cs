@@ -32,6 +32,7 @@ public sealed class TwoPassWiringTests
 
     /// <summary>That the loader carries the header's flag onto the model it builds.</summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Geometry_TheSniperAsTheViewerLoadsIt_KnowsItIsTwoPass()
     {
         MapAssets assets = MapCache.Load(entityModels: [Sniper, Scout]);

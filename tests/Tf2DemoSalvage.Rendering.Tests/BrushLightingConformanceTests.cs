@@ -66,6 +66,7 @@ public sealed class BrushLightingConformanceTests
         "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BrushModels_TheGeometryThisProjectBuilds_CarriesTheAtlasCoordinatesTheWorldUses()
     {
         // **The half the two tests below cannot supply.** They read vrad and c_baseentity and

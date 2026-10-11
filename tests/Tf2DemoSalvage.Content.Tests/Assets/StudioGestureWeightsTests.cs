@@ -31,6 +31,7 @@ public sealed class StudioGestureWeightsTests
     private static string Game => GameInstall.Require();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void GestureWeights_AnUncustomisedSequence_SharesTheAllOnesTable()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
@@ -66,6 +67,7 @@ public sealed class StudioGestureWeightsTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void GestureWeights_AHandPosingSequence_RestrictsWhichBonesItTouches()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)
@@ -120,6 +122,7 @@ public sealed class StudioGestureWeightsTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void GestureWeights_AnAbsentSequence_ReturnsNoWeights()
     {
         if (Read("models/player/scout_animations.mdl") is not { } file)

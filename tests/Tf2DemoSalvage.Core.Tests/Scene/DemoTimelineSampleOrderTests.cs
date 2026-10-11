@@ -304,6 +304,7 @@ public sealed class DemoTimelineSampleOrderTests
     /// parallel and a pool-scheduled loop can end up running its "parallel" work one item at a time.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PropsAt_ManyThreadsSharingOneTimeline_MatchATimelinePerThread()
     {
         List<List<SceneProp>> expected = [];

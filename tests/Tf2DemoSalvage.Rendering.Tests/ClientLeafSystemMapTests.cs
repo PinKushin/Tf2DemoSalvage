@@ -19,6 +19,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class ClientLeafSystemMapTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void BuildRenderablesList_ForCpProcessFromOneEye_ReachesWhatTheOldWalkReachedAtTheSamePlaces()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
@@ -121,6 +122,7 @@ public sealed class ClientLeafSystemMapTests
     /// <c>bsplib.cpp:3403</c>. A box ending exactly on a plane is behind it only.
     /// </summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EnumerateLeavesInBox_ForABoxEndingOnANodePlane_ExcludesTheLeafJustInFront()
     {
         (MapLevel level, _) = WorldCullingMapTests.Built();
@@ -164,6 +166,7 @@ public sealed class ClientLeafSystemMapTests
     /// a box outside the world reaches nothing, where a plane-only descent always ends in some leaf.
     /// </summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EnumerateLeavesInBox_ForABoxOutsideTheWorld_ReachesNoLeaf()
     {
         (MapLevel level, _) = WorldCullingMapTests.Built();
@@ -187,6 +190,7 @@ public sealed class ClientLeafSystemMapTests
     /// <c>R_DrawLeaf</c> (<c>0x1800df9d0</c>) — which appends the leaf to the world list — is never called for one.
     /// </summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForCpProcessFromInside_ListsNoSolidLeaf()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
@@ -206,6 +210,7 @@ public sealed class ClientLeafSystemMapTests
     /// <c>r_novis</c> does. The walk then lists every non-solid leaf in the frustum.
     /// </summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Batches_ForAnEyeInSolid_ListsEveryNonSolidLeaf()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();
@@ -245,6 +250,7 @@ public sealed class ClientLeafSystemMapTests
 
     /// <summary>A box over the whole map is filed in no solid leaf (<c>CMP dword ptr [RCX],0x1</c>, <c>0x1800dd6a7</c>).</summary>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void EnumerateLeavesInBox_ForTheWholeMap_FilesNoSolidLeaf()
     {
         (MapLevel level, _) = WorldCullingMapTests.Built();

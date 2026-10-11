@@ -68,6 +68,7 @@ public sealed class ViewmodelSchemeConformanceTests
     /// would silently force every one of that class's weapons down the single-model branch.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Hands_EveryPlayingClass_NamesItsArmsModel()
     {
         if (Classes() is not { } classes)
@@ -102,6 +103,7 @@ public sealed class ViewmodelSchemeConformanceTests
     /// <c>v_stickybomb_launcher_demo</c> AND <c>c_stickybomb_launcher</c> at the same point.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Hands_TheDemoman_IsCDemoArms()
     {
         if (Classes() is not { } classes)

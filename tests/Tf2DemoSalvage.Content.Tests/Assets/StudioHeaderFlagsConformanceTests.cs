@@ -98,6 +98,7 @@ public sealed class StudioHeaderFlagsConformanceTests
     /// bit 4 set" — true of roughly half of all bone counts and uncorrelated with anything.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Flags_ForShippedModels_AgreeWithTheBoneCountAboutStaticProps()
     {
         if (Models() is not { Count: > 0 } archives)

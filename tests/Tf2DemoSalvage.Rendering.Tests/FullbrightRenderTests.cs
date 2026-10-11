@@ -39,6 +39,7 @@ public sealed class FullbrightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Fullbright_ItsThreeStates_ProduceThreeDifferentPictures()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

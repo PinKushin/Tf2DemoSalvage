@@ -46,6 +46,7 @@ public sealed class WaterViewRenderTests
     };
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_FloorUnderRefractingWater_ShowsThroughTheSurface()
     {
         if (!Direct3DApi.IsAvailable)
@@ -87,6 +88,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_TheRefractionView_DrawsTheEntitiesAndTheReflectionDoesNot()
     {
         // DF_DRAW_ENTITITES: the refraction view always (viewrender.cpp:6041), the reflection only with
@@ -117,6 +119,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_UnderWater_TheRefractionIsDrawnIntoTheFrameAndCopiedOut()
     {
         // CUnderWaterView::CRefractionView (viewrender.cpp:6203-6248): "Refraction renders into the back buffer, over
@@ -153,6 +156,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_ATranslucentFloorUnderWater_ShowsThroughTheSurface()
     {
         // DrawExecute draws the translucent world in every water view (viewrender.cpp:5537 with entities, :5553 without).
@@ -194,6 +198,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Hdr_Ctf2fort_IsIntegerHdr()
     {
         // Map_CheckForHDR (engine.dll 0x1800ffa10) finds 2fort's HDR lumps, and shaderapidx9's caps make the type
@@ -208,6 +213,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_ReflectionViewUnderIntegerHdr_DrawsAtAQuarterToneMapScale()
     {
         // Valve scales in the SHADERS, not after: PushView's SetLightmapScaleForWater (viewrender.cpp:5351, :2726-2736)
@@ -242,6 +248,7 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawWaterWorld_ReflectionUnderIntegerHdr_IsStoredAtAQuarter()
     {
         // PushView's SetLightmapScaleForWater (viewrender.cpp:5351, :2726-2736): under HDR_TYPE_INTEGER the reflection

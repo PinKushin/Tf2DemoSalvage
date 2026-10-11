@@ -36,6 +36,7 @@ public sealed class ModelTangentDemoRenderTests
     private static readonly StrongBox<GameContent?> Content = new();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ARealSpysBumpLitBody_TakesItsHighlightFromTheTangentFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
@@ -62,6 +63,7 @@ public sealed class ModelTangentDemoRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Render_ARealSpyHalfCloaked_RefractsAlongTheTangentFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");

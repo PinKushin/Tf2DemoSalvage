@@ -8,19 +8,19 @@
 # It takes the machine-wide lock (run-exclusive.ps1): Stryker rebuilds mutated copies continuously and
 # holds obj/, so it must never overlap a UI suite or a manual check. It waits rather than refusing.
 #
-#   pwsh build/run-local-mutation.ps1                 # Audio, the only one that fits a night
+#   pwsh build/run-local-mutation.ps1                 # all three
 #   pwsh build/run-local-mutation.ps1 -Project Audio  # one
 #
-# Audio alone by default (2026-10-11): the first scheduled run finished Audio in six minutes, then spent
-# seven and a half hours inside Content without finishing and never reached Rendering - holding the
-# machine-wide lock the whole time. Stryker writes its report only at the end, so a stopped run leaves
-# nothing. Content and Rendering stay out of the default until they are cut to a slice that fits
-# (-Project Content still runs one by hand).
+# The first scheduled run (2026-10-11) finished Audio in six minutes, then spent seven and a half hours
+# inside Content and was stopped. Two causes, both fixed: Stryker reran 25-40 second real-map tests for
+# every mutant they cover (now tagged MutationHeavy and filtered out by each stryker-config.json - see
+# tests/STRYKER-NOTES.md), and this checkout had no native codec DLLs, so fifteen Audio tests failed
+# before a single mutant ran (copied in below).
 #
 # Runs against a dedicated worktree at -Checkout, reset to origin/main each time, so it never touches a
 # worktree an agent is working in. Reports land in -OutRoot\<yyyy-MM-dd>\<project>.
 param(
-    [string[]]$Project = @('Audio'),
+    [string[]]$Project = @('Audio', 'Content', 'Rendering'),
     [string]$Repo = 'C:\Users\pinku\source\repos\PinKushin\Tf2DemoSalvage',
     [string]$Checkout = 'F:\Tf2DemoSalvage-mutation',
     [string]$OutRoot = "$env:LOCALAPPDATA\Tf2DemoSalvage\mutation",
@@ -40,6 +40,16 @@ if ($LASTEXITCODE -ne 0) { throw "checkout of origin/main failed ($LASTEXITCODE)
 # Demo-reading tests need lcor; a worktree reaches it through a junction (docs/memory/lcor-is-not-in-a-worktree.md).
 $local = Join-Path $Checkout 'tools\corpus\local'
 if (-not (Test-Path $local)) { New-Item -ItemType Junction -Path $local -Target $Lcor | Out-Null }
+
+# celt/speex/silk are built once by tools/native-audio/build.ps1 and are not committed, so a fresh worktree
+# has none and the codec tests fail in it. Copy the main checkout's; refuse to measure without them.
+foreach ($dll in 'celt.dll', 'speex.dll', 'silk.dll') {
+    $from = Join-Path $Repo "tools
+ative-audio\$dll"
+    if (-not (Test-Path $from)) { throw "$from is missing - run tools/native-audio/build.ps1 in $Repo first" }
+    Copy-Item $from (Join-Path $Checkout "tools
+ative-audio\$dll") -Force
+}
 
 Push-Location $Checkout
 try { dotnet tool restore; if ($LASTEXITCODE -ne 0) { throw "dotnet tool restore failed ($LASTEXITCODE)" } }

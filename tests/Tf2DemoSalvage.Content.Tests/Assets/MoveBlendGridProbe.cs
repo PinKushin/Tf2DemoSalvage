@@ -28,6 +28,7 @@ public sealed class MoveBlendGridProbe
     private static string Game => GameInstall.Require();
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MoveBlendGrid_ForwardRunning_IsReported()
     {
         if (!Directory.Exists(Game))
@@ -80,6 +81,7 @@ public sealed class MoveBlendGridProbe
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void MoveBlendGrid_TheRunBlendGroundSpeed_IsReported()
     {
         if (!Directory.Exists(Game))

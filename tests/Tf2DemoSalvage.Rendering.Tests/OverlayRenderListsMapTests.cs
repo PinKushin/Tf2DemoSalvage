@@ -17,6 +17,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class OverlayRenderListsMapTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Order_ForCpProcessFromOneEye_DrawsEveryReachedFragmentOnceAndTurnsWithTheView()
     {
         (MapLevel level, MapWorld world) = WorldCullingMapTests.Built();

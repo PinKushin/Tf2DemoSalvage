@@ -170,6 +170,7 @@ public sealed class StudioModelGroupTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ARealSequenceNumber_ResolvesToRealAnimationData()
     {
         // **The end to end measurement, and the point of all of it.** A demo networks a number,

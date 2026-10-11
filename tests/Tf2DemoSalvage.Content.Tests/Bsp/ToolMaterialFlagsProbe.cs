@@ -10,6 +10,7 @@ namespace Tf2DemoSalvage.Content.Tests.Bsp;
 public sealed class ToolMaterialFlagsProbe
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ToolMaterialFlags_EveryToolMaterial_IsReported()
     {
         // The authored f12 map wins when it is there, because it carries tool materials the stock

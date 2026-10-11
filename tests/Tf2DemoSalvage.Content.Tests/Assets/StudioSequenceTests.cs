@@ -35,6 +35,7 @@ public sealed class StudioSequenceTests
     [TestCase("models/items/ammopack_medium.mdl")]
     [TestCase("models/items/ammopack_large.mdl")]
     [TestCase("models/player/scout.mdl")]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void AModelsSequences_EachNameARealAnimation(string path)
     {
         if (Read(path) is not { } file)

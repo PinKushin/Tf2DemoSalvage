@@ -183,6 +183,7 @@ public sealed class StudioModelTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_EveryMeshMaterial_NamesOneTheModelCarries()
     {
         // The index is into this model's own texture table, so anything outside it says the
@@ -201,6 +202,7 @@ public sealed class StudioModelTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheMeshes_LandInsideTheModelsOwnVertexFile()
     {
         // **The measurement that matters, and it spans two files.** The .mdl says which vertices a
@@ -235,6 +237,7 @@ public sealed class StudioModelTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheChecksum_MatchesTheVertexFileBesideIt()
     {
         // **A value recorded twice by unrelated routes.** The compiler stamps the same number into
@@ -260,6 +263,7 @@ public sealed class StudioModelTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Read_TheMaterialFolders_IncludeTheEmptyOneWhereValveWroteIt()
     {
         // **The empty folder is data, not corruption.** Fourteen of these props put a full relative

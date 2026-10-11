@@ -103,6 +103,7 @@ public sealed class UnlitModelMaterialConformanceTests
     /// (`mat_drawflat` cannot be the albedo here: it whitens AFTER the modulation and would erase the subject.)
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_ASkyCardMaterialUnderColoursACubeAndALamp_IsItsLinearModulationEveryTime()
     {
         const string Map = "cp_process_f12";
