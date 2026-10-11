@@ -9693,10 +9693,14 @@ a short authored specimen. A real recorded match belongs to `Corpus.Tests` and t
 where it had been let slip, not a new principle: D38 already says a synthetic fixture is the stronger one and the
 corpus keeps only what real bytes alone can prove.
 
-**How it sits with the output-level rule** ("not done until an assertion has read the output on a real demo",
-`CLAUDE.md`). *The assistant's reading, not the owner's words:* that assertion is met in `Corpus.Tests`, or with a
-real map or model file in the unit suite — the owner named demos, and a map is not a match recording. If he means
-maps too, this entry changes.
+**Maps and models, settled by the owner the same day:** *"real maps and models are fine, they actually load pretty
+fast, but we shouldnt be testing them directly anyway, that is testing VALVES code not ours. but to test OUR code,
+using the real model and map is fine i think. map would be the slowdown if there was one between the two, but we
+cant fake a map so its stuck being used if we need to run its code through OUR code"*. So a real map or model is an
+input to this project's code and never the subject of the test: an assertion about what the file holds is a claim
+about Valve's data, which is a measurement or a probe (D38, D126). The output-level rule ("not done until an
+assertion has read the output on real data", `CLAUDE.md`) is met with a real map or model in the unit suite, or
+with a real demo in `Corpus.Tests`.
 
 **Not yet done.** The existing real-demo tests are not converted by this entry; each needs reading to choose its
 synthetic equivalent (never a mechanical rewrite). `MutationHeavy` keeps them out of mutation runs meanwhile.
