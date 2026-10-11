@@ -133,6 +133,11 @@ public sealed class BlendModulationConformanceTests
         carrying.ShouldBeLessThan(assets.BlendModulations.Count / 2, "the control: a mask is the exception, not every material");
     }
 
-    private static string Sdk(string path) =>
-        SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");
+    /// <summary>An SDK file; skips where there is no checkout (the Windows runner), fails where the checkout lacks the file.</summary>
+    private static string Sdk(string path)
+    {
+        SourceSdk.Require();
+
+        return SourceSdk.Text(path) ?? throw new InvalidOperationException($"{path} is missing from the SDK");
+    }
 }
