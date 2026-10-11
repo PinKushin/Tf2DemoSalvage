@@ -308,7 +308,7 @@ public sealed class EntityBeamRenderTests
             sprites,
             prop => ParentChain.Absolute(prop, _ => null),
             (_, _, _) => null,
-            _ => true,
+            _ => 1f,
             currentTime: 0f,
             frameTime: 0f);
 

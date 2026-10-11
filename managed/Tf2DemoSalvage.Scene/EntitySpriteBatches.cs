@@ -49,8 +49,8 @@ public sealed class EntitySpriteBatches
     /// <param name="viewForward">The view's forward.</param>
     /// <param name="sprites">Each sprite as loaded, keyed by model path.</param>
     /// <param name="visible">
-    /// Whether a glow at a point can be seen — the occlusion fraction, all or nothing. See the
-    /// remarks: this is NOT the engine's test and the difference is stated rather than hidden.
+    /// How much of a glow's proxy can be seen — <c>PixelVisibility_FractionVisible</c>, which the caller answers from
+    /// <see cref="PixelVisibility"/>.
     /// </param>
     /// <returns>One batch per material and blend, empty when nothing draws.</returns>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
@@ -62,14 +62,10 @@ public sealed class EntitySpriteBatches
     ///
     /// **What the occlusion gate is, exactly.** The engine asks
     /// `PixelVisibility_FractionVisible`, a GPU occlusion query against a proxy quad of
-    /// `m_flGlowProxySize`, which returns a FRACTION and makes a glow dissolve smoothly as it goes
-    /// behind a pillar. Without a query handle it degenerates to
-    /// <c>GlowSightDistance( position, true ) &gt; 0.0f ? 1.0f : 0.0f</c> — a line trace from the eye,
-    /// all or nothing (`c_pixel_visibility.cpp:825`). The caller supplies that trace
-    /// (<see cref="GlowSight"/>). It is asked only of a glow, because only `GlowBlend` asks.
-    ///
-    /// The visible consequence of having no query: a glow that TF2 dissolves gradually as it goes
-    /// behind a pillar pops here. B378 carries this as the open half.
+    /// `m_flGlowProxySize` and the sprite's aspect (`CSprite::GlowBlend`, `c_sprite.cpp:210-216`), which returns
+    /// a FRACTION and makes a glow dissolve smoothly as it goes behind a pillar. It is asked only of a glow,
+    /// because only `GlowBlend` asks. Until B521 this was a line trace, all or nothing — the engine's fallback
+    /// for a client with no queries (<see cref="GlowSight"/>).
     /// </remarks>
     public IReadOnlyList<ParticleBatch> Build(
         IReadOnlyList<SceneProp> props,
@@ -78,7 +74,7 @@ public sealed class EntitySpriteBatches
         Vector3 viewUp,
         Vector3 viewForward,
         IReadOnlyDictionary<string, EngineSprite> sprites,
-        Func<Vector3, bool> visible)
+        Func<GlowQuery, float> visible)
     {
         ArgumentNullException.ThrowIfNull(props);
         ArgumentNullException.ThrowIfNull(sprites);
@@ -170,7 +166,13 @@ public sealed class EntitySpriteBatches
                     prop.Pose.RenderFx,
                     state.Brightness,
                     Vector3.Distance(origin, eye),
-                    visible(origin) ? 1f : 0f,
+
+                    // `SpriteAspect`: the frame's width over its height, 1 when either is zero.
+                    visible(new GlowQuery(
+                        prop.EntityIndex,
+                        origin,
+                        state.GlowProxySize,
+                        sprite.Width > 0 && sprite.Height > 0 ? sprite.Width / (float)sprite.Height : 1f)),
                     scale);
 
                 if (blend <= 0f)

@@ -1975,6 +1975,13 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        // **And for the glows to arrive** (B378, B521): a lamp's halo fades in over a sixteenth of a second from the
+        // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
+        if (_opening.Applied && !_pixelVisibility.Settled)
+        {
+            return;
+        }
+
         switch (_opening.Advance())
         {
             case OpeningStep.ApplyOpeningState:
@@ -7359,20 +7366,18 @@ internal class MainForm : Form, IFrameSteps
             (float ahead, float across, float above) = AngleVectors.Forward(
                 viewing.Angles.Pitch, viewing.Angles.Yaw);
 
-            // **The occlusion gate: the engine's line-of-sight fallback** (`GlowSight`,
-            // `c_pixel_visibility.cpp:825`). This was `_ => true`, which drew a lamp's halo through
-            // the roof above it; the owner saw it in the pyro's view on `koth_harvest_final`.
+            // **The occlusion gate: `PixelVisibility_FractionVisible`** (B378, B521) — how much of each glow's proxy
+            // the last frame's depth let through, counted by the device and approached over the fade time. One gate
+            // for the entity sprites and the beams' halos. It was a line of sight, all or nothing (`GlowSight`, the
+            // engine's fallback), which left a ceiling lamp seen at a slant a fifth brighter than TF2's.
             //
-            // **Brushes AND static props**, as `MASK_OPAQUE` is: on `koth_harvest_final` a lamp's halo sits under
-            // a roof of `corrugated_metal` props, and a brush-only trace went straight through it. One gate for the
-            // entity sprites and the beams' halos, which ask `PixelVisibility_FractionVisible` the same question.
-            bool Sees(Vector3 glow) =>
-                _loaded?.Level is not { } level ||
-                GlowSight.Visible(
-                    new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                    new Vector3(ahead, across, above),
-                    glow,
-                    (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f);
+            // **The frame's real duration, where the engine's is the demo's** and so zero while paused: this camera
+            // flies while paused, and a glow held where the pause found it would then be wrong for good.
+            Device3D occluding = _device;
+
+            _pixelVisibility.BeginFrame((float)_clock.LastFrameSeconds, occluding.OcclusionResult);
+
+            float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
 
             IReadOnlyList<ParticleBatch> glows = _sprites.Build(
                 _moment.Drawn,
@@ -7386,6 +7391,10 @@ internal class MainForm : Form, IFrameSteps
             // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
             IReadOnlyList<ParticleBatch> drawnByClass = BuildEffectEntities(
                 viewing, new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+            // `PixelVisibility_EndCurrentView`: the proxies this frame's view counts, read back by the next.
+            occluding.SetOcclusionProxies(
+                _pixelVisibility.EndView(PixelVisibilityView.From(viewing, Math.Max(1, _viewport.ClientSize.Height))));
 
             if (drawnByClass.Count > 0)
             {
@@ -7434,7 +7443,7 @@ internal class MainForm : Form, IFrameSteps
     /// paused frame repeats itself. A step backwards is a seek, not negative time, and counts as zero too.
     /// </remarks>
     private IReadOnlyList<ParticleBatch> BuildEffectEntities(
-        FreeCamera viewing, Vector3 forward, Vector3 right, Vector3 up, Func<Vector3, bool> sees)
+        FreeCamera viewing, Vector3 forward, Vector3 right, Vector3 up, Func<GlowQuery, float> sees)
     {
         double interval = _timeline?.IntervalPerTick ?? (1d / 66d);
         double tick = _transport.CurrentTick;
@@ -7873,6 +7882,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Every `env_sprite` in the moment, as quads (B378).</summary>
     private readonly EntitySpriteBatches _sprites = new();
+
+    /// <summary>How much of each glow the scene lets through — <c>CPixelVisibilitySystem</c> (B378, B521).</summary>
+    private readonly PixelVisibility _pixelVisibility = new();
 
     /// <summary>The track for one entity that covers a given tick.</summary>
     /// <remarks>

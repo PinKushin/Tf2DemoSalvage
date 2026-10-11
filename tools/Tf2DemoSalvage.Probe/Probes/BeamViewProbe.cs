@@ -102,8 +102,18 @@ public sealed class BeamViewProbe : IProbe
 
         output.WriteLine($"  halo gate (map trace, both ways): {Sees(new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z))}");
 
+        // The viewer answers this from a GPU occlusion query (`PixelVisibility`); a probe has no device, so the halo
+        // here is at the trace's all or nothing and its brightness is an upper bound.
+        float Fraction(GlowQuery query)
+        {
+            output.WriteLine(string.Create(
+                CultureInfo.InvariantCulture, $"  halo query: entity {query.Entity} proxy size {query.ProxySize} (fraction not measured: no device)"));
+
+            return Sees(query.Position) ? 1f : 0f;
+        }
+
         IReadOnlyList<ParticleBatch> batches = new EntityBeams().Build(
-            [prop], view, sprites, one => one.Pose, (_, _, _) => null, Sees, currentTime: 0f, frameTime: 0f);
+            [prop], view, sprites, one => one.Pose, (_, _, _) => null, Fraction, currentTime: 0f, frameTime: 0f);
 
         foreach (ParticleBatch batch in batches)
         {

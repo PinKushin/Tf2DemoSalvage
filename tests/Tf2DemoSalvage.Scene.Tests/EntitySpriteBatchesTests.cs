@@ -371,6 +371,25 @@ public sealed class EntitySpriteBatchesTests
         }
     }
 
+    /// <remarks>
+    /// **A glow asks the occlusion system as its ENTITY, with its own proxy** (B521) — `CSprite::GlowBlend`
+    /// (`c_sprite.cpp:210-216`): <c>params.Init( entorigin, m_flGlowProxySize, aspect )</c>, then
+    /// <c>StandardGlowBlend( params, &amp;m_queryHandle, … )</c>, whose result multiplies the color.
+    /// </remarks>
+    [Test]
+    public void Build_AWorldGlowHalfHidden_AsksAsItsEntityAndDrawsHalfAsBright()
+    {
+        GlowQuery asked = default;
+
+        IReadOnlyList<ParticleBatch> batches = Seen(
+            new EntitySpriteBatches(),
+            RenderModes.WorldGlow,
+            visible: query => { asked = query; return 0.5f; });
+
+        asked.ShouldBe(new GlowQuery(42, Vector3.Zero, SceneSprite.Default.GlowProxySize, 1f));
+        batches[0].Corners[0].Red.ShouldBe(0.5f, 0.0001f);
+    }
+
     /// <summary>One viewplane-parallel sprite at the origin, seen from straight above.</summary>
     /// <param name="sprites">The pass under test.</param>
     /// <param name="renderMode">The entity's <c>m_nRenderMode</c>.</param>
@@ -380,6 +399,7 @@ public sealed class EntitySpriteBatchesTests
     /// <param name="brightness">The sprite's <c>m_nBrightness</c>, which is its alpha.</param>
     /// <param name="constant">The material's <c>$color</c> and <c>$alpha</c>; opaque white when omitted.</param>
     /// <param name="ignoresVertexColors">The material's <c>$ignorevertexcolors</c>, true by default as in the shader.</param>
+    /// <param name="visible">The occlusion fraction; wholly seen when omitted.</param>
     private static IReadOnlyList<ParticleBatch> Seen(
         EntitySpriteBatches sprites,
         int renderMode,
@@ -388,7 +408,8 @@ public sealed class EntitySpriteBatchesTests
         float height = 500f,
         int brightness = 255,
         (float Red, float Green, float Blue, float Alpha)? constant = null,
-        bool ignoresVertexColors = true)
+        bool ignoresVertexColors = true,
+        System.Func<GlowQuery, float>? visible = null)
     {
         EngineSprite sprite = new(
             new ParticleMaterial(
@@ -421,7 +442,7 @@ public sealed class EntitySpriteBatchesTests
             {
                 [Glow] = sprite,
             },
-            visible: _ => true);
+            visible: visible ?? (_ => 1f));
     }
 
     /// <summary>One world glow at the origin, drawn by a camera 500 units above it looking down.</summary>
@@ -456,6 +477,6 @@ public sealed class EntitySpriteBatchesTests
             {
                 [Glow] = glow,
             },
-            visible: _ => true);
+            visible: _ => 1f);
     }
 }

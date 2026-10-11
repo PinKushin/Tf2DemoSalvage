@@ -483,3 +483,23 @@ one tile and under in the next where a pool of light has an edge — exactly the
 end, a styled lightmap, a specular term. The face under the pixel had one style, no bump map and no envmap; the
 light was all there, a third of a luxel to one side. The instrument that settled it is new: a ray from the capture's
 own camera through the pixel, naming the face (RISKS B521).
+
+**What was left around the lamps was three things that looked like one, and each was a rule the engine applies
+between the material file and the pixel** (`fix/b521-lamp-fixtures`, 2026-10-11). The lamp rims, the pipes and the
+ceiling under the two far lamps all read 105-130%. Switching one term off at a time separated them before anything
+was changed: without the cubemap reflection the rims and pipes fell to 92-98% and the far lamps did not move; without
+the halo the far lamps fell to 21-70% and the near one with them. So: a reflection several times too strong on two
+different materials, and a halo about a fifth too bright on two lamps of three. *Read from published source*, the
+lamp fixture's `$envmaptint [.2 .2 .2]` is a GAMMA colour on `VertexLitGeneric` — the helper sends it through
+`GetLinearVecValue`, 0.029 — while the skin shader and `LightmappedGeneric` send the same key raw; the pipes are
+`$phong`, and the skin shader has no unmasked reflection at all, multiplying by the base map's alpha when a material
+names no mask (theirs names one that does not exist, `$basemapalphaenvmapmask`); and the halo is dimmed by
+`PixelVisibility_FractionVisible`, a GPU count of how much of an 8-unit proxy the scene's depth lets through, which
+for a lamp recessed in its own fixture and seen at a slant is 0.72 to 0.82 — *measured* off the tiles before the
+query was written, and reproduced by it. After: every tile of the indoor frame is within 96-102%. **The same shape
+three times, and the fourth of this bug**: the VMT's number was right and the reader carried it faithfully, and the
+picture was wrong because a helper function between the two converts, masks or counts — the declared default that
+is not applied, the texture that is read without its curve, the tint that is gamma, the mask nobody asked for.
+**The instrument that lied:** `+mat_specular 0` on the command line of a `--shot` does nothing, and says in the log
+that it was set; the first "reflection off" picture was byte-identical to the control, which is the only reason it
+was not believed (RISKS B521, B378).

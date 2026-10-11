@@ -327,13 +327,9 @@ public static class EntitySprites
     /// branch that decides whether a lamp halo stays put or grows with distance. TF2's
     /// `light_glow03` sprites are mode 9, `kRenderWorldGlow`, so they keep it.
     ///
-    /// **The occlusion fraction is a GPU query in the engine and a TRACE here, and that is Valve's
-    /// own fallback rather than a substitute invented for this project.**
-    /// `PixelVisibility_FractionVisible` opens with
-    /// <c>if ( !queryHandle ) return GlowSightDistance( params.position, true ) &gt; 0.0f ? 1.0f :
-    /// 0.0f;</c> (`c_pixel_visibility.cpp:825`) — a line of sight, all or nothing. What a real client
-    /// gets instead is a smooth fade as the halo goes behind a pillar, so a glow here pops where TF2
-    /// dissolves. Named in B378 rather than hidden.
+    /// **The occlusion fraction is `PixelVisibility_FractionVisible`'s**, a GPU query — <see cref="PixelVisibility"/>
+    /// (B521). It was a line of sight, all or nothing, until then: the engine's own fallback
+    /// (`c_pixel_visibility.cpp:825`), under which a glow popped where TF2 dissolves.
     /// </remarks>
     public static (float Blend, float Scale) GlowBlend(
         int renderMode, int renderFx, int brightness, float distance, float visible, float scale)

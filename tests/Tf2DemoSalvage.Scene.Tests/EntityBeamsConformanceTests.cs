@@ -115,15 +115,45 @@ public sealed class EntityBeamsConformanceTests
     }
 
     /// <remarks>
-    /// **A halo the camera cannot see is not drawn** — <c>haloFractionVisible &gt; 0.0f</c> gates it. The fraction is the
-    /// line-of-sight trace here (B378's open half), so "unseen" is all or nothing.
+    /// **A halo the camera cannot see is not drawn** — <c>haloFractionVisible &gt; 0.0f</c> gates it.
     /// </remarks>
     [Test]
     public void Build_AHaloBehindSomething_IsNotDrawn()
     {
-        IReadOnlyList<ParticleBatch> batches = Build(new EntityBeams(), Spotlight(), visible: _ => false);
+        IReadOnlyList<ParticleBatch> batches = Build(new EntityBeams(), Spotlight(), visible: _ => 0f);
 
         batches.ShouldNotContain(batch => batch.Material.Depth == SpriteDepth.Off);
+    }
+
+    /// <remarks>
+    /// **A halo half hidden is half as bright** (B521): <c>VectorScale( srcColor, colorFade * haloFractionVisible,
+    /// haloColor )</c> (`view_beams.cpp:1857`). The fraction was all or nothing here until the occlusion query was
+    /// ported, and cp_process_f12's ceiling lamps drew a fifth brighter than TF2's for it.
+    /// </remarks>
+    [Test]
+    public void Build_AHaloHalfHidden_IsHalfAsBright()
+    {
+        float Red(float fraction) => Build(new EntityBeams(), Spotlight(), visible: _ => fraction)
+            .Single(b => b.Material.Depth == SpriteDepth.Off).Corners[0].Red;
+
+        Red(0.5f).ShouldBe(Red(1f) * 0.5f, 1e-6f);
+        Red(1f).ShouldBeGreaterThan(0f);
+    }
+
+    /// <remarks>
+    /// **The halo's query is the beam ENTITY's, at the lamp, with a proxy sized from the entity's own widths** —
+    /// <c>size = 1.0f + (pbeam->m_fHaloScale * pbeam->m_fWidth / pbeam->m_fEndWidth); size = clamp( size, 1.0f, 8.0f );</c>
+    /// (`view_beams.cpp:2266-2271`), then <c>params.Init( vSource, pbeam->m_haloProxySize )</c> (`:1844`). 60 × 64 / 30
+    /// clamps to 8.
+    /// </remarks>
+    [Test]
+    public void Build_ASpotlight_AsksAboutItsLampWithAnEightUnitProxy()
+    {
+        GlowQuery asked = default;
+
+        Build(new EntityBeams(), Spotlight(), visible: query => { asked = query; return 1f; });
+
+        asked.ShouldBe(new GlowQuery(530, new Vector3(0f, 0f, 100f), 8f, 1f));
     }
 
     /// <remarks>**No material, no beam** — <c>SetupBeam</c> returns before anything when the model does not load.</remarks>
@@ -330,7 +360,7 @@ public sealed class EntityBeamsConformanceTests
         SceneProp prop,
         bool ignoresVertexColours = true,
         BeamView? view = null,
-        System.Func<Vector3, bool>? visible = null,
+        System.Func<GlowQuery, float>? visible = null,
         bool loaded = true,
         float frameTime = 0.015f,
         BeamEntityPosition? ends = null)
@@ -351,7 +381,7 @@ public sealed class EntityBeamsConformanceTests
             sprites,
             absolute: one => one.Pose,
             entityPosition: ends ?? ((_, _, _) => null),
-            visible: visible ?? (_ => true),
+            visible: visible ?? (_ => 1f),
             currentTime: 10f,
             frameTime: frameTime);
     }

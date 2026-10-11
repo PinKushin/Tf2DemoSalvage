@@ -305,7 +305,7 @@ public sealed class EntityTrailsConformanceTests
             viewUp: Vector3.UnitY,
             viewForward: -Vector3.UnitZ,
             sprites: Sprites(loaded: true),
-            visible: _ => true);
+            visible: _ => 1f);
 
         sprites.Drawn.ShouldBe(drawn);
     }

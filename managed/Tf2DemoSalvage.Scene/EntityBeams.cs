@@ -37,9 +37,9 @@ public delegate Vector3? BeamEntityPosition(int handle, int attachment, bool hit
 /// plus a glow at the lamp. The laser, spline and entity-end branches are ported for the beams the corpus does not
 /// carry.
 ///
-/// **One thing the engine has and this does not: the halo's occlusion query.** <c>PixelVisibility_FractionVisible</c>
-/// is a GPU query that fades the glow as the lamp goes behind something; this asks the same line-of-sight trace the
-/// entity sprites do (<see cref="GlowSight"/>) and so pops where TF2 dissolves — B378's open half, shared.
+/// **The halo's occlusion query is <see cref="PixelVisibility"/>'s** (B521): <c>PixelVisibility_FractionVisible</c> is a
+/// GPU query that dims the glow by how much of its proxy the scene hides, and a ceiling lamp seen at a slant loses a
+/// fifth to its own fixture.
 /// </remarks>
 public sealed class EntityBeams
 {
@@ -140,7 +140,7 @@ public sealed class EntityBeams
     /// <param name="sprites">Each sprite material as loaded, keyed by model path.</param>
     /// <param name="absolute">A prop's pose in the world — <c>GetAbsOrigin()</c> through its move parents.</param>
     /// <param name="entityPosition">Where an entity end is; see <see cref="BeamEntityPosition"/>.</param>
-    /// <param name="visible">Whether a halo's centre can be seen — the occlusion fraction, all or nothing.</param>
+    /// <param name="visible">How much of a halo's proxy can be seen — <c>PixelVisibility_FractionVisible</c>.</param>
     /// <param name="currentTime"><c>gpGlobals-&gt;curtime</c>, in seconds.</param>
     /// <param name="frameTime"><c>gpGlobals-&gt;frametime</c>; zero while paused, which re-seeds the noise each frame.</param>
     /// <returns>One batch per material and pass.</returns>
@@ -151,7 +151,7 @@ public sealed class EntityBeams
         IReadOnlyDictionary<string, EngineSprite> sprites,
         Func<SceneProp, ScenePose> absolute,
         BeamEntityPosition entityPosition,
-        Func<Vector3, bool> visible,
+        Func<GlowQuery, float> visible,
         float currentTime,
         float frameTime)
     {
@@ -194,7 +194,7 @@ public sealed class EntityBeams
         IReadOnlyDictionary<string, EngineSprite> sprites,
         Func<SceneProp, ScenePose> absolute,
         BeamEntityPosition entityPosition,
-        Func<Vector3, bool> visible,
+        Func<GlowQuery, float> visible,
         float currentTime,
         float frameTime)
     {
@@ -289,6 +289,11 @@ public sealed class EntityBeams
         // `beamInfo.m_nType` is the constructor's TE_BEAMPOINTS, and `m_nSegments` its -1.
         frame.Type = TePoints;
         frame.HaloScale = beam.HaloScale;
+
+        // `DrawBeam( C_Beam* )` (`view_beams.cpp:2264-2271`): the halo's query handle is the entity's, and its proxy's
+        // size comes from the ENTITY's widths, before any of the beam's own arithmetic.
+        frame.Entity = prop.EntityIndex;
+        frame.HaloProxySize = PixelVisibility.HaloProxySize(beam.HaloScale, beam.Width, beam.EndWidth);
         frame.Frequency = currentTime * beam.Speed;
         frame.Die = currentTime;
         frame.Width = beam.Width;
@@ -493,7 +498,7 @@ public sealed class EntityBeams
         string? haloPath,
         IReadOnlyDictionary<string, EngineSprite> sprites,
         in BeamView view,
-        Func<Vector3, bool> visible)
+        Func<GlowQuery, float> visible)
     {
         // "Don't draw really short beams."
         if (frame.Delta.Length() < 0.1f)
@@ -587,7 +592,7 @@ public sealed class EntityBeams
     /// **The halo's colour is the SOURCE colour**, before the entity's brightness: a spotlight's halo is as bright as its
     /// render colour however dim its shaft is drawn, scaled only by how directly the camera faces down the beam.
     /// </remarks>
-    private void DrawBeamWithHalo(Beam frame, Vector3 colour, Vector3 sourceColour, in BeamView view, Func<Vector3, bool> visible)
+    private void DrawBeamWithHalo(Beam frame, Vector3 colour, Vector3 sourceColour, in BeamView view, Func<GlowQuery, float> visible)
     {
         Vector3 beamDirection = BeamDraw.SafeNormalize(frame.End - frame.Start);
         Vector3 localDirection = BeamDraw.SafeNormalize(view.Origin - frame.Start);
@@ -627,7 +632,9 @@ public sealed class EntityBeams
 
         _pendingHalo = null;
 
-        float haloFractionVisible = visible(frame.Start) ? 1f : 0f;
+        // `params.Init( vSource, pbeam->m_haloProxySize ); PixelVisibility_FractionVisible( params, pbeam->m_queryHandleHalo )`
+        // (`view_beams.cpp:1844-1847`).
+        float haloFractionVisible = visible(new GlowQuery(frame.Entity, frame.Start, frame.HaloProxySize, 1f));
 
         if (fade != 0f && haloFractionVisible > 0f)
         {
@@ -755,6 +762,8 @@ public sealed class EntityBeams
         public float Speed;
         public int Segments;
         public float HaloScale;
+        public float HaloProxySize;
+        public int Entity;
         public int EntityCount;
         public (int Handle, int Attachment)[] Ends;
         public Vector3[]? Points;

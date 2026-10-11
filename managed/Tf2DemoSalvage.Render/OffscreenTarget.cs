@@ -467,6 +467,40 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
     private ComPtr<ID3D11RenderTargetView> _gammaView;
 
+    private OcclusionQueries? _occlusion;
+
+    /// <summary>Counts occlusion proxies against the depth already drawn, as the viewer does at the end of its view (B378).</summary>
+    /// <param name="proxies">The quads.</param>
+    /// <param name="camera">The view-projection matrix.</param>
+    /// <returns>For each proxy's key, the pixels that passed the depth test and the pixels on screen.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public IReadOnlyDictionary<int, (int Pixels, int Possible)> CountOcclusion(
+        IReadOnlyList<PixelVisibilityProxy> proxies, float[] camera)
+    {
+        ArgumentNullException.ThrowIfNull(proxies);
+
+        _occlusion ??= OcclusionQueries.Create(_device);
+
+        Viewport viewport = new(0f, 0f, _width, _height, 0f, 1f);
+
+        _context.RSSetViewports(1, in viewport);
+        _context.OMSetRenderTargets(1u, _view.GetAddressOf(), _depthView);
+        _occlusion.Issue(_device, _context, proxies, camera);
+        WorldRenderer.ResetBlend(_context);
+
+        Dictionary<int, (int Pixels, int Possible)> counts = [];
+
+        foreach (PixelVisibilityProxy proxy in proxies)
+        {
+            if (_occlusion.Result(_context, proxy.Key) is { } counted)
+            {
+                counts[proxy.Key] = counted;
+            }
+        }
+
+        return counts;
+    }
+
     /// <summary>Draws one posed model through the model path, offscreen.</summary>
     /// <param name="vertices">The model's triangles, in model space.</param>
     /// <param name="batches">Its runs over those vertices.</param>
@@ -789,6 +823,7 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _context.Flush();
 
         _points?.Dispose();
+        _occlusion?.Dispose();
         _bloom?.Dispose();
         _detail?.Dispose();
         _detailSheet.Dispose();

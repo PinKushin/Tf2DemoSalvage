@@ -40,12 +40,73 @@ public static class ModelMaterialShading
             return gamma;
         }
 
+        return GammaToLinear(gamma);
+    }
+
+    /// <summary><c>$envmaptint</c> as the pixel shader receives it (B521).</summary>
+    /// <param name="shader">The material's shader name.</param>
+    /// <param name="phong">Whether the material sets <c>$phong</c>, which routes <c>VertexLitGeneric</c> to the skin shader.</param>
+    /// <param name="tint">The tint as the material states it.</param>
+    /// <returns>The tint through <c>GammaToLinear</c> for <c>VertexLitGeneric</c> without phong and <c>UnlitGeneric</c>; unchanged otherwise.</returns>
+    /// <remarks>
+    /// *Read from published source:* `SetEnvMapTintPixelShaderDynamicStateGammaToLinear`
+    /// (`vertexlitgeneric_dx9_helper.cpp:1094-1101`) calls `GetLinearVecValue` (`commandbuilder.h:279-287`); the skin
+    /// path reads `GetVecValue` (`skin_dx9_helper.cpp:785-786`, reached through `InitVertexLitGeneric_DX9`'s
+    /// `$phong` test, `vertexlitgeneric_dx9_helper.cpp:263-270`) and so does `LightmappedGeneric`
+    /// (`lightmappedgeneric_dx9_helper.cpp:677`). *Interpolated:* `GetLinearVecValue` as `GammaToLinear` per
+    /// component, with no pass-through above 1 — `cmaterialvar.cpp` is not published.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="shader"/> is null.</exception>
+    public static (float Red, float Green, float Blue) EnvMapTint(
+        string shader, bool phong, (float Red, float Green, float Blue) tint)
+    {
+        ArgumentNullException.ThrowIfNull(shader);
+
+        bool linear = (Is(shader, "VertexLitGeneric") && !phong) || Is(shader, "UnlitGeneric");
+
+        return linear
+            ? (GammaToLinear(tint.Red), GammaToLinear(tint.Green), GammaToLinear(tint.Blue))
+            : tint;
+    }
+
+    /// <summary><c>GammaToLinear</c>, <c>mathlib/color_conversion.cpp:273-291</c>.</summary>
+    private static float GammaToLinear(float gamma)
+    {
         if (gamma < 0f)
         {
             return 0f;
         }
 
         return gamma >= FullFrom ? 1f : MathF.Pow(MathF.Round(gamma * 255f) / 255f, 2.2f);
+    }
+
+    /// <summary>What masks a <c>$phong</c> material's reflection — the skin shader's rule (B521).</summary>
+    /// <param name="normalMapAlphaEnvMapMask"><c>$normalmapalphaenvmapmask</c>.</param>
+    /// <param name="baseMapAlphaPhongMask"><c>$basemapalphaphongmask</c>.</param>
+    /// <param name="invertPhongMask"><c>$invertphongmask</c>.</param>
+    /// <param name="selfIllumFresnel"><c>$selfillum</c> with <c>$selfillumfresnel</c>.</param>
+    /// <returns>The mask; never <see cref="EnvMapMask.None"/>, because this path has no unmasked reflection.</returns>
+    /// <remarks>
+    /// *Read from published source*, `skin_ps20b.fxc:200` and `:228-242`:
+    /// `fEnvMapMask = lerp( baseColor.a, SELFILLUMFRESNEL ? g_fInvertPhongMask : fSpecMask, normalmapalphaenvmapmask )`,
+    /// then `lerp( fEnvMapMask, 1-fEnvMapMask, g_fInvertPhongMask )`, with
+    /// `fSpecMask = lerp( normalTexel.a, baseColor.a, g_fBaseMapAlphaPhongMask )`. `$basealphaenvmapmask` is not read
+    /// here at all. Not modeled: `$envmapfresnel`, `lerp( 1, fFresnelRanges, g_EnvMapFresnel.x )`.
+    /// </remarks>
+    public static EnvMapMask SkinEnvMapMask(
+        bool normalMapAlphaEnvMapMask, bool baseMapAlphaPhongMask, bool invertPhongMask, bool selfIllumFresnel)
+    {
+        if (normalMapAlphaEnvMapMask && selfIllumFresnel)
+        {
+            return EnvMapMask.Nothing;
+        }
+
+        if (normalMapAlphaEnvMapMask && !baseMapAlphaPhongMask)
+        {
+            return invertPhongMask ? EnvMapMask.InvertedBumpAlpha : EnvMapMask.BumpAlpha;
+        }
+
+        return invertPhongMask ? EnvMapMask.InvertedBaseAlpha : EnvMapMask.BaseAlpha;
     }
 
     /// <summary>Whether a shader sends its modulation colour through <see cref="ModulationToLinear"/>.</summary>
