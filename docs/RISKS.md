@@ -36931,3 +36931,15 @@ are now carried as 0 and 1. `$envmapfresnel` is zero unless set (`skin_dx9_helpe
 `SkinEnvMapFresnel_ByDegree_BlendsFromOneToThePhongFresnelTerm`, `EnvMapFresnel_WrittenNegative_IsKept`. **No
 picture-level test**: the arithmetic is one HLSL line stated twice (`ModelMaterialShading.SkinEnvMapFresnel` and the
 shader), and nothing on cp_process_f12 carries the key.
+
+**2026-10-11, later — the translucent gamma blend has its picture, and a model panel's sprites take the same path**
+(`fix/parity-leftovers`). `Render_ATranslucentSpriteMaterialOverThreeFrames_BlendsTheStoredValues`: lamp 676's halo
+batch re-blended `SRC_ALPHA, INV_SRC_ALPHA` at half alpha over frames stored 39, 124 and 203. *Measured*: the pixel
+rises by 0.494 and 0.506 of the stored frame's rise — one share, as `texel·a + frame·(1 − a)` on stored values is —
+where the same batch through the linear target gives 0.482 and 0.658 (the control, asserted). The model panel:
+*read from published source*, `CPotteryWheelPanel::Paint` (`potterywheelpanel.cpp:842-905`) and
+`CBaseModelPanel::PostPaint3D` (`basemodel_panel.cpp:904-912`) switch no shader and no target — the panel's
+particles are drawn by their own materials on the frame buffer — so `Device3D.DrawParticleBatches` no longer keeps
+them off the gamma path. They had the worst of both: the texture uploaded raw for the gamma path, then written
+through the sRGB target. **No test of the panel itself**: `Device3D` has no offscreen harness; the path is the one
+the picture test above draws. *Interpolated*: the tone-map scale while the HUD paints.

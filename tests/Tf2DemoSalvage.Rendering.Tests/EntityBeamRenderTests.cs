@@ -193,6 +193,91 @@ public sealed class EntityBeamRenderTests
 
         MapAssets assets = MapCache.Effects();
 
+        (ParticleBatch halo, FreeCamera camera) = Lamp676Halo(assets);
+
+        float colour = halo.Corners[0].Red;
+        colour.ShouldBe(0.25f, 0.005f, "the instrument: the halo's fade at a quarter round");
+
+        int Added(float frame, int stored)
+        {
+            StripPicture.Draw(target, camera.ToMatrix(), assets, [halo], background: frame);
+
+            (int background, int _, int _) = target.PixelAt(1, 1);
+            (int red, int _, int _) = target.PixelAt(Size / 2, Size / 2);
+
+            background.ShouldBeInRange(stored - 1, stored + 1, $"{frame} in linear light is stored as {stored}");
+
+            return red - background;
+        }
+
+        int overDark = Added(0.02f, 39);
+        int overGrey = Added(0.2f, 124);
+
+        TestContext.Out.WriteLine($"HALO colour {colour}: +{overDark} over the dark frame, +{overGrey} over the grey");
+
+        overDark.ShouldBeGreaterThan(10, "the instrument: the glow reaches the centre pixel");
+        overGrey.ShouldBeInRange(overDark - 1, overDark + 1, "the stored texel is added to the stored frame, whatever the frame");
+    }
+
+    /// <remarks>
+    /// **A translucent Sprite-shader material blends in gamma space too** (B521): the shader's `$nosrgb` path reads the
+    /// texture and writes the result without the curve whatever the render mode. Under `SRC_ALPHA, INV_SRC_ALPHA` the
+    /// stored result is `texel * a + frame * ( 1 - a )`, so across three frames the stored pixel rises by the SAME
+    /// share of the stored frame's rise. Blended in linear light the two shares differ, which the control shows on the
+    /// same batch with the flag cleared.
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Render_ATranslucentSpriteMaterialOverThreeFrames_BlendsTheStoredValues()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        MapAssets assets = MapCache.Effects();
+
+        (ParticleBatch halo, FreeCamera camera) = Lamp676Halo(assets);
+
+        halo.Material.GammaSpace.ShouldBeTrue("the instrument: light_glow03 is a Sprite-shader material");
+
+        // Half the vertex alpha: `light_glow03`'s own alpha is opaque throughout, so the glow's is the vertex's.
+        ParticleBatch translucent = halo with
+        {
+            Material = halo.Material with { Blend = SpriteBlend.Translucent },
+            Corners = [.. halo.Corners.Select(corner => corner with { Alpha = 0.5f })],
+        };
+
+        (float First, float Second) Shares(ParticleBatch batch)
+        {
+            (int Frame, int Pixel) At(float frame)
+            {
+                StripPicture.Draw(target, camera.ToMatrix(), assets, [batch], background: frame);
+
+                return (target.PixelAt(1, 1).Red, target.PixelAt(Size / 2, Size / 2).Red);
+            }
+
+            (int Frame, int Pixel) dark = At(0.02f);
+            (int Frame, int Pixel) grey = At(0.2f);
+            (int Frame, int Pixel) light = At(0.6f);
+
+            return (
+                (grey.Pixel - dark.Pixel) / (float)(grey.Frame - dark.Frame),
+                (light.Pixel - grey.Pixel) / (float)(light.Frame - grey.Frame));
+        }
+
+        (float first, float second) = Shares(translucent);
+        (float linearFirst, float linearSecond) =
+            Shares(translucent with { Material = translucent.Material with { GammaSpace = false } });
+
+        TestContext.Out.WriteLine(
+            $"TRANSLUCENT shares: gamma {first:0.000} {second:0.000}; linear {linearFirst:0.000} {linearSecond:0.000}");
+
+        first.ShouldBeInRange(0.05f, 0.95f, "the instrument: the centre texel is neither clear nor opaque");
+        second.ShouldBe(first, 0.03f, "one share of the stored frame, whatever the frame");
+        Math.Abs(linearSecond - linearFirst).ShouldBeGreaterThan(0.08f, "the control: a linear blend does not keep it");
+    }
+
+    /// <summary>Lamp 676's halo batch on its shipped materials, seen a quarter round from its beam, and that camera.</summary>
+    private static (ParticleBatch Halo, FreeCamera Camera) Lamp676Halo(MapAssets assets)
+    {
         Vector3 lamp = new(283.03125f, -1976.5352f, 844.7832f);
         Vector3 end = new(274.15625f, -1966.7188f, 656.03125f);
         Vector3 along = Vector3.Normalize(end - lamp);
@@ -218,28 +303,7 @@ public sealed class EntityBeamRenderTests
         ParticleBatch halo = Build(lamp676, camera, assets.SpriteMaterials, out _)
             .Single(batch => batch.Material.Depth == SpriteDepth.Off);
 
-        float colour = halo.Corners[0].Red;
-        colour.ShouldBe(0.25f, 0.005f, "the instrument: the halo's fade at a quarter round");
-
-        int Added(float frame, int stored)
-        {
-            StripPicture.Draw(target, camera.ToMatrix(), assets, [halo], background: frame);
-
-            (int background, int _, int _) = target.PixelAt(1, 1);
-            (int red, int _, int _) = target.PixelAt(Size / 2, Size / 2);
-
-            background.ShouldBeInRange(stored - 1, stored + 1, $"{frame} in linear light is stored as {stored}");
-
-            return red - background;
-        }
-
-        int overDark = Added(0.02f, 39);
-        int overGrey = Added(0.2f, 124);
-
-        TestContext.Out.WriteLine($"HALO colour {colour}: +{overDark} over the dark frame, +{overGrey} over the grey");
-
-        overDark.ShouldBeGreaterThan(10, "the instrument: the glow reaches the centre pixel");
-        overGrey.ShouldBeInRange(overDark - 1, overDark + 1, "the stored texel is added to the stored frame, whatever the frame");
+        return (halo, camera);
     }
 
     private const string LampShaft = "sprites/glow_test02.vmt";
