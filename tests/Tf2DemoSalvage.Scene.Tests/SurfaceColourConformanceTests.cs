@@ -114,6 +114,56 @@ public sealed class SurfaceColourConformanceTests
         SurfaceColour.Sample(two, -0.25f, 0f).R.ShouldBe(0.5f, 1e-6f);
     }
 
+    /// <summary>
+    /// `R_LightVec` itself (`engine.dll` `0x1800d40a0`), as `ComputeAmbientFromSphericalSamples` (`0x1801b74f0`) calls it:
+    /// the face and its light, no texture coordinate, the ray as given (no 1.1).
+    /// </summary>
+    [Test]
+    public void LightVec_ARayIntoTheWall_IsThatFaceAndItsAverageLight()
+    {
+        (DecalFace? face, Vector3 light) = Colour().LightVec(new Vector3(100f, 256f, 256f), new Vector3(-100f, 256f, 256f), styles: false);
+
+        face.ShouldNotBeNull().Index.ShouldBe(0);
+        light.X.ShouldBe(64f * MathF.ScaleB(1f, -2) / 255f, 1e-7f);
+    }
+
+    [Test]
+    public void LightVec_ARayThatStopsShortOfTheWall_IsNoFace()
+    {
+        Colour().LightVec(new Vector3(100f, 256f, 256f), new Vector3(50f, 256f, 256f), styles: false).Face.ShouldBeNull();
+    }
+
+    /// <remarks>
+    /// **A sky face is kept aside, not tested.** *Read in disassembly*, the walk `0x1800d4b00`: on a node the ray
+    /// crosses, a face with `SURFDRAW_SKY` (`flags &amp; 4`) is stored in the walk (`+0x78`) without asking whether the
+    /// ray passes through it, and `0x1800d40a0` returns it only when no face and no displacement took the ray. It adds
+    /// no light. The ray here crosses the node 344 units outside the face's 512-unit square.
+    /// </remarks>
+    [Test]
+    public void LightVec_ARayAcrossANodeHoldingASkyFace_ReturnsTheSkyFaceWithNoLight()
+    {
+        (DecalFace? face, Vector3 light) = Colour(SurfaceProperties.Sky).LightVec(
+            new Vector3(100f, 600f, 256f), new Vector3(-100f, 600f, 256f), styles: false);
+
+        (face.ShouldNotBeNull().Flags & SurfaceProperties.Sky).ShouldNotBe(SurfaceProperties.None);
+        light.ShouldBe(Vector3.Zero);
+    }
+
+    /// <remarks>
+    /// `bUseLightStyles` (the third argument, 0 from `0x1801b74f0`): the face test `0x1800d3990` then adds the first
+    /// style map's average alone. The face has two, 64 and 32 at exponent −2; with styles it is their sum.
+    /// </remarks>
+    [Test]
+    public void LightVec_WithoutLightStyles_AddsTheFirstStyleMapAlone()
+    {
+        SurfaceColour two = Colour(second: 32);
+        Vector3 from = new(100f, 256f, 256f);
+        Vector3 to = new(-100f, 256f, 256f);
+
+        two.LightVec(from, to, styles: false).Light.X.ShouldBe(64f * MathF.ScaleB(1f, -2) / 255f, 1e-7f);
+        two.LightVec(from, to, styles: true).Light.X.ShouldBe(96f * MathF.ScaleB(1f, -2) / 255f, 1e-7f);
+    }
+
     /// <summary>A flat displacement on z = 0, rows along y and columns along x, in the one leaf the tree has.</summary>
     private static SurfaceColour Floor(bool noRay = false)
     {
@@ -144,7 +194,7 @@ public sealed class SurfaceColourConformanceTests
             : null);
     }
 
-    private static SurfaceColour Colour(SurfaceProperties flags = SurfaceProperties.None)
+    private static SurfaceColour Colour(SurfaceProperties flags = SurfaceProperties.None, byte second = 0)
     {
         Vector3[] corners = [new(0f, 0f, 0f), new(0f, 512f, 0f), new(0f, 512f, 512f), new(0f, 0f, 512f)];
         LuxelMapping lighting = new((0f, 1f / 16f, 0f, 0f), (0f, 0f, 1f / 16f, 0f), 0, 0, 33, 33);
@@ -155,15 +205,18 @@ public sealed class SurfaceColourConformanceTests
 
         DecalWorld world = new([new DecalNode(-1, -2, Vector3.UnitX, 0f, 0, 1)], [[], []], [face]);
 
-        // One style, its average 64 at exponent -2, just before the samples at byte 4.
-        byte[] lump = new byte[8];
+        // Its averages just before the samples at byte 8, in reverse: style slot 0's — 64 at exponent -2 — at byte 4,
+        // and a second slot's (`second`, when given, on style 32) at byte 0.
+        byte[] lump = new byte[12];
 
-        lump[0] = 64;
-        lump[1] = 64;
-        lump[2] = 64;
+        lump[4] = 64;
+        lump[5] = 64;
+        lump[6] = 64;
+        lump[7] = unchecked((byte)(sbyte)-2);
+        lump[0] = second;
         lump[3] = unchecked((byte)(sbyte)-2);
 
-        BspLightSamples samples = new(lump, [new BspFaceLightLayout(4, (0, 255, 255, 255))]);
+        BspLightSamples samples = new(lump, [new BspFaceLightLayout(8, (0, second == 0 ? (byte)255 : (byte)32, 255, 255))]);
 
         return new SurfaceColour(world, samples, texdata => texdata == 0
             ? new SurfaceThumbnail([128, 64, 32, 255], 1, 1, 64, 64)

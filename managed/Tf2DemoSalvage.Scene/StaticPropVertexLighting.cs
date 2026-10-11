@@ -46,6 +46,23 @@ public static class StaticPropVertexLighting
     public static bool Lights(int studioFlags) => (studioFlags & Content.Assets.StudioModelFlags.StaticProp) != 0;
 
     /// <summary><c>STUDIOHDR_FLAGS_CONSTANT_DIRECTIONAL_LIGHT_DOT</c>, `studio.h:2073`.</summary>
+    /// <summary>Whether the engine refuses a static prop of this model its colour mesh and lights it per draw (B514).</summary>
+    /// <param name="studioFlags">The model's flags, with the load-time ones set.</param>
+    /// <returns>True for a model flagged <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c>.</returns>
+    /// <remarks>
+    /// *Read in disassembly*, <c>engine.dll FUN_1800eb1a0</c>, the model draw's static-lighting decision:
+    ///
+    /// <code>
+    /// bumped = GetDXSupportLevel() >= 80  and  model->flags &amp; 0x200      (MODELFLAG_STUDIOHDR_USES_BUMPMAPPING)
+    /// static = draw flag 8  and  studiohdr.flags &amp; 0x10  and  not bumped  and  an instance  and  SupportsColorOnSecondStream()
+    /// </code>
+    ///
+    /// Without <c>static</c> no colour mesh reaches the studio render and the lighting state is the handle's full one
+    /// (<see cref="LevelLighting.StaticPropFullLightingAt"/>). *Interpolated*: that <c>model_t</c> bit <c>0x200</c>
+    /// mirrors <c>studiohdr_t</c> bit <c>0x80</c>, from the two published names (<c>model_types.h</c>, <c>studio.h:2051</c>).
+    /// </remarks>
+    public static bool RefusesColourMesh(int studioFlags) => (studioFlags & Content.Assets.StudioModelFlags.UsesBumpmapping) != 0;
+
     public const int ConstantDirectionalLightDot = Content.Assets.StudioModelFlags.ConstantDirectionalLightDot;
 
     /// <summary>`FUN_1800ee4a0`'s choice: <c>constdirectionallightdot / 255</c> under flag `0x2000`, else null (N·L).</summary>

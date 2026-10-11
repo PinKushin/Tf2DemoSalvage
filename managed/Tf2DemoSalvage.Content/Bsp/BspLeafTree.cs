@@ -398,6 +398,18 @@ public sealed class BspLeafTree
             : SkyboxVisibility.None;
     }
 
+    /// <summary>Whether the light cache lets a sky light reach a point at all, before any trace (B514).</summary>
+    /// <param name="x">World position.</param>
+    /// <param name="y">World position.</param>
+    /// <param name="z">World position.</param>
+    /// <returns>True when the point's leaf carries either sky flag, or the tree has no leaves to ask.</returns>
+    /// <remarks>
+    /// *Read in disassembly*, `engine.dll` `0x1801b60a0`: for an `emit_skylight` the light is skipped when the leaf
+    /// record exists and `flags &amp; 5` is zero — <c>LEAF_FLAGS_SKY | LEAF_FLAGS_SKY2D</c>.
+    /// </remarks>
+    public bool AdmitsSkyLight(float x, float y, float z) =>
+        _leaves.IsEmpty || (Flags(LeafAt(x, y, z)) & (LeafHasSky | LeafHasSky2D)) != 0;
+
     /// <summary><c>LEAF_FLAGS_SKY</c> — <c>bspfile.h:789</c>.</summary>
     private const int LeafHasSky = 0x01;
 

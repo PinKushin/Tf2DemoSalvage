@@ -36393,6 +36393,94 @@ WorldVertexTransition (`vmt-param`). **Not reproduced, each read in the same fil
 - With `FANCY_BLENDING` the cubemap's contrast and saturation are skipped (`ps2_3_x.h:538-543`); 4 of the 87 declare
   `$envmap`, and the viewer still applies both.
 
+**2026-10-10 (`fix/b514-static-prop-phong`): a phong or bump-mapped static prop is not vertex lit; ported; not yet
+looked at on screen.** The observatory dome (`models/props_hydro/observatory_dome.mdl`, `$phong 1`, no `$bumpmap`)
+drew at 17-82% of TF2 because the viewer drew its `.vhv` colours with no cube and no light. The chain:
+
+- *Read in disassembly*, `studiorender.dll FUN_180057da0` (a model's materials loading), per texture: `$bumpmap`
+  defined on a material that needs a tangent space, OR `$phong` defined with a nonzero integer value, sets
+  `studiohdr_t.flags |= 0x80` — `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (`studio.h:2051`).
+- *Read in disassembly*, `engine.dll FUN_1800eb1a0` (the model draw's caller): static lighting needs draw flag 8,
+  `STUDIOHDR_FLAGS_STATIC_PROP`, an instance, `SupportsColorOnSecondStream` (`+0x148`), and NOT
+  (`GetDXSupportLevel()` (`+0x100`) `>= 80` and `model->flags & 0x200`, `MODELFLAG_STUDIOHDR_USES_BUMPMAPPING`).
+  Refused, no colour mesh reaches the studio render, and `0x1800f1bd0` takes `FUN_1801ba590(handle, …, 7)` at
+  `LAB_1800f1f3b`: the static state, the styled lights, the dlights. *Interpolated*: that `model_t` `0x200` mirrors
+  `studiohdr_t` `0x80` — the two published names; the copy itself was not read.
+- *Read from published source*, `skin_ps20b.fxc:220-222`: the phong shader's diffuse is
+  `PixelShaderDoLighting( …, float3( 0, 0, 0 ), false, true, …, true, … )` — no static colour, the cube, and
+  half-Lambert ALWAYS (`common_vertexlitgeneric_dx9.h:259-264`), whatever `$halflambert` says.
+
+**Built:** `VmtMaterial.MarksModelBumpMapped` and `.UsesSkinShader` (`WantsSkinShader`,
+`vertexlitgeneric_dx9_helper.cpp:38-59`); `PropModels.Read` ORs `StudioModelFlags.UsesBumpmapping` into
+`ModelFrames.StudioFlags` from the model's materials; `StaticPropVertexLighting.RefusesColourMesh`;
+`LevelLighting.StaticPropFullLightingAt` (flags 7); `EntityModelSet` gives such a prop no baked or CPU colours and
+that state; a skin-shader material wraps its light. Tests: `BumpMappedStaticPropLightingConformanceTests`,
+`MomentSceneTests.Pose_AStaticPropWithBakedColours_DrawsThemUnlessItsModelIsFlaggedBumpMapped`,
+`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_…`.
+
+**Measured:** 394 of cp_process_f12's 1,353 placements, 35 models, take this path (the test prints them — mostly
+`props_hydro` and `props_mining` pipes, `sign_gameplay01`, `generator01`); 392 of cp_process_final's 1,625 baked
+placements; `koth_harvest_final`'s `tractor_tire001` (flags `0x91` once loaded) is no longer CPU-baked.
+
+**The wrong turns, kept.** (1) B426/B424 read the model draw and concluded "a baked prop draws its colours" without
+reading how its caller decides a prop is baked — one function up. (2) The first commit of this fix (`051cad8f`)
+concluded the dome "is not sunlit" because the viewer's own sky trace from its lighting origin failed, and reported
+the `light` of intensity 31,373 standing 290 units from each dome as the whole answer. The trace was the viewer's
+fault, not the map's — the follow-up below. An instrument's absence was believed without a control.
+(3) The half-Lambert change moves every skin-shader material that did not ask for it — `scout_red` says
+`$halflambert 0` — so the golden values in `PhongLocalLightRenderTests.PhongRender_TheSunAlone_…` were re-pinned
+(measured, not predicted).
+
+**Not reproduced:** the engine walks the model's whole texture list, the port the textures some skin family paints a
+mesh with; `$phong` reset to 0 by `mat_phong 0` or pre-ps_2_b hardware (`vertexlitgeneric_dx9_helper.cpp:105-109`);
+a `$bumpmap` on a shader outside the VertexLitGeneric family is assumed to need a tangent space; one ranking over
+static, styled and dynamic lights; and a `.vhv` on a model NOT compiled `$staticprop` — which the same test refuses
+static lighting — still draws its colours here.
+
+**2026-10-10, follow-up (same branch): the dome IS sunlit; the sky trace and the static cube ported; not yet looked at
+on screen.** After `051cad8f` the dome measured 32-75% of TF2 and drew cold blue: cube only. Three questions, each
+answered from `engine.dll` (*read in disassembly* unless marked):
+
+1. **Which point.** Unchanged from B427: the lump's lighting origin when flagged, else the model's `illumposition`
+   through the prop's matrix (`CStaticProp::Init`, `0x1802052c0`). For the dome the lump point is not used; the
+   model's `illumposition` (23.6 −47 289.5) puts it at (1033.1 −2.8 1393.5), 289 units above its origin — the
+   point the viewer already used. *Measured* (`prop-light cp_process_f12 observatory_dome`).
+2. **How a sky light reaches it.** `FUN_1801b60a0` drops an `emit_skylight` unless the point's leaf has
+   `flags & 5` (`LEAF_FLAGS_SKY | LEAF_FLAGS_SKY2D`, `bspfile.h:791-793`); then `FUN_1801b99a0` →
+   `FUN_1801b9570` (`r_oldlightselection` 0) traces ONE ray from the point, `57016.32` against the light's normal,
+   mask `0x4081` (`MASK_OPAQUE`, `bspflags.h:113-114`), through a filter whose trace type is `TRACE_WORLD_ONLY`
+   (`0x180017a80` returns 1; "does *not* test static props", `IEngineTrace.h:36`) and which hits no entity
+   (`0x180017cb0`); it counts when `tr.surface.flags & 4`, `SURF_SKY` (`bspflags.h:82`). No offset, no epsilon,
+   displacements included (they are world), static props not. **The viewer traced `MASK_SOLID`** —
+   `MapLevel.StrikesSky`, whose own comment said `MASK_OPAQUE`. *Measured:* the dome's point is inside a brush that
+   is solid to `MASK_SOLID` and not to `MASK_OPAQUE`; the viewer's ray started solid and struck nothing, the
+   engine's leaves it and strikes `TOOLS/TOOLSSKYBOX` 934 units on at z = 2240. The control, the outdoor camera
+   point, struck sky under both. Fixed (`MapLevel.MaskOpaque`), and the leaf gate ported
+   (`BspLeafTree.AdmitsSkyLight`, `LevelLighting.SunFrom`).
+3. **One point, and the cube is COMPUTED.** A static handle builds its static state as
+   `FUN_1801b8270( cache, origin, leaf, 1 )` (from `FUN_1801ba590`), at the one point. Its ambient,
+   `FUN_1801bb4b0`, under `r_radiosity` 4 (the default, `0x1803933f8`), gives a static caller `FUN_1801b74f0` —
+   `ComputeAmbientFromSphericalSamples` — and only a dynamic one the leaf's samples (`FUN_180100f60`): 162 rays
+   along `g_anorms` (`mathlib/anorms.cpp`, published), each `R_LightVec( origin, origin + n · 57016.32, false )`;
+   a sky hit takes the first `emit_skyambient` light's intensity, any other hit its lightmap light times the
+   material's reflectivity; each cube face is the cosine-weighted mean of the samples on its side. `R_LightVec`'s
+   walk keeps a sky face on any crossed node aside and returns it only when nothing took the ray
+   (`0x1800d4b00`, `0x1800d40a0`). The viewer gave a static prop its leaf's cube. Ported: `StaticPropAmbient`,
+   `SurfaceColour.LightVec`, `SphericalSampleNormals`, built once per lighting point
+   (`LevelLighting.StaticPropLightingAt` now caches, as the handle does). *Measured on the dome:* the computed up
+   face is (0.400 0.506 1.183) against a sky ambient of (0.401 0.508 1.187) and the leaf's (0.398 0.508 1.180) —
+   the two routes agree where they should — and the down face is (0.154 0.132 0.128) where the leaf's is
+   (0.252 0.252 0.353). *Interpolated:* the material's reflectivity is taken as the map's texdata reflectivity.
+
+So the dome's state is now its computed cube, the sun (travelling 0.2113 −0.3660 −0.9063, intensity 2.3125
+2.1162 1.5030) and the lamp beside it. Tests: `MapLevelSweepTests.StrikesSky_FromAPointInsideABrushThatIsNotOpaque_…`,
+`LevelLightingTests.SunAt_ALeafFlaggedOrNotForSkyInItsPvs_…` and `.StaticPropLightingAt_GivenTheComputedAmbient_…`,
+`StaticPropAmbientConformanceTests`, `SurfaceColourConformanceTests.LightVec_…`, and the dome's
+(`StaticPropModelsWiringTests.Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun`).
+**Cost:** the dome test went from 7 s to 9 s with all 394 flagged placements lit, so about 2 s of rays on
+cp_process_f12, paid as each prop is first drawn rather than at load. **Wider than the dome:** the mask reaches every
+model's sun (`SunAt` shares the trace), and the computed cube also lights the CPU-baked props (B429).
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`

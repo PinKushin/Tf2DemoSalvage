@@ -90,7 +90,13 @@ public sealed class ModelTangentRenderTests
 
         TestContext.Out.WriteLine($"skinned {skinned}, the frame on +X {expected}, left on +Z {unturned}");
 
-        Sum(Minus(expected, unturned)).ShouldBeGreaterThan(12, "the control: the two frames draw differently");
+        // Six, down from twelve (B514). scout_red is a skin-shader material, whose diffuse is half-Lambert whatever it
+        // asks (`skin_ps20b.fxc:220-222`). *Measured both ways:* under the clamped Lambert this drew before, the frame
+        // left on +Z put the bumped normal at the sun's terminator — (25, 2, 3) against (121, 12, 12), a difference of
+        // 115 that was almost all "lit or not". Wrapped, `0.5 N·L + 0.5` keeps both lit and the two frames are
+        // (156, 17, 17) and (161, 18, 19): 8, which is the frame's real effect on a wrapped surface and still four
+        // times the tolerance below.
+        Sum(Minus(expected, unturned)).ShouldBeGreaterThan(6, "the control: the two frames draw differently");
         Near(skinned, expected, 2, "the bone turns the tangent with the quad");
     }
 

@@ -92,6 +92,31 @@ public sealed class SurfaceColour
         return Final(walk.Light, (r, g, b));
     }
 
+    /// <summary>`R_LightVec` (`engine.dll` `0x1800d40a0`): the surface a ray meets and the light it gathers on the way.</summary>
+    /// <param name="start">Where the ray starts.</param>
+    /// <param name="end">Where it ends; the ray is used as given.</param>
+    /// <param name="styles">`bUseLightStyles`: every style map of a face, or its first alone.</param>
+    /// <returns>
+    /// The face — a displacement's when one took the ray, else the walk's, else the sky face kept aside, else null —
+    /// and the light added by every face that took it. A sky face adds none.
+    /// </returns>
+    /// <remarks>
+    /// The return's order is the binary's: `uVar5` (the last displacement hit), then the walk's face, then `local_80`,
+    /// the sky face `0x1800d4b00` stored at `+0x78` for any `SURFDRAW_SKY` face on a node the ray crossed (B514).
+    /// </remarks>
+    public (DecalFace? Face, Vector3 Light) LightVec(Vector3 start, Vector3 end, bool styles)
+    {
+        Walk walk = new(start, end - start, styles);
+        DecalFace? found = _world.Nodes.Count == 0 ? null : Node(0, 0f, 1f, ref walk);
+
+        foreach (int index in walk.Displacements)
+        {
+            found = Displacement(_world.RayDisplacements[index], ref walk) ?? found;
+        }
+
+        return (found ?? walk.Sky, walk.Light);
+    }
+
     /// <summary>`GetColorForSurface` for a trace that stopped on a static prop.</summary>
     /// <param name="lighting">The model lighting at the hit.</param>
     /// <param name="sun">The sun there, or null.</param>
@@ -204,8 +229,18 @@ public sealed class SurfaceColour
 
             for (int each = 0; each < plane.FaceCount; each++)
             {
-                if (Face(plane.FirstFace + each) is { } face &&
-                    (face.Flags & (SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.Warp)) == 0 &&
+                if (Face(plane.FirstFace + each) is not { } face)
+                {
+                    continue;
+                }
+
+                // `SURFDRAW_SKY`: kept aside for a ray nothing else takes, and never asked whether the ray is inside it.
+                if ((face.Flags & SurfaceProperties.Sky) != 0)
+                {
+                    walk.Sky = face;
+                }
+
+                if ((face.Flags & (SurfaceProperties.Sky | SurfaceProperties.Sky2D | SurfaceProperties.Warp)) == 0 &&
                     Takes(face, middle, ref walk))
                 {
                     return face;
@@ -345,7 +380,7 @@ public sealed class SurfaceColour
                      image.MappingHeight;
         }
 
-        (float r, float g, float b) = _samples.Average(face.Index, styles: true, StyleScale);
+        (float r, float g, float b) = _samples.Average(face.Index, walk.Styles, StyleScale);
 
         walk.Light += new Vector3(r, g, b);
 
@@ -410,7 +445,7 @@ public sealed class SurfaceColour
             lighting.Width,
             lighting.Height,
             (face.Flags & SurfaceProperties.BumpLight) != 0,
-            styles: true,
+            walk.Styles,
             StyleScale);
 
         walk.Light += new Vector3(red, green, blue);
@@ -460,10 +495,17 @@ public sealed class SurfaceColour
         index >= 0 && index < _world.Faces.Count ? _world.Faces[index] : null;
 
     /// <summary>The walk's state: the ray, the nearest fraction taken, and what the faces that took it reported.</summary>
-    private struct Walk(Vector3 start, Vector3 delta)
+    private struct Walk(Vector3 start, Vector3 delta, bool styles = true)
     {
         public readonly Vector3 Start = start;
         public readonly Vector3 Delta = delta;
+
+        /// <summary>`bUseLightStyles`: every style map a face has, or its first alone.</summary>
+        public readonly bool Styles = styles;
+
+        /// <summary>The sky face kept aside (`+0x78`): the last one on a node the ray crossed, untested.</summary>
+        public DecalFace? Sky;
+
         public readonly List<int> Displacements = [];
         public float Best = 1f;
         public Vector3 Light;

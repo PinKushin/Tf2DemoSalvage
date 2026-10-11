@@ -791,6 +791,12 @@ public sealed class EntityModelSet : Hud.IMdlCache
     public Func<int, float, float, float, IReadOnlyList<LocalLight>>? StaticPlusDynamicLights { get; set; }
 
     /// <summary>
+    /// The whole lighting state of a static prop drawn without a colour mesh, by entity and lighting origin
+    /// (<see cref="LevelLighting.StaticPropFullLightingAt"/>, B514); null leaves it the model path's light.
+    /// </summary>
+    public Func<int, float, float, float, (PointLighting Lighting, SunLight? Sun)>? StaticPropFullLighting { get; set; }
+
+    /// <summary>
     /// A static prop handle's static lighting state at its lighting origin (<see cref="LevelLighting.StaticPropLightingAt"/>),
     /// which an unbaked <c>$staticprop</c> model's CPU colour mesh is lit with (B429); null lights none on the CPU.
     /// </summary>
@@ -894,8 +900,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
     }
 
     /// <summary>Where a model's light should be sampled, in world space.</summary>
-    private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
+    /// <param name="prop">The prop; its model must have been added.</param>
+    /// <param name="pose">Where it stands.</param>
+    /// <returns>The point. Public so a probe asks the set itself rather than repeating its rule (`prop-light`).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         // **A bone-merged item is lit where its WEARER is, for every quantity at once** (B189; the
         // outside audit's finding 6). Its own pose is (0,0,0) by construction — `FollowEntity`
         // zeroes it and the client takes the parent's bones outright — so its own point is the map
@@ -5770,7 +5782,24 @@ public sealed class EntityModelSet : Hud.IMdlCache
             // **A static prop with a colour mesh draws its colours PLUS its styled and dynamic lights** (B426, B424,
             // B425): `engine.dll` `0x1800f1bd0` on DX9 keeps the mesh and lights it with `FUN_1801ba590` flags 6 or 7 —
             // no cube, no sun, no style-0 light, since the colours hold those. With none reaching, the colours alone.
-            float[]? baked = BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
+            //
+            // **Unless its model is flagged bump mapped — any material with `$phong` on or a `$bumpmap`** (B514):
+            // `engine.dll FUN_1800eb1a0` then refuses static lighting, no colour mesh is drawn (the phong shader could
+            // not read one: `skin_ps20b.fxc:220-222` passes a zero static colour), and the state is the handle's full
+            // one, flags 7.
+            bool fullyLit =
+                prop.EntityIndex >= PropModels.FirstStaticPropEntityIndex &&
+                _frames.TryGetValue(prop.ModelPath, out PropModels.ModelFrames? propFrames) &&
+                StaticPropVertexLighting.RefusesColourMesh(propFrames.StudioFlags);
+
+            float[]? baked = fullyLit ? null : BakedColoursOf(prop, pose, lit.X, lit.Y, lit.Z);
+
+            if (fullyLit && StaticPropFullLighting is { } fullLighting)
+            {
+                (PointLighting state, sun) = fullLighting(prop.EntityIndex, lit.X, lit.Y, lit.Z);
+                light = state.Cube;
+                locals = state.Locals;
+            }
 
             if (baked is not null)
             {

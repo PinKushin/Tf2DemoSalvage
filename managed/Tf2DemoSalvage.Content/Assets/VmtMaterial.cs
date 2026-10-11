@@ -913,6 +913,37 @@ public sealed class VmtMaterial
     /// </remarks>
     public bool HasPhong => Flag("$phong");
 
+    /// <summary>Whether a model drawing this material is flagged <c>STUDIOHDR_FLAGS_USES_BUMPMAPPING</c> when it loads.</summary>
+    /// <remarks>
+    /// *Read in disassembly*, <c>studiorender.dll FUN_180057da0</c>, once per texture of the model:
+    ///
+    /// <code>
+    /// $bumpmap found, defined, and the material needs a tangent space   -> flags |= 0x80
+    /// $phong   found, defined, and its integer value is not zero        -> flags |= 0x80
+    /// </code>
+    ///
+    /// **The second line is why a phong prop with no bump map is not vertex lit**: the flag takes the whole model off
+    /// its baked colours (<see cref="StudioModelFlags.UsesBumpmapping"/>). A defined <c>$bumpmap</c> is what gives a
+    /// <c>VertexLitGeneric</c> or <c>UnlitGeneric</c> material its tangent space
+    /// (<c>vertexlitgeneric_dx9_helper.cpp:173-178</c>); *interpolated* for any other shader that declares one.
+    /// <c>$phong</c> is reset to 0 on hardware without ps_2_b or under <c>mat_phong 0</c> (<c>:105-109</c>), which
+    /// this does not model.
+    /// </remarks>
+    public bool MarksModelBumpMapped => HasPhong || BumpMap is not null;
+
+    /// <summary>Whether a <c>VertexLitGeneric</c> material is drawn by the skin shader rather than the generic one.</summary>
+    /// <remarks>
+    /// `WantsSkinShader`, <c>vertexlitgeneric_dx9_helper.cpp:38-59</c>: <c>$phong</c> on, and then either a light warp
+    /// texture, or <c>$basemapalphaphongmask 1</c>, or a bump map to take the mask from. *Read from published source.*
+    /// The textures are tested as declared here, where the engine asks whether they loaded.
+    ///
+    /// **It decides more than the highlight.** The skin shader's diffuse is always half-Lambert — the literal
+    /// <c>true</c> in its <c>PixelShaderDoLighting</c> call (<c>skin_ps20b.fxc:220-222</c>) — whatever
+    /// <c>$halflambert</c> says, and it reads no baked vertex colour at all (the zero and <c>false</c> on :221).
+    /// </remarks>
+    public bool UsesSkinShader =>
+        HasPhong && (LightWarpTexture is not null || Integer("$basemapalphaphongmask", 0) == 1 || BumpMap is not null);
+
     /// <summary>Whether this material marks a surface rather than being one.</summary>
     /// <remarks>
     /// <c>$decal</c> sets <c>MATERIAL_VAR_DECAL</c> (<c>imaterial.h:372</c>), and cp_process's wall

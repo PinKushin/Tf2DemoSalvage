@@ -644,6 +644,62 @@ public sealed class MomentSceneTests
     }
 
     /// <remarks>
+    /// **B514, through the production pose.** A static prop with baked colours whose model is flagged
+    /// `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (`studiorender.dll FUN_180057da0`: a `$phong` or `$bumpmap` material) is
+    /// refused static lighting (`engine.dll FUN_1800eb1a0`): it draws WITHOUT its colours, with its handle's cube and
+    /// the style-0 lamp the colours would have held (`FUN_1801ba590` flags 7). The flag clear is the control — the
+    /// scene above.
+    /// </remarks>
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp | Content.Assets.StudioModelFlags.UsesBumpmapping, false)]
+    [TestCase(Content.Assets.StudioModelFlags.StaticProp, true)]
+    public void Pose_AStaticPropWithBakedColours_DrawsThemUnlessItsModelIsFlaggedBumpMapped(int studioFlags, bool baked)
+    {
+        PropVertex Corner(int index) => new(index, 0f, 0f, 0f, 0f, MaterialIndex: 3);
+
+        EntityModelSet models = new()
+        {
+            Geometry = _ => new PropModels.ModelFrames(
+                [new[] { Corner(0), Corner(1), Corner(2) }],
+                new Dictionary<int, (int Start, int Frames, float CyclesPerSecond)> { [0] = (0, 1, 0f) },
+                [0],
+                [true])
+            {
+                StudioFlags = studioFlags,
+            },
+        };
+
+        int entity = PropModels.FirstStaticPropEntityIndex;
+        models.StaticPropColours = new Dictionary<int, float[]> { [entity] = [.. Enumerable.Repeat(0.25f, 9)] };
+
+        MomentScene scene = new(models, new ViewmodelScene(), new RecordingLogger())
+        {
+            Upload = new Uploads(),
+            Appearance = new Appearance(),
+            Lighting = LevelLightingTests.Lit([LevelLightingTests.Lamp((0f, 0f, 120f), 400f)]),
+            StaticProps =
+                [PropModels.StaticModel(new Content.Bsp.BspStaticProp("models/props/dome.mdl", 0f, 0f, 100f, 0f, 0f, 0f, 1f), 0)],
+        };
+
+        scene.Build([], [], Info());
+        scene.Pose(Info());
+
+        ModelInstance drawn = scene.Instances.ShouldHaveSingleItem();
+
+        if (baked)
+        {
+            drawn.BakedColours.ShouldNotBeNull();
+            drawn.Light.ShouldBeNull();
+            drawn.Locals.ShouldBeEmpty();
+        }
+        else
+        {
+            drawn.BakedColours.ShouldBeNull("a bump-mapped model is refused its colour mesh");
+            drawn.Light.ShouldNotBeNull("and takes its handle's cube");
+            drawn.Locals.ShouldNotBeNull().ShouldHaveSingleItem("and the style-0 lamp its colours would have held");
+        }
+    }
+
+    /// <remarks>
     /// **B424 corrected, through the production route.** On DX9 (`engine.dll` `0x1800f1bd0`, hardware config `+0x150`
     /// true) a baked prop KEEPS its colours and draws with `FUN_1801ba590(handle, 6 + bit)`: no static state, plus the
     /// handle's styled lights (`FUN_1801b6bf0`: style nonzero, in PVS, in reach) at their current values. A switched-on

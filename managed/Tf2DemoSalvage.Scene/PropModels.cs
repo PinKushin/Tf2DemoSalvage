@@ -1358,7 +1358,14 @@ public static class PropModels
                     // player is struck by these boxes and not by their hull.
                     StudioHitboxes.Read(modelFile))
                 {
-                    StudioFlags = model.Flags,
+                    // **The one studio flag that is not in the file**: `STUDIOHDR_FLAGS_USES_BUMPMAPPING` is OR'd in as
+                    // the model's materials load (`studiorender.dll FUN_180057da0`, B514). Over every texture a skin
+                    // family paints a mesh with; the engine walks the model's whole texture list, which differs only
+                    // for a texture no family references.
+                    StudioFlags = model.Flags | (byFamily.SelectMany(family => family.Values).Concat(materialByMesh).Any(
+                        material => material >= 0 && material < materialTable.MarksModelBumpMapped.Count && materialTable.MarksModelBumpMapped[material])
+                        ? StudioModelFlags.UsesBumpmapping
+                        : 0),
                     ConstantDirectionalLightDot = model.ConstantDirectionalLightDot,
                     Flex = flex,
                     CornerVertex = flex.HasVertexAnimation ? cornerVvd : [],

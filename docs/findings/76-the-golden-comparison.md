@@ -421,3 +421,21 @@ none with `$maskedblending` or `$blendmasktransform` (`vmt-param`); `blendground
 `Nature/grass_blendmask`. Ported as `BlendModulation` and the pixel shader's own lines; what the branch does not
 reproduce (the non-fast-path coordinate, height fog, `$bumpmap2`'s blended normals, the envmap terms it skips) is
 listed in `docs/RISKS.md` B514. Not yet compared on screen.
+
+**The dark observatory dome was a prop the engine never vertex lights** (`fix/b514-static-prop-phong`). Its material
+is `VertexLitGeneric` with `$phong 1` and no bump map, and vrad baked a perfectly plausible `.vhv` for it (mean 0.727
+0.713 0.794 over 5,322 corners) — which is what made the inputs look right. *Read in disassembly:* while a model's
+materials load, `studiorender.dll FUN_180057da0` sets `STUDIOHDR_FLAGS_USES_BUMPMAPPING` for any material whose
+`$phong` is nonzero (or whose `$bumpmap` needs a tangent space), and the model draw's caller, `engine.dll
+FUN_1800eb1a0`, refuses static lighting to a model carrying it at DX level 80 or above — so the colour mesh is never
+bound and the prop takes its lighting handle's full state, `FUN_1801ba590` flags 7. *Read from published source:* it
+could not be otherwise, because the phong shader passes a zero static colour to its own lighting routine and forces
+half-Lambert (`skin_ps20b.fxc:220-222`). *Measured:* 394 of cp_process_f12's 1,353 static prop placements (35
+models) are such props. **Three wrong turns:** B426 had read the draw and not the function that decides what the draw
+is handed. The first commit then declared the dome "not sunlit", because the VIEWER's sky trace from its lighting
+origin failed — an absence believed without a control; TF2's frame showed a warm directional light, and the engine's
+trace (`engine.dll` `0x1801b9570`, *read in disassembly*) uses `MASK_OPAQUE` where the viewer's used `MASK_SOLID`,
+so a lighting point inside a non-opaque brush started solid here and reaches the sky there (*measured*, `prop-light`:
+934 units to `TOOLS/TOOLSSKYBOX`). And the cube was assumed to be the leaf's: for a static prop the light cache
+computes it from 162 rays at the lightmaps (`FUN_1801b74f0`, `r_radiosity` 4) — on the dome the same sky above, a
+darker and warmer underside. All three ported (RISKS B514); not yet compared on screen.

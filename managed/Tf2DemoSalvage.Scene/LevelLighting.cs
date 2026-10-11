@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging;
 
@@ -265,6 +266,10 @@ public sealed class LevelLighting
     /// (<see cref="LightCacheCell"/>); without one a model is lit where it stands.
     /// </param>
     /// <param name="visibility">The PVS, for <see cref="StyledLights"/>; without one every cluster is admitted.</param>
+    /// <param name="staticPropAmbient">
+    /// A static prop's computed ambient cube at its lighting origin (<see cref="StaticPropAmbient"/>); without one a
+    /// static prop takes its leaf's samples, as a model that moves does.
+    /// </param>
     /// <exception cref="ArgumentNullException">An argument other than the map data is null.</exception>
     public LevelLighting(
         BspLeafTree? leaves,
@@ -274,10 +279,12 @@ public sealed class LevelLighting
         ILogger render,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? strikesSky = null,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? reaches = null,
-        BspVisibility? visibility = null)
+        BspVisibility? visibility = null,
+        Func<float, float, float, AmbientCube>? staticPropAmbient = null)
     {
         _reaches = reaches;
         _visibility = visibility;
+        _staticPropAmbient = staticPropAmbient;
         ArgumentNullException.ThrowIfNull(ambient);
         ArgumentNullException.ThrowIfNull(worldLights);
         ArgumentNullException.ThrowIfNull(render);
@@ -289,6 +296,15 @@ public sealed class LevelLighting
         _render = render;
         _strikesSky = strikesSky;
     }
+
+    /// <summary>A static prop's computed ambient; see the constructor.</summary>
+    private readonly Func<float, float, float, AmbientCube>? _staticPropAmbient;
+
+    /// <summary>
+    /// Each static state already built, by lighting origin: the handle's `+0x18`, computed once
+    /// (`FUN_1801ba590`'s `+0x174 &amp; 4`) — style-0 lights, the sun and the cube, none of which change.
+    /// </summary>
+    private readonly Dictionary<(float X, float Y, float Z), (PointLighting Lighting, SunLight? Sun)> _staticStates = [];
 
     /// <summary>The skylight's visibility trace; see the constructor.</summary>
     private readonly Func<(float X, float Y, float Z), (float X, float Y, float Z), bool>? _strikesSky;
@@ -328,7 +344,46 @@ public sealed class LevelLighting
             render,
             level.StrikesSky,
             (from, to) => level.TraceBrushOnly(from, to, 0f, MaskOpaque).Fraction >= 1f,
-            level.Visibility);
+            level.Visibility,
+            StaticPropAmbientOf(level));
+    }
+
+    /// <summary><see cref="StaticPropAmbient"/> over one level, or null when it lacks the lumps the rays read.</summary>
+    /// <remarks>
+    /// ponytail: its own <see cref="DecalWorld"/>, built on the first static prop that asks; the viewer builds a second
+    /// for decals and impacts. Share one if the build time shows up.
+    /// </remarks>
+    private static Func<float, float, float, AmbientCube>? StaticPropAmbientOf(MapLevel level)
+    {
+        if (level.Leaves is not { } tree || level.LeafFaces is not { } leafFaces || level.LightSamples is not { } samples)
+        {
+            return null;
+        }
+
+        Lazy<SurfaceColour> rays = new(
+            () => new SurfaceColour(DecalWorld.From(tree, leafFaces, level.Surfaces, level.Terrain), samples, static _ => null));
+
+        IReadOnlyList<BspMaterial> materials = level.Materials;
+
+        // `FUN_1801b74f0`'s first loop: the first world light of type 5.
+        Vector3? skyAmbient = null;
+
+        foreach (BspWorldLight light in level.WorldLights)
+        {
+            if (light.Kind == WorldLightKind.SkyAmbient)
+            {
+                skyAmbient = new Vector3(light.Intensity.Red, light.Intensity.Green, light.Intensity.Blue);
+                break;
+            }
+        }
+
+        return (x, y, z) => StaticPropAmbient.Compute(
+            new Vector3(x, y, z),
+            (start, end) => rays.Value.LightVec(start, end, styles: false),
+            texdata => texdata >= 0 && texdata < materials.Count
+                ? new Vector3(materials[texdata].Reflectivity.Red, materials[texdata].Reflectivity.Green, materials[texdata].Reflectivity.Blue)
+                : Vector3.Zero,
+            skyAmbient);
     }
 
     /// <summary>The PVS, for a static prop's styled-light list; null or empty admits every cluster.</summary>
@@ -396,6 +451,61 @@ public sealed class LevelLighting
     /// </remarks>
     public IReadOnlyList<LocalLight> StaticPlusDynamicLights(int entity, float x, float y, float z)
     {
+        List<BspWorldLight> lights = StyledAndDynamic(entity, x, y, z);
+
+        if (lights.Count == 0)
+        {
+            return [];
+        }
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return nearest;
+    }
+
+    /// <summary>
+    /// The whole lighting state of a static prop that draws WITHOUT a colour mesh — a model flagged
+    /// `STUDIOHDR_FLAGS_USES_BUMPMAPPING` (B514): `FUN_1801ba590(handle, …, 7)`, `engine.dll` `0x1800f1bd0` at
+    /// `LAB_1800f1f3b`.
+    /// </summary>
+    /// <param name="entity">The prop's entity index, which keys its handle's list.</param>
+    /// <param name="x">The prop's lighting origin (the handle's `+0x184`).</param>
+    /// <param name="y">The prop's lighting origin.</param>
+    /// <param name="z">The prop's lighting origin.</param>
+    /// <returns>The leaf cube at the origin, at most four lights — style 0, styled and dynamic — and the sun.</returns>
+    /// <remarks>
+    /// *Read in disassembly.* The model draw's caller (`FUN_1800eb1a0`) refuses static lighting when the DX support
+    /// level is at least 80 and the model carries `MODELFLAG_STUDIOHDR_USES_BUMPMAPPING` (`0x200`); `*param_7` is then
+    /// false, no colour mesh is handed to the studio render, and with the prop's lighting handle the state is flags 7:
+    /// bit 1 the static state (<see cref="StaticPropLightingAt"/>), bit 4 the handle's styled lights at their current
+    /// values, bit 2 its live dlights (<see cref="StaticPlusDynamicLights"/>).
+    /// ponytail: one ranking over all three sets; the engine ranks the static four first and then each added light
+    /// against them, which differs only past four lights at one prop.
+    /// </remarks>
+    public (PointLighting Lighting, SunLight? Sun) StaticPropFullLightingAt(int entity, float x, float y, float z)
+    {
+        (PointLighting lighting, SunLight? sun) = StaticPropLightingAt(x, y, z);
+        List<BspWorldLight> added = StyledAndDynamic(entity, x, y, z);
+
+        if (added.Count == 0)
+        {
+            return (lighting, sun);
+        }
+
+        added.AddRange(_worldLights.Where(static light => light.Style == 0));
+
+        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
+        int found = LocalLights.Strongest(added, x, y, z, nearest, StyleScale);
+        Array.Resize(ref nearest, found);
+
+        return (new PointLighting(lighting.Cube, nearest), sun);
+    }
+
+    /// <summary>A handle's styled lights (bit 4) and the live dlights that reach it (bit 2), unranked.</summary>
+    private List<BspWorldLight> StyledAndDynamic(int entity, float x, float y, float z)
+    {
         if (!_styledByEntity.TryGetValue(entity, out int[]? listed))
         {
             listed = StyledLights(x, y, z);
@@ -421,16 +531,7 @@ public sealed class LevelLighting
             }
         }
 
-        if (lights.Count == 0)
-        {
-            return [];
-        }
-
-        LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
-        int found = LocalLights.Strongest(lights, x, y, z, nearest, StyleScale);
-        Array.Resize(ref nearest, found);
-
-        return nearest;
+        return lights;
     }
 
     /// <summary>
@@ -455,8 +556,20 @@ public sealed class LevelLighting
             return (PointLighting.None, null);
         }
 
+        if (_staticStates.TryGetValue((x, y, z), out (PointLighting Lighting, SunLight? Sun) built))
+        {
+            return built;
+        }
+
+        // **Computed, not the leaf's** (B514): `FUN_1801bb4b0` gives a static caller `ComputeAmbientFromSphericalSamples`
+        // under `r_radiosity` 4. The leaf's samples stand in only where the level cannot cast the rays.
         int leaf = tree.LeafAt(x, y, z);
         AmbientCube bounced = leaf >= 0 && leaf < _ambient.Count ? _ambient[leaf].At(x, y, z) : default;
+
+        if (_staticPropAmbient is { } computed)
+        {
+            bounced = computed(x, y, z);
+        }
 
         LocalLight[] nearest = new LocalLight[LocalLights.MaximumLocalLights];
         int found = LocalLights.Strongest(_worldLights, x, y, z, nearest, static style => style == 0 ? 1f : 0f);
@@ -464,7 +577,10 @@ public sealed class LevelLighting
 
         SunLight? sun = _sun is { } light && _strikesSky is { } strikesSky ? SunFrom(light, strikesSky, x, y, z) : null;
 
-        return (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
+        built = (found == 0 ? PointLighting.Bounce(bounced) : new PointLighting(bounced, nearest), sun);
+        _staticStates[(x, y, z)] = built;
+
+        return built;
     }
 
     /// <summary>The ambient light at a world position.</summary>
@@ -625,9 +741,19 @@ public sealed class LevelLighting
     }
 
     /// <summary>The sun reaching exactly this point: <see cref="SunAt"/> without the cache cell.</summary>
-    private static SunLight? SunFrom(
+    /// <remarks>
+    /// **The leaf is asked before the ray** (B514). *Read in disassembly*, `engine.dll` `0x1801b60a0`, the light cache's
+    /// add-one-light: an `emit_skylight` is dropped unless the leaf holding the point has `flags &amp; 5` —
+    /// `LEAF_FLAGS_SKY | LEAF_FLAGS_SKY2D` (`bspfile.h:791-793`), vrad's "sky in this leaf's PVS". Then the trace.
+    /// </remarks>
+    private SunLight? SunFrom(
         BspWorldLight sun, Func<(float X, float Y, float Z), (float X, float Y, float Z), bool> strikesSky, float x, float y, float z)
     {
+        if (_leaves is { } tree && !tree.AdmitsSkyLight(x, y, z))
+        {
+            return null;
+        }
+
         (float X, float Y, float Z) toward = (
             x - (sun.Normal.X * SkyTraceLength),
             y - (sun.Normal.Y * SkyTraceLength),

@@ -173,6 +173,49 @@ public sealed class MapLevelSweepTests
         up.ShouldBeGreaterThan(down / 2, "cp_badlands' terrain is mostly under open sky");
     }
 
+    /// <remarks>
+    /// **The mask is `MASK_OPAQUE`, and a brush light passes through must not stop the sun** (B514). *Read in
+    /// disassembly*, `engine.dll` `0x1801b9570` (and its cached twin `0x1801b8e20`): the sky light's trace is
+    /// `TraceRay( origin, origin - normal * 57016.32, 0x4081, filter, &amp;tr )` with a filter whose `GetTraceType` is
+    /// `TRACE_WORLD_ONLY` (1; `0x180017a80`) and whose `ShouldHitEntity` is false (`0x180017cb0`), and the light counts
+    /// when `tr.surface.flags &amp; 4`, `SURF_SKY` (`bspflags.h:82`). `0x4081` is `CONTENTS_SOLID | CONTENTS_OPAQUE |
+    /// CONTENTS_MOVEABLE`: no `CONTENTS_WINDOW`, no `CONTENTS_GRATE`.
+    ///
+    /// The point is where cp_process_f12's observatory dome is lit from (`prop-light cp_process_f12 observatory_dome`):
+    /// its model's `illumposition`, 289 units above its origin, inside a brush that is solid to `MASK_SOLID` and not to
+    /// `MASK_OPAQUE`. Under the engine's mask the ray leaves it and strikes `TOOLS/TOOLSSKYBOX` 934 units on, at
+    /// z = 2240. `StrikesSky` traced `MASK_SOLID`, started solid, and called the dome unlit by the sun.
+    /// </remarks>
+    [Test]
+    public void StrikesSky_FromAPointInsideABrushThatIsNotOpaque_StrikesTheSkyBeyondIt()
+    {
+        const string Map = "cp_process_f12";
+
+        if (!MapCache.Exists(Map))
+        {
+            Assert.Ignore("cp_process_f12 or the game is not installed");
+            return;
+        }
+
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
+        BspWorldLight sun = level.Sun.ShouldNotBeNull();
+        (float X, float Y, float Z) from = (1033.1f, -2.8f, 1393.5f);
+        (float X, float Y, float Z) to = (
+            from.X - (sun.Normal.X * 57016.32f), from.Y - (sun.Normal.Y * 57016.32f), from.Z - (sun.Normal.Z * 57016.32f));
+
+        level.TraceBrushOnly(from, to, 0f, BspLeafTree.MaskSolid).StartSolid.ShouldBeTrue(
+            "the condition: the point is inside a brush MASK_SOLID stops at");
+
+        BspTrace opaque = level.TraceBrushOnly(from, to, 0f, 0x4081);
+
+        opaque.StartSolid.ShouldBeFalse("and MASK_OPAQUE does not");
+        (opaque.Fraction * 57016.32f).ShouldBe(934f, 1f);
+        (from.Z + ((to.Z - from.Z) * opaque.Fraction)).ShouldBe(2240f, 0.5f);
+        (level.Texinfo[opaque.Texinfo].Flags & SurfaceProperties.Sky).ShouldNotBe(SurfaceProperties.None);
+
+        level.StrikesSky(from, to).ShouldBeTrue("the engine's trace reaches the sky from here");
+    }
+
     [Test]
     public void Sweep_IntoABrushWall_IsStillStoppedByTheBrush()
     {
