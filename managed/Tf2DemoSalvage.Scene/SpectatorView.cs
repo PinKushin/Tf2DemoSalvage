@@ -117,13 +117,22 @@ public readonly record struct ViewFov(float World, int Default)
 
     /// <summary>`viewEye.fov` as `CViewRender::Render` draws it: widened by the screen's width against 4:3 (view.cpp:1075-1083).</summary>
     /// <param name="aspect">`engine->GetScreenAspectRatio()`.</param>
-    /// <remarks>
-    /// `limitedAspectRatio = MIN( aspectRatio, 1.85f * 0.75f )` when `sv_restrict_aspect_ratio_fov` is above zero in a
-    /// window on a multiplayer server, or is 2. **The cap is always on here:** the viewer is a window, a TF2 demo is a
-    /// multiplayer server, and the cvar's default is 1. A demo whose server set it to 0 is not read (B518).
-    /// </remarks>
-    public float Rendered(float aspect) =>
-        Hud.VguiModelPanel.ScaleFovByWidthRatio(World, MathF.Min(aspect * 0.75f, 1.85f * 0.75f));
+    /// <param name="restricted"><see cref="RestrictsAspect"/>; true where a caller does not know, which is the default case.</param>
+    /// <remarks>`limitedAspectRatio = MIN( aspectRatio, 1.85f * 0.75f )` when restricted, the ratio itself otherwise.</remarks>
+    public float Rendered(float aspect, bool restricted = true) =>
+        Hud.VguiModelPanel.ScaleFovByWidthRatio(
+            World, restricted ? MathF.Min(aspect * 0.75f, 1.85f * 0.75f) : aspect * 0.75f);
+
+    /// <summary>Whether the fov's widening stops at 1.85:1 (view.cpp:1077-1078).</summary>
+    /// <param name="serverSwitch">The server's <c>sv_restrict_aspect_ratio_fov</c>, as an integer; 1 unless it said otherwise.</param>
+    /// <param name="windowed"><c>engine->IsWindowedMode()</c>.</param>
+    /// <param name="maxClients"><c>gpGlobals->maxClients</c>.</param>
+    /// <returns>Above zero in a window on a multiplayer server, or exactly 2.</returns>
+    public static bool RestrictsAspect(int serverSwitch, bool windowed, int maxClients) =>
+        (serverSwitch > 0 && windowed && maxClients > 1) || serverSwitch == 2;
+
+    /// <summary>The server convar <see cref="RestrictsAspect"/> reads.</summary>
+    public const string RestrictAspectConVar = "sv_restrict_aspect_ratio_fov";
 
     /// <summary>`viewEye.fovViewmodel` as drawn: <see cref="Viewmodel"/> widened by the uncapped ratio (view.cpp:1084).</summary>
     /// <param name="viewmodelFov">`GetViewModelFOV()`.</param>

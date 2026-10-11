@@ -2168,7 +2168,23 @@ internal class MainForm : Form, IFrameSteps
     /// it, so two independent choices would let the modes drift apart.
     /// </remarks>
     private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
+        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
+
+    /// <summary>Whether the fov's widening stops at 1.85:1 this frame — `view.cpp:1077-1078`, `ViewFov.RestrictsAspect`.</summary>
+    /// <remarks>
+    /// `sv_restrict_aspect_ratio_fov` is the SERVER's, so it is the demo's: 1 unless a `net_SetConVar` said otherwise
+    /// (*interpolated*: the default, which the engine declares and the SDK does not publish). The viewer is a window
+    /// unless it is full screen in the exclusive mode.
+    /// </remarks>
+    private bool FovRestricted()
+    {
+        string? sent = _timeline?.ServerConVarsAt(_transport.CurrentTick).Value(ViewFov.RestrictAspectConVar);
+
+        return ViewFov.RestrictsAspect(
+            int.TryParse(sent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : 1,
+            windowed: !(IsFullScreen && FullScreenMode == FullScreenMode.Exclusive),
+            _timeline?.MaxClients ?? 0);
+    }
 
     /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
     /// <remarks>
@@ -2449,7 +2465,7 @@ internal class MainForm : Form, IFrameSteps
     /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
     /// </remarks>
     private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect));
+        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
 
     /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
     /// <remarks>
@@ -2471,7 +2487,7 @@ internal class MainForm : Form, IFrameSteps
         return _freeCamera.Camera(
             Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
             _loaded?.Outline,
-            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect));
+            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect, FovRestricted()));
     }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on

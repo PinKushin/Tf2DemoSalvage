@@ -36631,6 +36631,13 @@ the widening goes on the finished view, after the clamp, which is also where the
 `sv_restrict_aspect_ratio_fov` is not read from the demo; the 1.85:1 cap is always on (its default, 1, in a window on a
 multiplayer server). Only a server that set 0, watched wider than 1.85:1, differs.
 
+**2026-10-11 — done** (`fix/parity-leftovers`). `ViewFov.RestrictsAspect` is `view.cpp:1077-1078` whole:
+`( switch > 0 && windowed && maxClients > 1 ) || switch == 2`. The switch is the demo's — `ServerConVarsAt( tick )`,
+1 where no `net_SetConVar` named it (*interpolated*: the engine's declared default, which the SDK does not publish);
+windowed is everything but full screen in the exclusive mode; `maxClients` is `svc_ServerInfo`'s. The world's fov
+takes it and the viewmodel's still takes the uncapped ratio. **A visible change**: in exclusive full screen wider
+than 1.85:1 the view is now wider than it was, as TF2's is. `RestrictsAspect_ByTheServersSwitchTheWindowAndTheServersSize_IsTheEnginesCondition`.
+
 *Read from published source; measured by the golden comparison at an exact camera.* `CViewRender::Render` scales the
 view's fov by the screen's width ratio before drawing: `aspectRatio = engine->GetScreenAspectRatio() * 0.75f` and
 `viewEye.fov = ScaleFOVByWidthRatio( viewEye.fov, limitedAspectRatio )`, the viewmodel's likewise (`view.cpp:1075-1084`).
