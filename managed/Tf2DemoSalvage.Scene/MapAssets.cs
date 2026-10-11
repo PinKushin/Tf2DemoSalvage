@@ -441,6 +441,7 @@ public readonly record struct MapPlacedCubemap(
 /// </param>
 /// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
 /// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
+/// <param name="Bump2">The <c>$bumpmap2</c> of a lightmapped material that has a first one; null otherwise (B514).</param>
 /// <param name="MarksModelBumpMapped"><see cref="VmtMaterial.MarksModelBumpMapped"/>: a model drawing it loses its baked colours (B514).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
@@ -465,7 +466,8 @@ public readonly record struct ResolvedMaterial(
     string? DetailAnimation = null,
     MapWater? Water = null,
     MapTexture? BlendModulation = null,
-    bool MarksModelBumpMapped = false);
+    bool MarksModelBumpMapped = false,
+    MapTexture? Bump2 = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -996,6 +998,9 @@ public sealed class MapAssets
     /// (<see cref="BlendModulation"/>): 87 shipped materials, every one a terrain blend.
     /// </remarks>
     public IReadOnlyList<MapTexture?> BlendModulations { get; private init; } = [];
+
+    /// <summary>Each lightmapped material's <c>$bumpmap2</c>, null for those without one (<see cref="SecondBumpMaps"/>).</summary>
+    public IReadOnlyList<MapTexture?> Bumps2 { get; private init; } = [];
 
     /// <summary>Which parts of each material light themselves, where a texture says so.</summary>
     /// <remarks>
@@ -1824,6 +1829,7 @@ public sealed class MapAssets
             Phong = table.Phong,
             LightWarps = table.LightWarps,
             BlendModulations = table.BlendModulations,
+            Bumps2 = table.Bumps2,
             SelfIllumMasks = table.SelfIllumMasks,
             PhongExponentMaps = table.PhongExponentMaps,
             Variables = table.Variables,
@@ -2875,7 +2881,31 @@ public sealed class MapAssets
             ResolveDetailAnimation(),
             ResolveWater(),
             ResolveBlendModulation(),
-            material.MarksModelBumpMapped);
+            material.MarksModelBumpMapped,
+            ResolveBump2());
+
+        // `hasBump2 = hasBump && params[info.m_nBumpmap2]->IsTexture()` (`lightmappedgeneric_dx9_helper.cpp:310`), on
+        // the lightmapped shaders alone: the one VertexLitGeneric material that names a `$bumpmap2` has it read by nothing.
+        MapTexture? ResolveBump2()
+        {
+            if (!Lightmapped() || material.BumpMap is null || material.BumpMap2 is not { } name)
+            {
+                return null;
+            }
+
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            if (Load(name) is not { } decoded)
+            {
+                assets.LogWarning(
+                    "{Message}",
+                    $"second bump map {name}, named by materials/{materialName}.vmt, could not be read");
+
+                return null;
+            }
+
+            return MapTexture.Of(decoded);
+        }
 
         MapTexture? ResolveBlendModulation()
         {

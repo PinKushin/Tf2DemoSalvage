@@ -36459,6 +36459,18 @@ itself reads). A lightmapped material whose `$blendmodulatetexture` is defined c
 needs a blended displacement seen through a refraction view, and no map in the test set has one. `$bumpmap2` is
 still not read.
 
+**2026-10-11 (`fix/parity-leftovers`): `$bumpmap2` is read.** *Read from published source*
+(`lightmappedgeneric_dx9_helper.cpp:310`, `lightmappedgeneric_ps2_3_x.h:345-384`): a lightmapped material with a
+first bump map and a second mixes the two by the blend factor — the same factor the base textures take, mask and
+all — and mixes their alphas too only under `FANCY_BLENDING && $normalmapalphaenvmapmask`. The second map is sampled
+at the first's coordinate and decoded as the first is, ssbump or normal, so the viewer mixes the texels and decodes
+once (the decode is affine). `VmtMaterial.BumpMap2`, `SecondBumpMaps.Mode` (the shader's `bump.x`: 1, 2 or 3),
+`MapAssets.Bumps2`, slot 16. *Measured* (`vmt-param $bumpmap2`): 65 shipped materials, 63 WorldVertexTransition, one
+LightmappedGeneric, and one VertexLitGeneric that nothing reads it on. *Measured at the outdoor camera, tick 60000*:
+the slope behind the fence, the one f12 surface with the key, goes from 97 97 92 / 99 to 99 100 99 / 101 of TF2 (row
+2, cols 12-14; row 3, col 12), and nothing else in the frame moves. `SecondBumpMapConformanceTests` (10). Not
+modeled: `$bumpmask` (it needs NO second base texture, so no terrain blend has it) and `$basetexture2noenvmap`.
+
 **2026-10-10 (`fix/b514-static-prop-phong`): a phong or bump-mapped static prop is not vertex lit; ported; not yet
 looked at on screen.** The observatory dome (`models/props_hydro/observatory_dome.mdl`, `$phong 1`, no `$bumpmap`)
 drew at 17-82% of TF2 because the viewer drew its `.vhv` colours with no cube and no light. The chain:
