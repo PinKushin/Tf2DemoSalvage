@@ -46,8 +46,8 @@ public sealed class LightStyleLightmapConformanceTests
         byte[] on = new byte[4];
         byte[] off = new byte[4];
 
-        BspLightmaps.Compose(face.Styles, 0, static _ => 1f, on);
-        BspLightmaps.Compose(face.Styles, 0, static style => style == 32 ? 0f : 1f, off);
+        BspLightmaps.Compose(face.Styles, static _ => 1f, [], on);
+        BspLightmaps.Compose(face.Styles, static style => style == 32 ? 0f : 1f, [], off);
 
         on[0].ShouldBe(BspLightmaps.ReadAll(Map((0, 255, 255, 255), red: 104))[0].Flat.Pixels.Span[0]);
         off[0].ShouldBe(BspLightmaps.ReadAll(Map((0, 255, 255, 255), red: 64))[0].Flat.Pixels.Span[0]);

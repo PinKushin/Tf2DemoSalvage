@@ -367,3 +367,46 @@ Sub-tick interpolation, particles and tracers are in all of these.
   the scale; a still now lets the exposure walk before it is taken. Unforced shots settle at 0.701 outdoors and at the
   sky camera (TF2 0.700) and 0.501 indoors (TF2 0.550, ours pinned to the floor by a brighter indoor frame).
 - **B521**: the cones under the indoor lamps are large near-opaque white beams in ours and a faint glow in TF2.
+
+### B514 part 4: the bumped lightmaps are renormalized before they are drawn (2026-10-10)
+
+**The ground gap was not bloom and not exposure. It was the three directional lightmaps, uploaded as vrad wrote them.**
+
+*Read in disassembly* (Ghidra, `materialsystem.dll`; output on `D:`). The lightmap page has two writers: the flat one,
+`FUN_180028550`, and the bumped one, `FUN_1800249c0`, which takes the flat image and the three bump images together.
+Both hand each texel to the encoder `FUN_180036450` (`min(light · 4096, 65535)`, part 2). The bumped writer does one
+thing first, per luxel and PER CHANNEL:
+
+```
+avg   = (bump1 + bump2 + bump3) * 0.33333334
+scale = avg != 0 ? flat / avg : 0
+write flat                                  (unchanged)
+write bump1 * scale, bump2 * scale, bump3 * scale
+```
+
+So what the shader samples is not vrad's directional light: it is vrad's directional light rescaled until its average
+IS the flat lightmap. A channel whose three samples average zero is written as zero in all three, whatever the flat
+value. The writer runs on the float images `R_BuildLightMap` built, so after the light styles are summed and the
+dynamic lights added — the normalization is of the sum, not of each style.
+
+*Measured* (`bump-faces cp_process_f12 blendground`, mean green over the material's bump-lit luxels, sample units):
+
+| `NATURE/BLENDGROUNDTOGRASS007` (`$ssbump 1`, 32 displacement faces) | flat | directional 1 / 2 / 3 | average / flat |
+|---|---|---|---|
+| as vrad wrote it (what the viewer uploaded) | 230.7 | 130.6 / 140.7 / 162.9 | 0.63 |
+| after the writer's arithmetic (what it uploads now) | 230.7 | 207.9 / 224.4 / 260.3 | 1.00 |
+
+0.63 is the darkness that was on screen: that ground drew at 0.60-0.70 of TF2's linear luminance with the exposure
+pinned and bloom off. Across the whole map, 894,758 channels of 1,380 bump-lit faces now average to their flat value
+within the store's rounding (ratio of means 1.0007); 71,818 channels have all three directional samples at zero.
+
+**The wrong turn, kept:** the bumped sets were assumed to be drawn as vrad wrote them. Every earlier check agreed with
+that, because every earlier check was about WHERE the sets are (offsets, strides, that they differ from the flat set)
+and the pixel shader was already Valve's line for line (`lightmappedgeneric_ps2_3_x.h:434-464`). The data and the
+shader were both right; the step between them — a closed function, in the material system rather than in vrad or a
+shader — was never looked for. Parts 1-3 then spent their time on bloom and exposure, which were real and are now
+Valve's, while "lighting proper" sat fourth in the list of remainders.
+
+*Interpolated, not measured:* the same arithmetic also pulls DOWN a bump-lit face whose raw average exceeds its flat
+set, which may be part of the sunlit brick wall's +22% and the panel's +20% in the table above. The golden comparison
+has not been re-run since the change.

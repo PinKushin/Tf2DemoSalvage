@@ -92,7 +92,10 @@ public sealed class BumpFaceProbe : IProbe
             }
 
             // The light itself: the flat set against the three directional ones, mean green over the material's faces.
+            // Twice, because they differ (B514 part 4): `light` is what `ReadAll` hands the atlas, whose directional
+            // sets are normalized to average the flat one; `raw` is style slot 0 as vrad wrote it, unclamped.
             double[] light = new double[4];
+            double[] raw = new double[4];
             long luxels = 0;
 
             for (int index = 0; index < surfaces.Count && index < lighting.Count; index++)
@@ -114,6 +117,16 @@ public sealed class BumpFaceProbe : IProbe
                     {
                         light[set] += BspLightmaps.Load(texels.Slice(at, 4)).Green;
                     }
+
+                    if (lighting[index].Styles.Count > 0)
+                    {
+                        float[] samples = lighting[index].Styles[0].Sets[set];
+
+                        for (int at = 1; at < samples.Length; at += 3)
+                        {
+                            raw[set] += samples[at];
+                        }
+                    }
                 }
 
                 luxels += lighting[index].Flat.Pixels.Length / 4;
@@ -123,7 +136,10 @@ public sealed class BumpFaceProbe : IProbe
             {
                 output.WriteLine(string.Create(
                     CultureInfo.InvariantCulture,
-                    $"       light (green, mean): flat {light[0] / luxels:0.000}; directional {light[1] / luxels:0.000} {light[2] / luxels:0.000} {light[3] / luxels:0.000}"));
+                    $"       light (green, mean) as stored: flat {light[0] / luxels:0.000}; directional {light[1] / luxels:0.000} {light[2] / luxels:0.000} {light[3] / luxels:0.000}"));
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"       light (green, mean) as vrad wrote it, unclamped: flat {raw[0] / luxels:0.000}; directional {raw[1] / luxels:0.000} {raw[2] / luxels:0.000} {raw[3] / luxels:0.000}; their average is {(raw[1] + raw[2] + raw[3]) / 3 / Math.Max(raw[0], 1e-9):0.000} of flat"));
             }
 
             if (pak.ReadFile($"materials/{material}.vmt") is { } vmt)

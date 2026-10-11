@@ -57,7 +57,7 @@ public readonly record struct BspLightmap(int Width, int Height, ReadOnlyMemory<
 /// </remarks>
 /// <summary>Everything one face's lighting carries, flat and directional.</summary>
 /// <param name="Flat">The single lightmap every lit face has.</param>
-/// <param name="Directional">Three more, in the bump basis, or empty when the face is not bump lit.</param>
+/// <param name="Directional">Three more, in the bump basis and normalized to average the flat one as the engine stores them (<see cref="BspLightmaps.NormalizeBumped"/>), or empty when the face is not bump lit.</param>
 /// <remarks>
 /// **The flat set is not a base the other three add to.** When a face is bump lit Source's shader
 /// reads sets 1, 2 and 3 and never touches set 0 - the three ARE the lighting, weighted per pixel
@@ -70,10 +70,13 @@ public readonly record struct BspFaceLighting(
     /// <summary>Whether the face carries directional lighting.</summary>
     public bool IsBumped => Directional.Count > 0;
 
-    /// <summary>Every style slot's samples, for a face lit by anything but style 0 alone; empty otherwise.</summary>
+    /// <summary>Every style slot's samples as vrad wrote them, for a bump-lit face or one lit by anything but style 0 alone; empty otherwise.</summary>
     /// <remarks>
-    /// <see cref="Flat"/> and <see cref="Directional"/> are slot 0 as it is stored. A face with styles draws as their sum
-    /// by the styles' current values — <see cref="BspLightmaps.Compose"/> — which only a running light style can decide.
+    /// <see cref="Flat"/> and <see cref="Directional"/> are slot 0 as the engine would draw it alone. A face with styles
+    /// draws as their sum by the styles' current values — <see cref="BspLightmaps.Compose"/> — which only a running light
+    /// style can decide. **A bump-lit face carries them even for style 0 alone**, because <see cref="Directional"/> is
+    /// normalized (<see cref="BspLightmaps.NormalizeBumped"/>) and a rebuild that adds a dynamic light has to normalize
+    /// the raw sum again, which the stored sets cannot give back.
     /// </remarks>
     public IReadOnlyList<BspStyleLayer> Styles { get; init; } = [];
 }
@@ -237,9 +240,23 @@ public static class BspLightmaps
             BspLightmap flat = Set(lighting, offset, 0, luxels, sets, width, height, index);
             List<BspLightmap> directional = [];
 
-            for (int set = 1; bumped && set < BumpedSets; set++)
+            if (bumped)
             {
-                directional.Add(Set(lighting, offset, set, luxels, sets, width, height, index));
+                float[] linear = new float[BumpedSets * luxels * 3];
+
+                for (int set = 0; set < BumpedSets; set++)
+                {
+                    Linear(lighting, offset, 0, set, luxels, sets, index).CopyTo(linear, set * luxels * 3);
+                }
+
+                byte[] stored = new byte[BumpedSets * luxels * 4];
+
+                StoreSets(linear, BumpedSets, stored);
+
+                for (int set = 1; set < BumpedSets; set++)
+                {
+                    directional.Add(new BspLightmap(width, height, stored.AsMemory(set * luxels * 4, luxels * 4)));
+                }
             }
 
             read.Add(new BspFaceLighting(flat, directional)
@@ -252,48 +269,113 @@ public static class BspLightmaps
     }
 
     /// <summary>
-    /// A face's lighting as `R_BuildLightMap` builds it: each style slot's samples times its style's value over 264,
-    /// summed, then stored as every lightmap here is.
+    /// What the bumped lightmap page writer does to a face's three directional sets: scales them, per luxel and per
+    /// channel, so that their average is the flat set.
     /// </summary>
-    /// <param name="layers">The face's <see cref="BspFaceLighting.Styles"/>.</param>
-    /// <param name="set">Which bump set.</param>
+    /// <param name="flat">The flat set's linear samples, left as they are.</param>
+    /// <param name="bump1">The first directional set, scaled in place.</param>
+    /// <param name="bump2">The second.</param>
+    /// <param name="bump3">The third.</param>
+    /// <remarks>
+    /// *Read in disassembly*: <c>materialsystem.dll FUN_1800249c0</c>.
+    ///
+    /// <code>
+    /// avg   = (bump1 + bump2 + bump3) * 0.33333334
+    /// scale = avg != 0 ? flat / avg : 0
+    /// </code>
+    ///
+    /// Each channel on its own, and a zero average zeroes that channel's three values — the flat value is still
+    /// written. It runs on the float images `R_BuildLightMap` built, so AFTER the styles are summed and the dynamic
+    /// lights added, and before the texel encoder clamps; hence on floats here, ahead of <see cref="Store"/>.
+    ///
+    /// **vrad's directional samples were drawn raw until B514 part 4**, and their average is not the flat set: 0.63 of
+    /// it on cp_process_f12's outdoor ground (`bump-faces`), which is how dark every bump-lit face came out.
+    /// </remarks>
+    public static void NormalizeBumped(ReadOnlySpan<float> flat, Span<float> bump1, Span<float> bump2, Span<float> bump3)
+    {
+        for (int at = 0; at < flat.Length; at++)
+        {
+            float average = (bump1[at] + bump2[at] + bump3[at]) * 0.33333334f;
+            float scale = average != 0f ? flat[at] / average : 0f;
+
+            bump1[at] *= scale;
+            bump2[at] *= scale;
+            bump3[at] *= scale;
+        }
+    }
+
+    /// <summary>
+    /// A face's lighting as `R_BuildLightMap` builds it and the page writer stores it: each style slot's samples times
+    /// its style's value over 264, summed; the dynamic light added; a bump-lit face's directional sets normalized
+    /// (<see cref="NormalizeBumped"/>); then stored as every lightmap here is.
+    /// </summary>
+    /// <param name="layers">The face's <see cref="BspFaceLighting.Styles"/>; none writes nothing.</param>
     /// <param name="scale">`d_lightstylevalue[ style ] / 264`.</param>
-    /// <param name="into">Four bytes a luxel.</param>
+    /// <param name="added">Light added on top, three floats a luxel, set after set, in the samples' units; empty for none.</param>
+    /// <param name="into">Four bytes a luxel, set after set: every set the face has.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
-    public static void Compose(IReadOnlyList<BspStyleLayer> layers, int set, Func<int, float> scale, Span<byte> into)
+    public static void Compose(
+        IReadOnlyList<BspStyleLayer> layers, Func<int, float> scale, ReadOnlySpan<float> added, Span<byte> into)
     {
         ArgumentNullException.ThrowIfNull(layers);
         ArgumentNullException.ThrowIfNull(scale);
 
-        int luxels = into.Length / 4;
-
-        for (int luxel = 0; luxel < luxels; luxel++)
+        if (layers.Count == 0)
         {
-            float red = 0f;
-            float green = 0f;
-            float blue = 0f;
+            return;
+        }
 
-            foreach (BspStyleLayer layer in layers)
+        int sets = layers[0].Sets.Count;
+        int floats = into.Length / 4 / sets * 3;
+        float[] light = new float[sets * floats];
+
+        foreach (BspStyleLayer layer in layers)
+        {
+            float value = scale(layer.Style);
+
+            for (int set = 0; set < sets; set++)
             {
-                float value = scale(layer.Style);
                 float[] samples = layer.Sets[set];
 
-                red += samples[luxel * 3] * value;
-                green += samples[(luxel * 3) + 1] * value;
-                blue += samples[(luxel * 3) + 2] * value;
+                for (int at = 0; at < floats; at++)
+                {
+                    light[(set * floats) + at] += samples[at] * value;
+                }
             }
+        }
 
-            Store(into.Slice(luxel * 4, 4), red, green, blue);
+        for (int at = 0; at < added.Length && at < light.Length; at++)
+        {
+            light[at] += added[at];
+        }
+
+        StoreSets(light, sets, into);
+    }
+
+    /// <summary>The page writer: a face's linear sets, set after set, normalized when there are four and stored.</summary>
+    /// <remarks>The one place both the static read and a rebuild go through, so neither can store a raw directional set.</remarks>
+    private static void StoreSets(Span<float> light, int sets, Span<byte> into)
+    {
+        int floats = light.Length / sets;
+
+        if (sets == BumpedSets)
+        {
+            NormalizeBumped(light[..floats], light.Slice(floats, floats), light.Slice(2 * floats, floats), light.Slice(3 * floats, floats));
+        }
+
+        for (int luxel = 0; luxel < light.Length / 3; luxel++)
+        {
+            Store(into.Slice(luxel * 4, 4), light[luxel * 3], light[(luxel * 3) + 1], light[(luxel * 3) + 2]);
         }
     }
 
-    /// <summary>Every style slot's linear samples, or none for a face lit by style 0 alone.</summary>
+    /// <summary>Every style slot's linear samples, or none for an unbumped face lit by style 0 alone.</summary>
     private static List<BspStyleLayer> Layers(
         ReadOnlySpan<byte> face, ReadOnlySpan<byte> lighting, int offset, int luxels, int sets, int index)
     {
         List<BspStyleLayer> layers = [];
 
-        if (face[FaceStylesOffset] == 0 && face[FaceStylesOffset + 1] == NoStyle)
+        if (sets == 1 && face[FaceStylesOffset] == 0 && face[FaceStylesOffset + 1] == NoStyle)
         {
             return layers;
         }
@@ -304,33 +386,39 @@ public static class BspLightmaps
 
             for (int set = 0; set < sets; set++)
             {
-                long at = SetOffset(offset, slot, set, luxels, sets);
-
-                if (at < 0 || at + ((long)luxels * SampleBytes) > lighting.Length)
-                {
-                    throw new InvalidDataException(
-                        $"Face {index} needs style slot {slot} set {set} at {at} of {lighting.Length}.");
-                }
-
-                float[] linear = new float[luxels * 3];
-
-                for (int luxel = 0; luxel < luxels; luxel++)
-                {
-                    ReadOnlySpan<byte> sample = lighting.Slice((int)at + (luxel * SampleBytes), SampleBytes);
-                    float exponent = MathF.Pow(2f, (sbyte)sample[3]);
-
-                    linear[luxel * 3] = sample[0] * exponent;
-                    linear[(luxel * 3) + 1] = sample[1] * exponent;
-                    linear[(luxel * 3) + 2] = sample[2] * exponent;
-                }
-
-                perSet.Add(linear);
+                perSet.Add(Linear(lighting, offset, slot, set, luxels, sets, index));
             }
 
             layers.Add(new BspStyleLayer(face[FaceStylesOffset + slot], perSet));
         }
 
         return layers;
+    }
+
+    /// <summary>One set of one style slot as linear light: three floats a luxel, the stored byte times two to its exponent.</summary>
+    private static float[] Linear(ReadOnlySpan<byte> lighting, int offset, int slot, int set, int luxels, int sets, int index)
+    {
+        long at = SetOffset(offset, slot, set, luxels, sets);
+
+        if (at < 0 || at + ((long)luxels * SampleBytes) > lighting.Length)
+        {
+            throw new InvalidDataException(
+                $"Face {index} needs style slot {slot} set {set} at {at} of {lighting.Length}.");
+        }
+
+        float[] linear = new float[luxels * 3];
+
+        for (int luxel = 0; luxel < luxels; luxel++)
+        {
+            ReadOnlySpan<byte> sample = lighting.Slice((int)at + (luxel * SampleBytes), SampleBytes);
+            float exponent = MathF.Pow(2f, (sbyte)sample[3]);
+
+            linear[luxel * 3] = sample[0] * exponent;
+            linear[(luxel * 3) + 1] = sample[1] * exponent;
+            linear[(luxel * 3) + 2] = sample[2] * exponent;
+        }
+
+        return linear;
     }
 
     /// <summary>Where each lit face's lighting begins, and how many bytes it occupies.</summary>

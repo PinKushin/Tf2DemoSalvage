@@ -36346,6 +36346,21 @@ TF2's exposure read from `mat_hdr_tonemapscale` and pinned with `mat_force_tonem
 - **And the outdoor "25-35% darker" this entry is named for is no longer true**: with both forced to 1 and bloom off the
   outdoor patches are within −12%..+22% and the first-person mean is 133 120 109 → 130 119 109.
 
+**2026-10-10, part 4 (`fix/b514-bloom-amount`): the ground gap was the bumped lightmaps, drawn as vrad wrote them.**
+*Read in disassembly; measured.* The bloom remainder turned out not to be bloom (findings 76; the add is read from
+`engine_post`), and item (4) above — "lighting proper" — was this. The material system's bumped lightmap page writer
+(`materialsystem.dll FUN_1800249c0`) rescales a face's three directional sets, per luxel and per channel, so their
+average equals the flat set: `scale = avg != 0 ? flat / avg : 0` with `avg = (b1 + b2 + b3) · 0.33333334`, on the
+float images `R_BuildLightMap` built — after the light styles are summed and the dynamic lights added. The viewer
+uploaded vrad's directional samples raw, and their average is not the flat set: on cp_process_f12's outdoor
+displacement ground (`NATURE/BLENDGROUNDTOGRASS007`, `$ssbump 1`) flat 230.7 against 130.6 / 140.7 / 162.9, 0.63 of it
+(`bump-faces cp_process_f12 blendground`), where the ground drew at 0.60-0.70 of TF2's linear luminance with exposure
+pinned and bloom off. Now `BspLightmaps.NormalizeBumped`, behind the one `StoreSets` both the static read (`ReadAll`)
+and every rebuild (`Compose`: styles, then dlights, then normalize) go through; the pixel shader was already Valve's
+and is unchanged. `BumpedLightmapNormalizationConformanceTests`, including the output-level assertion on the f12 map
+(894,758 channels of 1,380 bump-lit faces average to flat). **Not yet re-measured against the TF2 captures** — the
+golden comparison takes the desktop; the entry stays OPEN until it is. Findings 76, "B514 part 4".
+
 ## B515 — a left-handed player's viewmodel is drawn right-handed — CLOSED 2026-10-09
 
 **Closed.** *Read from published source; measured on the golden comparison.* `C_BaseViewModel::ShouldFlipViewModel`
