@@ -22,4 +22,8 @@ when the Rendering suite's gate run took 18.6 minutes: its real-demo face and tr
 **How to apply:** when writing or briefing a test, a real demo is allowed only in `Corpus.Tests` (and probes).
 The "output-level assertion on real data" rule ([[output-level-assertion-or-it-is-not-done]]) is met there or
 with a real MAP/model, not by loading a match demo into a unit suite. Say this in every implementer brief.
-My interpretation, not the owner's words: a real map or model file is still allowed in unit suites; he named demos.
+Real maps and models ARE allowed in unit suites — owner, same day: *"real maps and models are fine, they actually
+load pretty fast, but we shouldnt be testing them directly anyway, that is testing VALVES code not ours. but to test
+OUR code, using the real model and map is fine"*; *"we cant fake a map"*. So: a real map/model is an INPUT to our
+code, never the subject. An assertion about what the file contains is a claim about Valve's data — a measurement or
+a probe, not a test.
