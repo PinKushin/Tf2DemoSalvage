@@ -139,3 +139,4 @@
 - [The engine rewrites data between the file and the shader](the-engine-rewrites-data-between-the-file-and-the-shader.md) — bumped lightmaps renormalized on upload; check the upload step first (B514 part 4).
 - [A phong static prop is not vertex lit](a-phong-static-prop-is-not-vertex-lit.md) — `$phong`/`$bumpmap` flags the model; no `.vhv` colours, flags 7; read the caller (B514).
 - [A model shader's $color is gamma](a-model-shaders-color-is-gamma.md) — converted to linear at bind; UnlitGeneric reads no light; a quoted line is not a ported one (B514).
+- [No unit test opens a real demo](no-unit-test-opens-a-real-demo.md) — synthetic or a short authored specimen; real demos live in Corpus.Tests (D213).
