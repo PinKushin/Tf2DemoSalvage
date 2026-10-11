@@ -14,4 +14,8 @@ baked colour anyway and is always half-Lambert (`skin_ps20b.fxc:220-222`). 394 o
 **How to apply:** before trusting "this prop is baked", check `StaticPropVertexLighting.RefusesColourMesh(frames.StudioFlags)`.
 When a reading says "the draw does X with input Y", read the CALLER that decides Y — B426 read the model draw
 (`0x1800f1bd0`) and not the function one above it, and the conclusion stood from 2026-09-28 to 2026-10-10.
-The dome's brightness in TF2 was a mapper's `light` beside it, not the sun: ask which light before assuming the sun.
+**Its state is its own, too.** Cube: computed, 162 `R_LightVec` rays (`FUN_1801b74f0`, `r_radiosity` 4), not the leaf's
+(`StaticPropAmbient`). Sun: leaf `flags & 5`, then one `MASK_OPAQUE` (`0x4081`) world-only ray to `SURF_SKY`
+(`FUN_1801b60a0`, `0x1801b9570`). `MapLevel.StrikesSky` traced `MASK_SOLID` and its comment said `MASK_OPAQUE`: a
+lighting point inside a non-opaque brush started solid, and "the dome is not sunlit" got reported from the viewer's own
+failed trace. An absence from our instrument needs a control (`prop-light <map> <model> <open-air point>`).

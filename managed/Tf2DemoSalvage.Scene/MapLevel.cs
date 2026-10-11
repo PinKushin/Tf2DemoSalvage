@@ -157,6 +157,18 @@ public sealed record MapLevel(
     /// <summary>The map's texinfo, which says what a trace's struck brush side is — `SURF_SKY` among it.</summary>
     public IReadOnlyList<BspTexinfo> Texinfo { get; init; } = [];
 
+    /// <summary>The map's raw lightmap data, as `R_LightVec` reads it — what a static prop's computed ambient samples (B514).</summary>
+    public BspLightSamples? LightSamples { get; init; }
+
+    /// <summary>The map's texture table: each texdata's name and reflectivity.</summary>
+    public IReadOnlyList<BspMaterial> Materials { get; init; } = [];
+
+    /// <summary>
+    /// `MASK_OPAQUE` — `CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_OPAQUE`, "everything that blocks lighting"
+    /// (`bspflags.h:113-114`): the `0x4081` the light cache's traces pass (`engine.dll` `0x1801b9570`, `0x1801b8e20`).
+    /// </summary>
+    private const int MaskOpaque = 0x4081;
+
     /// <summary>Whether a world-only trace strikes sky before anything else.</summary>
     /// <param name="from">Where the trace starts.</param>
     /// <param name="to">Where it would end.</param>
@@ -164,9 +176,13 @@ public sealed record MapLevel(
     /// <remarks>
     /// **The light cache's skylight test** (`engine.dll` 0x1801b8e20): `TRACE_WORLD_ONLY`, `MASK_OPAQUE`, then
     /// `tr.surface.flags &amp; SURF_SKY`. Terrain is world and is not sky, so a hillside shades what lies behind it.
+    ///
+    /// **The mask was `MASK_SOLID` until B514, while this comment said `MASK_OPAQUE`.** The difference is every brush
+    /// light passes through — `CONTENTS_WINDOW`, `CONTENTS_GRATE` — and a point INSIDE one starts solid and strikes
+    /// nothing: cp_process_f12's observatory dome is lit from such a point, and drew without the sun.
     /// </remarks>
     public bool StrikesSky((float X, float Y, float Z) from, (float X, float Y, float Z) to) =>
-        TraceBrushOnly(from, to, 0f) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
+        TraceBrushOnly(from, to, 0f, MaskOpaque) is { Fraction: < 1f, Texinfo: >= 0 } hit &&
         hit.Texinfo < Texinfo.Count &&
         (Texinfo[hit.Texinfo].Flags & SurfaceProperties.Sky) != 0;
 
@@ -506,6 +522,8 @@ public sealed record MapLevel(
             BspVertexNormals.Read(bytes))
         {
             Texinfo = BspMaterials.ReadTexinfo(bytes),
+            LightSamples = BspLightmaps.ReadSamples(bytes),
+            Materials = BspMaterials.Read(bytes),
         };
 
         return level;

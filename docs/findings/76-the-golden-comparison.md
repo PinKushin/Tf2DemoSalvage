@@ -431,7 +431,11 @@ FUN_1800eb1a0`, refuses static lighting to a model carrying it at DX level 80 or
 bound and the prop takes its lighting handle's full state, `FUN_1801ba590` flags 7. *Read from published source:* it
 could not be otherwise, because the phong shader passes a zero static colour to its own lighting routine and forces
 half-Lambert (`skin_ps20b.fxc:220-222`). *Measured:* 394 of cp_process_f12's 1,353 static prop placements (35
-models) are such props. **Two wrong turns:** B426 had read the draw and not the function that decides what the draw
-is handed; and the dome is not sunlit — the sun's trace from its lighting origin misses the sky, and the brightness
-in TF2 is a `light` of intensity 31,373 placed beside each dome, which the viewer's baked colours held as diffuse and
-never gave to the highlight. Ported (RISKS B514); not yet compared on screen.
+models) are such props. **Three wrong turns:** B426 had read the draw and not the function that decides what the draw
+is handed. The first commit then declared the dome "not sunlit", because the VIEWER's sky trace from its lighting
+origin failed — an absence believed without a control; TF2's frame showed a warm directional light, and the engine's
+trace (`engine.dll` `0x1801b9570`, *read in disassembly*) uses `MASK_OPAQUE` where the viewer's used `MASK_SOLID`,
+so a lighting point inside a non-opaque brush started solid here and reaches the sky there (*measured*, `prop-light`:
+934 units to `TOOLS/TOOLSSKYBOX`). And the cube was assumed to be the leaf's: for a static prop the light cache
+computes it from 162 rays at the lightmaps (`FUN_1801b74f0`, `r_radiosity` 4) — on the dome the same sky above, a
+darker and warmer underside. All three ported (RISKS B514); not yet compared on screen.

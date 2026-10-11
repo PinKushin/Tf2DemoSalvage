@@ -900,8 +900,14 @@ public sealed class EntityModelSet : Hud.IMdlCache
     }
 
     /// <summary>Where a model's light should be sampled, in world space.</summary>
-    private (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
+    /// <param name="prop">The prop; its model must have been added.</param>
+    /// <param name="pose">Where it stands.</param>
+    /// <returns>The point. Public so a probe asks the set itself rather than repeating its rule (`prop-light`).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="prop"/> is null.</exception>
+    public (float X, float Y, float Z) IlluminationPoint(SceneProp prop, ScenePose pose)
     {
+        ArgumentNullException.ThrowIfNull(prop);
+
         // **A bone-merged item is lit where its WEARER is, for every quantity at once** (B189; the
         // outside audit's finding 6). Its own pose is (0,0,0) by construction — `FollowEntity`
         // zeroes it and the client takes the parent's bones outright — so its own point is the map

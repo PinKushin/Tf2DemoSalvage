@@ -145,6 +145,79 @@ public sealed class LevelLightingTests
         lighting.SunAt(0f, 0f, -100f).ShouldBeNull();
     }
 
+    /// <remarks>
+    /// **The leaf is asked before the ray** (B514). *Read in disassembly*, `engine.dll` `0x1801b60a0`: an
+    /// `emit_skylight` is dropped unless the leaf holding the point has `flags &amp; 5` — `LEAF_FLAGS_SKY` (1) or
+    /// `LEAF_FLAGS_SKY2D` (4), `bspfile.h:791-793`; `LEAF_FLAGS_RADIAL` (2) is neither. `dleaf_t` keeps them in the top
+    /// seven bits of the short at +6 (`:807-808`). The point is in leaf 0, and the ray would strike sky in every case.
+    /// </remarks>
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    [TestCase(2, false)]
+    [TestCase(4, true)]
+    public void SunAt_ALeafFlaggedOrNotForSkyInItsPvs_TakesTheSunOnlyWhenFlagged(int leafFlags, bool lit)
+    {
+        int traces = 0;
+        byte[] plane = new byte[20];
+        BinaryPrimitives.WriteSingleLittleEndian(plane.AsSpan(8), 1f);
+
+        byte[] node = new byte[32];
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(4), -1 - 1);
+        BinaryPrimitives.WriteInt32LittleEndian(node.AsSpan(8), -0 - 1);
+
+        byte[] leaves = new byte[64];
+        BinaryPrimitives.WriteInt16LittleEndian(leaves.AsSpan(6), (short)(leafFlags << 9));
+
+        LevelLighting lighting = new(
+            leaves: BspLeafTree.FromLumps(node, plane, leaves),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: Sky(),
+            new RecordingLogger(),
+            strikesSky: (_, _) =>
+            {
+                traces++;
+                return true;
+            });
+
+        (lighting.SunAt(0f, 0f, -100f) is not null).ShouldBe(lit);
+        traces.ShouldBe(lit ? 1 : 0, "an unflagged leaf never reaches the trace");
+    }
+
+    /// <remarks>
+    /// **A static prop's cube is the light cache's computed one, not its leaf's** (B514; `engine.dll`
+    /// `FUN_1801bb4b0` with a static caller under `r_radiosity` 4 — <see cref="StaticPropAmbient"/>). And it is built
+    /// once: the handle's static state is computed when first asked for (`FUN_1801ba590`, the `+0x174 &amp; 4` bit) and
+    /// kept, so 162 rays are not cast again for every frame the prop is drawn.
+    /// </remarks>
+    [Test]
+    public void StaticPropLightingAt_GivenTheComputedAmbient_TakesItInPlaceOfTheLeafCubeAndBuildsItOncePerPoint()
+    {
+        int built = 0;
+        AmbientCube computed = new(
+            (0.1f, 0.2f, 0.3f), (0.1f, 0.2f, 0.3f), (0.1f, 0.2f, 0.3f), (0.1f, 0.2f, 0.3f), (0.7f, 0.8f, 0.9f), (0f, 0f, 0f));
+
+        LevelLighting lighting = new(
+            leaves: OneSplit(above: 0, below: 1),
+            ambient: [Samples(Grey(0.5f)), Samples(Grey(0.1f))],
+            worldLights: [],
+            sun: null,
+            new RecordingLogger(),
+            staticPropAmbient: (x, y, z) =>
+            {
+                built++;
+                (x, y, z).ShouldBe((0f, 0f, 100f));
+                return computed;
+            });
+
+        lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube.ShouldBe(computed);
+        lighting.StaticPropLightingAt(0f, 0f, 100f).Lighting.Cube.ShouldBe(computed);
+        built.ShouldBe(1);
+
+        // The control: a model that is not a static prop still takes the leaf's own samples.
+        lighting.ComputeLighting(0f, 0f, 100f).ShouldNotBe(computed);
+    }
+
     [Test]
     public void SunAt_OnAMapWithNoSun_IsNull()
     {

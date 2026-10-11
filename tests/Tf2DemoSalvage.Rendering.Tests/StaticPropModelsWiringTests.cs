@@ -6,6 +6,8 @@ using System.Text.RegularExpressions;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Content.Bsp;
+
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>Every static prop drawn as a model, on a real map (B426, D198).</summary>
@@ -183,12 +185,12 @@ public sealed class StaticPropModelsWiringTests
     /// `materials/models/props_hydro/observatory_dome.vmt`, a `VertexLitGeneric` with `$phong 1` and no `$bumpmap`.
     /// `studiorender.dll FUN_180057da0` flags the model `STUDIOHDR_FLAGS_USES_BUMPMAPPING` for the `$phong`, and
     /// `engine.dll FUN_1800eb1a0` then refuses it static lighting: its `.vhv` colours are never drawn, and it is lit by
-    /// its handle's full state (`FUN_1801ba590` flags 7) — the leaf cube and its local lights. The viewer drew the
-    /// colours with no cube and no light for the phong term, at 17-82% of TF2. The census at the end is every
-    /// placement on the map that takes the same path.
+    /// its handle's full state (`FUN_1801ba590` flags 7) — the leaf cube, its local lights and the sky light. The
+    /// viewer drew the colours with no cube and no light for the phong term, at 17-82% of TF2. The census at the end is
+    /// every placement on the map that takes the same path.
     /// </remarks>
     [Test]
-    public void Instances_CpProcessF12ObservatoryDome_DrawsWithoutItsBakedColoursUnderItsFullStateAndTheSun()
+    public void Instances_CpProcessF12ObservatoryDome_DrawsNoBakedColoursAndTakesItsCubeItsLampAndTheSun()
     {
         const string Map = "cp_process_f12";
 
@@ -199,7 +201,8 @@ public sealed class StaticPropModelsWiringTests
         }
 
         MapAssets assets = MapCache.With(mapName: Map).Assets;
-        LevelLighting lighting = LevelLighting.From(MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance), NullLogger.Instance);
+        MapLevel level = MapLevel.Read(MapCache.Bytes(Map), NullLogger.Instance);
+        LevelLighting lighting = LevelLighting.From(level, NullLogger.Instance);
 
         EntityModelSet models = new()
         {
@@ -235,12 +238,38 @@ public sealed class StaticPropModelsWiringTests
 
             dome.BakedColours.ShouldBeNull("refused its colour mesh");
 
-            // **The light that makes it bright in TF2 is not the sun** — the sun's trace from its lighting origin does
-            // not reach the sky — but a `light` the mapper stood beside each dome: intensity 31,373, 290 units away.
+            // **The sun** — the map's `emit_skylight`, as the lump states it (`prop-light`): travelling
+            // (0.2113, -0.3660, -0.9063) at intensity (2.3125, 2.1162, 1.5030), warm. The dome's lighting point is
+            // inside a brush light passes through, and the engine's `MASK_OPAQUE` trace reaches the sky from it
+            // (`MapLevelSweepTests.StrikesSky_FromAPointInsideABrushThatIsNotOpaque_…`).
+            SunLight sun = dome.Sun.ShouldNotBeNull("the sky light reaches its lighting point");
+
+            sun.DirectionX.ShouldBe(0.2113f, 0.0005f);
+            sun.DirectionY.ShouldBe(-0.3660f, 0.0005f);
+            sun.DirectionZ.ShouldBe(-0.9063f, 0.0005f);
+            sun.Red.ShouldBe(2.3125f, 0.0005f);
+            sun.Green.ShouldBe(2.1162f, 0.0005f);
+            sun.Blue.ShouldBe(1.5030f, 0.0005f);
+
+            // And the `light` the mapper stood beside each dome: intensity 31,373, 290 units away.
             dome.Locals.ShouldNotBeNull().ShouldContain(
                 lamp => lamp.Red > 30000f && MathF.Abs(lamp.X - at.X) < 400f && MathF.Abs(lamp.Y - at.Y) < 400f,
-                "the lamp beside the dome is in its state, which its colours alone never gave the phong term");
-            dome.Light.ShouldNotBeNull("lit by its handle's cube");
+                "the lamp beside the dome is in its state too");
+            // **And its cube is computed, not its leaf's** (`ComputeAmbientFromSphericalSamples`, `engine.dll`
+            // `FUN_1801b74f0`): above the roofs, the upward face is the map's sky ambient light almost alone.
+            AmbientCube cube = dome.Light.ShouldNotBeNull("lit by its handle's cube");
+            (float X, float Y, float Z) point = models.IlluminationPoint(byEntity[dome.EntityIndex], at);
+            AmbientCube leaf = lighting.ComputeLighting(point.X, point.Y, point.Z);
+            BspWorldLight skyAmbient = level.WorldLights.First(light => light.Kind == WorldLightKind.SkyAmbient);
+
+            TestContext.Out.WriteLine(
+                $"F12 DOME cube up {cube.PositiveZ}, down {cube.NegativeZ}, +x {cube.PositiveX}; its leaf's up {leaf.PositiveZ}, down {leaf.NegativeZ}; " +
+                $"sky ambient {skyAmbient.Intensity}");
+
+            cube.ShouldNotBe(leaf, "the leaf's samples are what a moving model takes");
+            cube.PositiveZ.Red.ShouldBe(skyAmbient.Intensity.Red, skyAmbient.Intensity.Red * 0.1f);
+            cube.PositiveZ.Green.ShouldBe(skyAmbient.Intensity.Green, skyAmbient.Intensity.Green * 0.1f);
+            cube.PositiveZ.Blue.ShouldBe(skyAmbient.Intensity.Blue, skyAmbient.Intensity.Blue * 0.1f);
         }
 
         // The census, for what else changes on screen: every placement whose model is flagged, by model.
