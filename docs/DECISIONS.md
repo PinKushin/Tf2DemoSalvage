@@ -9710,3 +9710,37 @@ stays per test. The unit suites are `Parallelizable(ParallelScope.All)` and stay
 **Not yet done.** The existing real-demo tests are not converted by this entry; each needs reading to choose its
 synthetic equivalent (never a mechanical rewrite). `MutationHeavy` keeps them out of mutation runs meanwhile.
 
+**Rendering.Tests, done 2026-10-11 (`test/d213-rendering`).** Four things, measured with one command
+(`dotnet test tests/Tf2DemoSalvage.Rendering.Tests`, trx total and wall clock):
+
+| state | wall | summed | total / passed / skipped |
+|---|---|---|---|
+| before, idle machine | 19 m 22 s | 1,163 s | 1080 / 1033 / 47 |
+| the parallel policy alone, 3 workers (two runs) | 932 s, 942 s | 2,722 s | 1080 / 1033 / 47 |
+| loads shared and every real-demo test converted, 3 workers | 372 s | 1,060 s | 1080 / 1033 / 47 |
+| five report-only fixtures moved to probes, 3 workers (kept) | 336 s | 968 s | 1076 / 1029 / 47 |
+| the same at 6 workers, tried and not kept (two runs) | 274 s, 272 s | 1,459 s | 1076 / 1029 / 47 |
+
+- **It was never parallel.** The assembly had no `AssemblyTestPolicy.cs` — the file stayed in `Viewer3D.Tests` when
+  these tests were split out (B184) — so the sentence above, "The unit suites are `Parallelizable(ParallelScope.All)`",
+  was false of this one. Summed time equal to wall time was the evidence, and it was in every run's `.trx`. Scene,
+  Animation, Presentation, Fonts and Logging have no policy file either and are not changed here.
+- **Parallel without sharing bought a fifth.** Three workers each loading their own map and demo took 2.4 times as
+  long per test. The time came out when the loads were shared: `SharedGame` (the archives and the game content, once)
+  and `MapCache` extended to sprite lists and to the downloaded-maps folder, where seven fixtures each loaded
+  `cp_process_f12` per TEST.
+- **Fourteen tests opened a real demo and none does now** — nine fixtures' worth: the beam, three rope, two trail, the
+  rocket puff, five face and two spy-tangent tests. Each is built from the entity as `moment-dump` (new probe) printed
+  it, with the recording and tick named beside the constants, and everything after the timeline is production's. The
+  five face tests and the two spy tests go through `DemoTimeline.ForPerformance` (new, internal: players, scenes,
+  sounds, corpses) and the presenter's own `PlayerAppearances`, and reproduce the real recordings' printed numbers
+  exactly (3,785 vertices for the medic; 4,168 / 1,824 / 2,548 for the scout; 8,105 at 1.791 for the soldier).
+  Every one reddened under a sabotage of the code it tests. What they no longer say — that the timeline produces
+  those entities from the wire — is `Core.Tests`' and `Corpus.Tests`' claim.
+- **Five report-only fixtures became probes**: `dark-materials`, `shader-parity`, `world-culling`,
+  `overlay-face-filter`, `overlay-quad-extent`. Eight more are listed with their fates in the branch's report.
+
+The cost that remains is memory, not time: the test host peaks at 16.1 GB at three workers and 16.8-18.0 GB at
+six, which is mostly one whole map per distinct `MapCache` request retained for the run. Six workers passed both
+runs and saved a minute; three is kept for the margin under B185's 21 GB ceiling.
+

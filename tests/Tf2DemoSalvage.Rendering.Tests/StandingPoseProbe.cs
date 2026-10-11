@@ -212,6 +212,7 @@ public sealed class StandingPoseProbe
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void StandingPose_ASequence_IsFoundByItsExactName()
     {
         // **The regression that matters, stated as a height.** A sequence is looked up by label,

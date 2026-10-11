@@ -59,6 +59,7 @@ public sealed class PropMaterialResolutionTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Load_TheReferenceMap_PlacesNoPropWithAnUnresolvedMaterial()
     {
         // **The control, and it is the reason this is two tests.** cp_process_final's props all

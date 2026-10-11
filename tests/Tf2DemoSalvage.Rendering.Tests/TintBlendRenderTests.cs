@@ -47,6 +47,7 @@ public sealed class TintBlendRenderTests
     /// that would report the absence as "not installed" rather than as "looked in the wrong place".
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TintsByBaseAlpha_APaintableCosmetic_ReachesTheMaterialStateWithAColour()
     {
         if (Assets is not { } assets)
@@ -80,6 +81,7 @@ public sealed class TintBlendRenderTests
     /// test above.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void TintsByBaseAlpha_TheMapsOwnBrushMaterials_DoNotTintByAlpha()
     {
         if (Assets is not { } assets)

@@ -89,10 +89,12 @@ public sealed class RefractTrailRenderTests
     }
 
     /// <remarks>
-    /// **The output-level assertion: a real trail from a real match** (D38's only-real-bytes half is the wiring, not the
-    /// arithmetic above). `pass_sanctum_a2a`'s entity 355 is an <c>effects/beam001_white</c> trail on player 7 from tick
-    /// 6262 (`trails` probe, 2026-10-05). The head here is the player's origin raised 40 units — the test's geometry,
-    /// not <c>GetRenderOrigin</c>'s attachment, which the viewer resolves through the player's model; what is under test
+    /// **The output-level assertion: a trail as a match networks it, on the material the game ships.** The trail is
+    /// written down, not read from a recording (D213): `pass_sanctum_a2a`'s entity 355, an <c>effects/beam001_white</c>
+    /// trail on player 7, as `moment-dump demostf-pass_sanctum_a2a-1491285 6262 355 7` printed it on 2026-10-11; the
+    /// player ran from (−106.875, −436.625, −255.875) at tick 6262 to (−158.25, −778.25, −255.875) at 6301, and the
+    /// head here walks that line at that speed. It is the player's origin raised 40 units — the test's geometry, not
+    /// <c>GetRenderOrigin</c>'s attachment, which the viewer resolves through the player's model; what is under test
     /// is that the strip the trail pass builds is drawn by the refract pass at all.
     ///
     /// **Over a uniform grey the warp is invisible and the tint is not**: <c>$refracttinttexture effects/white</c> makes
@@ -100,51 +102,58 @@ public sealed class RefractTrailRenderTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_ABeam001TrailFromARealMatch_BrightensTheGreyItCrosses()
+    public void Render_ABeam001Trail_BrightensTheGreyItCrosses()
     {
-        const int Player = 7;
-        const int TrailEntity = 355;
         const int FirstTick = 6262;
         const int Ticks = 40;
         const float Grey = 0.25f;
-
-        string demo = CommittedDemo.RequireLocal("demostf-pass_sanctum_a2a-1491285.dem");
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_harvest_final.bsp"));
+        const float IntervalPerTick = 0.015f;
 
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size * 2, Size * 2), "no Direct3D on this machine");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        MapAssets assets = MapAssets.Load(
-            map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: DemoModels.Sprites(timeline));
+        MapAssets assets = MapCache.Effects();
 
         assets.SpriteMaterials.TryGetValue("effects/beam001_white.vmt", out EngineSprite beam)
-            .ShouldBeTrue("beam001_white ships with TF2 and the demo names it");
+            .ShouldBeTrue("beam001_white ships with TF2");
         beam.Material.Refract.ShouldNotBeNull("the material loads as a Refract draw");
 
+        SceneProp trail = new(
+            EntityIndex: 355,
+            ModelPath: "effects/beam001_white.vmt",
+            Kind: SceneModelKind.Sprite,
+            Pose: new ScenePose
+            {
+                RenderMode = RenderModes.TransAlpha,
+                RenderAlpha = 255,
+                RenderColor = ((byte)255, (byte)255, (byte)255),
+                SpriteTrail = new SceneSpriteTrail(
+                    LifeTime: 0.5f,
+                    StartWidth: 8f,
+                    EndWidth: -1f,
+                    StartWidthVariance: 0f,
+                    TextureRes: 0.010416667f,
+                    MinFadeLength: 0f,
+                    SkyboxOrigin: (0f, 0f, 0f),
+                    SkyboxScale: 1f,
+                    AttachedTo: 700423,
+                    Attachment: 4),
+            },
+            ClassName: "CSpriteTrail");
+
+        Vector3 started = new(-106.875f, -436.625f, -255.875f);
+        Vector3 perTick = (new Vector3(-158.25f, -778.25f, -255.875f) - started) / 39f;
+
         EntityTrails trails = new();
-        List<SceneProp> props = [];
         List<Vector3> heads = [];
         IReadOnlyList<ParticleBatch> batches = [];
 
         for (int tick = FirstTick; tick < FirstTick + Ticks; tick++)
         {
-            timeline.PropsAt(tick, props);
-
-            props.Single(prop => prop.EntityIndex == TrailEntity).Pose.SpriteTrail
-                .ShouldNotBeNull("the specimen must still be the trail this test was written against");
-
-            ScenePlayer player = timeline.PlayersAt(tick).Single(one => one.EntityIndex == Player);
-            Vector3 head = new(player.X, player.Y, player.Z + 40f);
+            Vector3 head = started + (perTick * (tick - FirstTick)) + new Vector3(0f, 0f, 40f);
 
             heads.Add(head);
 
-            batches = trails.Build(
-                [.. props.Where(prop => prop.EntityIndex == TrailEntity)],
-                Camera(heads),
-                assets.SpriteMaterials,
-                _ => head,
-                tick * timeline.IntervalPerTick);
+            batches = trails.Build([trail], Camera(heads), assets.SpriteMaterials, _ => head, tick * IntervalPerTick);
         }
 
         Vector3.Distance(heads[0], heads[^1]).ShouldBeGreaterThan(50f, "the player must move for the trail to have length");

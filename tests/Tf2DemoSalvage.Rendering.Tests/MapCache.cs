@@ -92,6 +92,8 @@ internal static class MapCache
     /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
     /// <param name="entityModels">Models to load beyond the map's own, or null.</param>
     /// <param name="mapName">Which map, without folder or extension.</param>
+    /// <param name="spriteMaterials">Sprite materials to load beside the map, or null.</param>
+    /// <param name="wornModels">Models to load as worn (bone-merged) ones, or null.</param>
     /// <returns>The assets, shared with every other caller asking the same thing.</returns>
     /// <remarks>
     /// Skips the calling test when the game or the map is absent, which is checked BEFORE the cache
@@ -101,8 +103,36 @@ internal static class MapCache
     public static MapAssets Load(
         int maximumTextureSize = DefaultTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
-        string mapName = DefaultMap) =>
-        Loaded_(maximumTextureSize, entityModels, mapName).Assets;
+        string mapName = DefaultMap,
+        IReadOnlyCollection<string>? spriteMaterials = null,
+        IReadOnlyCollection<string>? wornModels = null) =>
+        Loaded_(maximumTextureSize, entityModels, mapName, spriteMaterials, wornModels).Assets;
+
+    /// <summary>
+    /// Every sprite material the effect-entity tests draw with — beam, halo, cable, trail — so they share ONE load.
+    /// </summary>
+    /// <remarks>
+    /// A sprite material does not depend on the map it is loaded beside, and each distinct list is another whole map
+    /// held for the life of the run; one list on the default map is one entry (D213).
+    /// </remarks>
+    public static readonly string[] EffectSprites =
+    [
+        "sprites/glow_test02.vmt",
+        "sprites/light_glow03.vmt",
+        "cable/cable.vmt",
+        "cable/rope.vmt",
+
+        // What `DemoModels.Sprites` adds for any rope: its `_back`, Pyrovision's solid, the two holiday light sprites.
+        EntityRopes.BackMaterialPath("cable/cable.vmt"),
+        EntityRopes.PureWhiteMaterial,
+        RopeHolidayLights.BulbMaterial,
+        RopeHolidayLights.FluffMaterial,
+        "effects/repair_claw_trail_blue.vmt",
+        "effects/beam001_white.vmt",
+    ];
+
+    /// <summary>The default map with <see cref="EffectSprites"/> loaded beside it.</summary>
+    public static MapAssets Effects() => Load(spriteMaterials: EffectSprites);
 
     /// <summary>The same load, with what it reported while producing the assets.</summary>
     /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
@@ -113,20 +143,24 @@ internal static class MapCache
         int maximumTextureSize = DefaultTextureSize,
         IReadOnlyCollection<string>? entityModels = null,
         string mapName = DefaultMap) =>
-        Loaded_(maximumTextureSize, entityModels, mapName);
+        Loaded_(maximumTextureSize, entityModels, mapName, null, null);
 
     private static LoadedMap Loaded_(
         int maximumTextureSize,
         IReadOnlyCollection<string>? entityModels,
-        string mapName)
+        string mapName,
+        IReadOnlyCollection<string>? spriteMaterials,
+        IReadOnlyCollection<string>? wornModels)
     {
-        string path = RequirePath(mapName);
+        // Both skips happen here, before the cache is touched.
+        RequirePath(mapName);
+        GameArchives archives = SharedGame.Archives;
+
+        static string Listed(IReadOnlyCollection<string>? names) =>
+            names is null ? string.Empty : string.Join(',', names.Order(StringComparer.Ordinal));
 
         string key = string.Join(
-            '|',
-            mapName,
-            maximumTextureSize,
-            entityModels is null ? string.Empty : string.Join(',', entityModels.Order(StringComparer.Ordinal)));
+            '|', mapName, maximumTextureSize, Listed(entityModels), Listed(spriteMaterials), Listed(wornModels));
 
         return Loaded.GetOrAdd(
             key,
@@ -137,10 +171,12 @@ internal static class MapCache
 
                     return new LoadedMap(
                         MapAssets.Load(
-                            File.ReadAllBytes(path),
-                            GameArchives.Open(GameInstall.Root),
+                            Bytes(mapName),
+                            archives,
                             maximumTextureSize,
                             entityModels,
+                            wornModels,
+                            spriteMaterials,
                             loggers: log),
                         log);
                 },
@@ -175,6 +211,33 @@ internal static class MapCache
         GameInstall.Root is { } game &&
         File.Exists(Path.Combine(game, "maps", mapName + ".bsp"));
 
+    /// <summary>
+    /// A map from the game or from the viewer's downloaded-maps folder, or null when the game or the map is absent.
+    /// </summary>
+    /// <param name="mapName">Which map, without folder or extension.</param>
+    /// <param name="maximumTextureSize">Largest texture edge to decode.</param>
+    /// <returns>The shared assets, or null — for a test that says in its own words what it could not run on.</returns>
+    /// <remarks>
+    /// The parity reference <c>cp_process_f12</c> is not a shipped map: the viewer downloads it into
+    /// <c>%LocalAppData%\Tf2DemoSalvage\maps</c>, where seven fixtures were each loading it per TEST (D213).
+    /// </remarks>
+    public static MapAssets? TryLoad(string mapName, int maximumTextureSize = DefaultTextureSize) =>
+        GameInstall.Root is null || Find(mapName) is null ? null : Load(maximumTextureSize, mapName: mapName);
+
+    private static string? Find(string mapName)
+    {
+        string downloaded = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "Tf2DemoSalvage", "maps", mapName + ".bsp");
+
+        if (GameInstall.Root is { } game && File.Exists(Path.Combine(game, "maps", mapName + ".bsp")))
+        {
+            return Path.Combine(game, "maps", mapName + ".bsp");
+        }
+
+        return File.Exists(downloaded) ? downloaded : null;
+    }
+
     /// <summary>The map's path, or skips the calling test.</summary>
     /// <remarks>
     /// **This was fifteen lines and is now one**, which is the whole case for
@@ -187,5 +250,5 @@ internal static class MapCache
     /// <c>[DoesNotReturn]</c>, so the compiler now knows control stops at the skip.
     /// </remarks>
     private static string RequirePath(string mapName) =>
-        GameInstall.RequireFile($"maps/{mapName}.bsp");
+        Find(mapName) ?? GameInstall.RequireFile($"maps/{mapName}.bsp");
 }

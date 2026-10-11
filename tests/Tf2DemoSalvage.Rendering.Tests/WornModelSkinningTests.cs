@@ -60,7 +60,7 @@ public sealed class WornModelSkinningTests
 
         return MapAssets.Load(
             File.ReadAllBytes(map),
-            GameArchives.Open(Game),
+            SharedGame.Archives,
             maximumTextureSize: 256,
             entityModels: [model],
             wornModels: [model]);

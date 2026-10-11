@@ -123,6 +123,7 @@ public sealed class ReflectionRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ReflectionRender_AModelsReflection_FollowsItsNormal()
     {
         // **The model path's own version of the first test in this file, and it could not pass

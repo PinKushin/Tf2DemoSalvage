@@ -58,6 +58,7 @@ public sealed class OverlayFaceListConformanceTests
         "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ClipFaceToOverlay_AFaceAtAnAngleToTheBasis_StillProducesAFragment()
     {
         // **The half this file was missing: Valve's rule above is the citation, and this is the

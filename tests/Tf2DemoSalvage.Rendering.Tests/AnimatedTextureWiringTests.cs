@@ -59,6 +59,7 @@ public sealed class AnimatedTextureWiringTests
     /// animating either way.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void AnimationFrames_WhereverTheyResolve_HoldMoreThanOneFrame()
     {
         if (Assets is not { } assets)
@@ -84,6 +85,7 @@ public sealed class AnimatedTextureWiringTests
     /// what it contains is not this project's to pin.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void AnimationFrames_TheFramesOfOneAnimation_AreDifferentPictures()
     {
         if (Assets is not { } assets)

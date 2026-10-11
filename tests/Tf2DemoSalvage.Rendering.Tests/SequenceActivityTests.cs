@@ -46,7 +46,7 @@ public sealed class SequenceActivityTests
             return null;
         }
 
-        GameArchives archives = GameArchives.Open(GamePath);
+        GameArchives archives = SharedGame.Archives;
 
         if (archives.Read(PlayerModel) is not { Length: > 0 } bytes)
         {

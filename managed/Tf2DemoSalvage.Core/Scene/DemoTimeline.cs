@@ -2410,6 +2410,31 @@ public sealed class DemoTimeline
         List<(int Tick, SceneViewmodel Weapon)>? viewmodels = null) =>
         new([], props: props, playerTracks: players, viewCommands: null, viewmodels: viewmodels);
 
+    /// <summary>A timeline carrying what a PERFORMANCE is made of: the players, the scenes they act in, the sounds, the corpses (D213).</summary>
+    /// <param name="frames">Frames naming the players, which is where the held weapons and their classes are read from.</param>
+    /// <param name="scenes">Every scene playback, as <see cref="Scenes"/> reports them.</param>
+    /// <param name="sounds">Every sound, in tick order.</param>
+    /// <param name="corpses">Ragdolls the timeline should report.</param>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>A timeline whose <see cref="Scenes"/>, <see cref="Sounds"/>, <see cref="Corpses"/> and <see cref="Frames"/> answer.</returns>
+    /// <remarks>
+    /// Same seam as <see cref="ForTracks"/>, for the consumers that read a recording's lists whole rather than sampling
+    /// a tick — the appearance a level builds from them, and the faces. A test of those states the two scenes and the
+    /// one voice line it is about instead of opening a thirty-minute match to find them.
+    /// </remarks>
+    internal static DemoTimeline ForPerformance(
+        List<TimelineFrame> frames,
+        List<SceneChoreography>? scenes = null,
+        List<SceneSound>? sounds = null,
+        IReadOnlyList<SceneRagdoll>? corpses = null,
+        float intervalPerTick = 0.015f) =>
+        new(frames, sounds: sounds)
+        {
+            Scenes = scenes ?? [],
+            Corpses = corpses ?? [],
+            IntervalPerTick = intervalPerTick,
+        };
+
     /// <summary>How many times a decode reports its progress — often enough for a bar to move, rarely enough to cost nothing.</summary>
     private const int ProgressReports = 200;
 

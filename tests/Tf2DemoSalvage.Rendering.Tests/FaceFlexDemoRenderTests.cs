@@ -13,26 +13,27 @@ using Tf2DemoSalvage.SdkReference;
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
-/// A face changing on a real recording, through the production path to the pixel (B513): the scene builds the soldier's
-/// instance — pose, bones and the flex stream — and the vertices drawn are the ones the device uploads.
+/// A face changing through the production path to the pixel (B513): the scene builds the soldier's instance — pose,
+/// bones and the flex stream — and the vertices drawn are the ones the device uploads.
 /// </summary>
 /// <remarks>
-/// **The subject**: tf2-2026-pub-pov-clean (lcor), soldier 9, whose <c>taunt_laugh</c> scene starts at tick 1074
-/// (<c>scene-wire</c>). Its <c>EXPRESSION</c> events run <c>player\soldier\emotion\emotion</c> from 0.019 s and four
-/// <c>phonemes_strong</c> settings from 0.42 s (<c>flex scenes</c>). The control for the picture is the same draw
-/// repeated; the control for the stream is the same soldier before the scene, whose face is the model's resting one.
+/// **The moment is written down, not read from a recording** (D213): soldier 9 of tf2-2026-pub-pov-clean — the
+/// recording's own player — whose <c>taunt_laugh</c> scene starts at tick 1074 and stops at 1398, over the idle scene he
+/// has been in since 455, with the laugh's voice line, as `moment-dump tf2-2026-pub-pov-clean 1204 9` printed them on
+/// 2026-10-11. The scene is the install's: its <c>EXPRESSION</c> events run <c>player\soldier\emotion\emotion</c> from
+/// 0.019 s and four <c>phonemes_strong</c> settings from 0.42 s (<c>flex scenes</c>). The control for the picture is the
+/// same draw repeated; the control for the stream is the same soldier before the scene, whose face is the model's
+/// resting one.
 /// </remarks>
 public sealed class FaceFlexDemoRenderTests
 {
-    private const string Demo = "tf2-2026-pub-pov-clean.dem";
     private const string SoldierModel = "models/player/soldier.mdl";
     private const int Soldier = 9;
     private const int TauntStart = 1074;
     private const int Size = 128;
 
-    private static readonly StrongBox<DemoTimeline?> Timeline = new();
-
-    private static readonly StrongBox<GameContent?> Content = new();
+    /// <summary><c>m_nPlayerCond</c> while he laughs: <c>TF_COND_TAUNTING</c> among its three bits.</summary>
+    private const int LaughingConditions = 10485888;
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
@@ -109,44 +110,45 @@ public sealed class FaceFlexDemoRenderTests
         best.ShouldBeGreaterThan(20, "the face the scene makes is on screen");
     }
 
-    /// <summary>The soldier's instance at a tick, built by the scene from the demo with the production loader.</summary>
+    /// <summary>The soldier's instance at a tick, built by the scene from the written-down moment with the production loader.</summary>
     private static (MapAssets Assets, EntityModelSet Models, ModelInstance Soldier) Posed(int tick)
     {
-        string demo = CommittedDemo.RequireLocal(Demo);
-        GameInstall.Require();
+        ScenePlayer soldier9 = new(
+            EntityIndex: Soldier,
+            X: 5913.6333f,
+            Y: -2720.6206f,
+            Z: 384.03125f,
+            Team: 3,
+            Health: 300,
+            PlayerClass: 3,
+            Yaw: 263.92963f,
+            LifeState: 0,
+            Flags: 131329,
+            Conditions: new PlayerConditions(tick >= TauntStart ? LaughingConditions : 0, 0, 0, 0, 0),
+            ClientSideAnimated: true);
 
-        DemoTimeline timeline = Timeline.Value ??= DemoTimeline.Build(File.ReadAllBytes(demo));
-        TimelineMoments moments = new(timeline);
+        DemoTimeline timeline = SyntheticMatch.Timeline(
+            [soldier9],
+            scenes:
+            [
+                new SceneChoreography(455, 1061, "scenes/player/soldier/low/idleloop01.vcd", [Soldier]) { StoppedTick = 1457 },
+                new SceneChoreography(TauntStart, 1073, "scenes/player/Soldier/low/taunt_laugh.vcd", [Soldier]) { StoppedTick = 1398 },
+            ],
+            sounds:
+            [
+                new SceneSound(
+                    TauntStart, "vo/soldier_LaughLong03.mp3", 1084, Soldier, Channel: 2, Volume: 0.61417323f, SoundLevel: 95,
+                    Pitch: 100, DelaySeconds: 0f, OriginX: 5912f, OriginY: -2720f, OriginZ: 424f),
+            ]);
+
         MapAssets assets = MapCache.Load(entityModels: [SoldierModel]);
         EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
-        GameContent content = Content.Value ??= GameContent.Open(GameInstall.Require(), NullLoggerFactory.Instance);
+        MomentScene scene = SyntheticMatch.Scene(models, SyntheticMatch.Appearance(timeline));
 
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
-        {
-            Weapons = content.Weapons,
-            Appearance = new PlayerAppearances(NullLogger.Instance) { Timeline = timeline, Game = content }
-                .Ensure(NoAppearance.Instance),
-        };
-        List<ScenePlayer> players = [];
-        List<SceneProp> props = [];
+        // The soldier is the recording's own player; the moment is drawn in third person.
+        MomentInfo info = SyntheticMatch.Info(timeline, tick, recorder: Soldier);
 
-        timeline.PlayersAt(tick, players);
-        timeline.PropsAt(tick, props);
-
-        MomentInfo info = new(
-            Tick: tick,
-            CurrentTick: tick,
-            FirstPerson: false,
-            Followed: -1,
-            EyeCamera: null,
-            IntervalPerTick: timeline.IntervalPerTick,
-            ViewmodelFieldOfView: 54f,
-            Recorder: timeline.RecorderEntityIndex)
-        {
-            ServerTime = moments.ServerTimeAt(tick),
-        };
-
-        scene.Build(players, props, info);
+        scene.Build([soldier9], [], info);
         scene.Pose(info);
 
         ModelInstance soldier = scene.Instances.Single(

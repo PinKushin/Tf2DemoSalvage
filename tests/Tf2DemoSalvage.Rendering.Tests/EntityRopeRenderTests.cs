@@ -10,21 +10,21 @@ using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
-/// <summary>A real <c>C_RopeKeyframe</c>, hung and drawn out of a real demo by the real renderer (B477).</summary>
+/// <summary>A <c>C_RopeKeyframe</c> as a recording networks it, hung and drawn by the real renderer (B477).</summary>
 /// <remarks>
-/// **The output-level half of `EntityRopesConformanceTests`**, through the chain the viewer runs: <see cref="DemoTimeline"/>
-/// admitting the rope by its material, <see cref="DemoModels.Sprites"/> asking the map load for <c>cable/cable</c> and its
-/// <c>_back</c>, <see cref="EntityRopes.Build"/> hanging it, and <see cref="OffscreenTarget.DrawSprites"/>.
+/// **The output-level half of `EntityRopesConformanceTests`**, through the chain the viewer runs after the timeline: the
+/// map load reading <c>cable/cable</c> and its <c>_back</c> from the install, <see cref="EntityRopes.Build"/> hanging the
+/// rope, and <see cref="OffscreenTarget.DrawSprites"/>.
 ///
-/// **The specimen is the committed 2011 <c>koth_viaduct</c> SourceTV demo's first simulated rope**: 35 rope keyframes,
-/// 27 of them <c>ROPE_SIMULATE</c> (`entity-census`). **TF2's cable is black** — <c>cable/cable</c> is the <c>Cable</c>
-/// shader over a one-texel black base — so the picture is cleared to grey and the rope must DARKEN it. The camera is
-/// placed from the data: level, 20 units to the side of the hung rope's middle strip point, facing it, so the two-unit
-/// cable crosses the centre and the corners see only grey.
+/// **The rope is written down, not read from a recording** (D213): entities 95 and 96 of the committed 2011
+/// <c>koth_viaduct</c> SourceTV demo at tick 7879 — its first long <c>ROPE_SIMULATE</c> span and the keyframe that span
+/// ends on — as `moment-dump` printed them on 2026-10-11. **TF2's cable is black** — <c>cable/cable</c> is the
+/// <c>Cable</c> shader over a one-texel black base — so the picture is cleared to grey and the rope must DARKEN it. The
+/// camera is placed from the data: level, 20 units to the side of the hung rope's middle strip point, facing it, so the
+/// two-unit cable crosses the centre and the corners see only grey.
 /// </remarks>
 public sealed class EntityRopeRenderTests
 {
-    private const string DemoName = "tf2-2011-build4604-stv-koth_viaduct.dem";
 
     private const int Size = 64;
 
@@ -43,7 +43,7 @@ public sealed class EntityRopeRenderTests
     /// </remarks>
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_AViaductCableFromARealDemo_DarkensItsLineAndNotTheCorners()
+    public void Render_AViaductCable_DarkensItsLineAndNotTheCorners()
     {
         (OffscreenTarget picture, MapAssets assets, EntityRopes ropes, List<SceneProp> scene, List<SceneProp> props,
             Vector3 eye, Vector3 toward, float[] matrix) = Setup(StandOff);
@@ -175,28 +175,55 @@ public sealed class EntityRopeRenderTests
         return (lit.Sum(), (double)Math.Min(lit[1], lit[^2]) / lit.Max());
     }
 
-    /// <summary>The camera beside the first long simulated rope of the viaduct demo, as the first test places it.</summary>
+    /// <summary>A <c>CRopeKeyframe</c> as the viaduct recording networks one: <c>cable/cable</c>, ten segments, two units wide.</summary>
+    private static SceneProp Keyframe(int entity, Vector3 at, int start, int end, int slack, int length, int flags) => new(
+        EntityIndex: entity,
+        ModelPath: "cable/cable.vmt",
+        Kind: SceneModelKind.Sprite,
+        Pose: new ScenePose
+        {
+            X = at.X,
+            Y = at.Y,
+            Z = at.Z,
+            RenderAlpha = 255,
+            RenderColor = ((byte)255, (byte)255, (byte)255),
+            Rope = new SceneRope(
+                StartPoint: start,
+                EndPoint: end,
+                StartAttachment: 0,
+                EndAttachment: 0,
+                Slack: slack,
+                Length: length,
+                LockedPoints: 3,
+                Flags: flags,
+                Segments: 10,
+                ConstrainBetweenEndpoints: false,
+                Subdiv: 2,
+                TextureScale: 1f,
+                Width: 2f,
+                ScrollSpeed: 0f),
+        },
+        ClassName: "CRopeKeyframe");
+
+    /// <summary>The camera beside the viaduct recording's first long simulated rope, as the first test places it.</summary>
     private static (OffscreenTarget Target, MapAssets Assets, EntityRopes Ropes, List<SceneProp> Scene, List<SceneProp> Props,
         Vector3 Eye, Vector3 Toward, float[] Matrix) Setup(float standOff)
     {
-        string demo = CommittedDemo.Require(DemoName);
-        string tf = GameInstall.Require();
-        byte[] map = File.ReadAllBytes(GameInstall.RequireFile("maps/koth_viaduct.bsp"));
+        MapAssets assets = MapCache.Effects();
 
         OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
 
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        MapAssets assets = MapAssets.Load(
-            map, GameArchives.Open(tf), maximumTextureSize: 64, spriteMaterials: [.. DemoModels.Sprites(timeline), LightRope]);
-
-        List<SceneProp> props = [];
-        timeline.PropsAt(timeline.Frames[timeline.Frames.Count / 2].Tick, props);
-
-        // A long span: the first simulated rope, entity 94, is a 26-unit vertical drop from a pole to the cable, which
-        // has no side to look at it from.
-        SceneProp rope = props.First(prop =>
-            prop.Pose.Rope is { } parameters && (parameters.Flags & EntityRopes.SimulateFlag) != 0 && parameters.Length >= 200);
+        // A long span: the recording's first simulated rope, entity 94, is a 26-unit vertical drop from a pole to the
+        // cable, which has no side to look at it from. Entity 95 runs 320 units from itself to entity 96.
+        SceneProp rope = Keyframe(95, new Vector3(-1692f, 3212f, 532f), start: 311391, end: 2082912, slack: 90, length: 320, flags: 104);
+        List<SceneProp> props =
+        [
+            rope,
+            Keyframe(96, new Vector3(-1372f, 3188f, 532f), start: 2082912, end: 1933409, slack: 64, length: 83, flags: 104),
+        ];
         List<SceneProp> scene = [rope];
+
+        (rope.Pose.Rope.ShouldNotBeNull().Flags & EntityRopes.SimulateFlag).ShouldNotBe(0, "the specimen is a simulated rope");
 
         // Hang it once from anywhere to find where it is — the back pass carries every strip point however far the
         // camera — then look at it from the side.

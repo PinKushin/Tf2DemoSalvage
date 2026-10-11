@@ -13,31 +13,26 @@ using Tf2DemoSalvage.SdkReference;
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
-/// The model tangent on a real recording, through the production path to the pixel: the scene builds the spy's instance
-/// — pose, bones, cloak bind — and the vertices drawn are the ones the device uploads (<c>EntityModelSet.Vertices</c>).
+/// The model tangent through the production path to the pixel: the scene builds the spy's instance — pose, bones, cloak
+/// bind — and the vertices drawn are the ones the device uploads (<c>EntityModelSet.Vertices</c>).
 /// </summary>
 /// <remarks>
-/// **The subject**: serveme-627619-stv-2026-08-07 (lcor), RED spy 7, uncloaked at 63600 and cloaking from 63693 —
-/// half way (0.3–0.8, <c>CorpusCloakAndOverlayTests</c>) at 63730. Each test draws the same instance twice, with the
+/// **The spy is written down, not read from a recording** (D213): RED spy 7 of serveme-627619-stv-2026-08-07,
+/// uncloaked at 63600 and cloaking from 63693 — half way (0.3–0.8, <c>CorpusCloakAndOverlayTests</c>) at 63730 — as
+/// `moment-dump … 63600 7` and `… 63730 7` printed him on 2026-10-11. Each test draws the same instance twice, with the
 /// uploaded tangents and with them stripped (w zero, "no frame"); the control is the same draw repeated, which must
 /// agree to the byte. <c>ModelTangentRenderTests</c> and <c>CloakRenderTests</c> predict the per-pixel values on one
 /// texel; this proves production's vertices carry the frame into the draw.
 /// </remarks>
 public sealed class ModelTangentDemoRenderTests
 {
-    private const string Demo = "serveme-627619-stv-2026-08-07.dem";
     private const string SpyModel = "models/player/spy.mdl";
     private const int Spy = 7;
     private const int Size = 128;
 
-    /// <summary>The demo's timeline, built once for both tests: a minute each otherwise.</summary>
-    private static readonly StrongBox<DemoTimeline?> Timeline = new();
-
-    private static readonly StrongBox<GameContent?> Content = new();
-
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_ARealSpysBumpLitBody_TakesItsHighlightFromTheTangentFrame()
+    public void Render_ASpysBumpLitBody_TakesItsHighlightFromTheTangentFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
         (MapAssets assets, EntityModelSet models, ModelInstance spy) = Posed(63600);
@@ -64,7 +59,7 @@ public sealed class ModelTangentDemoRenderTests
 
     [Test]
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void Render_ARealSpyHalfCloaked_RefractsAlongTheTangentFrame()
+    public void Render_ASpyHalfCloaked_RefractsAlongTheTangentFrame()
     {
         using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
         (MapAssets assets, EntityModelSet models, ModelInstance spy) = Posed(63730);
@@ -88,45 +83,65 @@ public sealed class ModelTangentDemoRenderTests
         moved.ShouldBeGreaterThan(covered / 10, "turning the tangent half a turn turns the warp");
     }
 
-    /// <summary>The spy's instance at a tick, built by the scene from the demo with the production loader.</summary>
+    /// <summary>The spy as the recording holds him at 63600: running, uncloaked, revolver out.</summary>
+    private static readonly ScenePlayer Uncloaked = new(
+        EntityIndex: Spy,
+        X: -6222.625f,
+        Y: 6290.25f,
+        Z: -118f,
+        Team: 2,
+        Health: 43,
+        PlayerClass: 8,
+        Yaw: 166.4516f,
+        Speed: 319.35098f,
+        LifeState: 0,
+        MoveX: 1f,
+        MoveY: -0.6860097f,
+        Flags: 131329,
+        EyePitch: 5.294121f,
+        EyeYaw: -174.54546f,
+        ActiveWeapon: 625,
+        WeaponClass: "CTFRevolver",
+        WeaponItem: 24,
+        ClientSideAnimated: true)
+    {
+        InvisChangeCompleteTime = 1324.46f,
+        CloakMeter = 100f,
+    };
+
+    /// <summary>And at 63730, 37 ticks into cloaking: <c>TF_COND_STEALTHED</c>, the cloak due complete at 1384.54 s.</summary>
+    private static readonly ScenePlayer Cloaking = Uncloaked with
+    {
+        X = -6599.75f,
+        Y = 6425.5f,
+        Z = -126.5f,
+        Health = 106,
+        Yaw = 114.0176f,
+        Speed = 320.66516f,
+        MoveY = 0.7151197f,
+        Flags = 131328,
+        Conditions = new PlayerConditions(16, 0, 0, 0, 0),
+        EyePitch = -1.0588226f,
+        EyeYaw = 119.648094f,
+        InvisChangeCompleteTime = 1384.5399f,
+        CloakMeter = 93.699936f,
+    };
+
+    /// <summary>The spy's instance at one of the two written-down ticks, built by the scene with the production loader.</summary>
     private static (MapAssets Assets, EntityModelSet Models, ModelInstance Spy) Posed(int tick)
     {
-        string demo = CommittedDemo.RequireLocal(Demo);
-        GameInstall.Require();
+        // The server had been up 426 seconds when the recording began: its clock at each tick, as `moment-dump` printed it.
+        (ScenePlayer player, float serverTime) = tick == 63600 ? (Uncloaked, 1382.145f) : (Cloaking, 1384.095f);
 
-        DemoTimeline timeline = Timeline.Value ??= DemoTimeline.Build(File.ReadAllBytes(demo));
-        TimelineMoments moments = new(timeline);
+        DemoTimeline timeline = SyntheticMatch.Timeline([player]);
         MapAssets assets = MapCache.Load(entityModels: [SpyModel]);
         EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
-        GameContent content = Content.Value ??= GameContent.Open(GameInstall.Require(), NullLoggerFactory.Instance);
 
         // The class models and the weapon schema, as the presenter wires them (PlayerAppearances, LevelSystems).
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
-        {
-            Weapons = content.Weapons,
-            Appearance = new PlayerAppearances(NullLogger.Instance) { Timeline = timeline, Game = content }
-                .Ensure(NoAppearance.Instance),
-        };
-        List<ScenePlayer> players = [];
-        List<SceneProp> props = [];
+        MomentScene scene = SyntheticMatch.Scene(models, SyntheticMatch.Appearance(timeline));
+        MomentInfo info = SyntheticMatch.Info(timeline, tick, serverTime: serverTime);
 
-        timeline.PlayersAt(tick, players);
-        timeline.PropsAt(tick, props);
-
-        MomentInfo info = new(
-            Tick: tick,
-            CurrentTick: tick,
-            FirstPerson: false,
-            Followed: -1,
-            EyeCamera: null,
-            IntervalPerTick: timeline.IntervalPerTick,
-            ViewmodelFieldOfView: 54f,
-            Recorder: timeline.RecorderEntityIndex)
-        {
-            ServerTime = moments.ServerTimeAt(tick),
-        };
-
-        scene.Build(players, props, info);
+        scene.Build([player], [], info);
         scene.Pose(info);
 
         ModelInstance spy = scene.Instances.Single(

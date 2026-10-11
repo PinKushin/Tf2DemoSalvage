@@ -42,7 +42,7 @@ public sealed class ErrorModelTests
 
         MapAssets assets = MapAssets.Load(
             File.ReadAllBytes(map),
-            GameArchives.Open(tf),
+            SharedGame.Archives,
             maximumTextureSize: 256,
             entityModels: [absent]);
 
@@ -61,7 +61,7 @@ public sealed class ErrorModelTests
         // the same geometry.
         MapAssets valves = MapAssets.Load(
             File.ReadAllBytes(map),
-            GameArchives.Open(tf),
+            SharedGame.Archives,
             maximumTextureSize: 256,
             entityModels: [MapAssets.ErrorModel]);
 

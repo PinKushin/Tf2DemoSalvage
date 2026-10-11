@@ -1,30 +1,29 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
-
-using Microsoft.Extensions.Logging.Abstractions;
 
 using Tf2DemoSalvage.Content.Assets;
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.SdkReference;
 
 namespace Tf2DemoSalvage.Rendering.Tests;
 
 /// <summary>
-/// A <c>FLEXANIMATION</c> scene on a real recording, played frame by frame through the production path (B513): the
-/// medic's <c>scenes/Player/Medic/low/687.vcd</c>, whose one event is twenty viseme tracks.
+/// A <c>FLEXANIMATION</c> scene played frame by frame through the production path (B513): the medic's
+/// <c>scenes/Player/Medic/low/687.vcd</c>, whose one event is twenty viseme tracks.
 /// </summary>
 /// <remarks>
-/// **The subject**: demostf-koth_product_final-2026-08-07 (lcor), medic 12, scene from tick 61085 to 61353 (<c>flex
-/// played</c>) — one of three TF2 player scenes in the archive with a flex animation (<c>flex flexanim</c>). The face is
-/// stepped every tick from the scene's start, so the decay and <c>m_iv_flexWeight</c>'s latched history run as they
-/// would. **The control** is the same playback with the scene's flex animations removed.
+/// **The moment is written down, not read from a recording** (D213): medic 12 of demostf-koth_product_final-2026-08-07
+/// as `moment-dump … 61145 12` printed him on 2026-10-11 — where he stands, what he holds, the idle scene he has been in
+/// since tick 60872, the scene that starts at 61085 and stops at 61353, and the two voice lines that start with it. The
+/// scene itself is the install's, resolved from <c>scenes.image</c> by <see cref="PlayerAppearances"/>; it is one of
+/// three TF2 player scenes in the archive with a flex animation (<c>flex flexanim</c>). The face is stepped every tick
+/// from before the scene's start, so the decay and <c>m_iv_flexWeight</c>'s latched history run as they would. **The
+/// control** is the same playback with the scene's flex animations removed.
 /// </remarks>
 public sealed class FaceFlexAnimationDemoTests
 {
-    private const string Demo = "demostf-koth_product_final-2026-08-07.dem";
     private const string MedicModel = "models/player/medic.mdl";
+    private const string FlexScene = "scenes/Player/Medic/low/687.vcd";
     private const int Medic = 12;
     private const int SceneStart = 61085;
 
@@ -32,14 +31,41 @@ public sealed class FaceFlexAnimationDemoTests
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instance_AMedicPlayingAFlexAnimation_MovesVerticesTheControlDoesNot()
     {
-        string demo = CommittedDemo.RequireLocal(Demo);
-        GameContent content = GameContent.Open(GameInstall.Require(), NullLoggerFactory.Instance);
-        DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(demo));
-        GameAppearance appearance = (GameAppearance)new PlayerAppearances(NullLogger.Instance) { Timeline = timeline, Game = content }
-            .Ensure(NoAppearance.Instance);
+        ScenePlayer medic = new(
+            EntityIndex: Medic,
+            X: -1423f,
+            Y: 1020.625f,
+            Z: 160f,
+            Team: 2,
+            Health: 150,
+            PlayerClass: 5,
+            Yaw: -15.131946f,
+            LifeState: 0,
+            Flags: 131329,
+            EyePitch: 2.4705963f,
+            EyeYaw: -15.131958f,
+            ActiveWeapon: 501,
+            WeaponClass: "CWeaponMedigun",
+            WeaponItem: 411,
+            ClientSideAnimated: true);
+
+        DemoTimeline timeline = SyntheticMatch.Timeline(
+            [medic],
+            scenes:
+            [
+                new SceneChoreography(60872, 516, "scenes/player/medic/low/idleloop01.vcd", [Medic]) { StoppedTick = 61874 },
+                new SceneChoreography(SceneStart, 586, FlexScene, [Medic]) { StoppedTick = 61353 },
+            ],
+            sounds:
+            [
+                Voice("vo/medic_ThanksForTheTeleporter02.mp3", 3788),
+                Voice("vo/medic_ThanksForTheTeleporter03.mp3", 3789),
+            ]);
+
+        GameAppearance appearance = SyntheticMatch.Appearance(timeline);
         FaceSources production = appearance.Faces.ShouldNotBeNull();
 
-        appearance.TauntForScene("scenes/Player/Medic/low/687.vcd").ShouldNotBeNull().FlexAnimations.Count
+        appearance.TauntForScene(FlexScene).ShouldNotBeNull().FlexAnimations.Count
             .ShouldBe(1, "the instrument: the scene resolves and carries its flex animation");
 
         FaceSources without = new(
@@ -50,8 +76,8 @@ public sealed class FaceFlexAnimationDemoTests
             new Dictionary<string, Sentence>(),
             production.Expression) { InterpolationSeconds = production.InterpolationSeconds };
 
-        float[] animated = Played(timeline, content, appearance, SceneStart + 60).ShouldNotBeNull();
-        float[]? control = Played(timeline, content, appearance with { Faces = without }, SceneStart + 60);
+        float[] animated = Played(timeline, medic, appearance, SceneStart + 60).ShouldNotBeNull();
+        float[]? control = Played(timeline, medic, appearance with { Faces = without }, SceneStart + 60);
 
         int differ = 0;
 
@@ -67,40 +93,24 @@ public sealed class FaceFlexAnimationDemoTests
         differ.ShouldBeGreaterThan(100, "the visemes the tracks write move the mouth");
     }
 
-    /// <summary>The medic's flex stream after playing every tick from the scene's start up to <paramref name="until"/>.</summary>
-    private static float[]? Played(DemoTimeline timeline, GameContent content, IPlayerAppearance appearance, int until)
+    /// <summary>One of the two lines the recording starts on the medic's voice channel with the scene.</summary>
+    private static SceneSound Voice(string name, int number) =>
+        new(SceneStart, name, number, Medic, Channel: 2, Volume: 0.81889766f, SoundLevel: 95, Pitch: 100, DelaySeconds: 0f,
+            OriginX: -1464f, OriginY: 856f, OriginZ: 208f);
+
+    /// <summary>The medic's flex stream after playing every tick from before the scene's start up to <paramref name="until"/>.</summary>
+    private static float[]? Played(DemoTimeline timeline, ScenePlayer medic, IPlayerAppearance appearance, int until)
     {
-        TimelineMoments moments = new(timeline);
         MapAssets assets = MapCache.Load(entityModels: [MedicModel]);
         EntityModelSet models = new() { Geometry = assets.Geometry, IntervalPerTick = timeline.IntervalPerTick };
-        MomentScene scene = new(models, new ViewmodelScene(), NullLogger.Instance)
-        {
-            Weapons = content.Weapons,
-            Appearance = appearance,
-        };
+        MomentScene scene = SyntheticMatch.Scene(models, appearance);
         float[]? face = null;
 
         for (int tick = SceneStart - 5; tick <= until; tick++)
         {
-            List<ScenePlayer> players = [];
-            List<SceneProp> props = [];
-            timeline.PlayersAt(tick, players);
-            timeline.PropsAt(tick, props);
+            MomentInfo info = SyntheticMatch.Info(timeline, tick);
 
-            MomentInfo info = new(
-                Tick: tick,
-                CurrentTick: tick,
-                FirstPerson: false,
-                Followed: -1,
-                EyeCamera: null,
-                IntervalPerTick: timeline.IntervalPerTick,
-                ViewmodelFieldOfView: 54f,
-                Recorder: timeline.RecorderEntityIndex)
-            {
-                ServerTime = moments.ServerTimeAt(tick),
-            };
-
-            scene.Build(players, props, info);
+            scene.Build([medic], [], info);
             scene.Pose(info);
 
             foreach (ModelInstance instance in scene.Instances.Where(instance => instance.EntityIndex == Medic &&

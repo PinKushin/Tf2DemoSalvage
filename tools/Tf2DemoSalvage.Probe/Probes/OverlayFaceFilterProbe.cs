@@ -4,9 +4,10 @@ using System.IO;
 using System.Linq;
 
 using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.SdkReference;
+using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Scene;
 
-namespace Tf2DemoSalvage.Rendering.Tests;
+namespace Tf2DemoSalvage.Probe.Probes;
 
 /// <summary>
 /// How many of the faces an overlay names are refused by the renderer's orientation test.
@@ -37,26 +38,36 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// refuses hundreds of faces is the defect the owner is looking at. This probe answers that, and
 /// prints the dot products of what it refuses: values near zero are genuinely perpendicular walls
 /// the mapper chose on purpose, values near the threshold would be a different story.
+///
+/// **A probe since D213**; it was a test in `Rendering.Tests` whose assertions were the instrument's own control — that
+/// the map has overlays and they name faces — which the first line printed now states.
 /// </remarks>
-public sealed class OverlayFaceFilterProbe
+public sealed class OverlayFaceFilterProbe : IProbe
 {
-    /// <summary>The authored f12 map, when it has been placed in the install.</summary>
-    private static string? MapPath => GameInstall.Find("maps/cp_process_f12.bsp");
-
     /// <summary>The renderer's current threshold, copied so this measures what ships.</summary>
     private const float Threshold = 0.9f;
 
-    [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
-    public void OverlayFaces_TheOrientationFilter_ReportsWhatItRefuses()
+    /// <inheritdoc/>
+    public string Name => "overlay-face-filter";
+
+    /// <inheritdoc/>
+    public string Summary => "how many faces a map's overlays name that a 0.9 orientation test would refuse: overlay-face-filter [map]";
+
+    /// <inheritdoc/>
+    public void Run(TextWriter output, IReadOnlyList<string> arguments)
     {
-        if (!File.Exists(MapPath))
+        ArgumentNullException.ThrowIfNull(output);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        string map = arguments.Count > 0 ? arguments[0] : "cp_process_f12";
+
+        if (new MapLocator(MapProvider.SteamLibraryFile, MapProvider.OwnMapsFolder).Find(map) is not { } mapPath)
         {
-            Assert.Ignore("cp_process_f12.bsp is not on this machine.");
+            output.WriteLine($"No map named '{map}'.");
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(MapPath);
+        byte[] bytes = File.ReadAllBytes(mapPath);
 
         Dictionary<int, BspSurface> byFace = [];
 
@@ -127,11 +138,11 @@ public sealed class OverlayFaceFilterProbe
             }
         }
 
-        TestContext.Out.WriteLine(
+        output.WriteLine(
             $"FILTER {overlays.Count} overlays name {named} faces: {kept} kept, {refused} refused, " +
             $"{missing} not in the surface list");
 
-        TestContext.Out.WriteLine(
+        output.WriteLine(
             $"FILTER {overlaysLosingFaces} overlays lose at least one face; " +
             $"{overlaysLosingEverything} lose every face and draw nothing at all");
 
@@ -139,14 +150,14 @@ public sealed class OverlayFaceFilterProbe
         {
             refusedDots.Sort();
 
-            TestContext.Out.WriteLine(
+            output.WriteLine(
                 $"FILTER refused |dot|: min {refusedDots[0]:0.####}, " +
                 $"median {refusedDots[refusedDots.Count / 2]:0.####}, " +
                 $"max {refusedDots[^1]:0.####}");
 
             // Near zero means a perpendicular wall the mapper chose deliberately. Near the
             // threshold would mean the number is merely mistuned, which is a different fix.
-            TestContext.Out.WriteLine(
+            output.WriteLine(
                 $"FILTER refused within 0.1 of the threshold: " +
                 $"{refusedDots.Count(dot => dot > Threshold - 0.1f)}");
 
@@ -163,7 +174,7 @@ public sealed class OverlayFaceFilterProbe
                 ("near-coplanar  0.80 - 0.90", dot => dot >= 0.80f),
             })
             {
-                TestContext.Out.WriteLine(
+                output.WriteLine(
                     $"FILTER   {label}: {refusedDots.Count(inBucket)} faces");
             }
         }
@@ -171,12 +182,14 @@ public sealed class OverlayFaceFilterProbe
         foreach ((string name, int count) in
             refusedByMaterial.OrderByDescending(pair => pair.Value).Take(12))
         {
-            TestContext.Out.WriteLine($"FILTER   {name}: {count} faces refused");
+            output.WriteLine($"FILTER   {name}: {count} faces refused");
         }
 
-        // The instrument before its answer: no overlays, or none naming faces, would make every
-        // number above a zero that means nothing.
-        overlays.Count.ShouldBeGreaterThan(0);
-        named.ShouldBeGreaterThan(0);
+        // The instrument before its answer: no overlays, or none naming faces, makes every number above a zero that
+        // means nothing.
+        if (overlays.Count == 0 || named == 0)
+        {
+            output.WriteLine("FILTER the map has no overlays naming faces: nothing above is a measurement");
+        }
     }
 }

@@ -49,6 +49,7 @@ public sealed class AssetCoverageConformanceTests
     private static string? GameFolder => GameInstall.Root;
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Census_APropHeavyMap_ExaminesPropsNotOnlyBrushwork()
     {
         // **The B81 catcher, and the most important test in this file.** The census reported a
@@ -76,6 +77,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Census_PropBakedLighting_IsNeverRefused()
     {
         // **A refusal is this project failing on data the game uses.** The prop then draws with
@@ -100,6 +102,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Census_UnimplementedParameters_AreAllAlreadyKnown()
     {
         // **A gap stated is a decision; a gap unstated is an oversight.** The point is not that
@@ -127,6 +130,7 @@ public sealed class AssetCoverageConformanceTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Census_ARealMap_AsksForUnimplementedFeatures()
     {
         // **This test exists to SKIP, and the skip is the point.** The assertion above checks that

@@ -18,6 +18,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 public sealed class BakedColourStreamRenderTests
 {
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_WithAColourPerVertex_PaintsEachTriangleItsOwnColour()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
@@ -117,6 +118,7 @@ public sealed class BakedColourStreamRenderTests
     /// the pixel is the colours-only pixel plus the lamp-only pixel, within one step of the 8-bit target.
     /// </remarks>
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DrawModelPose_ColoursWithALamp_AddTheLampToTheColours()
     {
         using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);

@@ -44,7 +44,6 @@ public sealed class DeadShaderParameterConformanceTests
     }
 
     [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void ShaderParameters_Modblend_IsDeclaredByNoPublishedShader()
     {
         // The controls come first deliberately. If these are zero the search is broken, and the

@@ -25,14 +25,14 @@ public sealed class StaticPropScreenFadeWiringTests
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Instances_OnKothOvercast_AStaticPropFadesByItsScreenWidth(float distancePerRadius, int expected)
     {
-        if (GameInstall.Find(Path.Combine("maps", "koth_overcast_final.bsp")) is not { } mapPath)
+        if (!MapCache.Exists("koth_overcast_final"))
         {
             Assert.Ignore("koth_overcast_final.bsp or the TF2 install is not on this machine.");
             return;
         }
 
-        byte[] bytes = File.ReadAllBytes(mapPath);
-        MapAssets assets = MapAssets.Load(bytes, GameArchives.Open(GameInstall.Require()), maximumTextureSize: 64);
+        byte[] bytes = MapCache.Bytes("koth_overcast_final");
+        MapAssets assets = MapCache.Load(mapName: "koth_overcast_final");
 
         SceneProp prop = assets.StaticModels.First(candidate => candidate.StaticFade is null);
         StaticPropScreen screen = prop.StaticScreen.ShouldNotBeNull("every static prop carries its sphere");

@@ -29,19 +29,11 @@ public sealed class DevGridTests
     [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void DevGrid_LoadedFromTheGame_CarriesStructureRatherThanOneColour()
     {
-        string tf = GameInstall.Root ?? string.Empty;
-        string map = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Tf2DemoSalvage", "maps", "cp_process_f12.bsp");
-
-        if (!Directory.Exists(tf) || !File.Exists(map))
+        if (MapCache.TryLoad("cp_process_f12", maximumTextureSize: 256) is not { } assets)
         {
             Assert.Ignore("the map or the game is not installed");
             return;
         }
-
-        MapAssets assets = MapAssets.Load(
-            File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 256);
 
         // **Not null**, because the fallback chain has three candidates and TF2 mounts Half-Life 2's
         // archives after its own — so an install that can open a map can reach at least one.

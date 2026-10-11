@@ -25,18 +25,7 @@ namespace Tf2DemoSalvage.Rendering.Tests;
 /// </remarks>
 public sealed class WaterViewRenderTests
 {
-    private static MapAssets? Assets
-    {
-        get
-        {
-            string tf = GameInstall.Root ?? string.Empty;
-            string map = System.IO.Path.Combine(tf, "maps", "ctf_2fort.bsp");
-
-            return System.IO.File.Exists(map)
-                ? MapAssets.Load(System.IO.File.ReadAllBytes(map), GameArchives.Open(tf), maximumTextureSize: 256)
-                : null;
-        }
-    }
+    private static MapAssets? Assets => MapCache.TryLoad("ctf_2fort", maximumTextureSize: 256);
 
     private static readonly FreeCamera Camera = new()
     {
@@ -198,7 +187,6 @@ public sealed class WaterViewRenderTests
     }
 
     [Test]
-    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void Hdr_Ctf2fort_IsIntegerHdr()
     {
         // Map_CheckForHDR (engine.dll 0x1800ffa10) finds 2fort's HDR lumps, and shaderapidx9's caps make the type

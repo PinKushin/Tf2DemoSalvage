@@ -43,6 +43,7 @@ public sealed class PhongLocalLightRenderTests
             (0.1f, 0.1f, 0.1f), (0.1f, 0.1f, 0.1f), (0.1f, 0.1f, 0.1f));
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_OneLocalPointLightAndNoSun_MatchesTheSameLightAsTheSun()
     {
         // **The whole defect in one row.** A point lamp with real falloff — a quarter of its 2.0 arrives —
@@ -78,6 +79,7 @@ public sealed class PhongLocalLightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void PhongRender_TwoLocalLights_AddTheirHighlights()
     {
         // `specularLighting += localSpecularTerm` per light (common_vertexlitgeneric_dx9.h:343), then one
@@ -182,6 +184,7 @@ public sealed class PhongLocalLightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RimRender_NoDirectLight_TakesTheCubeFacingTheEye()
     {
         // `specularLighting += (vRimAmbientCubeColor * g_fRimBoost) * saturate(fRimMultiply * worldSpaceNormal.z)`
@@ -262,6 +265,7 @@ public sealed class PhongLocalLightRenderTests
     }
 
     [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
     public void RimRender_ATintedMaterial_TintsItsRim()
     {
         // `float3 result = specularLighting*vSpecularTint + ...` (skin_ps20b.fxc:365) comes AFTER the rim is
