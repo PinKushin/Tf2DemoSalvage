@@ -63,3 +63,6 @@ branch the ENGINE takes: a cvar a user's config sets (`r_dopixelvisibility 0`, D
 handle, a first frame. **How to apply:** before deleting something as unread by production
 ([[unread-by-production-is-dead]]), read every engine branch that reaches its counterpart; if one is reachable,
 the missing caller is the defect, not the dead code.
+Outcome: one branch was reachable — `m_hwCanTestGlows`, latched from `r_dopixelvisibility` at level init
+(`c_pixel_visibility.cpp:522`, `:567`). `GlowSight` kept, wired through `PixelVisibility.LevelInit`. Table of every
+branch: RISKS B378.

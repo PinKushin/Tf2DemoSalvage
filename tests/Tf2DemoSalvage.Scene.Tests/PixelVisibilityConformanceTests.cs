@@ -224,6 +224,68 @@ public sealed class PixelVisibilityConformanceTests
         system.FractionVisible(Lamp()).ShouldBe(0f);
     }
 
+    /// <remarks>
+    /// `GetFractionVisible` (`c_pixel_visibility.cpp:565-570`): <c>if ( !m_hwCanTestGlows || building_cubemaps.GetBool() )
+    /// return GlowSightDistance( params.position, true ) > 0 ? 1.0f : 0.0f;</c> — and <c>m_hwCanTestGlows</c> is
+    /// <c>r_dopixelvisibility.GetBool() &amp;&amp; fastqueries &amp;&amp; engine->GetDXSupportLevel() >= 80</c> as
+    /// `LevelInitPreEntity` found it (`:522`). A config with `r_dopixelvisibility 0` gets the line trace, all or nothing.
+    /// </remarks>
+    [TestCase(true, 1f)]
+    [TestCase(false, 0f)]
+    public void FractionVisible_WithPixelVisibilityOffAtLevelInit_IsTheLineOfSight(bool inSight, float expected)
+    {
+        PixelVisibility system = new();
+
+        system.LevelInit(doPixelVisibility: false);
+        system.BeginFrame(1f, static _ => (100, 100), _ => inSight);
+
+        system.FractionVisible(Lamp()).ShouldBe(expected);
+        system.EndView(View()).ShouldBeEmpty("no query is issued for a set that was never made");
+    }
+
+    /// <remarks>
+    /// **The switch is read twice and only one reading is latched.** `m_hwCanTestGlows` is the level's; `EndView`
+    /// asks <c>PixelVisibility_IsAvailable()</c>, which reads the cvar now (`:585`, `:837-841`). Turned off mid-level,
+    /// the glows keep asking their queries and no query is issued again — they hold what was last counted.
+    /// </remarks>
+    [Test]
+    public void EndView_WithPixelVisibilityTurnedOffMidLevel_IssuesNothingAndTheFractionHolds()
+    {
+        PixelVisibility system = new();
+        PixelVisibilityView view = View();
+
+        system.LevelInit(doPixelVisibility: true);
+        system.BeginFrame(0f, static _ => null, static _ => false);
+        system.FractionVisible(Lamp());
+        system.EndView(view);
+        system.BeginFrame(1f, static _ => (80, 100), static _ => false);
+        system.FractionVisible(Lamp()).ShouldBe(0.8f, 1e-6f);
+
+        system.DoPixelVisibility = false;
+
+        system.EndView(view).ShouldBeEmpty();
+        system.BeginFrame(1f, static _ => (80, 100), static _ => false);
+        system.FractionVisible(Lamp()).ShouldBe(0.8f, 1e-6f, "the query path, not the sight line, which says hidden");
+    }
+
+    /// <remarks>`LevelShutdownPostEntity` purges both lists (`:549-563`): a new level's glows start from nothing.</remarks>
+    [Test]
+    public void LevelInit_AfterGlowsWereSeen_ForgetsThem()
+    {
+        PixelVisibility system = new();
+
+        system.BeginFrame(0f, static _ => null);
+        system.FractionVisible(Lamp());
+        system.EndView(View());
+        system.BeginFrame(1f, static _ => (100, 100));
+        system.FractionVisible(Lamp()).ShouldBe(1f);
+
+        system.LevelInit(doPixelVisibility: true);
+        system.BeginFrame(1f, static _ => (100, 100));
+
+        system.FractionVisible(Lamp()).ShouldBe(0f);
+    }
+
     [Test]
     public void EndView_WithTwoLamps_IssuesOneProxyEachUnderItsEntity()
     {

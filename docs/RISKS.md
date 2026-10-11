@@ -32485,19 +32485,42 @@ is `EndView`: two D3D11 occlusion queries a proxy, one untested and one against 
 and no depth written, issued before the viewmodels. An `env_sprite` asks with `m_flGlowProxySize` and its aspect
 (`CSprite::GlowBlend`), a beam's halo with `clamp( 1 + haloScale · width / endWidth, 1, 8 )`. So a static prop, a
 player or a door now hides a glow, in the proportion it covers the proxy, where the trace saw brushes and props and
-answered yes or no. `GlowSight` is no longer called by the viewer; it is the engine's path for a client without
-queries and is kept with its tests.
+answered yes or no.
 
-**Three readings that are this project's, named so they can be overruled:**
+**2026-10-11, later — `GlowSight` is KEPT and called again, and two of the three readings below are now the engine's
+form** (`fix/parity-leftovers`). Deleting it under D180 was proposed and the owner asked *"are we sure no maps or
+demos will need it"*. Every branch that reaches the engine's fallback, *read from published source*:
 
-- **The frame time is the frame's real duration, where the engine's is the demo's** — zero while paused, so a paused
-  TF2 holds every glow where the pause found it. This viewer's camera flies while paused; held glows would then be
-  wrong for as long as it stayed paused.
-- **The counting query has its depth test off** where the engine squeezes the depth range to `0..0.01`. The same
-  count, unless something stands within a hundredth of the depth range past the near plane.
-- **A count is waited for** (`GetData` until it answers) where the engine takes whatever the query last held. It is
-  asked a frame after the draw. A `--shot` additionally waits for `PixelVisibility.Settled`, or it photographs a
-  halo part way through its sixteenth of a second.
+| branch | where | reachable here |
+|---|---|---|
+| `!m_hwCanTestGlows` — `r_dopixelvisibility 0` when the level loaded (also no fast queries, DirectX under 8) | `c_pixel_visibility.cpp:522`, `:567-570` | **yes**: a user's config may set it (D69) |
+| `building_cubemaps` | `:567` | no: the viewer builds none |
+| a null query handle | `:827-830` | no: `CSprite` and `C_SpriteRenderer` always pass their own (`c_sprite.cpp:206`, `:215`); a `C_Beam` passes one whenever it has a halo (`view_beams.cpp:2264-2277`). A TEMP-ENTITY beam's `Beam_t` keeps the constructor's null (`:303`) and would trace — the viewer draws no temp-entity beams; when it does, that halo is `GlowSight`'s |
+| `CurrentViewID() < 0` | `:571-572` | no: answers 0, not the trace |
+| `EffectOccluded( pos, NULL )`, `C_NPC_CombineGunship` | `fx_sparks.cpp:49-56`, `c_npc_combinegunship.cpp:250` | no: a different trace of its own, and not TF2 |
+
+So `r_dopixelvisibility` is read (`ViewerSettings.DoPixelVisibility`), latched by `PixelVisibility.LevelInit` when a
+map loads as `LevelInitPreEntity` latches it, and at 0 every glow's fraction is `GlowSight` for that level. The live
+value only stops new queries (`PixelVisibility_IsAvailable()` in `EndView`, `:585`), as in the engine. *Measured*:
+`+r_dopixelvisibility 0` at the indoor camera gives the trace-era tiles back to the digit (113 112 / 111 114 121
+where the query gives 100 100 / 101 100 98).
+
+**The readings, as they stand:**
+
+- **The counting query is squeezed, as the engine's is** — a viewport whose depth runs 0 to 0.01 with the depth test
+  on. It had its depth test off. `Count_AnOccluderNearerThanTheSqueezedRange_HidesTheCountingQueryToo` is the case
+  that tells the two apart.
+- **A count is whatever the query last held, as the engine's is** — one `GetData`, no wait; a query that has never
+  answered is the engine's count below zero, which fails the set and skips its next draw. *Interpolated*: that the
+  engine's read does not flush (`shaderapidx9` is not published; the SDK's own comment says only "if the query isn't
+  done yet, it will use the last queried value"). A `--shot` still waits for `PixelVisibility.Settled`.
+- **STILL OURS — the frame time is the frame's real duration, where the engine's is `gpGlobals->frametime`**, which
+  this project already treats as zero while a demo is paused (`BuildEffectEntities`). Ported literally, a paused
+  viewer would hold every glow where the pause found it while its camera flies, and a `--shot` — a seek that lands
+  paused — would photograph every halo at zero, since a new set starts there and only frame time raises it. That is
+  a visible change from what is drawn now, so it is NOT made: it waits for the owner (asked in the report of
+  2026-10-11). What TF2's own free camera does to a glow while a demo is paused has not been read; `engine.dll`'s
+  `CClientState::GetFrameTime` is closed.
 
 Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
@@ -36880,3 +36903,14 @@ modeled; the skin mask has no picture-level test of its own beyond this camera; 
 do not take effect from a `--shot` command line; the comparison is ONE indoor camera — the outdoor rows of finding
 76 were not re-shot; and the items of the entry above that this pass did not touch (a translucent Sprite material's
 gamma blend, the model panel's sprites).
+
+**2026-10-11, later — `mat_specular` and `mat_fullbright` are read from a config and the command line**
+(`fix/parity-leftovers`). They were menu items and nothing else: `LaunchOptions` logs every `+cvar value` it is
+handed as set, `ViewerSettings` had no entry for either, and so the two reached no one. Both are settings now
+(`ViewerSettings.Specular`, `.Fullbright`), applied when the device is made through the menu's own item and method
+so its check marks follow. *Measured* at the indoor camera: `+mat_specular 0` now gives the hand-switched picture
+(row 3, cols 2-4: 94 94 94 where reflections give 98 99 100) and `+mat_fullbright 1` draws the unlit frame.
+*Interpolated*: a `mat_fullbright` other than 1 or 2 is treated as 0 — the shaders test for each by value.
+`Load_SpecularFullbrightAndPixelVisibility_ReadsEachOne`, `Load_AFullbrightOutsideItsThreeStates_IsOff`. **What this
+does not fix, and it is the wider fault:** a `+cvar` the viewer does not implement is still logged as set. The log
+line is the launch options', not the setting's.

@@ -62,10 +62,27 @@ public sealed class PixelVisibilityRenderTests
         }
     }
 
-    /// <summary>One proxy centred on the wall's edge.</summary>
-    private static (int Pixels, int Possible)? Counted(float proxyDepth)
+    /// <remarks>
+    /// **The counting query is squeezed, not untested**: <c>pRenderContext->DepthRange( 0.0f, 0.01f )</c> around
+    /// `IssueCountingQuery` (`c_pixel_visibility.cpp:598-611`), with the depth test still on. A proxy at depth 0.5
+    /// counts at 0.005, so a wall nearer than that hides the COUNT as well, and the ratio is of what is left.
+    /// </remarks>
+    [Test]
+    public void Count_AnOccluderNearerThanTheSqueezedRange_HidesTheCountingQueryToo()
     {
-        if (Walled() is not { } target)
+        if (Counted(proxyDepth: 0.5f, wallDepth: 0.001f) is not var (pixels, possible))
+        {
+            return;
+        }
+
+        possible.ShouldBe(Possible / 2);
+        pixels.ShouldBe(Possible / 2);
+    }
+
+    /// <summary>One proxy centred on the wall's edge.</summary>
+    private static (int Pixels, int Possible)? Counted(float proxyDepth, float wallDepth = 0.3f)
+    {
+        if (Walled(wallDepth) is not { } target)
         {
             return null;
         }
@@ -82,8 +99,8 @@ public sealed class PixelVisibilityRenderTests
         }
     }
 
-    /// <summary>A target with a wall over the left half of the view at depth 0.3; `DrawWorld` is what clears the depth.</summary>
-    private static OffscreenTarget? Walled()
+    /// <summary>A target with a wall over the left half of the view, at depth 0.3 unless told; `DrawWorld` is what clears the depth.</summary>
+    private static OffscreenTarget? Walled(float depth = 0.3f)
     {
         OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
 
@@ -102,12 +119,12 @@ public sealed class PixelVisibilityRenderTests
 
         List<WorldVertex> wall =
         [
-            new(-1f, -1f, 0.3f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
-            new(0f, 1f, 0.3f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
-            new(0f, -1f, 0.3f, 1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
-            new(-1f, -1f, 0.3f, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
-            new(-1f, 1f, 0.3f, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
-            new(0f, 1f, 0.3f, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(-1f, -1f, depth, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(0f, 1f, depth, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(0f, -1f, depth, 1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(-1f, -1f, depth, 0f, 0f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(-1f, 1f, depth, 0f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
+            new(0f, 1f, depth, 1f, 1f, 0f, 0f, 0f, 0f, 1f, 0f),
         ];
 
         target.Clear(0f, 0f, 0f);

@@ -739,6 +739,32 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="ForceToneMapScale"/>.</summary>
     public const string ForceToneMapScaleCommand = "mat_force_tonemap_scale";
 
+    /// <summary>
+    /// <c>mat_specular</c>, default 1: cubemap reflections — "If mat_specular 0, then get rid of envmap"
+    /// (`lightmappedgeneric_dx9_helper.cpp:166`). Read from a config or the command line; it was a menu item only (B521).
+    /// </summary>
+    public bool Specular { get; init; } = true;
+
+    /// <summary>Command name for <see cref="Specular"/>.</summary>
+    public const string SpecularCommand = "mat_specular";
+
+    /// <summary>
+    /// <c>mat_fullbright</c>, default 0: 1 draws no lighting, 2 the lighting alone. Anything else is 0.
+    /// </summary>
+    public int Fullbright { get; init; }
+
+    /// <summary>Command name for <see cref="Fullbright"/>.</summary>
+    public const string FullbrightCommand = "mat_fullbright";
+
+    /// <summary>
+    /// <c>r_dopixelvisibility</c>, default 1 (`c_pixel_visibility.cpp:24`): whether a glow's occlusion is counted by the
+    /// device. At 0 the engine asks a line of sight instead (`:567-570`), latched when the level loads (`:522`).
+    /// </summary>
+    public bool DoPixelVisibility { get; init; } = true;
+
+    /// <summary>Command name for <see cref="DoPixelVisibility"/>.</summary>
+    public const string DoPixelVisibilityCommand = "r_dopixelvisibility";
+
     /// <summary><c>cl_drawhud</c>, default 1 (`hud.cpp`, "Enable the rendering of the hud").</summary>
     public bool DrawHud { get; init; } = true;
 
@@ -954,6 +980,21 @@ public sealed record ViewerSettings
         if (ReadNumber(values, ForceToneMapScaleCommand) is { } forcedScale)
         {
             settings = settings with { ForceToneMapScale = forcedScale };
+        }
+
+        if (Read(values, SpecularCommand) is { } specular)
+        {
+            settings = settings with { Specular = specular != 0 };
+        }
+
+        if (Read(values, FullbrightCommand) is { } fullbright)
+        {
+            settings = settings with { Fullbright = fullbright is 1 or 2 ? fullbright : 0 };
+        }
+
+        if (Read(values, DoPixelVisibilityCommand) is { } pixelVisibility)
+        {
+            settings = settings with { DoPixelVisibility = pixelVisibility != 0 };
         }
 
         if (Read(values, DrawHudCommand) is { } drawHud)

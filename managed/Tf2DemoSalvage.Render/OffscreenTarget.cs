@@ -492,7 +492,8 @@ internal sealed unsafe class OffscreenTarget : IDisposable
 
         foreach (PixelVisibilityProxy proxy in proxies)
         {
-            if (_occlusion.Result(_context, proxy.Key) is { } counted)
+            // Waited for: a test has this one frame, where the viewer reads a frame later whatever is there.
+            if (_occlusion.Result(_context, proxy.Key, wait: true) is { } counted)
             {
                 counts[proxy.Key] = counted;
             }

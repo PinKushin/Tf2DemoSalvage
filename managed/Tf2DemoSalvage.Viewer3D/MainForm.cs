@@ -1674,6 +1674,10 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
+            // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
+            // device counts their occlusion is decided here for the whole level (B378).
+            _pixelVisibility.LevelInit(_settings.DoPixelVisibility);
+
             // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
             // material with none, as the engine's pointer is.
             _particles.Sheets = map.Assets?.ParticleMaterials is { } sheetsFrom
@@ -3954,6 +3958,20 @@ internal class MainForm : Form, IFrameSteps
             _device.DisableBloom = _settings.DisableBloom;
             _device.ForceToneMapScale = _settings.ForceToneMapScale;
             _device.DrawHud = _settings.DrawHud;
+
+            // **`mat_specular` and `mat_fullbright` from the config or the command line** (B521). Both were menu items
+            // only: a `+mat_specular 0` was logged as set by the launch options and reached nothing, so a picture taken
+            // to switch reflections off was byte-identical to its control. Through the menu's own item and method, so
+            // the check marks follow: unchecking Reflections is what calls `SetSpecular`.
+            if (!_settings.Specular)
+            {
+                _menu.Specular.Checked = false;
+            }
+
+            if (_settings.Fullbright != 0)
+            {
+                SetFullbright((Fullbright)_settings.Fullbright);
+            }
 
             // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
             // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
@@ -7375,7 +7393,20 @@ internal class MainForm : Form, IFrameSteps
             // flies while paused, and a glow held where the pause found it would then be wrong for good.
             Device3D occluding = _device;
 
-            _pixelVisibility.BeginFrame((float)_clock.LastFrameSeconds, occluding.OcclusionResult);
+            // **`r_dopixelvisibility 0` is the engine's line of sight** (`GlowSight`, `c_pixel_visibility.cpp:567-570`),
+            // and a user's config may say so (D69): brushes AND static props, as `MASK_OPAQUE` is — on
+            // `koth_harvest_final` a lamp's halo sits under a roof of `corrugated_metal` props. Latched at the level's
+            // load (`LoadMap`); the live reading only stops new queries.
+            _pixelVisibility.DoPixelVisibility = _settings.DoPixelVisibility;
+            _pixelVisibility.BeginFrame(
+                (float)_clock.LastFrameSeconds,
+                occluding.OcclusionResult,
+                glow => _loaded?.Level is not { } level ||
+                    GlowSight.Visible(
+                        new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                        new Vector3(ahead, across, above),
+                        glow,
+                        (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
 
             float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
 
