@@ -41,6 +41,7 @@ public sealed class MaterialTable
     private readonly List<MapEnvmapShading?> _localReflections = [];
     private readonly List<MapPhong?> _phong = [];
     private readonly List<MapTexture?> _lightWarps = [];
+    private readonly List<MapTexture?> _blendModulations = [];
 
     private readonly List<MapTexture?> _selfIllumMasks = [];
     private readonly List<MapTexture?> _phongExponentMaps = [];
@@ -101,6 +102,9 @@ public sealed class MaterialTable
     /// <summary>The authored lighting ramp for each material, null for a linear falloff.</summary>
     public IReadOnlyList<MapTexture?> LightWarps => _lightWarps;
 
+    /// <summary>The <c>$blendmodulatetexture</c> for each material, null for those that name none.</summary>
+    public IReadOnlyList<MapTexture?> BlendModulations => _blendModulations;
+
     /// <summary>
     /// The self-illumination mask for each material, null where the base map's alpha decides it.
     /// </summary>
@@ -158,6 +162,7 @@ public sealed class MaterialTable
         _localReflections.Add(resolved.LocalReflection);
         _phong.Add(resolved.Phong);
         _lightWarps.Add(resolved.LightWarp);
+        _blendModulations.Add(resolved.BlendModulation);
         _selfIllumMasks.Add(resolved.SelfIllumMask);
         _phongExponentMaps.Add(resolved.PhongExponentMap);
         _variables.Add(resolved.Variables);

@@ -393,6 +393,8 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // The distinction has to reach the shader because the two look nothing alike: a
             // capture point's beam is stripes TIMES a colour, and mixed by alpha instead it is
             // whichever of the two the vertices happen to ask for.
+            //
+            // z: 1 when a `$blendmodulatetexture` shapes that mix (BlendModulation.Applies), 0 otherwise.
             float4 combine;
 
             // **The baked reflection's shading, xyz tint and w contrast.** Packed together because
@@ -529,6 +531,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         // set of its own — and always bound, flat white where the material names none, which is
         // what the engine substitutes and is the neutral for all three.
         Texture2D    specExpMap  : register(t11);
+
+        // **`$blendmodulatetexture`** (B514): red and green shape the edge between a WorldVertexTransition's two
+        // base textures. Read raw, `EnableSRGBRead( SHADER_SAMPLER3, false )`
+        // (lightmappedgeneric_dx9_helper.cpp:433), and only where combine.z says so. Slot 15 because 12-14 belong
+        // to the refract and water passes.
+        Texture2D    blendModulationMap : register(t15);
 
         SamplerState wrapSampler : register(s0);
         SamplerState clampSampler: register(s1);
@@ -1167,9 +1175,30 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // Valve's line is `baseColor * baseColor2 * g_DiffuseModulation`, so the modulation
             // colour belongs on the multiply — it is what $color and $alpha drive, and what a Sine
             // proxy pulses.
+            //
+            // **And the mix is not the vertex alpha where a `$blendmodulatetexture` is bound** (B514).
+            // lightmappedgeneric_ps2_3_x.h:319-333, the managed BlendModulation.Factor carrying the same lines:
+            //
+            //     float4 modt=tex2D(BlendModulationSampler,i.lightmapTexCoord3.zw);
+            //     float minb=saturate(modt.g-modt.r);
+            //     float maxb=saturate(modt.g+modt.r);
+            //     blendfactor=smoothstep(minb,maxb,blendfactor);
+            //
+            // `lightmapTexCoord3.zw` is the base texture coordinate on the vertex shader's fast path
+            // (lightmappedgeneric_vs20.fxc:166-169), which is every shipped material but two.
+            float blendfactor = saturate(input.a);
+
+            if (combine.z > 0.5f)
+            {
+                float4 modt = blendModulationMap.Sample(wrapSampler, input.uv);
+                float minb = saturate(modt.g - modt.r);
+                float maxb = saturate(modt.g + modt.r);
+                blendfactor = smoothstep(minb, maxb, input.a);
+            }
+
             float4 albedo = combine.x > 0.5f
                 ? first * second
-                : lerp(first, second, saturate(input.a));
+                : lerp(first, second, blendfactor);
 
             // **Every material, not only the two-texture ones.** The multiply above used to carry
             // `* modulation` inside its branch, which meant $color and $alpha reached exactly the
@@ -2277,6 +2306,9 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
 
     /// <summary>The authored lighting ramp for each material, empty where there is none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _lightWarps = [];
+
+    /// <summary>Each material's <c>$blendmodulatetexture</c>, or a null handle where it has none or the shader would not read it.</summary>
+    private readonly List<ComPtr<ID3D11ShaderResourceView>> _blendModulations = [];
 
     /// <summary>Each material's <c>$selfillummask</c>, or a null handle where it has none.</summary>
     private readonly List<ComPtr<ID3D11ShaderResourceView>> _selfIllumMasks = [];
@@ -3402,6 +3434,23 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             // arrive in the same slot, so the material has to say which it is.
             float multiplies = surface is { MultipliesTextures: true } ? 1f : 0f;
 
+            // **`$blendmodulatetexture`, uploaded only where the shader would read it** (B514): inside
+            // `bBaseTexture2` and behind `SELFILLUM == 0`. Raw, not sRGB — its channels are a threshold and a width.
+            MapTexture? blendModulation =
+                index < assets.BlendModulations.Count &&
+                BlendModulation.Applies(
+                    assets.BlendModulations[index] is not null,
+                    index < assets.BlendTextures.Count && assets.BlendTextures[index] is not null,
+                    glow is not null)
+                    ? assets.BlendModulations[index]
+                    : null;
+
+            _blendModulations.Add(blendModulation is { } edgeMask
+                ? Upload(device, context, edgeMask, SamplerSrgb.ReadsAsSrgb(MaterialSampler.BlendModulation))
+                : default);
+
+            float hasBlendModulation = blendModulation is null ? 0f : 1f;
+
             // **$halflambert, which 190 of this map's 1,034 model materials ask for.** It wraps the
             // direct term so a surface facing away from a light keeps a quarter of it rather than
             // going black, and it is the difference between a character reading as a solid shape in
@@ -3689,7 +3738,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
-                    multiplies, wrapsLight, 0f, 0f,
+                    multiplies, wrapsLight, hasBlendModulation, 0f,
 
                     // The baked reflection's tint and contrast, then its saturation, mask and
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
@@ -3749,7 +3798,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                     secondTransform.Row1.X, secondTransform.Row1.Y, secondTransform.Row1.Z, secondTransform.Row1.W,
                     tint.Red, tint.Green, tint.Blue, tint.Alpha,
 
-                    multiplies, wrapsLight, 0f, 0f,
+                    multiplies, wrapsLight, hasBlendModulation, 0f,
 
                     // The baked reflection's tint and contrast, then its saturation, mask and
                     // whether there is one at all. White, zero, one and zero is "reflect nothing",
@@ -4231,6 +4280,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
             context.PSSetShaderResources(3, 1, ref detail);
             context.PSSetShaderResources(4, 1, ref bump);
             context.PSSetShaderResources(5, 1, ref reflection);
+            BindBlendModulation(context, batch.MaterialIndex);
             context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
         }
     }
@@ -6390,7 +6440,21 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         context.PSSetShaderResources(2, 1, ref second);
         context.PSSetShaderResources(3, 1, ref detail);
         context.PSSetShaderResources(4, 1, ref bump);
+        BindBlendModulation(context, batch.MaterialIndex);
         context.Draw((uint)batch.VertexCount, (uint)batch.FirstVertex);
+    }
+
+    /// <summary>Binds a material's <c>$blendmodulatetexture</c> to slot 15, null handle included.</summary>
+    /// <remarks>
+    /// Every path that draws a material sets it, so one whose <c>combine.z</c> is 1 never samples the previous draw's
+    /// mask; the shader reads the slot only under that flag.
+    /// </remarks>
+    private void BindBlendModulation(ComPtr<ID3D11DeviceContext> context, int material)
+    {
+        ComPtr<ID3D11ShaderResourceView> mask =
+            material >= 0 && material < _blendModulations.Count ? _blendModulations[material] : default;
+
+        context.PSSetShaderResources(15, 1, ref mask);
     }
 
     private void DrawTranslucent(ComPtr<ID3D11DeviceContext> context)
@@ -6634,7 +6698,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
     {
         foreach (ComPtr<ID3D11ShaderResourceView> texture in
                  _textures.Concat(_blendTextures).Concat(_details).Concat(_bumps).Concat(_cubemaps)
-                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_selfIllumMasks)
+                     .Concat(_placedCubemaps).Concat(_lightWarps).Concat(_blendModulations).Concat(_selfIllumMasks)
                      .Concat(_phongExponentMaps).Concat(_animationFrames.SelectMany(frames => frames))
                      .Concat(_detailAnimations.Values.SelectMany(frames => frames))
                      .Concat(_thumbnails)
@@ -6653,6 +6717,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
         _placements.Clear();
         _usesLocalCubemap.Clear();
         _lightWarps.Clear();
+        _blendModulations.Clear();
         _selfIllumMasks.Clear();
         _phongExponentMaps.Clear();
         _tintBases.Clear();
@@ -7387,6 +7452,7 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 material >= 0 && material < _lightWarps.Count ? _lightWarps[material] : default;
 
             context.PSSetShaderResources(6, 1, ref ramp);
+            BindBlendModulation(context, material);
 
             // **`$selfillummask`, bound the same way and for the same reason** (B327): every draw
             // sets it, including the null handle, so a material without one cannot sample whatever

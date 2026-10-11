@@ -430,6 +430,7 @@ public readonly record struct MapPlacedCubemap(
 /// points every material at the same <c>ITexture</c>.
 /// </param>
 /// <param name="Water">A <c>Water</c> material's shading parameters, null for every other shader (B62).</param>
+/// <param name="BlendModulation">The <c>$blendmodulatetexture</c>, null for a material that names none (B514).</param>
 /// <remarks>
 /// A record rather than a longer and longer tuple: at four members the positional form stops
 /// saying which is which at the call site, and two of these are the same type.
@@ -451,7 +452,8 @@ public readonly record struct ResolvedMaterial(
     IReadOnlyDictionary<string, (float Red, float Green, float Blue)>? Variables = null,
     IReadOnlyList<MapTexture>? AnimationFrames = null,
     string? DetailAnimation = null,
-    MapWater? Water = null);
+    MapWater? Water = null,
+    MapTexture? BlendModulation = null);
 
 // GameArchives moved to Tf2DemoSalvage.Content.Assets on 2026-08-22 (D53's sibling): every other
 // reader of the game's files already lived there, and sound needs it now as well as the renderer.
@@ -975,6 +977,13 @@ public sealed class MapAssets
     /// artist draws the falloff instead of accepting Lambert's.
     /// </remarks>
     public IReadOnlyList<MapTexture?> LightWarps { get; private init; } = [];
+
+    /// <summary>Each material's <c>$blendmodulatetexture</c>, null for those that name none.</summary>
+    /// <remarks>
+    /// Red and green shape the edge between a WorldVertexTransition's two base textures
+    /// (<see cref="BlendModulation"/>): 87 shipped materials, every one a terrain blend.
+    /// </remarks>
+    public IReadOnlyList<MapTexture?> BlendModulations { get; private init; } = [];
 
     /// <summary>Which parts of each material light themselves, where a texture says so.</summary>
     /// <remarks>
@@ -1802,6 +1811,7 @@ public sealed class MapAssets
             PlacedCubemaps = LoadPlacedCubemaps(assets, map, pak, maximumTextureSize),
             Phong = table.Phong,
             LightWarps = table.LightWarps,
+            BlendModulations = table.BlendModulations,
             SelfIllumMasks = table.SelfIllumMasks,
             PhongExponentMaps = table.PhongExponentMaps,
             Variables = table.Variables,
@@ -2850,7 +2860,32 @@ public sealed class MapAssets
             material.Proxies.Count > 0 ? material.NumericValues() : null,
             ResolveAnimationFrames(),
             ResolveDetailAnimation(),
-            ResolveWater());
+            ResolveWater(),
+            ResolveBlendModulation());
+
+        MapTexture? ResolveBlendModulation()
+        {
+            // `LoadTexture( info.m_nBlendModulateTexture )` whenever it is defined
+            // (`lightmappedgeneric_dx9_helper.cpp:231-235`); whether the shader then reads it is the renderer's
+            // question (`BlendModulation.Applies`).
+            if (material.BlendModulateTexture is not { } name)
+            {
+                return null;
+            }
+
+            // Stryker disable once : a mutant that empties the guard body leaves 'decoded'
+            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+            if (Load(name) is not { } decoded)
+            {
+                assets.LogWarning(
+                    "{Message}",
+                    $"blend modulation texture {name}, named by materials/{materialName}.vmt, could not be read");
+
+                return null;
+            }
+
+            return MapTexture.Of(decoded);
+        }
 
         // **A `Refract` material names no colour: it warps the frame through its normal map** (B506). The slot is
         // that normal map, translucent — `InitParamsRefract_DX9` sets MATERIAL_VAR_TRANSLUCENT on every one
