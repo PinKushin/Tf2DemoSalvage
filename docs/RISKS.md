@@ -37509,3 +37509,66 @@ a comment, and nothing is conditional. The two files whose VALUES change are
 `models/props_junk/wood_crate001a_damaged.phy` and `models/props_lab/dogobject_wood_crate001a_damagedmax.phy`
 (24 break pieces to 23); which token does it was not read. **Tests:** `PhysicsTextConformanceTests` (3): the lowered
 name and the block comment red first, the quoted `[$X360]` key green before and after.
+
+## B533 — the chase camera's sweep stops at other players; the last 15 units against reference 14 are the capture's history — PARTLY CLOSED 2026-10-12
+
+B528 left the paused chase camera about 15 units further back than reference 14. **What `C_HLTVCamera` does that
+ours did not, read whole** (*read from published source*, hltvcamera.cpp:30-34, 107-260, 567-604, 664-807):
+
+- **The trace hits other players.** `UTIL_TraceHull( targetOrigin1, cameraOrigin, WALL_MIN, WALL_MAX, MASK_SOLID,
+  target1, COLLISION_GROUP_NONE, … )`: a ±6 box, a mask that carries `CONTENTS_MONSTER`, and a filter that passes
+  over the target alone. **Fixed:** every other living player's hull (±24, 82 or 62 tall) is swept beside the world
+  (`ChaseCamera.HullEntry`, the slab test; a sweep that starts inside one goes to the eyes, as `startsolid` does).
+  **Tests:** `Chase_AnotherPlayerStandingBehindTheTarget_StopsTheCameraAtHisHull`, red first (96 against 10), and
+  `Chase_ADeadPlayerBehindTheTarget_DoesNotStopTheCamera`. *Not swept:* buildings, projectiles and brush entities,
+  all of which `MASK_SOLID` with `COLLISION_GROUP_NONE` also hits.
+- **`m_flDistance`, `m_flOffset`, `m_flTheta`, `m_flPhi` are the director's**, set by each `hltv_chase` while
+  `spec_autodirector` is on — or off with the PVS locked (`tv_transmitall` 0). The SDK's director sends 96 or 112.
+  A spectated chase here takes 96 and no offsets; `DirectorShot` decodes the events and nothing in the spectated
+  path reads them. Not changed: which applies depends on the watcher's `spec_autodirector`, below.
+- **With `spec_autodirector` off the camera's angles are the WATCHER's** (`engine->GetViewAngles`), set to the
+  target's eye angles once when the target is chosen and not following him afterwards; with it on and no second
+  target they are his eye yaw with the pitch zeroed, which is what ours draws.
+
+**It changed nothing at reference 14** (*measured*): the camera at 63620 is still at (11, 849, 559), 77 units from
+his eyes, and a view back along the sweep is open ground for 983 units, with no entity within 170 of it.
+
+**What the references say** (*measured* from the knitted hat's width, ours at a known distance beside each):
+
+| reference | TF2's distance | ours at that tick |
+|---|---|---|
+| 13 (63595) | about 70 | 65 |
+| 14 (63620) | about 64 | 77 |
+
+**TF2's distance does not grow between the two**, where 25 ticks of `frametime * 32` is 12 units. Nothing in the
+world or the entity list stops it at 63620. **So the two references are not 25 ticks of one camera's history** —
+which they would not be if each was reached by its own seek, or if the demo was paused between them. *Interpolated*;
+it cannot be settled from the pictures. **Asked of the owner:** how 13 to 17 were captured — one continuous play
+and from which tick, or a seek per shot — and the client's `spec_autodirector`.
+
+## B534 — "the near wall is darker" was the viewer's shot not being pinned — CLOSED 2026-10-12, a residual recorded
+
+B530 recorded the wall left of the tank at (69 64 76) against reference 14's (112 108 129). **The shot was taken
+with the viewer's own auto-exposure and bloom; the reference pins `mat_force_tonemap_scale 1` and
+`mat_disable_bloom 1`.** The recipe says so (`docs/findings/76`) and `golden-viewer-shot.sh` did not do it.
+
+*Measured*, same pixels, viewer pinned against not:
+
+| pixel | TF2 | viewer, pinned | viewer, as B530 shot it |
+|---|---|---|---|
+| (100, 200) near wall | 112 108 129 | 95 89 103 | 69 64 76 |
+| (200, 420) near wall | 106 108 135 | 90 89 109 | 65 63 79 |
+| (900, 300) far wall | 149 132 123 | 139 122 110 | 127 110 98 |
+| (1100, 500) grass | 121 122 49 | 116 116 50 | 108 108 42 |
+
+**Changed:** the script pins both, as it pins `cl_showfps`.
+
+**Killed on the way:** a dynamic light (the wall is the same in references 13 to 17, and
+`docs/memory/tf2-barely-uses-dynamic-lights.md` stands); the LDR lump (`lighting-lumps`: face 8010's LDR and HDR
+means are 0.186 and 0.173); the material (`pixel-face`: `brick/brickwall002c`, LightmappedGeneric, `$ssbump`,
+`$detail overlays/detail001` mod2x — all drawn).
+
+**Residual, open:** pinned, the near wall is still about 1.45 times darker in linear light and less blue —
+(0.115 0.100 0.136) against (0.164 0.151 0.223) — where the far wall is 1.16 and the grass 1.09. The face is lit by
+the sky alone (lightmap at the point (0.194 0.190 0.283), its up-facing bump lightmap the bluest), so a term that
+favours sky-lit faces is short. The cameras are not the same (B533), so the texels are not; not chased further.

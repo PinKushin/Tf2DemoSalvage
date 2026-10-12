@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 
 using Microsoft.Extensions.Logging;
 
@@ -576,7 +577,8 @@ public sealed class SpectatorView
 
         if (follows)
         {
-            _chaseDistance = ChaseCamera.Approach(BlockedAt(target, aspect, sweep), _chaseDistance, (float)seconds);
+            _chaseDistance = ChaseCamera.Approach(
+                BlockedAt(target, aspect, sweep, Eyes?.PlayersAt(tick) ?? []), _chaseDistance, (float)seconds);
         }
         else if (tick != _chaseTick || target.EntityIndex != _chaseTarget)
         {
@@ -594,7 +596,8 @@ public sealed class SpectatorView
     private static float BlockedAt(
         ScenePlayer target,
         float aspect,
-        Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep)
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep,
+        IReadOnlyList<ScenePlayer> others)
     {
         bool alive = target.IsAlive;
         bool ducking = Ducking(target);
@@ -607,8 +610,33 @@ public sealed class SpectatorView
         (float X, float Y, float Z) look =
             (target.X, target.Y, target.Z + (alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget));
 
-        return ChaseCamera.Distance * Math.Clamp(sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent), 0f, 1f);
+        float reached = Math.Clamp(sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent), 0f, 1f);
+
+        // **Every other living player is in the way too** (B533): the trace is `MASK_SOLID`, which carries
+        // `CONTENTS_MONSTER`, and its filter passes over `target1` alone (hltvcamera.cpp:221). A dead player is
+        // `FSOLID_NOT_SOLID`. *Interpolated:* buildings and other solid entities are not swept.
+        foreach (ScenePlayer other in others)
+        {
+            if (other.EntityIndex != target.EntityIndex && other.IsAlive)
+            {
+                reached = MathF.Min(reached, ChaseCamera.HullEntry(
+                    new Vector3(look.X, look.Y, look.Z),
+                    new Vector3(ideal.Origin.X, ideal.Origin.Y, ideal.Origin.Z),
+                    new Vector3(other.X - PlayerHullHalfWidth, other.Y - PlayerHullHalfWidth, other.Z),
+                    new Vector3(
+                        other.X + PlayerHullHalfWidth,
+                        other.Y + PlayerHullHalfWidth,
+                        other.Z + (Ducking(other) ? PlayerDuckHullHeight : PlayerHullHeight))));
+            }
+        }
+
+        return ChaseCamera.Distance * reached;
     }
+
+    // `VEC_HULL_MIN`/`MAX` and `VEC_DUCK_HULL_MAX`, TF's `g_TFViewVectors` (tf_gamerules.cpp): ±24 wide, 82 or 62 tall.
+    private const float PlayerHullHalfWidth = 24f;
+    private const float PlayerHullHeight = 82f;
+    private const float PlayerDuckHullHeight = 62f;
 
     /// <summary>`m_flLastDistance` as playing to this tick would have left it.</summary>
     /// <remarks>
@@ -627,7 +655,8 @@ public sealed class SpectatorView
         {
             if (Viewed(then) is { } target)
             {
-                distance = ChaseCamera.Approach(BlockedAt(target, aspect, sweep), distance, SecondsPerTick);
+                distance = ChaseCamera.Approach(
+                    BlockedAt(target, aspect, sweep, Eyes?.PlayersAt(then) ?? []), distance, SecondsPerTick);
             }
         }
 
