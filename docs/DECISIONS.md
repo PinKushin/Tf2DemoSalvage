@@ -9744,3 +9744,54 @@ The cost that remains is memory, not time: the test host peaks at 16.1 GB at thr
 six, which is mostly one whole map per distinct `MapCache` request retained for the run. Six workers passed both
 runs and saved a minute; three is kept for the margin under B185's 21 GB ceiling.
 
+## D214 — the thin view regressed unguarded; the measure is DOMAIN REACH, held by a list that only shrinks (2026-10-12)
+
+**What was found.** `Viewer3D`'s mutation score in CI is 8.47%: 4,355 mutants, of which 2,153 are compile errors,
+1,178 have no coverage, 710 were tested and 159 killed. Behind it: `Tf2DemoSalvage.Viewer3D.csproj` references Core,
+Content, Scene and Audio directly, and `MainForm.cs` imports `Content.Assets`, `Content.Bsp`, `Core.Scene`,
+`Core.Text`, `Scene.Hud` and `Scene.Prediction` — so every fix placed in the form compiled. Five implementer reports
+in one week said "the MainForm call site is untested wiring", and each was merged.
+
+**The owner, in his words:**
+
+> "mainform is suppose to be a thin view already isnt it?"
+
+> "fuck no, we did get it to be thin, we spent days on it, when i realized the MVP wasnt being followed, fuck i
+> thought i had a hook for this already, but we need one"
+
+**A correction, both positions.** The coordinator first measured LINES — `MainForm.cs` was 7,227 on 2026-08-24, 4,266
+on 08-26 after the D90 thinning, 10,162 now — and wrote a no-growth hook on that. The owner overruled it:
+
+> "the line number should groww though, thin view is about domain logic, not lines of code"
+
+> "when we add options to the winforms skeleton, its obviously going to groww"
+
+So size is no measure in either direction: a view grows with every menu and option it rightly owns, and a short view
+can still know the domain. (D90's own record says the same — *"the line count isnt a actual target… the line count is
+just a smell"* — and the line hook was the smell mistaken for the target a second time.)
+
+**Decided.**
+
+1. **The measure is domain reach**: the types and members the built view assembly uses from the domain assemblies —
+   Core, Content, Scene, Audio, and with them Animation and GameSystems. Presentation and Render are where behaviour
+   goes (D90's table) and are not counted; nor are Fonts and Logging.
+2. **It is held by a test and a list that may only shrink.** `ThinViewConformanceTests` reads the assembly's metadata
+   and requires it to equal `tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt` exactly: a use that is not
+   listed fails, and so does a line no longer used. A hook guards the list against additions.
+3. **The end state is the list empty and the project references removed**, so that the compiler enforces D90 and
+   neither the test nor the hook is needed.
+4. **Order:** *"we release beta 42 then go into the refactor"*. Parity work is paused for it. The first branch builds
+   the instrument and the guard and moves nothing; the slices that follow are sized by the reach table (B540).
+5. **A report that says "untested wiring in MainForm" is not mergeable.** Behaviour goes in Presentation, Scene or
+   Render with tests; the view gets one call.
+
+**Why now is the good time**, the owner again: *"still glad we found it now and not when we were 'finished' and trying
+to change the frontend to dear ImGUI"*.
+
+**Why a list and not a count.** A count lets one domain use be traded for another. The list names each, the test's
+failure names the method that added it, and a line can leave only by the view no longer needing it.
+
+**Where it stood when the list was first taken** (beta.42, `12034eda`): 1,025 entries — 263 types and 762 members —
+of which Scene 678, Core 241, Content 75, Animation 16, Audio 15, GameSystems none. `MainForm` uses 758 of the 762
+members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
+

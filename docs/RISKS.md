@@ -37901,3 +37901,79 @@ pluses a runner sheds reach further than ours; B527's "ten ticks" for the PLAYIN
 direction and the medic's jump and should be re-measured the same way this was, by the patient's glow. **A capture
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
+
+## B540 — the view reaches 1,025 domain types and members; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, the refactor OPEN
+
+**What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
+assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
+and why lines are not the measure: **D214**. This entry holds the measurement and what it cannot see.
+
+**The instrument.** `ThinViewConformanceTests.DomainReach_OfTheBuiltViewAssembly_IsExactlyTheCommittedList`
+(`tests/Tf2DemoSalvage.Viewer3D.Tests`) reads `tf2demoview.dll`'s `TypeRef` and `MemberRef` tables and requires the
+set of references into Core, Content, Scene, Audio, Animation and GameSystems to equal
+`thin-view-domain-reach.txt`, line for line. A new use fails and is named with the view method that holds it; a line
+no longer used fails and is named for deletion. Each run writes what the assembly uses today to
+`thin-view-domain-reach.actual.txt` beside the test binaries and prints the tables below.
+
+**Control** (*measured*): one line added to `MainForm.Pick`, `_ = ParticleRandom.Sample(0, 0, 0)`, reddened it with
+`…Content.Assets.ParticleRandom` and `…ParticleRandom::Sample(3)    used by MainForm.Pick`; removed by the inverse
+edit, green. Before the list existed it was red on the missing file.
+
+**Reach at beta.42 (`12034eda`): 1,025 entries, 263 types and 762 members.**
+
+| assembly | entries | | namespace | entries |
+|---|---|---|---|---|
+| Scene | 678 | | `Scene` | 610 |
+| Core | 241 | | `Core.Scene` | 231 |
+| Content | 75 | | `Scene.Hud` | 62 |
+| Animation | 16 | | `Content.Assets` | 44 |
+| Audio | 15 | | `Content.Bsp` | 31 |
+| GameSystems | 0 | | `Animation.Animating` | 16 |
+| | | | `Audio` | 15 |
+| | | | `Scene.Prediction` | 6 |
+| | | | `Core.Diagnostics`, `Core.Net`, `Core.Text` | 3 each |
+| | | | `Core.Container` | 1 |
+
+By view type, distinct domain members used: `MainForm` 758, `ViewerMenu` 8, `Program` 2.
+
+**The twenty `MainForm` methods that use the most distinct domain members** (a lambda or local function counts toward
+the method it is written in):
+
+| members | method | | members | method |
+|---|---|---|---|---|
+| 53 | `Pick` | | 22 | `StepAnimationSounds` |
+| 51 | `DrawParticles` | | 22 | `StepImpactEffects` |
+| 50 | the constructor | | 21 | `AddTracers` |
+| 49 | `WithIdTraces` | | 21 | `AddWeaponMuzzleFlashes` |
+| 46 | `StepDecals` | | 21 | `ReadMap` |
+| 39 | `BuildOverlay` | | 21 | `StruckEnd` |
+| 28 | `StepModelDecals` | | 20 | `AddTracerLines` |
+| 27 | `StepExplosions` | | 20 | `BulletLandings` |
+| 26 | `ModelDecalFor` | | 19 | `AddHealBeams` |
+| 23 | `BuildEffectEntities` | | 18 | `ReplaySkip` |
+| 23 | `StepLightStyles` | | 18 | `WithImpactEffects` |
+| 22 | `DecalReplayOf` | | | |
+
+The next twenty run 17 down to 11: `KickRopes`, `AddOverheals`, `Apply`, `RopeEnd`, `StepSparks`, `PlaceModelDecal`,
+`AddSentryMuzzleFlashes`, `OnViewportHandleCreated`, `ColourOf`, `DispatchedPoint`, `QueueHolidayLights`,
+`StartCorpseRecord`, `AddBlood`, `HudStateAt`, `ReplayModelDecals`, `RopeHolidayStyle`, `StepCorpseScrapes`. The
+names are the slices: effects and decals (`Step*`, `Add*`, `*Decal*`), the id-target traces, the overlay, the pick
+instrument, and the constructor's wiring.
+
+**What the instrument cannot see.**
+
+- **A `const` and an enum member**: the compiler copies the number in, and no reference to the member is left. The
+  enum's TYPE is listed when the view names it.
+- **`nameof`**, and anything reached by name at run time.
+- **A domain value passed straight from one Render or Presentation call into another** with no local between: the
+  view needs no reference to its type at all. A Render or Presentation member whose signature mentions a domain type
+  puts that type on the list only when the view itself names it — a local, a field, a parameter, a cast.
+- **A second overload of the same name and parameter count**: a method is `Type::Name(arity)`.
+- **Presentation and Render themselves.** A view that asks a presenter for domain-shaped answers and does arithmetic
+  on them has moved nothing; the list would be empty and D90 still broken. The list is necessary, not sufficient —
+  the test of D90 remains whether a second frontend would reimplement anything in the file.
+
+**The guard.** `.claude/hooks/tf2-thin-view.ps1` denies an edit that adds a line to the list; its cases are beside it.
+**Not registered by the agent that wrote it** — see the branch's report.
+
+**Not done here, on purpose:** no logic moved. The list records the reach exactly as it was.

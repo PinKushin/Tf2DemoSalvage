@@ -747,6 +747,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ApplyLogVerbosity()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (SetLogVerbosity is not { } set)
         {
             return;
@@ -759,6 +760,7 @@ internal class MainForm : Form, IFrameSteps
 
         set(level);
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _log.LogInformation(
             "{Message}",
             string.Create(
@@ -1178,6 +1180,7 @@ internal class MainForm : Form, IFrameSteps
 
         _demoSystems.Gibs = model =>
         {
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (_game is not { } install)
             {
                 return [];
@@ -1630,6 +1633,7 @@ internal class MainForm : Form, IFrameSteps
         // **The fetch already happened, from the header, and the load waited for it** (B507). This branch started it
         // fire-and-forget once the decode was done, and the read it ended in ran on a pool thread outside the
         // `_readingMap` barrier and skipped both precaches: a first download left the view mapless or crashed it.
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (found.Path is not { } path)
         {
             string absent = prepared?.Status is { Length: > 0 } why ? why : $"Map {mapName} is not installed";
@@ -1790,6 +1794,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ProjectMap()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } map || map.Outline.IsEmpty)
         {
             return;
@@ -2394,6 +2399,7 @@ internal class MainForm : Form, IFrameSteps
             return false;
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_spectator.Refuses(wanted) is not { } refusal)
         {
             return false;
@@ -2671,6 +2677,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void Pick()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (Environment.GetEnvironmentVariable("TF2VIEW_PICK") is not { } asked ||
             asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys, .. { } more] ||
             !float.TryParse(xs, NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
@@ -2685,6 +2692,7 @@ internal class MainForm : Form, IFrameSteps
         Vector3 ray = new(dx, dy, dz);
         System.Text.StringBuilder report = new();
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) at tick {_transport.CurrentTick} from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
 
         if (_loaded?.Level is { } level)
@@ -2700,18 +2708,21 @@ internal class MainForm : Form, IFrameSteps
                     ? effect.System.Name
                     : effect.Children.Select(Owner).FirstOrDefault(static name => name is not null);
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             report.Append(CultureInfo.InvariantCulture, $"world at {wall:0} units ({at.X:0} {at.Y:0} {at.Z:0}) texinfo {hit.Texinfo} static prop {hit.StaticProp}; ");
 
             foreach (ParticleBurst burst in _burstsNow)
             {
                 // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
                 // A pick of 500 pixels or wider asks for the whole frame, so every live burst is named.
+                // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
                 if (_particles.BurstEffect(burst.Key) is not { } effect ||
                     (Owner(effect) ?? (more is [{ } all] && float.Parse(all, CultureInfo.InvariantCulture) >= 500f ? effect.System.Name : null)) is not { } owner)
                 {
                     continue;
                 }
 
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0}) forward ({burst.At.Forward.X:0.00} {burst.At.Forward.Y:0.00} {burst.At.Forward.Z:0.00}) end ({burst.End?.At.X:0} {burst.End?.At.Y:0} {burst.End?.At.Z:0}) own particles {effect.Particles.Count}{string.Concat(Enumerable.Range(0, Math.Min(effect.Particles.Count, 6)).Select(i => i * Math.Max(1, effect.Particles.Count / 6)).Select(i => string.Create(CultureInfo.InvariantCulture, $" #{i} age {effect.Particles.AgeOf(i):0.00} at ({effect.Particles.PositionOf(i).X:0} {effect.Particles.PositionOf(i).Y:0} {effect.Particles.PositionOf(i).Z:0}) radius {effect.Particles.RadiusOf(i):0.0} alpha {effect.Particles.AlphaOf(i):0.00}")))}}} ");
             }
         }
@@ -2729,11 +2740,13 @@ internal class MainForm : Form, IFrameSteps
             .Take(8))
         {
             // The sequence is the DRAWN prop's own — what the frame posed with — beside what chose it (B523).
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off, at ({prop.Pose.X:0.#} {prop.Pose.Y:0.#} {prop.Pose.Z:0.#}) sequence {prop.Pose.Sequence} slot {prop.Pose.Slot ?? "-"} jump {prop.Pose.JumpActivity?.ToString() ?? "-"} flags {prop.Pose.Flags?.ToString(CultureInfo.InvariantCulture) ?? "-"}] ");
         }
 
         // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick — or within the third
         // number of `TF2VIEW_PICK="x y pixels"`, for a whole effect rather than one spot of it.
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         float within = more is [{ } wide] && float.TryParse(wide, NumberStyles.Float, CultureInfo.InvariantCulture, out float pixels)
             ? pixels
             : 24f;
@@ -2773,6 +2786,7 @@ internal class MainForm : Form, IFrameSteps
                     // The size is the drawn quad's own: its first corner's distance from its centre, in world units.
                     float reach = Vector3.Distance(centre, new Vector3(first.X, first.Y, first.Z));
 
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) corner {reach:0.0} out rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
                 }
             }
@@ -3163,6 +3177,7 @@ internal class MainForm : Form, IFrameSteps
     {
         StopCorpseRecord();
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_moments.Source is not TimelineMoments source || source.RecordedCorpses() is not { Count: > 0 } corpses)
         {
             return;
@@ -3199,6 +3214,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 Stopwatch taken = Stopwatch.StartNew();
                 record.Run(geometry, createWorld, surfaces, interval, token);
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 log.LogInformation(
                     "{Message}",
                     string.Create(
@@ -3223,6 +3239,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     public void ReportStartup(TimeSpan elapsed)
     {
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         string started = string.Create(CultureInfo.InvariantCulture, $"Started in {elapsed.TotalSeconds:F2} s.");
 
         _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
@@ -3478,6 +3495,7 @@ internal class MainForm : Form, IFrameSteps
         double collectMs = Stopwatch.GetElapsedTime(collectAt).TotalMilliseconds;
 
         GCMemoryInfo heap = GC.GetGCMemoryInfo(GCKind.FullBlocking);
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _log.LogInformation(
             "{Message}",
             string.Create(
@@ -3664,6 +3682,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _settings = _settings with { ShowFrameRate = on ? 2 : 0 };
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _renderLog.LogInformation(
             "{Message}",
             string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
@@ -3682,6 +3701,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _settings = _settings with { ShowPosition = on ? PositionReadout.View : 0 };
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _renderLog.LogInformation(
             "{Message}",
             string.Create(CultureInfo.InvariantCulture, $"cl_showpos {_settings.ShowPosition}"));
@@ -4611,6 +4631,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepExplosions(FreeCamera viewing)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline ||
             _game?.Archives is not { } archives ||
             _loaded?.Assets?.ParticleSystemsByName is not { Count: > 0 } systems)
@@ -4726,6 +4747,7 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
     private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye, ClientSoundOrder order)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_replayingModelDecals || _sound.Scripts is not { } scripts)
         {
             return;
@@ -4758,6 +4780,7 @@ internal class MainForm : Form, IFrameSteps
 
     private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Vector3 eye)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded?.Tracers is not { Count: > 0 } tracers)
         {
             return;
@@ -4810,6 +4833,7 @@ internal class MainForm : Form, IFrameSteps
                     float shortened = Vector3.Distance(
                         new Vector3(path.To.X, path.To.Y, path.To.Z), new Vector3(tracer.End.X, tracer.End.Y, tracer.End.Z));
 
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     _renderLog.LogDebug(
                         "{Message}",
                         string.Create(
@@ -4945,6 +4969,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepModelDecals(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_device is null || _timeline is not { } timeline ||
             _loaded is not { ImpactDecals: { } impacts, Assets: { } assets })
         {
@@ -4988,6 +5013,7 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneEffectDispatch impact) in EntityImpacts(timeline))
         {
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (impact.Tick <= from || impact.Tick > tick || Holder(players, impact.Entity) is not { } struck)
             {
                 continue;
@@ -5017,12 +5043,14 @@ internal class MainForm : Form, IFrameSteps
 
             ((float X, float Y, float Z) End, bool Judged, int? Struck) hit = bullet.BrushOnly ? (bullet.End, true, null) : StruckEnd(bullet);
 
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (hit.Struck is not { } who)
             {
                 EmitLanding(bullet, _game?.Surfaces is { } surfaces ? WorldLanding(bullet, impacts, surfaces) : null);
                 continue;
             }
 
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (Holder(players, who) is not { } victim || victim.Team == bullet.Team)
             {
                 continue;
@@ -5054,8 +5082,10 @@ internal class MainForm : Form, IFrameSteps
     {
         (ModelDecalShot? shot, string refused) = ModelDecalFor(draw, impact, struck, impacts, assets, device);
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (shot is not { } s)
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(CultureInfo.InvariantCulture, $"model decal tick {impact.Tick} entity {impact.Entity}: none, {refused}"));
@@ -5082,11 +5112,13 @@ internal class MainForm : Form, IFrameSteps
         {
             (int facing, int inside, float nearest) = StudioDecalProjection.Census(s.Vertices, s.Bones, s.Start, s.Delta, radius);
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             census = string.Create(
                 CultureInfo.InvariantCulture,
                 $" ({facing} of {s.Vertices.Count} vertices face it, {inside} inside the square, the nearest {nearest:0.#} off its axis)");
         }
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _renderLog.LogInformation(
             "{Message}",
             string.Create(
@@ -5122,6 +5154,7 @@ internal class MainForm : Form, IFrameSteps
             return (null, "stealthed, disguised or invulnerable");
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (ServerImpacts.DecalRay(impact) is not { } ray)
         {
             return (null, "no ray");
@@ -5133,11 +5166,13 @@ internal class MainForm : Form, IFrameSteps
         BulletTarget clipped = new(
             impact.Entity, new Vector3(struck.X, struck.Y, struck.Z), ((struck.Flags ?? 0) & Ducking) != 0);
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (PlayerBulletTrace.ClipRayToEntity(clipped, ray.Start, ray.Delta, HitboxesOrUntested) is not { } decalAt || decalAt >= 1f)
         {
             float away = MathF.Sqrt(
                 ((impact.Origin.X - struck.X) * (impact.Origin.X - struck.X)) + ((impact.Origin.Y - struck.Y) * (impact.Origin.Y - struck.Y)));
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             return (null, _models.IsPosed(impact.Entity)
                 ? string.Create(
                     CultureInfo.InvariantCulture,
@@ -5146,11 +5181,13 @@ internal class MainForm : Form, IFrameSteps
                 : "not posed");
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_models.SkinningOf(impact.Entity) is not { } pose || device.SkinnedVertices(pose.Model) is not { } vertices)
         {
             return (null, "no skinned model");
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (impacts.ForEntity(impact.SurfaceProp, impact.DamageType, 0, draw) is not
                 { Fades: false } decal ||
             !assets.DecalMaterials.TryGetValue(decal.ModelMaterial ?? decal.Draws ?? decal.Name, out int material))
@@ -5171,6 +5208,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private IReadOnlyList<BulletLanding> BulletLandings()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { ImpactDecals: { } decals } loaded || _game?.Surfaces is not { } surfaces || _timeline is not { } timeline)
         {
             return [];
@@ -5214,6 +5252,7 @@ internal class MainForm : Form, IFrameSteps
         ShotImpact impact, ImpactDecals decals, Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces)
     {
         // Terrain's `surface.flags` is 0 (engine.dll `FUN_18016f290`): never sky, never nodraw.
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (impact.DisplacementTexdata < 0 &&
             (decals.Surface(impact) is not { } surface ||
              (surface.Flags & (Tf2DemoSalvage.Content.Bsp.SurfaceProperties.Sky | Tf2DemoSalvage.Content.Bsp.SurfaceProperties.NoDraw)) != 0))
@@ -5237,6 +5276,7 @@ internal class MainForm : Form, IFrameSteps
         int place = 0;
         int dispatch = -1 - shot;
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline)
         {
             place = 0;
@@ -5280,6 +5320,7 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>A hitbox gap as a log fragment.</summary>
+    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
     private static string Gap((float Outside, Vector3 FromCentre)? gap) =>
         gap is { } g
             ? string.Create(
@@ -5293,6 +5334,7 @@ internal class MainForm : Form, IFrameSteps
         string crouch = struck.IsCrouched ? "crouched" : "standing";
         string air = struck.IsAirborne ? "airborne" : "grounded";
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         return string.Create(
             CultureInfo.InvariantCulture,
             $"he is {crouch}, {air}, duck-jump offset {_models.DuckJumpOffsetOf(struck.EntityIndex) ?? 0f:0.#}, " +
@@ -5362,12 +5404,14 @@ internal class MainForm : Form, IFrameSteps
 
         _skipShown = target;
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline || !SoundSchedule.IsSkip(from, target) || _sound.Scripts is not { } scripts)
         {
             return;
         }
 
         long began = Stopwatch.GetTimestamp();
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         bool back = from is not { } was || target < was;
         int first = back ? timeline.FirstTick : from!.Value + 1;
         IReadOnlyList<int> throughs = DemoSkip.Frames(first, Math.Max(first, target));
@@ -5436,6 +5480,7 @@ internal class MainForm : Form, IFrameSteps
                 foreach (FiredAnimationEvent fired in _firedEvents)
                 {
                     steps += fired.Event.Id == FootstepEvent ? 1 : 0;
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
 
                     if (fired.Event.Id == PlaySoundEvent &&
@@ -5459,6 +5504,7 @@ internal class MainForm : Form, IFrameSteps
 
         _sound.Skipped(new SoundSkip(from, target, frames));
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _audioLog.LogInformation(
             "{Message}",
             string.Create(
@@ -5474,6 +5520,7 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>One skip frame of the HUD: its batch's game events and user messages, heard and not painted.</summary>
     private void SkipHudFrame(DemoTimeline timeline, int through)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_vguiHud is not { } hud)
         {
             return;
@@ -5500,6 +5547,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ReplayModelDecals(int target)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_replayingModelDecals || _timeline is not { } timeline || _device is null ||
             (_modelDecalTick != int.MinValue && target >= _modelDecalTick && target - _modelDecalTick <= ModelDecalSeekTicks))
         {
@@ -5578,6 +5626,7 @@ internal class MainForm : Form, IFrameSteps
             _models.WalksEvents = true;
         }
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _renderLog.LogInformation(
             "{Message}",
             string.Create(
@@ -5604,6 +5653,7 @@ internal class MainForm : Form, IFrameSteps
         {
             _entityImpacts = ServerImpacts.OnEntities(timeline.Dispatches.All, timeline.Dispatches.Names.Name);
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(CultureInfo.InvariantCulture, $"model decals: {_entityImpacts.Count} server impacts on entities"));
@@ -5817,6 +5867,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepLightStyles(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_device is null || _timeline is not { } timeline || _loaded?.Assets is not { } assets)
         {
             return;
@@ -5857,6 +5908,7 @@ internal class MainForm : Form, IFrameSteps
         // Once per style change past the first frame, so a toggle is visible in the log with what it rebuilt.
         if (_lightmapRegions.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(
@@ -5881,6 +5933,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepImpactEffects(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline ||
             _loaded is not { ImpactDecals: { } impacts, LightSamples: { } samples, Assets: { } assets } loaded)
         {
@@ -5897,6 +5950,7 @@ internal class MainForm : Form, IFrameSteps
             timeline.IntervalPerTick,
             (_, impact, random) =>
             {
+                // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
                 if (impact.WaterEntry is not null ||
                     StruckPlayer(impact, tick) ||
                     impacts.For(impact) is null ||
@@ -5938,6 +5992,7 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>The corner lists are handed to the device and read by this frame's draw, before the next refill.</remarks>
     private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded?.Assets?.ParticleMaterials is not { } materials)
         {
             return batches;
@@ -5988,6 +6043,7 @@ internal class MainForm : Form, IFrameSteps
                     DetailSpriteVertex first = corners[0];
                     DetailSpriteVertex lowest = corners.MinBy(static corner => corner.Z);
 
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     _renderLog.LogDebug(
                         "{Message}",
                         string.Create(
@@ -6022,6 +6078,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void AddTracerLines(Vector3 eye, Vector3 forward)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline)
         {
             return;
@@ -6093,6 +6150,7 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>
     private void StepSparks(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline || _loaded?.Level is not { } level)
         {
             return;
@@ -6169,6 +6227,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void StepDecals(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_device is null || _loaded is not { Assets: { } assets } loaded || DecalReplayOf() is not { } replay)
         {
             return;
@@ -6224,6 +6283,7 @@ internal class MainForm : Form, IFrameSteps
             Vector3 first = shown?.Polygon[0].Position ?? Vector3.Zero;
             Vector3 plane = shown is not null && world.Faces[shown.Face] is { } parent ? parent.PlaneNormal : Vector3.Zero;
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(
@@ -6233,6 +6293,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (_renderLog.IsEnabled(LogLevel.Debug))
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
@@ -6243,6 +6304,7 @@ internal class MainForm : Form, IFrameSteps
             {
                 Vector3 at = placed.Polygon[0].Position + (loaded.Doors.Of(placed.Entity, tick)?.Origin ?? Vector3.Zero);
 
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 _renderLog.LogDebug(
                     "{Message}",
                     string.Create(CultureInfo.InvariantCulture, $"decal on entity {placed.Entity}, face {placed.Face}: corner at ({at.X:0} {at.Y:0} {at.Z:0})"));
@@ -6267,6 +6329,7 @@ internal class MainForm : Form, IFrameSteps
         // **A static prop's decals draw with the prop** (B421): already in the world, after the world's own decals.
         foreach (int prop in replay.PropDecals.Models)
         {
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!DecalReplay.IsStaticPropKey(prop) || replay.PropDecals.For(prop) is not { } held)
             {
                 continue;
@@ -6278,6 +6341,7 @@ internal class MainForm : Form, IFrameSteps
 
                 WorldVertex corner = held.Vertices[0];
 
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 _renderLog.LogInformation(
                     "{Message}",
                     string.Create(
@@ -6305,6 +6369,7 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The world's decal replay, made on first use once a map and a timeline are loaded.</summary>
     private DecalReplay? DecalReplayOf()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline || _loaded is not { Assets: { } assets, ImpactDecals: { } impacts } loaded)
         {
             return null;
@@ -6360,6 +6425,7 @@ internal class MainForm : Form, IFrameSteps
     /// </summary>
     private void AddSplashes(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } loaded)
         {
             return;
@@ -6413,6 +6479,7 @@ internal class MainForm : Form, IFrameSteps
 
                 if (_renderLog.IsEnabled(LogLevel.Debug))
                 {
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     _renderLog.LogDebug(
                         "{Message}",
                         string.Create(
@@ -6461,6 +6528,7 @@ internal class MainForm : Form, IFrameSteps
 
         foreach ((int index, SceneEffectDispatch dispatch) in _dispatchesNow)
         {
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!string.Equals(
                     timeline.Dispatches.Names.Name(dispatch.Name), SentryMuzzleFlash.EffectName, StringComparison.Ordinal) ||
                 !systems.TryGetValue(SentryMuzzleFlash.System(dispatch.Flags), out ParticleSystem? definition) ||
@@ -6531,6 +6599,7 @@ internal class MainForm : Form, IFrameSteps
             bool targeted = _settings.HealTargetMarker && beam.Owner is { } medic && medic == timeline.RecorderEntityIndex;
             string name = HealBeamFeed.EffectName(beam.Team, beam.ChargeRelease, targeted);
 
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
                 _models.AttachmentPoint(beam.Medigun, "muzzle") is not { } muzzle)
             {
@@ -6660,6 +6729,7 @@ internal class MainForm : Form, IFrameSteps
         {
             int entity = run.Entity;
 
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (entity == inEyes ||
                 OverhealEffects.EffectName(run.Team) is not { } name ||
                 !systems.TryGetValue(name, out ParticleSystem? definition) ||
@@ -6716,6 +6786,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_game is not { } game)
         {
             return;
@@ -6734,12 +6805,14 @@ internal class MainForm : Form, IFrameSteps
             // One line per first-person flash, the first frame it is offered: what started, or why nothing did.
             if (flash.Viewmodel is not null && _viewmodelFlashesLogged.Add(index))
             {
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 string where = point is { } p
                     ? string.Create(CultureInfo.InvariantCulture, $"at ({p.At.X:0} {p.At.Y:0} {p.At.Z:0})")
                     : string.Create(
                         CultureInfo.InvariantCulture,
                         $"no muzzle (first person {_firstPerson}, followed {FollowedEntity()}, owner {flash.Owner})");
 
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 _renderLog.LogInformation(
                     "{Message}",
                     string.Create(
@@ -6747,6 +6820,7 @@ internal class MainForm : Form, IFrameSteps
                         $"viewmodel muzzle flash tick {flash.Tick} weapon {flash.Weapon} item {flash.Item}: particle {what.Particle ?? "none"}, {where}"));
             }
 
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (point is not { } muzzle)
             {
                 continue;
@@ -6872,6 +6946,7 @@ internal class MainForm : Form, IFrameSteps
         {
             string posed = _models.IsPosed(dispatch.Entity) ? " (posed)" : " (not posed)";
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
@@ -6973,6 +7048,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private HudState WithIdTraces(HudState state, int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
             || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
             || FirstPersonCamera() is not { } eye)
@@ -7080,6 +7156,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private ((float X, float Y, float Z) End, bool Judged, int? Struck) StruckEnd(ShotImpact bullet)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline || _loaded?.Level is not { } level)
         {
             return (bullet.End, true, null);
@@ -7135,10 +7212,12 @@ internal class MainForm : Form, IFrameSteps
                 if (fraction is { } at && at < 1f)
                 {
                     answered++;
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     hits.Append(CultureInfo.InvariantCulture, $" {entity}@{at:0.0000}");
                 }
                 else
                 {
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     hits.Append(CultureInfo.InvariantCulture, $" {entity} {(fraction is null ? "untested" : "missed")}");
                 }
 
@@ -7155,6 +7234,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (_renderLog.IsEnabled(LogLevel.Debug))
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
@@ -7225,6 +7305,7 @@ internal class MainForm : Form, IFrameSteps
         _firedEvents.Clear();
         _models.TakeFiredEvents(_firedEvents);
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_replayingModelDecals || _sound.Scripts is not { } scripts || _firedEvents.Count == 0)
         {
             return;
@@ -7237,6 +7318,7 @@ internal class MainForm : Form, IFrameSteps
         {
             if (_renderLog.IsEnabled(LogLevel.Debug))
             {
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 _renderLog.LogDebug(
                     "{Message}",
                     string.Create(CultureInfo.InvariantCulture, $"animation event tick {tick} entity {fired.EntityIndex}: {fired.Event.Id} {fired.Event.Options} in sequence {fired.Sequence} at cycle {fired.Cycle:0.000}"));
@@ -7268,12 +7350,14 @@ internal class MainForm : Form, IFrameSteps
 
                     if (_renderLog.IsEnabled(LogLevel.Debug))
                     {
+                        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                         string who = stepper is { } s
                             ? string.Create(
                                 CultureInfo.InvariantCulture,
                                 $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}, {Vector3.Distance(eye, new Vector3(s.X, s.Y, s.Z)):0} from the camera, trace {_lastGround.Fraction:0.000} texinfo {_lastGround.Texinfo} terrain {_lastGround.DisplacementTexdata}")
                             : "no player at the shown moment";
 
+                        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                         _renderLog.LogDebug(
                             "{Message}",
                             string.Create(
@@ -7373,6 +7457,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (frictions.Count > 0 && _renderLog.IsEnabled(LogLevel.Debug))
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
@@ -7380,6 +7465,7 @@ internal class MainForm : Form, IFrameSteps
                     $"corpse friction at {tick} (clock {_frictionClock:0.###}): {string.Join(", ", frictions.Select(static friction => $"{friction.Entity} {friction.Energy:0.#} {friction.SurfaceProps}/{friction.SurfacePropsHit}"))}"));
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.Corpses.Surfaces is not { } surfaces)
         {
             return;
@@ -7389,6 +7475,7 @@ internal class MainForm : Form, IFrameSteps
         {
             if (_renderLog.IsEnabled(LogLevel.Debug))
             {
+                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                 _renderLog.LogDebug(
                     "{Message}",
                     string.Create(CultureInfo.InvariantCulture, $"corpse scrape {(sound.IsStop ? "stop" : "start")} at {tick}: {sound.EntityIndex} {sound.Name} volume {sound.Volume:0.###}"));
@@ -7424,6 +7511,7 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`C_BasePlayer::GetGroundSurface`: the surface under the player's hull, or null for none within 64.</summary>
     private StepSurface? GroundSurface(ScenePlayer player)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { Level: { } level, ImpactDecals: { } decals } loaded)
         {
             return null;
@@ -7450,6 +7538,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _landings.Clear();
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_moments.Source is not TimelineMoments { Prediction: { } prediction })
         {
             return;
@@ -7457,6 +7546,7 @@ internal class MainForm : Form, IFrameSteps
 
         prediction.TakeLandings(_landings);
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_replayingModelDecals || _sound.Scripts is not { } scripts || _timeline?.RecorderEntityIndex is not { } recorder)
         {
             return;
@@ -7613,6 +7703,7 @@ internal class MainForm : Form, IFrameSteps
                         .FirstOrDefault(pair => pair.Value.Equals(built.Material)).Key ?? "?";
                     DetailSpriteVertex first = built.Corners[0];
 
+                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     _renderLog.LogDebug(
                         "{Message}",
                         string.Create(
@@ -7806,6 +7897,7 @@ internal class MainForm : Form, IFrameSteps
     /// </summary>
     private void KickRopes(int fromTick, int toTick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline || toTick < fromTick)
         {
             return;
@@ -7835,6 +7927,7 @@ internal class MainForm : Form, IFrameSteps
     /// </summary>
     private int? RopeHolidayStyle(int tick)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_timeline is not { } timeline)
         {
             return null;
@@ -7892,6 +7985,7 @@ internal class MainForm : Form, IFrameSteps
         const int InvalidHandle = (1 << 21) - 1;
         const int SlotMask = (1 << 11) - 1;
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (handle == InvalidHandle || _timeline is not { } timeline)
         {
             return false;
@@ -7935,6 +8029,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private RopeEndPoint? RopeEnd(int handle, int attachment, bool playerWeapon)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
         {
             return null;
@@ -7986,6 +8081,7 @@ internal class MainForm : Form, IFrameSteps
     /// </summary>
     private Vector3 RopeLight(Vector3 at)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded?.Lighting is not { } lighting)
         {
             return Vector3.One;
@@ -8003,6 +8099,7 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>A rope node's ±2 hull sweep, world brushes only — <c>MASK_SOLID_BRUSHONLY</c>.</summary>
     private RopeHit RopeCollide(Vector3 from, Vector3 to)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded?.Level is not { } level)
         {
             return new RopeHit(1f, Vector3.Zero, 0f, false);
@@ -8034,6 +8131,7 @@ internal class MainForm : Form, IFrameSteps
 
         if (prop.Pose.SpriteTrail is { AttachedTo: not InvalidHandle } trail)
         {
+            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (Dereference(trail.AttachedTo) is not { } attached)
             {
                 return null;
@@ -8101,6 +8199,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private Vector3? BeamEnd(int handle, int attachment, bool hitboxes)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
         {
             return null;
@@ -8478,6 +8577,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void FinishMeasuring()
     {
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         PrintMeasured(
             _seekedForMeasure
                 ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)")
@@ -8495,6 +8595,7 @@ internal class MainForm : Form, IFrameSteps
     /// rebuild count cannot be: its line prints once per hundred rebuilds, and a backgrounded viewer (always, in the gate)
     /// can finish twenty seconds without reaching a hundred (2026-10-01, the cut ESEA demo).
     /// </remarks>
+    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
     private string MeasuredPlaybackHeading() =>
         string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports), ending at tick {_shownTick:0}");
 
@@ -8515,6 +8616,7 @@ internal class MainForm : Form, IFrameSteps
     {
         // The frame count beside the seconds: a paused frame writes no per-second line (the rate meter samples only
         // while the scene rebuilds), so for B420's paused measurement this mean IS the measurement.
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         Console.WriteLine(string.Create(
             CultureInfo.InvariantCulture,
             $"{heading}; {_framesMeasured} frames, mean {(_framesMeasured > 0 ? _frameSeconds * 1000d / _framesMeasured : 0d):0.00} ms"));
@@ -8525,6 +8627,7 @@ internal class MainForm : Form, IFrameSteps
             double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
             FramePhases sum = _phasesMeasured;
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
@@ -8675,6 +8778,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void PlayHudSound(string scriptName)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_hudReplaying || _sound.Scripts is not { } scripts)
         {
             return;
@@ -8744,6 +8848,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void PlaySounds()
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_audio is not { } output)
         {
             return;
@@ -8752,6 +8857,7 @@ internal class MainForm : Form, IFrameSteps
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (SoundListener.From(_firstPerson ? FirstPersonCamera() : FreeLookCamera())
             is not { } ears)
         {
@@ -8965,6 +9071,7 @@ internal class MainForm : Form, IFrameSteps
         {
             _fullScreenClock = null;
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogDebug(
                 "{Message}",
                 string.Create(
@@ -9171,6 +9278,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void OnViewportWheel(object? sender, MouseEventArgs e)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
@@ -9275,6 +9383,7 @@ internal class MainForm : Form, IFrameSteps
 
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
     {
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_dragFrom is not { } from || _loaded is not { } shown || shown.Outline.IsEmpty)
         {
             return;
@@ -9607,6 +9716,7 @@ internal class MainForm : Form, IFrameSteps
         if (keyData == Keys.Escape ||
             keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FullScreen)))
         {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(
@@ -9642,6 +9752,7 @@ internal class MainForm : Form, IFrameSteps
     /// opens, and full screen hides it. A control that is hidden while focused leaves the form with
     /// no focused child, and a keystroke with nowhere to land goes nowhere.
     /// </remarks>
+    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
     private string FocusHere() =>
         string.Create(
             CultureInfo.InvariantCulture,
@@ -9702,6 +9813,7 @@ internal class MainForm : Form, IFrameSteps
 
         RefreshPlaylist();
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
         _status.Text = _library.Entries.Count switch
         {
             0 => "No demos found.",
@@ -9907,6 +10019,7 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (SteamInstall.AsGameFolder(dialog.SelectedPath) is not { } game)
         {
             string refused = $"{NotAGameFolder} {dialog.SelectedPath} holds no {SteamInstall.Recogniser}. "
@@ -10048,6 +10161,7 @@ internal class MainForm : Form, IFrameSteps
             _audio?.Dispose();
             _audio = null;
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(
                 "{Message}",
                 string.Create(

@@ -25,6 +25,18 @@
             "statusMessage": "checking parity commits cite the engine"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"${CLAUDE_PROJECT_DIR}/.claude/hooks/tf2-thin-view.ps1\"",
+            "shell": "powershell",
+            "timeout": 15,
+            "statusMessage": "checking the view's domain reach only shrinks"
+          }
+        ]
       }
     ],
     "PostToolUse": [

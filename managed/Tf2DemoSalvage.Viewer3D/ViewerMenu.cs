@@ -295,6 +295,7 @@ internal sealed class ViewerMenu : IDisposable
             TextureQuality chosen = quality;
             int pixels = (int)quality;
 
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             ToolStripMenuItem item = new(
                 pixels == 0
                     ? "&Full"

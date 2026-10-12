@@ -233,6 +233,54 @@ idiom for every culture-safe message, so a large fraction of mutants are dead on
 defect to fix in the source — worth knowing so the created-versus-tested gap is not read as
 something else.
 
+### What it cost `Viewer3D`, and what stops it (2026-10-12, D214)
+
+The paragraph above says "not a defect to fix in the source", and for one mutant that is right. It is wrong about
+the method: **Safe Mode removes every mutant in a method whose mutated form fails to compile**, so one
+`string.Create` in a log line took the whole method out of the measurement. `Viewer3D` in CI: 4,355 mutants, 2,153
+compile errors, 8.47%.
+
+**Two shapes, and the mutators behind them** (*measured*, a local run's compile phase, which reports every method
+whatever `--mutate` says):
+
+| error | idiom | mutators |
+|---|---|---|
+| CS1620 | an interpolated string handed to a handler — `string.Create( CultureInfo.InvariantCulture, $"…" )`, `StringBuilder.Append( CultureInfo.InvariantCulture, $"…" )` | **String** rewrites `$"…"` as `( active ? $"" : $"…" )`, and a conditional cannot bind to a `ref` handler; the Conditional and Equality mutants INSIDE the holes ride in the same expression |
+| CS0165, CS0170 | a guard that declares what the method then uses — `if ( x is not { } name ) return;`, `!map.TryGetValue( k, out var v ) \|\| …` | **Block removal** and **Statement** empty the exit, **Logical** turns `\|\|` into `&&`, **Negate** flips the test: each leaves the variable unassigned below |
+
+**Config cannot stop it** (B410's measurement, not repeated here): `ignore-mutations` filters after the mutants are
+compiled in. The comment is the only thing that prevents injection, and one line does it:
+
+```csharp
+// Stryker disable once all : <why> - B410
+_renderLog.LogInformation(
+    "{Message}",
+    string.Create(CultureInfo.InvariantCulture, $"…"));
+```
+
+**`disable once all` before a statement covers the whole statement, however many lines it runs to** (*measured* on
+`ForegroundProbe.Describe`, a three-line `return string.Create(…)`: 15 compile errors and a Safe Mode removal
+before, none after, 7 mutants ignored with the comment's reason). That corrects an earlier note here that a
+multi-line statement needs the `disable all` / `restore all` pair. For an expression-bodied member the comment goes
+before the member. It costs the mutants inside that one statement, which for a log line or an early exit is the
+intent.
+
+**Done for `Viewer3D`**: 114 statements in `MainForm.cs`, one each in `ViewerMenu.cs` and `ForegroundProbe.cs`.
+Found by listing the idioms and then by rerunning the compile phase until it named nothing. Before and after, the
+whole project's mutants as one local run classes them:
+
+| | compile error | Safe Mode removals | ignored by a comment |
+|---|---|---|---|
+| before | 2,197 of 4,400 | 75, over 40 methods | 0 |
+| after | 529 | 0 | 750 |
+
+The 529 that remain are single mutants that do not compile on their own (`Count()` to `Sum()`, an ordering
+comparison on an enum) and take nothing else with them.
+
+**`--mutate "File.cs{a..b}"` is a span of CHARACTERS, not lines** (*measured*: `{28..56}` on an 84-line file filtered
+out every mutant on lines 31 to 74). The local hook's "at most 80" is therefore 80 characters; a method is covered by
+consecutive spans, and a mutant wider than one span — a block removal — is left out.
+
 ## `MutationHeavy`: the tests a mutation run leaves out (2026-10-11)
 
 **Stryker reruns every test that covers a mutant, once per mutant.** A test that takes seconds and

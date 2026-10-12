@@ -222,6 +222,14 @@ Phase 1 (see `ROADMAP.md` §3): `managed/Tf2DemoSalvage.Core`, pure C# — conta
 
 Do not start Phase 2 or Phase 3 work before Phase 1 is solid and tested. Do not build toward Phase 4 (demo repair for live-client replay) at all unless explicitly asked — it's parked, see `docs/DECISIONS.md` D1.
 
+## The view is thin: no new domain type or member in `Viewer3D` (D214)
+
+The view's reach into Core, Content, Scene, Audio, Animation and GameSystems is held by
+`ThinViewConformanceTests` to `tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt`, which
+only shrinks (`.claude/hooks/tf2-thin-view.ps1` refuses an added line). Behaviour goes in Presentation,
+Scene or Render with its tests; the view gets one call. A report that says "untested wiring in
+`MainForm`" is not mergeable. Size is not the measure — the reasoning and the owner's words: D214.
+
 ## Test naming — `{Subject}_{Scenario}_{Expected}`
 
 **Every test method is named `{Subject}_{Scenario}_{Expected}`.** Classes are `{TypeUnderTest}Tests`,
