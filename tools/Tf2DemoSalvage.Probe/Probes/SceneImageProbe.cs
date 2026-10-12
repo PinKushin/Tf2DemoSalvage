@@ -147,6 +147,36 @@ public sealed class SceneImageProbe : IProbe
         output.WriteLine(string.Create(
             CultureInfo.InvariantCulture, $"  SceneImage.Read: {archive.Count:N0} scenes"));
 
+        // **Named scenes, event by event, and then nothing else** — `scene-image <scene>...`. The
+        // question "what does this one scene stage" (B523) does not want the census below it.
+        if (arguments.Count > 0)
+        {
+            foreach (string scene in arguments)
+            {
+                IReadOnlyList<SceneEvent> staged = archive.EventsFor(scene);
+                Tf2DemoSalvage.Core.Scene.SceneTaunt? taunt = archive.TauntFor(scene);
+
+                output.WriteLine(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  '{scene}': {staged.Count:N0} events, production gestures " +
+                    $"{taunt?.Gestures.Count ?? 0}, loops {taunt?.Loops}"));
+
+                foreach (SceneEvent one in staged)
+                {
+                    output.WriteLine(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"    at {one.At:N0}: type {one.Type}, {one.Start:F3}..{one.End:F3}, '{one.Parameters}'"));
+                }
+
+                foreach (Tf2DemoSalvage.Core.Scene.SceneTauntGesture gesture in taunt?.Gestures ?? [])
+                {
+                    output.WriteLine($"    gesture {gesture}");
+                }
+            }
+
+            return;
+        }
+
         // **The control, first: hashes taken OUT of the directory must be found in it.** Without
         // this, every empty answer below reads as "that name is wrong" when it could equally be
         // "the search is broken", and those need different fixes.

@@ -143,3 +143,4 @@
 - [A reflection is tinted and masked by the helper](a-reflection-is-tinted-and-masked-by-the-helper.md) — `$envmaptint` gamma on VertexLitGeneric; phong always masked; glow occlusion is a GPU fraction (B521).
 - [A gate that waits says what it waits on](a-gate-that-waits-says-what-it-waits-on.md) — `capture waiting on …` in the log; a ring never re-queues what its reader waits on; a red CI step hides the steps after it (B520).
 - [Check the reference's subject before the camera](check-the-reference-subject-before-the-camera.md) — a dead target is chased; the label is not the subject; a timer names a tick only within a round (B522).
+- [A reading that makes Valve absurd is the reading](a-reading-that-makes-valve-absurd-is-the-reading.md) — commented-out script keys read as set; print the raw file; `moment-dump` interpolates, a `--shot` does not (B523).

@@ -79,6 +79,27 @@ public sealed class MomentPresenterTests
         source.LastPlayersInterpolating.ShouldBe(true);
     }
 
+    /// <remarks>
+    /// **An effect that follows a player follows where the frame DREW him** (B523). `CParticleProperty::UpdateControlPoint`
+    /// reads `GetAbsOrigin()` (`particle_property.cpp:637`), the interpolated origin while playing; the medigun beam's
+    /// far end read the newest recorded frame instead and led a running patient by the interpolation delay. The sample
+    /// the frame was built from is kept so nothing asks the recording a second, different question.
+    /// </remarks>
+    [Test]
+    public void Show_WithASource_KeepsThePlayersTheFrameWasBuiltFrom()
+    {
+        StubSource source = new() { Players = 3 };
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.Players.ShouldBeEmpty("the control: nothing before the first frame");
+
+        presenter.Show(tick: 123.5, View());
+
+        presenter.Players.Count.ShouldBe(3);
+        source.PlayerCalls.ShouldBe(1, "kept, not asked for again");
+    }
+
     [Test]
     public void Show_WithASource_AsksItForTheRoundAtTheTickBeingShown()
     {

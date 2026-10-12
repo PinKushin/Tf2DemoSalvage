@@ -426,6 +426,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnWeapon);
         int halloweenScenario = info.HalloweenScenario;
 
+        // **A canteen's skin is empty or filled, not its team's** (B523) — `CTFPowerupBottle::GetSkin`. Without the item
+        // schema nothing can say which canteen is the base one, and the demo's own skin stands.
+        if (hooks is not null)
+        {
+            PowerupBottle.Apply(_drawn, players, hooks.OnWeapon);
+        }
+
         _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed, motionCloak, halloweenScenario);
 
         ReportUndressedPlayers(players);
@@ -925,7 +932,10 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// Every one of them is a function of movement and elapsed time rather than of anything the
     /// recording holds, so reproducing them would be this viewer inventing motion — which is the one
     /// thing it exists not to do. What is drawn is where the weapon was; how it swayed is not in the
-    /// file.
+    /// file. **Re-read for B523 and no longer the whole truth:** TF's lag is nothing by default
+    /// (`cl_wpn_sway_interp` 0, `tf_viewmodel.cpp:85-96`), so not drawing it is parity; the BOB is
+    /// the engine's arithmetic on the player's speed (`tf_weaponbase.cpp:4845`), which the recording
+    /// does hold — an open divergence, filed in RISKS B523 (4), not a choice.
     ///
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.

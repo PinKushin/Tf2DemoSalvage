@@ -2353,7 +2353,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -2374,7 +2374,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                 sheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma, batch.Material.Overbright));
         }
     }
 
@@ -2396,7 +2396,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// <param name="viewProjection">The camera.</param>
     /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace)> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright)> batches,
         float[] viewProjection,
         WaterFrameTarget? frame = null)
     {
@@ -2413,7 +2413,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
                   IReadOnlyList<DetailSpriteVertex> corners,
                   RefractMaterial? refract,
                   MapTexture? cableBump,
-                  bool gammaSpace) in batches)
+                  bool gammaSpace,
+                  float overbright) in batches)
         {
             // A `Cable` material's normal map, raw like the refract one (B478); none for everything else.
             ComPtr<ID3D11ShaderResourceView> bump = default;
@@ -2480,7 +2481,12 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
             }
             else
             {
+                // **SpriteCard's `$overbrightfactor`** (B523): `blended_rgb.rgb *= fOverbrightFactor` before the vertex
+                // colour (spritecard_ps2x.fxc:143-144), which is the vertex colour times it. One for everything else —
+                // the Sprite shader above has no such parameter.
+                _particleSprites.SetColourScale(overbright);
                 _particleSprites.Draw(_device, _context, viewProjection);
+                _particleSprites.SetColourScale(1f);
             }
         }
     }
@@ -2498,7 +2504,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<DetailSpriteVertex> Corners,
         RefractMaterial? Refract,
         MapTexture? CableBump,
-        bool GammaSpace)> _panelParticles = [];
+        bool GammaSpace,
+        float Overbright)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
@@ -2508,7 +2515,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
         IReadOnlyList<DetailSpriteVertex> Corners,
         RefractMaterial? Refract,
         MapTexture? CableBump,
-        bool GammaSpace)> _particleBatches = [];
+        bool GammaSpace,
+        float Overbright)> _particleBatches = [];
 
     /// <summary>
     /// A gamma-space material's texture, uploaded WITHOUT the sRGB curve — <c>EnableSRGBRead( false )</c> (B521) — and

@@ -31,24 +31,53 @@ internal static class ScriptKeyValue
         ArgumentNullException.ThrowIfNull(key);
 
         string text = Encoding.UTF8.GetString(script);
-        string quoted = '"' + key + '"';
+        bool keyed = false;
+        int at = 0;
 
-        int at = text.IndexOf(quoted, StringComparison.OrdinalIgnoreCase);
-
-        if (at < 0)
+        // **Token by token, because a `//` comment is not a key** (B523). `KeyValues::ReadToken` eats white space and
+        // then `CUtlBuffer::EatCPPComment` (`tier1/utlbuffer.cpp:422-440`) — the rest of the line, whenever a token
+        // would START with `//`. This was a search for the quoted key anywhere in the text, and the shipped
+        // `soldier.ctx` carries `//"DontDoNewJump"	"1"`: every soldier jumped as `ACT_MP_JUMP`, which no soldier
+        // sequence has, and was drawn in the reference pose.
+        while (at < text.Length)
         {
-            return null;
+            char next = text[at];
+
+            if (char.IsWhiteSpace(next))
+            {
+                at++;
+            }
+            else if (next == '/' && at + 1 < text.Length && text[at + 1] == '/')
+            {
+                int line = text.IndexOf('\n', at);
+                at = line < 0 ? text.Length : line + 1;
+            }
+            else if (next == '"')
+            {
+                int close = text.IndexOf('"', at + 1);
+
+                if (close < 0)
+                {
+                    return null;
+                }
+
+                string token = text[(at + 1)..close];
+
+                if (keyed)
+                {
+                    return token;
+                }
+
+                keyed = string.Equals(token, key, StringComparison.OrdinalIgnoreCase);
+                at = close + 1;
+            }
+            else
+            {
+                // A brace or a bare word: never the key, which the scripts always quote, and never its value.
+                at++;
+            }
         }
 
-        int open = text.IndexOf('"', at + quoted.Length);
-
-        if (open < 0)
-        {
-            return null;
-        }
-
-        int close = text.IndexOf('"', open + 1);
-
-        return close < 0 ? null : text[(open + 1)..close];
+        return null;
     }
 }

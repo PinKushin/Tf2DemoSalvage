@@ -8,8 +8,8 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// <remarks>
 /// **The default is the engine's default**, not a guess: `tf_classdata.cpp:187-188` reads both with
 /// `GetInt( …, 0 ) &gt; 0`, so a script that omits a key — or a class with no script — describes a class that
-/// air-walks and jumps the new way. Measured on the shipped scripts: the soldier and the medic set
-/// `DontDoNewJump`, the medic `DontDoAirwalk` (`ClassAirwalkTests`).
+/// air-walks and jumps the new way. **No shipped script sets either** (`ClassAirwalkTests`, B523): the soldier's and
+/// the medic's carry the keys commented out, which an earlier reader took for set.
 /// </remarks>
 public readonly record struct ClassAnimationScript(bool DontDoAirwalk, bool DontDoNewJump);
 

@@ -16,5 +16,7 @@ state. If it steers state, carry the content into the layer that steps the state
 
 Also from B437: a comment saying "every shipped X has flag Y false" contradicted a measurement in the same repo
 (`ClassAirwalkTests`: soldier and medic set `DontDoNewJump`). Before trusting such a claim, grep for the test that
-measured it. And a field the engine CLEARS is not a behaviour until something READS it
+measured it. **Corrected by B523: that measurement was the wrong one** — both keys are commented out in the shipped
+scripts and the reader could not see a comment; the comment it overturned was right. See
+`a-reading-that-makes-valve-absurd-is-the-reading.md`. And a field the engine CLEARS is not a behaviour until something READS it
 (`m_bCurrentFeetYawInitialized` is written twice and read nowhere).

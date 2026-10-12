@@ -54,6 +54,30 @@ public readonly record struct ParticleMaterial(
     /// </remarks>
     public bool GammaSpace { get; init; }
 
+    /// <summary>
+    /// <c>SpriteCard</c>'s <c>$overbrightfactor</c>, which multiplies the texel before the vertex colour
+    /// (`spritecard_ps2x.fxc:143-144`); one for a material that states none and for every other shader (B523).
+    /// </summary>
+    public float Overbright { get; init; } = 1f;
+
+    /// <summary>The factor a material draws with, from its shader and what it states.</summary>
+    /// <param name="shader">The material's shader name, or null when it did not resolve.</param>
+    /// <param name="stated">Its <c>$overbrightfactor</c> as text — the <c>srgb?</c> form first, as for <c>$alpha</c> — or null.</param>
+    /// <returns>The factor; one unless a <c>SpriteCard</c> material states a number.</returns>
+    /// <remarks>
+    /// `spritecard.cpp:81` declares the parameter and `:110` sets it to 1.0 when unset; no other shader this pass draws
+    /// through reads it. The medigun's beam (<c>effects/medicbeam_curl</c>) states 3.
+    /// </remarks>
+    public static float OverbrightOf(string? shader, string? stated) =>
+        string.Equals(shader, "SpriteCard", System.StringComparison.OrdinalIgnoreCase) &&
+        float.TryParse(
+            stated,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out float factor)
+            ? factor
+            : 1f;
+
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);
 }

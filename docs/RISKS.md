@@ -37075,3 +37075,169 @@ picture shows that case yet; it is the owner's earlier decision, so it is asked 
   the name; a person's window keeps the warning and the normal choice.
   `Capture_OfSeveralPathsInsteadOfOne_ExitsNonZeroNamingThem`, `Capture_SpectatingANameNobodyHas_ExitsNonZeroNamingIt`
   (both failed first: a 45-second hang, and exit 0).
+
+## B523 — the gummo comparison at f12 tick 63600: four differences, each with its cause
+
+Reference pair `pause/g-tp.png` and `pause/g-fp.png` (TF2 left, ours right), `--spectate gummo`, chase and in-eye.
+
+### 1. "A BLU soldier stands in the air beside the chase camera" — a living soldier in the reference pose; a commented-out script key was read as set — FIXED 2026-10-12
+
+**It is not nezay.** *Measured*: `TF2VIEW_PICK` on the figure names `models/player/soldier.mdl entity 11`, which
+`roster` gives as cutemobb, alive; nezay (entity 8) is `Drawn = False` and `PlayerProps.ModelFor` refuses him, as it
+should. Cutemobb is a third of a second into a crouch-jump rocket jump: `FL_ONGROUND` clears at 63594, `FL_DUCKING`
+sets at 63596, `TF_COND_BLASTJUMPING` at 63598, and he is 68 units up ten ticks later. So a soldier IS beside the
+camera there. What was wrong is how he was drawn: `sequence 0` — `ref`, arms down, the launcher hanging off an
+unanimated weapon bone — where 63594 still drew him running.
+
+**Cause.** `PlayerAnimation.For` was asked for `LegacyJump`, `ACT_MP_JUMP`, which the launcher's table makes
+`ACT_MP_JUMP_PRIMARY` (`tf_weaponbase.cpp:3671`) and which `soldier.mdl` has no sequence for (*measured*,
+`class-activities 3 …`), so the engine's own fallback gave sequence 0 (`multiplayer_animstate.cpp:1174-1177`).
+`LegacyJump` came from the soldier's class script "setting `DontDoNewJump`" (B437). *Read from the shipped data*,
+`weapon-script playerclasses/soldier`: the line is `//"DontDoNewJump"	"1"`. A comment. `ScriptKeyValue.First`
+searched for the quoted key anywhere in the text; `KeyValues` eats `//` to the end of the line before every token
+(`CUtlBuffer::EatCPPComment`, `tier1/utlbuffer.cpp:422-440`). The medic's script has the same line and
+`//"DontDoAirwalk"	"1"`. **No shipped class sets either key.** So since 2026-10-02: every soldier and medic jump
+was the reference pose (medic: except with a melee weapon, the one old jump any model has), every medic was kept
+out of the air-walk, and a soldier's plain jump landed without its gesture.
+
+**Fix.** `ScriptKeyValue.First` walks tokens and skips a comment. `ClassScriptConformanceTests` (five, three red
+first, on the shipped lines byte for byte); `ClassAirwalkTests`' two "measurements" — which asserted the wrong reading,
+one of them as a guard — are replaced by `ClassScripts_EveryShippedClass_AirWalksAndJumpsTheNewWay`. The engine's
+`m_bDontDoNewJump` branch stays ported; a script that really sets the key takes it. The history is in
+`docs/findings/25-gesture-layer.md`.
+
+**On screen:** `b521d/air-strip2.png` before (63594 running, 63596 and 63597 `ref`), `b521d/air-after-strip.png`
+after (sequence 162, `jump_start_PRIMARY`, launcher in hand). The same shot's pick line now reads
+`sequence 162 … jump JumpStart`.
+
+**Whether TF2's picture should show him is a question of four ticks, and it stays one.** A paused `--shot` draws the
+last received state (B399); at `--tick 63600` that is cutemobb at (20.4 949.6 579.9), which `moment-dump` — sampling as
+playback, interpolated — reports for tick 63610. He crosses the chase camera's frame in about fifteen ticks. TF2's
+picture shows gummo at 226 health, which the demo first carries at 63602-63604, so it is no earlier than that; it
+could as well be a few ticks later with the soldier already above the frame. *Interpolated*, not measured: a TF2
+capture with `spec_player cutemobb` would settle the pose itself, which is the part that mattered.
+
+**Two instruments, added:** `TF2VIEW_PICK` reports each prop's drawn origin, sequence, weapon slot, jump activity and
+flags — the values the frame posed with; `class-activities <class> <ACT_…>…` asks a class model for an activity and
+prints its script's two flags; `scene-image <scene>…` lists one compiled scene's events.
+
+### 2. "TF2 draws a blue glow around gummo; ours has none" — the medigun beam on its patient: three divergences fixed, the picture still short — OPEN, a question for TF2
+
+**What it is.** *Measured*: gummo's conditions are `TF_COND_HEALTH_BUFF` (21) and `TF_COND_HEALTH_OVERHEALED` (23);
+`heal-beams f12tf.dem 63300 63750` has medigun 408 (Exiou, item 15050) on target 3 from tick 63460 to 63635. So the
+glow is `medicgun_beam_blue` (`CWeaponMedigun::UpdateEffects`, `tf_weapon_medigun.cpp:2406-2466`): control point 0 on
+the muzzle, control point 1 at the patient's `GetAbsOrigin() + ( 0, 0, 50 )` (`particle_property.cpp:637`). Its
+children at the patient are `medicgun_beam_blue_healing` (ten `effects/sc_softglow` cards, radius 2-4 scaled 5 to 1
+with a bias of 0.05) and the `_trail_stage3` curl (`effects/medicbeam_curl`). The pluses are the overheal's and the
+beam's drips. This viewer drew all of it, and almost none of it showed. Three causes, each the engine's:
+
+- **`$overbrightfactor` was never read.** *Read from published source*: `spritecard.cpp:81` declares it, `:110` sets
+  1.0 when unset, and `spritecard_ps2x.fxc:143-144` is `blended_rgb.rgb *= fOverbrightFactor` before the vertex
+  colour. *Shipped data*: `effects/medicbeam_curl` states `"srgb?$overbrightfactor" 3`; 191 shipped materials state
+  one, up to 15. Every one drew at a fraction of its light. Now `ParticleMaterial.Overbright`, read at both places a
+  particle material is made and applied as the sprite pass's colour scale. `SpriteCardOverbrightConformanceTests`
+  (six cases and a picture: an overbright of 3 adds three times the light).
+- **`Radius Scale` was a straight line.** *Read in disassembly*, `C_OP_InterpolateRadius::Operate` in
+  `particles.lib`'s `builtin_particle_ops.obj`: a window (`start_time`, `end_time`) outside which nothing is
+  written, `ease_in_and_out` as `3t² − 2t³`, else `scale_bias` through Schlick's bias (`ssemath.h:3153-3165`). At a
+  bias of 0.05 the healing glow is still 4.8 times its radius half way through its life, where the line had 3; it
+  was *interpolated* since B373. `ParticleOperatorConformanceTests`, seven new cases, all red first.
+- **The beam's far end followed the wrong sample while playing.** `AddHealBeams` read `timeline.PlayersAt( tick )`,
+  the newest recorded frame; the patient is DRAWN interpolated, `cl_interp` behind it, so the beam ended ahead of
+  anyone running (ten ticks on f12: 42 units at gummo's speed). It reads `MomentPresenter.Players` now, the sample
+  the frame was built from. A paused frame was unaffected — both were the last received.
+
+**What is left, and why it is a question.** After those, `b521d/belt-cmp.png`: ours shows a faint glow at his
+shoulder and a thin line of curl sprites arriving from the left; TF2 shows a strong soft glow some 15 units left of
+his torso, in front of it, and no line. *Measured* with `TF2VIEW_PICK="x y pixels"`: our nine glow cards sit within
+five units of control point 1, inside his chest, so his own back hides them; our 150 curl cards are collinear on
+the path. Two readings, not separable from one paused picture:
+
+- *Interpolated:* TF2 does not simulate particles while paused, and pausing snaps every entity from its
+  interpolated position to its last received one (B399). A running patient then stands ten ticks ahead of the glow
+  that was simulated around him — which leaves it behind and to the side, clear of his body, where TF2's picture
+  has it. This viewer rebuilds an effect around the paused positions.
+- Or our stage-3 particles lose a sideways speed the engine keeps. `Position Within Sphere Random` gives them 111
+  units a second across the path, and `C_OP_BasicMovement::Operate` (read in the same object: Verlet, constraints
+  after, no fix-up of the previous position) should carry it; a collinear line says something drops it.
+
+**Asked of TF2:** the same chase view of a patient who is STANDING STILL under a beam, paused; and one of gummo
+taken while playing (`host_timescale 0.1`). The first separates the two readings; the second is what a viewer
+watching sees.
+
+**Instruments:** `heal-beams <demo> <from> <to>`; `particles system <name>` was there already; the pick reports a
+quad's size, the tick, and takes a third number for how many pixels around the point it lists.
+
+### 3. "The item on gummo's hip is grey in TF2 and yellow-green in ours" — a canteen's skin is empty or filled, not its team's — FIXED 2026-10-12
+
+**Which item.** *Measured*, `moment-dump f12tf.dem 63610 535`: entity 535, `CTFPowerupBottle`, item 30015 (the
+Battery Canteens), `models/workshop/player/items/scout/robo_all_mvm_canteen/robo_all_mvm_canteen.mdl`, bone-merged on
+gummo, `m_nSkin` 1, body 0, no paint, `m_usNumCharges` 0. (His other belt item, 537, the Bananades, is the grenade
+bodygroup's replacement and matched already.)
+
+**Cause.** *Read from published source*, `tf_item_powerup_bottle.cpp:677-685`:
+
+```
+int CTFPowerupBottle::GetSkin()
+{
+	if ( !IsBasePowerUpBottle() )
+		return ( ( GetNumCharges() > 0 ) ? 1 : 0 );
+	return BaseClass::GetSkin();
+}
+```
+
+with `IsBasePowerUpBottle()` the hook `set_weapon_mode == 1` (`tf_item_powerup_bottle.h:68`). A cosmetic canteen's
+two skins are EMPTY and FILLED. The server still writes the team into `m_nSkin` as for any wearable, and this viewer
+drew that: every BLU canteen filled, every RED one empty. Outside Mann vs. Machine no canteen holds a charge, so
+TF2 draws them all empty — the grey one.
+
+**Fix.** `PowerupBottle.Skin` is the function; `PowerupBottle.Apply` gives each `CTFPowerupBottle` in the draw list
+its skin from its wearer's item (`SceneItem.NumCharges`, and the hook through `AttributeHooks.OnWeapon`), in
+`MomentScene.Build`. `PowerupBottleConformanceTests` (six; red first as a compile failure). *Not built:* the base
+canteen's model swap to its powerup's flask while charged (`GetWorldModelIndex`, `:647-674`), Mann vs. Machine alone.
+
+**On screen:** `b521d/belt-cmp.png`, TF2 left, ours right after — grey box, white caps. Before: `pause/g-tp.png`.
+
+### 4. "In-eye, TF2's viewmodel sits lower-left and larger" — a setting's value and a tick; one engine motion not built — NO DEFAULT CHANGED, the bob OPEN
+
+**The size is `viewmodel_fov_demo`.** *Read from published source*: while a demo plays TF2 reads
+`viewmodel_fov_demo` and never `viewmodel_fov` (`ClientModeTFNormal::GetViewModelFOV`, `clientmode_tf.cpp:570-575`),
+default 54; the TF2 side of the comparison pins 54 (`findings/76`). This viewer defaults to 70 — the owner's choice,
+D43, for looking at the hands — so its weapon is smaller and nearer the centre. *Measured*: `+viewmodel_fov_demo 54`
+and `+viewmodel_fov 54` are both honoured (the log says which was taken) and draw the weapon at TF2's size.
+`tools/golden-viewer-shot.sh` now pins `+viewmodel_fov_demo 54`, since the comparison is what it is for; the viewer's
+default is untouched.
+
+**The rest is mostly the tick.** With 54, the world lines up with TF2's picture at `--tick 63606`, not 63600
+(`b521d/fp-cmp3.png`), and the weapon's muzzle and drum are then within about twenty pixels of TF2's; at 63592 the
+same weapon sits a hundred pixels away. What remains at 63606 is TF2's hand lower and further left.
+
+**What the owner's client had, as far as files say:** `tf/cfg/config.cfg` carries `viewmodel_fov "0.100000"` (not
+read while a demo plays) and no `tf_use_min_viewmodels`, so that is its default, 0. `r_drawviewmodel` was pinned 1.
+
+**Read and not built — the engine's own viewmodel motion:**
+
+- **The bob.** `CBaseViewModel::CalcViewModelView` calls `pWeapon->AddViewmodelBob` (`baseviewmodel_shared.cpp:402`,
+  `CTFWeaponBase::AddViewmodelBob`, `tf_weaponbase.cpp:4845`): a cycle advanced by the player's speed that moves the
+  weapon sideways, forward and in pitch, yaw and roll. At gummo's 280 units a second it is on the order of a unit
+  sideways and half a degree. `MomentScene`'s viewmodel remarks call the bob, the lag and the shake "deliberately
+  not copied… a function of movement and elapsed time rather than of anything the recording holds". That predates
+  D89: the speed IS in the recording and the cycle is the engine's arithmetic. *Filed here as a divergence, not
+  fixed*: it is state stepped per frame, and a paused capture shows wherever playing left it, so it wants its own
+  port and its own reference.
+- **The lag is nothing in TF.** `CTFViewModel::CalcViewModelLag` returns at once while `cl_wpn_sway_interp` is 0,
+  its default, and the cvar is `FCVAR_CHEAT | FCVAR_DEVELOPMENTONLY` (`tf_viewmodel.cpp:65`, `:85-96`). So not
+  drawing a lag is parity, for the engine's reason and not ours.
+- **`tf_use_min_viewmodels` is not read by this viewer at all** (`tf_viewmodel.cpp:196-221`, the item's
+  `min_viewmodel_offset` through `CTFWeaponBase::GetViewmodelOffset`, `tf_weaponbase.cpp:6937`). The owner's client
+  has it off, so it is not this picture; a config that turns it on is ignored, which D69 says must not stand.
+- **The pose itself on SourceTV.** *Measured*, `viewmodels f12tf.dem 3`: 63 changes in 106,313 ticks — the demo
+  carries almost none of a spectated player's viewmodel animation, so both TF2 and this viewer make it up
+  client-side, and the remaining difference in the hand may be that. Not separable from one picture.
+
+**Also answered on the way (B522's open question):** `CTFViewModel::DrawModel` returns 0 when the viewmodel's
+player is not alive (`tf_viewmodel.cpp:268-271`), whatever `C_BaseViewModel::ShouldDraw` says. So TF2 draws no
+viewmodel for a dead in-eye target, which is what this viewer does. B522's "one real difference" was not one.
+
+**Asked of TF2:** `tf_use_min_viewmodels` and `cl_flipviewmodels` as the client holds them now, and the in-eye
+picture again with the tick read off the client at the moment of capture.
