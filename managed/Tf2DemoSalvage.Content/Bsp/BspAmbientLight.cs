@@ -245,13 +245,21 @@ public static class BspAmbientLight
     /// it reads back an arbitrary survivor of that thinning. Two mirror-image capture points on a
     /// symmetric map came back 0.10 and 0.39.
     /// </remarks>
-    public static IReadOnlyList<AmbientSamples> Read(ReadOnlyMemory<byte> file)
+    public static IReadOnlyList<AmbientSamples> Read(ReadOnlyMemory<byte> file) => Read(file, BspHdr.Enabled);
+
+    /// <summary><see cref="Read(ReadOnlyMemory{byte})"/> with HDR on or off stated — `mat_hdr_level` at least 2, or not (B537).</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <param name="hdrEnabled">Whether the HDR type is not `HDR_TYPE_NONE`.</param>
+    /// <returns>The samples, leaf by leaf.</returns>
+    public static IReadOnlyList<AmbientSamples> Read(ReadOnlyMemory<byte> file, bool hdrEnabled)
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        // **The HDR pair when the map has it**, as `Mod_LoadLeafs` (`engine.dll` 0x180102300) reads at TF2's default HDR
-        // level: lumps 55 and 51 when 55 is non-empty, else 56 and 52. vrad bakes the HDR set from `_lightHDR`.
-        ReadOnlySpan<byte> hdrSamples = BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafAmbientLightingHdr)).Span;
+        // **The HDR pair when HDR is on and the map has it**, as `Mod_LoadLeafs` (`engine.dll` 0x180102300) reads: the
+        // HDR type is asked first, then lump 55's size — 55 and 51, else 56 and 52. vrad bakes the HDR set from `_lightHDR`.
+        ReadOnlySpan<byte> hdrSamples = hdrEnabled
+            ? BspLumpData.Read(file, header.Lump(BspLumpIndex.LeafAmbientLightingHdr)).Span
+            : default;
         bool hdr = !hdrSamples.IsEmpty;
 
         ReadOnlySpan<byte> samples = hdr

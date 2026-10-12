@@ -17,8 +17,14 @@ public static class CubemapFile
     /// <summary>The paths to try, in order.</summary>
     /// <param name="name">The texture name as a material or the map states it, without `materials/` or an extension.</param>
     /// <returns>The HDR bake's path, then the LDR one's.</returns>
-    public static IReadOnlyList<string> Candidates(string name) =>
-        ["materials/" + name + ".hdr.vtf", "materials/" + name + ".vtf"];
+    public static IReadOnlyList<string> Candidates(string name) => Candidates(name, Content.Bsp.BspHdr.Enabled);
+
+    /// <summary><see cref="Candidates(string)"/> with HDR on or off stated: off is the LDR file alone, no `.hdr` being appended (B537).</summary>
+    /// <param name="name">The texture name.</param>
+    /// <param name="hdr">Whether the HDR type is not `HDR_TYPE_NONE` — `mat_hdr_level` at least 2.</param>
+    /// <returns>The paths to try, in order.</returns>
+    public static IReadOnlyList<string> Candidates(string name, bool hdr) =>
+        hdr ? ["materials/" + name + ".hdr.vtf", "materials/" + name + ".vtf"] : ["materials/" + name + ".vtf"];
 
     /// <summary>The first candidate that exists.</summary>
     /// <param name="name">The texture name.</param>

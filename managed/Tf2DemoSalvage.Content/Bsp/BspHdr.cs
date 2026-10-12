@@ -64,8 +64,36 @@ public static class BspHdr
     /// <param name="map">The map's bytes.</param>
     /// <returns><see cref="HdrType.IntegerHdr"/> on an HDR map, else <see cref="HdrType.None"/>.</returns>
     /// <remarks>Map_CheckForHDR also asks for <c>mat_hdr_level</c> at least 2, which the default meets.</remarks>
-    public static HdrType ForTf2(ReadOnlySpan<byte> map) => HdrTypeInUse(
-        MapHasHdr(map), Dx9Level, CapsHdrType(supportsInteger: true, supportsFloat: true, DefaultMatHdrLevel));
+    public static HdrType ForTf2(ReadOnlySpan<byte> map) => ForTf2(map, MatHdrLevel);
+
+    /// <summary>The HDR type a map is drawn with at one <c>mat_hdr_level</c> (B537).</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="matHdrLevel"><c>mat_hdr_level</c>: 0 and 1 are LDR, 2 integer HDR; 3 is drawn as 2, the float path not being built.</param>
+    /// <returns>The type.</returns>
+    public static HdrType ForTf2(ReadOnlySpan<byte> map, int matHdrLevel) => HdrTypeInUse(
+        MapHasHdr(map) && EnabledAt(matHdrLevel),
+        Dx9Level,
+        CapsHdrType(supportsInteger: true, supportsFloat: true, Math.Min(matHdrLevel, DefaultMatHdrLevel)));
+
+    /// <summary>
+    /// The watcher's <c>mat_hdr_level</c>, as the engine holds it: one value for the process, read when a map loads (B537).
+    /// </summary>
+    /// <remarks>
+    /// **A process-wide value because the engine's is** — `g_pMaterialSystemHardwareConfig` — and because what it
+    /// decides is asked in a dozen loaders that are handed a map's bytes and nothing else. The viewer sets it once from
+    /// the config before any map is read; changing it takes a map reload, as it does in TF2. **Every reader that
+    /// consults it also takes the answer as an argument**, and the tests pass that: they run in parallel and must not
+    /// write this.
+    /// </remarks>
+    public static int MatHdrLevel { get; set; } = DefaultMatHdrLevel;
+
+    /// <summary>Whether HDR is on at the process's <see cref="MatHdrLevel"/> — `Map_CheckForHDR`'s "at least 2".</summary>
+    public static bool Enabled => EnabledAt(MatHdrLevel);
+
+    /// <summary>Whether a <c>mat_hdr_level</c> turns HDR on.</summary>
+    /// <param name="matHdrLevel">The level.</param>
+    /// <returns>True from 2 up.</returns>
+    public static bool EnabledAt(int matHdrLevel) => matHdrLevel >= DefaultMatHdrLevel;
 
     /// <summary>The <c>Water</c> shader's three HDR-dependent scales.</summary>
     /// <param name="type">The HDR type.</param>

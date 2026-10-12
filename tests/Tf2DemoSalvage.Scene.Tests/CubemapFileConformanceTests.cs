@@ -20,6 +20,12 @@ public sealed class CubemapFileConformanceTests
                 "materials/maps/koth_harvest_final/c0_0_96.vtf",
             });
 
+    /// <remarks>`mat_hdr_level` below 2: `CShaderSystem_LoadCubeMap` appends no `.hdr`, so the LDR bake is the only file asked for (B537).</remarks>
+    [Test]
+    public void Candidates_WithHdrOff_IsTheLdrBakeAlone() =>
+        CubemapFile.Candidates("maps/koth_harvest_final/c0_0_96", hdr: false)
+            .ShouldBe(new List<string> { "materials/maps/koth_harvest_final/c0_0_96.vtf" });
+
     [Test]
     public void Find_OnlyTheLdrBakeExists_FallsBackToIt()
     {

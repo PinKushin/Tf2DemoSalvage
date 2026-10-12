@@ -86,6 +86,66 @@ public sealed class HdrLumpChoiceConformanceTests
         BspWorldLights.Read(map).Count.ShouldBe(1);
     }
 
+    /// <remarks>
+    /// **`mat_hdr_level` below 2 is `HDR_TYPE_NONE`, and every one of these readers asks that first** (B537).
+    /// `Mod_LoadLeafs` (`engine.dll` 0x180102300), read again for the other branch: the hardware config's HDR type
+    /// (`*DAT_1807a8c70 + 0x1b0`) is tested BEFORE the lump's size, and zero goes straight to lumps 0x38 and 0x34. A map
+    /// carrying both sets is every shipped map, so with HDR off the HDR set is there and is not read.
+    /// </remarks>
+    [Test]
+    public void AmbientRead_AMapCarryingBothSetsWithHdrOff_ReadsTheLdrSamples()
+    {
+        byte[] map = SyntheticBsp.Build(new Dictionary<int, byte[]>
+        {
+            [LeafAmbientLighting] = Sample(x: 10),
+            [LeafAmbientIndex] = [1, 0, 0, 0],
+            [LeafAmbientLightingHdr] = Sample(x: 200),
+            [LeafAmbientIndexHdr] = [1, 0, 0, 0],
+        });
+
+        BspAmbientLight.Read(map, hdrEnabled: false)[0].Samples[0].X.ShouldBe(10f / 255f);
+    }
+
+    [Test]
+    public void WorldLightsRead_AMapCarryingBothSetsWithHdrOff_ReadsTheLdrLights()
+    {
+        byte[] map = SyntheticBsp.Build(new Dictionary<int, byte[]>
+        {
+            [WorldLights] = new byte[BspStructLayout.WorldLightStride],
+            [WorldLightsHdr] = new byte[BspStructLayout.WorldLightStride * 2],
+        });
+
+        BspWorldLights.Read(map, hdrEnabled: false).Count.ShouldBe(1);
+    }
+
+    /// <remarks>The faces and the lighting they index are a pair: `LUMP_FACES` (7) with `LUMP_LIGHTING` (8) when HDR is off.</remarks>
+    [Test]
+    public void LightSamples_AMapCarryingBothFaceLumps_AreTheLdrFacesWithHdrOffAndTheHdrOnesWithItOn()
+    {
+        const int faces = 7, lighting = 8, lightingHdr = 53, facesHdr = 58, faceBytes = 56;
+
+        byte[] map = SyntheticBsp.Build(new Dictionary<int, byte[]>
+        {
+            [faces] = new byte[faceBytes],
+            [lighting] = new byte[4],
+            [facesHdr] = new byte[faceBytes * 2],
+            [lightingHdr] = new byte[8],
+        });
+
+        BspLightmaps.ReadSamples(map, hdr: false).Layout(1).ShouldBeNull("one LDR face");
+        BspLightmaps.ReadSamples(map, hdr: true).Layout(1).ShouldNotBeNull("two HDR faces");
+    }
+
+    /// <remarks>`engine.dll` 0x1800f4760: `sp_hdr_%d.vhv` only when HDR is ON and the map's HDR bake bit is set.</remarks>
+    [Test]
+    public void StaticPropLightingPath_AnHdrBakedMapWithHdrOff_IsTheLdrFile()
+    {
+        const uint both = BspMapFlags.BakedStaticPropLightingNonHdr | BspMapFlags.BakedStaticPropLightingHdr;
+
+        Tf2DemoSalvage.Content.Assets.StudioVertexLighting.PathsFor(7, both, hdr: false).ShouldBe(["sp_7.vhv"]);
+        Tf2DemoSalvage.Content.Assets.StudioVertexLighting.PathsFor(7, both, hdr: true).ShouldBe(["sp_hdr_7.vhv"]);
+    }
+
     private static byte[] Sample(byte x)
     {
         byte[] sample = new byte[AmbientSampleBytes];

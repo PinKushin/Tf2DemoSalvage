@@ -962,6 +962,9 @@ internal class MainForm : Form, IFrameSteps
         // The watcher's `spec_autodirector` (B535).
         _spectator.AutoDirector = _settings.AutoDirector;
 
+        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
+        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
+
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.

@@ -117,7 +117,7 @@ public static class BspLightmaps
     /// <returns>One entry per face, empty where the face is unlit.</returns>
     /// <exception cref="InvalidDataException">A face's samples fall outside the lighting lump.</exception>
     /// <remarks>
-    /// **The HDR pair, as TF2 draws at its default HDR level** — see <see cref="Lit"/>. This used to prefer LDR, on
+    /// **The HDR pair, as TF2 draws at its default HDR level** — see <see cref="Lit(ReadOnlyMemory{byte})"/>. This used to prefer LDR, on
     /// the grounds that HDR "produced a map washed out to white"; the HDR fallback it kept read lump 53 through lump
     /// 7's offsets, and the two lightings measure identical on `koth_harvest_final` (the `lighting-lumps` probe,
     /// ratio 1.000 on 8,433 faces), so the wash-out was never the data.
@@ -486,9 +486,15 @@ public static class BspLightmaps
     /// <param name="file">The map's bytes.</param>
     /// <returns>The samples.</returns>
     /// <remarks>The same lump choice as <see cref="Read"/>, so the two agree on which light a map has.</remarks>
-    public static BspLightSamples ReadSamples(ReadOnlyMemory<byte> file)
+    public static BspLightSamples ReadSamples(ReadOnlyMemory<byte> file) => ReadSamples(file, BspHdr.Enabled);
+
+    /// <summary><see cref="ReadSamples(ReadOnlyMemory{byte})"/> with HDR on or off stated — `mat_hdr_level` at least 2, or not (B537).</summary>
+    /// <param name="file">The map's bytes.</param>
+    /// <param name="hdr">Whether HDR is on.</param>
+    /// <returns>The samples.</returns>
+    public static BspLightSamples ReadSamples(ReadOnlyMemory<byte> file, bool hdr)
     {
-        (ReadOnlyMemory<byte> facesLump, ReadOnlyMemory<byte> lighting) = Lit(file);
+        (ReadOnlyMemory<byte> facesLump, ReadOnlyMemory<byte> lighting) = Lit(file, hdr);
         ReadOnlySpan<byte> faces = facesLump.Span;
 
         int count = faces.Length / FaceStride;
@@ -583,11 +589,17 @@ public static class BspLightmaps
     /// through lump 7's offsets — the old fallback — only works while vrad happened to lay both out alike. vrad bakes
     /// the HDR pair from the lights' `_lightHDR`, which a map may set apart from `_light`; TF2 draws that one by default.
     /// </remarks>
-    private static (ReadOnlyMemory<byte> Faces, ReadOnlyMemory<byte> Lighting) Lit(ReadOnlyMemory<byte> file)
+    private static (ReadOnlyMemory<byte> Faces, ReadOnlyMemory<byte> Lighting) Lit(ReadOnlyMemory<byte> file) =>
+        Lit(file, BspHdr.Enabled);
+
+    /// <summary><see cref="Lit(ReadOnlyMemory{byte})"/> with HDR on or off stated: off reads the LDR pair whatever the map carries (B537).</summary>
+    private static (ReadOnlyMemory<byte> Faces, ReadOnlyMemory<byte> Lighting) Lit(ReadOnlyMemory<byte> file, bool hdrEnabled)
     {
         BspHeader header = BspHeader.Parse(file.Span);
-        ReadOnlyMemory<byte> hdrFaces = BspLumpData.ReadStructures(file, header.Lump(BspLumpIndex.FacesHdr), FaceStride, "HDR faces");
-        ReadOnlyMemory<byte> hdrLighting = BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr));
+        ReadOnlyMemory<byte> hdrFaces = hdrEnabled
+            ? BspLumpData.ReadStructures(file, header.Lump(BspLumpIndex.FacesHdr), FaceStride, "HDR faces")
+            : default;
+        ReadOnlyMemory<byte> hdrLighting = hdrEnabled ? BspLumpData.Read(file, header.Lump(BspLumpIndex.LightingHdr)) : default;
 
         return (
             hdrFaces.Length > 0 ? hdrFaces : BspLumpData.ReadStructures(file, header.Lump(BspLumpIndex.Faces), FaceStride, "faces"),
