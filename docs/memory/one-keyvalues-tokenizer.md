@@ -21,5 +21,12 @@ What the four old ones each got wrong, and what it changed (census: `kv-census` 
 script value looks wrong, run `vmt <path>` / `kv-census` and compare "as shipped" with "as this project reads it"
 before touching the consumer.
 
-Not audited, and may have their own readers: localisation files, the HUD animation script, `.cfg`. A `.phy`'s text
-section uses the stream reader where the engine uses vphysics' own tokenizer.
+**Not every Valve text file is KeyValues — ask which reader the ENGINE uses before picking ours (B532):**
+
+- localisation: vgui2.dll's own, UTF-16 (`VguiLocalize`, ported from disassembly).
+- HUD animation script: `ParseFile`, filesystem_helpers.cpp:29 (`VguiAnimationController`).
+- `.cfg`: `GetNextCommandLength` then `CCommand::Tokenize`, break set `{}()':`, `""` IS an argument (`SourceConfig.Tokens`).
+- `.phy` text and `surfaceproperties.txt`: vphysics' tokenizer, lowers key AND value, `/* */` comments (`VphysicsTokens`).
+
+Census probes that stay: `kv-census`, `cfg-census` (old tokenizer frozen inside), `phy-census [nocase]` (digest per file;
+run before and after a reader change and diff).

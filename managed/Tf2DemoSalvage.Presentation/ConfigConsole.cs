@@ -721,7 +721,9 @@ public sealed class ConfigConsole
         {
             // `alias name` with no body clears it, and an empty body is legal — the null-cancel
             // script defines `alias none ""` precisely so a name can mean "do nothing".
-            _aliases[tokens[1]] = tokens.Count >= 3 ? tokens[2] : string.Empty;
+            // **Every argument after the name, joined by spaces** — *interpolated*: Quake's `Cmd_Alias_f`, which the
+            // closed engine's descends from, copies "the rest of the command line"; `alias x say hi` is `say hi`.
+            _aliases[tokens[1]] = string.Join(' ', tokens.Skip(2));
             return;
         }
 

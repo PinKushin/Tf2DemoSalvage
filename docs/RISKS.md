@@ -37479,3 +37479,33 @@ newest tick's health over a player drawn ten ticks behind it (B527). **Tests:**
 `WithDrawnPositions_APlayerTheFrameDrew_TakesHisDrawnPositionAndKeepsHisNewestState` and its null control, red as a
 compile failure (an analyzer refuses the stub). The `MainForm` and `DemoSystems` call sites are wiring with no test,
 and nothing was looked at on screen: a floating health icon needs a POV medic's demo.
+
+## B532 — the text readers B524 did not audit: four formats, four engine tokenizers, two of ours wrong — CLOSED 2026-10-12
+
+B524 put every KeyValues reader on one tokenizer and named four it had not looked at. **None of the four is KeyValues
+in the engine**, and each was checked against the reader the engine actually uses:
+
+| format | the engine's reader | ours before | census | state |
+|---|---|---|---|---|
+| localisation (`resource/*_english.txt`) | vgui2.dll's own, UTF-16, `\n` and `\"` its only escapes, `[$…]` after the pair | `VguiLocalize`, already a port of it from the disassembly (0x1800192e0, 0x18001e920) | not run: nothing to compare against | right as it was |
+| the HUD animation script | `ParseFile` (public/filesystem_helpers.cpp:29) | `VguiAnimationController.ParseFile`, already a port | not run | right as it was |
+| `.cfg` | `CCommandBuffer::GetNextCommandLength` (tier1/commandbuffer.cpp:163) then `CCommand::Tokenize` (tier1/convar.cpp:389) over `CUtlBuffer::ParseToken` with the break set `{}()':` | a tokenizer of our own: dropped `""`, glued a quote to the word beside it, no break set, and `ReadBinds`/`ReadAliases` did not split on `;` | 60 files, 6,394 commands, **3 differ**, all an empty quoted argument (`alias none ""` and two `sixense_bind`) | **ported** |
+| a `.phy`'s text | `IVPhysicsKeyParser` in vphysics.dll: `FUN_18002e160` and the block parsers inline the tokenizer `FUN_180003640` and lower both key and value | the KeyValues stream reader | 6,709 files: **987 change in case only**, **2 change in value** | **ported** |
+
+*Read from published source* for the first three engine readers, *read in disassembly* for vphysics. Both censuses
+are *measured*, by probes that stay: `cfg-census` carries the old tokenizer frozen inside it, and `phy-census [nocase]`
+prints a digest a file to diff across a change of reader.
+
+**`.cfg`.** The one command that mattered, `alias none ""`, was already special-cased in `ConfigConsole` (an alias
+with no body), so nothing a user saw changes on the shipped or installed configs; `bind k ""` now reads as three
+arguments. An alias body is now every argument after the name joined by spaces — *interpolated* from Quake's
+`Cmd_Alias_f`, the closed engine's ancestor. **Not covered by the census:** `.cfg` files inside a `custom/*.vpk`.
+**Tests:** `CommandTokenizeConformanceTests`, 18 cases, 8 red first.
+
+**`.phy`.** vphysics' tokenizer was already ported for `surfaceproperties.txt`, in a layer above the `.phy` reader;
+it moved down to `Content` (`VphysicsTokens`) and both read through it. What changes: every value is lowered —
+bone names (`ValveBiped.Bip01_Pelvis` on the 987 Half-Life 2 era models), surface properties, gib paths — `/* */` is
+a comment, and nothing is conditional. The two files whose VALUES change are
+`models/props_junk/wood_crate001a_damaged.phy` and `models/props_lab/dogobject_wood_crate001a_damagedmax.phy`
+(24 break pieces to 23); which token does it was not read. **Tests:** `PhysicsTextConformanceTests` (3): the lowered
+name and the block comment red first, the quoted `[$X360]` key green before and after.

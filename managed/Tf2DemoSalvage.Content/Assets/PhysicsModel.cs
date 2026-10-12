@@ -551,23 +551,44 @@ public sealed class PhysicsModel
             ordered.Clear();
         }
 
-        KeyValuesReader.Read(text.Span, (key, value, depth) =>
+        // **vphysics' own parser, not KeyValues** (B532) — `IVPhysicsKeyParser`, read in `vphysics.dll`. `NextBlock`
+        // (`FUN_18002e160`) reads lowered key and value pairs until a value is exactly `{` and names the block by its key;
+        // a block parser (`FUN_18002eeb0` is one) reads pairs until a key BEGINS with `}`. This went through the KeyValues
+        // stream reader, which keeps case, knows no `/* */` and evaluates conditionals the format does not have.
+        ReadOnlySpan<byte> bytes = text.Span;
+        int at = 0;
+
+        while (at >= 0)
         {
-            if (value is null)
-            {
-                // A new block opens: whatever was being gathered is finished.
-                Close();
+            (string name, string opens) = VphysicsTokens.ParseKeyValue(bytes, ref at);
 
-                block = key;
-            }
-            else if (depth > 0)
+            if (opens != "{")
             {
-                fields[key] = value;
-                ordered.Add((key, value));
+                continue;
             }
 
-            return true;
-        });
+            // A new block opens: whatever was being gathered is finished.
+            Close();
+
+            block = name;
+
+            while (at >= 0)
+            {
+                (string key, string value) = VphysicsTokens.ParseKeyValue(bytes, ref at);
+
+                if (key.StartsWith('}'))
+                {
+                    break;
+                }
+
+                // The text ending inside a block hands the handler what it had read, and an empty pair is not one.
+                if (key.Length > 0)
+                {
+                    fields[key] = value;
+                    ordered.Add((key, value));
+                }
+            }
+        }
 
         // **The last block has no successor to close it.** Every `.phy` TF2 ships happens to end
         // with a trailing block — `editparams` — so on those files the last constraint is closed by

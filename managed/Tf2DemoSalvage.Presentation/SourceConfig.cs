@@ -40,10 +40,8 @@ public static class SourceConfig
     {
         List<(string Key, string Command)> binds = [];
 
-        foreach (string line in (text ?? string.Empty).Split('\n'))
+        foreach (List<string> tokens in Commands(text))
         {
-            List<string> tokens = Tokenise(line);
-
             if (tokens.Count == 0)
             {
                 continue;
@@ -97,14 +95,12 @@ public static class SourceConfig
     {
         Dictionary<string, string> aliases = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (string line in (text ?? string.Empty).Split('\n'))
+        foreach (List<string> tokens in Commands(text))
         {
-            List<string> tokens = Tokenise(line);
-
             if (tokens.Count >= 3 && tokens[0].Equals("alias", StringComparison.OrdinalIgnoreCase))
             {
                 // Later wins, as with binds: a config is executed top to bottom.
-                aliases[tokens[1]] = tokens[2];
+                aliases[tokens[1]] = string.Join(' ', tokens.GetRange(2, tokens.Count - 2));
             }
         }
 
@@ -200,57 +196,91 @@ public static class SourceConfig
     /// <returns>The tokens, quotes removed.</returns>
     public static IReadOnlyList<string> Tokens(string? clause) => Tokenise(clause ?? string.Empty);
 
-    /// <summary>Splits one config line into tokens, honouring quotes and comments.</summary>
+    /// <summary>`CCommand::Tokenize`'s break set (tier1/convar.cpp:326): each is an argument of its own.</summary>
+    private const string BreakSet = "{}()':";
+
+    /// <summary>`CCommand::Tokenize` (tier1/convar.cpp:389): one `CUtlBuffer::ParseToken` per argument (B532).</summary>
     /// <remarks>
-    /// **Quotes are optional in Source and both forms appear in the same file.**
-    /// `config_default.cfg` writes `bind "w" "+forward"` while a hand-edited `autoexec.cfg` is as
-    /// likely to say `bind w +forward`. A parser that required quotes would silently read half a
-    /// real config.
+    /// <code>
+    /// // tier1/utlbuffer.cpp:1242-1326
+    /// EatWhiteSpace (isspace); a "//" here eats to the end of the line
+    /// '"' → everything to the next '"' or the end of the buffer, the quotes dropped — an EMPTY string is an argument
+    /// a break character → itself, alone
+    /// else a word: up to a break character, a '"' or anything &lt;= ' '
+    /// </code>
     ///
-    /// **A `//` inside quotes is not a comment.** No binding needs one, but a cvar value can — and
-    /// stripping to the first `//` regardless would truncate the line and turn a value into a
-    /// different value rather than into an error.
+    /// **This replaced a tokenizer of this project's own**, which dropped `""` — so `alias noop ""` and `bind k ""` were
+    /// two arguments and ignored — glued a quoted run to the word beside it, and did not know the break set. A config
+    /// is not KeyValues and has no escapes at all.
     /// </remarks>
     private static List<string> Tokenise(string line)
     {
         List<string> tokens = [];
-        StringBuilder current = new();
-        bool quoted = false;
+        int at = 0;
 
-        for (int at = 0; at < line.Length; at++)
+        while (true)
         {
-            char c = line[at];
-
-            if (c == '"')
+            // Whitespace, then a comment where an argument would start, then whitespace again.
+            while (at < line.Length && (IsSpace(line[at]) || IsComment(line, at)))
             {
-                quoted = !quoted;
-                continue;
+                at = IsComment(line, at) ? EndOfLine(line, at) : at + 1;
             }
 
-            if (!quoted && c == '/' && at + 1 < line.Length && line[at + 1] == '/')
+            if (at >= line.Length || line[at] == '\0')
             {
-                break;
+                return tokens;
             }
 
-            if (!quoted && (c == ' ' || c == '\t' || c == '\r'))
+            char first = line[at++];
+
+            if (first == '"')
             {
-                if (current.Length > 0)
+                int close = line.IndexOfAny(['"', '\0'], at);
+                int end = close < 0 ? line.Length : close;
+
+                tokens.Add(line[at..end]);
+                at = end + 1;
+            }
+            else if (BreakSet.Contains(first, StringComparison.Ordinal))
+            {
+                tokens.Add(first.ToString());
+            }
+            else
+            {
+                int start = at - 1;
+
+                while (at < line.Length && line[at] > ' ' && line[at] != '"' && !BreakSet.Contains(line[at], StringComparison.Ordinal))
                 {
-                    tokens.Add(current.ToString());
-                    current.Clear();
+                    at++;
                 }
 
-                continue;
+                tokens.Add(line[start..at]);
             }
-
-            current.Append(c);
         }
+    }
 
-        if (current.Length > 0)
+    /// <summary>C's `isspace` in the "C" locale: space, and tab through carriage return.</summary>
+    private static bool IsSpace(char c) => c == ' ' || (c >= '\t' && c <= '\r');
+
+    /// <summary>Every command of a config as its arguments: lines, then `;` clauses, then <see cref="Tokens"/>.</summary>
+    private static IEnumerable<List<string>> Commands(string? text)
+    {
+        foreach (string line in (text ?? string.Empty).Split('\n'))
         {
-            tokens.Add(current.ToString());
+            foreach (string clause in Clauses(line))
+            {
+                yield return Tokenise(clause);
+            }
         }
+    }
 
-        return tokens;
+    private static bool IsComment(string line, int at) => line[at] == '/' && at + 1 < line.Length && line[at + 1] == '/';
+
+    /// <summary>Past the line break that ends a comment, or the end of the text.</summary>
+    private static int EndOfLine(string line, int at)
+    {
+        int end = line.IndexOf('\n', at);
+
+        return end < 0 ? line.Length : end + 1;
     }
 }
