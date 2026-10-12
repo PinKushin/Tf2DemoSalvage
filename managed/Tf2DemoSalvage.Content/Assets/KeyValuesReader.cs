@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
@@ -12,10 +11,14 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// model path off a few dozen weapons. Materialising the whole thing to read those would allocate
 /// tens of megabytes and hold them for the session.
 ///
-/// **Not a general KeyValues implementation and does not pretend to be.** There is no macro
-/// expansion, no <c>#base</c> include, no conditional (<c>[$WIN32]</c>) handling. It reads the
-/// syntax the shipped data actually uses, which is quoted and bare tokens, nested blocks, and
-/// comments to end of line.
+/// **The tokens and the conditionals are `KeyValues`' own** (B524): <see cref="KeyValuesTokens"/> is `ReadToken`, and a
+/// key whose tag fails `EvaluateConditional` is not reported — nor is anything in its block — as
+/// `RecursiveLoadFromBuffer` reads and discards it. This had its own tokenizer, which took a `[$WIN32]` tag for the
+/// next key (`scripts/game_sounds.txt`, six sounds) and a quoted brace for structure.
+///
+/// **What a stream cannot do is include.** `#base` and `#include` at the top are consumed with the file they name and
+/// reported as nothing; none of the 273 files this is pointed at uses either (`kv-census`). A file layered that way
+/// goes through <see cref="KeyValuesTree"/>.
 /// </remarks>
 public static class KeyValuesReader
 {
@@ -27,28 +30,20 @@ public static class KeyValuesReader
     public delegate bool Visitor(string key, string? value, int depth);
 
     /// <summary>Reads a KeyValues document, reporting each key as it is met.</summary>
-    /// <param name="text">The document's bytes, UTF-8.</param>
+    /// <param name="text">The document's bytes: UTF-8, or UTF-16 behind its byte order mark.</param>
     /// <param name="visitor">Called for each key.</param>
     /// <exception cref="ArgumentNullException"><paramref name="visitor"/> is null.</exception>
     public static void Read(ReadOnlySpan<byte> text, Visitor visitor)
     {
         ArgumentNullException.ThrowIfNull(visitor);
 
-        int at = 0;
+        KeyValuesTokens tokens = new(KeyValuesTokens.Decode(text));
         int depth = 0;
 
-        while (true)
+        while (tokens.Next() is { } key)
         {
-            // Stryker disable once : a mutant that empties the guard body leaves 'key' unassigned
-            // at its later use (CS0165), and Safe Mode then drops every mutation in this
-            // method — B410.
-            if (Token(text, ref at) is not { } key)
-            {
-                return;
-            }
-
             // A closing brace where a key would be: the block ended.
-            if (key == "}")
+            if (key.Closes)
             {
                 depth = Math.Max(0, depth - 1);
                 continue;
@@ -56,26 +51,52 @@ public static class KeyValuesReader
 
             // An opening brace where a key would be belongs to the key before it, which has
             // already been reported — Valve's own files put it on the following line.
-            if (key == "{")
+            if (key.Opens)
             {
                 depth++;
                 continue;
             }
 
-            int before = at;
-
-            // Stryker disable once : a mutant that empties the guard body leaves 'next' unassigned
-            // at its later use (CS0165), and Safe Mode then drops every mutation in this
-            // method — B410.
-            if (Token(text, ref at) is not { } next)
+            if (depth == 0 && !key.Quoted &&
+                (string.Equals(key.Text, "#base", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(key.Text, "#include", StringComparison.OrdinalIgnoreCase)))
             {
-                _ = visitor(key, null, depth);
+                _ = tokens.Next();
+                continue;
+            }
+
+            bool accepted = true;
+            int before = tokens.Position;
+
+            if (tokens.Next() is not { } next)
+            {
+                _ = visitor(key.Text, null, depth);
                 return;
             }
 
-            if (next == "{")
+            // A tag between a key and what follows it decides the key.
+            if (next.Conditional)
             {
-                if (!visitor(key, null, depth))
+                accepted = KeyValuesTree.EvaluateConditional(next.Text);
+                before = tokens.Position;
+
+                if (tokens.Next() is not { } real)
+                {
+                    return;
+                }
+
+                next = real;
+            }
+
+            if (next.Opens)
+            {
+                if (!accepted)
+                {
+                    Skip(tokens);
+                    continue;
+                }
+
+                if (!visitor(key.Text, null, depth))
                 {
                     return;
                 }
@@ -84,13 +105,13 @@ public static class KeyValuesReader
                 continue;
             }
 
-            if (next == "}")
+            if (next.Closes)
             {
                 // A key with no value at the end of a block. Reported as a block-less key rather
                 // than dropped, and the brace is put back so the depth still falls.
-                at = before;
+                tokens.Position = before;
 
-                if (!visitor(key, null, depth))
+                if (accepted && !visitor(key.Text, null, depth))
                 {
                     return;
                 }
@@ -98,81 +119,40 @@ public static class KeyValuesReader
                 continue;
             }
 
-            if (!visitor(key, next, depth))
+            // A tag straight after a value decides the key it follows.
+            int after = tokens.Position;
+
+            if (tokens.Next() is { Conditional: true } tag)
+            {
+                accepted = KeyValuesTree.EvaluateConditional(tag.Text);
+            }
+            else
+            {
+                tokens.Position = after;
+            }
+
+            if (accepted && !visitor(key.Text, next.Text, depth))
             {
                 return;
             }
         }
     }
 
-    /// <summary>Reads one token: a quoted string, a brace, or a bare word.</summary>
-    /// <remarks>
-    /// **Braces are structure outside quotes and text inside them.** A scanner that looked for
-    /// them without tracking quotes would lose its depth on the first value containing one.
-    /// </remarks>
-    private static string? Token(ReadOnlySpan<byte> text, ref int at)
+    /// <summary>Reads past a block whose opening brace has just been read, to the brace that closes it.</summary>
+    private static void Skip(KeyValuesTokens tokens)
     {
-        while (true)
+        int open = 1;
+
+        while (open > 0 && tokens.Next() is { } token)
         {
-            while (at < text.Length && (text[at] is (byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n'))
+            if (token.Opens)
             {
-                at++;
+                open++;
             }
-
-            if (at >= text.Length)
+            else if (token.Closes)
             {
-                return null;
+                open--;
             }
-
-            // A comment runs to the end of the line. The shipped schema uses them heavily, and
-            // commented-out keys are exactly the ones a reader must not report.
-            if (text[at] == (byte)'/' && at + 1 < text.Length && text[at + 1] == (byte)'/')
-            {
-                while (at < text.Length && text[at] != (byte)'\n')
-                {
-                    at++;
-                }
-
-                continue;
-            }
-
-            break;
         }
-
-        if (text[at] is (byte)'{' or (byte)'}')
-        {
-            at++;
-            return text[at - 1] == (byte)'{' ? "{" : "}";
-        }
-
-        if (text[at] == (byte)'"')
-        {
-            at++;
-            int start = at;
-
-            while (at < text.Length && text[at] != (byte)'"')
-            {
-                at++;
-            }
-
-            string quoted = Encoding.UTF8.GetString(text[start..Math.Min(at, text.Length)]);
-
-            if (at < text.Length)
-            {
-                at++;
-            }
-
-            return quoted;
-        }
-
-        int word = at;
-
-        while (at < text.Length &&
-               text[at] is not ((byte)' ' or (byte)'\t' or (byte)'\r' or (byte)'\n' or (byte)'{' or (byte)'}' or (byte)'"'))
-        {
-            at++;
-        }
-
-        return Encoding.UTF8.GetString(text[word..at]);
     }
 }

@@ -553,3 +553,18 @@ second six ticks is 25 units of a running player.
 received positions while particles, not simulated at a frame time of zero, stay where playing left them. If that
 is right, every effect attached to a moving player is displaced in a paused reference by his speed times the
 interpolation delay, and a pair taken paused cannot judge it. The medigun glow is the first case (B523 (2)).
+
+### A PLAYING reference is matched ten ticks early, and its HUD is not (B527, 2026-10-12)
+
+**Wrong turn, kept:** the heal beam references (playing at `host_timescale 0.1`) were first matched by the HUD's
+health — gummo 236, cutemobb 210 is tick 63630 — and the viewer's paused shot at 63630 drew the beam climbing to the
+upper left where TF2 has it level. The beam was right and the tick was wrong. **A playing TF2 frame draws entities
+an interpolation delay behind the tick whose health its HUD prints**: health is not interpolated, positions are. A
+paused `--shot` draws the last received state, so the shot that matches a playing reference is the HUD's tick
+**minus** the delay — 63620 here, where the medic has not yet jumped (*measured*: his Z is 512 through 63620 and 544
+at 63630, and the beam's direction follows it). The paragraph above is the same offset read from the other side.
+
+**A seek has to rebuild what playing accumulated.** Two faults in the viewer's catch-up were found from this pair
+and neither was in the particle operators — both are in B527: every past tick was stepped at today's control
+points, and a stopped beam froze where it was let go. Reference 15 is the second: the beam there had stopped
+(*measured*: both patients' health is falling) and still sweeps round the rock after the medic.

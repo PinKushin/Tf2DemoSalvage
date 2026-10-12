@@ -100,6 +100,27 @@ public sealed class MomentPresenterTests
         source.PlayerCalls.ShouldBe(1, "kept, not asked for again");
     }
 
+    /// <remarks>
+    /// **A trace against a player is against where he was DRAWN** (B526): `GetCollisionOrigin()` is the interpolated abs
+    /// origin and his hitboxes were posed there. The frame's sample answers for the tick it showed and for no other —
+    /// a replay asking about an earlier tick gets nothing here and falls back to the recording.
+    /// </remarks>
+    [Test]
+    public void PlayersShownAt_TheTickTheFrameShowed_IsItsSampleAndAnyOtherTickIsNot()
+    {
+        StubSource source = new() { Players = 2 };
+        MomentPresenter presenter = Presenter(out FrameLedger _);
+        presenter.Source = source;
+
+        presenter.PlayersShownAt(123).ShouldBeNull("the control: nothing has been shown");
+
+        presenter.Show(tick: 123.5, View());
+
+        presenter.PlayersShownAt(123).ShouldNotBeNull().Count.ShouldBe(2);
+        presenter.PlayersShownAt(124).ShouldBeNull();
+        presenter.PlayersShownAt(122).ShouldBeNull();
+    }
+
     [Test]
     public void Show_WithASource_AsksItForTheRoundAtTheTickBeingShown()
     {

@@ -2626,7 +2626,10 @@ internal class MainForm : Form, IFrameSteps
                 _transport.Playing,
 
                 // The watcher's `cl_flipviewmodels` (B515).
-                _settings.FlipViewModels));
+                _settings.FlipViewModels,
+
+                // The watcher's `tf_use_min_viewmodels` (B525).
+                _settings.UseMinViewmodels));
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -4946,7 +4949,10 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
+        // **Where the frame DREW them, when the frame is of this tick** (B526): a decal's ray is clipped to the struck
+        // player's box at his abs origin, the interpolated one his hitboxes were posed at. The recording's newest frame
+        // stands in only for a replayed tick no frame showed.
+        IReadOnlyList<ScenePlayer> players = _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick);
 
         foreach (ScenePlayer player in players)
         {
@@ -5603,13 +5609,34 @@ internal class MainForm : Form, IFrameSteps
         foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
         {
             if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target &&
-                PassesAnEnemy(bullet, timeline.PlayersAt(bullet.Tick)))
+                PassesAnEnemy(bullet, PlayersABulletMayMeet(timeline, bullet.Tick)))
             {
                 Land(bullet.Tick);
             }
         }
 
         return needed;
+    }
+
+    /// <summary>The interpolated half of <see cref="PlayersABulletMayMeet"/>, reused.</summary>
+    private readonly List<ScenePlayer> _interpolatedThen = [];
+
+    /// <summary>Both places a player may be when a past tick's bullet is judged: the recording's newest frame, and where
+    /// a playing frame draws him — an interpolation delay behind it (B526).</summary>
+    /// <remarks>
+    /// **A filter must not be narrower than what it filters for.** The replay judges a bullet against hitboxes posed
+    /// where the frame draws the player; this pre-filter measured from the recording's origin alone, which for anyone
+    /// running is up to his speed times the interpolation delay away — more than the 19 units of slack
+    /// <see cref="ReachOfAPlayer"/> leaves. Either sample reaching is enough to replay the tick: "a bullet let through is
+    /// only posed for nothing".
+    /// </remarks>
+    private List<ScenePlayer> PlayersABulletMayMeet(DemoTimeline timeline, int tick)
+    {
+        _interpolatedThen.Clear();
+        timeline.PlayersAt((double)tick, _interpolatedThen);
+        _interpolatedThen.AddRange(timeline.PlayersAt(tick));
+
+        return _interpolatedThen;
     }
 
     /// <summary>How near a bullet's path must come to a player's hull centre to be able to reach his hitboxes, in units.</summary>
@@ -5683,7 +5710,7 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
-            foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+            foreach (ScenePlayer player in PlayersABulletMayMeet(timeline, bullet.Tick))
             {
                 if (wipedAt.TryGetValue(player.EntityIndex, out int wiped) && bullet.Tick > wiped && Reaches(bullet, player))
                 {
@@ -6499,16 +6526,79 @@ internal class MainForm : Form, IFrameSteps
 
             ParticleControlPoint patient = ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f));
 
-            _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End));
+            // **A beam met by a seek is caught up along the path its two ends took** (B527), not between where they
+            // stand now: asked only for the ticks a catch-up steps, so a playing frame never calls it.
+            Vector3? medicDrawn = beam.Owner is { } owner && _playersNow.TryGetValue(owner, out Vector3 drawn) ? drawn : null;
+            Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> history =
+                then => HealBeamThen(timeline, tick, then, beam, muzzle, medicDrawn, patient);
+
+            _burstsNow.Add(
+                new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End, history));
 
             // The item's `custom_particlesystem`, created beside the beam on the same two points (`:2469-2479`).
             if (beam.Item is { } item &&
                 _game?.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom &&
                 systems.TryGetValue(custom, out ParticleSystem? added))
             {
-                _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End));
+                _burstsNow.Add(
+                    new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End, history));
             }
         }
+    }
+
+    /// <summary>Where a beam's two ends were on an earlier tick — <see cref="FollowedPoint"/>, from the recorded frames.</summary>
+    private static (ParticleControlPoint At, ParticleControlPoint? End) HealBeamThen(
+        DemoTimeline timeline,
+        int tick,
+        int then,
+        SceneHealBeam beam,
+        ParticleControlPoint muzzle,
+        Vector3? medicDrawn,
+        ParticleControlPoint patient)
+    {
+        IReadOnlyList<ScenePlayer> recorded = timeline.PlayersAt(tick);
+        IReadOnlyList<ScenePlayer> earlier = timeline.PlayersAt(then);
+
+        ParticleControlPoint at = muzzle;
+        ParticleControlPoint end = patient;
+
+        if (medicDrawn is { } drawn &&
+            Recorded(recorded, beam.Owner) is { } medic &&
+            Recorded(earlier, beam.Owner) is { } medicThen)
+        {
+            at = FollowedPoint.Then(
+                muzzle,
+                drawn,
+                new Vector3(medic.X, medic.Y, medic.Z),
+                medic.Yaw,
+                new Vector3(medicThen.X, medicThen.Y, medicThen.Z),
+                medicThen.Yaw);
+        }
+
+        // `PATTACH_ABSORIGIN_FOLLOW` with an offset: the patient's end has no lever arm to turn, only his movement.
+        if (Recorded(recorded, beam.Target) is { } target && Recorded(earlier, beam.Target) is { } targetThen)
+        {
+            end = patient with
+            {
+                At = patient.At + new Vector3(targetThen.X - target.X, targetThen.Y - target.Y, targetThen.Z - target.Z),
+            };
+        }
+
+        return (at, end);
+    }
+
+    /// <summary>One player's recorded frame by entity, or null when the frame has none.</summary>
+    private static ScenePlayer? Recorded(IReadOnlyList<ScenePlayer> players, int? entity)
+    {
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>
@@ -6801,7 +6891,9 @@ internal class MainForm : Form, IFrameSteps
         List<BulletTarget> targets = [];
         Dictionary<int, int> teams = [];
 
-        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        // Their hulls where the frame drew them — `GetCollisionOrigin()` — beside the hitboxes posed there (B526); the
+        // recording's newest frame put a running player's hull an interpolation delay ahead of his body.
+        foreach (ScenePlayer player in _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick))
         {
             if ((player.LifeState ?? Alive) == Alive)
             {

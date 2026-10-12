@@ -128,4 +128,14 @@ public sealed class ViewmodelCvarConformanceTests
         new ViewerSettings().FlipViewModels.ShouldBeFalse();
         ViewerSettings.Parse("cl_flipviewmodels 1").FlipViewModels.ShouldBeTrue();
     }
+
+    [Test]
+    public void UseMinViewmodels_ByDefaultAndFromAConfig_IsValvesCvar()
+    {
+        // `ConVar tf_use_min_viewmodels( "tf_use_min_viewmodels", "0", FCVAR_ARCHIVE, … )` (`tf_viewmodel.cpp:125`),
+        // B525: an archived cvar, so a real config carries it, and until now a config that set it was ignored (D69).
+        ViewerSettings.UseMinViewmodelsCommand.ShouldBe("tf_use_min_viewmodels");
+        new ViewerSettings().UseMinViewmodels.ShouldBeFalse();
+        ViewerSettings.Parse("tf_use_min_viewmodels 1").UseMinViewmodels.ShouldBeTrue();
+    }
 }

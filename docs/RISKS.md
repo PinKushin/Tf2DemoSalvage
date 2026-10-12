@@ -37240,4 +37240,149 @@ player is not alive (`tf_viewmodel.cpp:268-271`), whatever `C_BaseViewModel::Sho
 viewmodel for a dead in-eye target, which is what this viewer does. B522's "one real difference" was not one.
 
 **Asked of TF2:** `tf_use_min_viewmodels` and `cl_flipviewmodels` as the client holds them now, and the in-eye
-picture again with the tick read off the client at the moment of capture.
+picture again with the tick read off the client at the moment of capture. *Answered 2026-10-12, read from the
+owner's client:* `viewmodel_fov_demo` 54, `tf_use_min_viewmodels` 0, `cl_flipviewmodels` 0.
+
+## B524 — one KeyValues tokenizer: four readers had four, and each was wrong differently — CLOSED 2026-10-12
+
+After B523's commented-out key, every reader of Valve's KeyValues text was checked against `KeyValues::ReadToken`
+and `RecursiveLoadFromBuffer` (`tier1/KeyValues.cpp:538-618`, *read from published source*). `KeyValuesTree` was
+already a port of them. Its tokenizer is now `KeyValuesTokens`, public, and the other readers stand on it.
+
+**The census** (`kv-census`, run on the shipped game BEFORE the readers changed; 32,619 text files, 30,993
+materials, 266,323 material keys):
+
+| reader | the shortcut | what it read wrong on shipped data | on screen |
+|---|---|---|---|
+| `ScriptKeyValue` (class scripts) | the first quoted value after the quoted key, anywhere in the text | commented-out keys (B523); would also take a nested block's key or a tagged one | every soldier and medic jump in the reference pose (B523) |
+| `VmtMaterial.Parse` | its own scanner: an empty token ended the parse | **7 materials** state `""` and lost everything after it, 190 keys and blocks: both `debug/env_cubemap_model_translucent*`, `demoman_blue_zombie`, `pyro_zombie_red` (`$lightwarptexture ""`, then 7), both `c_tomislav_gold` (`$phongboost ""`, then 19), `vortigaunt/eyeball` | the gold Tomislav without the 19 keys after its `$phongboost`; two zombie skins without their last 7 |
+| `VmtMaterial.Parse` | `name?$key` kept whatever the test | **83 keys** where a `360?` twin follows the plain key, so the console's value was drawn; 439 `360?` keys in all, `srgb?` 28, `lowfill?` 8, `!srgb?` 5, `!lowfill?` 4, `!360?` 1 | `$color2` of `brutal_eddiehair`, `coh_badge` and their like at the console's grey; `vistasmokev1`'s fade sizes |
+| `KeyValuesReader` (the stream: item schema, sound scripts, soundscapes, decals, particle manifest, `.phy` text) | its own tokenizer: a `[$WIN32]` tag was the next key, a quoted brace was structure | 2 of the 273 files it is pointed at: `scripts/game_sounds.txt` and `mvm_level_sounds.txt`, six sounds each with `"wave" … [$WIN32]` / `[$X360]` pairs, read as two junk keys apiece | nothing: the first `wave` was the PC's and the junk keys were ignored. `items_game.txt` read the same both ways |
+| `GameSearchPath` (`gameinfo.txt`) | line by line; any line naming `SearchPaths`; a value was the rest of the line | nothing on TF2's own file | nothing |
+
+`WeaponScript`, the HUD's `.res` files and `TfWeaponData` already went through the tree.
+
+**The material conditions are the material system's, not `KeyValues`'.** *Read in disassembly*,
+`materialsystem.dll 0x180008d20` (the function holding the strings `lowfill`, `hdr`, `srgb`, `ldr`, `360` and
+"unrecognized conditional test %s in %s"): the text before `?` is a test, a leading `!` negates, and the var is
+skipped when the test fails — `lowfill` on the config's reduced fill rate, `hdr`/`ldr` on HDR being enabled, `srgb`
+on a hardware-config call, `360` never on a PC, anything else never (with a warning). `VmtMaterial.Conditioned`
+is that, for an HDR PC with the fill rate not reduced. *Interpolated:* that the `srgb` call is
+`UsesSRGBCorrectBlending()` and true here.
+
+**What is NOT changed, and why:** a fallback block (`LightmappedGeneric_HDR_dx9 { … }`) overriding a plain key is
+the engine's own rule, already ported (91 keys); `VphysicsSurfaceData` is a port of vphysics' own tokenizer, a
+different parser. **Not audited:** the localisation reader, the HUD animation script reader and the `.cfg` reader,
+each of which the engine parses with a parser of its own; and `.phy` text, which the engine reads with vphysics'
+tokenizer (break characters `{}()':`) and this project reads through the stream. *Not built:*
+`UsesEscapeSequences( true )`.
+
+**Tests:** `KeyValuesOneTokenizerConformanceTests` (30 cases; 16 red first, each for the shape in the table). One
+existing fixture changed: `Parse_CommentsAndTheClosingBrace_AreNotPaths` put `SearchPaths` at the top of the file,
+which only a line scan finds.
+
+## B525 — the viewmodel's bob and `tf_use_min_viewmodels`: `CTFViewModel::CalcViewModelView`, in its order — BUILT 2026-10-12, the bob unseen
+
+Both were filed open under B523 (4). *Read from published source*, `tf_viewmodel.cpp:130-227` and
+`baseviewmodel_shared.cpp:385-412`: the viewmodel starts at the eye; with `tf_use_min_viewmodels` on, the weapon's
+`min_viewmodel_offset` is added along the eye's forward, right and up; then the base lets the weapon add its bob
+(`CTFWeaponBase::AddViewmodelBob`, `tf_weaponbase.cpp:4845`), the lag (nothing in TF, B523), and the shake.
+
+- **Min mode.** `MinViewmodel.Offset`, from `ViewerSettings.UseMinViewmodels` (`tf_use_min_viewmodels`, default 0,
+  archived — so a real config carries it and until now a config that set it was ignored, against D69) and the held
+  item's `min_viewmodel_offset` string attribute (`CTFWeaponBase::GetViewmodelOffset`, `:6937-6953`; 206 statements
+  in `items_game.txt`). **Seen:** `b521d/min-cmp.png`, gummo's sticky launcher at tick 63606 with it off and on.
+  *Not built:* `tf_viewmodels_offset_override` (a cheat) and the inspect animation's blend of the offset.
+- **The bob.** `ViewmodelBob` is `BobState_t` with its two helpers (`:4713-4822`): the owner's horizontal speed
+  slewed at 320 a second, integrated into a bob time, two sines off it, laid onto the origin and the three angles.
+  Valve's lateral cycle is `bobTime / cycle * 2`, twice the quotient; kept as written. `cl_bobcycle` and `cl_bobup`
+  are cheats, so constants. Stepped once per built moment while playback runs (`MomentInfo.Playing`), from the
+  followed player's speed — SourceTV in-eye and a point-of-view recording alike, since both follow a player.
+  **Unseen:** a paused frame does not step it (`frametime` 0), so no `--shot` shows it; it is in the unit tests
+  and in the build, and whether it looks like TF2's while a demo plays is a question for someone watching.
+  *Interpolated:* the speed is the scene player's, not `GetLocalVelocity()`. *Not built:* an off-hand viewmodel's
+  second helping (`CTFViewModel::AddViewModelBob`, index 1) and the view shake.
+- **The phase is nobody's to match.** The bob time integrates from whenever the client's viewmodel was made, over
+  whoever's weapon it has shown, so two TF2 clients watching one demo sway out of step. This steps from the
+  viewer's own playback.
+
+**Tests:** `ViewmodelViewConformanceTests` (10: the helper's arithmetic at two hand-worked states, the paused and
+no-player returns, the add, the offset along turned axes) and `UseMinViewmodels_ByDefaultAndFromAConfig_IsValvesCvar`.
+Written before the code; they were not run red — until `ViewmodelBob` existed they did not compile.
+
+## B526 — the other places the window read the recording's newest frame for a player's position — CLOSED 2026-10-12
+
+B523 (2) found the medigun beam ending where `timeline.PlayersAt( int )` had its patient — the newest recorded frame
+— while he was drawn an interpolation delay behind it. The seven other reads of that call in `MainForm`, each
+against what the frame draws:
+
+| where | what it used the players for | verdict |
+|---|---|---|
+| `StepModelDecals` | wipes (state), and the struck player's box for a decal's ray | **fixed**: the frame's own sample when the frame is of that tick (`MomentPresenter.PlayersShownAt`) |
+| `WithIdTraces` (target id, weapon pickup) | every player's hull for the view trace | **fixed** the same way: the hull stood an interpolation delay ahead of the hitboxes posed beside it |
+| `ReplayTicks` and `OldestDecalLife` | a pre-filter: which past ticks' bullets could reach anyone | **fixed**: both samples, the recorded and the interpolated (`PlayersABulletMayMeet`); the filter's 19 units of slack is less than a running player's displacement |
+| the wipe-only walk in the replay, and `LastWipes` (twice) | life state and condition changes | right as it was: state is not interpolated |
+| `StruckEnd` | the bullet trace's targets | already the frame's sample (its own comment records the same finding); the recorded frame is only its fallback |
+
+*Read from published source*: `GetCollisionOrigin()` is the interpolated abs origin, and a paused frame is the one
+case where the two samples agree (B399). **Test:** `PlayersShownAt_TheTickTheFrameShowed_IsItsSampleAndAnyOtherTickIsNot`,
+red first. The three `MainForm` call sites are wiring with no test of their own; nothing on screen was checked,
+because each needs a running player being shot or looked at while a demo plays. **Not looked at:** the same call in
+`DemoSystems`, `HudEventFeed` and `HudStates`.
+
+## B527 — the medigun beam against ten TF2 references: the particle code was right, the seek was not — PARTLY CLOSED 2026-10-12
+
+The owner's references (`cp_process_f12`, chase on gummo, ticks 63590-63720, playing at a tenth speed) show a wide
+beam and a glow on the patient where the viewer's paused shots had a thin line ending short of him. Asked: read
+`medicgun_beam_blue` and its children whole, and `CWeaponMedigun::UpdateEffects`, and port what is missing.
+
+**What was read, and found already built.** Eight children; every function name they declare is implemented, and
+the three that carry the beam were checked against the definition's numbers from a pick of the drawn quads
+(*measured*, `TF2VIEW_PICK`): stage 3's sprites leave the patient's end at radius 5.0 (2 x `radius_end_scale` 2.5),
+150 a second, on the quadratic path from control point 0 (the medigun's `muzzle`, `PATTACH_POINT_FOLLOW`) to control
+point 1 (the patient's origin plus 50, `PATTACH_ABSORIGIN_FOLLOW`). **The line is the definition's, not a fault:**
+`minimum distance` and `maximum distance` are both 16, so the constraint puts every particle exactly 16 units from
+its path point, and the first snap — from the patient, where it is born, to the muzzle end of the path — sets that
+offset along the beam (*arithmetic*). The 111 units a second of birth speed is spent in that snap. TF2's band is
+the same width as ours once the tick is right: about 100 pixels at 66 units, a sprite of radius 5 to 6.
+
+**Three causes, none of them an operator:**
+
+| # | cause | class | state |
+|---|---|---|---|
+| 1 | the pair was matched ten ticks late: a playing frame's HUD health leads its drawn positions by the interpolation delay (`docs/findings/76-the-golden-comparison.md`) | *measured* | the comparison's, not the viewer's; recipe updated |
+| 2 | a beam met by a seek was caught up with both control points where they are NOW for all 132 past ticks | *read from published source*: `UpdateControlPoint` (particle_property.cpp:527-640) reads a followed point every frame | **fixed**: `ParticleBurst.History`, asked only for the ticks a catch-up steps |
+| 3 | a stopped beam froze: `Fade` stepped without setting control point 0, so the dying second of particles hung where the medic had been | *read from published source*: `StopEmission` (particle_property.cpp:251-263) stops the emitters and leaves the effect in `m_ParticleEffects` | **fixed**: the points are set before a fade as before a step |
+
+Cause 3 is the visible one. At 63660 the beam on gummo has been let go (*measured*: his health falls from 237) and
+TF2 draws its last second sweeping round the rock from the right, after the medic; ours hung at the lower left
+where he had stood. After the fix it comes from the right across the rock, as reference 15 does.
+
+**The past of a point is interpolated, and said so** (`FollowedPoint`): the player's recorded origin and yaw are
+exact, and the muzzle is carried rigidly with them. Its swing with the skeleton — aim pitch, stride — is not
+reconstructed, since that is a posed skeleton per replayed tick.
+
+**Tests** (`Scene.Tests`): `Bursts_AFollowingBurstMetBySeek_StepsEachPastTickAtThatTicksPoint` and
+`..._SetsEachPastTicksSecondPoint`, red first (every particle at today's point); `Bursts_AStoppedBurstWhosePointMoves_GoesOnFollowingIt`,
+first red for the wrong reason (the lock operator reads a point at the origin as "none seen yet") and then proved by
+removing the one line; `FollowedPointTests` (3), written with the helper and not seen red. The `MainForm` wiring
+(`HealBeamThen`) has no test of its own.
+
+**Open — what still differs, in order of size:**
+
+- **The glow on the patient.** `_healing`'s nine `sc_softglow` cards are drawn, at the patient's origin plus 50, and
+  sit behind his back as seen from a chase camera; TF2's cut through it and light the vest. The card's plane is the
+  same in both, so the difference is the BODY: TF2's demoman leans further forward at a run and his back crosses
+  the plane (*interpolated* from the two pictures; no depth was measured). That is player pose parity, not
+  particles.
+- **`bias in local system`** is still ignored (stage 1 to 3 set it), and control point 1 is given no orientation
+  where the engine gives it the patient's `GetVectors`. *Arithmetic*: the snap above discards the birth offset and
+  speed it would turn, so nothing on screen was found to depend on it. Not built.
+- **`$maxsize`, `$startfadesize`, `$endfadesize`** (`sc_softglow.vmt`; `spritecard_vsxx.fxc:199-229`) are not
+  applied. They shrink and fade a card nearer than about three radii — a camera inside the glow.
+- **The arc.** Reference 15's dying beam bends more than ours. The bulge is the muzzle's forward times the path's
+  length times 1.3 times how far off the path it points; whether ours is short is not known, because the tick of
+  that reference is only known to 15 either way.
+- **The viewer's chat panel** darkens the wall behind the beam in every shot of this pair, and TF2's has faded. Not
+  a particle fault; it makes ours read brighter than it is (*measured*: the beam adds about 0.28 in linear light
+  against TF2's 0.18 on the same wall, with ours narrower).

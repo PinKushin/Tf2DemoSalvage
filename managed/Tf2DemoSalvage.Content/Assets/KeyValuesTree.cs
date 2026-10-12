@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+using Token = Tf2DemoSalvage.Content.Assets.KeyValuesToken;
+using Tokens = Tf2DemoSalvage.Content.Assets.KeyValuesTokens;
+
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>A KeyValues node, built as `KeyValues::LoadFromBuffer` builds one — the loader every `.res` file goes through.</summary>
@@ -26,9 +29,6 @@ namespace Tf2DemoSalvage.Content.Assets;
 /// </remarks>
 public sealed class KeyValuesTree
 {
-    /// <summary>`KEYVALUES_TOKEN_SIZE`: a longer token is cut.</summary>
-    private const int TokenSize = 1024 * 4;
-
     /// <summary>`RecursiveLoadFromBuffer`'s recursion guard.</summary>
     private const int MaximumDepth = 100;
 
@@ -182,7 +182,7 @@ public sealed class KeyValuesTree
     private static List<KeyValuesTree> LoadAll(
         ReadOnlySpan<byte> bytes, string resourceName, Func<string, byte[]?> open, int nesting)
     {
-        Tokens tokens = new(Decode(bytes));
+        Tokens tokens = new(Tokens.Decode(bytes));
         List<KeyValuesTree> roots = [];
         List<KeyValuesTree> included = [];
         List<KeyValuesTree> bases = [];
@@ -394,95 +394,5 @@ public sealed class KeyValuesTree
         return false;
     }
 
-    /// <summary>UTF-16 with its byte order mark is translated first, as `LoadFromBuffer` does; anything else is UTF-8.</summary>
-    private static string Decode(ReadOnlySpan<byte> bytes) =>
-        bytes.Length > 2 && bytes[0] == 0xFF && bytes[1] == 0xFE
-            ? Encoding.Unicode.GetString(bytes[2..])
-            : Encoding.UTF8.GetString(bytes);
-
-    /// <summary>One token and how it was written.</summary>
-    private readonly record struct Token(string Text, bool Quoted, bool Conditional);
-
-    /// <summary>`ReadToken` over a whole file.</summary>
-    private sealed class Tokens(string text)
-    {
-        public int Position { get; set; }
-
-        public Token? Next()
-        {
-            while (true)
-            {
-                while (Position < text.Length && char.IsWhiteSpace(text[Position]))
-                {
-                    Position++;
-                }
-
-                if (Position >= text.Length)
-                {
-                    return null;
-                }
-
-                if (Position + 1 < text.Length && text[Position] == '/' && text[Position + 1] == '/')
-                {
-                    while (Position < text.Length && text[Position] != '\n')
-                    {
-                        Position++;
-                    }
-
-                    continue;
-                }
-
-                break;
-            }
-
-            char first = text[Position];
-
-            if (first == '"')
-            {
-                int end = text.IndexOf('"', Position + 1);
-                int stop = end < 0 ? text.Length : end;
-                string quoted = text[(Position + 1)..stop];
-
-                Position = end < 0 ? text.Length : end + 1;
-
-                return new Token(Cut(quoted), Quoted: true, Conditional: false);
-            }
-
-            if (first is '{' or '}')
-            {
-                Position++;
-                return new Token(first.ToString(), Quoted: false, Conditional: false);
-            }
-
-            int start = Position;
-            bool opened = false;
-            bool conditional = false;
-
-            while (Position < text.Length)
-            {
-                char c = text[Position];
-
-                if (c is '"' or '{' or '}' || char.IsWhiteSpace(c))
-                {
-                    break;
-                }
-
-                if (c == '[')
-                {
-                    opened = true;
-                }
-
-                if (c == ']' && opened)
-                {
-                    conditional = true;
-                }
-
-                Position++;
-            }
-
-            return new Token(Cut(text[start..Position]), Quoted: false, conditional);
-        }
-
-        private static string Cut(string token) => token.Length < TokenSize ? token : token[..(TokenSize - 1)];
-    }
+    // The tokenizer — `ReadToken` — is `KeyValuesTokens`, shared with every other reader of this text (B524).
 }

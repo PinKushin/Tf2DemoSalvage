@@ -916,6 +916,9 @@ public sealed class MomentScene : IGameSystemPerFrame
         }
     }
 
+    /// <summary>The main viewmodel's bob state — `CTFViewModel::m_BobState` — stepped as frames advance (B525).</summary>
+    private readonly ViewmodelBob _viewmodelBob = new();
+
     /// <summary>Poses whatever the first-person view shows at this moment.</summary>
     /// <remarks>
     /// **A viewmodel has no position of its own, so this is where it gets one.** Its table is
@@ -1388,18 +1391,35 @@ public sealed class MomentScene : IGameSystemPerFrame
         // Half a mechanism is not parity, and a comment citing Valve does not make it so.
         bool alive = held?.LifeState is null or LifeAlive;
 
+        // **`CTFViewModel::CalcViewModelView`, in its order** (B525): the eye; the weapon's min-mode offset along the
+        // eye's own axes when the watcher asks for it (`tf_viewmodel.cpp:196-221`); then the base, where the weapon
+        // adds its bob from its OWNER's speed (`baseviewmodel_shared.cpp:402`). The bob steps once a frame and only
+        // while a frame advances, so a paused capture draws whatever the playing before it left — nothing, from a
+        // fresh seek.
+        ViewmodelPlacement eye = MinViewmodel.Offset(
+            new ViewmodelPlacement(
+                camera.Origin.X,
+                camera.Origin.Y,
+                camera.Origin.Z,
+                camera.Angles.Pitch,
+                camera.Angles.Yaw,
+                camera.Angles.Roll),
+            info.UseMinViewmodels,
+            held?.WeaponItem is { } heldItem ? Weapons.Items?.DefinitionStringAttribute(heldItem, "min_viewmodel_offset") : null);
+
+        // No weapon, no bob: `if ( pWeapon != NULL )` guards the call.
+        if (weaponModel is not null)
+        {
+            _viewmodelBob.Calc(held?.Speed, (float)info.Seconds, info.Playing);
+            eye = _viewmodelBob.Add(eye);
+        }
+
         ViewmodelSceneResult scene =
             _viewmodels.Build(
                 source,
                 info.CurrentTick,
                 follower,
-                new ViewmodelPlacement(
-                    camera.Origin.X,
-                    camera.Origin.Y,
-                    camera.Origin.Z,
-                    camera.Angles.Pitch,
-                    camera.Angles.Yaw,
-                    camera.Angles.Roll),
+                eye,
                 hands,
                 weaponModel,
                 info.Seconds,

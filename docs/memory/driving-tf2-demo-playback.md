@@ -40,6 +40,13 @@ Measured 2026-10-11 (B378 pause-glow):
 - **`wait` is a no-op when the demo's server set `sv_allow_wait_command 0`** (competitive configs do): every
   command then runs in one frame and screenshots collapse into one. Set it to 1 (it sticks during playback),
   restore after.
+- **Enable `wait` in an EARLIER call and read it back**: in the same line it is not yet in effect. Without it
+  `demo_pause; ...; demo_resume` lands in one frame and leaves the demo PAUSED, RCON dead; only ending the
+  process recovers (2026-10-12, an instance this session launched).
+- `wait N` counts FRAMES: an unfocused TF2 runs ~37 fps, so 900 is ~24 s, not 3.
+- `spec_player <dead player>` is refused silently; the HUD target id is not proof of the camera's target.
+  Check the reference's subject (class, weapon, health) before blaming our camera.
+- `tf/f12.dem` is NOT lcor's f12 (34.5 MB, another match); give the viewer TF2's own file, via a space-free copy.
 - Never grab the screen from outside the game (PIL `ImageGrab`): it captures the owner's whole desktop.
 - Tf2Mcp `3a695ba`: a game that exited is forgotten, so `launch` works again without restarting the server.
 

@@ -1,83 +1,33 @@
 using System;
-using System.Text;
 
 namespace Tf2DemoSalvage.Content.Assets;
 
 /// <summary>
-/// One key's value out of a KeyValues script, without parsing the rest of it.
+/// One key of a script's top block, as `pKeyValuesData->GetString( key )` reads it.
 /// </summary>
 /// <remarks>
-/// **Deliberately not a KeyValues parser**, for the reason <c>ClassScript</c> already gave: the
-/// scripts nest deeply, a real reader needs a tree API, and nothing here wants the tree. Finding
-/// the first quoted value after a quoted key is a smaller and more testable problem.
+/// **It was a text scan and it is now the KeyValues loader** (B523, B524). The scan — the first quoted value after the
+/// quoted key, anywhere in the file — found keys inside comments, which is how the shipped `soldier.ctx`'s
+/// `//"DontDoNewJump" "1"` put every soldier's jump in the reference pose; and it would have answered with a key from a
+/// nested block, or one tagged for another platform. `tf_classdata.cpp` asks the file's ROOT for a direct sub-key, and
+/// <see cref="KeyValuesTree"/> is that file loaded as the engine loads it.
 ///
-/// Shared because two callers now need exactly it — a class script's <c>model</c> and a weapon
-/// script's <c>WeaponType</c> — and a second copy of a text scan is a second place for the quoting
-/// rules to drift.
-///
-/// **Only the first match is taken**, which is the engine's own answer: a key repeated later in a
-/// block overrides in some readers and is ignored in others, and agreeing with Valve's parser is
-/// what matters here.
+/// **Only the first match is taken**, which is `FindKey`'s answer for a key stated twice.
 /// </remarks>
 internal static class ScriptKeyValue
 {
-    /// <summary>The value of the first occurrence of a key.</summary>
+    /// <summary>The value of the root block's first sub-key of this name.</summary>
     /// <param name="script">The script's bytes, already decrypted if it was encrypted.</param>
-    /// <param name="key">The key to look for, without quotes.</param>
-    /// <returns>The value, or <c>null</c> when the key is absent or unterminated.</returns>
+    /// <param name="key">The key to look for, without quotes; matched without case, as the key table is.</param>
+    /// <returns>The value, or <c>null</c> when the root does not state it or states it as a block.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="key"/> is null.</exception>
     public static string? First(ReadOnlySpan<byte> script, string key)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        string text = Encoding.UTF8.GetString(script);
-        bool keyed = false;
-        int at = 0;
-
-        // **Token by token, because a `//` comment is not a key** (B523). `KeyValues::ReadToken` eats white space and
-        // then `CUtlBuffer::EatCPPComment` (`tier1/utlbuffer.cpp:422-440`) — the rest of the line, whenever a token
-        // would START with `//`. This was a search for the quoted key anywhere in the text, and the shipped
-        // `soldier.ctx` carries `//"DontDoNewJump"	"1"`: every soldier jumped as `ACT_MP_JUMP`, which no soldier
-        // sequence has, and was drawn in the reference pose.
-        while (at < text.Length)
-        {
-            char next = text[at];
-
-            if (char.IsWhiteSpace(next))
-            {
-                at++;
-            }
-            else if (next == '/' && at + 1 < text.Length && text[at + 1] == '/')
-            {
-                int line = text.IndexOf('\n', at);
-                at = line < 0 ? text.Length : line + 1;
-            }
-            else if (next == '"')
-            {
-                int close = text.IndexOf('"', at + 1);
-
-                if (close < 0)
-                {
-                    return null;
-                }
-
-                string token = text[(at + 1)..close];
-
-                if (keyed)
-                {
-                    return token;
-                }
-
-                keyed = string.Equals(token, key, StringComparison.OrdinalIgnoreCase);
-                at = close + 1;
-            }
-            else
-            {
-                // A brace or a bare word: never the key, which the scripts always quote, and never its value.
-                at++;
-            }
-        }
-
-        return null;
+        // No file is opened beside a class script: none of the shipped ones names a `#base`.
+        return KeyValuesTree.Load(script, string.Empty, static _ => null).Find(key) is { Children.Count: 0 } found
+            ? found.Value
+            : null;
     }
 }
