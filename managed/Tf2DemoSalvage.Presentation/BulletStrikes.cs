@@ -24,9 +24,10 @@ public readonly record struct BulletScene(
 /// the view whole (D214), where it was `StruckEnd`, `StruckPlayer`, `HitboxesOrUntested` and `ShotOrder`.
 /// </summary>
 /// <remarks>
-/// **In Presentation only while the view still calls it.** The tracers ask it from <see cref="BurstEffects"/>; the
-/// decals and impact effects, still in the view, ask it too. Two presenters needing one thing is the model layer's
-/// (D92): it goes down into Scene with the slice that takes the decals out of the view.
+/// **In Presentation only while the view still calls it.** The tracers ask it from <see cref="BurstEffects"/> and the
+/// decals from <see cref="DecalEffects"/>; the impact effects and the id traces, still in the view, ask it too. Two
+/// presenters needing one thing is the model layer's (D92), and it has not gone down for one reason: a Scene type the
+/// view names is a line added to the thin-view list, which only shrinks (D214). It goes with its last view caller.
 /// </remarks>
 public sealed class BulletStrikes
 {
