@@ -37443,3 +37443,25 @@ lay and the absolute value red first; the unturned speed and the no-bias case pa
 **Control point 1 of a medigun beam has the patient's axes** (`GetVectors`, particle_property.cpp:638):
 `ParticleControlPoint.Facing` from his yaw, now and for each tick of a catch-up. *Interpolated*: the yaw is the
 recorded body yaw, where the engine's is the animation state's render angles.
+
+## B530 — "the chat panel darkens the wall" was two wrong readings; the chat is the engine's — CLOSED 2026-10-12, one finding open
+
+B527 said the viewer's chat panel darkened the wall behind the heal beam where TF2's had faded. Asked to port the
+fade. **Nothing was missing, and the wall is not darkened by the chat:**
+
+- **The fade is built** (*read from published source*, hud_basechat.cpp): each line `InsertFade( hud_saytext_time,
+  CHAT_HISTORY_IDLE_FADE_TIME )` — 12 seconds then 2.5 — and `FadeChatHistory` takes the background to alpha 0 a
+  quarter second after message mode ends, which in a demo is always. `TfHudChat` does both.
+- **The lines in our shots are the seek's.** `demo_gototick` reads every packet to the new tick and each chat
+  message prints as it passes, timed on the wall clock; the viewer's skip does the same. A `--shot` is taken the
+  moment the seek lands; the references were taken more than fourteen seconds after theirs. Same engine behaviour,
+  different moment.
+- **The wall is the same with and without them** (*measured*): with `+hud_saytext_time 0` the lines are gone and
+  seven sampled pixels are identical to the last digit.
+
+**Changed:** `tools/golden-viewer-shot.sh` pins `+hud_saytext_time 0`, as it pins `cl_showfps`.
+
+**Open, found by the same measurement:** the near wall left of the tank is darker in ours than in reference 14 —
+(69 64 76) against (112 108 129) at pixel (100, 200), a world brush, texinfo 589 at (179 973 599) — while the far
+wall is (127 110 98) against (149 132 123). The cameras differ by B528's 15 units, so the pixels are not the same
+texels; the ratio is too large for that alone. Not investigated.
