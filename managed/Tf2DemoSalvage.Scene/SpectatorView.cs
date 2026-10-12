@@ -556,16 +556,9 @@ public sealed class SpectatorView
             return null;
         }
 
-        float yaw = target.EyeYaw ?? target.Yaw;
-        bool alive = target.IsAlive;
-        bool ducking = Ducking(target);
-
-        FreeCamera ideal = FreeCamera.Chase(
-            (target.X, target.Y, target.Z), yaw, alive, ducking, aspect);
-
         if (World is not { } sweep)
         {
-            return ideal;
+            return Placed(target, aspect, ChaseCamera.Distance);
         }
 
         // **A frame that did not follow the last one has no `m_flLastDistance` to grow from, so it is rebuilt** (B528):
@@ -588,12 +581,35 @@ public sealed class SpectatorView
         _chaseTick = tick;
         _chaseTarget = target.EntityIndex;
 
-        return FreeCamera.Chase(
-            (target.X, target.Y, target.Z), yaw, alive, ducking, aspect, _chaseDistance);
+        return Placed(target, aspect, _chaseDistance);
     }
 
+    /// <summary>`spec_autodirector` (hltvcamera.cpp:25, default 1): whether the camera's angles are the director's or the watcher's own.</summary>
+    /// <remarks>
+    /// **On**, with no second target, the camera takes the target's eye yaw every frame and no pitch (:186-192).
+    /// **Off** is `bManual` (:109, :174-178): `engine->GetViewAngles`, with no offset added — not even the fifteen
+    /// degrees a dead target gets, which sits inside `if ( !bManual )`.
+    ///
+    /// **And during demo playback the engine's view angles are the DEMO's**, the ones each packet's command info
+    /// recorded — which a SourceTV recording leaves at zero. So a director-off chase of a SourceTV demo looks along
+    /// world +X, level, whatever the target does: he turns under a camera that does not. **Wrong turn, kept:** the
+    /// first port held the target's eye angles from the tick he was chosen on, because `SetPrimaryTarget` (:583-590)
+    /// sets the view angles to them. Against the references that camera looked eight degrees down where TF2's is
+    /// level, and two degrees right where TF2's is square to the axis; no tick in the capture has his eyes level.
+    /// *Interpolated:* that playback overwrites what `SetPrimaryTarget` set is in the closed engine, read here from
+    /// two pictures. *Not built:* the watcher's mouse, which this viewer's chase camera does not take either.
+    /// </remarks>
+    public bool AutoDirector { get; set; } = true;
+
+    /// <summary>The camera behind one target at a distance, by whichever rule <see cref="AutoDirector"/> names.</summary>
+    private FreeCamera Placed(ScenePlayer target, float aspect, float distance) =>
+        !AutoDirector
+            ? FreeCamera.ChaseHeld((target.X, target.Y, target.Z), 0f, 0f, target.IsAlive, Ducking(target), aspect, distance)
+            : FreeCamera.Chase(
+                (target.X, target.Y, target.Z), target.EyeYaw ?? target.Yaw, target.IsAlive, Ducking(target), aspect, distance);
+
     /// <summary>How far the world lets the camera sit behind one target — the hull trace's `dist`.</summary>
-    private static float BlockedAt(
+    private float BlockedAt(
         ScenePlayer target,
         float aspect,
         Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep,
@@ -602,8 +618,7 @@ public sealed class SpectatorView
         bool alive = target.IsAlive;
         bool ducking = Ducking(target);
 
-        FreeCamera ideal = FreeCamera.Chase(
-            (target.X, target.Y, target.Z), target.EyeYaw ?? target.Yaw, alive, ducking, aspect);
+        FreeCamera ideal = Placed(target, aspect, ChaseCamera.Distance);
 
         // The point the camera looks at, which is what the engine traces FROM — the target's eyes,
         // or the height it looks over a ragdoll from.

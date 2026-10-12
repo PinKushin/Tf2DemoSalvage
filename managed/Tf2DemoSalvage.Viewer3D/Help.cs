@@ -96,8 +96,7 @@ internal static class Help
           TF2VIEW_MODEL_CULL         Backface culling mode, for debugging inside-out models.
           TF2VIEW_SETTINGS           A settings file to use instead of the one above (tests).
           TF2VIEW_STEAM_ROOT         The only Steam folder discovery looks in (tests).
-          TF2VIEW_PICK             "x y": log what lies under that pixel of a --shot.
-          TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
+          TF2VIEW_PICK             "x y": log what lies under that pixel of a --shot.          TF2VIEW_WARP               Draw through WARP, reproducing a machine with no GPU.
           TF2VIEW_WINDOW_POS         "85,78": window position, X,Y.
           TF2VIEW_WINDOW_SIZE        "1576x889": WIDTHxHEIGHT of the WINDOW. The frame adds
                                      296x169, so 1576x889 gives a 1280x720 viewport.

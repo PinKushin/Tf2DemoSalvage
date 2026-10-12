@@ -288,6 +288,41 @@ public static class ChaseCamera
             0f);
     }
 
+    /// <summary>Where the chase camera sits when the watcher holds its angles — `bManual`, `spec_autodirector` 0 (B535).</summary>
+    /// <param name="x">The target's position, which is its feet.</param>
+    /// <param name="y">The target's position.</param>
+    /// <param name="z">The target's position.</param>
+    /// <param name="pitch">The watcher's view pitch — `engine->GetViewAngles`.</param>
+    /// <param name="yaw">The watcher's view yaw.</param>
+    /// <param name="alive">Whether the target is alive.</param>
+    /// <param name="ducking">Whether the target is ducking.</param>
+    /// <param name="distance">How far back to sit.</param>
+    /// <returns>The camera's origin and angles.</returns>
+    /// <remarks>
+    /// <code>
+    /// if ( bManual ) engine->GetViewAngles( cameraAngles );      // hltvcamera.cpp:174-178
+    /// …
+    /// if ( !bManual ) { if ( !target1->IsAlive() ) angleOffset.x = 15;  cameraAngles += angleOffset; }   // :199-207
+    /// </code>
+    /// **No offset at all**: not the director's phi and theta, and not the fifteen degrees over a dead target. The
+    /// height looked at is still the dead one.
+    /// </remarks>
+    public static (float X, float Y, float Z, float Pitch, float Yaw, float Roll) ViewHeld(
+        float x, float y, float z, float pitch, float yaw, bool alive, bool ducking, float distance)
+    {
+        float height = alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget;
+
+        (float X, float Y, float Z) forward = AngleVectors.Forward(pitch, yaw);
+
+        return (
+            x - (distance * forward.X),
+            y - (distance * forward.Y),
+            z + height - (distance * forward.Z),
+            pitch,
+            yaw,
+            0f);
+    }
+
     /// <summary>Valve's <c>VectorAngles</c>: which way a direction points, as pitch and yaw.</summary>
     /// <remarks>
     /// **Pitch is NEGATIVE for up**, which is Source's convention throughout and the opposite of

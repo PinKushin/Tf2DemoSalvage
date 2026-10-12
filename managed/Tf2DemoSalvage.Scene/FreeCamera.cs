@@ -237,6 +237,29 @@ public sealed class FreeCamera
         };
     }
 
+    /// <summary>The chase camera at angles the watcher holds — `spec_autodirector` 0, <see cref="ChaseCamera.ViewHeld"/> (B535).</summary>
+    /// <param name="origin">The target's position, which is their feet.</param>
+    /// <param name="pitch">The watcher's view pitch.</param>
+    /// <param name="yaw">The watcher's view yaw.</param>
+    /// <param name="alive">Whether the target is alive, which changes only the height looked at.</param>
+    /// <param name="ducking">Whether they are ducking.</param>
+    /// <param name="aspect">The viewport's width over its height.</param>
+    /// <param name="distance">How far back to sit.</param>
+    /// <returns>The camera.</returns>
+    public static FreeCamera ChaseHeld(
+        (float X, float Y, float Z) origin, float pitch, float yaw, bool alive, bool ducking, float aspect, float distance)
+    {
+        (float X, float Y, float Z, float Pitch, float Yaw, float Roll) view =
+            ChaseCamera.ViewHeld(origin.X, origin.Y, origin.Z, pitch, yaw, alive, ducking, distance);
+
+        return new FreeCamera
+        {
+            Origin = (view.X, view.Y, view.Z),
+            Angles = (view.Pitch, view.Yaw, view.Roll),
+            Aspect = aspect,
+        };
+    }
+
     /// <summary>The unit direction from this camera through a pixel of a viewport — the pick ray.</summary>
     /// <param name="x">The pixel's column.</param>
     /// <param name="y">Its row, from the top.</param>

@@ -138,4 +138,14 @@ public sealed class ViewmodelCvarConformanceTests
         new ViewerSettings().UseMinViewmodels.ShouldBeFalse();
         ViewerSettings.Parse("tf_use_min_viewmodels 1").UseMinViewmodels.ShouldBeTrue();
     }
+
+    [Test]
+    public void AutoDirector_ByDefaultAndFromAConfig_IsValvesCvar()
+    {
+        // `ConVar spec_autodirector( "spec_autodirector", "1", FCVAR_CLIENTDLL | FCVAR_CLIENTCMD_CAN_EXECUTE, … )`
+        // (`hltvcamera.cpp:25`), B535: on by default, and 0 hands the chase camera's angles to the watcher.
+        ViewerSettings.AutoDirectorCommand.ShouldBe("spec_autodirector");
+        new ViewerSettings().AutoDirector.ShouldBeTrue();
+        ViewerSettings.Parse("spec_autodirector 0").AutoDirector.ShouldBeFalse();
+    }
 }

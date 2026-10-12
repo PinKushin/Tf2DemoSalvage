@@ -102,6 +102,22 @@ public sealed class TextureProbe : IProbe
             $"  colourfulness: mean channel spread {spread:0.0} over {visible} pixels with alpha, " +
             $"largest {mostSpread}"));
 
+        // The mean of each channel as stored, 0 to 255: what an ssbump's three weights or a mod2x detail come to (B536).
+        long[] sums = new long[3];
+
+        for (int at = 0; at + 3 < first.Pixels.Length; at += 4)
+        {
+            sums[0] += first.Pixels[at];
+            sums[1] += first.Pixels[at + 1];
+            sums[2] += first.Pixels[at + 2];
+        }
+
+        double texels = Math.Max(1, first.Pixels.Length / 4);
+
+        output.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"  mean R G B as stored: {sums[0] / texels:0.0} {sums[1] / texels:0.0} {sums[2] / texels:0.0}"));
+
         // **The picture, coarsely, because a statistic cannot say WHAT is wrong.** A mean says grey,
         // a spread says saturated, and neither says whether the texture is a smoke puff, a rainbow,
         // or blocks read at the wrong stride. Sixteen columns of one character each does.

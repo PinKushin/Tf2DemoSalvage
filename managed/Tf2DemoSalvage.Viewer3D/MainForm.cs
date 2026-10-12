@@ -959,6 +959,9 @@ internal class MainForm : Form, IFrameSteps
         SteamInstall.ConfiguredFolder = () => _settings.GameFolder;
         _spectator.Spectating = _launch.Spectate;
 
+        // The watcher's `spec_autodirector` (B535).
+        _spectator.AutoDirector = _settings.AutoDirector;
+
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.

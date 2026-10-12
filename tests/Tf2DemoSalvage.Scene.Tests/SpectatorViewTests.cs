@@ -405,6 +405,38 @@ public sealed class SpectatorViewTests
         (200f - view.Chase(tick: 10, aspect: 1f)!.Origin.X).ShouldBe(96f, 0.01f);
     }
 
+    /// <remarks>
+    /// **`spec_autodirector` 0 is the watcher's own camera** (hltvcamera.cpp:109, :174-178): `bManual` takes
+    /// `engine->GetViewAngles` and adds no offset. In demo playback those are the angles the demo recorded, and a
+    /// SourceTV recording's are zero — so the camera looks along +X, level, while the target turns under it.
+    /// `spec_mode` typed by hand turns the director off (SpectatorGUI.cpp:869), which is how every reference capture
+    /// was taken (B535).
+    /// </remarks>
+    [Test]
+    public void Chase_WithTheAutoDirectorOffOnASourceTvDemo_LooksAlongTheRecordingsOwnZeroAngles()
+    {
+        SpectatorView held = new(new RecordingLogger()) { Eyes = new Turner(), Spectating = 2, AutoDirector = false };
+        SpectatorView directed = new(new RecordingLogger()) { Eyes = new Turner(), Spectating = 2 };
+
+        FreeCamera camera = held.Chase(tick: 90, aspect: 1f)!;
+
+        camera.Angles.ShouldBe((0f, 0f, 0f));
+        camera.Origin.X.ShouldBe(-96f, 0.01f, "ninety-six units back along +X from a target at the origin");
+        directed.Chase(tick: 90, aspect: 1f)!.Angles.ShouldBe((0f, 90f, 0f), "the control: the director's camera is his yaw now");
+    }
+
+    /// <summary>One living player standing still, his eye yaw the tick asked for and his eye pitch ten degrees down.</summary>
+    private sealed class Turner : IEyeSource
+    {
+        public bool HasRecordedView => false;
+
+        public int? RecorderEntityIndex => null;
+
+        public RecordedView? RecordedViewAt(int tick) => null;
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => [Player(2) with { EyeYaw = tick, EyePitch = 10f }];
+    }
+
     /// <summary>One living player at x = the tick asked for, looking along +X.</summary>
     private sealed class Runner : IEyeSource
     {

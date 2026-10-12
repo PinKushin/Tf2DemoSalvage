@@ -731,6 +731,15 @@ public sealed record ViewerSettings
     public const string UseMinViewmodelsCommand = "tf_use_min_viewmodels";
 
     /// <summary>
+    /// The watcher's <c>spec_autodirector</c>, default 1 (`hltvcamera.cpp:25`), B535: 0 makes a SourceTV chase camera's
+    /// angles the watcher's own, held from when the target was chosen (<see cref="SpectatorView.AutoDirector"/>).
+    /// </summary>
+    public bool AutoDirector { get; init; } = true;
+
+    /// <summary>Command name for <see cref="AutoDirector"/>.</summary>
+    public const string AutoDirectorCommand = "spec_autodirector";
+
+    /// <summary>
     /// <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass at all. One of three switches
     /// the golden comparison isolates a term with (B161) — Valve's names, so one line pins TF2 and the viewer alike.
     /// </summary>
@@ -984,6 +993,11 @@ public sealed record ViewerSettings
         if (Read(values, UseMinViewmodelsCommand) is { } minimized)
         {
             settings = settings with { UseMinViewmodels = minimized != 0 };
+        }
+
+        if (Read(values, AutoDirectorCommand) is { } directed)
+        {
+            settings = settings with { AutoDirector = directed != 0 };
         }
 
         if (Read(values, DisableBloomCommand) is { } noBloom)

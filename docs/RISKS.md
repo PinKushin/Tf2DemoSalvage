@@ -37572,3 +37572,90 @@ means are 0.186 and 0.173); the material (`pixel-face`: `brick/brickwall002c`, L
 (0.115 0.100 0.136) against (0.164 0.151 0.223) — where the far wall is 1.16 and the grass 1.09. The face is lit by
 the sky alone (lightmap at the point (0.194 0.190 0.283), its up-facing bump lightmap the bluest), so a term that
 favours sky-lit faces is short. The cameras are not the same (B533), so the texels are not; not chased further.
+
+## B535 — the references' chase camera is `spec_autodirector` 0, and in a SourceTV demo that camera does not turn — CLOSED 2026-10-12
+
+B533 could not place references 13 and 14 and asked how they were captured: one continuous play from 63250 at a
+tenth speed, `spec_mode 5; spec_player gummo` typed once, paused once at 3:04.
+
+**What the engine does with that** (*read from published source*):
+
+- `spec_mode` typed by hand ends with `HLTVCamera()->SetAutoDirector( false )` (SpectatorGUI.cpp:869); `spec_player`
+  alone does not. So the capture ran with the director off, and its camera is `bManual` (hltvcamera.cpp:109,
+  :174-178): `engine->GetViewAngles( cameraAngles )`, with no offset added — the dead target's fifteen degrees sits
+  inside `if ( !bManual )`.
+- **The demo has no director** (*measured*, `player-track`: `DirectorAt` is empty for every tick from 63200 to 63700),
+  so `m_flDistance` is `Reset`'s 96 and the offsets are zero.
+- A pause is transparent: `frametime` is zero and so is the growth.
+
+**Wrong turn, kept.** `SetPrimaryTarget` sets the view angles to the target's eye angles when he is chosen in chase
+mode (:583-590), so the first port held his eye angles from the tick of the choice. Shot beside references 13 and
+14 with the choice at 63300 (eye yaw −2.1, pitch 8.1), that camera looked eight degrees further DOWN than TF2's —
+the far railing 60 half-pixels higher in both — and two degrees right of it. **No tick between 63240 and 63470 has
+his eyes within six degrees of level** (`player-track`: 6.7 to 11.7).
+
+**What the pictures say: pitch 0, yaw 0.** In demo playback the engine's view angles are the demo's own, the ones
+each packet's command info recorded, and a SourceTV recording's are zero; whatever `SetPrimaryTarget` wrote is
+gone by the next packet. *Interpolated* — the overwrite is in the closed engine — and confirmed against three
+references taken at eye yaws of −23, +4 and −1: with the camera along world +X, level, references 11, 13 and 14
+frame as ours do (`zero-cmp.png`).
+
+**Built:** `spec_autodirector`, read from the config like any cvar (`ViewerSettings.AutoDirector`, default 1, the
+engine's). At 0 a SourceTV chase is `ChaseCamera.ViewHeld` at zero angles; the distance history (B528, B533) is
+swept along that direction. **The viewer's default is unchanged**: `--spectate` with the director on is the target's
+eye yaw, level, as before. *Not decided here:* in TF2 choosing a mode by hand turns the director off, and
+`--third-person` is arguably that; left for the owner. *Not built:* the watcher's mouse.
+
+**Tests:** `Chase_WithTheAutoDirectorOffOnASourceTvDemo_LooksAlongTheRecordingsOwnZeroAngles` (with the director-on
+control) and `AutoDirector_ByDefaultAndFromAConfig_IsValvesCvar`; both written with the code, red only as compile
+failures.
+
+**Measured after, `+spec_autodirector 0`:**
+
+| reference | our camera | distance from his eyes |
+|---|---|---|
+| 11 (63555) | (−81 1058 584), pitch 0 yaw 0 | 70 |
+| 13 (63595) | (−34 895 567) | 60 |
+| 14 (63620) | (16 843 559) | 72 |
+
+Against the pictures the framing agrees to a few pixels of the tank's edge and the rock; gummo's size agrees within
+about a tenth, which is the resolution the pictures give.
+
+## B536 — the sky-lit near wall, same camera: 1.4 to 1.9 times darker and less blue, and the engine's own formula predicts OURS — OPEN
+
+With B535's camera the same texels can be compared (*measured*, region means, exposure and bloom pinned both sides):
+
+| region at reference 14 | TF2 | viewer | TF2 / viewer, linear |
+|---|---|---|---|
+| near wall, upper | 111 108 130 | 96 91 106 | 1.37 1.45 1.57 |
+| near wall, middle | 102 101 125 | 82 78 92 | 1.62 1.76 1.96 |
+| far wall, sunlit | 142 125 114 | 139 122 112 | 1.05 1.05 1.04 |
+| grass | 121 118 49 | 117 116 49 | 1.08 1.04 1.00 |
+| rock, sunlit | 143 126 117 | 146 129 120 | 0.96 0.95 0.95 |
+
+Sunlit surfaces agree. The shadowed wall does not, by more in blue, and by an amount that reads as ADDED light
+rather than a factor. TF2's wall is the same (110 108 133) in references 13 to 17 while the camera travels 300
+units along it.
+
+**The formula, and what it predicts** (*read from published source*, lightmappedgeneric_ps2_3_x.h:438-443, and
+*measured* inputs): `vNormal.x * L1 + vNormal.y * L2 + vNormal.z * L3`, the ssbump texel raw. The ssbump's channel
+means are 145.5 144.5 145.4 of 255 (`vtf`), the face's three directional sets already average to its flat set, the
+flat lightmap at the point is (0.194 0.190 0.283), the albedo's mean is (0.37 0.34 0.31) linear and the detail's is
+125.5 of 255, a mod2x of 0.98. Product: (0.120 0.108 0.146). **The viewer draws (0.115 0.100 0.136). TF2 draws
+(0.160 0.151 0.227).**
+
+**Killed:**
+
+- **Fog.** `env_fog_controller`: start 100, end 11000, colour (120 133 158). At 211 units that is one part in a
+  hundred before the blend squares it (*arithmetic*).
+- **The detail term**: 0.98, above.
+- **The ssbump combine and the upload normalization**: the shader's line is ours, and on this face the directional
+  average is already the flat set.
+- **`_ambientHDR`**: −1, so the HDR sky is the LDR sky; the two lumps' means are 0.173 and 0.186.
+- **A dynamic light**: steady over five references and 300 units.
+
+**Not killed, and not checkable from here:** what the capture's client had for `mat_hdr_level`, `mat_colorcorrection`,
+`mat_bumpmap`, `mat_specular` and `mat_picmip` — the recipe's pins (`docs/findings/76`) were set in an earlier
+session and this capture's command line carries only the tone map and the bloom. **Asked of the owner:** those five
+values read back, and two captures at reference 14's moment with `mat_fullbright 2` (light alone) and
+`mat_fullbright 1` (albedo and detail alone), which split the 1.5 between the lightmap and everything else.
