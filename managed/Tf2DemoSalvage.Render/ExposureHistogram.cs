@@ -10,8 +10,13 @@ namespace Tf2DemoSalvage.Render;
 /// **Valve counts with occlusion queries** — one bin per frame, each answer read at least two frames later
 /// (`viewpostprocess.cpp:551-613`), so its histogram is a rolling mix of the last sixteen-odd frames. This copies the
 /// exposure region of the finished 3D frame into one of three staging textures and reads the oldest back without
-/// waiting, so the counts are a whole frame two to three frames old. *Interpolated*: the same delay, not the same
+/// waiting, so the counts are a whole frame three or more frames old. *Interpolated*: the same delay, not the same
 /// per-bin staggering — a still or a slow pan gives identical counts either way.
+///
+/// **A copy in flight is never queued again** (<see cref="HistogramRing"/>, the engine's own rule for a query). Until
+/// 2026-10-11 every frame overwrote the oldest copy whether or not it had been read, so the one the reader asked for
+/// was always the one the device had just been told to redo: ten readings took 16 seconds at 300 frames a second and
+/// 77 on WARP, and a `--shot`, which waits for ten, outlasted CI's three minutes.
 ///
 /// The region is <c>mat_exposure_center_region_x/y</c>'s centre (`:449-453`); each pixel is read as LINEAR light — the
 /// frame's bytes through the sRGB curve, as <c>screenspace_general</c> samples it — and binned by
@@ -29,9 +34,7 @@ public sealed unsafe class ExposureHistogram : IDisposable
 
     private (int Width, int Height) _region;
 
-    private long _written;
-
-    private long _read;
+    private readonly HistogramRing _ring = new(Ring);
 
     /// <summary>Copies this frame's exposure region for a later read.</summary>
     /// <param name="device">The device.</param>
@@ -41,6 +44,8 @@ public sealed unsafe class ExposureHistogram : IDisposable
     /// <param name="height">Its height.</param>
     public void Capture(ComPtr<ID3D11Device> device, ComPtr<ID3D11DeviceContext> context, ComPtr<ID3D11Texture2D> frame, int width, int height)
     {
+        _ring.BeginFrame();
+
         int skipX = (int)(width * 0.5f * (1f - AutoExposure.CentreRegionX));
         int skipY = (int)(height * 0.5f * (1f - AutoExposure.CentreRegionY));
         (int w, int h) region = (width - (2 * skipX), height - (2 * skipY));
@@ -73,9 +78,15 @@ public sealed unsafe class ExposureHistogram : IDisposable
             }
         }
 
+        // Every copy still waiting to be read: this frame is not measured, as an entry in flight issues no query.
+        if (_ring.SlotToQueue() is not { } slot)
+        {
+            return;
+        }
+
         Box box = new((uint)skipX, (uint)skipY, 0, (uint)(skipX + region.w), (uint)(skipY + region.h), 1);
-        context.CopySubresourceRegion(_staging[_written % Ring], 0, 0, 0, 0, frame, 0, in box);
-        _written++;
+        context.CopySubresourceRegion(_staging[slot], 0, 0, 0, 0, frame, 0, in box);
+        _ring.Queued(slot);
     }
 
     /// <summary>Counts the oldest copy the GPU has finished, if any.</summary>
@@ -84,16 +95,16 @@ public sealed unsafe class ExposureHistogram : IDisposable
     /// <returns>Whether a histogram was read.</returns>
     public bool TryRead(ComPtr<ID3D11DeviceContext> context, Span<int> counts)
     {
-        // Never the copy just queued: at least one frame behind it, as the queries are.
-        if (_read >= _written - 1)
+        // `cur_query_frame > m_frame_queued + 2`, oldest first.
+        if (_ring.SlotToRead() is not { } slot)
         {
             return false;
         }
 
-        _read = Math.Max(_read, _written - Ring + 1);
         MappedSubresource mapped = default;
 
-        if (context.Map(_staging[_read % Ring], 0, Map.Read, (uint)MapFlag.DONotWait, ref mapped) < 0)
+        // "-1=query not finished. wait until next time": the copy stays in flight and is asked for again.
+        if (context.Map(_staging[slot], 0, Map.Read, (uint)MapFlag.DONotWait, ref mapped) < 0)
         {
             return false;
         }
@@ -117,10 +128,10 @@ public sealed unsafe class ExposureHistogram : IDisposable
         }
         finally
         {
-            context.Unmap(_staging[_read % Ring], 0);
+            context.Unmap(_staging[slot], 0);
         }
 
-        _read++;
+        _ring.Read(slot);
         return true;
     }
 
@@ -145,8 +156,7 @@ public sealed unsafe class ExposureHistogram : IDisposable
             _staging[i] = default;
         }
 
-        _written = 0;
-        _read = 0;
+        _ring.Reset();
     }
 
     /// <inheritdoc/>

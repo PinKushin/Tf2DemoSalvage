@@ -140,4 +140,5 @@
 - [A phong static prop is not vertex lit](a-phong-static-prop-is-not-vertex-lit.md) — `$phong`/`$bumpmap` flags the model; no `.vhv` colours, flags 7; read the caller (B514).
 - [A model shader's $color is gamma](a-model-shaders-color-is-gamma.md) — converted to linear at bind; UnlitGeneric reads no light; a quoted line is not a ported one (B514).
 - [No unit test opens a real demo](no-unit-test-opens-a-real-demo.md) — synthetic or a short authored specimen; real demos live in Corpus.Tests (D213).
-- [A reflection is tinted and masked by the helper](a-reflection-is-tinted-and-masked-by-the-helper.md) — `$envmaptint` gamma on VertexLitGeneric; phong always masked; glow occlusion is a GPU fraction; `+mat_specular 0` on `--shot` does nothing (B521).
+- [A reflection is tinted and masked by the helper](a-reflection-is-tinted-and-masked-by-the-helper.md) — `$envmaptint` gamma on VertexLitGeneric; phong always masked; glow occlusion is a GPU fraction (B521).
+- [A gate that waits says what it waits on](a-gate-that-waits-says-what-it-waits-on.md) — `capture waiting on …` in the log; a ring never re-queues what its reader waits on; a red CI step hides the steps after it (B520).
