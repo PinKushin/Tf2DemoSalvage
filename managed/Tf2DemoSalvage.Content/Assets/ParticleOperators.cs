@@ -261,9 +261,22 @@ public sealed class AlphaFadeIn : IParticleOperator
 /// <c>Radius Scale</c> — scales a particle's radius across its life.
 /// </summary>
 /// <remarks>
-/// *Interpolated*: `radius_start_scale` and `radius_end_scale` interpolate over the life fraction.
-/// **Both default to 1**, so an operator declaring neither leaves the radius alone — absent must
-/// not mean zero here, or every particle it touches would vanish.
+/// **`C_OP_InterpolateRadius::Operate`, read out of `particles.lib`** (`builtin_particle_ops.obj`, by name; B523):
+///
+/// <code>
+/// if ( start_time &lt; end_time ), per particle with a lifetime above zero and start_time ≤ life &lt; end_time:
+///     t = ( life − start_time ) / ( end_time − start_time )
+///     ease_in_and_out:      t = 3t² − 2t³
+///     else scale_bias != ½: t = t / ( ( 1 / scale_bias − 2 ) · ( 1 − t ) + 1 )     // BiasSIMD, ssemath.h:3153-3165
+///     radius = ( start + ( end − start ) · t ) · radius at birth
+/// </code>
+///
+/// Outside the window the radius is not written. This was a straight line over the whole life, carried as
+/// *interpolated* since B373, with the window, the ease and the bias unread: the medigun beam's glow on its patient
+/// (bias 0.05) shrank from the start where the engine holds it near five times for most of its life.
+/// **Both scales default to 1**, so an operator declaring neither leaves the radius alone — absent must
+/// not mean zero here, or every particle it touches would vanish. *Interpolated*: the defaults of the window (0 to 1)
+/// and of the bias (½), taken from every shipped definition stating them so; the unpack table was not read.
 ///
 /// **It scales the SPAWN radius and not the current one, and that is read from source.**
 /// `particles.h:602` declares `GetReadInitialAttributes`, *"Used when an operator needs to read the
@@ -286,13 +299,46 @@ public sealed class RadiusScale : IParticleOperator
 
         float from = (float)parameters.Number("radius_start_scale", 1d);
         float to = (float)parameters.Number("radius_end_scale", 1d);
+        float startTime = (float)parameters.Number("start_time", 0d);
+        float endTime = (float)parameters.Number("end_time", 1d);
+        bool ease = parameters.Number("ease_in_and_out", 0d) != 0d;
+        float bias = (float)parameters.Number("scale_bias", 0.5d);
+
+        // `if ( m_flStartTime >= m_flEndTime ) return;` — the whole operator, before any particle.
+        if (startTime >= endTime)
+        {
+            return;
+        }
+
+#pragma warning disable S1244 // Floating point equality — the engine's own `m_flBias == 0.5f`, which skips the bias
+        bool biased = bias != 0.5f;
+#pragma warning restore S1244
+
+        // `PreCalcBiasParameter`: 1 / bias − 2 (ssemath.h:3155-3159).
+        float precalculated = (1f / bias) - 2f;
 
         for (int index = 0; index < particles.Count; index++)
         {
-            float through = Math.Clamp(particles.Through(index), 0f, 1f);
+            float life = particles.Through(index);
 
-            particles.Radius[index] =
-                particles.RadiusAtBirth[index] * (from + ((to - from) * through));
+            // Outside the window nothing is written: the radius keeps what the last write left.
+            if (particles.Lifetime[index] <= 0f || life < startTime || life >= endTime)
+            {
+                continue;
+            }
+
+            float way = (life - startTime) / (endTime - startTime);
+
+            if (ease)
+            {
+                way = (3f * way * way) - (2f * way * way * way);
+            }
+            else if (biased)
+            {
+                way /= (precalculated * (1f - way)) + 1f;
+            }
+
+            particles.Radius[index] = particles.RadiusAtBirth[index] * (from + ((to - from) * way));
         }
     }
 }

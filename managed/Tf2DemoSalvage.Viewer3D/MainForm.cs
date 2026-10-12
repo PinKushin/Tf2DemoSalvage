@@ -2663,7 +2663,7 @@ internal class MainForm : Form, IFrameSteps
     private void Pick()
     {
         if (Environment.GetEnvironmentVariable("TF2VIEW_PICK") is not { } asked ||
-            asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys] ||
+            asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys, .. { } more] ||
             !float.TryParse(xs, NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
             !float.TryParse(ys, NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
             _lastViewing is not { } viewing)
@@ -2676,7 +2676,7 @@ internal class MainForm : Form, IFrameSteps
         Vector3 ray = new(dx, dy, dz);
         System.Text.StringBuilder report = new();
 
-        report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
+        report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) at tick {_transport.CurrentTick} from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
 
         if (_loaded?.Level is { } level)
         {
@@ -2721,7 +2721,11 @@ internal class MainForm : Form, IFrameSteps
             report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off, at ({prop.Pose.X:0.#} {prop.Pose.Y:0.#} {prop.Pose.Z:0.#}) sequence {prop.Pose.Sequence} slot {prop.Pose.Slot ?? "-"} jump {prop.Pose.JumpActivity?.ToString() ?? "-"} flags {prop.Pose.Flags?.ToString(CultureInfo.InvariantCulture) ?? "-"}] ");
         }
 
-        // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick.
+        // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick — or within the third
+        // number of `TF2VIEW_PICK="x y pixels"`, for a whole effect rather than one spot of it.
+        float within = more is [{ } wide] && float.TryParse(wide, NumberStyles.Float, CultureInfo.InvariantCulture, out float pixels)
+            ? pixels
+            : 24f;
         float[] m = viewing.ToMatrix();
         int width = _viewport.ClientSize.Width;
         int height = _viewport.ClientSize.Height;
@@ -2751,11 +2755,14 @@ internal class MainForm : Form, IFrameSteps
                 float sx = (((centre.X * m[0]) + (centre.Y * m[4]) + (centre.Z * m[8]) + m[12]) / w + 1f) * 0.5f * width;
                 float sy = (1f - (((centre.X * m[1]) + (centre.Y * m[5]) + (centre.Z * m[9]) + m[13]) / w)) * 0.5f * height;
 
-                if (MathF.Abs(sx - px) < 24f && MathF.Abs(sy - py) < 24f)
+                if (MathF.Abs(sx - px) < within && MathF.Abs(sy - py) < within)
                 {
                     DetailSpriteVertex first = batch.Corners[i];
 
-                    report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
+                    // The size is the drawn quad's own: its first corner's distance from its centre, in world units.
+                    float reach = Vector3.Distance(centre, new Vector3(first.X, first.Y, first.Z));
+
+                    report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) corner {reach:0.0} out rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
                 }
             }
         }
@@ -6468,9 +6475,12 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
+            // **Where the frame DREW them** (B523): `UpdateControlPoint` reads the patient's `GetAbsOrigin()`
+            // (particle_property.cpp:637), interpolated while playing. This read the newest recorded frame, which leads
+            // the drawn player by the interpolation delay — the beam ended ahead of anyone running.
             if (_playersNow.Count == 0)
             {
-                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                foreach (ScenePlayer player in _moments.Players)
                 {
                     _playersNow[player.EntityIndex] = new Vector3(player.X, player.Y, player.Z);
                 }

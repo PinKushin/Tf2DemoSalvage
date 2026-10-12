@@ -37121,6 +37121,53 @@ capture with `spec_player cutemobb` would settle the pose itself, which is the p
 flags — the values the frame posed with; `class-activities <class> <ACT_…>…` asks a class model for an activity and
 prints its script's two flags; `scene-image <scene>…` lists one compiled scene's events.
 
+### 2. "TF2 draws a blue glow around gummo; ours has none" — the medigun beam on its patient: three divergences fixed, the picture still short — OPEN, a question for TF2
+
+**What it is.** *Measured*: gummo's conditions are `TF_COND_HEALTH_BUFF` (21) and `TF_COND_HEALTH_OVERHEALED` (23);
+`heal-beams f12tf.dem 63300 63750` has medigun 408 (Exiou, item 15050) on target 3 from tick 63460 to 63635. So the
+glow is `medicgun_beam_blue` (`CWeaponMedigun::UpdateEffects`, `tf_weapon_medigun.cpp:2406-2466`): control point 0 on
+the muzzle, control point 1 at the patient's `GetAbsOrigin() + ( 0, 0, 50 )` (`particle_property.cpp:637`). Its
+children at the patient are `medicgun_beam_blue_healing` (ten `effects/sc_softglow` cards, radius 2-4 scaled 5 to 1
+with a bias of 0.05) and the `_trail_stage3` curl (`effects/medicbeam_curl`). The pluses are the overheal's and the
+beam's drips. This viewer drew all of it, and almost none of it showed. Three causes, each the engine's:
+
+- **`$overbrightfactor` was never read.** *Read from published source*: `spritecard.cpp:81` declares it, `:110` sets
+  1.0 when unset, and `spritecard_ps2x.fxc:143-144` is `blended_rgb.rgb *= fOverbrightFactor` before the vertex
+  colour. *Shipped data*: `effects/medicbeam_curl` states `"srgb?$overbrightfactor" 3`; 191 shipped materials state
+  one, up to 15. Every one drew at a fraction of its light. Now `ParticleMaterial.Overbright`, read at both places a
+  particle material is made and applied as the sprite pass's colour scale. `SpriteCardOverbrightConformanceTests`
+  (six cases and a picture: an overbright of 3 adds three times the light).
+- **`Radius Scale` was a straight line.** *Read in disassembly*, `C_OP_InterpolateRadius::Operate` in
+  `particles.lib`'s `builtin_particle_ops.obj`: a window (`start_time`, `end_time`) outside which nothing is
+  written, `ease_in_and_out` as `3t² − 2t³`, else `scale_bias` through Schlick's bias (`ssemath.h:3153-3165`). At a
+  bias of 0.05 the healing glow is still 4.8 times its radius half way through its life, where the line had 3; it
+  was *interpolated* since B373. `ParticleOperatorConformanceTests`, seven new cases, all red first.
+- **The beam's far end followed the wrong sample while playing.** `AddHealBeams` read `timeline.PlayersAt( tick )`,
+  the newest recorded frame; the patient is DRAWN interpolated, `cl_interp` behind it, so the beam ended ahead of
+  anyone running (ten ticks on f12: 42 units at gummo's speed). It reads `MomentPresenter.Players` now, the sample
+  the frame was built from. A paused frame was unaffected — both were the last received.
+
+**What is left, and why it is a question.** After those, `b521d/belt-cmp.png`: ours shows a faint glow at his
+shoulder and a thin line of curl sprites arriving from the left; TF2 shows a strong soft glow some 15 units left of
+his torso, in front of it, and no line. *Measured* with `TF2VIEW_PICK="x y pixels"`: our nine glow cards sit within
+five units of control point 1, inside his chest, so his own back hides them; our 150 curl cards are collinear on
+the path. Two readings, not separable from one paused picture:
+
+- *Interpolated:* TF2 does not simulate particles while paused, and pausing snaps every entity from its
+  interpolated position to its last received one (B399). A running patient then stands ten ticks ahead of the glow
+  that was simulated around him — which leaves it behind and to the side, clear of his body, where TF2's picture
+  has it. This viewer rebuilds an effect around the paused positions.
+- Or our stage-3 particles lose a sideways speed the engine keeps. `Position Within Sphere Random` gives them 111
+  units a second across the path, and `C_OP_BasicMovement::Operate` (read in the same object: Verlet, constraints
+  after, no fix-up of the previous position) should carry it; a collinear line says something drops it.
+
+**Asked of TF2:** the same chase view of a patient who is STANDING STILL under a beam, paused; and one of gummo
+taken while playing (`host_timescale 0.1`). The first separates the two readings; the second is what a viewer
+watching sees.
+
+**Instruments:** `heal-beams <demo> <from> <to>`; `particles system <name>` was there already; the pick reports a
+quad's size, the tick, and takes a third number for how many pixels around the point it lists.
+
 ### 3. "The item on gummo's hip is grey in TF2 and yellow-green in ours" — a canteen's skin is empty or filled, not its team's — FIXED 2026-10-12
 
 **Which item.** *Measured*, `moment-dump f12tf.dem 63610 535`: entity 535, `CTFPowerupBottle`, item 30015 (the

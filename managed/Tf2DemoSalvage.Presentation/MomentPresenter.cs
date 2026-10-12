@@ -96,6 +96,12 @@ public sealed class MomentPresenter
     /// <summary>The players at a moment, refilled each time rather than reallocated.</summary>
     private readonly List<ScenePlayer> _players = [];
 
+    /// <summary>
+    /// The players the last frame was built from — interpolated while playing, last received while paused — for an
+    /// effect that follows one, which must stand where he was drawn (B523). Refilled by <see cref="Show"/>.
+    /// </summary>
+    public IReadOnlyList<ScenePlayer> Players => _players;
+
     /// <summary>The props at a moment, refilled each time.</summary>
     private readonly List<SceneProp> _props = [];
 

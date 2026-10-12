@@ -437,8 +437,9 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
 
-        // No tone-map scale in an offscreen picture, so the gamma light scale is one.
-        _sprites.SetColourScale(1f);
+        // No tone-map scale in an offscreen picture, so the gamma light scale is one — and what is left is SpriteCard's
+        // `$overbrightfactor`, one for every material that states none (B523).
+        _sprites.SetColourScale(batch.Material.Overbright);
         _sprites.Upload(_device, _context, batch.Corners);
 
         if (!batch.Material.GammaSpace)

@@ -1455,7 +1455,10 @@ public sealed class MapAssets
                 : 1f;
 
             allParticleMaterials[name] = new ParticleMaterial(
-                Resolve(assets, name, pak, archives, maximumTextureSize).Texture, frames, how, alpha);
+                Resolve(assets, name, pak, archives, maximumTextureSize).Texture, frames, how, alpha)
+            {
+                Overbright = OverbrightOf(vmt),
+            };
         }
 
         // The decal materials continue the same table; a name that resolves to no texture is left out and draws nothing.
@@ -2398,7 +2401,11 @@ public sealed class MapAssets
                 Sequences(named, pak, archives);
 
             materials[named] = new ParticleMaterial(
-                Resolve(assets, named, pak, archives, maximumTextureSize).Texture, frames, how);
+                Resolve(assets, named, pak, archives, maximumTextureSize).Texture, frames, how)
+            {
+                // SpriteCard's own multiplier, which the medigun's beam states as 3 (B523).
+                Overbright = OverbrightOf(ReadVmt(named, pak, archives)),
+            };
         }
 
         ParticleMaterial own = materials.TryGetValue(material, out ParticleMaterial found)
@@ -2422,6 +2429,10 @@ public sealed class MapAssets
 
         return (trail, systems, materials);
     }
+
+    /// <summary>A particle material's <c>$overbrightfactor</c> as its shader takes it — the <c>srgb?</c> form first, as TF2 on the PC does.</summary>
+    private static float OverbrightOf(VmtMaterial? vmt) =>
+        ParticleMaterial.OverbrightOf(vmt?.Shader, vmt?.Value("srgb?$overbrightfactor") ?? vmt?.Value("$overbrightfactor"));
 
     /// <summary>What a machine with no TF2 gets: no systems and no materials.</summary>
     private static readonly IReadOnlyDictionary<string, ParticleSystem> EmptySystems =

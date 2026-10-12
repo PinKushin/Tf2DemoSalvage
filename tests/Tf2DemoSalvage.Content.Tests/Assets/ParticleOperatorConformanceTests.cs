@@ -183,6 +183,84 @@ public sealed class ParticleOperatorConformanceTests
         particles.RadiusOf(0).ShouldBe(2f, 0.0001d);
     }
 
+    // **`C_OP_InterpolateRadius::Operate`, read out of `particles.lib`** (`builtin_particle_ops.obj`, by name; B523).
+    // The operator behind `Radius Scale`, with its members at +0x38 start_time, +0x3c end_time, +0x40 and +0x44 the two
+    // scales, +0x48 ease_in_and_out, +0x4c scale_bias and +0x50 the bias's precalculated parameter. Per lane:
+    //
+    //     if ( start_time < end_time ):
+    //         life = age · rcp( lifetime )
+    //         if ( lifetime > 0 and start_time ≤ life < end_time ):
+    //             t = ( life − start_time ) / ( end_time − start_time )
+    //             ease:              t = 3t² − 2t³
+    //             else bias != 0.5:  t = t / ( ( 1 / bias − 2 ) · ( 1 − t ) + 1 )      — ssemath.h:3153-3165, BiasSIMD
+    //             radius = ( start + ( end − start ) · t ) · radius at birth
+    //     outside the window the radius is NOT WRITTEN
+    //
+    // B373 carried this as *interpolated* — a straight line over the whole life — and three parameters were unread.
+
+    private static Dictionary<string, DmxValue> RadiusScaleOf(
+        double start, double end, double bias = 0.5d, double from = 0d, double to = 1d, bool ease = false) =>
+        new(StringComparer.Ordinal)
+        {
+            ["radius_start_scale"] = new DmxValue(DmxAttributeType.Real, start),
+            ["radius_end_scale"] = new DmxValue(DmxAttributeType.Real, end),
+            ["scale_bias"] = new DmxValue(DmxAttributeType.Real, bias),
+            ["start_time"] = new DmxValue(DmxAttributeType.Real, from),
+            ["end_time"] = new DmxValue(DmxAttributeType.Real, to),
+            ["ease_in_and_out"] = new DmxValue(DmxAttributeType.Boolean, ease ? 1d : 0d),
+        };
+
+    /// <remarks>
+    /// **The medigun beam's glow on its patient**: `medicgun_beam_blue_healing` scales 5 to 1 with a bias of 0.05, so
+    /// half way through its life the scale is still 4.8 — `0.5 / ( 18 · 0.5 + 1 )` of the way down — where the
+    /// straight line had it at 3. The control is the bias of one half, which is the straight line.
+    /// </remarks>
+    [TestCase(0.05d, 4.8f)]
+    [TestCase(0.5d, 3f)]
+    [TestCase(0.6d, 2.6f)]
+    public void RadiusScale_HalfWayThroughALifeWithABias_IsSchlicksBiasOfTheWay(double bias, float expected)
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 2f);
+        particles.Tick(1f);
+
+        Step(particles, "Radius Scale", RadiusScaleOf(5d, 1d, bias), seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(expected, 0.001d);
+    }
+
+    [Test]
+    public void RadiusScale_WithEaseInAndOut_TakesTheSmoothStepOfTheWay()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(1f);
+
+        // A quarter of the way: 3 · 0.0625 − 2 · 0.015625 = 0.15625, and the bias is not consulted.
+        Step(particles, "Radius Scale", RadiusScaleOf(1d, 5d, bias: 0.05d, ease: true), seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(1.625f, 0.001d);
+    }
+
+    /// <remarks>Before the window, and from its end on, the radius keeps what it had; inside, the way is the window's own.</remarks>
+    [TestCase(0.5f, 1f)]
+    [TestCase(1.5f, 3f)]
+    [TestCase(3f, 1f)]
+    public void RadiusScale_WithAWindow_ScalesInsideItAndWritesNothingOutside(float age, float expected)
+    {
+        ParticleStore particles = new();
+
+        particles.Add(Vector3.Zero, lives: 4f);
+        particles.Tick(age);
+
+        // The window is a quarter to a half of the life: seconds 1 to 2.
+        Step(particles, "Radius Scale", RadiusScaleOf(2d, 4d, from: 0.25d, to: 0.5d), seconds: 0f, previous: null);
+
+        particles.RadiusOf(0).ShouldBe(expected, 0.001d);
+    }
+
     // **`C_OP_FadeAndKill::Operate`, read out of `client.dll`** (`FUN_107aeb00`, B415). These replace two tests that
     // encoded B373's reading — flagged *interpolated* at the time — and the engine contradicts both. Per lane:
     //
