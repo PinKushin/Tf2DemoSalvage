@@ -6461,6 +6461,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Every player's position this tick by entity, filled only while a beam needs one.</summary>
     private readonly Dictionary<int, Vector3> _playersNow = [];
 
+    /// <summary>Every player's yaw this tick by entity, filled with <see cref="_playersNow"/>.</summary>
+    private readonly Dictionary<int, float> _yawsNow = [];
+
     /// <summary>Draws every medigun beam at this tick — `CWeaponMedigun::UpdateEffects` (B396).</summary>
     /// <remarks>
     /// Control point 0 follows the medigun's `muzzle`; control point 1 the target's origin plus 50 up
@@ -6480,6 +6483,7 @@ internal class MainForm : Form, IFrameSteps
 
         _healBeamTick = tick;
         _playersNow.Clear();
+        _yawsNow.Clear();
 
         // ponytail: a scan over every beam, 1,211 on f12; an interval index if a demo ever carries far more.
         for (int index = 0; index < beams.Count; index++)
@@ -6510,6 +6514,7 @@ internal class MainForm : Form, IFrameSteps
                 foreach (ScenePlayer player in _moments.Players)
                 {
                     _playersNow[player.EntityIndex] = new Vector3(player.X, player.Y, player.Z);
+                    _yawsNow[player.EntityIndex] = player.Yaw;
                 }
             }
 
@@ -6524,7 +6529,10 @@ internal class MainForm : Form, IFrameSteps
                 _healBeamFrom[index] = from;
             }
 
-            ParticleControlPoint patient = ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f));
+            // The patient's own axes — `pPoint->hEntity->GetVectors` (particle_property.cpp:638) — which the trail's
+            // `bias in local system` lays its sphere in (B529). A player's abs angles are his yaw alone.
+            ParticleControlPoint patient = ParticleControlPoint.Facing(
+                target + new Vector3(0f, 0f, 50f), _yawsNow.GetValueOrDefault(beam.Target));
 
             // **A beam met by a seek is caught up along the path its two ends took** (B527), not between where they
             // stand now: asked only for the ticks a catch-up steps, so a playing frame never calls it.
@@ -6578,10 +6586,9 @@ internal class MainForm : Form, IFrameSteps
         // `PATTACH_ABSORIGIN_FOLLOW` with an offset: the patient's end has no lever arm to turn, only his movement.
         if (Recorded(recorded, beam.Target) is { } target && Recorded(earlier, beam.Target) is { } targetThen)
         {
-            end = patient with
-            {
-                At = patient.At + new Vector3(targetThen.X - target.X, targetThen.Y - target.Y, targetThen.Z - target.Z),
-            };
+            end = ParticleControlPoint.Facing(
+                patient.At + new Vector3(targetThen.X - target.X, targetThen.Y - target.Y, targetThen.Z - target.Z),
+                targetThen.Yaw);
         }
 
         return (at, end);

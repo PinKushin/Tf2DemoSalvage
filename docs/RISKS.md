@@ -37417,3 +37417,29 @@ at 96), written with the fix and proved by removing the history (96).
 on the vest. **Still short of TF2**, which is nearer again by an estimated 15 units: not explained. Candidates not
 checked: what our sweep hits against `MASK_SOLID` (brush entities, props), and the capture's own history (two of the
 references before it are paused, and a paused frame grows nothing).
+
+## B529 — SpriteCard's size clamps, and `Position Within Sphere Random`'s local bias — BUILT 2026-10-12
+
+Two things B527 listed as not built. Neither changes the heal beam's picture at the reference ticks; both are the
+engine's and were missing.
+
+**SpriteCard sizes** (*read from published source*, `spritecard_vsxx.fxc:199-229`, `spritecard.cpp:104-108, 426-431`).
+With `l` the card's distance from the eye: the radius is raised to `$minsize * l`; past `$startfadesize * l` the whole
+tint fades, and past `$endfadesize * l` the card is not drawn; a far fade over `$farfadeinterval` before
+`$maxdistance`; then the radius is capped at `$maxsize * l`. The fade is taken on the radius BEFORE the cap. Unset
+they are 0, 20, 10, 20, 100000 and 400, at which only a card within a twentieth of its radius of the eye is touched —
+which three older tests were, with their eye parked on the emitter; the eye was moved back. `SpriteCardSize`, applied
+where the corners are built (`ParticleSprites.Build`). **Tests:** `SpriteCardSizeConformanceTests` (7), red as a
+compile failure, and `Build_ACardNearTheEye_IsShrunkAndFadedByItsMaterialAndPastTheEndIsNotDrawn`.
+*Not built:* the same clamps on `render_sprite_trail`, whose cards go through a different vertex path that was not read.
+
+**The sphere's local bias** (*read in disassembly*, `C_INIT_CreateWithinSphere::InitNewParticlesScalar` and
+`InitParams`, `builtin_initializers.obj`). `bias in local system` turns the biased offset through the control
+point's matrix — forward, LEFT, up — and only when `distance_bias` is not (1, 1, 1). **The outward speed keeps the
+unturned direction**, which reads like an oversight and is reproduced. `distance_bias_absolute_value` takes `fabs` of
+each named axis before the bias: a half sphere. **Tests:** `ParticleSphereLocalBiasConformanceTests` (5): the local
+lay and the absolute value red first; the unturned speed and the no-bias case passed before and after, as controls.
+
+**Control point 1 of a medigun beam has the patient's axes** (`GetVectors`, particle_property.cpp:638):
+`ParticleControlPoint.Facing` from his yaw, now and for each tick of a catch-up. *Interpolated*: the yaw is the
+recorded body yaw, where the engine's is the animation state's render angles.

@@ -52,6 +52,8 @@ public static class ParticleSprites
     /// <param name="rate">The renderer's <c>animation rate</c>.</param>
     /// <param name="asFramesPerSecond">Its <c>use animation rate as FPS</c>.</param>
     /// <param name="fitLifetime">Its <c>animation_fit_lifetime</c>.</param>
+    /// <param name="eye">Where the camera is, for <paramref name="size"/>; null applies none.</param>
+    /// <param name="size">The material's size clamps and fades by distance; null applies none.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Two triangles rather than a quad**, because the existing pass draws a triangle list. The
@@ -70,7 +72,9 @@ public static class ParticleSprites
         IReadOnlyList<SheetSequence> sheet,
         float rate,
         bool asFramesPerSecond,
-        bool fitLifetime)
+        bool fitLifetime,
+        Vector3? eye = null,
+        SpriteCardSize? size = null)
     {
         ArgumentNullException.ThrowIfNull(particles);
         ArgumentNullException.ThrowIfNull(into);
@@ -79,14 +83,20 @@ public static class ParticleSprites
         for (int index = 0; index < particles.Count; index++)
         {
             float radius = particles.RadiusOf(index);
+            Vector3 centre = particles.PositionOf(index);
+            float fade = 1f;
+
+            // The vertex shader's size clamps and fades (`spritecard_vsxx.fxc:199-229`), done here with the corners.
+            if (eye is { } from && size is { } sized)
+            {
+                (radius, fade) = sized.Apply(radius, Vector3.Distance(centre, from));
+            }
 
             if (radius <= 0f || particles.AlphaOf(index) <= 0f)
             {
                 // A particle with no size or no opacity costs six vertices and draws nothing.
                 continue;
             }
-
-            Vector3 centre = particles.PositionOf(index);
 
             // **`ROTATION` spins the CARD about the view axis**, which is what the engine does with
             // it: `spritecard.cpp:271` passes rotation in texcoord 2 beside the frame blend and the
@@ -101,13 +111,14 @@ public static class ParticleSprites
             Vector3 across = ((right * cosine) + (up * sine)) * radius;
             Vector3 above = ((up * cosine) - (right * sine)) * radius;
 
-            float alpha = particles.AlphaOf(index);
+            // `tint *= …` is all four channels in the shader, so the fade scales the colour and the alpha both.
+            float alpha = particles.AlphaOf(index) * fade;
 
             // **`TINT_RGB` is 0..255 and the vertex takes 0..1**, which is the split this class's
             // remarks already named — and which was being sidestepped by writing white. A rocket
             // trail is firelight on smoke: `Color Random` gives it (247 194 117) to (251 142 0), and
             // ignoring that drew the raw texture at full brightness.
-            Vector3 tint = particles.TintOf(index) / 255f;
+            Vector3 tint = particles.TintOf(index) / 255f * fade;
 
             // **The sequence is the particle's own, wrapped rather than clamped.** `SEQUENCE_NUMBER`
             // is drawn from `sequence_min`..`sequence_max`, which the file states independently of

@@ -586,7 +586,9 @@ public sealed class ParticleEffects
                         material.Sequences,
                         (float)renderer.Number("animation rate", 1d),
                         renderer.Number("use animation rate as FPS", 0d) != 0d,
-                        renderer.Number("animation_fit_lifetime", 0d) != 0d);
+                        renderer.Number("animation_fit_lifetime", 0d) != 0d,
+                        eye,
+                        material.Size);
                     break;
 
                 // `C_OP_RenderSpriteTrail`, read out of `client.dll` — see `ParticleSpriteTrails`. Its defaults are

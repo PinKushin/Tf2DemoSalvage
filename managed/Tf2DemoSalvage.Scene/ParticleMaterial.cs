@@ -60,6 +60,9 @@ public readonly record struct ParticleMaterial(
     /// </summary>
     public float Overbright { get; init; } = 1f;
 
+    /// <summary>SpriteCard's size clamps and fades by distance (B529); the shader's defaults, which touch nothing, unless stated.</summary>
+    public SpriteCardSize Size { get; init; } = SpriteCardSize.Default;
+
     /// <summary>The factor a material draws with, from its shader and what it states.</summary>
     /// <param name="shader">The material's shader name, or null when it did not resolve.</param>
     /// <param name="stated">Its <c>$overbrightfactor</c> as text — the <c>srgb?</c> form first, as for <c>$alpha</c> — or null.</param>

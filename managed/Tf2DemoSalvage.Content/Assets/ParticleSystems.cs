@@ -557,6 +557,13 @@ public static class ParticleSystems
         (Vector3 sample, float radius) = ParticleRandom.InUnitSphere(into.Seed, into.Query(), 0);
 
         Vector4 bias = one.Vector("distance_bias", new Vector4(1f, 1f, 1f, 0f));
+        Vector4 positive = one.Vector("distance_bias_absolute_value", default);
+
+        // `m_bDistanceBiasAbs` (B529): an axis whose entry is not 0 takes the sample's absolute value — a half sphere.
+        sample = new Vector3(
+            positive.X != 0f ? MathF.Abs(sample.X) : sample.X,
+            positive.Y != 0f ? MathF.Abs(sample.Y) : sample.Y,
+            positive.Z != 0f ? MathF.Abs(sample.Z) : sample.Z);
 
         Vector3 direction = new(sample.X * bias.X, sample.Y * bias.Y, sample.Z * bias.Z);
 
@@ -568,7 +575,22 @@ public static class ParticleSystems
         float least = (float)one.Number("distance_min", 0d);
         float most = (float)one.Number("distance_max", least);
 
-        into.Position[index] = point.At + (outward * (least + (radius * (most - least))));
+        Vector3 offset = outward * (least + (radius * (most - least)));
+
+        // **`bias in local system` turns the offset into the control point's axes, and only when there is a bias to
+        // turn** (B529, `InitParams`: `m_bDistanceBias` is "not (1, 1, 1)"): `VectorTransform` through the point's
+        // matrix, whose columns are forward, LEFT, up. The outward speed below keeps the unturned direction, as the
+        // engine's does.
+#pragma warning disable S1244 // Floating point equality — the engine's own `==` against 1.0 on each axis
+        bool biased = bias.X != 1f || bias.Y != 1f || bias.Z != 1f;
+#pragma warning restore S1244
+
+        if (biased && one.Number("bias in local system", 0d) != 0d)
+        {
+            offset = (point.Forward * offset.X) - (point.Right * offset.Y) + (point.Up * offset.Z);
+        }
+
+        into.Position[index] = point.At + offset;
 
         // Read out of `client.dll` (B415, `0x107bb1f2`): no outward speed at all unless `speed_max` is above zero,
         // and the draw raised to `speed_random_exponent` before the lerp, as `Trail Length Random` does.
