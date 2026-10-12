@@ -361,14 +361,29 @@ public sealed class ParticleEffects
 
             while (taken < wanted)
             {
-                // A stopped effect only fades: its particles live out their lives and no more are born.
+                // **A step to an EARLIER tick is taken where the points were then** (B527): the engine reads a followed
+                // point before every simulation (`UpdateControlPoint`, particle_property.cpp:527), so a catch-up at
+                // today's points draws a beam between two players who never moved.
+                int reached = burst.Tick + taken + 1;
+
+                (ParticleControlPoint at, ParticleControlPoint? second) =
+                    burst.History is { } history && reached < tick ? history(reached) : (burst.At, burst.End);
+
+                if (second is { } then)
+                {
+                    running.Effect.SetControlPoint(1, then);
+                }
+
+                // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
+                // still follow** — `StopEmission` leaves the effect in the property's list (particle_property.cpp:251).
                 if (burst.StopTick is { } stop && burst.Tick + taken >= stop)
                 {
+                    running.Effect.SetControlPoint(0, at);
                     running.Effect.Fade(seconds);
                 }
                 else
                 {
-                    running.Effect.Step(burst.At, seconds);
+                    running.Effect.Step(at, seconds);
                 }
 
                 taken++;
@@ -655,10 +670,15 @@ public sealed class ParticleEffects
 /// <param name="StopTick">
 /// The tick emission stops — `ParticleProp()->StopEmission` — or null for none: from then on the effect only fades.
 /// </param>
+/// <param name="History">
+/// Where both points were on an earlier tick, for an effect that follows entities; null for one that stays put. Asked
+/// only for the ticks a catch-up steps before the one being shown (B527).
+/// </param>
 public readonly record struct ParticleBurst(
     long Key,
     ParticleSystem Definition,
     ParticleControlPoint At,
     int Tick,
     ParticleControlPoint? End = null,
-    int? StopTick = null);
+    int? StopTick = null,
+    Func<int, (ParticleControlPoint At, ParticleControlPoint? End)>? History = null);

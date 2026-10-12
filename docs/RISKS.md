@@ -37320,7 +37320,7 @@ against what the frame draws:
 |---|---|---|
 | `StepModelDecals` | wipes (state), and the struck player's box for a decal's ray | **fixed**: the frame's own sample when the frame is of that tick (`MomentPresenter.PlayersShownAt`) |
 | `WithIdTraces` (target id, weapon pickup) | every player's hull for the view trace | **fixed** the same way: the hull stood an interpolation delay ahead of the hitboxes posed beside it |
-| `ReplayTicksThatLand` and `OldestDecalLife` | a pre-filter: which past ticks' bullets could reach anyone | **fixed**: both samples, the recorded and the interpolated (`PlayersABulletMayMeet`); the filter's 19 units of slack is less than a running player's displacement |
+| `ReplayTicks` and `OldestDecalLife` | a pre-filter: which past ticks' bullets could reach anyone | **fixed**: both samples, the recorded and the interpolated (`PlayersABulletMayMeet`); the filter's 19 units of slack is less than a running player's displacement |
 | the wipe-only walk in the replay, and `LastWipes` (twice) | life state and condition changes | right as it was: state is not interpolated |
 | `StruckEnd` | the bullet trace's targets | already the frame's sample (its own comment records the same finding); the recorded frame is only its fallback |
 
@@ -37329,3 +37329,60 @@ case where the two samples agree (B399). **Test:** `PlayersShownAt_TheTickTheFra
 red first. The three `MainForm` call sites are wiring with no test of their own; nothing on screen was checked,
 because each needs a running player being shot or looked at while a demo plays. **Not looked at:** the same call in
 `DemoSystems`, `HudEventFeed` and `HudStates`.
+
+## B527 — the medigun beam against ten TF2 references: the particle code was right, the seek was not — PARTLY CLOSED 2026-10-12
+
+The owner's references (`cp_process_f12`, chase on gummo, ticks 63590-63720, playing at a tenth speed) show a wide
+beam and a glow on the patient where the viewer's paused shots had a thin line ending short of him. Asked: read
+`medicgun_beam_blue` and its children whole, and `CWeaponMedigun::UpdateEffects`, and port what is missing.
+
+**What was read, and found already built.** Eight children; every function name they declare is implemented, and
+the three that carry the beam were checked against the definition's numbers from a pick of the drawn quads
+(*measured*, `TF2VIEW_PICK`): stage 3's sprites leave the patient's end at radius 5.0 (2 x `radius_end_scale` 2.5),
+150 a second, on the quadratic path from control point 0 (the medigun's `muzzle`, `PATTACH_POINT_FOLLOW`) to control
+point 1 (the patient's origin plus 50, `PATTACH_ABSORIGIN_FOLLOW`). **The line is the definition's, not a fault:**
+`minimum distance` and `maximum distance` are both 16, so the constraint puts every particle exactly 16 units from
+its path point, and the first snap — from the patient, where it is born, to the muzzle end of the path — sets that
+offset along the beam (*arithmetic*). The 111 units a second of birth speed is spent in that snap. TF2's band is
+the same width as ours once the tick is right: about 100 pixels at 66 units, a sprite of radius 5 to 6.
+
+**Three causes, none of them an operator:**
+
+| # | cause | class | state |
+|---|---|---|---|
+| 1 | the pair was matched ten ticks late: a playing frame's HUD health leads its drawn positions by the interpolation delay (`docs/findings/76-the-golden-comparison.md`) | *measured* | the comparison's, not the viewer's; recipe updated |
+| 2 | a beam met by a seek was caught up with both control points where they are NOW for all 132 past ticks | *read from published source*: `UpdateControlPoint` (particle_property.cpp:527-640) reads a followed point every frame | **fixed**: `ParticleBurst.History`, asked only for the ticks a catch-up steps |
+| 3 | a stopped beam froze: `Fade` stepped without setting control point 0, so the dying second of particles hung where the medic had been | *read from published source*: `StopEmission` (particle_property.cpp:251-263) stops the emitters and leaves the effect in `m_ParticleEffects` | **fixed**: the points are set before a fade as before a step |
+
+Cause 3 is the visible one. At 63660 the beam on gummo has been let go (*measured*: his health falls from 237) and
+TF2 draws its last second sweeping round the rock from the right, after the medic; ours hung at the lower left
+where he had stood. After the fix it comes from the right across the rock, as reference 15 does.
+
+**The past of a point is interpolated, and said so** (`FollowedPoint`): the player's recorded origin and yaw are
+exact, and the muzzle is carried rigidly with them. Its swing with the skeleton — aim pitch, stride — is not
+reconstructed, since that is a posed skeleton per replayed tick.
+
+**Tests** (`Scene.Tests`): `Bursts_AFollowingBurstMetBySeek_StepsEachPastTickAtThatTicksPoint` and
+`..._SetsEachPastTicksSecondPoint`, red first (every particle at today's point); `Bursts_AStoppedBurstWhosePointMoves_GoesOnFollowingIt`,
+first red for the wrong reason (the lock operator reads a point at the origin as "none seen yet") and then proved by
+removing the one line; `FollowedPointTests` (3), written with the helper and not seen red. The `MainForm` wiring
+(`HealBeamThen`) has no test of its own.
+
+**Open — what still differs, in order of size:**
+
+- **The glow on the patient.** `_healing`'s nine `sc_softglow` cards are drawn, at the patient's origin plus 50, and
+  sit behind his back as seen from a chase camera; TF2's cut through it and light the vest. The card's plane is the
+  same in both, so the difference is the BODY: TF2's demoman leans further forward at a run and his back crosses
+  the plane (*interpolated* from the two pictures; no depth was measured). That is player pose parity, not
+  particles.
+- **`bias in local system`** is still ignored (stage 1 to 3 set it), and control point 1 is given no orientation
+  where the engine gives it the patient's `GetVectors`. *Arithmetic*: the snap above discards the birth offset and
+  speed it would turn, so nothing on screen was found to depend on it. Not built.
+- **`$maxsize`, `$startfadesize`, `$endfadesize`** (`sc_softglow.vmt`; `spritecard_vsxx.fxc:199-229`) are not
+  applied. They shrink and fade a card nearer than about three radii — a camera inside the glow.
+- **The arc.** Reference 15's dying beam bends more than ours. The bulge is the muzzle's forward times the path's
+  length times 1.3 times how far off the path it points; whether ours is short is not known, because the tick of
+  that reference is only known to 15 either way.
+- **The viewer's chat panel** darkens the wall behind the beam in every shot of this pair, and TF2's has faded. Not
+  a particle fault; it makes ours read brighter than it is (*measured*: the beam adds about 0.28 in linear light
+  against TF2's 0.18 on the same wall, with ours narrower).

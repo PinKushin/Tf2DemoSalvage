@@ -252,6 +252,116 @@ public sealed class ParticleBurstTests
         effects.BurstCount.ShouldBe(0);
     }
 
+    /// <remarks>
+    /// **A followed control point is read every frame** — `CParticleProperty::UpdateControlPoint`
+    /// (particle_property.cpp:560-640) runs for every `PATTACH_*_FOLLOW` point before each simulation, so a particle is
+    /// born where the entity WAS on its own tick. The engine reaches a seek's tick by playing to it, with the entities
+    /// where they were on the way. A catch-up that steps every past tick at today's point lays a medigun beam between
+    /// two players as if neither had moved for two seconds: a thin straight line where TF2 has a band (B527).
+    /// </remarks>
+    [Test]
+    public void Bursts_AFollowingBurstMetBySeek_StepsEachPastTickAtThatTicksPoint()
+    {
+        ParticleEffects frozen = new();
+        ParticleEffects followed = new();
+        ParticleBurst burst = Emitting(key: 1, tick: 100, stop: null) with { At = Along(110) };
+
+        frozen.Bursts([burst], Interval, null, tick: 110);
+        followed.Bursts([burst with { History = static tick => (Along(tick), null) }], Interval, null, tick: 110);
+
+        (float Least, float Most) = Span(followed.BurstParticles(1)!);
+
+        Span(frozen.BurstParticles(1)!).ShouldBe((110f, 110f), "the control: with no history every tick is stepped at today's point");
+        Least.ShouldBeLessThanOrEqualTo(101f, "the first tick's particles were born where the point was on tick 101");
+        Most.ShouldBe(110f, "and the last where it is now");
+    }
+
+    /// <remarks>The second point follows too: the patient's end of a beam is where the patient was on each tick.</remarks>
+    [Test]
+    public void Bursts_AFollowingBurstMetBySeek_SetsEachPastTicksSecondPoint()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst emitting = Emitting(key: 1, tick: 100, stop: null);
+        ParticleBurst burst = emitting with
+        {
+            Definition = emitting.Definition with
+            {
+                Initializers =
+                [
+                    new ParticleFunction(
+                        "Position Within Sphere Random",
+                        "at the second point",
+                        new Dictionary<string, DmxValue>(StringComparer.Ordinal)
+                        {
+                            ["control_point_number"] = new(DmxAttributeType.Whole, 1d),
+                        }),
+                ],
+            },
+            End = Along(110),
+            History = static tick => (Along(0), Along(tick)),
+        };
+
+        effects.Bursts([burst], Interval, null, tick: 110);
+
+        (float Least, float Most) = Span(effects.BurstParticles(1)!);
+
+        Least.ShouldBeLessThanOrEqualTo(101f);
+        Most.ShouldBe(110f);
+    }
+
+    /// <remarks>
+    /// **`StopEmission` stops the emitters and nothing else.** `CParticleProperty::StopEmission` (particle_property.cpp:
+    /// 251-263) leaves the effect in `m_ParticleEffects`, so `UpdateControlPoint` goes on reading its followed points
+    /// every frame while the last particles live out their second. A medigun beam let go of keeps bending between the
+    /// medic and the patient as they part; frozen at the stop it hangs where they were (B527).
+    /// </remarks>
+    [Test]
+    public void Bursts_AStoppedBurstWhosePointMoves_GoesOnFollowingIt()
+    {
+        ParticleEffects effects = new();
+        ParticleBurst emitting = Emitting(key: 1, tick: 100, stop: 110);
+        ParticleBurst burst = emitting with
+        {
+            Definition = emitting.Definition with
+            {
+                Operators =
+                [
+                    new ParticleFunction(
+                        "Movement Lock to Control Point",
+                        "rides the point",
+                        new Dictionary<string, DmxValue>(StringComparer.Ordinal)),
+                ],
+            },
+        };
+
+        // Not from the origin, which the lock's context reads as "no point seen yet".
+        effects.Bursts([burst with { At = Along(10) }], Interval, null, tick: 110);
+        Span(effects.BurstParticles(1)!).ShouldBe((10f, 10f), "the control: born on a point that has not moved");
+
+        effects.Bursts([burst with { At = Along(60) }], Interval, null, tick: 111);
+
+        Span(effects.BurstParticles(1)!).ShouldBe((60f, 60f), "locked to a point that moved fifty units after the stop");
+    }
+
+    /// <summary>A point whose X is the tick it is asked for.</summary>
+    private static ParticleControlPoint Along(int tick) =>
+        new(new Vector3(tick, 0f, 0f), Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
+
+    /// <summary>The least and greatest X of a store's particles.</summary>
+    private static (float Least, float Most) Span(ParticleStore particles)
+    {
+        float least = float.MaxValue;
+        float most = float.MinValue;
+
+        for (int index = 0; index < particles.Count; index++)
+        {
+            least = MathF.Min(least, particles.PositionOf(index).X);
+            most = MathF.Max(most, particles.PositionOf(index).X);
+        }
+
+        return (least, most);
+    }
+
     /// <summary>A burst of a system emitting two particles a tick for ever, each living a second.</summary>
     private static ParticleBurst Emitting(long key, int tick, int? stop) =>
         new(

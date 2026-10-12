@@ -6526,16 +6526,79 @@ internal class MainForm : Form, IFrameSteps
 
             ParticleControlPoint patient = ParticleControlPoint.Unoriented(target + new Vector3(0f, 0f, 50f));
 
-            _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End));
+            // **A beam met by a seek is caught up along the path its two ends took** (B527), not between where they
+            // stand now: asked only for the ticks a catch-up steps, so a playing frame never calls it.
+            Vector3? medicDrawn = beam.Owner is { } owner && _playersNow.TryGetValue(owner, out Vector3 drawn) ? drawn : null;
+            Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> history =
+                then => HealBeamThen(timeline, tick, then, beam, muzzle, medicDrawn, patient);
+
+            _burstsNow.Add(
+                new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End, history));
 
             // The item's `custom_particlesystem`, created beside the beam on the same two points (`:2469-2479`).
             if (beam.Item is { } item &&
                 _game?.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom &&
                 systems.TryGetValue(custom, out ParticleSystem? added))
             {
-                _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End));
+                _burstsNow.Add(
+                    new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End, history));
             }
         }
+    }
+
+    /// <summary>Where a beam's two ends were on an earlier tick — <see cref="FollowedPoint"/>, from the recorded frames.</summary>
+    private static (ParticleControlPoint At, ParticleControlPoint? End) HealBeamThen(
+        DemoTimeline timeline,
+        int tick,
+        int then,
+        SceneHealBeam beam,
+        ParticleControlPoint muzzle,
+        Vector3? medicDrawn,
+        ParticleControlPoint patient)
+    {
+        IReadOnlyList<ScenePlayer> recorded = timeline.PlayersAt(tick);
+        IReadOnlyList<ScenePlayer> earlier = timeline.PlayersAt(then);
+
+        ParticleControlPoint at = muzzle;
+        ParticleControlPoint end = patient;
+
+        if (medicDrawn is { } drawn &&
+            Recorded(recorded, beam.Owner) is { } medic &&
+            Recorded(earlier, beam.Owner) is { } medicThen)
+        {
+            at = FollowedPoint.Then(
+                muzzle,
+                drawn,
+                new Vector3(medic.X, medic.Y, medic.Z),
+                medic.Yaw,
+                new Vector3(medicThen.X, medicThen.Y, medicThen.Z),
+                medicThen.Yaw);
+        }
+
+        // `PATTACH_ABSORIGIN_FOLLOW` with an offset: the patient's end has no lever arm to turn, only his movement.
+        if (Recorded(recorded, beam.Target) is { } target && Recorded(earlier, beam.Target) is { } targetThen)
+        {
+            end = patient with
+            {
+                At = patient.At + new Vector3(targetThen.X - target.X, targetThen.Y - target.Y, targetThen.Z - target.Z),
+            };
+        }
+
+        return (at, end);
+    }
+
+    /// <summary>One player's recorded frame by entity, or null when the frame has none.</summary>
+    private static ScenePlayer? Recorded(IReadOnlyList<ScenePlayer> players, int? entity)
+    {
+        foreach (ScenePlayer player in players)
+        {
+            if (player.EntityIndex == entity)
+            {
+                return player;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>

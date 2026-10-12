@@ -144,3 +144,5 @@
 - [A gate that waits says what it waits on](a-gate-that-waits-says-what-it-waits-on.md) — `capture waiting on …` in the log; a ring never re-queues what its reader waits on; a red CI step hides the steps after it (B520).
 - [Check the reference's subject before the camera](check-the-reference-subject-before-the-camera.md) — a dead target is chased; the label is not the subject; a timer names a tick only within a round (B522).
 - [A reading that makes Valve absurd is the reading](a-reading-that-makes-valve-absurd-is-the-reading.md) — commented-out script keys read as set; print the raw file; `moment-dump` interpolates, a `--shot` does not (B523).
+- [One KeyValues tokenizer](one-keyvalues-tokenizer.md) — `KeyValuesTokens` for every reader; `""` ended a VMT, `360?` overwrote PC; only `hdr?`/`srgb?` hold (B524).
+- [A seek rebuilds what playing accumulated](a-seek-rebuilds-what-playing-accumulated.md) — catch-up at each tick's own points; a stopped effect still follows; match a playing reference at HUD tick minus interp (B527).
