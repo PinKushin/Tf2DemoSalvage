@@ -531,3 +531,25 @@ he watches, `viewmodels <demo> <entity>` for what he holds, `round-timer` for wh
 (here 63590-63657 — and the same reading recurs after every reset, so a timer names a tick only within a round).
 The fade-clock sentence that ends the entry above is answered: TF2 draws glows at once after a paused change of
 view (RISKS B378).
+
+**Four differences in one pair, four different kinds of cause** (`fix/player-parity-63600`, 2026-10-12, RISKS
+B523). The gummo pair at tick 63600, read difference by difference:
+
+| seen | cause | kind |
+|---|---|---|
+| a soldier standing in the air by the chase camera | a living soldier mid rocket jump drawn in the reference pose: a commented-out class script key read as set | our reader |
+| no blue glow on the patient | `$overbrightfactor` unread, `Radius Scale` a straight line, the beam's end on the wrong sample; and one part still open | three engine rules, one question |
+| a yellow-green canteen | `CTFPowerupBottle::GetSkin` is empty/filled, not the team | an override of a virtual |
+| a smaller, more central viewmodel | `viewmodel_fov_demo` 54 against this viewer's default 70, and six ticks | the recipe |
+
+**Three things the recipe gains.** The viewer side pins `+viewmodel_fov_demo 54` (the script does it). **A paused
+`--shot` at tick N draws what `moment-dump` prints for tick N plus the interpolation delay** — ten ticks on f12 —
+because the probe samples as playback and a paused frame draws the last received state (B399); `TF2VIEW_PICK`
+prints the drawn origin, so a position is read from the shot and not from the probe. And **the tick is found from
+the picture**: the in-eye world lines up at 63606 where the round timer only said 63590-63657, and at 280 units a
+second six ticks is 25 units of a running player.
+
+**What a paused TF2 frame is, which this comparison leans on and has not measured:** entities snap to their last
+received positions while particles, not simulated at a frame time of zero, stay where playing left them. If that
+is right, every effect attached to a moving player is displaced in a paused reference by his speed times the
+interpolation delay, and a pair taken paused cannot judge it. The medigun glow is the first case (B523 (2)).

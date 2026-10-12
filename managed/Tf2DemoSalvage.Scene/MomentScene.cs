@@ -932,7 +932,10 @@ public sealed class MomentScene : IGameSystemPerFrame
     /// Every one of them is a function of movement and elapsed time rather than of anything the
     /// recording holds, so reproducing them would be this viewer inventing motion — which is the one
     /// thing it exists not to do. What is drawn is where the weapon was; how it swayed is not in the
-    /// file.
+    /// file. **Re-read for B523 and no longer the whole truth:** TF's lag is nothing by default
+    /// (`cl_wpn_sway_interp` 0, `tf_viewmodel.cpp:85-96`), so not drawing it is parity; the BOB is
+    /// the engine's arithmetic on the player's speed (`tf_weaponbase.cpp:4845`), which the recording
+    /// does hold — an open divergence, filed in RISKS B523 (4), not a choice.
     ///
     /// Mirrored, because a viewmodel is drawn mirrored and the cull flips with it. Getting that
     /// wrong does not fail, it draws the weapon inside out.

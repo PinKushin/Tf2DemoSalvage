@@ -25,3 +25,12 @@ The test's guard ("some class must opt out, or the reader answers a constant") l
   never an assumption about the data.
 - `moment-dump` samples as PLAYBACK (interpolated, about 10 ticks behind on f12); a paused `--shot` draws last
   received. Measured: shot at 63600 = moment-dump at 63610. Use `TF2VIEW_PICK` for what a shot drew.
+- `TF2VIEW_PICK="x y pixels"`: tick, each prop's drawn origin/sequence/slot/jump/flags, each quad's size and rgba.
+- Same task (B523): SpriteCard `$overbrightfactor` multiplies the texel (191 materials); `Radius Scale` has a
+  window, ease and Schlick bias (`C_OP_InterpolateRadius`, particles.lib); `CTFPowerupBottle::GetSkin` is
+  empty/filled not team; TF reads `viewmodel_fov_demo` in demos (viewer default 70, D43; golden script pins 54).
+- An effect following a player uses the frame's own sample (`MomentPresenter.Players`), never `timeline.PlayersAt(int)`.
+- Unsettled: a paused TF2 frame may leave particles where playing put them while entities snap forward. Ask for a
+  still patient or an unpaused capture before judging an attached effect from a paused pair.
+- particles.lib objects: `mcp__ghidra__load_program D:\ghidra-proj\particles\<name>.obj`, find by mangled name,
+  `decompile_function` works.

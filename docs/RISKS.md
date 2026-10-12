@@ -37197,3 +37197,47 @@ its skin from its wearer's item (`SceneItem.NumCharges`, and the hook through `A
 canteen's model swap to its powerup's flask while charged (`GetWorldModelIndex`, `:647-674`), Mann vs. Machine alone.
 
 **On screen:** `b521d/belt-cmp.png`, TF2 left, ours right after — grey box, white caps. Before: `pause/g-tp.png`.
+
+### 4. "In-eye, TF2's viewmodel sits lower-left and larger" — a setting's value and a tick; one engine motion not built — NO DEFAULT CHANGED, the bob OPEN
+
+**The size is `viewmodel_fov_demo`.** *Read from published source*: while a demo plays TF2 reads
+`viewmodel_fov_demo` and never `viewmodel_fov` (`ClientModeTFNormal::GetViewModelFOV`, `clientmode_tf.cpp:570-575`),
+default 54; the TF2 side of the comparison pins 54 (`findings/76`). This viewer defaults to 70 — the owner's choice,
+D43, for looking at the hands — so its weapon is smaller and nearer the centre. *Measured*: `+viewmodel_fov_demo 54`
+and `+viewmodel_fov 54` are both honoured (the log says which was taken) and draw the weapon at TF2's size.
+`tools/golden-viewer-shot.sh` now pins `+viewmodel_fov_demo 54`, since the comparison is what it is for; the viewer's
+default is untouched.
+
+**The rest is mostly the tick.** With 54, the world lines up with TF2's picture at `--tick 63606`, not 63600
+(`b521d/fp-cmp3.png`), and the weapon's muzzle and drum are then within about twenty pixels of TF2's; at 63592 the
+same weapon sits a hundred pixels away. What remains at 63606 is TF2's hand lower and further left.
+
+**What the owner's client had, as far as files say:** `tf/cfg/config.cfg` carries `viewmodel_fov "0.100000"` (not
+read while a demo plays) and no `tf_use_min_viewmodels`, so that is its default, 0. `r_drawviewmodel` was pinned 1.
+
+**Read and not built — the engine's own viewmodel motion:**
+
+- **The bob.** `CBaseViewModel::CalcViewModelView` calls `pWeapon->AddViewmodelBob` (`baseviewmodel_shared.cpp:402`,
+  `CTFWeaponBase::AddViewmodelBob`, `tf_weaponbase.cpp:4845`): a cycle advanced by the player's speed that moves the
+  weapon sideways, forward and in pitch, yaw and roll. At gummo's 280 units a second it is on the order of a unit
+  sideways and half a degree. `MomentScene`'s viewmodel remarks call the bob, the lag and the shake "deliberately
+  not copied… a function of movement and elapsed time rather than of anything the recording holds". That predates
+  D89: the speed IS in the recording and the cycle is the engine's arithmetic. *Filed here as a divergence, not
+  fixed*: it is state stepped per frame, and a paused capture shows wherever playing left it, so it wants its own
+  port and its own reference.
+- **The lag is nothing in TF.** `CTFViewModel::CalcViewModelLag` returns at once while `cl_wpn_sway_interp` is 0,
+  its default, and the cvar is `FCVAR_CHEAT | FCVAR_DEVELOPMENTONLY` (`tf_viewmodel.cpp:65`, `:85-96`). So not
+  drawing a lag is parity, for the engine's reason and not ours.
+- **`tf_use_min_viewmodels` is not read by this viewer at all** (`tf_viewmodel.cpp:196-221`, the item's
+  `min_viewmodel_offset` through `CTFWeaponBase::GetViewmodelOffset`, `tf_weaponbase.cpp:6937`). The owner's client
+  has it off, so it is not this picture; a config that turns it on is ignored, which D69 says must not stand.
+- **The pose itself on SourceTV.** *Measured*, `viewmodels f12tf.dem 3`: 63 changes in 106,313 ticks — the demo
+  carries almost none of a spectated player's viewmodel animation, so both TF2 and this viewer make it up
+  client-side, and the remaining difference in the hand may be that. Not separable from one picture.
+
+**Also answered on the way (B522's open question):** `CTFViewModel::DrawModel` returns 0 when the viewmodel's
+player is not alive (`tf_viewmodel.cpp:268-271`), whatever `C_BaseViewModel::ShouldDraw` says. So TF2 draws no
+viewmodel for a dead in-eye target, which is what this viewer does. B522's "one real difference" was not one.
+
+**Asked of TF2:** `tf_use_min_viewmodels` and `cl_flipviewmodels` as the client holds them now, and the in-eye
+picture again with the tick read off the client at the moment of capture.
