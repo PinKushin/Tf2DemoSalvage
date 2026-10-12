@@ -24,61 +24,19 @@ public sealed class ClassAirwalkTests
 {
     private static string Game => GameInstall.Require();
 
-    [Test]
-    public void ClassScripts_AirWalkingClasses_AreDeclared()
-    {
-        if (Reader() is not { } read)
-        {
-            Assert.Ignore("the game is not installed");
-            return;
-        }
-
-        PlayerClassModels classes = PlayerClassModels.Read(read);
-
-        // The control: the scripts must actually have been found and decrypted, or every answer
-        // below is the default rather than a reading.
-        classes.Model(PlayerClassModels.FirstClass)
-            .ShouldNotBeNull("the class scripts must be readable for this to measure anything");
-
-        string reported = string.Join(
-            ", ",
-            Enumerable
-                .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => $"{playerClass}:{(classes.ScriptOf(playerClass).DontDoAirwalk ? "no" : "yes")}"));
-
-        TestContext.Out.WriteLine($"AIRWALK {reported}");
-
-        // Asserted as a set rather than one class, so a reader that answered a constant fails: at
-        // least one class must opt out and at least one must not.
-        bool[] answers =
-        [
-            .. Enumerable
-                .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoAirwalk),
-        ];
-
-        answers.ShouldContain(true, "some classes air-walk");
-        answers.ShouldContain(false, "and some opt out, or DontDoAirwalk is not being read");
-    }
-
-    /// <summary>Which classes play a landing gesture — <c>DontDoNewJump</c>.</summary>
+    /// <summary>Every shipped class air-walks and jumps the new way: both opt-outs are commented out (B523).</summary>
     /// <remarks>
-    /// **A branch built on an assumed flag is worse than no branch**, so this measures rather than
-    /// assumes — and the measurement corrected the assumption. `DontDoNewJump`
-    /// (`tf_classdata.cpp:188`) gates `RestartGesture( GESTURE_SLOT_JUMP, ACT_MP_JUMP_LAND )` and
-    /// nothing else (`tf_playeranimstate.cpp:1507`).
-    ///
-    /// **Two classes set it: the soldier and the medic.** The guess written here first was that
-    /// none did, which would have made the gate unreachable and the code that reads it dead. It is
-    /// neither: a soldier who rocket-jumps and a medic never play the landing gesture, and a viewer
-    /// that gave them one would be adding an animation TF2 does not.
-    ///
-    /// The medic appearing in both this list and the air-walk one is not a coincidence to smooth
-    /// over — it is the same class script saying it does neither, and reading both from one pass is
-    /// what makes each answer checkable against the other.
+    /// **This asserted the opposite for months, and the reader was what was wrong.** It "measured" the medic opting
+    /// out of the air-walk and the soldier and medic setting `DontDoNewJump` — from a scan that found a quoted key
+    /// anywhere in the text. The shipped `medic.ctx` reads `//"DontDoAirwalk"	"1"` and both it and `soldier.ctx`
+    /// read `//"DontDoNewJump"	"1"`: comments, which `KeyValues` never sees (`ClassScriptConformanceTests`). The
+    /// two tests that stood here asserted "some class opts out" as a guard against a reader answering a constant, so
+    /// the guard itself held the wrong reading in place; the control is the model key instead, which no constant
+    /// answers. What should have stopped it: `soldier.mdl` has no sequence for `ACT_MP_JUMP_PRIMARY`
+    /// (`class-activities 3 ACT_MP_JUMP_PRIMARY`), so the reading meant every soldier jump in TF2 is a reference pose.
     /// </remarks>
     [Test]
-    public void ClassScripts_TheSoldierAndMedic_PlayNoLandingGesture()
+    public void ClassScripts_EveryShippedClass_AirWalksAndJumpsTheNewWay()
     {
         if (Reader() is not { } read)
         {
@@ -87,28 +45,15 @@ public sealed class ClassAirwalkTests
         }
 
         PlayerClassModels classes = PlayerClassModels.Read(read);
+        int[] all = [.. Enumerable.Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)];
 
-        classes.Model(PlayerClassModels.FirstClass)
-            .ShouldNotBeNull("the class scripts must be readable for this to measure anything");
+        // The control: the scripts were found, decrypted and read key by key.
+        all.ShouldAllBe(playerClass => classes.Model(playerClass) != null, "every class script must be read");
 
-        bool[] answers =
-        [
-            .. Enumerable
-                .Range(PlayerClassModels.FirstClass, PlayerClassModels.LastPlayingClass)
-                .Select(playerClass => !classes.ScriptOf(playerClass).DontDoNewJump),
-        ];
+        TestContext.Out.WriteLine($"SCRIPTS {string.Join(", ", all.Select(one => $"{one}:{classes.ScriptOf(one)}"))}");
 
-        TestContext.Out.WriteLine(
-            $"LANDS {string.Join(", ", answers.Select(one => one ? "yes" : "no"))}");
-
-        // Asserted as a set rather than by class number, for the same reason as its neighbour: a
-        // reader answering a constant fails here, where naming one class would not.
-        answers.ShouldContain(true, "most classes play a landing gesture");
-
-        answers.Count(one => !one).ShouldBe(
-            2,
-            "the soldier and the medic set DontDoNewJump — if this count moves, TF2 has changed " +
-            "and the timeline's bNewJump gate now applies to a different set of classes");
+        all.ShouldAllBe(playerClass => !classes.ScriptOf(playerClass).DontDoAirwalk, "TF2 has changed a class script");
+        all.ShouldAllBe(playerClass => !classes.ScriptOf(playerClass).DontDoNewJump, "TF2 has changed a class script");
     }
 
     /// <summary>Which class models have the crouch walk each player table translates to (B437).</summary>

@@ -275,6 +275,41 @@ two-second deployed hold a zoomed sniper's shot starts — state the anim state 
 picks another table; the decode already had the real rule for the gestures, so the body now gets the
 same answer.
 
+## The measurement that overturned the comment was itself wrong (B523, 2026-10-12)
+
+**Every claim above that the soldier and the medic set `DontDoNewJump`, and the medic `DontDoAirwalk`, is
+false, and so is every count built on it** — the "5,615 soldier frames where TF2 plays `ACT_MP_JUMP`", the
+"soldier lands a plain jump without the gesture", the medic who never air-walks. They are kept as written
+because the wrong turn is the finding.
+
+*Read from the game's shipped data*: `scripts/playerclasses/soldier.ctx`, decrypted, carries
+
+```
+	//"DontDoNewJump"	"1"
+```
+
+and `medic.ctx` carries that line and `//"DontDoAirwalk"	"1"`. They are comments. `KeyValues::ReadToken`
+eats white space and then `CUtlBuffer::EatCPPComment` (`tier1/utlbuffer.cpp:422-440`) before every token,
+so `GetInt( "DontDoNewJump", 0 )` answers 0 for all nine classes. Our reader (`ScriptKeyValue.First`) was
+a search for the quoted key anywhere in the text. **So the comment B437 overturned — "every shipped class
+has the flag false; a finished migration" — was right, and the measurement that beat it was an instrument
+that could not see a comment.** `ClassAirwalkTests` then asserted "exactly two classes set it" and "some
+class opts out of the air-walk", the second written as a guard against a reader answering a constant: the
+guard held the wrong reading in place.
+
+**What it drew.** From 2026-10-02 every soldier jump asked `soldier.mdl` for `ACT_MP_JUMP_PRIMARY`. No
+class model has it (*measured*, `class-activities 3 ACT_MP_JUMP_PRIMARY …`: the soldier has the push-off
+and the float and no old jump under any role; the medic has it for melee alone), so `ComputeMainSequence`
+took its one fallback, `if ( animDesired < 0 ) animDesired = 0`, and sequence 0 of a class model is `ref`:
+a soldier in the reference pose with his launcher hanging off an unanimated weapon bone, for as long as
+`m_bJumping` held. Found as "a BLU soldier stands in the air beside the chase camera" in the golden
+comparison at f12 tick 63600 — cutemobb, alive, a third of a second into a crouch-jump rocket jump.
+
+**What should have stopped it at the time**, and is the rule to keep: a reading that makes the ENGINE
+draw something absurd is a reading to distrust before the engine. "The soldier's script selects an
+activity his model does not have" was one probe away, and it means every soldier in TF2 jumps in the
+reference pose. Nobody asked what the reading implied on screen.
+
 ## Open
 
 Slice 3b is built (B282, B284, B350, B351) and the context is complete (above). B437 is closed; a

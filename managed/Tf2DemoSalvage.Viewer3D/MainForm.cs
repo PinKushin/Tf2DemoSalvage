@@ -2717,7 +2717,8 @@ internal class MainForm : Form, IFrameSteps
             .OrderBy(static seen => seen.off)
             .Take(8))
         {
-            report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off] ");
+            // The sequence is the DRAWN prop's own — what the frame posed with — beside what chose it (B523).
+            report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off, at ({prop.Pose.X:0.#} {prop.Pose.Y:0.#} {prop.Pose.Z:0.#}) sequence {prop.Pose.Sequence} slot {prop.Pose.Slot ?? "-"} jump {prop.Pose.JumpActivity?.ToString() ?? "-"} flags {prop.Pose.Flags?.ToString(CultureInfo.InvariantCulture) ?? "-"}] ");
         }
 
         // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick.

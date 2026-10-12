@@ -37075,3 +37075,48 @@ picture shows that case yet; it is the owner's earlier decision, so it is asked 
   the name; a person's window keeps the warning and the normal choice.
   `Capture_OfSeveralPathsInsteadOfOne_ExitsNonZeroNamingThem`, `Capture_SpectatingANameNobodyHas_ExitsNonZeroNamingIt`
   (both failed first: a 45-second hang, and exit 0).
+
+## B523 — the gummo comparison at f12 tick 63600: four differences, each with its cause
+
+Reference pair `pause/g-tp.png` and `pause/g-fp.png` (TF2 left, ours right), `--spectate gummo`, chase and in-eye.
+
+### 1. "A BLU soldier stands in the air beside the chase camera" — a living soldier in the reference pose; a commented-out script key was read as set — FIXED 2026-10-12
+
+**It is not nezay.** *Measured*: `TF2VIEW_PICK` on the figure names `models/player/soldier.mdl entity 11`, which
+`roster` gives as cutemobb, alive; nezay (entity 8) is `Drawn = False` and `PlayerProps.ModelFor` refuses him, as it
+should. Cutemobb is a third of a second into a crouch-jump rocket jump: `FL_ONGROUND` clears at 63594, `FL_DUCKING`
+sets at 63596, `TF_COND_BLASTJUMPING` at 63598, and he is 68 units up ten ticks later. So a soldier IS beside the
+camera there. What was wrong is how he was drawn: `sequence 0` — `ref`, arms down, the launcher hanging off an
+unanimated weapon bone — where 63594 still drew him running.
+
+**Cause.** `PlayerAnimation.For` was asked for `LegacyJump`, `ACT_MP_JUMP`, which the launcher's table makes
+`ACT_MP_JUMP_PRIMARY` (`tf_weaponbase.cpp:3671`) and which `soldier.mdl` has no sequence for (*measured*,
+`class-activities 3 …`), so the engine's own fallback gave sequence 0 (`multiplayer_animstate.cpp:1174-1177`).
+`LegacyJump` came from the soldier's class script "setting `DontDoNewJump`" (B437). *Read from the shipped data*,
+`weapon-script playerclasses/soldier`: the line is `//"DontDoNewJump"	"1"`. A comment. `ScriptKeyValue.First`
+searched for the quoted key anywhere in the text; `KeyValues` eats `//` to the end of the line before every token
+(`CUtlBuffer::EatCPPComment`, `tier1/utlbuffer.cpp:422-440`). The medic's script has the same line and
+`//"DontDoAirwalk"	"1"`. **No shipped class sets either key.** So since 2026-10-02: every soldier and medic jump
+was the reference pose (medic: except with a melee weapon, the one old jump any model has), every medic was kept
+out of the air-walk, and a soldier's plain jump landed without its gesture.
+
+**Fix.** `ScriptKeyValue.First` walks tokens and skips a comment. `ClassScriptConformanceTests` (five, three red
+first, on the shipped lines byte for byte); `ClassAirwalkTests`' two "measurements" — which asserted the wrong reading,
+one of them as a guard — are replaced by `ClassScripts_EveryShippedClass_AirWalksAndJumpsTheNewWay`. The engine's
+`m_bDontDoNewJump` branch stays ported; a script that really sets the key takes it. The history is in
+`docs/findings/25-gesture-layer.md`.
+
+**On screen:** `b521d/air-strip2.png` before (63594 running, 63596 and 63597 `ref`), `b521d/air-after-strip.png`
+after (sequence 162, `jump_start_PRIMARY`, launcher in hand). The same shot's pick line now reads
+`sequence 162 … jump JumpStart`.
+
+**Whether TF2's picture should show him is a question of four ticks, and it stays one.** A paused `--shot` draws the
+last received state (B399); at `--tick 63600` that is cutemobb at (20.4 949.6 579.9), which `moment-dump` — sampling as
+playback, interpolated — reports for tick 63610. He crosses the chase camera's frame in about fifteen ticks. TF2's
+picture shows gummo at 226 health, which the demo first carries at 63602-63604, so it is no earlier than that; it
+could as well be a few ticks later with the soldier already above the frame. *Interpolated*, not measured: a TF2
+capture with `spec_player cutemobb` would settle the pose itself, which is the part that mattered.
+
+**Two instruments, added:** `TF2VIEW_PICK` reports each prop's drawn origin, sequence, weapon slot, jump activity and
+flags — the values the frame posed with; `class-activities <class> <ACT_…>…` asks a class model for an activity and
+prints its script's two flags; `scene-image <scene>…` lists one compiled scene's events.

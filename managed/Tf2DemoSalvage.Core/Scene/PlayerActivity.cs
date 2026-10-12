@@ -35,9 +35,8 @@ public enum PlayerActivity
     /// superseding it: <c>if ( bValidAirWalkClass &amp;&amp; ( vecVelocity.z > 300.0f ||
     /// m_bInAirWalk ) &amp;&amp; !bInDuck )</c>. It is what a rocket-jumping soldier is drawn with.
     ///
-    /// Measured from the shipped class scripts: **only the medic sets <c>DontDoAirwalk</c>**, so
-    /// every other class air-walks. That was worth measuring rather than guessing — the plausible
-    /// answers were the heavy or the soldier, and both are wrong.
+    /// **No shipped class sets <c>DontDoAirwalk</c>** (B523). This said the medic did; the medic's script carries
+    /// the line commented out, and the reader that measured it did not know what a comment was.
     /// </remarks>
     Airwalk,
 
@@ -56,10 +55,12 @@ public enum PlayerActivity
 
     /// <summary>The single old jump, <c>ACT_MP_JUMP</c>, for a class whose script sets <c>DontDoNewJump</c>.</summary>
     /// <remarks>
-    /// **This was written off as a finished migration, and it is not** (B437). The branch's comment reads "Remove me
-    /// once all classes are doing the new jump", and an earlier note here said every shipped class had the flag
-    /// false — but the shipped scripts were measured since (<c>ClassAirwalkTests</c>): the soldier and the medic set
-    /// it, so every soldier's jump is this one activity, not the push-off and float.
+    /// **A finished migration after all, kept because the engine keeps the branch** (B523). The branch's comment
+    /// reads "Remove me once all classes are doing the new jump", and the first note here said every shipped class
+    /// had the flag false. B437 overturned that on a measurement — the soldier and the medic "set it" — and the
+    /// measurement was the wrong one: both scripts carry <c>//"DontDoNewJump" "1"</c>, a comment. No class model but
+    /// the medic's melee has a sequence for this activity, so for five days every soldier jump drew the reference
+    /// pose. A script that does set the key (a mod's) still takes this branch.
     /// </remarks>
     LegacyJump,
 

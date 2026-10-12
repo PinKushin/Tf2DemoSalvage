@@ -227,13 +227,14 @@ public sealed class CorpusPlayerGestureTests
     }
 
     /// <remarks>
-    /// **The class scripts reach the timeline's output** (B437). Built with the two flags the shipped scripts carry —
-    /// measured by <c>ClassAirwalkTests</c>: the soldier and medic set `DontDoNewJump`, the medic `DontDoAirwalk` — a
-    /// soldier jumps as the single `ACT_MP_JUMP` and never as the split push-off and float, and a medic never
-    /// air-walks. The control is the same demo without scripts, where the soldier's jumps split.
+    /// **The class scripts reach the timeline's output** (B437). Built with scripts that SET the two flags — which
+    /// no shipped script does (B523; this said the soldier's and medic's did, from a reader that took a commented-out
+    /// line for a key) — a soldier jumps as the single `ACT_MP_JUMP` and never as the split push-off and float, and a
+    /// medic never air-walks. The control is the same demo without scripts, where the soldier's jumps split — which
+    /// is also what the shipped scripts give.
     /// </remarks>
     [Test]
-    public void Build_OnARealMatchWithTheClassScripts_JumpsTheSoldierTheOldWay()
+    public void Build_OnARealMatchWithScriptsSettingBothFlags_JumpsTheSoldierTheOldWay()
     {
         if (Corpus.Demo("z1800") is not { } path)
         {
@@ -344,7 +345,7 @@ public sealed class CorpusPlayerGestureTests
         heldByAQueuedVoice.ShouldBe(0, "a queued voice command always follows the gesture it waits behind");
     }
 
-    /// <summary>The two flags as the shipped class scripts set them, measured in <c>ClassAirwalkTests</c>.</summary>
+    /// <summary>Scripts that set the two flags, as a mod's could; the shipped ones set neither (B523).</summary>
     private sealed class StockScripts : IClassAnimationScripts
     {
         public ClassAnimationScript ScriptOf(int? playerClass) => playerClass switch
