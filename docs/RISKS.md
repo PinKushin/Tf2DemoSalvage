@@ -36735,6 +36735,35 @@ time of zero, so a still is 1/0.70 to 1/0.55 brighter in linear light than the g
 bloom amount before a capture for exactly this reason; the exposure wants the same. **Not measured:** whether live
 playback reaches TF2's values — log the scale during a `--measure` run at these three cameras.
 
+**2026-10-11 — the wait this entry added hung CI's capture test, and the cause was the histogram, not the wait**
+(`fix/ci-capture-hang`). `Capture_AtATickOnACorpusDemo_ExitsCleanlyAndWritesThePng` ran out its 180 seconds on the
+runner (WARP, no TF2) with an empty standard error. The glow occlusion queries were suspected first, having merged
+the same day, and were not it: with no game content no sprite material resolves, so nothing asks one — the CI log
+says `entity sprites: 9 materials asked for, 0 resolved`. *Measured*, with a new once-a-second line naming the gate
+a capture is held by and the values it read: `capture waiting on post-processing: bloom settled True at 0.3;
+exposure walks True, settled False, at 1 toward 1`. The exposure was AT its goal and unsettled because `Settled`
+also wants its ten-reading history full, and readings were arriving at less than one a second. **Why:**
+`ExposureHistogram` copied the frame into the next of three staging textures every frame and read the oldest without
+waiting — so the copy it was waiting on was overwritten every third frame, and `Map( DO_NOT_WAIT )` answered "still
+drawing" almost always. *Read from published source*, the engine never does this: a histogram entry whose query is in
+flight issues no new one — only `HESTATE_INITIAL` and `HESTATE_QUERY_DONE` entries do — and one that is not finished
+is asked again next frame, "-1=query not finished. wait until next time" (`viewpostprocess.cpp:551-613`). Now
+`HistogramRing`: a copy in flight is not queued again, is read no sooner than the third frame after its own
+(`cur_query_frame > m_frame_queued + 2`), oldest first. *Measured, same capture, no game content, tick 1000:*
+
+| | waited on the exposure |
+|---|---|
+| GPU, before | 16 s |
+| WARP, before | 77 s on this machine; over 180 s on the runner |
+| GPU, after | under 2 s |
+| WARP, after | 5 s on this machine |
+
+**The wait itself is unchanged and is bounded by the rule, not by a clock**: ten readings, each at most a few frames
+behind a copy nothing overwrites. `HistogramRingConformanceTests` (4). **Kept:** `capture waiting on <gate>: <values>`
+in the log, once a second, for the next capture that is held — three minutes of frames had said nothing. **Not
+answered:** the same starvation slowed LIVE auto-exposure, which had its history fed at the same trickle; nobody
+measured what that did to how fast a played demo's exposure moved.
+
 ## B521 — the cones under indoor lamps are near-opaque white beams — the indoor camera is within 96-102% of TF2 in every tile 2026-10-11 (last entry); what is left is listed there — was OPEN 2026-10-09
 
 *Measured, by eye and by patch.* At `146 -1831.6 728 -28.7 -36.5` (cp_process_f12, indoors) each

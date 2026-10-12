@@ -1950,6 +1950,22 @@ internal class MainForm : Form, IFrameSteps
     /// **The count now runs from the seek, not from the window**, and the capture waits on the
     /// opening state having been applied rather than sharing its clock. See `OpeningSequence`.
     /// </remarks>
+    private void ReportCaptureWaiting(string gate, string state)
+    {
+        // **Said once a second, with the values the gate read** (the CI hang of 2026-10-11): a capture held by a gate
+        // drew frames for three minutes and logged nothing, so the log could not say which gate or why.
+        if (Stopwatch.GetElapsedTime(_captureWaitingReported).TotalSeconds < 1d)
+        {
+            return;
+        }
+
+        _captureWaitingReported = Stopwatch.GetTimestamp();
+        _log.LogInformation("{Message}", $"capture waiting on {gate}: {state}");
+    }
+
+    /// <summary>When <see cref="ReportCaptureWaiting"/> last wrote its line.</summary>
+    private long _captureWaitingReported;
+
     private void TakeAutomaticShot()
     {
         // **The opening state is not the capture, and tying them together made half the switches
@@ -1974,8 +1990,10 @@ internal class MainForm : Form, IFrameSteps
 
         // **A capture waits for the post-processing to settle** (D192, B514): the bloom amount walks to the map's
         // value at 5% a frame from 1, so the opening's 45 frames would photograph it 10% high.
-        if (_opening.Applied && _device is { PostProcessingSettled: false })
+        if (_opening.Applied && _device is { PostProcessingSettled: false } unsettled)
         {
+            ReportCaptureWaiting("post-processing", unsettled.PostProcessingReport);
+
             return;
         }
 
@@ -1983,6 +2001,8 @@ internal class MainForm : Form, IFrameSteps
         // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
         if (_opening.Applied && !_pixelVisibility.Settled)
         {
+            ReportCaptureWaiting("glow occlusion", _pixelVisibility.Unsettled());
+
             return;
         }
 

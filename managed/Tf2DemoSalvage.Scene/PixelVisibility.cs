@@ -93,6 +93,23 @@ public sealed class PixelVisibility
     /// <summary><c>m_hwCanTestGlows</c>: <c>r_dopixelvisibility</c> as the level's load found it.</summary>
     private bool _hardwareCanTestGlows = true;
 
+    /// <summary>What is keeping <see cref="Settled"/> false, for the log of a capture that is waiting on it.</summary>
+    /// <returns>One clause a set, carried from the fields <see cref="Settled"/> reads; empty when settled.</returns>
+    public string Unsettled()
+    {
+        System.Text.StringBuilder report = new();
+
+        foreach ((int entity, Set set) in _sets)
+        {
+            if (set.Issued && (!set.HasResults || Differs(set.Brightness, set.Goal)))
+            {
+                report.Append(System.Globalization.CultureInfo.InvariantCulture, $"entity {entity}: brightness {set.Brightness:0.####} toward {set.Goal:0.####}, results {set.HasResults}, failed {set.Failed}, asked at frame {set.Asked} of {_frame}, frame time {_frameTime:0.#####}; ");
+            }
+        }
+
+        return report.ToString();
+    }
+
     /// <summary><c>r_dopixelvisibility</c> as it is now — <c>PixelVisibility_IsAvailable()</c>'s reading.</summary>
     public bool DoPixelVisibility { get; set; } = true;
 

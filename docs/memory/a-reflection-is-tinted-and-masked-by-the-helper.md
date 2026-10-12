@@ -18,7 +18,8 @@ metadata:
   (Scene), `OcclusionQueries` (Render). The fade uses the frame's REAL time, not the demo's, and a `--shot` waits
   for `Settled`.
 
-**How to apply:** when a reflective model reads too bright against TF2, switch the term off in the shader and
-re-shoot before reading anything — and do it by hand: `+mat_specular 0` / `+mat_fullbright 1` on a `--shot` command
-line log as set and change nothing (open, RISKS B521). A byte-identical "after" is the control telling you the
-switch did not reach the draw.
+**How to apply:** when a reflective model reads too bright against TF2, switch the term off and re-shoot before
+reading anything: `+mat_specular 0`, `+mat_fullbright 1`, `+r_dopixelvisibility 0`, `+r_decals 0` all work on a
+`--shot` command line (the first three since 2026-10-11; before that they logged as set and changed nothing). An
+unimplemented `+cvar` is STILL logged as set. A byte-identical "after" is the control telling you the switch did not
+reach the draw.

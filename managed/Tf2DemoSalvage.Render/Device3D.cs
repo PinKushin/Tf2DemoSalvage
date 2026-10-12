@@ -153,6 +153,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload
     /// </remarks>
     public bool PostProcessingSettled => _bloomAmount.Settled && (!ExposureWalks || _exposure.Settled);
 
+    /// <summary>The values <see cref="PostProcessingSettled"/> read, for the log of a capture that is waiting on it.</summary>
+    public string PostProcessingReport => string.Create(
+        System.Globalization.CultureInfo.InvariantCulture,
+        $"bloom settled {_bloomAmount.Settled} at {_bloomAmount.Current:0.####}; exposure walks {ExposureWalks}, settled {_exposure.Settled}, at {_exposure.Current:0.####} toward {_exposure.Goal:0.####}");
+
     /// <summary>Whether the exposure is being measured at all: integer HDR, and not forced.</summary>
     private bool ExposureWalks => _world is { HdrType: Content.Bsp.HdrType.IntegerHdr } && ForceToneMapScale <= 0f;
 
