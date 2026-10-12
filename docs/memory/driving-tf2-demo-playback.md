@@ -32,4 +32,15 @@ Measured 2026-10-09 for the golden comparison (B161, findings 76):
   `mat_disable_bloom`. Read every cvar before changing it and read all back after restoring.
 - Never play a 2009 demo in live TF2 — it wedges the client.
 
+Measured 2026-10-11 (B378 pause-glow):
+
+- **Capturing while PAUSED works in one chained line**: RCON dies on pause, so send
+  `demo_pause; wait 20; spec_next; wait 15; devshots_screenshot; wait 300; devshots_screenshot; demo_resume`
+  and read the TGAs from `tf/screenshots/` yourself.
+- **`wait` is a no-op when the demo's server set `sv_allow_wait_command 0`** (competitive configs do): every
+  command then runs in one frame and screenshots collapse into one. Set it to 1 (it sticks during playback),
+  restore after.
+- Never grab the screen from outside the game (PIL `ImageGrab`): it captures the owner's whole desktop.
+- Tf2Mcp `3a695ba`: a game that exited is forgotten, so `launch` works again without restarting the server.
+
 **How to apply:** use the MCP tools, never manual RCON scripts — built for token savings.

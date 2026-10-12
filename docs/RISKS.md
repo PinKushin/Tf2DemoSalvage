@@ -32518,9 +32518,17 @@ where the query gives 100 100 / 101 100 98).
   this project already treats as zero while a demo is paused (`BuildEffectEntities`). Ported literally, a paused
   viewer would hold every glow where the pause found it while its camera flies, and a `--shot` — a seek that lands
   paused — would photograph every halo at zero, since a new set starts there and only frame time raises it. That is
-  a visible change from what is drawn now, so it is NOT made: it waits for the owner (asked in the report of
-  2026-10-11). What TF2's own free camera does to a glow while a demo is paused has not been read; `engine.dll`'s
-  `CClientState::GetFrameTime` is closed.
+  a visible change from what is drawn now, so it is NOT made. `engine.dll`'s `CClientState::GetFrameTime` is
+  closed.
+  **Measured in TF2, 2026-10-11 (owner: "measure it in tf2 first"):** `f12.dem`, `demo_pause`, then `spec_next`
+  to three players in three lamp-lit rooms, a screenshot 15 frames after each switch and another 300 frames
+  later, all while paused. Lamp glows and spotlight shafts are fully drawn in the first screenshot of every room,
+  and each pair is identical (no pixel differs by more than 8 of 255). So TF2 does NOT show glows held at zero
+  after a paused change of view: the literal reading above predicts something the game does not do. Which
+  premise is wrong is not settled — the paused client's frame time not being zero, or a new set not starting at
+  zero — and a paused world cannot tell them apart, since nothing moves to hide a glow. The real-duration clock
+  stays, as the form that draws what TF2 draws. A paused TF2 demo does not let the free camera move, so the
+  viewer's flying paused camera has no counterpart to compare.
 
 Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
