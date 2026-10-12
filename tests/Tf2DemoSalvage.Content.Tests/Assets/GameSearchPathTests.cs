@@ -135,13 +135,21 @@ public sealed class GameSearchPathTests
     {
         // Valve's own file is full of comments, and the block ends at a brace. A parser that took
         // every line would mount "//" and "}" as folders.
+        // The block where the engine looks for it — `GameInfo` / `FileSystem` / `SearchPaths` (B524); this fixture was
+        // a bare `SearchPaths` at the top of the file, which only a line scan would find.
         const string Commented = """
-            SearchPaths
+            GameInfo
             {
-                // game+mod  tf/should_not_appear.vpk
-                game+mod     tf/real.vpk   // trailing note
+                FileSystem
+                {
+                    SearchPaths
+                    {
+                        // game+mod  tf/should_not_appear.vpk
+                        game+mod     tf/real.vpk   // trailing note
+                    }
+                    game             tf/after_the_block.vpk
+                }
             }
-            game             tf/after_the_block.vpk
             """;
 
         IReadOnlyList<SearchPathEntry> entries = GameSearchPath.Parse(Commented, _game);

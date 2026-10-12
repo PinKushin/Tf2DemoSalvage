@@ -37240,4 +37240,43 @@ player is not alive (`tf_viewmodel.cpp:268-271`), whatever `C_BaseViewModel::Sho
 viewmodel for a dead in-eye target, which is what this viewer does. B522's "one real difference" was not one.
 
 **Asked of TF2:** `tf_use_min_viewmodels` and `cl_flipviewmodels` as the client holds them now, and the in-eye
-picture again with the tick read off the client at the moment of capture.
+picture again with the tick read off the client at the moment of capture. *Answered 2026-10-12, read from the
+owner's client:* `viewmodel_fov_demo` 54, `tf_use_min_viewmodels` 0, `cl_flipviewmodels` 0.
+
+## B524 — one KeyValues tokenizer: four readers had four, and each was wrong differently — CLOSED 2026-10-12
+
+After B523's commented-out key, every reader of Valve's KeyValues text was checked against `KeyValues::ReadToken`
+and `RecursiveLoadFromBuffer` (`tier1/KeyValues.cpp:538-618`, *read from published source*). `KeyValuesTree` was
+already a port of them. Its tokenizer is now `KeyValuesTokens`, public, and the other readers stand on it.
+
+**The census** (`kv-census`, run on the shipped game BEFORE the readers changed; 32,619 text files, 30,993
+materials, 266,323 material keys):
+
+| reader | the shortcut | what it read wrong on shipped data | on screen |
+|---|---|---|---|
+| `ScriptKeyValue` (class scripts) | the first quoted value after the quoted key, anywhere in the text | commented-out keys (B523); would also take a nested block's key or a tagged one | every soldier and medic jump in the reference pose (B523) |
+| `VmtMaterial.Parse` | its own scanner: an empty token ended the parse | **7 materials** state `""` and lost everything after it, 190 keys and blocks: both `debug/env_cubemap_model_translucent*`, `demoman_blue_zombie`, `pyro_zombie_red` (`$lightwarptexture ""`, then 7), both `c_tomislav_gold` (`$phongboost ""`, then 19), `vortigaunt/eyeball` | the gold Tomislav without the 19 keys after its `$phongboost`; two zombie skins without their last 7 |
+| `VmtMaterial.Parse` | `name?$key` kept whatever the test | **83 keys** where a `360?` twin follows the plain key, so the console's value was drawn; 439 `360?` keys in all, `srgb?` 28, `lowfill?` 8, `!srgb?` 5, `!lowfill?` 4, `!360?` 1 | `$color2` of `brutal_eddiehair`, `coh_badge` and their like at the console's grey; `vistasmokev1`'s fade sizes |
+| `KeyValuesReader` (the stream: item schema, sound scripts, soundscapes, decals, particle manifest, `.phy` text) | its own tokenizer: a `[$WIN32]` tag was the next key, a quoted brace was structure | 2 of the 273 files it is pointed at: `scripts/game_sounds.txt` and `mvm_level_sounds.txt`, six sounds each with `"wave" … [$WIN32]` / `[$X360]` pairs, read as two junk keys apiece | nothing: the first `wave` was the PC's and the junk keys were ignored. `items_game.txt` read the same both ways |
+| `GameSearchPath` (`gameinfo.txt`) | line by line; any line naming `SearchPaths`; a value was the rest of the line | nothing on TF2's own file | nothing |
+
+`WeaponScript`, the HUD's `.res` files and `TfWeaponData` already went through the tree.
+
+**The material conditions are the material system's, not `KeyValues`'.** *Read in disassembly*,
+`materialsystem.dll 0x180008d20` (the function holding the strings `lowfill`, `hdr`, `srgb`, `ldr`, `360` and
+"unrecognized conditional test %s in %s"): the text before `?` is a test, a leading `!` negates, and the var is
+skipped when the test fails — `lowfill` on the config's reduced fill rate, `hdr`/`ldr` on HDR being enabled, `srgb`
+on a hardware-config call, `360` never on a PC, anything else never (with a warning). `VmtMaterial.Conditioned`
+is that, for an HDR PC with the fill rate not reduced. *Interpolated:* that the `srgb` call is
+`UsesSRGBCorrectBlending()` and true here.
+
+**What is NOT changed, and why:** a fallback block (`LightmappedGeneric_HDR_dx9 { … }`) overriding a plain key is
+the engine's own rule, already ported (91 keys); `VphysicsSurfaceData` is a port of vphysics' own tokenizer, a
+different parser. **Not audited:** the localisation reader, the HUD animation script reader and the `.cfg` reader,
+each of which the engine parses with a parser of its own; and `.phy` text, which the engine reads with vphysics'
+tokenizer (break characters `{}()':`) and this project reads through the stream. *Not built:*
+`UsesEscapeSequences( true )`.
+
+**Tests:** `KeyValuesOneTokenizerConformanceTests` (30 cases; 16 red first, each for the shape in the table). One
+existing fixture changed: `Parse_CommentsAndTheClosingBrace_AreNotPaths` put `SearchPaths` at the top of the file,
+which only a line scan finds.

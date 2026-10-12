@@ -1406,16 +1406,48 @@ public sealed class VmtMaterial
     /// substring problem has produced a plausible wrong number here — the first was counting
     /// <c>$envmaptint</c> as <c>$envmap</c> (B55).
     ///
-    /// **The PC value is the one to keep**, so the prefix is dropped rather than the key. This
-    /// project draws the PC build; a 360-only override would be wrong to apply, but the parameter
-    /// name it qualifies is the right thing to count and usually the material declares the plain
-    /// form as well, which then wins by ordinary overwrite.
+    /// **The test is evaluated, as the material system evaluates it** (B524). *Read in disassembly*, the material-var
+    /// parse in `materialsystem.dll` (`0x180008d20`, the function holding the strings `lowfill`, `hdr`, `srgb`, `ldr`,
+    /// `360` and "unrecognized conditional test %s in %s"):
+    ///
+    /// <code>
+    /// name before '?', a leading '!' negates;  a '?' at the very start is no test
+    /// fails = true
+    /// lowfill: fails = !config.reduceFillrate        hdr:  fails = !GetHDREnabled()
+    /// srgb:    fails = !hardware-&gt;[vtable 0x1f8]()    ldr:  fails =  GetHDREnabled()
+    /// 360:     fails stays true                      else: Warning( unrecognized ), fails stays true
+    /// skip the var when negated != fails
+    /// </code>
+    ///
+    /// This kept every conditioned key whatever its test, on the reasoning that the plain form "usually" follows and
+    /// wins. It does not always: 83 shipped keys are a `360?` twin stated AFTER the plain one, so the console's value
+    /// was the one drawn — `brutal_eddiehair`'s paint colour among them (`kv-census vmt`).
+    ///
+    /// *Interpolated:* that the `srgb` call is `UsesSRGBCorrectBlending()` and true on a PC — the name from the same
+    /// function as other Source branches publish it, the value from this project's earlier reading of `srgb?$alpha`
+    /// (B415). **Fixed here, not asked of a setting:** HDR on, which is how this viewer renders, and
+    /// `mat_reducefillrate` off, its default; no shipped material states `hdr?` or `ldr?`.
     /// </remarks>
-    private static string PlatformIndependent(string key)
+    /// <param name="key">The key as written, such as <c>360?$color2</c>.</param>
+    /// <returns>The parameter it sets, or null when its test fails here and the engine skips it.</returns>
+    private static string? Conditioned(string key)
     {
-        int condition = key.IndexOf('?', StringComparison.Ordinal);
+        int question = key.IndexOf('?', StringComparison.Ordinal);
 
-        return condition >= 0 && condition + 1 < key.Length ? key[(condition + 1)..] : key;
+        if (question <= 0)
+        {
+            return key;
+        }
+
+        bool negated = key[0] == '!';
+        string test = key[(negated ? 1 : 0)..question];
+
+        // On an HDR PC with the fill rate not reduced, `hdr` and `srgb` hold; `lowfill`, `ldr`, `360` and anything
+        // unrecognised fail.
+        bool fails = !test.Equals("hdr", StringComparison.OrdinalIgnoreCase) &&
+                     !test.Equals("srgb", StringComparison.OrdinalIgnoreCase);
+
+        return negated != fails ? null : key[(question + 1)..];
     }
 
     /// <summary>Parses a VMT.</summary>
@@ -1431,13 +1463,16 @@ public sealed class VmtMaterial
     /// </remarks>
     public static VmtMaterial Parse(ReadOnlyMemory<byte> content)
     {
-        // UTF-8 rather than ASCII: community materials carry non-English paths and comments.
-        string text = Encoding.UTF8.GetString(content.Span);
+        // **`KeyValues`' own tokens** (B524): a material is loaded by `LoadFromBuffer` before any material rule reads it.
+        // The scanner that stood here ended the whole parse at an empty quoted value — `"$detail" ""` — and lost every
+        // key after it (200 keys in the shipped materials), and ran a bare token through a quote.
+        KeyValuesTokens tokens = new(KeyValuesTokens.Decode(content.Span));
 
         Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
         string shader = string.Empty;
         string? pendingKey = null;
-        int at = 0;
+        bool pendingHolds = true;
+        bool named = false;
 
         // **The name of every block currently open, not just how many.** Depth alone cannot tell a
         // patch's `replace` block from a `Proxies` block, and the two need opposite treatment: a
@@ -1446,23 +1481,20 @@ public sealed class VmtMaterial
 
         List<MaterialProxy> proxies = [];
 
-        while (at < text.Length)
+        while (tokens.Next() is { } token)
         {
-            char character = text[at];
-
-            if (char.IsWhiteSpace(character))
+            if (token.Opens)
             {
-                at++;
-            }
-            else if (character == '/' && at + 1 < text.Length && text[at + 1] == '/')
-            {
-                while (at < text.Length && text[at] is not ('\n' or '\r'))
+                // A block whose key carried a tag that fails here is read and thrown away, as
+                // `RecursiveLoadFromBuffer` does.
+                if (!pendingHolds)
                 {
-                    at++;
+                    SkipBlock(tokens);
+                    pendingKey = null;
+                    pendingHolds = true;
+                    continue;
                 }
-            }
-            else if (character == '{')
-            {
+
                 blocks.Add(pendingKey ?? string.Empty);
 
                 // A block opening directly inside Proxies IS a proxy, and its name is the key that
@@ -1474,59 +1506,89 @@ public sealed class VmtMaterial
                     proxies.Add(new MaterialProxy(blocks[^1]));
                 }
 
-                at++;
                 pendingKey = null;
             }
-            else if (character == '}')
+            else if (token.Closes)
             {
                 if (blocks.Count > 0)
                 {
                     blocks.RemoveAt(blocks.Count - 1);
                 }
 
-                at++;
                 pendingKey = null;
+                pendingHolds = true;
+            }
+            else if (blocks.Count == 0)
+            {
+                // Outside any block: this is the shader name — the first token, empty or not.
+                if (!named)
+                {
+                    shader = token.Text;
+                    named = true;
+                }
+            }
+            else if (pendingKey is null)
+            {
+                pendingKey = token.Text;
+                pendingHolds = true;
+            }
+            else if (token.Conditional)
+            {
+                // A tag between a key and its value or block.
+                pendingHolds = KeyValuesTree.EvaluateConditional(token.Text);
             }
             else
             {
-                string token = ReadToken(text, ref at);
+                // A tag straight after the value decides the pair it follows.
+                int after = tokens.Position;
 
-                if (token.Length == 0)
+                if (tokens.Next() is { Conditional: true } tag)
                 {
-                    break;
-                }
-
-                if (blocks.Count == 0)
-                {
-                    // Outside any block: this is the shader name.
-                    if (shader.Length == 0)
-                    {
-                        shader = token;
-                    }
-                }
-                else if (pendingKey is null)
-                {
-                    pendingKey = token;
+                    pendingHolds = KeyValuesTree.EvaluateConditional(tag.Text);
                 }
                 else
                 {
-                    if (DescribesTheSurface(blocks) || TakesThisFallback(blocks, shader))
-                    {
-                        values[PlatformIndependent(pendingKey)] = token;
-                    }
-                    else if (IsAProxyArgument(blocks))
-                    {
-                        // The block one level up is the proxy's name, and it was created when its
-                        // brace opened — so there is always one to add to here.
-                        proxies[^1].Add(pendingKey, token);
-                    }
-
-                    pendingKey = null;
+                    tokens.Position = after;
                 }
+
+                // A pair whose tag fails was dropped by `KeyValues` before the material ever saw it.
+                bool surface = pendingHolds && (DescribesTheSurface(blocks) || TakesThisFallback(blocks, shader));
+
+                if (surface && Conditioned(pendingKey) is { } parameter)
+                {
+                    values[parameter] = token.Text;
+                }
+                else if (pendingHolds && !surface && IsAProxyArgument(blocks))
+                {
+                    // The block one level up is the proxy's name, and it was created when its
+                    // brace opened — so there is always one to add to here.
+                    proxies[^1].Add(pendingKey, token.Text);
+                }
+
+                pendingKey = null;
+                pendingHolds = true;
             }
         }
 
         return new VmtMaterial(shader, values, proxies);
+    }
+
+    /// <summary>Reads past a block whose opening brace has just been read.</summary>
+    private static void SkipBlock(KeyValuesTokens tokens)
+    {
+        int open = 1;
+
+        while (open > 0 && tokens.Next() is { } token)
+        {
+            if (token.Opens)
+            {
+                open++;
+            }
+            else if (token.Closes)
+            {
+                open--;
+            }
+        }
     }
 
     /// <summary>Whether the key currently being read is one of the material's own.</summary>
@@ -2021,33 +2083,5 @@ public sealed class VmtMaterial
         }
 
         return value / scale;
-    }
-
-    private static string ReadToken(string text, ref int at)
-    {
-        if (text[at] == '"')
-        {
-            int end = text.IndexOf('"', at + 1);
-
-            if (end < 0)
-            {
-                // The file ends inside a quoted string. Everything up to here is still usable.
-                at = text.Length;
-                return string.Empty;
-            }
-
-            string quoted = text[(at + 1)..end];
-            at = end + 1;
-            return quoted;
-        }
-
-        int start = at;
-
-        while (at < text.Length && !char.IsWhiteSpace(text[at]) && text[at] is not ('{' or '}'))
-        {
-            at++;
-        }
-
-        return text[start..at];
     }
 }

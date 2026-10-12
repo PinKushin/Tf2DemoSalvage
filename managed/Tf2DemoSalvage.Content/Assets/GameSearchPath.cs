@@ -125,55 +125,16 @@ public static class GameSearchPath
         string root = Path.GetDirectoryName(Path.GetFullPath(gameFolder)) ?? gameFolder;
 
         List<SearchPathEntry> entries = [];
-        bool inside = false;
-        int depth = 0;
 
-        foreach (string line in text.Split('\n').Select(Strip))
+        // **Loaded as `KeyValues`, which is how `FileSystem_LoadSearchPaths` has it** (B524): the root's `FileSystem`
+        // block, its `SearchPaths` block, each value in file order. This went line by line — any line naming
+        // `SearchPaths`, a value that was "the rest of the line" — so a `[$X360]` tag was part of a path, and a
+        // comment naming the block opened it.
+        KeyValuesTree root2 = KeyValuesTree.Load(Encoding.UTF8.GetBytes(text), "gameinfo.txt", static _ => null);
+
+        foreach (KeyValuesTree path in root2.Find("FileSystem")?.Find("SearchPaths")?.Children ?? [])
         {
-            if (line.Length == 0)
-            {
-                continue;
-            }
-
-            if (!inside)
-            {
-                if (line.Contains("SearchPaths", StringComparison.OrdinalIgnoreCase))
-                {
-                    inside = true;
-                    depth = 0;
-                }
-
-                continue;
-            }
-
-            if (line.StartsWith('{'))
-            {
-                depth++;
-                continue;
-            }
-
-            if (line.StartsWith('}'))
-            {
-                // The block's closing brace ends the search path; anything after it belongs to
-                // another section.
-                break;
-            }
-
-            // **The key is a set of path-type tags and the value is the rest of the line.** Splitting
-            // on whitespace and taking everything after the first field keeps values containing
-            // spaces intact, which a naive "last field" would break on a path like
-            // "Team Fortress 2/tf".
-            int split = line.IndexOfAny([' ', '\t']);
-
-            if (split < 0 || depth == 0)
-            {
-                continue;
-            }
-
-            string key = line[..split].Trim().Trim('"');
-            string value = line[split..].Trim().Trim('"');
-
-            if (value.Length == 0 || IsConditional(key))
+            if (path.Value is not { Length: > 0 } value || IsConditional(path.Name))
             {
                 continue;
             }
@@ -275,13 +236,5 @@ public static class GameSearchPath
             : path[..^ArchiveExtension.Length] + ArchiveSuffix;
 
         entries.Add(new SearchPathEntry(directory, IsArchive: true));
-    }
-
-    /// <summary>Removes a comment and surrounding space from one line.</summary>
-    private static string Strip(string line)
-    {
-        int comment = line.IndexOf("//", StringComparison.Ordinal);
-
-        return (comment < 0 ? line : line[..comment]).Trim();
     }
 }
