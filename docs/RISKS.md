@@ -37309,3 +37309,23 @@ Both were filed open under B523 (4). *Read from published source*, `tf_viewmodel
 **Tests:** `ViewmodelViewConformanceTests` (10: the helper's arithmetic at two hand-worked states, the paused and
 no-player returns, the add, the offset along turned axes) and `UseMinViewmodels_ByDefaultAndFromAConfig_IsValvesCvar`.
 Written before the code; they were not run red — until `ViewmodelBob` existed they did not compile.
+
+## B526 — the other places the window read the recording's newest frame for a player's position — CLOSED 2026-10-12
+
+B523 (2) found the medigun beam ending where `timeline.PlayersAt( int )` had its patient — the newest recorded frame
+— while he was drawn an interpolation delay behind it. The seven other reads of that call in `MainForm`, each
+against what the frame draws:
+
+| where | what it used the players for | verdict |
+|---|---|---|
+| `StepModelDecals` | wipes (state), and the struck player's box for a decal's ray | **fixed**: the frame's own sample when the frame is of that tick (`MomentPresenter.PlayersShownAt`) |
+| `WithIdTraces` (target id, weapon pickup) | every player's hull for the view trace | **fixed** the same way: the hull stood an interpolation delay ahead of the hitboxes posed beside it |
+| `ReplayTicksThatLand` and `OldestDecalLife` | a pre-filter: which past ticks' bullets could reach anyone | **fixed**: both samples, the recorded and the interpolated (`PlayersABulletMayMeet`); the filter's 19 units of slack is less than a running player's displacement |
+| the wipe-only walk in the replay, and `LastWipes` (twice) | life state and condition changes | right as it was: state is not interpolated |
+| `StruckEnd` | the bullet trace's targets | already the frame's sample (its own comment records the same finding); the recorded frame is only its fallback |
+
+*Read from published source*: `GetCollisionOrigin()` is the interpolated abs origin, and a paused frame is the one
+case where the two samples agree (B399). **Test:** `PlayersShownAt_TheTickTheFrameShowed_IsItsSampleAndAnyOtherTickIsNot`,
+red first. The three `MainForm` call sites are wiring with no test of their own; nothing on screen was checked,
+because each needs a running player being shot or looked at while a demo plays. **Not looked at:** the same call in
+`DemoSystems`, `HudEventFeed` and `HudStates`.

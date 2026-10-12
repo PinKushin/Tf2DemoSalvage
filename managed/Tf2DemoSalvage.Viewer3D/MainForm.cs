@@ -4949,7 +4949,10 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        IReadOnlyList<ScenePlayer> players = timeline.PlayersAt(tick);
+        // **Where the frame DREW them, when the frame is of this tick** (B526): a decal's ray is clipped to the struck
+        // player's box at his abs origin, the interpolated one his hitboxes were posed at. The recording's newest frame
+        // stands in only for a replayed tick no frame showed.
+        IReadOnlyList<ScenePlayer> players = _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick);
 
         foreach (ScenePlayer player in players)
         {
@@ -5606,13 +5609,34 @@ internal class MainForm : Form, IFrameSteps
         foreach (ShotImpact bullet in _loaded?.Impacts ?? [])
         {
             if (!bullet.FromServer && !bullet.BrushOnly && bullet.Tick > start && bullet.Tick < target &&
-                PassesAnEnemy(bullet, timeline.PlayersAt(bullet.Tick)))
+                PassesAnEnemy(bullet, PlayersABulletMayMeet(timeline, bullet.Tick)))
             {
                 Land(bullet.Tick);
             }
         }
 
         return needed;
+    }
+
+    /// <summary>The interpolated half of <see cref="PlayersABulletMayMeet"/>, reused.</summary>
+    private readonly List<ScenePlayer> _interpolatedThen = [];
+
+    /// <summary>Both places a player may be when a past tick's bullet is judged: the recording's newest frame, and where
+    /// a playing frame draws him — an interpolation delay behind it (B526).</summary>
+    /// <remarks>
+    /// **A filter must not be narrower than what it filters for.** The replay judges a bullet against hitboxes posed
+    /// where the frame draws the player; this pre-filter measured from the recording's origin alone, which for anyone
+    /// running is up to his speed times the interpolation delay away — more than the 19 units of slack
+    /// <see cref="ReachOfAPlayer"/> leaves. Either sample reaching is enough to replay the tick: "a bullet let through is
+    /// only posed for nothing".
+    /// </remarks>
+    private List<ScenePlayer> PlayersABulletMayMeet(DemoTimeline timeline, int tick)
+    {
+        _interpolatedThen.Clear();
+        timeline.PlayersAt((double)tick, _interpolatedThen);
+        _interpolatedThen.AddRange(timeline.PlayersAt(tick));
+
+        return _interpolatedThen;
     }
 
     /// <summary>How near a bullet's path must come to a player's hull centre to be able to reach his hitboxes, in units.</summary>
@@ -5686,7 +5710,7 @@ internal class MainForm : Form, IFrameSteps
                 continue;
             }
 
-            foreach (ScenePlayer player in timeline.PlayersAt(bullet.Tick))
+            foreach (ScenePlayer player in PlayersABulletMayMeet(timeline, bullet.Tick))
             {
                 if (wipedAt.TryGetValue(player.EntityIndex, out int wiped) && bullet.Tick > wiped && Reaches(bullet, player))
                 {
@@ -6804,7 +6828,9 @@ internal class MainForm : Form, IFrameSteps
         List<BulletTarget> targets = [];
         Dictionary<int, int> teams = [];
 
-        foreach (ScenePlayer player in timeline.PlayersAt(tick))
+        // Their hulls where the frame drew them — `GetCollisionOrigin()` — beside the hitboxes posed there (B526); the
+        // recording's newest frame put a running player's hull an interpolation delay ahead of his body.
+        foreach (ScenePlayer player in _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick))
         {
             if ((player.LifeState ?? Alive) == Alive)
             {

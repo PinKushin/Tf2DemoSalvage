@@ -106,6 +106,17 @@ public sealed class MomentPresenter
     /// </summary>
     public IReadOnlyList<ScenePlayer> Players => _players;
 
+    /// <summary>The whole tick the last frame showed; null before any frame.</summary>
+    private int? _shownTick;
+
+    /// <summary>
+    /// <see cref="Players"/> when the last frame showed this tick, else null — for a trace that must meet a player
+    /// where his hitboxes were posed, and a replay over other ticks that must not be handed this frame's (B526).
+    /// </summary>
+    /// <param name="tick">The whole tick asked about.</param>
+    /// <returns>The frame's players, or null when the frame was of another tick or there has been none.</returns>
+    public IReadOnlyList<ScenePlayer>? PlayersShownAt(int tick) => _shownTick == tick ? _players : null;
+
     /// <summary>The props at a moment, refilled each time.</summary>
     private readonly List<SceneProp> _props = [];
 
@@ -201,6 +212,7 @@ public sealed class MomentPresenter
         long sampledAt = Stopwatch.GetTimestamp();
 
         source.PlayersAt(tick, _players, view.Playing);
+        _shownTick = (int)Math.Floor(tick);
 
         // **Split because the whole of B258 rests on which half this is**, and it was about to be
         // assumed. `sample` is 2.0 ms of a 5.2 ms rebuild, and the plan — interpolate only what was
