@@ -73,8 +73,49 @@ public sealed class FullbrightRenderTests
         lighting.ShouldNotBe(normal, "lighting-only replaces the albedo with grey");
     }
 
+    /// <summary>
+    /// `mat_fullbright 2` binds <c>TEXTURE_GREY</c> on the base sampler, which reads sRGB
+    /// (`lightmappedgeneric_dx9_helper.cpp:423`, `:773`): the albedo is 128 as a GAMMA value, 0.216 of full as light.
+    /// </summary>
+    /// <remarks>
+    /// Drawn on the atlas's reserved fully-lit texel, so the picture is the albedo times a known light. Taken as
+    /// linear light — 0.502 — a lighting-only frame is 2.3 times TF2's (*measured* against the owner's
+    /// `mat_fullbright 2` capture, B539).
+    /// </remarks>
+    [Test]
+    [Category(Tf2DemoSalvage.SdkReference.TestCategories.MutationHeavy)]
+    public void Fullbright_LightingOnlyOnAFullyLitTexel_IsTheGreyTextureReadAsGamma()
+    {
+        using OffscreenTarget? target = OffscreenTarget.TryCreate(64, 64);
+
+        if (target is null)
+        {
+            Assert.Ignore("no Direct3D on this machine");
+            return;
+        }
+
+        if (Assets is not { } assets)
+        {
+            Assert.Ignore("the map or the game is not installed");
+            return;
+        }
+
+        (List<WorldVertex> wall, WorldBatch batch) = Quad(0.9f, material: 0, colour: (1f, 1f, 1f), lit: 0f);
+
+        target.Clear(0f, 0f, 0f);
+        target.DrawWorld(wall, [batch], Identity, assets, fullbright: Fullbright.LightingOnly);
+
+        (int red, int green, int blue) = target.PixelAt(32, 32);
+
+        // The reserved texel is lit at the overbright scale, 2: 2 x 0.2158 of full is 176 when stored. The linear
+        // reading, 2 x 0.502, is past white — 255, which is what this drew.
+        red.ShouldBeInRange(174, 178);
+        green.ShouldBeInRange(174, 178);
+        blue.ShouldBeInRange(174, 178);
+    }
+
     private static (List<WorldVertex> Vertices, WorldBatch Batch) Quad(
-        float depth, int material, (float Red, float Green, float Blue) colour)
+        float depth, int material, (float Red, float Green, float Blue) colour, float lit = 0.5f)
     {
         (float r, float g, float b) = colour;
 
@@ -86,8 +127,7 @@ public sealed class FullbrightRenderTests
         //
         // Half way into the atlas lands on a real face's baked lighting, which is darker. That is
         // an input where correct and broken differ, which is the property a test needs before its
-        // assertion matters.
-        const float lit = 0.5f;
+        // assertion matters — and it is the default here; the grey test asks for the white texel on purpose.
 
         List<WorldVertex> vertices =
         [

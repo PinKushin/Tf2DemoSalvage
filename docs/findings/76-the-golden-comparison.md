@@ -590,7 +590,16 @@ origin (81.5 837.4).
 reproduces both halves, and a world-lighting question must be asked of a frame with no effect in it. The viewer now
 keeps a following effect at the playing samples on a paused frame and through a catch-up (B538).
 
-**The number that decides it is the interpolation delay, and the recipe does not pin it.** The viewer takes its
+**CORRECTED the same day (B539): the delay is four ticks, and the next paragraph's ten is a wrong turn, kept.**
+Asked to find the engine's rule for the ten, the reading found none — `GetClientInterpAmount`, the bounded cvars and
+`cl_updaterate`'s clamp in `engine.dll` have no SourceTV case, and the demo replicates only `sv_minupdaterate 66` —
+and the measurement was then taken again on the PATIENT instead of the cloud: 31% of him is strongly blue in the
+reference, 40% in the viewer at the installed config's four ticks, 4% at ten. The glow is on his body in TF2. The
+cloud on the left, which a ten-tick lag happened to imitate, is something else and is open in B539. **Two features
+in one picture gave two delays; the one that could be checked against the engine's arithmetic was right.** The
+"(50 855)" above is the cloud's position, not the glow's. The recipe pins nothing about interpolation.
+
+**(Wrong turn.) The number that decides it is the interpolation delay, and the recipe does not pin it.** The viewer takes its
 lerp from the installed config (`cl_interp 0`, ratio 1, update rate 66: four ticks with the two an update waits);
 the references lag ten. Shot with `+cl_interp 0.1` the cloud is the reference's — 12.5% of the region left of the
 patient strongly blue against 16.7%, centred 100 pixels right of it — and with the config's own it is 0.5%. Which

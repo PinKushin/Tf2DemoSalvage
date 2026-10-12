@@ -37786,6 +37786,14 @@ Sabotage: the scale read as a float, and the lock leaving `PREV_XYZ` behind, red
 Reference 26 (`mat_fullbright 2`) has the same cloud at 19.3%, centred (328 492). A fullbright shot of ours was not
 taken: `mat_fullbright` is a viewer action, not something a `--shot` can be launched with.
 
+**CORRECTED by B539, same day: the delay is the installed config's four ticks, not ten.** Two things in this entry
+are wrong and are left as written. (1) The table's "config's interp" column was shot before wrong turn 3 below was
+fixed, with the pluses hung a minute away; reshot, that column is 0.9% left of the patient and **40.0% on him against
+the reference's 31.1%** — the glow is on his body in both, which a ten-tick lag cannot give (4.1%). (2) The
+"back-projection to (50 855)" was of the cloud on the left, and the cloud is not the lagging glow. Cause 3 itself
+stands: a paused frame keeps its particles where playing drew them, four ticks behind here. What the left-hand cloud
+is, is B539's open item. The two "open" bullets below are answered there.
+
 **Open, and each needs the owner.**
 
 - **The interpolation delay.** The reference lags its players ten ticks (B527 measured the same on the playing
@@ -37812,3 +37820,84 @@ before were paired with this tick's origin. `EntityModels.PosedHitboxes` returns
 
 **Instruments:** `TF2VIEW_PICK="x y 500"` or wider names every live burst with its points, its own particle count and
 six sample particles; `b538/excess.py` and `crop.py` are scratch.
+
+## B539 — "SourceTV playback lags ten ticks": the engine has no such rule, the viewer's four is the engine's, and the ten was read off the wrong feature — NO PORT; `mat_fullbright 2` was 2.3 times too bright, FIXED; the cloud left of the patient OPEN 2026-10-12
+
+**Asked.** The capture client's lerp is one update (`cl_interp` 0, `cl_interp_ratio` 1, `cl_updaterate` 66), B538
+measured the reference ten ticks behind, so find the engine's rule for SourceTV demo playback and port it.
+
+**The rule, every branch, and there is no SourceTV one.**
+
+- `GetClientInterpAmount` (*read from published source*, `cdll_bounded_cvars.cpp:127-144`):
+  `MAX( cl_interp, cl_interp_ratio / cl_updaterate )`, each through its bounded class — `cl_interp` raised to
+  `sv_client_min_interp_ratio / cl_updaterate` (`:108-121`), `cl_interp_ratio` clamped to the server's minimum and
+  maximum (`:76-86`), both only while the minimum is not -1. No `IsHLTV`, no `tv_snapshotrate`.
+- `cl_updaterate` (*read in disassembly*, `engine.dll` `0x180164230`, the `GetFloat` in the vtable its registration
+  at `0x18000bd70` installs): the base value clamped to `sv_minupdaterate` and `sv_maxupdaterate`. Three loads, two
+  compares; nothing else is consulted. The string `tv_snapshotrate` has one reference in the whole binary, its own
+  registration. The other four references to `"cl_updaterate"` are the fake client's, the SourceTV master's and the
+  replay master's userinfo (`0x18014e1e0`, `0x18019d110`, `0x1801f1a30`) and a rate setter (`0x180066630`) — what a
+  SourceTV BOT asks of the game server, not what a client playing its demo uses.
+- `C_BaseEntity::GetInterpolationAmount` (*read from published source*, `c_baseentity.cpp:5916-5961`): a predictable
+  or client-created entity gets one tick; multiplayer and "a demo that was not recorded locally" both get
+  `TICKS_TO_TIME( TIME_TO_TICKS( GetClientInterpAmount() ) + serverTickMultiple )`, and so does the last line for a
+  locally recorded one unless the entity is simulated every tick. `serverTickMultiple` is 2 only on alternate ticks.
+  `AdjustInterpolationAmount` is `cl_interp_npcs`, 0. `C_BasePlayer` and `C_TFPlayer` override none of it; no line in
+  `game/client` or `game/shared` writes the three cvars.
+- **What the demo replicates** (*measured*, the CLI's text of `f12tf.dem`, the one `svc_setconvar` at signon):
+  `sv_minupdaterate 66`, `sv_mincmdrate 66`, `sv_client_cmdrate_difference 0`, `sv_client_predict 1`,
+  `tv_transmitall 1`; no `sv_maxupdaterate`, no interp ratio bound, no `tv_snapshotrate` or `tv_delay` (neither is
+  replicated). Entities arrive on every tick.
+
+So for this watcher on this demo the engine's lerp is `TIME_TO_TICKS( 1/66 ) + 1` = **two ticks**, which is what
+`ClientInterp.Amount` and `ScenePropTrack.DelayTicksFor` already give; with the two ticks an update waits to apply
+the viewer draws four behind the last received state. `ClientInterpTests` gains the one branch it lacked, a
+recording that raises the update rate (a pin: it passed as written).
+
+**The measured lag, and why B538's ten was wrong.** *Measured*, paused at 63617, the same view, share of pixels
+whose blue exceeds red and green by more than 40:
+
+| region | reference 24 | viewer, installed config (4 ticks) | `+cl_interp 0.07` (8) | `0.1` (10) | `0.13` (12) | `0.16` (14) |
+|---|---|---|---|---|---|---|
+| the patient, x 560-900, y 300-600 | 31.1%, centred (741 446) | 40.0%, centred (682 507) | — | 4.1% | — | — |
+| left of him, x 0-560, y 150-590 | 16.7%, centred (320 496) | 0.9% | 8.1% (493 500) | 12.5% (422 495) | 10.5% (262 482) | 6.4% (103 450) |
+
+Read by the left-hand cloud alone the reference is eleven ticks behind — that is where B538's ten came from. Read by
+the patient it is four: TF2's glow is ON his body, and at ten ticks ours has left it. One lag cannot give both, and
+the engine's arithmetic says four. **So the cloud on the left is not the patient's glow lagging; it is something the
+viewer does not draw there.** In the reference it is a haze widening toward the lower left with some twenty-five
+pluses through it, along the beam; ours has a thin streak and three or four pluses.
+
+**Read on the way, not evidenced, kept so it is not re-derived.** *Read in disassembly*: `CClockDriftMgr::SetServerTick`
+(`0x180164940`) sets the client's tick to a packet's only when they differ by more than `cl_clockdrift_max_ms` (150
+ms, ten ticks) while clock correction is "enabled", and `AdjustFrameTime` (`0x180164610`) does not correct at all
+while a demo plays (the `demoplayer->IsPlayingBack()` test). `CDemoPlayer::ReadPacket` (`0x180072ee0`) hands a skip
+its packets one after another. *Arithmetic*: a `demo_gototick` would then leave the client clock up to ten ticks
+behind the demo for the rest of the session, which shifts every entity and every effect together. The patient's glow
+says that offset was near nothing in these captures. `cl_clock_showdebuginfo 1` prints it (`avg:`), if it is ever
+wanted.
+
+**Question 2, the patient's body.** *Shipped data*: his material (`models/player/demo/demoman_blue`) carries
+`spy_invis`, `invis`, `AnimatedTexture`, `BurnLevel` and `YellowLevel` into `$color2`; nothing that tints blue.
+*Read from published source*: no dynamic light is allocated for a medigun, a patient or an overheal anywhere in
+`game/client/tf` or `game/shared/tf` (the only TF one is the Dragon's Fury projectile). The blue on him is the heal
+glow, and with the engine's lag ours has it: 40.0% against 31.1%, ours lower on his body and stronger.
+
+**`mat_fullbright 2` was 2.3 times too bright** (*read from published source*; *measured* against reference 26). The
+engine binds `TEXTURE_GREY` on the base sampler (`lightmappedgeneric_dx9_helper.cpp:773`), which reads sRGB
+(`:423`): 128 is 0.2158 as light. `WorldRenderer` substituted 0.502. Sunlit rock, reference 26 against ours: (132 123
+120) against (194 190 185) before and (133 129 126) after; shadowed wall (86 89 115) against (75 77 98).
+`FullbrightRenderTests.Fullbright_LightingOnlyOnAFullyLitTexel_IsTheGreyTextureReadAsGamma`, red first at 255.
+`+mat_fullbright 2` already works at launch. *Seen and not chased:* TF2's lighting-only frame keeps the grass's
+texture where ours is grey.
+
+**`tools/golden-viewer-shot.sh`** pins `+mat_hdr_level 2`, the recipe's default; a set captured at another level passes
+its own. It pins nothing about interpolation, and says why.
+
+**Open.** The cloud left of the patient: 16.7% in the reference, 0.9% in ours at the engine's lag. Candidates, none
+tested: the beam's own trail is wider or brighter in TF2 than the port draws it (the collinear cards were argued to be
+the engine's from the integrator and never checked against a picture — that argument is *interpolated*); the overheal
+pluses a runner sheds reach further than ours; B527's "ten ticks" for the PLAYING references rests on the beam's
+direction and the medic's jump and should be re-measured the same way this was, by the patient's glow. **A capture
+that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
+with gummo standing still under a beam.
