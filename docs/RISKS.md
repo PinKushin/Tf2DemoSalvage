@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 1,025 domain types and members; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, the refactor OPEN
+## B540 — the view reaches 920 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slice 1 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -37966,14 +37966,69 @@ instrument, and the constructor's wiring.
   enum's TYPE is listed when the view names it.
 - **`nameof`**, and anything reached by name at run time.
 - **A domain value passed straight from one Render or Presentation call into another** with no local between: the
-  view needs no reference to its type at all. A Render or Presentation member whose signature mentions a domain type
-  puts that type on the list only when the view itself names it — a local, a field, a parameter, a cast.
+  view names no member of it. **Its TYPE is still listed**, and this entry first said otherwise: a call's `MemberRef`
+  carries the callee's signature, and every type in that signature is a `TypeRef` row in the CALLER's assembly
+  (ECMA-335 II.23.2 — *read from the format, and met in slice 1*: a presenter constructor taking the new
+  `IPosedEntities` would have ADDED a line for a type the view never names). So a presenter the view calls must be
+  signed in types the view already holds, or in none; `BurstEffects` and `BulletStrikes` take `EntityModelSet` in the
+  constructor the view calls and the interface in the one the tests call, for that reason alone.
 - **A second overload of the same name and parameter count**: a method is `Type::Name(arity)`.
 - **Presentation and Render themselves.** A view that asks a presenter for domain-shaped answers and does arithmetic
   on them has moved nothing; the list would be empty and D90 still broken. The list is necessary, not sufficient —
   the test of D90 remains whether a second frontend would reimplement anything in the file.
 
 **The guard.** `.claude/hooks/tf2-thin-view.ps1` denies an edit that adds a line to the list; its cases are beside it.
-**Not registered by the agent that wrote it** — see the branch's report.
+Registered by the owner with the merge of the guard (`4a737ee0`).
 
-**Not done here, on purpose:** no logic moved. The list records the reach exactly as it was.
+**Slice 1, 2026-10-12: the particle bursts — 1,025 to 920, 105 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 678 | 627 | 51 |
+| Core | 241 | 191 | 50 |
+| Content | 75 | 71 | 4 |
+| Animation | 16 | 16 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 1,025 (263 types, 762 members) | 920 (241 types, 679 members) | 105 |
+
+`MainForm` uses 675 distinct domain members, from 758, and is 9,259 lines, from 10,276. *Measured*, by the instrument.
+
+*What moved:* `StepExplosions` and the sixteen methods only it called — `Whiz`, `AddTracers`, `AddSplashes`, `AddBlood`,
+`AddBloodBurst`, `AddSentryMuzzleFlashes`, `AddHealBeams`, `HealBeamThen`, `PlayedAt`, `AddOverheals`,
+`AddWeaponMuzzleFlashes`, `FlashPoint`, `AddParticleDispatches`, `AddParticleEffect`, `DispatchedEnd`,
+`DispatchedPoint` — into `Presentation.BurstEffects`, and `StruckEnd`, `StruckPlayer`, `HitboxesOrUntested` and
+`ShotOrder` into `Presentation.BulletStrikes`. The view constructs both, calls `BurstEffects.Step` once a frame with a
+`BurstFrame`, hands the whizzes it returns to the sound presenter, and calls `ClearMap` when a map goes. Scene gained
+`IPosedEntities`, the six questions these ask of `EntityModelSet`, so a test answers them without a model.
+
+*The seam was cut where the shared state ends*, which is narrower than the method list this entry suggested:
+everything that only appends to the frame's burst list went; what stayed shares state with the device or the decals.
+
+*Left in the view, with why:*
+
+- `DrawParticles` — the frame's order of work, and half of it is device calls. It is where the slices meet, so it goes
+  last, as a call sequence on a presenter.
+- `StepImpactEffects`, `WithImpactEffects`, `StepSparks`, `AddTracerLines` — one runner whose output is merged into the
+  particle batches by `WithImpactEffects` and which reads the viewport. Its own slice.
+- `BulletLandings`, `EmitLanding`, `StepAnimationSounds`, `StepLandingSounds`, `StepCorpseScrapes` — sounds; they
+  belong with the sound presenter, not with effects.
+- `StepDecals`, `StepModelDecals`, `ModelDecalFor`, `DecalReplayOf`, `PlaceModelDecal` — the decals, 46 + 28 + 26 + 22
+  members, the next largest slice. **They are why `BulletStrikes` is in Presentation and not yet Scene**: the view
+  still calls it for them. When they leave, two presenters need it and it goes down (D92).
+- `BuildEffectEntities` (beams, trails, ropes) and `StepLightStyles` — different state from the bursts.
+
+*Proof nothing changed* (*measured*): four paused frames through `tools/golden-viewer-shot.sh` — outdoor and indoor at
+tick 60000 of the f12 match, a healing medic at 63617, and an explosion with tracers, a beam and pluses at 63605 —
+taken twice on `4a737ee0` (identical to each other, so the frames are deterministic) and once after the move. All four
+PNGs are byte-identical before and after, by SHA-1.
+
+*Tests the moved code never had* (30, `BurstEffectsTests` and `BulletStrikesTests`, Presentation.Tests): the beam's two
+points playing and paused, its history, its life and fade bounds, the seek start, the heal-target marker, the custom
+particle system, `HealBeamThen`, the overheal pluses' key, point, model, in-eyes and not-posed refusals, the hitbox
+answer's three cases. Each was seen red by breaking the line it reads and restoring it by the inverse edit. **Not
+tested, and why:** a bullet a player stops and its being remembered, and everything `Step` reads off a `DemoTimeline`
+(explosions, tracers, blood, splashes, flashes, dispatches) — `DemoTimeline.Build` takes a whole demo, the
+`SyntheticDemo` that writes one lives in Core.Tests, which Presentation.Tests cannot reference without importing its
+fixtures, and `LoadedMap` has private setters. The four frames above are what holds those today. A `TestSupport`
+project holding `SyntheticDemo` (the one `RecordingLogger`'s header already asks for) is the missing piece, and the
+decals slice needs it too.
