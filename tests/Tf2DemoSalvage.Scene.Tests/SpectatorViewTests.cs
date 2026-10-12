@@ -370,6 +370,41 @@ public sealed class SpectatorViewTests
         (133f - easing.Origin.X).ShouldBe(24f + (32f * 34 * 0.015f), 0.01f, "24 at tick 99, then 32 a second for 34 ticks");
     }
 
+    /// <remarks>
+    /// **The camera's trace is `MASK_SOLID` and skips only its target** (`hltvcamera.cpp:221`:
+    /// `UTIL_TraceHull( targetOrigin1, cameraOrigin, WALL_MIN, WALL_MAX, MASK_SOLID, target1, COLLISION_GROUP_NONE, … )`),
+    /// and `MASK_SOLID` carries `CONTENTS_MONSTER` (bspflags.h), which a player's hull is. A medic running behind his
+    /// patient pulls the patient's chase camera in to the medic's chest, and it eases out from there (B533).
+    /// </remarks>
+    [Test]
+    public void Chase_AnotherPlayerStandingBehindTheTarget_StopsTheCameraAtHisHull()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            // The target at x = 200; a second player 40 units behind him. Hull ±24, and the camera's own box is ±6.
+            Eyes = Eyes(null, false, [Player(2, 200f), Player(3, 160f)]),
+            Spectating = 2,
+            World = static (_, _, _) => 1f,
+        };
+
+        FreeCamera blocked = view.Chase(tick: 10, aspect: 1f)!;
+
+        (200f - blocked.Origin.X).ShouldBe(40f - 24f - 6f, 0.01f);
+    }
+
+    [Test]
+    public void Chase_ADeadPlayerBehindTheTarget_DoesNotStopTheCamera()
+    {
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = Eyes(null, false, [Player(2, 200f), Player(3, 160f) with { LifeState = 2 }]),
+            Spectating = 2,
+            World = static (_, _, _) => 1f,
+        };
+
+        (200f - view.Chase(tick: 10, aspect: 1f)!.Origin.X).ShouldBe(96f, 0.01f);
+    }
+
     /// <summary>One living player at x = the tick asked for, looking along +X.</summary>
     private sealed class Runner : IEyeSource
     {

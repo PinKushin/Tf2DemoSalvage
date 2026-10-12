@@ -12,7 +12,10 @@
 # TF2's default and the value the TF2 side pins: this viewer's own default is 70 (D43), which draws a smaller,
 # more centred weapon than the reference (B523). hud_saytext_time is 0 because a shot is taken the moment the
 # seek lands, with the chat lines the seek replayed still on screen, where a TF2 reference is taken more than the
-# twelve seconds later that fades them (B530); the chat itself is the engine's. An argument after it still wins. Recipe and pinned cvars:
+# twelve seconds later that fades them (B530); the chat itself is the engine's. mat_force_tonemap_scale 1 and
+# mat_disable_bloom 1 are the TF2 side's own pins: without them the viewer's auto-exposure darkens an outdoor frame
+# and a shadowed wall read 1.6 times darker than the reference for that reason alone (B534).
+# An argument after it still wins. Recipe and pinned cvars:
 # docs/findings/76-the-golden-comparison.md.
 #
 # A path with a SPACE in it does not survive: run-exclusive.ps1 starts a GUI program with
@@ -33,5 +36,6 @@ rm -f -- "$out"
 MSBUILDDISABLENODEREUSE=1 dotnet build "$root/managed/Tf2DemoSalvage.Viewer3D" -v q -nologo | grep -E "Warn|Err"
 TF2VIEW_WINDOW_SIZE="1576x889" pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
   "$root/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe" "$demo" \
-  --tick "$tick" --shot "$out" +cl_showfps 0 +viewmodel_fov_demo 54 +hud_saytext_time 0 "$@"
+  --tick "$tick" --shot "$out" +cl_showfps 0 +viewmodel_fov_demo 54 +hud_saytext_time 0 \
+  +mat_force_tonemap_scale 1 +mat_disable_bloom 1 "$@"
 test -f "$out" || { echo "no shot written: read the newest viewer-*.log in %LOCALAPPDATA%/Tf2DemoSalvage" >&2; exit 1; }

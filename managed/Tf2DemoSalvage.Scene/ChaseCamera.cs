@@ -110,6 +110,51 @@ public static class ChaseCamera
     public static float Approach(float blockedAt, float lastDistance, float seconds) =>
         MathF.Min(blockedAt, lastDistance + (RecoveryPerSecond * seconds));
 
+    /// <summary>How far along the camera's sweep its ±6 box first touches another entity's box (B533).</summary>
+    /// <param name="from">The point traced from — the target's eyes.</param>
+    /// <param name="to">The ideal camera position.</param>
+    /// <param name="mins">The other box's lower corner, in the world.</param>
+    /// <param name="maxs">Its upper corner.</param>
+    /// <returns>The fraction of the sweep reached, 1 when the box is missed and 0 when the sweep starts inside it.</returns>
+    /// <remarks>
+    /// A box swept against a box is a ray against the second grown by the first's half extent — the slab test.
+    /// Starting inside is `startsolid`, where the trace's end is its start: the engine's camera goes to the eyes.
+    /// </remarks>
+    public static float HullEntry(
+        System.Numerics.Vector3 from, System.Numerics.Vector3 to, System.Numerics.Vector3 mins, System.Numerics.Vector3 maxs)
+    {
+        System.Numerics.Vector3 grow = new(WallHalfExtent);
+        System.Numerics.Vector3 low = mins - grow;
+        System.Numerics.Vector3 high = maxs + grow;
+        System.Numerics.Vector3 along = to - from;
+        float enter = 0f;
+        float leave = 1f;
+
+        for (int axis = 0; axis < 3; axis++)
+        {
+            float start = from[axis];
+            float delta = along[axis];
+
+            if (MathF.Abs(delta) < 1e-6f)
+            {
+                if (start < low[axis] || start > high[axis])
+                {
+                    return 1f;
+                }
+
+                continue;
+            }
+
+            float first = (low[axis] - start) / delta;
+            float second = (high[axis] - start) / delta;
+
+            enter = MathF.Max(enter, MathF.Min(first, second));
+            leave = MathF.Min(leave, MathF.Max(first, second));
+        }
+
+        return enter <= leave ? enter : 1f;
+    }
+
     /// <summary>Where the chase camera sits and which way it looks.</summary>
     /// <param name="x">The target's position, which is its feet.</param>
     /// <param name="y">The target's position.</param>
