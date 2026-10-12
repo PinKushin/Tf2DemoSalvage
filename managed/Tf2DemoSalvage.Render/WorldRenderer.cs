@@ -1672,10 +1672,12 @@ internal sealed unsafe partial class WorldRenderer : IDisposable
                 albedo.rgb = luxelMap.Sample(wrapSampler, input.luv * atlas).rgb;
             }
 
-            // Grey is 128/255, which is what TEXTURE_GREY holds.
+            // Grey is 128/255, which is what TEXTURE_GREY holds — bound on the base sampler, which reads sRGB
+            // (lightmappedgeneric_dx9_helper.cpp:423, :773), so it is 0.2158 as light. Taken as 0.502 a
+            // lighting-only frame was 2.3 times TF2's (B539).
             if (surfaceColours.w > 1.5f)
             {
-                albedo.rgb = float3(0.5019608f, 0.5019608f, 0.5019608f);
+                albedo.rgb = float3(0.2158605f, 0.2158605f, 0.2158605f);
             }
             else if (surfaceColours.w > 0.5f)
             {
