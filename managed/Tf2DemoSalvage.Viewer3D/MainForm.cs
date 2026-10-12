@@ -8319,7 +8319,9 @@ internal class MainForm : Form, IFrameSteps
         // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
         // eye, where `GetFOV` follows the HLTV camera's target.
         // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
-        HudState hudState = HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings);
+        // Players where the frame drew them (B531): what a HUD element standing on one — the floating health icon — asks.
+        HudState hudState = HudStates.WithDrawnPositions(
+            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings), _moments.PlayersShownAt(hudTick));
 
         hudState = hudState with
         {

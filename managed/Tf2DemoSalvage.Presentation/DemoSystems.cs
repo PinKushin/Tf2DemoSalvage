@@ -148,11 +148,17 @@ public sealed class DemoSystems
             scripts.Entries);
 
         IReadOnlyList<SceneSound> impacts = ImpactSounds.For(landings, scripts.Entries);
+        // **Where the medic is DRAWN on that tick** (B531): `EmitSound` on an entity starts at its abs origin, the
+        // interpolated one, which trails the newest recorded frame by the interpolation delay.
+        List<ScenePlayer> drawn = [];
+
         IReadOnlyList<SceneSound> mediguns = MedigunSounds.For(
             timeline.HealBeams.All,
             (entity, tick) =>
             {
-                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                timeline.PlayersAt((double)tick, drawn);
+
+                foreach (ScenePlayer player in drawn)
                 {
                     if (player.EntityIndex == entity)
                     {

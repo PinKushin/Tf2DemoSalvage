@@ -77,6 +77,40 @@ public static class HudStates
         };
     }
 
+    /// <summary>The state with every player where the frame drew him — his `GetAbsOrigin()` — and all else as newest recorded (B531).</summary>
+    /// <param name="state">The state, its players from the newest recorded frame.</param>
+    /// <param name="drawn">The frame's own sample of the players, or null when the frame is not of this tick.</param>
+    /// <returns>The state with drawn positions.</returns>
+    /// <remarks>
+    /// **Only the position.** Health, conditions and the rest are not interpolated: a playing TF2 frame prints the health
+    /// of the newest tick over a player drawn ten ticks behind it.
+    /// </remarks>
+    public static HudState WithDrawnPositions(HudState state, IReadOnlyList<ScenePlayer>? drawn)
+    {
+        if (drawn is null || state.Players is not { Count: > 0 } players)
+        {
+            return state;
+        }
+
+        ScenePlayer[] placed = new ScenePlayer[players.Count];
+
+        for (int index = 0; index < placed.Length; index++)
+        {
+            placed[index] = players[index];
+
+            foreach (ScenePlayer shown in drawn)
+            {
+                if (shown.EntityIndex == placed[index].EntityIndex)
+                {
+                    placed[index] = placed[index] with { X = shown.X, Y = shown.Y, Z = shown.Z };
+                    break;
+                }
+            }
+        }
+
+        return state with { Players = placed };
+    }
+
     /// <summary>
     /// `engine->Key_LookupBinding( command )` over the viewer's own table (D101): the key bound to the command, or null
     /// when the command is not one the viewer names or nothing is bound to it.

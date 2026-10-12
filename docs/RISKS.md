@@ -37465,3 +37465,17 @@ fade. **Nothing was missing, and the wall is not darkened by the chat:**
 (69 64 76) against (112 108 129) at pixel (100, 200), a world brush, texinfo 589 at (179 973 599) — while the far
 wall is (127 110 98) against (149 132 123). The cameras differ by B528's 15 units, so the pixels are not the same
 texels; the ratio is too large for that alone. Not investigated.
+
+## B531 — the three `PlayersAt( int )` reads B526 did not look at — CLOSED 2026-10-12
+
+| where | what it used the players for | verdict |
+|---|---|---|
+| `HudStates.For` | everything the HUD knows of every player, positions included | **fixed**: positions from the frame's own sample (`HudStates.WithDrawnPositions`), the rest as it was. `CFloatingHealthIcon::CalculatePosition` (tf_hud_target_id.cpp:1520) places the cross on `GetAbsOrigin()`; ours stood an interpolation delay ahead of a running player. The target ID's distance test reads the same list |
+| `HudEventFeed.Resolve` | each event's players, for names, teams, classes and the recorder's vision flags | right as it was: state on the event's own tick, and no listener places anything from it |
+| `DemoSystems`, the medigun sounds' origins | where a heal sound starts | **fixed**: the interpolated sample of that tick. Small: the sound follows its entity afterwards |
+
+*Read from published source.* **Only the position is taken from the drawn sample** — a playing TF2 frame prints the
+newest tick's health over a player drawn ten ticks behind it (B527). **Tests:**
+`WithDrawnPositions_APlayerTheFrameDrew_TakesHisDrawnPositionAndKeepsHisNewestState` and its null control, red as a
+compile failure (an analyzer refuses the stub). The `MainForm` and `DemoSystems` call sites are wiring with no test,
+and nothing was looked at on screen: a floating health icon needs a POV medic's demo.

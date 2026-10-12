@@ -31,5 +31,32 @@ public sealed class HudStatesTests
     public void From_TheFlags_AreThePlayersMFFlags() =>
         HudStates.From(Player() with { Flags = (1 << 6) | 1 }, 0).Flags.ShouldBe(65, "FL_FROZEN | FL_ONGROUND (const.h:148, :158)");
 
+    /// <remarks>
+    /// A HUD element that places itself on a player asks his `GetAbsOrigin()` — `CFloatingHealthIcon::CalculatePosition`
+    /// (tf_hud_target_id.cpp:1520) — which is where the frame drew him, an interpolation delay behind the newest
+    /// recorded frame. His health is not interpolated, so only the position is taken from the drawn sample (B531).
+    /// </remarks>
+    [Test]
+    public void WithDrawnPositions_APlayerTheFrameDrew_TakesHisDrawnPositionAndKeepsHisNewestState()
+    {
+        HudState state = default(HudState) with
+        {
+            Players = [Player() with { X = 100f, Health = 50 }, Player() with { EntityIndex = 2, X = 7f }],
+        };
+
+        HudState placed = HudStates.WithDrawnPositions(state, [Player() with { X = 60f, Y = 5f, Z = 9f, Health = 80 }]);
+
+        placed.Players.ShouldBe(
+            [Player() with { X = 60f, Y = 5f, Z = 9f, Health = 50 }, Player() with { EntityIndex = 2, X = 7f }]);
+    }
+
+    [Test]
+    public void WithDrawnPositions_NoDrawnSample_ChangesNothing()
+    {
+        HudState state = default(HudState) with { Players = [Player() with { X = 100f }] };
+
+        HudStates.WithDrawnPositions(state, null).Players.ShouldBeSameAs(state.Players);
+    }
+
     private static ScenePlayer Player() => new(1, 0f, 0f, 0f, 2, Health: 99, PlayerClass: 3);
 }
