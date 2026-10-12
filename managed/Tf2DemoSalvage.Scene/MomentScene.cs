@@ -426,6 +426,13 @@ public sealed class MomentScene : IGameSystemPerFrame
         Func<ScenePlayer, bool>? motionCloak = hooks is null ? null : player => Hud.TfHudPlayerClass.HasMotionCloak(player, hooks.OnWeapon);
         int halloweenScenario = info.HalloweenScenario;
 
+        // **A canteen's skin is empty or filled, not its team's** (B523) — `CTFPowerupBottle::GetSkin`. Without the item
+        // schema nothing can say which canteen is the base one, and the demo's own skin stands.
+        if (hooks is not null)
+        {
+            PowerupBottle.Apply(_drawn, players, hooks.OnWeapon);
+        }
+
         _models.Cloak = prop => CloakOf(prop, players, recorder, serverTime, followed, motionCloak, halloweenScenario);
 
         ReportUndressedPlayers(players);

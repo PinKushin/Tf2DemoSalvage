@@ -37120,3 +37120,33 @@ capture with `spec_player cutemobb` would settle the pose itself, which is the p
 **Two instruments, added:** `TF2VIEW_PICK` reports each prop's drawn origin, sequence, weapon slot, jump activity and
 flags — the values the frame posed with; `class-activities <class> <ACT_…>…` asks a class model for an activity and
 prints its script's two flags; `scene-image <scene>…` lists one compiled scene's events.
+
+### 3. "The item on gummo's hip is grey in TF2 and yellow-green in ours" — a canteen's skin is empty or filled, not its team's — FIXED 2026-10-12
+
+**Which item.** *Measured*, `moment-dump f12tf.dem 63610 535`: entity 535, `CTFPowerupBottle`, item 30015 (the
+Battery Canteens), `models/workshop/player/items/scout/robo_all_mvm_canteen/robo_all_mvm_canteen.mdl`, bone-merged on
+gummo, `m_nSkin` 1, body 0, no paint, `m_usNumCharges` 0. (His other belt item, 537, the Bananades, is the grenade
+bodygroup's replacement and matched already.)
+
+**Cause.** *Read from published source*, `tf_item_powerup_bottle.cpp:677-685`:
+
+```
+int CTFPowerupBottle::GetSkin()
+{
+	if ( !IsBasePowerUpBottle() )
+		return ( ( GetNumCharges() > 0 ) ? 1 : 0 );
+	return BaseClass::GetSkin();
+}
+```
+
+with `IsBasePowerUpBottle()` the hook `set_weapon_mode == 1` (`tf_item_powerup_bottle.h:68`). A cosmetic canteen's
+two skins are EMPTY and FILLED. The server still writes the team into `m_nSkin` as for any wearable, and this viewer
+drew that: every BLU canteen filled, every RED one empty. Outside Mann vs. Machine no canteen holds a charge, so
+TF2 draws them all empty — the grey one.
+
+**Fix.** `PowerupBottle.Skin` is the function; `PowerupBottle.Apply` gives each `CTFPowerupBottle` in the draw list
+its skin from its wearer's item (`SceneItem.NumCharges`, and the hook through `AttributeHooks.OnWeapon`), in
+`MomentScene.Build`. `PowerupBottleConformanceTests` (six; red first as a compile failure). *Not built:* the base
+canteen's model swap to its powerup's flask while charged (`GetWorldModelIndex`, `:647-674`), Mann vs. Machine alone.
+
+**On screen:** `b521d/belt-cmp.png`, TF2 left, ours right after — grey box, white caps. Before: `pause/g-tp.png`.
