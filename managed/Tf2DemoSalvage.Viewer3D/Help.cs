@@ -62,7 +62,9 @@ internal static class Help
                                     ([U:1:n], STEAM_0:y:z or 7656...), a user id or an
                                     entity index. A name matches case-insensitively, exactly
                                     first and then by part. A point-of-view demo ignores this
-                                    and uses its own recorded camera.
+                                    and uses its own recorded camera. A dead player is
+                                    shown from behind, as SourceTV shows one. With --shot
+                                    or --measure, a name nobody has exits 1.
           --look <x> <y>             Point the overhead camera at a world position.
           --zoom <factor>            Overhead camera zoom.
           --colours                  Draw surface categories instead of textures.

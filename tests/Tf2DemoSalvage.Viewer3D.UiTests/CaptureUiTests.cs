@@ -171,6 +171,86 @@ public sealed class CaptureUiTests
         }
     }
 
+    /// <summary>
+    /// A capture handed more than one path must end at once, non-zero, naming them — it has no demo to wait for.
+    /// </summary>
+    /// <remarks>
+    /// **Observed 2026-10-11 through `run-exclusive.ps1`**, whose `Start-Process -ArgumentList` joins its arguments
+    /// with spaces and no quotes: a demo under a folder with a space in its name reached the viewer as three paths,
+    /// which is "a playlist, none opened on its own" — and `--shot` then drew 30,000 empty frames and exited ZERO
+    /// with nothing written. The shot script's `test -f` passed on the previous run's picture.
+    /// </remarks>
+    [Test]
+    public void Capture_OfSeveralPathsInsteadOfOne_ExitsNonZeroNamingThem()
+    {
+        if (!File.Exists(DemoPath))
+        {
+            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
+            return;
+        }
+
+        string folder = Path.Combine(
+            Path.GetTempPath(), "tf2ds-shot", Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(folder);
+
+        string png = Path.Combine(folder, "capture.png");
+
+        try
+        {
+            // The halves of a path split at its space, as the viewer received them.
+            (int Exit, string Errors) run = Capture(
+                Path.Combine(folder, "with"), png, FailsFast, ShotTick, Path.Combine("space", "a.dem"));
+
+            run.Exit.ShouldBe(1, $"standard error:{Environment.NewLine}{run.Errors}");
+            run.Errors.ShouldContain("2 paths");
+            run.Errors.ShouldContain("a.dem");
+            File.Exists(png).ShouldBeFalse("a capture of no demo was written.");
+        }
+        finally
+        {
+            Clean(folder);
+        }
+    }
+
+    /// <summary>
+    /// <c>--spectate</c> with a name nobody in the demo has must end a capture at once, non-zero, naming the name.
+    /// </summary>
+    /// <remarks>
+    /// It logged a warning and "chose normally" — the free camera on an STV demo — so a picture asked for of one
+    /// player was a picture of the map, exit zero. An interactive window keeps the warning and the free camera.
+    /// </remarks>
+    [Test]
+    public void Capture_SpectatingANameNobodyHas_ExitsNonZeroNamingIt()
+    {
+        if (!File.Exists(DemoPath))
+        {
+            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
+            return;
+        }
+
+        string folder = Path.Combine(
+            Path.GetTempPath(), "tf2ds-shot", Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(folder);
+
+        string png = Path.Combine(folder, "capture.png");
+
+        try
+        {
+            (int Exit, string Errors) run = Capture(
+                DemoPath, png, LongEnoughToBeAHang, ShotTick, "--spectate", "nobody-by-this-name");
+
+            run.Exit.ShouldBe(1, $"standard error:{Environment.NewLine}{run.Errors}");
+            run.Errors.ShouldContain("--spectate nobody-by-this-name");
+            File.Exists(png).ShouldBeFalse("a capture of the wrong subject was written.");
+        }
+        finally
+        {
+            Clean(folder);
+        }
+    }
+
     /// <summary>The eight bytes every PNG starts with.</summary>
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 

@@ -37024,3 +37024,54 @@ particles are drawn by their own materials on the frame buffer — so `Device3D.
 them off the gamma path. They had the worst of both: the texture uploaded raw for the gamma path, then written
 through the sRGB target. **No test of the panel itself**: `Device3D` has no offscreen harness; the path is the one
 the picture test above draws. *Interpolated*: the tone-map scale while the HUD paints.
+
+## B522 — "the spectated camera does not match TF2's": the subject was dead; the cameras match on the living one — CLOSED 2026-10-11, two questions left
+
+*Measured with probes and by shooting both; read from published source.* Reported from a pair at round timer 3:02
+of TF2's own `f12.dem` (STV): TF2 spectating "nezay" showed a first person beside a rock and a chase view of a
+crouched player; the viewer's `--spectate nezay` showed a chase view by a doorway, with or without `--first-person`,
+and no viewmodel.
+
+**Nezay is dead at that moment, and TF2's own HUD says so.** `moment-dump f12tf.dem 63600 8`: `LifeState = 2`,
+`ObserverMode = 4` (in-eye), `ObserverTarget = 11`, corpse `FirstTick = 63251`; his origin jumps 76,1204 → 18,957 →
+296,599 over 130 ticks, which is a dead player cycling whom he watches. In the TF2 pictures his row of the spectator
+HUD carries a respawn countdown, not a health. **And the TF2 pictures are not of him**: the viewmodel is a Loose
+Cannon — `viewmodels f12tf.dem 3`: gummo, demoman, item 996 — and the crouched figure is a demoman at 226 health,
+which is gummo's row. The viewer's `--spectate gummo` at tick 63600, in-eye and `--third-person`, lands on TF2's two
+pictures: the same rock, the same framing, the same weapon, the same crouch from behind. By eye, not by tile — the
+HUDs differ (B516) and the reference is within a second, not on the tick.
+
+**The tick was right.** `round-timer`: the timer in force runs to `curtime` 1672.53, tick 59832 is 1433.16 at 66.67 a
+second, so it shows 3:02 from about tick 63590 to 63657. A timer alone does not name a tick, though: this demo's
+timer is reset to 4:00 thirty-odd times, and 3:02 comes round after each.
+
+**What the viewer does with a dead target is the engine's rule, not a defect.** `C_HLTVCamera::CalcInEyeCamView`
+(`hltvcamera.cpp:307-316`): `if ( !pPlayer->IsAlive() ) { // if dead, show from 3rd person … CalcChaseCamView`. So
+`--spectate` on a dead player is a chase about his entity's origin — which, for a player observing in-eye, is at
+whoever he is watching — looking along his eye yaw, which is the engine's branch with `spec_autodirector` on.
+
+**Not explained, and it needs TF2 to answer:** how TF2 came to show gummo under a target label reading NEZAY.
+*Read from published source*, `C_HLTVCamera::SpecPlayerByPredicate` refuses a player who is observing and not on the
+spectator team (`hltvcamera.cpp:640-651`), so `spec_player nezay` on a dead nezay changes nothing and the camera stays
+where `spec_next` left it; what the label then names was not read to the end.
+
+**One real difference found on the way, not changed:** with a dead in-eye target the engine keeps drawing that
+target's viewmodel — `C_BaseViewModel::ShouldDraw` under HLTV is `GetMode() == OBS_MODE_IN_EYE && GetPrimaryTarget() ==
+GetOwner()` (`c_baseviewmodel.cpp:279-283`) and has no liveness term, and the HLTV camera's MODE stays in-eye while
+its view falls to the chase — where the viewer changes mode to third person and draws none (B222, D116). No TF2
+picture shows that case yet; it is the owner's earlier decision, so it is asked rather than flipped.
+
+**Two instrument faults behind the report, fixed:**
+
+- **A demo path with a space reached the viewer in pieces.** Neither the shot script nor the viewer dropped it:
+  `run-exclusive.ps1` starts a GUI program with `Start-Process -ArgumentList $arguments` (its line 175), which joins
+  the arguments with spaces and no quotes. *Measured*: `3 path(s) from the command line, first: …/with`. Three paths
+  are "a playlist, none opened on its own", so `--shot` drew 30,000 empty frames and exited ZERO; the script's
+  `test -f` then passed on the previous run's picture. Now: a headless run given other than one path ends at once,
+  stderr and exit 1, naming the pieces; `golden-viewer-shot.sh` refuses an argument with a space by name and removes
+  the old picture before it starts. `run-exclusive.ps1` itself is outside this repository and shared by every
+  project; the fix there is to quote each argument, and it is the owner's to make.
+- **`--spectate` with a name nobody has fell back without failing.** A capture now ends, stderr and exit 1, naming
+  the name; a person's window keeps the warning and the normal choice.
+  `Capture_OfSeveralPathsInsteadOfOne_ExitsNonZeroNamingThem`, `Capture_SpectatingANameNobodyHas_ExitsNonZeroNamingIt`
+  (both failed first: a 45-second hang, and exit 0).
