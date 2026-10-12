@@ -64,6 +64,8 @@ namespace Tf2DemoSalvage.Scene;
 /// remove.**
 /// </remarks>
 /// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
+/// <param name="UseMinViewmodels">The watcher's own <c>tf_use_min_viewmodels</c> (B525).</param>
+/// <param name="Playing">Whether playback is running, which the viewmodel's bob steps on (B525).</param>
 public readonly record struct MomentInfo(
     double Tick,
     int CurrentTick,
@@ -105,7 +107,14 @@ public readonly record struct MomentInfo(
     int HalloweenScenario = 0,
 
     // The watcher's own `cl_flipviewmodels` (B515), which decides when no spectated player's preference does.
-    bool FlipViewModels = false)
+    bool FlipViewModels = false,
+
+    // The watcher's `tf_use_min_viewmodels` (B525): each weapon at its item's min-mode offset from the eye.
+    bool UseMinViewmodels = false,
+
+    // Whether playback is running — `gpGlobals->frametime` is not zero — which is all the viewmodel's bob asks of a
+    // frame before it steps (`CalcViewModelBobHelper`, tf_weaponbase.cpp:4735; B525).
+    bool Playing = true)
 {
     /// <summary>How far into the demo this moment is, in seconds.</summary>
     /// <remarks>

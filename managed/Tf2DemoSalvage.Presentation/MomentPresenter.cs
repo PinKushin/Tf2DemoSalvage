@@ -31,6 +31,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// the recording and is read from <see cref="IMomentSource"/>.
 /// </remarks>
 /// <param name="FlipViewModels">The watcher's own <c>cl_flipviewmodels</c> (B515).</param>
+/// <param name="UseMinViewmodels">The watcher's own <c>tf_use_min_viewmodels</c> (B525).</param>
 public readonly record struct MomentView(
     int CurrentTick,
     bool FirstPerson,
@@ -47,7 +48,10 @@ public readonly record struct MomentView(
     bool Playing = true,
 
     // The watcher's `cl_flipviewmodels` (B515), a setting like `r_drawviewmodel`.
-    bool FlipViewModels = false);
+    bool FlipViewModels = false,
+
+    // The watcher's `tf_use_min_viewmodels` (B525), the same kind of thing.
+    bool UseMinViewmodels = false);
 
 /// <summary>Samples a moment from the demo and hands it to the scene.</summary>
 /// <remarks>
@@ -256,7 +260,9 @@ public sealed class MomentPresenter
             source.HolidayVisionFlagsAt(tick),
             source.ServerTimeAt(tick),
             source.HalloweenScenarioAt(tick),
-            view.FlipViewModels);
+            view.FlipViewModels,
+            view.UseMinViewmodels,
+            view.Playing);
 
         // **Selection only. The pose is `Pose`, and it runs after the camera** (B255).
         _built = _moment.Build(_players, _props, info);

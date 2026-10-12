@@ -2626,7 +2626,10 @@ internal class MainForm : Form, IFrameSteps
                 _transport.Playing,
 
                 // The watcher's `cl_flipviewmodels` (B515).
-                _settings.FlipViewModels));
+                _settings.FlipViewModels,
+
+                // The watcher's `tf_use_min_viewmodels` (B525).
+                _settings.UseMinViewmodels));
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it

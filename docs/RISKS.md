@@ -37280,3 +37280,32 @@ tokenizer (break characters `{}()':`) and this project reads through the stream.
 **Tests:** `KeyValuesOneTokenizerConformanceTests` (30 cases; 16 red first, each for the shape in the table). One
 existing fixture changed: `Parse_CommentsAndTheClosingBrace_AreNotPaths` put `SearchPaths` at the top of the file,
 which only a line scan finds.
+
+## B525 — the viewmodel's bob and `tf_use_min_viewmodels`: `CTFViewModel::CalcViewModelView`, in its order — BUILT 2026-10-12, the bob unseen
+
+Both were filed open under B523 (4). *Read from published source*, `tf_viewmodel.cpp:130-227` and
+`baseviewmodel_shared.cpp:385-412`: the viewmodel starts at the eye; with `tf_use_min_viewmodels` on, the weapon's
+`min_viewmodel_offset` is added along the eye's forward, right and up; then the base lets the weapon add its bob
+(`CTFWeaponBase::AddViewmodelBob`, `tf_weaponbase.cpp:4845`), the lag (nothing in TF, B523), and the shake.
+
+- **Min mode.** `MinViewmodel.Offset`, from `ViewerSettings.UseMinViewmodels` (`tf_use_min_viewmodels`, default 0,
+  archived — so a real config carries it and until now a config that set it was ignored, against D69) and the held
+  item's `min_viewmodel_offset` string attribute (`CTFWeaponBase::GetViewmodelOffset`, `:6937-6953`; 206 statements
+  in `items_game.txt`). **Seen:** `b521d/min-cmp.png`, gummo's sticky launcher at tick 63606 with it off and on.
+  *Not built:* `tf_viewmodels_offset_override` (a cheat) and the inspect animation's blend of the offset.
+- **The bob.** `ViewmodelBob` is `BobState_t` with its two helpers (`:4713-4822`): the owner's horizontal speed
+  slewed at 320 a second, integrated into a bob time, two sines off it, laid onto the origin and the three angles.
+  Valve's lateral cycle is `bobTime / cycle * 2`, twice the quotient; kept as written. `cl_bobcycle` and `cl_bobup`
+  are cheats, so constants. Stepped once per built moment while playback runs (`MomentInfo.Playing`), from the
+  followed player's speed — SourceTV in-eye and a point-of-view recording alike, since both follow a player.
+  **Unseen:** a paused frame does not step it (`frametime` 0), so no `--shot` shows it; it is in the unit tests
+  and in the build, and whether it looks like TF2's while a demo plays is a question for someone watching.
+  *Interpolated:* the speed is the scene player's, not `GetLocalVelocity()`. *Not built:* an off-hand viewmodel's
+  second helping (`CTFViewModel::AddViewModelBob`, index 1) and the view shake.
+- **The phase is nobody's to match.** The bob time integrates from whenever the client's viewmodel was made, over
+  whoever's weapon it has shown, so two TF2 clients watching one demo sway out of step. This steps from the
+  viewer's own playback.
+
+**Tests:** `ViewmodelViewConformanceTests` (10: the helper's arithmetic at two hand-worked states, the paused and
+no-player returns, the add, the offset along turned axes) and `UseMinViewmodels_ByDefaultAndFromAConfig_IsValvesCvar`.
+Written before the code; they were not run red — until `ViewmodelBob` existed they did not compile.

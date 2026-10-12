@@ -722,6 +722,15 @@ public sealed record ViewerSettings
     public const string FlipViewModelsCommand = "cl_flipviewmodels";
 
     /// <summary>
+    /// The watcher's <c>tf_use_min_viewmodels</c>, default 0 and archived (`tf_viewmodel.cpp:125`), B525: each weapon
+    /// drawn at its item's <c>min_viewmodel_offset</c> from the eye (<see cref="MinViewmodel"/>).
+    /// </summary>
+    public bool UseMinViewmodels { get; init; }
+
+    /// <summary>Command name for <see cref="UseMinViewmodels"/>.</summary>
+    public const string UseMinViewmodelsCommand = "tf_use_min_viewmodels";
+
+    /// <summary>
     /// <c>mat_disable_bloom</c>, default 0 (`viewpostprocess.cpp:57`): no bloom pass at all. One of three switches
     /// the golden comparison isolates a term with (B161) — Valve's names, so one line pins TF2 and the viewer alike.
     /// </summary>
@@ -970,6 +979,11 @@ public sealed record ViewerSettings
         if (Read(values, FlipViewModelsCommand) is { } flip)
         {
             settings = settings with { FlipViewModels = flip != 0 };
+        }
+
+        if (Read(values, UseMinViewmodelsCommand) is { } minimized)
+        {
+            settings = settings with { UseMinViewmodels = minimized != 0 };
         }
 
         if (Read(values, DisableBloomCommand) is { } noBloom)
