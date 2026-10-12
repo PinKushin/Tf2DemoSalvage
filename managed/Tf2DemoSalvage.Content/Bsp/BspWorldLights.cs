@@ -99,13 +99,20 @@ public static class BspWorldLights
     /// <param name="file">The whole map file.</param>
     /// <returns>The lights, in file order; empty when the map carries none.</returns>
     /// <exception cref="InvalidDataException">The header or the lump is malformed.</exception>
-    public static IReadOnlyList<BspWorldLight> Read(ReadOnlyMemory<byte> file)
+    public static IReadOnlyList<BspWorldLight> Read(ReadOnlyMemory<byte> file) => Read(file, BspHdr.Enabled);
+
+    /// <summary><see cref="Read(ReadOnlyMemory{byte})"/> with HDR on or off stated — `mat_hdr_level` at least 2, or not (B537).</summary>
+    /// <param name="file">The whole map file.</param>
+    /// <param name="hdrEnabled">Whether the HDR type is not `HDR_TYPE_NONE`.</param>
+    /// <returns>The lights, in file order; empty when the map carries none.</returns>
+    /// <exception cref="InvalidDataException">The header or the lump is malformed.</exception>
+    public static IReadOnlyList<BspWorldLight> Read(ReadOnlyMemory<byte> file, bool hdrEnabled)
     {
         BspHeader header = BspHeader.Parse(file.Span);
 
-        // **`LUMP_WORLDLIGHTS_HDR` when the map has it**, as `CModelLoader_Map_LoadModel` (`engine.dll` 0x1800ffc30) loads
-        // at TF2's default HDR level; vrad writes its intensities from each light's `_lightHDR`.
-        ReadOnlySpan<byte> hdr = BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLightsHdr)).Span;
+        // **`LUMP_WORLDLIGHTS_HDR` when HDR is on and the map has it**, as `CModelLoader_Map_LoadModel` (`engine.dll`
+        // 0x1800ffc30) loads; vrad writes its intensities from each light's `_lightHDR`.
+        ReadOnlySpan<byte> hdr = hdrEnabled ? BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLightsHdr)).Span : default;
         ReadOnlySpan<byte> lump = hdr.IsEmpty ? BspLumpData.Read(file, header.Lump(BspLumpIndex.WorldLights)).Span : hdr;
 
         if (lump.IsEmpty)
@@ -146,7 +153,7 @@ public static class BspWorldLights
     }
 
     /// <summary>The map's sun, when it has one.</summary>
-    /// <param name="lights">Every light, as <see cref="Read"/> returned them.</param>
+    /// <param name="lights">Every light, as <see cref="Read(ReadOnlyMemory{byte})"/> returned them.</param>
     /// <returns>The brightest sky light, or <c>null</c> when the map has none.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="lights"/> is null.</exception>
     /// <remarks>

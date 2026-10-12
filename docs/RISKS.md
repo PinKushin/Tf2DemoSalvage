@@ -37659,3 +37659,62 @@ flat lightmap at the point is (0.194 0.190 0.283), the albedo's mean is (0.37 0.
 session and this capture's command line carries only the tone map and the bloom. **Asked of the owner:** those five
 values read back, and two captures at reference 14's moment with `mat_fullbright 2` (light alone) and
 `mat_fullbright 1` (albedo and detail alone), which split the 1.5 between the lightmap and everything else.
+
+**Answered 2026-10-12, and it does not close:** the capture ran `mat_hdr_level 0`, colour correction 0, bump maps
+and specular on, `mat_picmip −1`. At `+mat_hdr_level 0` (B537) the near wall rises by about a twentieth and the
+ratios stay — table in B537. Still open.
+
+## B537 — `mat_hdr_level` was never read: a config's 0 is the LDR path, and the heal references are that path — BUILT 2026-10-12
+
+The owner's TF2 config sets `mat_hdr_level 0`, and every heal reference was drawn that way. The viewer took the
+engine's default, 2, whatever a config said (D69).
+
+**What the engine switches on it** — the HDR type is `HDR_TYPE_NONE` below 2 (`Map_CheckForHDR`, `engine.dll`
+0x1800ffa10: HDR is enabled only with the three HDR lumps present AND `mat_hdr_level` at least 2;
+`HdrTypeConformanceTests` carries the disassembly):
+
+| what | HDR on | HDR off | evidence | here |
+|---|---|---|---|---|
+| faces and lightmaps | lumps 58 and 53 | 7 and 8 | *read in disassembly* for the HDR side; the off branch by the same test | **ported** |
+| leaf ambient | 55 and 51 | 56 and 52 | *read in disassembly*, `Mod_LoadLeafs` 0x180102300, both branches: the HDR type is asked before the lump's size | **ported** |
+| world lights | 54 | 15 | *read in disassembly*, 0x1800ffc30 | **ported** |
+| static prop lighting | `sp_hdr_N.vhv` | `sp_N.vhv` | *read in disassembly*, 0x1800f4760 | **ported** |
+| cubemaps | `.hdr.vtf`, then `.vtf` | `.vtf` | *read in disassembly*, `materialsystem.dll` 0x180050530 | **ported** |
+| sky | `$hdrcompressedtexture`, `$hdrbasetexture` | `$basetexture` | already keyed on the HDR type | followed |
+| tone map, auto-exposure, HDR bloom | on | off | already keyed on the HDR type | followed |
+| water's reflect and overbright scales | 4, 4, 0.25 | 1, 1, 1 | already keyed on the HDR type | followed |
+| a material's `hdr?` and `ldr?` keys | `hdr?` holds | `ldr?` holds | `materialsystem.dll` 0x180008d20 | **not built**: no shipped material has either (B524's census) |
+| `mat_hdr_level 1` | — | LDR with bloom | *interpolated* | **not built**: drawn as 0 |
+| `mat_hdr_level 3` | float targets | — | caps computation | **not built**: drawn as 2 |
+
+**Built:** `mat_hdr_level` is read from the config (`ViewerSettings.HdrLevel`, default 2) and held for the process
+(`BspHdr.MatHdrLevel`), as the engine holds it; the readers ask it when a map loads, so a change takes a reload, as
+in TF2. Each reader also takes the answer as an argument, which is what the tests pass — they run in parallel and
+do not write the process's value. **The default is unchanged. A settings.cfg that carries `mat_hdr_level 0` now
+gets the LDR picture.**
+
+**Tests:** four in `HdrLumpChoiceConformanceTests` (ambient, world lights, the face and lighting pair, the `.vhv`
+name), `ForTf2_AnHdrMapAtEachHdrLevel_IsThatLevelsType` (4 cases), `Candidates_WithHdrOff_IsTheLdrBakeAlone`,
+`HdrLevel_ByDefaultAndFromAConfig_IsValvesCvar`. All written before the code; red as compile failures, the readers
+having had no such argument.
+
+**Not looked at:** what an 8-bit lightmap page clamps that the 16-bit one does not, and whether the LDR page writer
+normalizes the bumped sets as the HDR one does (B514 part 4 read one writer).
+
+**Measured, `+mat_hdr_level 0 +spec_autodirector 0`, exposure and bloom pinned, region means and TF2 over the viewer
+in linear light:**
+
+| region | ref 13: TF2 | viewer LDR | viewer HDR | ratio | ref 14: TF2 | viewer LDR | viewer HDR | ratio |
+|---|---|---|---|---|---|---|---|---|
+| near wall, upper | 109 103 118 | 106 97 104 | 99 91 99 | 1.06 1.14 1.32 | 111 108 130 | 100 95 109 | 96 91 106 | 1.26 1.33 1.47 |
+| near wall, middle | 112 109 127 | 108 101 109 | 103 96 105 | 1.08 1.18 1.40 | 102 101 125 | 85 80 94 | 82 78 92 | 1.49 1.67 1.87 |
+| far wall | 140 123 113 | 131 116 109 | 131 115 109 | 1.16 1.14 1.08 | 142 125 114 | 140 123 112 | 139 122 112 | 1.03 1.04 1.04 |
+| grass | 123 121 51 | 115 114 48 | 115 114 48 | 1.16 1.14 1.14 | 121 118 49 | 117 116 49 | 117 116 49 | 1.08 1.04 1.00 |
+| rock, sunlit | 152 135 125 | 158 140 131 | 158 140 131 | 0.92 0.92 0.90 | 143 126 117 | 147 129 120 | 146 129 120 | 0.94 0.95 0.95 |
+
+**The wall does not close.** The LDR lump lifts it by a twentieth, as `lighting-lumps` said it would (0.186 against
+0.173); TF2's wall is still 1.3 to 1.9 times ours in blue and sunlit surfaces are unmoved. So B536 is not the
+reference's HDR level as far as the lumps go. What is left is in the LDR path's own arithmetic — the two things
+under *Not looked at* — or outside the lightmap. **Wanted from the owner:** `mat_fullbright 2` and `mat_fullbright 1`
+at reference 14's moment at `mat_hdr_level 0`, and the plain frame once at `mat_hdr_level 2`, which says whether
+TF2's own wall moves with the level.

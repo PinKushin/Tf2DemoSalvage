@@ -72,6 +72,18 @@ public sealed class HdrTypeConformanceTests
     public void ForTf2_AnHdrMap_IsInteger() =>
         BspHdr.ForTf2(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr)).ShouldBe(HdrType.IntegerHdr);
 
+    /// <remarks>
+    /// `Map_CheckForHDR` enables HDR only with `mat_hdr_level` at least 2: 0 is LDR and 1 is LDR with bloom (B537).
+    /// **Level 3 is drawn as 2 here**: the engine's float path is not built, and a config asking for it gets integer HDR
+    /// rather than a renderer with no exposure.
+    /// </remarks>
+    [TestCase(0, HdrType.None)]
+    [TestCase(1, HdrType.None)]
+    [TestCase(2, HdrType.IntegerHdr)]
+    [TestCase(3, HdrType.IntegerHdr)]
+    public void ForTf2_AnHdrMapAtEachHdrLevel_IsThatLevelsType(int level, HdrType expected) =>
+        BspHdr.ForTf2(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr), level).ShouldBe(expected);
+
     [Test]
     public void ForTf2_AnLdrOnlyMap_IsNone() =>
         BspHdr.ForTf2(Map()).ShouldBe(HdrType.None);

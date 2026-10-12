@@ -140,6 +140,15 @@ public sealed class ViewmodelCvarConformanceTests
     }
 
     [Test]
+    public void HdrLevel_ByDefaultAndFromAConfig_IsValvesCvar()
+    {
+        // `mat_hdr_level` defaults to "2" (`shaderapidx9.dll 0x18007e700`), B537; a competitive config's 0 is the LDR path.
+        ViewerSettings.HdrLevelCommand.ShouldBe("mat_hdr_level");
+        new ViewerSettings().HdrLevel.ShouldBe(2);
+        ViewerSettings.Parse("mat_hdr_level 0").HdrLevel.ShouldBe(0);
+    }
+
+    [Test]
     public void AutoDirector_ByDefaultAndFromAConfig_IsValvesCvar()
     {
         // `ConVar spec_autodirector( "spec_autodirector", "1", FCVAR_CLIENTDLL | FCVAR_CLIENTCMD_CAN_EXECUTE, … )`

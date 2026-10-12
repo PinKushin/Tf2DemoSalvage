@@ -216,7 +216,14 @@ public static class StudioVertexLighting
     /// **This used to try LDR first, then HDR, on the claim that HDR "is authored brighter and expects a tone-mapping
     /// pass".** Measured on `koth_harvest_final` by the `vhv-pair` probe: all 652 pairs hold identical colours.
     /// </remarks>
-    public static IEnumerable<string> PathsFor(int propIndex, uint mapFlags)
+    public static IEnumerable<string> PathsFor(int propIndex, uint mapFlags) => PathsFor(propIndex, mapFlags, Bsp.BspHdr.Enabled);
+
+    /// <summary><see cref="PathsFor(int, uint)"/> with HDR on or off stated — `mat_hdr_level` at least 2, or not (B537).</summary>
+    /// <param name="propIndex">The placement's position in the static prop lump.</param>
+    /// <param name="mapFlags">The map's `LUMP_MAP_FLAGS`.</param>
+    /// <param name="hdr">Whether HDR is on.</param>
+    /// <returns>Nothing when the map declares no bake; otherwise the one file the engine reads.</returns>
+    public static IEnumerable<string> PathsFor(int propIndex, uint mapFlags, bool hdr)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(propIndex);
 
@@ -228,7 +235,7 @@ public static class StudioVertexLighting
         // Stryker disable once : the String mutator wraps the interpolated literal in a ternary
         // that cannot bind to string.Create's interpolated-string handler (CS1620), and Safe Mode
         // then drops every mutation in this method — B410.
-        yield return (mapFlags & Bsp.BspMapFlags.BakedStaticPropLightingHdr) != 0
+        yield return hdr && (mapFlags & Bsp.BspMapFlags.BakedStaticPropLightingHdr) != 0
             ? string.Create(CultureInfo.InvariantCulture, $"sp_hdr_{propIndex}.vhv")
             : string.Create(CultureInfo.InvariantCulture, $"sp_{propIndex}.vhv");
     }

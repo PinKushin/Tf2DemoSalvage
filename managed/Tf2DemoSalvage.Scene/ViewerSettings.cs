@@ -758,6 +758,16 @@ public sealed record ViewerSettings
     public const string ForceToneMapScaleCommand = "mat_force_tonemap_scale";
 
     /// <summary>
+    /// <c>mat_hdr_level</c>, default 2 (`shaderapidx9.dll 0x18007e700`), B537: below 2 a map is drawn from its LDR
+    /// lighting with no tone mapping, as TF2 draws it for a config that says so (<see cref="Content.Bsp.BspHdr"/>).
+    /// Read when a map loads.
+    /// </summary>
+    public int HdrLevel { get; init; } = Content.Bsp.BspHdr.DefaultMatHdrLevel;
+
+    /// <summary>Command name for <see cref="HdrLevel"/>.</summary>
+    public const string HdrLevelCommand = "mat_hdr_level";
+
+    /// <summary>
     /// <c>mat_specular</c>, default 1: cubemap reflections — "If mat_specular 0, then get rid of envmap"
     /// (`lightmappedgeneric_dx9_helper.cpp:166`). Read from a config or the command line; it was a menu item only (B521).
     /// </summary>
@@ -993,6 +1003,11 @@ public sealed record ViewerSettings
         if (Read(values, UseMinViewmodelsCommand) is { } minimized)
         {
             settings = settings with { UseMinViewmodels = minimized != 0 };
+        }
+
+        if (Read(values, HdrLevelCommand) is { } hdrLevel)
+        {
+            settings = settings with { HdrLevel = hdrLevel };
         }
 
         if (Read(values, AutoDirectorCommand) is { } directed)

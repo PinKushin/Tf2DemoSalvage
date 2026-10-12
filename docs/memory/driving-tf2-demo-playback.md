@@ -49,5 +49,11 @@ Measured 2026-10-11 (B378 pause-glow):
 - `tf/f12.dem` is NOT lcor's f12 (34.5 MB, another match); give the viewer TF2's own file, via a space-free copy.
 - Never grab the screen from outside the game (PIL `ImageGrab`): it captures the owner's whole desktop.
 - Tf2Mcp `3a695ba`: a game that exited is forgotten, so `launch` works again without restarting the server.
+- **A capture inherits the owner's `mat_hdr_level 0`** (default 2) unless the session sets 2 BEFORE the map loads. The
+  heal references (`pause/heal-full`) are all LDR: LDR lightmaps, ambient, `.vhv`, cubemaps; no tone map. An earlier
+  session's pins do not carry over. Viewer side: `+mat_hdr_level 0` (B537).
+- **Every reference lists its client's `mat_*` values**, read back in that session: `mat_hdr_level`,
+  `mat_colorcorrection`, `mat_bumpmap`, `mat_specular`, `mat_picmip`, `mat_fullbright`, plus `spec_autodirector`.
+  The heal set: 0, 0, 1, 1, −1, 0, and 0.
 
 **How to apply:** use the MCP tools, never manual RCON scripts — built for token savings.
