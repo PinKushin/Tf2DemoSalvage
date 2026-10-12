@@ -10,9 +10,22 @@
 # silently ignored (B517). cl_showfps is forced off because the owner's settings.cfg
 # turns it on and the overlay would be a divergence of our own making. Recipe and pinned cvars:
 # docs/findings/76-the-golden-comparison.md.
+#
+# A path with a SPACE in it does not survive: run-exclusive.ps1 starts a GUI program with
+# `Start-Process -ArgumentList`, which joins its arguments unquoted, so the viewer receives the pieces
+# (measured 2026-10-11: "3 path(s) from the command line"). Refused here by name rather than left to
+# become a picture nobody took. The old picture at <out.png> is removed first for the same reason: the
+# check at the end passed on a previous run's file and an old frame was read as the new one.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 demo=$1; tick=$2; out=$3; shift 3
+for argument in "$demo" "$out" "$@"; do
+  case "$argument" in *" "*)
+    echo "golden-viewer-shot: '$argument' has a space in it and would reach the viewer in pieces (run-exclusive.ps1's Start-Process joins arguments unquoted); use a path without one" >&2
+    exit 2;;
+  esac
+done
+rm -f -- "$out"
 MSBUILDDISABLENODEREUSE=1 dotnet build "$root/managed/Tf2DemoSalvage.Viewer3D" -v q -nologo | grep -E "Warn|Err"
 TF2VIEW_WINDOW_SIZE="1576x889" pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
   "$root/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe" "$demo" \

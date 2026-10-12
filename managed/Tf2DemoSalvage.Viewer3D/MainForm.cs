@@ -1354,6 +1354,15 @@ internal class MainForm : Form, IFrameSteps
                 _demoLog.LogInformation(
                     "{Message}",
                     $"{initialPaths.Length} paths listed in the playlist; none opened on its own");
+
+                // **A capture or a measurement has exactly one subject** (2026-10-11). A demo under a folder with a
+                // space in its name, launched through something that joins its arguments unquoted, arrives as its
+                // pieces: "a playlist", nothing opened, and `--shot` then drew 30,000 empty frames and exited zero.
+                string several =
+                    $"{initialPaths.Length} paths were given where a capture takes one demo " +
+                    $"({string.Join(" | ", initialPaths)}); a path with a space in it must arrive as ONE argument";
+
+                Shown += (_, _) => FailHeadless(several);
             }
         }
     }
@@ -3332,6 +3341,10 @@ internal class MainForm : Form, IFrameSteps
                 // of the wrong person, which is worse than refusing.
                 _log.LogWarning(
                     "{Message}", $"--spectate {who} matches nobody in this demo; choosing normally");
+
+                // **A capture of the wrong subject is not a capture** (2026-10-11): headless, this ends the run —
+                // stderr, exit 1 — as a demo that will not open does. A person's window keeps the warning.
+                FailHeadless($"--spectate {who} matches nobody in this demo (`roster <demo>` lists who is in it)");
             }
         }
 

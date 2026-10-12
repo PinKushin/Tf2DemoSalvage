@@ -142,3 +142,4 @@
 - [No unit test opens a real demo](no-unit-test-opens-a-real-demo.md) — synthetic or a short authored specimen; real demos live in Corpus.Tests (D213).
 - [A reflection is tinted and masked by the helper](a-reflection-is-tinted-and-masked-by-the-helper.md) — `$envmaptint` gamma on VertexLitGeneric; phong always masked; glow occlusion is a GPU fraction (B521).
 - [A gate that waits says what it waits on](a-gate-that-waits-says-what-it-waits-on.md) — `capture waiting on …` in the log; a ring never re-queues what its reader waits on; a red CI step hides the steps after it (B520).
+- [Check the reference's subject before the camera](check-the-reference-subject-before-the-camera.md) — a dead target is chased; the label is not the subject; a timer names a tick only within a round (B522).

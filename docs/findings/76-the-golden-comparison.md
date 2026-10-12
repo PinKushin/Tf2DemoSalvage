@@ -518,3 +518,16 @@ fallback was nearly deleted as dead code** and is the engine's branch for `r_dop
 may carry: with the cvar off the indoor frame returns to the trace-era tiles exactly (113 112 / 111 114 121), which
 is the control that the fallback and the query are both wired. **Still not the engine's:** the glow's fade runs on
 the frame's real time; the engine's clock stops while a demo is paused (RISKS B378, a question for the owner).
+
+**A comparison is of a subject, and the label on the reference is not the subject** (`fix/spectate-camera`,
+2026-10-11, RISKS B522). The first player-and-weapon pair could not be read: TF2 "spectating nezay" in-eye showed a
+first person by a rock, the viewer's `--spectate nezay` a chase by a doorway. Three probes before any camera code:
+nezay is DEAD at that tick (life state 2, observing in-eye, his corpse 349 ticks old), the weapon in TF2's picture is
+a Loose Cannon and nezay is a soldier, and the one demoman on that team is gummo. Shot as `--spectate gummo`, the
+viewer's in-eye and chase views land on TF2's two pictures. The viewer was right both times — a dead target is
+chased, by `C_HLTVCamera::CalcInEyeCamView`'s own first branch — and the reference was of another player than its
+label. **What the probes are for:** `moment-dump <demo> <tick> <entity>` for whether the subject is alive and whom
+he watches, `viewmodels <demo> <entity>` for what he holds, `round-timer` for which ticks a timer reading covers
+(here 63590-63657 — and the same reading recurs after every reset, so a timer names a tick only within a round).
+The fade-clock sentence that ends the entry above is answered: TF2 draws glows at once after a paused change of
+view (RISKS B378).
