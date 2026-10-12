@@ -1,6 +1,59 @@
-# Tf2DemoSalvage 0.1.0-beta.41
+# Tf2DemoSalvage 0.1.0-beta.42
 
-## Changes since 0.1.0-beta.40
+## Changes since 0.1.0-beta.41
+
+This release closes the gaps found by laying the viewer's picture beside TF2's for one moment of one demo (chase
+and in-eye views of a demoman), and by reading more of your config the way the game reads it. Players, heal beams,
+glows and the chase camera change the most.
+
+- **Soldier and medic jumps play again, and medics walk in the air.** A line in each class's script that the game
+  treats as a comment had been read as a setting, so every soldier and medic jump drew the standing reference
+  pose and medics never took the air-walk pose (B523).
+- **Canteens draw their empty skin**, not the team's skin, outside Mann vs. Machine (B523).
+- **Medigun heal beams are brighter and the right colour.** The glow on the patient was too pale and too thin.
+  A beam you land on by seeking now follows where its two ends were, a beam that has just been released keeps
+  moving as the game's does, and a beam ends on the patient where he is drawn (B523, B527, B538).
+- **Overhealed players show team-coloured pluses**, and a running patient sheds a trail of them (B538).
+- **Tinted sprite particles are more saturated everywhere.** The game converts a particle's tint from gamma and
+  the viewer had not, so every tinted sprite particle, not only the heal beam, was drawn too pale. This was seen
+  on screen on the heal beam only (B538).
+- **Particle cards honour their material's size and fade limits**, so a card very near the camera shrinks and
+  fades out as in the game (B529).
+- **A paused frame keeps heal beams and pluses behind a moving patient**, as the game does, where it had put
+  them on him (B538).
+- **Chase camera.** It pulls in at walls and eases back out when paused or after a seek instead of snapping to
+  full distance, and it stops at another player standing behind the target (B528, B533).
+  `spec_autodirector 0` in your config gives the fixed-direction chase the game shows on SourceTV demos, which
+  looks along the map and does not turn with its target (B535).
+- **Glows follow the game's depth rule.** The covered share of a glow is measured over the game's depth range,
+  and `r_dopixelvisibility 0` in your config gives line-of-sight glows, as in the game (B378).
+- **More of your config is honoured:** `mat_hdr_level`, `spec_autodirector`, `tf_use_min_viewmodels`,
+  `mat_specular`, `mat_fullbright` and `r_dopixelvisibility`. With `mat_hdr_level` 0 or 1 the map is drawn from
+  its low-dynamic-range lighting with no tone mapping, as the game does (a change takes a map reload). While a
+  demo plays the game uses `viewmodel_fov_demo`, not `viewmodel_fov`, and so does the viewer. The demo's own
+  `sv_restrict_aspect_ratio_fov` is read for the widescreen field of view (B537, B525, B535, B378, B518).
+- **Viewmodels bob while the demo plays**, and `tf_use_min_viewmodels` draws the minimized viewmodels (B525).
+- **Reflections.** Cosmetics take `$envmapfresnel`, and a shiny model's reflection loses the contrast and
+  saturation shaping the game does not apply to it (B521).
+- **Blended terrain with a second normal map is lit through both**, and blended terrain under water uses the plain
+  blend, as the game does (B514).
+- **Material and script text is read the way the game reads it.** Seven materials regain settings that an empty
+  value had cut off (a gold Tomislav, two zombie skins and others), and 83 settings take their PC value instead
+  of the Xbox one. A `.cfg` is read as the game reads it, so `bind k ""` and alias bodies come out right
+  (B524, B532).
+- **The floating health icon and target id follow the player where he is drawn**, and medigun sounds start from
+  the drawn position, where both had led him by the interpolation delay (B526, B531).
+- **Auto-exposure adapts at the game's rate during playback.** It had been starved of its measurement, so the
+  scene's brightness lagged. A `--shot` no longer waits long for it (B520).
+- **Headless runs fail loudly.** A path split by spaces, or `--spectate` with a name nobody has, exits with a
+  non-zero code and a message instead of capturing the wrong thing (B522). A dead player named by `--spectate`
+  is shown from behind, as SourceTV shows one.
+- **The lighting-only debug view (`mat_fullbright 2`) matches the game's brightness.** It had been about 2.3 times
+  too bright (B539).
+- The `--help` text for `--spectate` now says a dead player is shown from behind and that a name nobody has
+  exits 1 with `--shot` or `--measure` (B522).
+
+## Changes in 0.1.0-beta.41
 
 This release is about making the picture match TF2's. Brightness, glow and light now follow the game's own rules
 in many places, so most scenes look different from beta.40 (usually brighter or closer to the game's).
@@ -411,13 +464,16 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
-- **Picture parity (beta.41, B514 to B521):** the viewer was compared against the live game with a golden
+- **Picture parity (beta.42, B514 to B539):** the viewer was compared against the live game with a golden
   comparison on the f12 demo, and each fix above was made from the game's published source or its engine binary
-  and covered by tests and the merge gate. Measured on the final build at tick 60000, as
-  linear brightness over a 16 by 9 grid of tiles against the game's own screenshot from the same camera: the
-  indoor comparison camera reads 96 to 102% of TF2 in every tile, where it read 47 to 126% (B521), and the
-  outdoor camera reads 92 to 105% in every tile but one. The merge gate and the UI suite (50 of 50) passed.
-  **Players, weapons and tinted models were not compared with the game on screen** after the shading changes.
+  and covered by tests and the merge gate. Re-measured after these changes at tick 60000, as linear brightness
+  over a 16 by 9 grid of tiles against the game's own screenshot from the same camera: the indoor comparison
+  camera reads 96 to 102% of TF2 in every tile, and the outdoor camera reads 92 to 105% in every tile but one,
+  whose difference is a control point's state. The merge gate and the UI suite (52 of 52) passed, and CI's Test
+  workflow is green again. Players and weapons were compared with the game at one moment of that demo (chase and
+  in-eye views of a demoman, near tick 63600), and the differences found were fixed except the heal glow cloud
+  (see *Known gaps*). **Not seen on screen:** the viewmodel bob, which only moves while a demo plays, and most
+  of the particle tint changes, which were seen on the heal beam only.
 
 - **Refracting models (B506):** covered by the 0.1.0-beta.33 test suite and the merge gate. Refract trails cost no
   measurable frame rate on sanctum. No demo we hold contains a Bazaar Bargain, so this was not checked on a real
@@ -520,9 +576,13 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   separately for being covered (B378).
 - **The spectator HUD of a SourceTV demo viewed in-eye differs from the game's** (B516): TF2 draws the
   tournament spectator HUD with both teams' panels, and the viewer draws a timer bar and a name plate.
+- **The heal glow cloud beside a running patient is fainter than the game's** (B538, B539): the game draws a wider
+  haze with about twenty-five pluses along the beam, and the viewer draws a thinner streak with a few.
+- **`mat_hdr_level 1` is drawn as 0** (the game is thought to add bloom at level 1), and 3 is drawn as 2 (B537).
 - **Some outdoor details still differ in brightness from the game** (B514 is open): a band of ground changes
-  brightness at some moments of the f12 demo, and players and weapons have not been compared with the game since
-  the shading changes.
+  brightness at some moments of the f12 demo. Players and weapons were compared with the game at one moment of
+  one demo (a demoman, near tick 63600), and every difference found there was fixed except the heal glow cloud
+  above. Other classes, weapons and moments were not compared.
 - **Downloaded maps carry no checksum.** A fetched map is cached by name, not by checksum, so the
   checksum-named cache of D162 is not used for it (B507).
 
