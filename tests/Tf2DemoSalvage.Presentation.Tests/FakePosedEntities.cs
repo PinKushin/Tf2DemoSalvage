@@ -15,11 +15,17 @@ internal sealed class FakePosedEntities : IPosedEntities
     /// <summary>Attachments by entity and name.</summary>
     public Dictionary<(int Entity, string Name), ParticleControlPoint> Named { get; } = [];
 
+    /// <summary>Attachments by entity and one-based number.</summary>
+    public Dictionary<(int Entity, int Number), ParticleControlPoint> Numbered { get; } = [];
+
     /// <summary>Hitbox trace fractions by entity.</summary>
     public Dictionary<int, float> Fractions { get; } = [];
 
     /// <summary>Posed hitboxes by entity.</summary>
     public Dictionary<int, (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)> Hitboxes { get; } = [];
+
+    /// <summary>What a decal is skinned against, by entity.</summary>
+    public Dictionary<int, (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)> Skinning { get; } = [];
 
     /// <summary>The mask the last hitbox trace was asked with.</summary>
     public int? LastMask { get; private set; }
@@ -27,7 +33,8 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (float X, float Y, float Z)? AttachmentPosition(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? (point.At.X, point.At.Y, point.At.Z) : null;
 
-    public ParticleControlPoint? AttachmentPoint(int entity, int number) => null;
+    public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
+        Numbered.TryGetValue((entity, number), out ParticleControlPoint point) ? point : null;
 
     public ParticleControlPoint? AttachmentPoint(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? point : null;
@@ -43,4 +50,14 @@ internal sealed class FakePosedEntities : IPosedEntities
         Hitboxes.TryGetValue(entity, out (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt) posed) ? posed : null;
 
     public bool IsPosed(int entity) => Posed.Contains(entity);
+
+    public (string Model, IReadOnlyList<float[]> Bones, int Body, IReadOnlyList<(int Base, int Count)>? Parts)? SkinningOf(int entity) =>
+        Skinning.TryGetValue(entity, out (string, IReadOnlyList<float[]>, int, IReadOnlyList<(int Base, int Count)>?) pose) ? pose : null;
+
+    public (float Outside, Vector3 FromCentre)? HitboxGap(int entity, int box, Vector3 point) =>
+        Posed.Contains(entity) ? (7.5f, new Vector3(1f, 2f, 3f)) : null;
+
+    public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex) => null;
+
+    public float? DuckJumpOffsetOf(int entityIndex) => null;
 }

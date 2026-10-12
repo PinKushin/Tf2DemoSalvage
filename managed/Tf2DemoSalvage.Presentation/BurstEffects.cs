@@ -46,6 +46,23 @@ public readonly record struct BurstFrame(
     SoundScriptCatalog? Scripts,
     bool Silent);
 
+/// <summary>What a frame's map and game hold that the bursts read, as data (D214): a test supplies it by hand.</summary>
+/// <param name="Systems">The map's particle systems by name.</param>
+/// <param name="Tracers">Every tracer the map's shots draw.</param>
+/// <param name="Impacts">Every bullet the map stops.</param>
+/// <param name="Level">The map's collision.</param>
+/// <param name="Read">Opens a path out of the game's content; null without a game.</param>
+/// <param name="Items">The item schema.</param>
+/// <param name="Scripts">The soundscripts the game loaded.</param>
+internal readonly record struct BurstWorld(
+    IReadOnlyDictionary<string, ParticleSystem>? Systems,
+    IReadOnlyList<ShotTracer>? Tracers,
+    IReadOnlyList<ShotImpact>? Impacts,
+    MapLevel? Level,
+    Func<string, byte[]?>? Read,
+    ItemSchema? Items,
+    IReadOnlyDictionary<string, SoundScriptEntry>? Scripts);
+
 /// <summary>
 /// Every one-shot particle effect a demo starts — explosions, tracers, blood, splashes, muzzle flashes, dispatched
 /// effects, medigun beams and overheal pluses — offered to <see cref="ParticleEffects.Bursts"/> each frame (B415).
@@ -135,6 +152,15 @@ public sealed class BurstEffects
 
     /// <summary>The frame being stepped, for the methods <see cref="Step"/> calls.</summary>
     private BurstFrame _frame;
+
+    /// <summary>What that frame's map and game hold.</summary>
+    private BurstWorld _world;
+
+    /// <summary>The game <see cref="_read"/> was made for.</summary>
+    private GameContent? _readOf;
+
+    /// <summary>That game's file reader, or null without one.</summary>
+    private Func<string, byte[]?>? _read;
 
     /// <summary>Every blast whose effect should be running this tick, reused to avoid a per-frame allocation.</summary>
     private readonly List<(int Index, SceneExplosion Blast)> _blastsNow = [];
@@ -267,19 +293,45 @@ public sealed class BurstEffects
     /// </remarks>
     public IReadOnlyList<SceneSound> Step(in BurstFrame frame)
     {
+        // The game's reader as one delegate, made when the game changes and not every frame.
+        if (!ReferenceEquals(frame.Game, _readOf))
+        {
+            _readOf = frame.Game;
+            _read = frame.Game is { } content ? content.Archives.Read : null;
+        }
+
+        return StepOver(
+            frame,
+            new BurstWorld(
+                frame.Loaded?.Assets?.ParticleSystemsByName,
+                frame.Loaded?.Tracers,
+                frame.Loaded?.Impacts,
+                frame.Loaded?.Level,
+                _read,
+                frame.Game?.Weapons.Items,
+                frame.Scripts?.Entries));
+    }
+
+    /// <summary>The same, over what the frame's map and game hold as data, which a test can supply (D214).</summary>
+    /// <param name="frame">What this frame is stepped against; its map, game and scripts are not read here.</param>
+    /// <param name="world">What they hold.</param>
+    /// <returns>The near-miss whizzes, as <see cref="Step"/> returns them.</returns>
+    internal IReadOnlyList<SceneSound> StepOver(in BurstFrame frame, in BurstWorld world)
+    {
         _frame = frame;
+        _world = world;
         _whizzes.Clear();
 
         DemoTimeline? timeline = frame.Timeline;
-        GameContent? game = frame.Game;
-        IReadOnlyDictionary<string, ParticleSystem>? systems = frame.Loaded?.Assets?.ParticleSystemsByName;
+        Func<string, byte[]?>? read = world.Read;
+        IReadOnlyDictionary<string, ParticleSystem>? systems = world.Systems;
 
-        if (timeline is null || game is null || systems is null || systems.Count <= 0)
+        if (timeline is null || read is null || systems is null || systems.Count <= 0)
         {
             return _whizzes;
         }
 
-        _explosions ??= new ExplosionEffects(game.Archives.Read);
+        _explosions ??= new ExplosionEffects(read);
 
         int tick = frame.Tick;
         FreeCamera viewing = frame.Viewing;
@@ -361,7 +413,7 @@ public sealed class BurstEffects
     /// <summary>A tracer's near-miss whiz, when it passes the listener and none has played in the last 0.1 s.</summary>
     private void Whiz(int tick, (float X, float Y, float Z) from, (float X, float Y, float Z) to, Vector3 eye, ClientSoundOrder order)
     {
-        SoundScriptCatalog? scripts = _frame.Scripts;
+        IReadOnlyDictionary<string, SoundScriptEntry>? scripts = _world.Scripts;
 
         if (_frame.Silent || scripts is null)
         {
@@ -385,7 +437,7 @@ public sealed class BurstEffects
             return;
         }
 
-        if (TracerWhiz.SoundAt(tick, from, scripts.Entries, order) is { } whiz)
+        if (TracerWhiz.SoundAt(tick, from, scripts, order) is { } whiz)
         {
             _whizzes.Add(whiz);
         }
@@ -407,7 +459,7 @@ public sealed class BurstEffects
     /// </remarks>
     private void AddTracers(int tick, IReadOnlyDictionary<string, ParticleSystem> systems, Vector3 eye)
     {
-        IReadOnlyList<ShotTracer>? tracers = _frame.Loaded?.Tracers;
+        IReadOnlyList<ShotTracer>? tracers = _world.Tracers;
 
         if (tracers is null || tracers.Count <= 0)
         {
@@ -436,7 +488,7 @@ public sealed class BurstEffects
                     ? _strikes.End(
                         new ShotImpact(
                             tracer.Shot, tracer.Bullet, tracer.Tick, tracer.Shooter, 0, tracer.Start, tracer.End, tracer.Reach, -1),
-                        new BulletScene(_frame.Timeline, _frame.Loaded?.Level, _frame.Source, _frame.ShownTick, _frame.Playing))
+                        new BulletScene(_frame.Timeline, _world.Level, _frame.Source, _frame.ShownTick, _frame.Playing))
                     : (tracer.End, true, null);
 
                 path = (start, end);
@@ -503,14 +555,14 @@ public sealed class BurstEffects
     /// </summary>
     private void AddSplashes(int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
-        LoadedMap? loaded = _frame.Loaded;
+        IReadOnlyList<ShotImpact>? impacts = _world.Impacts;
 
-        if (loaded is null)
+        if (impacts is null)
         {
             return;
         }
 
-        TickWindow.Between(loaded.Impacts, static impact => impact.Tick, tick - BloodWindowTicks, tick, _splashesNow);
+        TickWindow.Between(impacts, static impact => impact.Tick, tick - BloodWindowTicks, tick, _splashesNow);
 
         foreach ((int index, ShotImpact impact) in _splashesNow)
         {
@@ -613,13 +665,13 @@ public sealed class BurstEffects
     /// </remarks>
     private void AddHealBeams(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
-        GameContent? game = _frame.Game;
+        ItemSchema? items = _world.Items;
 
         AddHealBeams(
             timeline.HealBeams.All,
             timeline.RecorderEntityIndex,
             then => PlayedAt(timeline, then),
-            beam => beam.Item is { } item ? game?.Weapons.Items?.CustomParticle(item, beam.Team) : null,
+            beam => beam.Item is { } item ? items?.CustomParticle(item, beam.Team) : null,
             !_frame.Playing,
             _frame.HealTargetMarker,
             tick,
@@ -852,14 +904,14 @@ public sealed class BurstEffects
     /// </remarks>
     private void AddWeaponMuzzleFlashes(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
-        GameContent? game = _frame.Game;
+        Func<string, byte[]?>? read = _world.Read;
 
-        if (game is null)
+        if (read is null)
         {
             return;
         }
 
-        _weaponMuzzles ??= new WeaponMuzzleFlashes(game.Archives.Read, game.Weapons.Items);
+        _weaponMuzzles ??= new WeaponMuzzleFlashes(read, _world.Items);
 
         TickWindow.Between(
             timeline.MuzzleFlashes.All, static flash => flash.Tick, tick - WeaponFlashWindowTicks, tick, _weaponFlashesNow);

@@ -26,7 +26,7 @@
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control; a walk reads what production reads (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md).
 - [Logs are the debugger](logs-are-the-debugger.md) — log BEFORE a step that can crash.
 - [One place or it drifts](one-place-or-it-drifts.md) — fix where data is produced; [key a lookup on the question](key-a-lookup-on-the-question.md).
-- [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — sabotage each branch; [boundaries find what tests cannot](boundaries-find-what-tests-cannot.md).
+- [Most of a decoder is untested](most-of-a-decoder-is-untested.md) — sabotage each branch; [boundaries find what tests cannot](boundaries-find-what-tests-cannot.md); [a grouped sabotage can redden for the wrong reason](a-grouped-sabotage-can-redden-for-the-wrong-reason.md).
 - [Sentinels conflate unknown with answer](sentinels-conflate-unknown-with-answer.md); [a neutral default must be neutral](a-neutral-default-must-be-neutral.md).
 - [Edit with the file tools](edit-files-with-the-file-tools.md) — no Python/sed; insert BELOW the member; [Write can destroy what you did not read](write-can-destroy-what-you-did-not-read.md).
 - [Bone merge sends no position](bone-merge-sends-no-position.md) — the owner's bones by name.

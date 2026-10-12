@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 920 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slice 1 of the refactor done, the rest OPEN
+## B540 — the view reaches 784 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 and 2 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38026,9 +38026,74 @@ PNGs are byte-identical before and after, by SHA-1.
 points playing and paused, its history, its life and fade bounds, the seek start, the heal-target marker, the custom
 particle system, `HealBeamThen`, the overheal pluses' key, point, model, in-eyes and not-posed refusals, the hitbox
 answer's three cases. Each was seen red by breaking the line it reads and restoring it by the inverse edit. **Not
-tested, and why:** a bullet a player stops and its being remembered, and everything `Step` reads off a `DemoTimeline`
-(explosions, tracers, blood, splashes, flashes, dispatches) — `DemoTimeline.Build` takes a whole demo, the
-`SyntheticDemo` that writes one lives in Core.Tests, which Presentation.Tests cannot reference without importing its
-fixtures, and `LoadedMap` has private setters. The four frames above are what holds those today. A `TestSupport`
-project holding `SyntheticDemo` (the one `RecordingLogger`'s header already asks for) is the missing piece, and the
-decals slice needs it too.
+tested then, and why:** a bullet a player stops and its being remembered, and everything `Step` reads off a
+`DemoTimeline` (explosions, tracers, blood, splashes, flashes, dispatches) — `DemoTimeline.Build` takes a whole demo,
+the `SyntheticDemo` that writes one lived in Core.Tests, which Presentation.Tests cannot reference without importing
+its fixtures, and `LoadedMap` has private setters. **Closed in slice 2**, below.
+
+**Slice 2, 2026-10-12: the decals — 920 to 784, 136 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 627 | 525 | 102 |
+| Core | 191 | 162 | 29 |
+| Content | 71 | 67 | 4 |
+| Animation | 16 | 15 | 1 |
+| Audio | 15 | 15 | 0 |
+| total | 920 (241 types, 679 members) | 784 (214 types, 570 members) | 136 |
+
+`MainForm` uses 566 distinct domain members, from 675, and is 8,403 lines, from 9,259. *Measured*, by the instrument.
+
+*First, what slice 1 left untested.* `tests/Tf2DemoSalvage.TestSupport` now holds `SyntheticDemo` and its seven
+writers, moved out of Core.Tests unedited (Core.Tests: 2,481 before and after), and a new `SyntheticEffects`: players,
+a weapon class and a table and class per temp entity, every float `SPROP_NOSCALE` so a value read back is the value
+written. Over timelines it writes, 48 tests: every kind of burst `BurstEffects.Step` reads off a demo — explosions,
+tracers and their near-miss whiz, blood, splashes, sentry and weapon muzzle flashes, both kinds of dispatched particle —
+and `BulletStrikes` against players (the hitboxes, the unposed hull, the shooter, a dead man, the remembering, the
+server and brush-only refusals, `ShotOrder`). `BurstEffects.Step` is split for it: `Step` unpacks `LoadedMap` and
+`GameContent` into an internal `BurstWorld` and calls `StepOver`, which is what a test calls. **Still not tested:** the
+first-person muzzle flash (`FlashPoint`'s viewmodel branch), which needs a viewmodel entity the fixture does not write.
+
+*What moved:* `StepDecals`, `StepModelDecals`, the body of `ReplayModelDecals` and the twenty methods they called —
+`DecalReplayOf`, `DecalWorldOf`, `PlaceModelDecal`, `ModelDecalFor`, `BulletLandings`, `WorldLanding`, `EmitLanding`,
+`Gap`, `StateOf`, `Holder`, `ClearOnChange`, `WipesDecals`, `EntityImpacts`, `ReplayTicks`, `PlayersABulletMayMeet`,
+`PassesAnEnemy`, `Reaches`, `OldestDecalLife`, `LastWipes`, `DrawnVertices` — with their eighteen fields, into
+`Presentation.DecalEffects`. The view constructs it, calls `Step` once a frame with a `DecalFrame` and the device and
+hands the landing sounds it returns to the sound presenter, calls `ReplayStart` and `Replay` on a seek, `ClearMap`
+when a map goes, and the static `Landings` for the bullet landings' sounds.
+
+*Two seams to the model layer, both Scene's:* `IDecalUpload`, the four members placing a decal asks of the device
+(`Device3D` implements it, beside `IModelUpload` and `IWorldUpload`), and four more questions on `IPosedEntities`
+(`SkinningOf`, `HitboxGap`, `FrameOf`, `DuckJumpOffsetOf`). A test answers both with lists.
+
+*What the view still holds of it, with why:*
+
+- **`ReplayModelDecals`, as a wrapper.** Which ticks a seek replays and what lands on them is the presenter's. Showing
+  a tick and posing its players is `ShowMoment` and `MomentPresenter.PoseNow`, and holding corpses, the players-only
+  moment and the animation-event walk still are flags on `EntityModelSet` and `MomentPresenter` the view sets. The
+  wrapper sets them, hands the presenter a callback that shows and poses a tick, and logs what the replay cost.
+- **`_replayingModelDecals`.** Five methods still in the view, the skip and four of sounds, read it as "nobody hears
+  this pass".
+- **`BulletStrikes` stays in Presentation**, and the reason is the list. Two presenters now share it, which by D92 is
+  the model layer's; but the view still constructs it and asks it for the impact effects and the id traces, and a
+  Scene type the view names is a line ADDED to a list that only shrinks. It goes down with the last view caller.
+- **The impact runner** (`StepImpactEffects`, `StepSparks`, `WithImpactEffects`, `AddTracerLines`, `ColourOf`) did not
+  fall out. Its surface colour reads the light styles `StepLightStyles` owns, its quads are merged into the particle
+  batches inside `DrawParticles` against the frame's camera, and its fixtures (sparks, light samples, thumbnails) are
+  none the decals needed. It is `DrawParticles`' slice. `DecalEffects.WorldOf` is public only for it and the dynamic
+  lights, which walk the same `DecalWorld`.
+
+*Proof nothing changed* (*measured*): the four frames of slice 1 and three more — a wall with a scattergun's holes
+eighteen ticks old (shot 0 of tick 22, at tick 40), a seek whose replay runs from tick 51344, poses 358 ticks and
+holds 73 model decals (tick 52720 behind CHARLIE), and the blood the server's impact on `t.` leaves on his leg, close up (placed at
+tick 52392, shown at 52410). All seven PNGs are byte-identical before and after, by SHA-1; the two the baseline took
+twice matched each other.
+
+*Tests the moved code never had* (36, `DecalEffectsTests`): a server impact through every guard of `ModelDecalFor`
+onto a one-triangle model, the eight-tick arrival window, the step backward, each wipe `C_TFPlayer` makes, a client
+bullet on an enemy, a teammate, the water and the world behind, the shot's sound group, when the world's mesh uploads,
+`Reaches`, `DrawnVertices`, `LastWipes`, where a seek's replay starts and which ticks it poses, and the server's
+landings. Each seen red and restored by the inverse edit; one round's break overflowed `int.MinValue` and reddened
+everything, so it was rewritten and rerun. **Not tested here:** a decal on a static prop and the mesh `DecalMesh`
+builds, which need a map's faces and a placed prop — Scene.Tests holds `WorldDecals`, `DecalReplay` and `DecalMesh`,
+and the wall frame holds the wiring.

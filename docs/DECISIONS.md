@@ -9795,3 +9795,19 @@ failure names the method that added it, and a line can leave only by the view no
 of which Scene 678, Core 241, Content 75, Animation 16, Audio 15, GameSystems none. `MainForm` uses 758 of the 762
 members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
 
+**What the slices added to the rule, 2026-10-12** (the counts after each are B540's):
+
+- **A `tests/Tf2DemoSalvage.TestSupport` project**, directed in the slice 2 brief; no reason was given with it, and
+  the one the work supplies is that point 5 cannot be met without it. A presenter that reads a `DemoTimeline` needs a
+  timeline a test wrote, `SyntheticDemo` lived in Core.Tests, and a test project referencing another imports its
+  fixtures and breaks the per-project counts the gate holds. This does not reverse the earlier choice to keep
+  `GameInstall` in `SdkReference` rather than start a test-support project: `SdkReference` references no production
+  assembly, by design, and these writers need Core and its internals.
+- **A presenter the view calls is signed in types the view already holds**, because a callee's signature is a
+  `TypeRef` in the caller (B540). So a presenter has two entries where it needs a narrow seam for its tests: the one
+  the view calls takes the concrete type (`EntityModelSet`, `Device3D`, `LoadedMap`), and an internal one takes the
+  interface or the data (`IPosedEntities`, `IDecalUpload`, a record of what the map holds).
+- **A helper two presenters share stays in Presentation while the view still calls it**, though D92 sends it to the
+  model layer: moved to Scene with the view still naming it, it would add a line to a list that only shrinks.
+  `BulletStrikes` is the case; it goes down when its last view caller does.
+

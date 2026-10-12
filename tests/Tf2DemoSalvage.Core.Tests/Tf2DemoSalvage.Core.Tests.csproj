@@ -44,6 +44,8 @@
     <!-- Reads source-sdk-2013 so conformance tests check this project's constants against the
          engine's own declarations rather than against numbers typed a second time. -->
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+    <!-- `SyntheticDemo` and its writers, moved out whole so Presentation.Tests can build a timeline too (D214). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.TestSupport\Tf2DemoSalvage.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

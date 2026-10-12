@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Synthetic demos for more than one test project (D38, D213, D214).
+
+    `SyntheticDemo` and what it needs lived in Core.Tests, so only Core.Tests could build a `DemoTimeline` by hand.
+    A presenter that reads a timeline could then be tested only through a real demo, which D213 forbids in a unit
+    suite. A test project referencing Core.Tests would have pulled its fixtures into its own discovery and broken the
+    per-project counts `build/gate.sh` holds, so the helpers moved here, whole.
+
+    Holds helpers and NO fixtures. The types stay internal, as they were, and are shown to the test projects that
+    use them below; Core shows its own internals to this assembly, as it does to Core.Tests, because the writers
+    here use them.
+  -->
+  <PropertyGroup>
+    <!-- TargetFramework must stay here, not in Directory.Build.props - see note there. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>Tf2DemoSalvage.TestSupport</RootNamespace>
+
+    <!-- Not a test project: no fixtures. Marking it one would make the runner discover an assembly with nothing
+         to run, which reports as a suite whose total silently changed. -->
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Core\Tf2DemoSalvage.Core.csproj" />
+  </ItemGroup>
+
+</Project>
