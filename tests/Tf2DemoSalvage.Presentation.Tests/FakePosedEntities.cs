@@ -15,6 +15,9 @@ internal sealed class FakePosedEntities : IPosedEntities
     /// <summary>Attachments by entity and name.</summary>
     public Dictionary<(int Entity, string Name), ParticleControlPoint> Named { get; } = [];
 
+    /// <summary>Attachments by entity and one-based number.</summary>
+    public Dictionary<(int Entity, int Number), ParticleControlPoint> Numbered { get; } = [];
+
     /// <summary>Hitbox trace fractions by entity.</summary>
     public Dictionary<int, float> Fractions { get; } = [];
 
@@ -27,7 +30,8 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (float X, float Y, float Z)? AttachmentPosition(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? (point.At.X, point.At.Y, point.At.Z) : null;
 
-    public ParticleControlPoint? AttachmentPoint(int entity, int number) => null;
+    public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
+        Numbered.TryGetValue((entity, number), out ParticleControlPoint point) ? point : null;
 
     public ParticleControlPoint? AttachmentPoint(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? point : null;

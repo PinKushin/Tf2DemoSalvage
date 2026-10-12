@@ -7,10 +7,8 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>Where a client bullet stops once the players are counted (B415), as it left the view (D214).</summary>
 /// <remarks>
-/// **What is NOT here, and why:** a bullet a player stops, its being remembered, and the server and brush-only
-/// refusals, which without a demo are indistinguishable from "nobody stopped it". That needs a `DemoTimeline` and a
-/// `MapLevel`, neither of which this project can build (`DemoTimeline.Build` takes a whole demo, and `SyntheticDemo`
-/// lives in Core.Tests), so it stays with the output-level checks on a real demo. These are the branches that need no demo.
+/// The branches that need no demo. A bullet a player stops, its being remembered, and the server and brush-only
+/// refusals are in <see cref="BulletStrikesStruckTests"/>, over a timeline that file writes.
 /// </remarks>
 public sealed class BulletStrikesTests
 {
