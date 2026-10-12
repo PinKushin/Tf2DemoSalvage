@@ -37,6 +37,9 @@
 
     <!-- GameInstall, for the output-level check that loads a shipped map (B485). -->
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+
+    <!-- `SyntheticDemo`: a timeline built by hand for the presenters that read one (D213, D214). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.TestSupport\Tf2DemoSalvage.TestSupport.csproj" />
   </ItemGroup>
 
 </Project>

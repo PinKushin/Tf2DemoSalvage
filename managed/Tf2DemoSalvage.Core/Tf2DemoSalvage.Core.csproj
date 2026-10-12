@@ -18,6 +18,9 @@
          and tested directly. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
 
+    <!-- `SyntheticDemo` and its writers, which lived in Core.Tests and use the same internals (D214). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.TestSupport" />
+
     <!-- The viewer consumes these scene types, so its tests have to be able to BUILD one.
          `ScenePropTrack.AttachedTo` is written only by the timeline and so has an internal setter,
          which left the rule about bone-merged models (WornModels) untestable from the viewer's own
