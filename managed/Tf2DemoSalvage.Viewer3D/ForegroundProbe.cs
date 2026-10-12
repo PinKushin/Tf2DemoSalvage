@@ -48,6 +48,7 @@ internal static partial class ForegroundProbe
         // foreground" is what decides where a keystroke went.
         string owner = process == (uint)Environment.ProcessId ? "ours" : ProcessName(process);
 
+        // Stryker disable once all : a mutated interpolated string cannot bind to string.Create's handler (CS1620), and Safe Mode then drops every mutant in this method - B410
         return string.Create(
             CultureInfo.InvariantCulture,
             $"foreground: {foreground:x} pid {process} ({owner}); " +
