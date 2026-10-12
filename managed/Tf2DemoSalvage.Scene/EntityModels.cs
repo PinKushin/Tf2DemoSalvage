@@ -1785,6 +1785,47 @@ public sealed class EntityModelSet : Hud.IMdlCache
         return StudioHitboxes.Trace(sets[0], bone => animating.Bones.Bone(bone).ToArray(), start, delta, mask);
     }
 
+    /// <summary>
+    /// An entity's hitboxes as the last pass posed them — <c>CParticleSystemQuery::GetControllingObjectHitBoxInfo</c>
+    /// (`particlesystemquery.cpp:392-462`), for a particle effect that is born on and rides a model (B538).
+    /// </summary>
+    /// <param name="entity">The entity, such as a player.</param>
+    /// <returns>
+    /// Set 0's boxes on their bones, in set order, and the origin the entity had when they were posed; null when it is
+    /// not posed here or has none.
+    /// </returns>
+    /// <remarks>
+    /// **The origin is the pose's own, not the frame's.** The frame a seek lands on asks before its models are posed
+    /// again, and bones from the tick before paired with this tick's origin put a two-second catch-up hundreds of
+    /// units off its player — seen, as a patient's pluses hanging where he had stood a minute earlier.
+    /// </remarks>
+    public (IReadOnlyList<ModelHitbox> Boxes, System.Numerics.Vector3 PosedAt)? PosedHitboxes(int entity)
+    {
+        // Stryker disable all : a mutant that empties the guard body leaves the out variables unassigned
+        // below (CS0165), and Safe Mode then drops every mutation in this method — B410.
+        if (InScene(entity) is not { } seen ||
+            !_entities.TryGetValue(entity, out AnimatingEntity? animating) ||
+            !_entityModels.TryGetValue(entity, out string? model) ||
+            !_frames.TryGetValue(model, out PropModels.ModelFrames? frames) ||
+            frames.Hitboxes is not { Count: > 0 } sets ||
+            !animating.SetupBones(StudioBoneFlags.UsedByAnything, _simulatedSeconds))
+        {
+            return null;
+        }
+
+        // Stryker restore all
+        ModelHitbox[] posed = new ModelHitbox[sets[0].Count];
+
+        for (int index = 0; index < posed.Length; index++)
+        {
+            StudioHitbox box = sets[0][index];
+
+            posed[index] = ModelHitbox.On(box.Min, box.Max, animating.Bones.Bone(box.Bone));
+        }
+
+        return (posed, new System.Numerics.Vector3(seen.Pose.X, seen.Pose.Y, seen.Pose.Z));
+    }
+
     /// <summary>How far a point lies outside one of an entity's posed hitboxes, in the box's own frame — an instrument.</summary>
     /// <param name="entity">The entity.</param>
     /// <param name="box">The box's index in set 0, as a server `Impact`'s `m_nHitBox` names it.</param>

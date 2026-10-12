@@ -139,6 +139,12 @@ public sealed class ParticleStore
     /// </remarks>
     public const float DefaultTrailLength = 0.1f;
 
+    /// <summary>`HITBOX_INDEX` (14): which of its control point's entity's hitboxes a particle was born on (B538).</summary>
+    internal int[] HitboxIndex = new int[Initial];
+
+    /// <summary>`HITBOX_RELATIVE_XYZ` (15): where in that box, each axis 0 at its least corner and 1 at its greatest.</summary>
+    internal Vector3[] HitboxRelative = new Vector3[Initial];
+
     /// <summary>How many particles the streams start with.</summary>
     private const int Initial = 64;
 
@@ -249,6 +255,15 @@ public sealed class ParticleStore
     /// </remarks>
     public void Fade(int index, float alpha) => Alpha[index] = alpha;
 
+    /// <summary>Sets one particle's tint, and the spawn tint operators fade from — a writer as <see cref="Fade"/> is.</summary>
+    /// <param name="index">Which particle.</param>
+    /// <param name="tint">Its colour, 0..255 a channel.</param>
+    public void Colour(int index, Vector3 tint)
+    {
+        Tint[index] = tint;
+        TintAtBirth[index] = tint;
+    }
+
     /// <summary>Puts one particle on a sheet sequence.</summary>
     /// <param name="index">Which particle.</param>
     /// <param name="sequence">Which sequence it plays.</param>
@@ -292,6 +307,8 @@ public sealed class ParticleStore
         Rotation[Count] = 0f;
         Sequence[Count] = 0;
         TrailLength[Count] = DefaultTrailLength;
+        HitboxIndex[Count] = 0;
+        HitboxRelative[Count] = Vector3.Zero;
         Id[Count] = _next++;
 
         return Count++;
@@ -394,6 +411,8 @@ public sealed class ParticleStore
             Rotation[index] = Rotation[last];
             Sequence[index] = Sequence[last];
             TrailLength[index] = TrailLength[last];
+            HitboxIndex[index] = HitboxIndex[last];
+            HitboxRelative[index] = HitboxRelative[last];
             Id[index] = Id[last];
 
             removed++;
@@ -420,6 +439,8 @@ public sealed class ParticleStore
         Array.Resize(ref Rotation, size);
         Array.Resize(ref Sequence, size);
         Array.Resize(ref TrailLength, size);
+        Array.Resize(ref HitboxIndex, size);
+        Array.Resize(ref HitboxRelative, size);
         Array.Resize(ref Id, size);
     }
 }

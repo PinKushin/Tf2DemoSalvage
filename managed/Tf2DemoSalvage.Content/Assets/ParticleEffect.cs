@@ -512,6 +512,31 @@ public sealed class ParticleEffect
 
                 locked.Operate(Particles, one, seconds, ControlPoint(number));
             }
+            else if (string.Equals(one.Function, LockToBone.Named, StringComparison.Ordinal))
+            {
+                // `InitParams` clamps the number to the control points there are, 0..63.
+                (IReadOnlyList<ModelHitbox> now, IReadOnlyList<ModelHitbox> before) =
+                    HitboxesOf(Math.Clamp((int)one.Number("control_point_number", 0d), 0, 63));
+
+                LockToBone.Operate(Particles, one, now, before);
+            }
+        }
+
+        // The next simulation's `UpdateHitBoxInfo` finds this one's boxes as its previous ones, so a second sub-step, or
+        // a step nobody posed the model for, moves nothing twice.
+        if (_hitboxes.Count > 0)
+        {
+            foreach (int number in _hitboxes.Keys)
+            {
+                _settled.Add(number);
+            }
+
+            foreach (int number in _settled)
+            {
+                _hitboxes[number] = (_hitboxes[number].Now, _hitboxes[number].Now);
+            }
+
+            _settled.Clear();
         }
 
         Particles.Reap();
@@ -735,8 +760,40 @@ public sealed class ParticleEffect
                 return (points[0], points);
             },
             Particles.PreviousStep,
-            _sheet);
+            _sheet,
+            number => (ControlPoint(number), HitboxesOf(number).Now));
     }
+
+    /// <summary>Each control point's entity's posed hitboxes, this step's and the last one's — <c>m_ControlPointHitBoxes</c>.</summary>
+    private readonly Dictionary<int, (IReadOnlyList<ModelHitbox> Now, IReadOnlyList<ModelHitbox> Before)> _hitboxes = [];
+
+    /// <summary>Gives a control point its entity's hitboxes as they are posed now — <c>UpdateHitBoxInfo</c> (B538).</summary>
+    /// <param name="number">Which control point.</param>
+    /// <param name="boxes">The entity's hitboxes, in set order; empty when the point follows no model.</param>
+    /// <remarks>
+    /// **Call once before each <see cref="Step"/>**: the engine swaps its two buffers the first time a function asks
+    /// in a simulation (`m_flLastUpdateTime` against `m_flCurTime`), so "before" is what the last simulation saw.
+    /// Passed down to every child, each of which keeps its own in the engine.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="boxes"/> is null.</exception>
+    public void SetHitboxes(int number, IReadOnlyList<ModelHitbox> boxes)
+    {
+        ArgumentNullException.ThrowIfNull(boxes);
+
+        _hitboxes[number] = (boxes, HitboxesOf(number).Now);
+
+        foreach (ParticleEffect child in Children)
+        {
+            child.SetHitboxes(number, boxes);
+        }
+    }
+
+    /// <summary>The control points whose boxes a sub-step settles, reused.</summary>
+    private readonly List<int> _settled = [];
+
+    /// <summary>A control point's hitboxes; none for a point never given any.</summary>
+    private (IReadOnlyList<ModelHitbox> Now, IReadOnlyList<ModelHitbox> Before) HitboxesOf(int number) =>
+        _hitboxes.TryGetValue(number, out (IReadOnlyList<ModelHitbox> Now, IReadOnlyList<ModelHitbox> Before) found) ? found : ([], []);
 
     /// <summary>Emits a burst's particles once, at its own start time — <c>emit_instantaneously</c>.</summary>
     /// <remarks>

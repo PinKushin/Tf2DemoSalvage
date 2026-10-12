@@ -63,6 +63,19 @@ public readonly record struct ParticleMaterial(
     /// <summary>SpriteCard's size clamps and fades by distance (B529); the shader's defaults, which touch nothing, unless stated.</summary>
     public SpriteCardSize Size { get; init; } = SpriteCardSize.Default;
 
+    /// <summary>
+    /// Whether a particle's tint is a GAMMA colour the shader converts to linear light: <c>SpriteCard</c>'s vertex
+    /// shader does, `float4 tint = GammaToLinear( v.vTint )` (`spritecard_vsxx.fxc:182`), and no other shader a
+    /// particle draws through here (B538).
+    /// </summary>
+    public bool TintIsGamma { get; init; }
+
+    /// <summary>Whether a shader converts a particle's tint from gamma — <c>SpriteCard</c> alone.</summary>
+    /// <param name="shader">The material's shader name, or null when it did not resolve.</param>
+    /// <returns>True for <c>SpriteCard</c>, in any case.</returns>
+    public static bool TintIsGammaOf(string? shader) =>
+        string.Equals(shader, "SpriteCard", System.StringComparison.OrdinalIgnoreCase);
+
     /// <summary>The factor a material draws with, from its shader and what it states.</summary>
     /// <param name="shader">The material's shader name, or null when it did not resolve.</param>
     /// <param name="stated">Its <c>$overbrightfactor</c> as text — the <c>srgb?</c> form first, as for <c>$alpha</c> — or null.</param>

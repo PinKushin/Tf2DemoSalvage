@@ -1459,6 +1459,7 @@ public sealed class MapAssets
             {
                 Overbright = OverbrightOf(vmt),
                 Size = SizeOf(vmt),
+                TintIsGamma = ParticleMaterial.TintIsGammaOf(vmt?.Shader),
             };
         }
 
@@ -2409,6 +2410,7 @@ public sealed class MapAssets
                 // SpriteCard's own multiplier, which the medigun's beam states as 3 (B523).
                 Overbright = OverbrightOf(stated),
                 Size = SizeOf(stated),
+                TintIsGamma = ParticleMaterial.TintIsGammaOf(stated?.Shader),
             };
         }
 

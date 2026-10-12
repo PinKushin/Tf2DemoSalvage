@@ -236,6 +236,7 @@ public static class ParticleSystems
     /// <param name="pointsOf">Each particle's control points at its creation time: point 0, and every point by number.</param>
     /// <param name="seconds">`m_flPreviousDt`, which the velocity initializers scale by (B494).</param>
     /// <param name="sheet">The material's sheet, or null.</param>
+    /// <param name="modelOf">A control point as it stands now, with its entity's posed hitboxes (B538); null for none.</param>
     /// <remarks>
     /// **Initializer by initializer, each over the whole batch.** A seeded ("scrubbable") collection runs every
     /// initializer that is not scrub-safe through `InitNewParticlesScalar( i, 1 )` for each new particle in turn
@@ -255,12 +256,24 @@ public static class ParticleSystems
         int count,
         Func<int, (ParticleControlPoint Point, IReadOnlyList<ParticleControlPoint>? Points)> pointsOf,
         float seconds,
-        IReadOnlyList<SheetSequence>? sheet)
+        IReadOnlyList<SheetSequence>? sheet,
+        Func<int, (ParticleControlPoint Point, IReadOnlyList<ModelHitbox> Boxes)>? modelOf = null)
     {
         foreach (ParticleFunction one in system.Initializers)
         {
             for (int index = first; index < first + count; index++)
             {
+                // `C_INIT_CreateOnModel` asks the control point's ENTITY, as it stands now, not the point at the
+                // particle's creation time (B538).
+                if (string.Equals(one.Function, PositionOnModel.Named, StringComparison.Ordinal))
+                {
+                    (ParticleControlPoint now, IReadOnlyList<ModelHitbox> boxes) =
+                        modelOf?.Invoke((int)one.Number("control_point_number", 0d)) ?? (pointsOf(index).Point, []);
+
+                    PositionOnModel.Place(one, into, index, now, boxes);
+                    continue;
+                }
+
                 (ParticleControlPoint point, IReadOnlyList<ParticleControlPoint>? points) = pointsOf(index);
 
                 InitializeOne(one, into, index, point, points, seconds, sheet);

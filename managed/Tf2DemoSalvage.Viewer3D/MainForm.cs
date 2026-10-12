@@ -2705,12 +2705,14 @@ internal class MainForm : Form, IFrameSteps
             foreach (ParticleBurst burst in _burstsNow)
             {
                 // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
-                if (_particles.BurstEffect(burst.Key) is not { } effect || Owner(effect) is not { } owner)
+                // A pick of 500 pixels or wider asks for the whole frame, so every live burst is named.
+                if (_particles.BurstEffect(burst.Key) is not { } effect ||
+                    (Owner(effect) ?? (more is [{ } all] && float.Parse(all, CultureInfo.InvariantCulture) >= 500f ? effect.System.Name : null)) is not { } owner)
                 {
                     continue;
                 }
 
-                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0})}} ");
+                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0}) forward ({burst.At.Forward.X:0.00} {burst.At.Forward.Y:0.00} {burst.At.Forward.Z:0.00}) end ({burst.End?.At.X:0} {burst.End?.At.Y:0} {burst.End?.At.Z:0}) own particles {effect.Particles.Count}{string.Concat(Enumerable.Range(0, Math.Min(effect.Particles.Count, 6)).Select(i => i * Math.Max(1, effect.Particles.Count / 6)).Select(i => string.Create(CultureInfo.InvariantCulture, $" #{i} age {effect.Particles.AgeOf(i):0.00} at ({effect.Particles.PositionOf(i).X:0} {effect.Particles.PositionOf(i).Y:0} {effect.Particles.PositionOf(i).Z:0}) radius {effect.Particles.RadiusOf(i):0.0} alpha {effect.Particles.AlphaOf(i):0.00}")))}}} ");
             }
         }
 
@@ -4657,7 +4659,26 @@ internal class MainForm : Form, IFrameSteps
         AddSentryMuzzleFlashes(timeline, tick, systems);
         AddParticleDispatches(timeline, tick, systems);
         AddWeaponMuzzleFlashes(timeline, tick, systems);
+
+        // **Where the frame DREW each player** (B523), for the effects that follow one; and the playing samples of
+        // another tick are forgotten.
+        _playersNow.Clear();
+        _yawsNow.Clear();
+
+        foreach (ScenePlayer player in _moments.Players)
+        {
+            _playersNow[player.EntityIndex] = new Vector3(player.X, player.Y, player.Z);
+            _yawsNow[player.EntityIndex] = player.Yaw;
+        }
+
+        if (tick != _playedTick)
+        {
+            _playedAt.Clear();
+            _playedTick = tick;
+        }
+
         AddHealBeams(timeline, tick, systems);
+        AddOverheals(timeline, tick, systems);
 
         _particles.Bursts(
             _burstsNow,
@@ -6488,8 +6509,12 @@ internal class MainForm : Form, IFrameSteps
         }
 
         _healBeamTick = tick;
-        _playersNow.Clear();
-        _yawsNow.Clear();
+
+        // **A paused frame keeps the effect where playing left it** (B538): the client simulates no particle while
+        // paused (`ParticleMgr()->Simulate( gpGlobals->frametime )`, cdll_client_int.cpp:2234, on a frame time of 0),
+        // so a beam stays between the INTERPOLATED positions the last playing frame drew, while every entity snaps
+        // to its last received one (B399). A seek that lands paused is caught up the same way and left there.
+        bool paused = !_transport.Playing;
 
         // ponytail: a scan over every beam, 1,211 on f12; an interval index if a demo ever carries far more.
         for (int index = 0; index < beams.Count; index++)
@@ -6515,15 +6540,6 @@ internal class MainForm : Form, IFrameSteps
             // **Where the frame DREW them** (B523): `UpdateControlPoint` reads the patient's `GetAbsOrigin()`
             // (particle_property.cpp:637), interpolated while playing. This read the newest recorded frame, which leads
             // the drawn player by the interpolation delay — the beam ended ahead of anyone running.
-            if (_playersNow.Count == 0)
-            {
-                foreach (ScenePlayer player in _moments.Players)
-                {
-                    _playersNow[player.EntityIndex] = new Vector3(player.X, player.Y, player.Z);
-                    _yawsNow[player.EntityIndex] = player.Yaw;
-                }
-            }
-
             if (!_playersNow.TryGetValue(beam.Target, out Vector3 target))
             {
                 continue;
@@ -6540,78 +6556,141 @@ internal class MainForm : Form, IFrameSteps
             ParticleControlPoint patient = ParticleControlPoint.Facing(
                 target + new Vector3(0f, 0f, 50f), _yawsNow.GetValueOrDefault(beam.Target));
 
-            // **A beam met by a seek is caught up along the path its two ends took** (B527), not between where they
-            // stand now: asked only for the ticks a catch-up steps, so a playing frame never calls it.
+            // **A beam met by a seek is caught up along the path its two ends were DRAWN on while playing** (B527,
+            // B538), not between where they stand now: asked only for the ticks a catch-up steps and for a paused frame.
             Vector3? medicDrawn = beam.Owner is { } owner && _playersNow.TryGetValue(owner, out Vector3 drawn) ? drawn : null;
+            float medicYaw = beam.Owner is { } healer ? _yawsNow.GetValueOrDefault(healer) : 0f;
             Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> history =
-                then => HealBeamThen(timeline, tick, then, beam, muzzle, medicDrawn, patient);
+                then => HealBeamThen(PlayedAt(timeline, then), beam, muzzle, medicDrawn, medicYaw, patient);
 
-            _burstsNow.Add(
-                new ParticleBurst(HealBeamKeys + (2L * index), definition, muzzle, from, patient, beam.End, history));
+            (ParticleControlPoint at, ParticleControlPoint? far) = paused ? history(tick) : (muzzle, patient);
+
+            _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index), definition, at, from, far, beam.End, history));
 
             // The item's `custom_particlesystem`, created beside the beam on the same two points (`:2469-2479`).
             if (beam.Item is { } item &&
                 _game?.Weapons.Items?.CustomParticle(item, beam.Team) is { } custom &&
                 systems.TryGetValue(custom, out ParticleSystem? added))
             {
-                _burstsNow.Add(
-                    new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, muzzle, from, patient, beam.End, history));
+                _burstsNow.Add(new ParticleBurst(HealBeamKeys + (2L * index) + 1, added, at, from, far, beam.End, history));
             }
         }
     }
 
-    /// <summary>Where a beam's two ends were on an earlier tick — <see cref="FollowedPoint"/>, from the recorded frames.</summary>
+    /// <summary>
+    /// Where a beam's two ends were drawn by a playing frame at a tick — <see cref="FollowedPoint"/>, the muzzle carried
+    /// with its medic as this frame posed him.
+    /// </summary>
     private static (ParticleControlPoint At, ParticleControlPoint? End) HealBeamThen(
-        DemoTimeline timeline,
-        int tick,
-        int then,
+        Dictionary<int, ScenePlayer> played,
         SceneHealBeam beam,
         ParticleControlPoint muzzle,
         Vector3? medicDrawn,
+        float medicYaw,
         ParticleControlPoint patient)
     {
-        IReadOnlyList<ScenePlayer> recorded = timeline.PlayersAt(tick);
-        IReadOnlyList<ScenePlayer> earlier = timeline.PlayersAt(then);
-
         ParticleControlPoint at = muzzle;
         ParticleControlPoint end = patient;
 
-        if (medicDrawn is { } drawn &&
-            Recorded(recorded, beam.Owner) is { } medic &&
-            Recorded(earlier, beam.Owner) is { } medicThen)
+        if (medicDrawn is { } drawn && beam.Owner is { } owner && played.TryGetValue(owner, out ScenePlayer medic))
         {
-            at = FollowedPoint.Then(
-                muzzle,
-                drawn,
-                new Vector3(medic.X, medic.Y, medic.Z),
-                medic.Yaw,
-                new Vector3(medicThen.X, medicThen.Y, medicThen.Z),
-                medicThen.Yaw);
+            at = FollowedPoint.Then(muzzle, drawn, drawn, medicYaw, new Vector3(medic.X, medic.Y, medic.Z), medic.Yaw);
         }
 
         // `PATTACH_ABSORIGIN_FOLLOW` with an offset: the patient's end has no lever arm to turn, only his movement.
-        if (Recorded(recorded, beam.Target) is { } target && Recorded(earlier, beam.Target) is { } targetThen)
+        if (played.TryGetValue(beam.Target, out ScenePlayer target))
         {
-            end = ParticleControlPoint.Facing(
-                patient.At + new Vector3(targetThen.X - target.X, targetThen.Y - target.Y, targetThen.Z - target.Z),
-                targetThen.Yaw);
+            end = ParticleControlPoint.Facing(new Vector3(target.X, target.Y, target.Z + 50f), target.Yaw);
         }
 
         return (at, end);
     }
 
-    /// <summary>One player's recorded frame by entity, or null when the frame has none.</summary>
-    private static ScenePlayer? Recorded(IReadOnlyList<ScenePlayer> players, int? entity)
+    /// <summary>Every player as a PLAYING frame at a whole tick draws him — interpolated — by entity (B538).</summary>
+    /// <remarks>
+    /// What a followed control point read on that tick: `UpdateControlPoint` takes the entity's `GetAbsOrigin()`, which
+    /// is interpolated while playing. Kept for the tick being shown, so a paused frame asks once and a catch-up pays
+    /// once per tick it steps.
+    /// </remarks>
+    private Dictionary<int, ScenePlayer> PlayedAt(DemoTimeline timeline, int tick)
     {
-        foreach (ScenePlayer player in players)
+        if (!_playedAt.TryGetValue(tick, out Dictionary<int, ScenePlayer>? players))
         {
-            if (player.EntityIndex == entity)
+            players = [];
+            timeline.PlayersAt((double)tick, _playedScratch);
+
+            foreach (ScenePlayer player in _playedScratch)
             {
-                return player;
+                players[player.EntityIndex] = player;
             }
+
+            _playedAt[tick] = players;
         }
 
-        return null;
+        return players;
+    }
+
+    /// <summary><see cref="PlayedAt"/>'s samples for the tick being shown, forgotten when it changes.</summary>
+    private readonly Dictionary<int, Dictionary<int, ScenePlayer>> _playedAt = [];
+
+    /// <summary>The tick <see cref="_playedAt"/> was filled for.</summary>
+    private int _playedTick = int.MinValue;
+
+    /// <summary>One sample being read, reused.</summary>
+    private readonly List<ScenePlayer> _playedScratch = [];
+
+    /// <summary>Overheal keys sit above the splashes'.</summary>
+    private const long OverhealKeys = 9L << 32;
+
+    /// <summary>Which players show overheal pluses, and since when.</summary>
+    private readonly OverhealEffects _overheals = new();
+
+    /// <summary>Draws the pluses on every overhealed player — `C_TFPlayer::UpdateOverhealEffect` (B538).</summary>
+    /// <remarks>
+    /// `overhealedplayer_blue_pluses` or its red twin on the player's origin (`PATTACH_ABSORIGIN_FOLLOW`), born on his
+    /// hitboxes and riding them. The definition's "control point to disable rendering if it is the camera" is 0, so the
+    /// player whose eyes the view is in shows none (`CNewParticleEffect::DrawModel`, particles_new.cpp:541-571).
+    /// </remarks>
+    private void AddOverheals(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
+    {
+        bool paused = !_transport.Playing;
+        int? inEyes = _firstPerson ? FollowedEntity() : null;
+
+        foreach (OverhealRun run in _overheals.At(tick, timeline.PlayersAt, timeline.RecorderEntityIndex))
+        {
+            int entity = run.Entity;
+
+            if (entity == inEyes ||
+                OverhealEffects.EffectName(run.Team) is not { } name ||
+                !systems.TryGetValue(name, out ParticleSystem? definition) ||
+                !_playersNow.TryGetValue(entity, out Vector3 drawn) ||
+                _models.PosedHitboxes(entity) is not { } posed)
+            {
+                // Not offered until his model is posed here: an effect caught up without its boxes is born on the
+                // control point, a heap of pluses at his feet.
+                continue;
+            }
+
+            ParticleControlPoint now = ParticleControlPoint.Facing(drawn, _yawsNow.GetValueOrDefault(entity));
+            Func<int, (ParticleControlPoint At, ParticleControlPoint? End)> history = then =>
+                (PlayedAt(timeline, then).TryGetValue(entity, out ScenePlayer was)
+                    ? ParticleControlPoint.Facing(new Vector3(was.X, was.Y, was.Z), was.Yaw)
+                    : now,
+                 null);
+
+            _burstsNow.Add(
+                new ParticleBurst(
+                    OverhealKeys + ((long)run.From << 7) + entity,
+                    definition,
+                    paused ? history(tick).At : now,
+                    run.From,
+                    null,
+                    run.Stop,
+                    history)
+                {
+                    Model = () => posed,
+                });
+        }
     }
 
     /// <summary>Weapon muzzle flash keys sit above the dispatched particles'; two a flash, the muzzle and the backblast.</summary>

@@ -568,3 +568,35 @@ at 63630, and the beam's direction follows it). The paragraph above is the same 
 and neither was in the particle operators — both are in B527: every past tick was stepped at today's control
 points, and a stopped beam froze where it was let go. Reference 15 is the second: the beam there had stopped
 (*measured*: both patients' health is falling) and still sweeps round the rock after the medic.
+
+### A PAUSED reference is two moments at once: entities at the tick, particles a delay behind it (B538, 2026-10-12)
+
+**Wrong turn, kept:** B536 spent two batches on why a sky-lit wall was 1.4 to 1.9 times darker and less blue in the
+viewer, through the lightmap formula, the LDR lumps and `mat_hdr_level`, and every measurement of the wall's own
+light came back correct. The owner's `mat_fullbright 2` capture of the same paused frame settled it in one look:
+the world is flat grey and the blue is still there. It was never the wall.
+
+**What a paused frame is.** *Read from published source*: `C_BaseEntity::InterpolateServerEntities` stops
+interpolating while paused, so every entity moves to its last received origin (B399); and the client's particle
+manager is stepped by `gpGlobals->frametime` (`cdll_client_int.cpp:2234`), which a pause leaves at nothing, so no
+particle moves. A frame taken by playing up to a moment and pausing therefore shows **players where the tick has
+them and every particle effect where the last playing frame left it** — the interpolation delay earlier. For a
+running patient under a medigun that is his glow, his beam's end and his overheal pluses hanging ten ticks behind
+him: thirty-odd units nearer a chase camera, so larger, and over whatever is beside him. *Measured*: the cloud in
+reference 26 back-projects to (50 855); gummo's playing sample on that tick is (49.6 851.3) and his last received
+origin (81.5 837.4).
+
+**So a paused reference cannot be compared region by region with anything a particle touches** until the viewer
+reproduces both halves, and a world-lighting question must be asked of a frame with no effect in it. The viewer now
+keeps a following effect at the playing samples on a paused frame and through a catch-up (B538).
+
+**The number that decides it is the interpolation delay, and the recipe does not pin it.** The viewer takes its
+lerp from the installed config (`cl_interp 0`, ratio 1, update rate 66: four ticks with the two an update waits);
+the references lag ten. Shot with `+cl_interp 0.1` the cloud is the reference's — 12.5% of the region left of the
+patient strongly blue against 16.7%, centred 100 pixels right of it — and with the config's own it is 0.5%. Which
+of the two the capture client ran is asked of the owner in B538; until it is answered a heal comparison passes
+`+cl_interp 0.1` by hand.
+
+**Also from the same frame:** SpriteCard's vertex shader takes the particle tint as a gamma colour
+(`spritecard_vsxx.fxc:182`), which the viewer did not, and that — not exposure — was why its beam was a pale cyan;
+and an overhealed player's pluses (`C_TFPlayer::UpdateOverhealEffect`) had never been built. Both are B538.

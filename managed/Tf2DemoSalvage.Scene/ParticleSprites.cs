@@ -54,6 +54,7 @@ public static class ParticleSprites
     /// <param name="fitLifetime">Its <c>animation_fit_lifetime</c>.</param>
     /// <param name="eye">Where the camera is, for <paramref name="size"/>; null applies none.</param>
     /// <param name="size">The material's size clamps and fades by distance; null applies none.</param>
+    /// <param name="gammaTint">Whether the material's shader converts the tint from gamma to linear, as SpriteCard's does.</param>
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     /// <remarks>
     /// **Two triangles rather than a quad**, because the existing pass draws a triangle list. The
@@ -74,7 +75,8 @@ public static class ParticleSprites
         bool asFramesPerSecond,
         bool fitLifetime,
         Vector3? eye = null,
-        SpriteCardSize? size = null)
+        SpriteCardSize? size = null,
+        bool gammaTint = false)
     {
         ArgumentNullException.ThrowIfNull(particles);
         ArgumentNullException.ThrowIfNull(into);
@@ -118,7 +120,17 @@ public static class ParticleSprites
             // remarks already named — and which was being sidestepped by writing white. A rocket
             // trail is firelight on smoke: `Color Random` gives it (247 194 117) to (251 142 0), and
             // ignoring that drew the raw texture at full brightness.
-            Vector3 tint = particles.TintOf(index) / 255f * fade;
+            Vector3 tint = particles.TintOf(index) / 255f;
+
+            // **SpriteCard's tint is a gamma colour** (B538): `tint = GammaToLinear( v.vTint )`, `pow( rgb, 2.2 )` with
+            // the alpha passed through (`spritecard_vsxx.fxc:182`, `common_fxc.h:195-198`), BEFORE the size fade
+            // scales it. Read as linear light the medigun's blue drew as a pale cyan.
+            if (gammaTint)
+            {
+                tint = new Vector3(MathF.Pow(tint.X, GammaPower), MathF.Pow(tint.Y, GammaPower), MathF.Pow(tint.Z, GammaPower));
+            }
+
+            tint *= fade;
 
             // **The sequence is the particle's own, wrapped rather than clamped.** `SEQUENCE_NUMBER`
             // is drawn from `sequence_min`..`sequence_max`, which the file states independently of
@@ -163,6 +175,9 @@ public static class ParticleSprites
             into.Add(bottomRight);
         }
     }
+
+    /// <summary>`GammaToLinear`'s exponent, `2.2f` (`common_fxc.h:192`).</summary>
+    private const float GammaPower = 2.2f;
 
     /// <summary>Where a corner sits inside a frame's rectangle.</summary>
     /// <remarks>
