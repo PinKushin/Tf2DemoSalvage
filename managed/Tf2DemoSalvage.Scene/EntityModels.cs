@@ -283,7 +283,7 @@ public readonly record struct RenderableViews(
 /// A rigid entity is the one-bone case. Animation adds a matrix per bone and a weight per vertex;
 /// nothing about the packing changes.
 /// </remarks>
-public sealed class EntityModelSet : Hud.IMdlCache
+public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
 {
     /// <inheritdoc/>
     public PropModels.ModelFrames? FindMdl(string path) =>
