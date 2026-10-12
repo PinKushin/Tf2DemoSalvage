@@ -37621,7 +37621,15 @@ failures.
 Against the pictures the framing agrees to a few pixels of the tank's edge and the rock; gummo's size agrees within
 about a tenth, which is the resolution the pictures give.
 
-## B536 — the sky-lit near wall, same camera: 1.4 to 1.9 times darker and less blue, and the engine's own formula predicts OURS — OPEN
+## B536 — the sky-lit near wall, same camera: 1.4 to 1.9 times darker and less blue, and the engine's own formula predicts OURS — NOT LIGHTING, re-scoped to B538 2026-10-12 (was OPEN)
+
+**Wrong turn, kept.** Everything below treats the difference as the wall's own light, and the formula kept
+predicting ours because ours was right. The owner's `mat_fullbright 2` capture of the same paused frame (flat grey
+world) still has the blue: it is the heal beam's glow and the patient's overheal pluses, additive over the wall,
+hanging ten ticks behind a running patient because a paused client simulates no particles. The tell that was read
+past is in the first paragraph under the table: *"reads as ADDED light rather than a factor"*. Three correct
+measurements of the lightmap in a row was the question being wrong (`CLAUDE.md`, "Read the source before measuring
+our data"). What was missing and what is built: **B538**.
 
 With B535's camera the same texels can be compared (*measured*, region means, exposure and bloom pinned both sides):
 
@@ -37718,3 +37726,89 @@ reference's HDR level as far as the lumps go. What is left is in the LDR path's 
 under *Not looked at* — or outside the lightmap. **Wanted from the owner:** `mat_fullbright 2` and `mat_fullbright 1`
 at reference 14's moment at `mat_hdr_level 0`, and the plain frame once at `mat_hdr_level 2`, which says whether
 TF2's own wall moves with the level.
+
+## B538 — the heal glow: a SpriteCard tint is gamma, an overhealed player's pluses were never built, and a paused frame keeps its particles where playing left them — BUILT 2026-10-12; two things open
+
+**What was reported.** B536's "brighter, bluer near wall" in the paused heal references. The owner's captures of one
+paused frame (`pause/fb`, 24 plain, 25 `mat_fullbright 1`, 26 `mat_fullbright 2`, 27 plain; timer 3:02, gummo 230,
+chase with the director off, `mat_hdr_level 0`) show it over a flat grey world: a soft blue cloud some 300 pixels
+across at the lower left with about twenty-five pluses scattered through it. Ours at the same tick had a thin pale
+cyan streak and one plus.
+
+**Three causes, each the engine's.**
+
+1. **SpriteCard converts the particle's tint from gamma** (*read from published source*). `spritecard_vsxx.fxc:182`
+   is `float4 tint = GammaToLinear( v.vTint )`, and `common_fxc.h:195-198` is `pow( gamma.xyz, 2.2f )` with the alpha
+   passed through; the size fade at `:207-217` scales the result. `splinecard_vsxx.fxc:60`, the sprite trail's, is
+   `o.argbcolor = v.vTint` and converts nothing. This viewer handed the stored bytes over as linear light. The beam's
+   blue is (106 141 255) fading to (0 120 255): green is 0.27 and 0.19 of blue as light, 0.55 and 0.47 as bytes — a
+   pale cyan. *Measured* on reference 24's cloud, added light over the wall: green 0.17 of blue, red none. Now
+   `ParticleMaterial.TintIsGamma` (SpriteCard alone) and `ParticleSprites.Build( …, gammaTint )`. Every SpriteCard
+   particle in the game changes colour with this, not the beam alone: any tint that is not white or a primary was
+   drawn too pale.
+2. **`C_TFPlayer::UpdateOverhealEffect` was not built** (*read from published source*, `c_tf_player.cpp:10056-10115`;
+   `tf_player_shared.cpp:6905`, `:7322`). While `TF_COND_HEALTH_OVERHEALED` holds, every player but the local one —
+   and but a cloaked enemy — carries `overhealedplayer_blue_pluses` or `_red_pluses` on his origin, a disguised enemy
+   spy his disguise's. *Shipped data*: 24 a second, two-second lives, `Position on Model Random` and `Movement Lock
+   to Bone`, neither of which this project had. Both are built from the engine (*read in disassembly*,
+   `builtin_initializers.obj` `0xeeae0` and its unpack table `0xfd420`, `builtin_particle_ops.obj` `0x115d90` and
+   `0x11e930`; *read from published source*, `particlesystemquery.cpp:187-462`): a particle is born at a random point
+   in one of the entity's posed hitboxes, the best of six tries by height where a direction bias is declared, and is
+   carried by that point of that box for its first second and let go across its second. **That release is the trail
+   of pluses behind a running patient.** The definition's "control point to disable rendering if it is the camera" is
+   0, so the player whose eyes the view is in shows none (`particles_new.cpp:541-571`).
+   **A Valve slip, reproduced:** "hitbox scale" is unpacked as an INT into a member the query takes as a float, so a
+   declared 1 arrives as 1.4e-45 and the range `( 1 - scale, scale )` is ( 1, ~0 ): each coordinate is one minus its
+   draw. Still uniform over the box; kept so a draw lands where the engine's does.
+3. **A paused client simulates no particles, so they stay where playing drew them** (*read from published source*
+   for the call, `cdll_client_int.cpp:2234` `ParticleMgr()->Simulate( gpGlobals->frametime )`; *read in disassembly*
+   for `CParticleCollection::Simulate`'s minimum step; *interpolated* that the frame time is 0 while paused, which
+   the picture agrees with). Entities snap to their last received origin on the same frame (B399). So a paused frame
+   shows a running patient ten ticks AHEAD of his own glow and pluses — which is the cloud "on the near wall", nearer
+   the camera than he is and so larger. *Measured*: the cloud's centre in reference 26 back-projects to about
+   (50 855) at the patient's range; `moment-dump` has gummo's playing sample at (49.6 851.3) on that tick and his
+   last received origin at (81.5 837.4). This viewer rebuilt every following effect around the snapped positions.
+   `AddHealBeams` and the new `AddOverheals` now give a paused frame, and every tick of a catch-up, the players as a
+   PLAYING frame draws them (`DemoTimeline.PlayersAt( tick, …, interpolating )`), the muzzle carried with its medic
+   by `FollowedPoint.Then`.
+
+**Tests, each red first as a compile failure, two then broken on purpose and caught:**
+`SpriteCardTintConformanceTests` (8), `ModelHitboxConformanceTests` (13), `OverhealEffectsConformanceTests` (13).
+Sabotage: the scale read as a float, and the lock leaving `PREV_XYZ` behind, reddened three.
+
+**Measured, paused at 63617, same view, pixels whose blue exceeds red and green by more than 40** (`b538/excess.py`):
+
+| region | reference 24 | viewer before | viewer after, config's interp | viewer after, `+cl_interp 0.1` |
+|---|---|---|---|---|
+| left of the patient, x 0-560, y 150-590 | 16.7%, centred (320 496) | 0.0% | 0.5% | 12.5%, centred (422 495) |
+| the patient, x 560-900, y 300-600 | 31.1% | 0.1% | not measured | 4.1% |
+
+Reference 26 (`mat_fullbright 2`) has the same cloud at 19.3%, centred (328 492). A fullbright shot of ours was not
+taken: `mat_fullbright` is a viewer action, not something a `--shot` can be launched with.
+
+**Open, and each needs the owner.**
+
+- **The interpolation delay.** The reference lags its players ten ticks (B527 measured the same on the playing
+  references). The viewer, reading the installed `autoexec.cfg` (`cl_interp 0`, `cl_interp_ratio 1`, `cl_updaterate
+  66`), lags four, and with four the cloud sits inside the patient and nothing shows on the wall. With `+cl_interp
+  0.1` it is the reference's. Either the capture client did not run that config, or demo playback of a SourceTV
+  recording does not take the lerp this viewer computes (D190). **Asked:** `cl_interp`, `cl_interp_ratio`,
+  `cl_updaterate`, `sv_client_min_interp_ratio`, `sv_maxupdaterate` and `net_graph`'s lerp on the capture client
+  while the demo plays. `tools/golden-viewer-shot.sh` does not pin it and should once the answer is known.
+- **The patient's own body.** 31% of it is strongly blue in TF2 and 4% in ours, and no particle is on him in TF2's
+  paused frame — they are ten ticks behind. In reference 26 his whole untextured model is lavender. That reads as
+  the model's ambient light in the wall's shadow, which is B536's question moved from the wall to the model; it was
+  not chased here. A capture of the same spot with no beam and no overheal would separate it.
+- *Interpolated, and stated:* a catch-up carries the hitboxes rigidly from the pose the frame has (`ParticleBurst.Model`),
+  as `FollowedPoint` carries a muzzle; the skeleton's own motion over the two seconds is not rebuilt.
+- *Not built:* "force to be inside model" (no effect here declares it), the model's scale on a box, a brush model's
+  bounds, and the restart `UpdateSpyStateChange` gives a running overheal effect.
+
+**Wrong turns, kept.** (1) An hour went to why the beam's curl cards are collinear; they are in the engine too — the
+path constraint and `Simulate` were re-read in `particles.obj` and match. (2) The glow "missing from his back" was
+read as a depth fault; it is the same ten ticks. (3) The first overheal pluses hung a minute's walk from their
+player: the frame a seek lands on asks for hitboxes before its models are posed again, and bones from the tick
+before were paired with this tick's origin. `EntityModels.PosedHitboxes` returns the origin of the pose it read.
+
+**Instruments:** `TF2VIEW_PICK="x y 500"` or wider names every live burst with its points, its own particle count and
+six sample particles; `b538/excess.py` and `crop.py` are scratch.

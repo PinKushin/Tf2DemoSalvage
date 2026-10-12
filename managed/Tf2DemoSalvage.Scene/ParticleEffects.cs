@@ -359,6 +359,9 @@ public sealed class ParticleEffects
             // reddened nothing at all.
             int taken = running.Stepped;
 
+            // Asked once, and only when there is a step to take: posing a model is not free.
+            (IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)? posed = taken < wanted ? burst.Model?.Invoke() : null;
+
             while (taken < wanted)
             {
                 // **A step to an EARLIER tick is taken where the points were then** (B527): the engine reads a followed
@@ -372,6 +375,12 @@ public sealed class ParticleEffects
                 if (second is { } then)
                 {
                     running.Effect.SetControlPoint(1, then);
+                }
+
+                // The entity's hitboxes, where control point 0 is on this step (B538).
+                if (posed is { } model)
+                {
+                    running.Effect.SetHitboxes(0, Carried(model.Boxes, at.At - model.PosedAt));
                 }
 
                 // A stopped effect only fades: its particles live out their lives and no more are born. **Its points
@@ -395,6 +404,24 @@ public sealed class ParticleEffects
         }
 
         Retire();
+    }
+
+    /// <summary>A model's boxes moved rigidly; the same list when they have not moved.</summary>
+    private static IReadOnlyList<ModelHitbox> Carried(IReadOnlyList<ModelHitbox> boxes, Vector3 by)
+    {
+        if (by == Vector3.Zero)
+        {
+            return boxes;
+        }
+
+        ModelHitbox[] moved = new ModelHitbox[boxes.Count];
+
+        for (int index = 0; index < moved.Length; index++)
+        {
+            moved[index] = boxes[index].Moved(by);
+        }
+
+        return moved;
     }
 
     /// <summary>Drops every burst that has run out of particles and will make no more, once it is no longer offered.</summary>
@@ -588,7 +615,8 @@ public sealed class ParticleEffects
                         renderer.Number("use animation rate as FPS", 0d) != 0d,
                         renderer.Number("animation_fit_lifetime", 0d) != 0d,
                         eye,
-                        material.Size);
+                        material.Size,
+                        material.TintIsGamma);
                     break;
 
                 // `C_OP_RenderSpriteTrail`, read out of `client.dll` — see `ParticleSpriteTrails`. Its defaults are
@@ -683,4 +711,16 @@ public readonly record struct ParticleBurst(
     int Tick,
     ParticleControlPoint? End = null,
     int? StopTick = null,
-    Func<int, (ParticleControlPoint At, ParticleControlPoint? End)>? History = null);
+    Func<int, (ParticleControlPoint At, ParticleControlPoint? End)>? History = null)
+{
+    /// <summary>
+    /// The posed hitboxes of the entity control point 0 follows, with where that point stood when they were posed; null
+    /// for an effect on no model, and asked only when the effect is about to be stepped (B538).
+    /// </summary>
+    /// <remarks>
+    /// `UpdateHitBoxInfo` reads the entity's bones before a simulation. A step to another place — an earlier tick of a
+    /// catch-up — takes the same boxes there, carried rigidly: *interpolated*, as <see cref="FollowedPoint"/> is, since
+    /// posing a player for every tick of a replay costs a skeleton each.
+    /// </remarks>
+    public Func<(IReadOnlyList<ModelHitbox> Boxes, Vector3 PosedAt)?>? Model { get; init; }
+}

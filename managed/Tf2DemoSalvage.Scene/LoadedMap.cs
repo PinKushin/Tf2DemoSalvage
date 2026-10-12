@@ -93,7 +93,10 @@ public sealed class LoadedMap
     /// </remarks>
     public (float Lowest, float Highest)? HeightRange { get; private set; }
 
-    /// <summary>Every medigun beam system the demo's beams can ask for — all six variants, and each item's custom one.</summary>
+    /// <summary>
+    /// Every medigun beam system the demo's beams can ask for — all six variants, and each item's custom one — and both
+    /// teams' overheal pluses, which any overhealed player shows (B538).
+    /// </summary>
     private static HashSet<string> HealBeamSystems(GameContent game, DemoTimeline? timeline)
     {
         HashSet<string> used = new(StringComparer.OrdinalIgnoreCase);
@@ -101,6 +104,14 @@ public sealed class LoadedMap
         if (timeline is null)
         {
             return used;
+        }
+
+        foreach (int team in (ReadOnlySpan<int>)[2, 3])
+        {
+            if (OverhealEffects.EffectName(team) is { } pluses)
+            {
+                used.Add(pluses);
+            }
         }
 
         foreach (SceneHealBeam beam in timeline.HealBeams.All)
