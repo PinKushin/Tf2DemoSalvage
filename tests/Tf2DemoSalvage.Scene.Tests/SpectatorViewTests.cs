@@ -345,6 +345,43 @@ public sealed class SpectatorViewTests
     public void Viewmodel_ZoomedFromTheDefault_NarrowsByTheSameAmount() =>
         new ViewFov(70f, 90).Viewmodel(54f).ShouldBe(34f);
 
+    /// <remarks>
+    /// **`m_flLastDistance` is history** (`hltvcamera.cpp:224-237`): a wall pulls the camera in at once and it comes back
+    /// out at 32 units a second of game time, so half a second after a doorway it is still most of the way in. TF2
+    /// reaches a tick by playing to it and has that history; a paused frame after a seek has none unless it is rebuilt,
+    /// and took the full 96 — 36 units further back than the reference it was compared with (B528).
+    /// </remarks>
+    [Test]
+    public void Chase_PausedHalfASecondAfterAWallLetGo_IsStillEasingOut()
+    {
+        // He runs along +X one unit a tick; a wall holds the camera to a quarter of its reach until he passes x = 100.
+        SpectatorView view = new(new RecordingLogger())
+        {
+            Eyes = new Runner(),
+            Spectating = 2,
+            SecondsPerTick = 0.015f,
+            World = static (from, _, _) => from.X < 100f ? 0.25f : 1f,
+        };
+
+        FreeCamera clear = view.Chase(tick: 400, aspect: 1f)!;
+        FreeCamera easing = view.Chase(tick: 133, aspect: 1f)!;
+
+        (400f - clear.Origin.X).ShouldBe(96f, 0.01f, "the control: three seconds clear of any wall is the full distance");
+        (133f - easing.Origin.X).ShouldBe(24f + (32f * 34 * 0.015f), 0.01f, "24 at tick 99, then 32 a second for 34 ticks");
+    }
+
+    /// <summary>One living player at x = the tick asked for, looking along +X.</summary>
+    private sealed class Runner : IEyeSource
+    {
+        public bool HasRecordedView => false;
+
+        public int? RecorderEntityIndex => null;
+
+        public RecordedView? RecordedViewAt(int tick) => null;
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) => [Player(2, tick)];
+    }
+
     private static ScenePlayer Zoomed(int entity) => Player(entity) with { Fov = 20, DefaultFov = 90 };
 
     private static SpectatorView View(IEyeSource eyes) =>

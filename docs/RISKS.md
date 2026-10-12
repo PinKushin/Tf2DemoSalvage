@@ -37386,3 +37386,34 @@ removing the one line; `FollowedPointTests` (3), written with the helper and not
 - **The viewer's chat panel** darkens the wall behind the beam in every shot of this pair, and TF2's has faded. Not
   a particle fault; it makes ours read brighter than it is (*measured*: the beam adds about 0.28 in linear light
   against TF2's 0.18 on the same wall, with ours narrower).
+
+## B528 — the patient's glow "hidden by his lean" was the chase camera's distance: a paused frame had no `m_flLastDistance` — FIXED 2026-10-12
+
+B527 left the patient's glow behind gummo's back and blamed his pose: *TF2's demoman leans further forward*. **That
+reading is dead, and what killed it:**
+
+- **The material is a hard depth test.** `sc_softglow.vmt` sets `$DEPTHBLEND 0` and no `$ignorez`; `spritecard.cpp:205`
+  takes the depth-feathered path only when `$depthblend` is not 0 (*read from published source*). The sharp black
+  shapes over the blue in reference 14 are a flat card cutting a mesh, which is what a hard test draws.
+- **The pose inputs are the engine's.** `ComputePoseParam_MoveYaw` (multiplayer_animstate.cpp:1566-1644) pushes
+  `( cos, −sin )` of the move yaw out to the unit box and scales by speed over the sequence's ground speed; the probe
+  prints move (1, −0.477) at a measured 185 to 277 units a second, not ducked, eye pitch −8.8, sequence 147 (*measured*).
+- **From the side the card's centre is about 4 units inside his back** (*measured* on a side shot), so anything that
+  moves the camera decides whether it shows — and **a free camera 28 units nearer, same angles, shows it on the vest**.
+- **TF2's camera is nearer.** Gummo is about 1.7 times larger in reference 14 than in our chase shot at the same tick.
+
+**Cause** (*read from published source*, `C_HLTVCamera::CalcChaseCamView`, hltvcamera.cpp:218-237): the camera is
+clipped by a hull trace at once and let back out at `frametime * 32` — three seconds from a wall to the full 96.
+Gummo left the corridor about a second before reference 14. Playing, the viewer already does this
+(`ChaseCamera.Approach`); a paused frame has no clock and took the bare clip, the full 96.
+
+**Fix:** a frame that does not follow the last one — paused, or the first after a seek or a change of target —
+rebuilds the distance over the three seconds that can still hold it, one trace a tick at that tick's recorded
+target (`SpectatorView.Rebuilt`). *Interpolated*: the engine steps it per frame at the interpolated target.
+**Test:** `Chase_PausedHalfASecondAfterAWallLetGo_IsStillEasingOut` (40.32 units, with a three-seconds-clear control
+at 96), written with the fix and proved by removing the history (96).
+
+**Measured after:** the camera at 63620 moves from (−8, 850, 559) to (11, 849, 559), 20 units in, and the glow shows
+on the vest. **Still short of TF2**, which is nearer again by an estimated 15 units: not explained. Candidates not
+checked: what our sweep hits against `MASK_SOLID` (brush entities, props), and the capture's own history (two of the
+references before it are paused, and a paused frame grows nothing).

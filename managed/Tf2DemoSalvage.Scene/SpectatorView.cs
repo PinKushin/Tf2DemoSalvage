@@ -567,30 +567,83 @@ public sealed class SpectatorView
             return ideal;
         }
 
-        // The point the camera looks at, which is what the engine traces FROM — the target's eyes,
-        // or the height it looks over a ragdoll from.
-        (float X, float Y, float Z) look =
-            (target.X, target.Y, target.Z + (alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget));
+        // **A frame that did not follow the last one has no `m_flLastDistance` to grow from, so it is rebuilt** (B528):
+        // a paused frame, which has no clock, and the first frame after a seek. TF2 gets to any tick by playing to it.
+        // **Running `Approach` with zero elapsed time instead would RATCHET** — a plain minimum, the camera moving in at
+        // the first wall and never coming back out — and taking the clip alone, which this did, snaps to the full
+        // distance the engine is still easing out to.
+        bool follows = seconds > 0d && tick >= _chaseTick && tick - _chaseTick <= 4 && target.EntityIndex == _chaseTarget;
 
-        float reached = sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent);
+        if (follows)
+        {
+            _chaseDistance = ChaseCamera.Approach(BlockedAt(target, aspect, sweep), _chaseDistance, (float)seconds);
+        }
+        else if (tick != _chaseTick || target.EntityIndex != _chaseTarget)
+        {
+            _chaseDistance = Rebuilt(tick, aspect, sweep);
+        }
 
-        float blockedAt = ChaseCamera.Distance * Math.Clamp(reached, 0f, 1f);
-
-        // **Without a frame clock the recovery cannot run, and running it anyway would RATCHET.**
-        // `Approach` takes the smaller of blocked-and-grown, so with zero elapsed time it is a plain
-        // minimum: the camera would move in at the first wall and never come back out for the rest
-        // of the session. Taking the clip alone is a stated approximation — no easing — where the
-        // ratchet is a defect that would read as the camera slowly strangling itself.
-        _chaseDistance = seconds > 0d
-            ? ChaseCamera.Approach(blockedAt, _chaseDistance, (float)seconds)
-            : blockedAt;
+        _chaseTick = tick;
+        _chaseTarget = target.EntityIndex;
 
         return FreeCamera.Chase(
             (target.X, target.Y, target.Z), yaw, alive, ducking, aspect, _chaseDistance);
     }
 
+    /// <summary>How far the world lets the camera sit behind one target — the hull trace's `dist`.</summary>
+    private static float BlockedAt(
+        ScenePlayer target,
+        float aspect,
+        Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep)
+    {
+        bool alive = target.IsAlive;
+        bool ducking = Ducking(target);
+
+        FreeCamera ideal = FreeCamera.Chase(
+            (target.X, target.Y, target.Z), target.EyeYaw ?? target.Yaw, alive, ducking, aspect);
+
+        // The point the camera looks at, which is what the engine traces FROM — the target's eyes,
+        // or the height it looks over a ragdoll from.
+        (float X, float Y, float Z) look =
+            (target.X, target.Y, target.Z + (alive ? PlayerEye.Spectated(ducking) : PlayerEye.DeadChaseTarget));
+
+        return ChaseCamera.Distance * Math.Clamp(sweep(look, ideal.Origin, ChaseCamera.WallHalfExtent), 0f, 1f);
+    }
+
+    /// <summary>`m_flLastDistance` as playing to this tick would have left it.</summary>
+    /// <remarks>
+    /// **Three seconds is the whole of its memory**: it never exceeds 96 and grows 32 a second, so nothing a wall did
+    /// earlier than `96 / 32` seconds ago can still hold it. One trace a tick over that window, at each tick's own
+    /// recorded target — *interpolated*: the engine steps it per FRAME at the interpolated target, a tick is the
+    /// resolution a recording has.
+    /// </remarks>
+    private float Rebuilt(
+        int tick, float aspect, Func<(float X, float Y, float Z), (float X, float Y, float Z), float, float> sweep)
+    {
+        float distance = ChaseCamera.Distance;
+        int span = (int)MathF.Ceiling(ChaseCamera.Distance / (ChaseCamera.RecoveryPerSecond * SecondsPerTick));
+
+        for (int then = tick - span; then <= tick; then++)
+        {
+            if (Viewed(then) is { } target)
+            {
+                distance = ChaseCamera.Approach(BlockedAt(target, aspect, sweep), distance, SecondsPerTick);
+            }
+        }
+
+        return distance;
+    }
+
+    /// <summary>Seconds a tick lasts, for <see cref="Rebuilt"/>; the demo's own once one is loaded.</summary>
+    public float SecondsPerTick { get; set; } = PlaybackClock.DefaultIntervalPerTick;
+
     /// <summary>Valve's <c>m_flLastDistance</c>: how far out the camera was allowed last frame.</summary>
     private float _chaseDistance = ChaseCamera.Distance;
+
+    /// <summary>The tick and target <see cref="_chaseDistance"/> belongs to.</summary>
+    private int _chaseTick = int.MinValue;
+
+    private int _chaseTarget = -1;
 
     /// <summary>The camera for the first-person view, or null when there is none.</summary>
     /// <param name="tick">The drawn frame's playback position, the fraction included.</param>
