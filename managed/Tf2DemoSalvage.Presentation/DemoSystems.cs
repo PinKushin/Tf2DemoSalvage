@@ -148,11 +148,17 @@ public sealed class DemoSystems
             scripts.Entries);
 
         IReadOnlyList<SceneSound> impacts = ImpactSounds.For(landings, scripts.Entries);
+        // **Where the medic is DRAWN on that tick** (B531): `EmitSound` on an entity starts at its abs origin, the
+        // interpolated one, which trails the newest recorded frame by the interpolation delay.
+        List<ScenePlayer> drawn = [];
+
         IReadOnlyList<SceneSound> mediguns = MedigunSounds.For(
             timeline.HealBeams.All,
             (entity, tick) =>
             {
-                foreach (ScenePlayer player in timeline.PlayersAt(tick))
+                timeline.PlayersAt((double)tick, drawn);
+
+                foreach (ScenePlayer player in drawn)
                 {
                     if (player.EntityIndex == entity)
                     {
@@ -213,6 +219,8 @@ public sealed class DemoSystems
         // **One demo player, shared by the camera and the recorder's body** (B56), as the engine has one `demoplayer`.
         DemoPlayer? player = timeline is { } played ? new DemoPlayer(played) { ConVars = ViewConVars } : null;
         _spectator.Eyes = timeline is { } eyes && player is not null ? new TimelineEyes(eyes, player) : null;
+        _spectator.SecondsPerTick =
+            timeline is { IntervalPerTick: > 0f } timed ? timed.IntervalPerTick : PlaybackClock.DefaultIntervalPerTick;
         _moment.Viewmodels = timeline is { } weapons ? new TimelineViewmodels(weapons) : null;
 
         // **Which era's sequence lists the demo's numbers index** (B380, D160), from its protocol.

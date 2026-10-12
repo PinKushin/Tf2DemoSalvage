@@ -38,6 +38,17 @@ public readonly record struct ParticleControlPoint(
     public static ParticleControlPoint Unoriented(Vector3 at) =>
         new(at, Vector3.UnitX, Vector3.UnitY, Vector3.UnitZ);
 
+    /// <summary>A point on an entity that only yaws — `GetVectors` of a player, whose abs angles carry no pitch (B529).</summary>
+    /// <param name="at">Where it is.</param>
+    /// <param name="yaw">The entity's yaw in degrees.</param>
+    /// <returns>The point, with `AngleVectors`' forward, right and up.</returns>
+    public static ParticleControlPoint Facing(Vector3 at, float yaw)
+    {
+        (float sine, float cosine) = System.MathF.SinCos(yaw * (System.MathF.PI / 180f));
+
+        return new(at, new Vector3(cosine, sine, 0f), new Vector3(sine, -cosine, 0f), Vector3.UnitZ);
+    }
+
     /// <summary>A control point nothing has set: the origin, with ZERO axes.</summary>
     /// <remarks>
     /// **`CParticleCollection`'s constructor stores every vector of all 64 points from `vec3_origin`** — position,

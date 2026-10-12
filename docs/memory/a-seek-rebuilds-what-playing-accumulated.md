@@ -18,6 +18,13 @@ metadata:
 - **A paused `--shot` cannot show anything that only steps while playing** — the viewmodel bob (B525) is built and
   unseen for this reason. Say "unseen", do not shoot it paused and call it checked.
 
+- **The chase camera (B528).** `m_flLastDistance` grows 32 u/s after a wall (hltvcamera.cpp:227); a paused frame took the
+  bare clip, the full 96. `SpectatorView.Rebuilt` replays 3 s of traces. This — not the player's pose — hid the
+  patient's glow: the card is ~4 units inside his back, so 20 units of camera decides it. **Before blaming a pose,
+  compare the subject's SIZE in the two pictures.**
+- **Chat after a seek (B530)** is the engine's: `demo_gototick` prints every line it passes, wall-clock timed. A shot is
+  taken at once, a reference 14 s later. `golden-viewer-shot.sh` pins `+hud_saytext_time 0`. Not a fault to port.
+
 **Matching a PLAYING TF2 reference:** its HUD health is the newest tick, its drawn players are an interpolation delay
 older (ten ticks on f12). The paused shot that matches is the HUD's tick MINUS the delay. Matched on health alone, the
 medic had already jumped in ours and the beam pointed at the sky; an hour went to the particle definition before the

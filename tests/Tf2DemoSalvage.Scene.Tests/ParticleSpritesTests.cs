@@ -52,6 +52,35 @@ public sealed class ParticleSpritesTests
         }
     }
 
+    /// <remarks>The card's own material sizes it by its distance from the eye — <see cref="SpriteCardSize"/> (B529).</remarks>
+    [Test]
+    public void Build_ACardNearTheEye_IsShrunkAndFadedByItsMaterialAndPastTheEndIsNotDrawn()
+    {
+        ParticleStore particles = new();
+
+        particles.Add(new Vector3(10f, 20f, 30f), lives: 1f);
+
+        SpriteCardSize size = new(Minimum: 0f, Maximum: 0.25f, StartFade: 0.2f, EndFade: 0.8f);
+        List<DetailSpriteVertex> near = [];
+        List<DetailSpriteVertex> inside = [];
+
+        ParticleSprites.Build(
+            particles, Vector3.UnitX, Vector3.UnitY, near, TwoFrames, 1f, false, false, new Vector3(10f, 20f, 32f), size);
+        ParticleSprites.Build(
+            particles, Vector3.UnitX, Vector3.UnitY, inside, TwoFrames, 1f, false, false, new Vector3(10f, 20f, 31f), size);
+
+        // Radius 1 at two units: half way from 0.4 to 1.6, so half the tint, and clamped to a quarter of the distance.
+        near.Count.ShouldBe(ParticleSprites.CornersPerParticle);
+        foreach (DetailSpriteVertex corner in near)
+        {
+            corner.X.ShouldBeInRange(9.5f, 10.5f);
+            corner.Alpha.ShouldBe(0.5f);
+            corner.Red.ShouldBe(0.5f);
+        }
+
+        inside.ShouldBeEmpty("radius 1 at one unit is past 0.8 of the distance");
+    }
+
     [Test]
     public void Build_TheCameraBasis_IsWhatDecidesTheQuadsPlane()
     {

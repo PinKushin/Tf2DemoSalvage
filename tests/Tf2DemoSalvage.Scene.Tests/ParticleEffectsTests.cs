@@ -333,7 +333,9 @@ public sealed class ParticleEffectsTests
     {
         List<DetailSpriteVertex> corners = [];
 
-        foreach (ParticleBatch batch in effects.Build(Vector3.Zero, Vector3.UnitX, Vector3.UnitZ, Materials()))
+        // **The eye stands well back.** It sat at the origin, where these effects are born, and a card whose radius is
+        // more than twenty times its distance from the eye is not drawn (`spritecard_vsxx.fxc:207`, B529).
+        foreach (ParticleBatch batch in effects.Build(new Vector3(0f, -1000f, 0f), Vector3.UnitX, Vector3.UnitZ, Materials()))
         {
             corners.AddRange(batch.Corners);
         }

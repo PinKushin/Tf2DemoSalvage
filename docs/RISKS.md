@@ -37386,3 +37386,126 @@ removing the one line; `FollowedPointTests` (3), written with the helper and not
 - **The viewer's chat panel** darkens the wall behind the beam in every shot of this pair, and TF2's has faded. Not
   a particle fault; it makes ours read brighter than it is (*measured*: the beam adds about 0.28 in linear light
   against TF2's 0.18 on the same wall, with ours narrower).
+
+## B528 — the patient's glow "hidden by his lean" was the chase camera's distance: a paused frame had no `m_flLastDistance` — FIXED 2026-10-12
+
+B527 left the patient's glow behind gummo's back and blamed his pose: *TF2's demoman leans further forward*. **That
+reading is dead, and what killed it:**
+
+- **The material is a hard depth test.** `sc_softglow.vmt` sets `$DEPTHBLEND 0` and no `$ignorez`; `spritecard.cpp:205`
+  takes the depth-feathered path only when `$depthblend` is not 0 (*read from published source*). The sharp black
+  shapes over the blue in reference 14 are a flat card cutting a mesh, which is what a hard test draws.
+- **The pose inputs are the engine's.** `ComputePoseParam_MoveYaw` (multiplayer_animstate.cpp:1566-1644) pushes
+  `( cos, −sin )` of the move yaw out to the unit box and scales by speed over the sequence's ground speed; the probe
+  prints move (1, −0.477) at a measured 185 to 277 units a second, not ducked, eye pitch −8.8, sequence 147 (*measured*).
+- **From the side the card's centre is about 4 units inside his back** (*measured* on a side shot), so anything that
+  moves the camera decides whether it shows — and **a free camera 28 units nearer, same angles, shows it on the vest**.
+- **TF2's camera is nearer.** Gummo is about 1.7 times larger in reference 14 than in our chase shot at the same tick.
+
+**Cause** (*read from published source*, `C_HLTVCamera::CalcChaseCamView`, hltvcamera.cpp:218-237): the camera is
+clipped by a hull trace at once and let back out at `frametime * 32` — three seconds from a wall to the full 96.
+Gummo left the corridor about a second before reference 14. Playing, the viewer already does this
+(`ChaseCamera.Approach`); a paused frame has no clock and took the bare clip, the full 96.
+
+**Fix:** a frame that does not follow the last one — paused, or the first after a seek or a change of target —
+rebuilds the distance over the three seconds that can still hold it, one trace a tick at that tick's recorded
+target (`SpectatorView.Rebuilt`). *Interpolated*: the engine steps it per frame at the interpolated target.
+**Test:** `Chase_PausedHalfASecondAfterAWallLetGo_IsStillEasingOut` (40.32 units, with a three-seconds-clear control
+at 96), written with the fix and proved by removing the history (96).
+
+**Measured after:** the camera at 63620 moves from (−8, 850, 559) to (11, 849, 559), 20 units in, and the glow shows
+on the vest. **Still short of TF2**, which is nearer again by an estimated 15 units: not explained. Candidates not
+checked: what our sweep hits against `MASK_SOLID` (brush entities, props), and the capture's own history (two of the
+references before it are paused, and a paused frame grows nothing).
+
+## B529 — SpriteCard's size clamps, and `Position Within Sphere Random`'s local bias — BUILT 2026-10-12
+
+Two things B527 listed as not built. Neither changes the heal beam's picture at the reference ticks; both are the
+engine's and were missing.
+
+**SpriteCard sizes** (*read from published source*, `spritecard_vsxx.fxc:199-229`, `spritecard.cpp:104-108, 426-431`).
+With `l` the card's distance from the eye: the radius is raised to `$minsize * l`; past `$startfadesize * l` the whole
+tint fades, and past `$endfadesize * l` the card is not drawn; a far fade over `$farfadeinterval` before
+`$maxdistance`; then the radius is capped at `$maxsize * l`. The fade is taken on the radius BEFORE the cap. Unset
+they are 0, 20, 10, 20, 100000 and 400, at which only a card within a twentieth of its radius of the eye is touched —
+which three older tests were, with their eye parked on the emitter; the eye was moved back. `SpriteCardSize`, applied
+where the corners are built (`ParticleSprites.Build`). **Tests:** `SpriteCardSizeConformanceTests` (7), red as a
+compile failure, and `Build_ACardNearTheEye_IsShrunkAndFadedByItsMaterialAndPastTheEndIsNotDrawn`.
+*Not built:* the same clamps on `render_sprite_trail`, whose cards go through a different vertex path that was not read.
+
+**The sphere's local bias** (*read in disassembly*, `C_INIT_CreateWithinSphere::InitNewParticlesScalar` and
+`InitParams`, `builtin_initializers.obj`). `bias in local system` turns the biased offset through the control
+point's matrix — forward, LEFT, up — and only when `distance_bias` is not (1, 1, 1). **The outward speed keeps the
+unturned direction**, which reads like an oversight and is reproduced. `distance_bias_absolute_value` takes `fabs` of
+each named axis before the bias: a half sphere. **Tests:** `ParticleSphereLocalBiasConformanceTests` (5): the local
+lay and the absolute value red first; the unturned speed and the no-bias case passed before and after, as controls.
+
+**Control point 1 of a medigun beam has the patient's axes** (`GetVectors`, particle_property.cpp:638):
+`ParticleControlPoint.Facing` from his yaw, now and for each tick of a catch-up. *Interpolated*: the yaw is the
+recorded body yaw, where the engine's is the animation state's render angles.
+
+## B530 — "the chat panel darkens the wall" was two wrong readings; the chat is the engine's — CLOSED 2026-10-12, one finding open
+
+B527 said the viewer's chat panel darkened the wall behind the heal beam where TF2's had faded. Asked to port the
+fade. **Nothing was missing, and the wall is not darkened by the chat:**
+
+- **The fade is built** (*read from published source*, hud_basechat.cpp): each line `InsertFade( hud_saytext_time,
+  CHAT_HISTORY_IDLE_FADE_TIME )` — 12 seconds then 2.5 — and `FadeChatHistory` takes the background to alpha 0 a
+  quarter second after message mode ends, which in a demo is always. `TfHudChat` does both.
+- **The lines in our shots are the seek's.** `demo_gototick` reads every packet to the new tick and each chat
+  message prints as it passes, timed on the wall clock; the viewer's skip does the same. A `--shot` is taken the
+  moment the seek lands; the references were taken more than fourteen seconds after theirs. Same engine behaviour,
+  different moment.
+- **The wall is the same with and without them** (*measured*): with `+hud_saytext_time 0` the lines are gone and
+  seven sampled pixels are identical to the last digit.
+
+**Changed:** `tools/golden-viewer-shot.sh` pins `+hud_saytext_time 0`, as it pins `cl_showfps`.
+
+**Open, found by the same measurement:** the near wall left of the tank is darker in ours than in reference 14 —
+(69 64 76) against (112 108 129) at pixel (100, 200), a world brush, texinfo 589 at (179 973 599) — while the far
+wall is (127 110 98) against (149 132 123). The cameras differ by B528's 15 units, so the pixels are not the same
+texels; the ratio is too large for that alone. Not investigated.
+
+## B531 — the three `PlayersAt( int )` reads B526 did not look at — CLOSED 2026-10-12
+
+| where | what it used the players for | verdict |
+|---|---|---|
+| `HudStates.For` | everything the HUD knows of every player, positions included | **fixed**: positions from the frame's own sample (`HudStates.WithDrawnPositions`), the rest as it was. `CFloatingHealthIcon::CalculatePosition` (tf_hud_target_id.cpp:1520) places the cross on `GetAbsOrigin()`; ours stood an interpolation delay ahead of a running player. The target ID's distance test reads the same list |
+| `HudEventFeed.Resolve` | each event's players, for names, teams, classes and the recorder's vision flags | right as it was: state on the event's own tick, and no listener places anything from it |
+| `DemoSystems`, the medigun sounds' origins | where a heal sound starts | **fixed**: the interpolated sample of that tick. Small: the sound follows its entity afterwards |
+
+*Read from published source.* **Only the position is taken from the drawn sample** — a playing TF2 frame prints the
+newest tick's health over a player drawn ten ticks behind it (B527). **Tests:**
+`WithDrawnPositions_APlayerTheFrameDrew_TakesHisDrawnPositionAndKeepsHisNewestState` and its null control, red as a
+compile failure (an analyzer refuses the stub). The `MainForm` and `DemoSystems` call sites are wiring with no test,
+and nothing was looked at on screen: a floating health icon needs a POV medic's demo.
+
+## B532 — the text readers B524 did not audit: four formats, four engine tokenizers, two of ours wrong — CLOSED 2026-10-12
+
+B524 put every KeyValues reader on one tokenizer and named four it had not looked at. **None of the four is KeyValues
+in the engine**, and each was checked against the reader the engine actually uses:
+
+| format | the engine's reader | ours before | census | state |
+|---|---|---|---|---|
+| localisation (`resource/*_english.txt`) | vgui2.dll's own, UTF-16, `\n` and `\"` its only escapes, `[$…]` after the pair | `VguiLocalize`, already a port of it from the disassembly (0x1800192e0, 0x18001e920) | not run: nothing to compare against | right as it was |
+| the HUD animation script | `ParseFile` (public/filesystem_helpers.cpp:29) | `VguiAnimationController.ParseFile`, already a port | not run | right as it was |
+| `.cfg` | `CCommandBuffer::GetNextCommandLength` (tier1/commandbuffer.cpp:163) then `CCommand::Tokenize` (tier1/convar.cpp:389) over `CUtlBuffer::ParseToken` with the break set `{}()':` | a tokenizer of our own: dropped `""`, glued a quote to the word beside it, no break set, and `ReadBinds`/`ReadAliases` did not split on `;` | 60 files, 6,394 commands, **3 differ**, all an empty quoted argument (`alias none ""` and two `sixense_bind`) | **ported** |
+| a `.phy`'s text | `IVPhysicsKeyParser` in vphysics.dll: `FUN_18002e160` and the block parsers inline the tokenizer `FUN_180003640` and lower both key and value | the KeyValues stream reader | 6,709 files: **987 change in case only**, **2 change in value** | **ported** |
+
+*Read from published source* for the first three engine readers, *read in disassembly* for vphysics. Both censuses
+are *measured*, by probes that stay: `cfg-census` carries the old tokenizer frozen inside it, and `phy-census [nocase]`
+prints a digest a file to diff across a change of reader.
+
+**`.cfg`.** The one command that mattered, `alias none ""`, was already special-cased in `ConfigConsole` (an alias
+with no body), so nothing a user saw changes on the shipped or installed configs; `bind k ""` now reads as three
+arguments. An alias body is now every argument after the name joined by spaces — *interpolated* from Quake's
+`Cmd_Alias_f`, the closed engine's ancestor. **Not covered by the census:** `.cfg` files inside a `custom/*.vpk`.
+**Tests:** `CommandTokenizeConformanceTests`, 18 cases, 8 red first.
+
+**`.phy`.** vphysics' tokenizer was already ported for `surfaceproperties.txt`, in a layer above the `.phy` reader;
+it moved down to `Content` (`VphysicsTokens`) and both read through it. What changes: every value is lowered —
+bone names (`ValveBiped.Bip01_Pelvis` on the 987 Half-Life 2 era models), surface properties, gib paths — `/* */` is
+a comment, and nothing is conditional. The two files whose VALUES change are
+`models/props_junk/wood_crate001a_damaged.phy` and `models/props_lab/dogobject_wood_crate001a_damagedmax.phy`
+(24 break pieces to 23); which token does it was not read. **Tests:** `PhysicsTextConformanceTests` (3): the lowered
+name and the block comment red first, the quoted `[$X360]` key green before and after.
