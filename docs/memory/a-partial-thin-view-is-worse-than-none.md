@@ -39,5 +39,20 @@ Moving logic to another file inside `Viewer3D` buys nothing if the project is st
 - Scope is never a reason to stop short: *"i know the scope is large but this project needs to be a
   true view, no knowledge about the domain is allowed."*
 
+## It regressed unguarded, and line count is NOT the measure (2026-10-12)
+
+- Found via Viewer3D's mutation score (8.47%): the view project references Core, Content, Scene, Audio
+  directly, so every "put it in `MainForm`" compiled. Five implementer reports said "MainForm call site is
+  untested wiring" and each was merged. Owner: *"fuck i thought i had a hook for this already, but we need one"*.
+- I measured `MainForm.cs` lines (4,266 after the D90 thinning, 10,162 now) and wrote a no-growth hook. Owner:
+  *"the line number should groww though, thin view is about domain logic, not lines of code"*; *"when we add
+  options to the winforms skeleton, its obviously going to groww"*. Size proves nothing either way.
+- **Measure = domain reach**: types/members the view assembly uses from Core/Content/Scene/Audio. Agreed plan:
+  an architecture test with a committed list that may only shrink; a hook that denies ADDING to that list;
+  end state is the list empty and the four project references removed, so the compiler enforces D90.
+- **How to apply:** every implementer brief says: no new domain type or member in `Viewer3D`; behaviour goes in
+  Presentation/Scene/Render with tests; the view gets one call. A report that says "untested wiring in
+  MainForm" goes back, not to merge.
+
 Related: [[conformance-test-before-implementation]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

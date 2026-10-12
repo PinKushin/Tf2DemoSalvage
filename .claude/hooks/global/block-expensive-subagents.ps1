@@ -135,7 +135,7 @@ if (($tool -eq 'Agent' -or $tool -eq 'Workflow') -and -not [string]::IsNullOrWhi
 if ($tool -eq 'Agent') {
     $type = "$($toolInput.subagent_type)".ToLowerInvariant()
     $byType = @{ 'implementer' = @('opus'); 'bounded-task' = @('sonnet') }
-    $specialists = @('sabotage-verifier', 'engine-reader', 'instrument-auditor', 'explore', 'plan',
+    $specialists = @('sabotage-verifier', 'engine-reader', 'tf2-engine-reader', 'instrument-auditor', 'explore', 'plan',
                      'claude-code-guide', 'statusline-setup')
     if (-not $byType.ContainsKey($type) -and $specialists -notcontains $type -and $type -notlike 'caveman:*') {
         Deny(("Blocked: name the job type. subagent_type 'implementer' (opus) for implementation, bug hunts, " +
