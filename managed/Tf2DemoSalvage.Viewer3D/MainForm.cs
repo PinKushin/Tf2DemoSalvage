@@ -260,12 +260,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly TextBox _search;
 
-    /// <summary>The library sorted for display: folder first, then name.</summary>
-    private IReadOnlyList<DemoEntry> _ordered = [];
-
-    /// <summary>The rows the playlist is currently showing.</summary>
-    private IReadOnlyList<DemoEntry> _shown = [];
-    private readonly DemoLibrary _library = new();
+    /// <summary>The playlist's owner: the library, its order and the rows a search leaves. This window gets strings and counts (D214).</summary>
+    private readonly PlaylistPresenter _library = new();
 
     /// <summary>Owns what a load fills and the load itself; this window is its <see cref="ILoadView"/> (D214).</summary>
     private readonly ViewerPresenter _presenter;
@@ -1180,14 +1176,13 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return NothingSelected;
         }
 
-        int index = _playlist.SelectedIndices[0];
-
-        if (index < 0 || index >= _shown.Count)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_library.Row(_playlist.SelectedIndices[0]) is not { } selected)
         {
             return NothingSelected;
         }
 
-        return _presenter.LoadDemoAsync(_shown[index].Path);
+        return _presenter.LoadDemoAsync(selected.Path);
     }
 
     /// <summary>The load in flight, kept so it is observed rather than discarded.</summary>
@@ -4043,27 +4038,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>Adds paths to the library and refreshes the playlist.</summary>
     private void AddToLibrary(params string[] paths)
     {
-        foreach (string path in paths)
-        {
-            _library.Open(path);
-        }
+        // Opening, ordering, filtering and the count's words are the playlist owner's (`PlaylistPresenter.Add`).
+        string count = _library.Add(_search.Text, paths);
 
-        // Sorted once per library change rather than per keystroke: folder first so the list
-        // reads as folders, then name within each.
-        // **Beside the filter whose contract depends on it** (B188, D90). This was three lines here
-        // while `PlaylistFilter.Apply` documented its dependence on them — a precondition stated in
-        // one assembly and satisfied in another is a precondition nothing enforces.
-        _ordered = PlaylistFilter.Order(_library.Entries);
+        ShowPlaylist();
 
-        RefreshPlaylist();
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _status.Text = _library.Entries.Count switch
-        {
-            0 => "No demos found.",
-            1 => "1 demo.",
-            int count => string.Create(CultureInfo.InvariantCulture, $"{count} demos."),
-        };
+        _status.Text = count;
     }
 
     /// <summary>Rebuilds the playlist from the library and the search box.</summary>
@@ -4074,19 +4054,26 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void RefreshPlaylist()
     {
-        _shown = PlaylistFilter.Apply(_ordered, _search.Text);
+        _library.Filter(_search.Text);
 
+        ShowPlaylist();
+    }
+
+    /// <summary>Tells the list control how many rows there are now.</summary>
+    private void ShowPlaylist()
+    {
         // Selection indices refer to the OLD list. Clearing first avoids the control asking for a
         // row that the new, shorter list does not have.
         _playlist.SelectedIndices.Clear();
-        _playlist.VirtualListSize = _shown.Count;
+        _playlist.VirtualListSize = _library.Count;
         _playlist.Invalidate();
     }
 
     /// <summary>Supplies one row of the playlist on demand.</summary>
     private void OnRetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
-        if (e.ItemIndex < 0 || e.ItemIndex >= _shown.Count)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_library.Row(e.ItemIndex) is not { } entry)
         {
             // Reachable during a resize that races a filter change. A blank row is survivable;
             // an exception out of a paint handler is not.
@@ -4094,7 +4081,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return;
         }
 
-        DemoEntry entry = _shown[e.ItemIndex];
         ListViewItem row = new(entry.Name) { Tag = entry.Path };
         row.SubItems.Add(entry.Folder);
         e.Item = row;

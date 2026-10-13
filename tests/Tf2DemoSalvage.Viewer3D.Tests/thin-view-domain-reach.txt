@@ -12,14 +12,6 @@ Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Text.DemoAssembly::Export(2)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.AttributeHooks
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CameraMode
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CrosshairSettings
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoEntry
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoEntry::get_Folder(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoEntry::get_Name(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoEntry::get_Path(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoLibrary
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoLibrary::.ctor(1)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoLibrary::Open(1)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoLibrary::get_Entries(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.EntityModelSet
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.FreeCamera
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.FreeCamera::ToMatrix(0)
@@ -39,9 +31,6 @@ Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_UndrawnInstances(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ViewmodelCamera(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ViewmodelInstances(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::set_Upload(1)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlaylistFilter
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlaylistFilter::Apply(2)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlaylistFilter::Order(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.RenderableViews
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ScreenOverlayMaterial
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.TfWeaponData

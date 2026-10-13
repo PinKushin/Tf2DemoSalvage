@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 60 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
+## B540 — the view reaches 49 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38950,3 +38950,22 @@ in order with the menu's two between**, and neither called at the defaults; the 
 applying to the run and saving nothing; a ConVar the viewer keeps no setting for. Each seen red in one of two
 rounds. **Observed, not changed:** the view test above still saves to the machine's real settings file, as it did
 before this slice — it constructs a `MainForm`, which loads and saves the default path.
+
+**Slice 8, second commit: the playlist — 60 to 49, 11 entries gone and none added.** Scene 49 to 38; Core 11.
+`MainForm` uses 19 distinct domain members, from 27.
+
+*What moved:* the demo library, its display order and the rows a search leaves (`DemoLibrary`, two `DemoEntry`
+lists, `PlaylistFilter.Order` and `.Apply`, the count's words) into `Presentation.PlaylistPresenter`. The window
+gets strings and counts: `Add( search, paths )` answers the status line's words, `Filter( search )` narrows,
+`Count` sizes the virtual list, and `Row( index )` is a row's name, folder and path — or null past either end,
+which is the paint handler's blank row and the "nothing selected" of a load. `SteamInstall` left the view with the
+settings in the first commit.
+
+*Every textual difference:* the two range checks (`index < 0 || index >= _shown.Count`) are one, inside `Row`;
+`AddToLibrary` filters inside `Add` and then sizes the list control (`ShowPlaylist`, the control's three lines of
+`RefreshPlaylist`), where it called `RefreshPlaylist` whole; the status is assigned from `Add`'s answer after the
+control is sized, as before.
+
+*Tests the moved code never had* (5, `PlaylistPresenterTests`), over a folder of empty files — a row is a name and
+no demo is read to list one: a folder with a subfolder, ordered and counted; one demo and none; text already in
+the search box; a filter applied and cleared; a row past either end. Each seen red in one of two rounds.
