@@ -177,4 +177,73 @@ public static class HudStates
             Conditions: local.Conditions,
             Flags: local.Flags ?? 0);
     }
+
+    /// <summary>What the HUD reads at a tick: `CHud::IsHidden`'s state, the view's settings, and its camera.</summary>
+    /// <param name="view">What the window knows that the HUD reads.</param>
+    /// <param name="playersShown">The players where the frame drew them at this tick, or null when it drew another.</param>
+    /// <param name="worldToScreen">`engine->WorldToScreenMatrix()`.</param>
+    /// <returns>The state, before the target ID's traces.</returns>
+    /// <remarks>**Moved out of `MainForm` whole** (D214, thin view slice 5), where it was `HudStateAt`.</remarks>
+    public static HudState At(in HudView view, IReadOnlyList<ScenePlayer>? playersShown, float[] worldToScreen)
+    {
+        int hudTick = view.Tick;
+
+        // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
+        // eye, where `GetFOV` follows the HLTV camera's target.
+        // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
+        // Players where the frame drew them (B531): what a HUD element standing on one — the floating health icon — asks.
+        HudState hudState = HudStates.WithDrawnPositions(
+            HudStates.For(view.Timeline, hudTick, view.Scripts, view.Hooks, view.Bindings), playersShown);
+
+        hudState = hudState with
+        {
+            ConVars = hudState.ConVars with { Client = view.ClientConVars },
+            RealTime = view.RealTime,
+            Fov = view.Fov,
+
+            // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
+            WorldToScreen = worldToScreen,
+        };
+
+        // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,
+        // c_baseplayer.cpp:645): this viewer's camera — first person is in-eye, the shoulder camera chase, free roaming.
+        if (view.Timeline is { HasRecordedView: false })
+        {
+            hudState = hudState with
+            {
+                ObserverMode = view.Mode switch
+                {
+                    CameraMode.FirstPerson => Core.Scene.ObserverModes.InEye,
+                    CameraMode.ThirdPerson => Core.Scene.ObserverModes.Chase,
+                    _ => Core.Scene.ObserverModes.Roaming,
+                },
+                ObserverTarget = view.Mode is CameraMode.FirstPerson or CameraMode.ThirdPerson ? view.Followed ?? 0 : 0,
+            };
+        }
+
+        return hudState;
+    }
 }
+
+/// <summary>What the window knows that the HUD reads at a tick: its clock, its camera, its bindings and convars.</summary>
+/// <param name="Timeline">The loaded demo, or null.</param>
+/// <param name="Tick">The HUD's tick.</param>
+/// <param name="Scripts">The weapon and class scripts, or null where no install is open.</param>
+/// <param name="Hooks">The attribute hooks, or null likewise.</param>
+/// <param name="Bindings">The viewer's key bindings, or null.</param>
+/// <param name="ClientConVars">The client's convars by name, or null.</param>
+/// <param name="RealTime">`gpGlobals->realtime`: the window's own clock.</param>
+/// <param name="Fov">The local player's `GetFOV()`.</param>
+/// <param name="Mode">The camera the view is drawn through.</param>
+/// <param name="Followed">The player that camera follows, or null.</param>
+public readonly record struct HudView(
+    DemoTimeline? Timeline,
+    int Tick,
+    TfWeaponData? Scripts,
+    AttributeHooks? Hooks,
+    KeyBindings? Bindings,
+    Func<string, string?>? ClientConVars,
+    float RealTime,
+    float Fov,
+    CameraMode Mode,
+    int? Followed);

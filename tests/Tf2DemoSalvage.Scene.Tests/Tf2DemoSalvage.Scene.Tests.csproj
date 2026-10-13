@@ -39,6 +39,17 @@
   <ItemGroup>
     <ProjectReference Include="..\..\managed\Tf2DemoSalvage.Scene\Tf2DemoSalvage.Scene.csproj" />
     <ProjectReference Include="..\Tf2DemoSalvage.SdkReference\Tf2DemoSalvage.SdkReference.csproj" />
+
+    <!-- Synthetic demos: `BulletStrikes` traces players a timeline holds, and a unit suite writes its own (D38, D213). -->
+    <ProjectReference Include="..\Tf2DemoSalvage.TestSupport\Tf2DemoSalvage.TestSupport.csproj" />
+  </ItemGroup>
+
+  <!--
+    The posed entities a test fills by hand, which Presentation.Tests owns, compiled in here as well rather than
+    copied: `BulletStrikes` came down to Scene with its tests (D214), and both suites answer `IPosedEntities` with it.
+  -->
+  <ItemGroup>
+    <Compile Include="..\Tf2DemoSalvage.Presentation.Tests\FakePosedEntities.cs" Link="FakePosedEntities.cs" />
   </ItemGroup>
 
   <!--

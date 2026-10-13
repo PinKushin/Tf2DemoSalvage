@@ -464,3 +464,13 @@ Which frame crosses an event is the clock's. A before/after diff of it proves no
 **How to apply:** run the old binary twice; only what repeats is an instrument. For sounds that is a paused seek
 (`--tick N --shot`, `+developer 1`): 47 lines repeat once the skip line's timings are cut. It holds no corpse line.
 `+developer 1` is what makes the log accept Debug; without it the sound lines are absent, not zero.
+
+## A probe's eye must be the viewer's eye (`id-target`, B540 slice 5, 2026-10-13)
+
+First `id-target` cast from `RecordedView.Origin`. Every tick it named put the crosshair a head ABOVE the player.
+The recorded origin is the FEET; the viewer's eye is `FreeCamera.AtEye(view, class, ducking, aspect)`.
+Constant world offset (~64 units at 282 and at 409 away) was the tell: an eye-height error, not a pitch error.
+**How to apply:** build the probe's camera with the call the viewer makes, not from the field it starts from.
+Hulls are wider than bodies: sort candidates by the ray's distance from the hull's middle, shoot the smallest.
+`Healer: <name>` is not the target ID; a looked-at healer shows only that panel. Exclude the healer's entity.
+One `TF2VIEW_PICK` line names the viewer's eye and ray (`from (...) along (...)`): the control for any such probe.

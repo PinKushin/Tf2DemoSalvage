@@ -2,7 +2,11 @@ using System.Collections.Generic;
 using System.Numerics;
 
 using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.Scene;
+
+// Named one by one, not by namespace: Scene.Tests compiles this file too (D214) and already has the namespace as a
+// global using, which a second `using` of it would collide with (CS8933).
+using FiredAnimationEvent = Tf2DemoSalvage.Scene.FiredAnimationEvent;
+using IPosedEntities = Tf2DemoSalvage.Scene.IPosedEntities;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 

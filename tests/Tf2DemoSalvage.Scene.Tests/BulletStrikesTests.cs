@@ -1,9 +1,9 @@
 using System.Numerics;
 
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Scene;
+using Tf2DemoSalvage.Presentation.Tests;
 
-namespace Tf2DemoSalvage.Presentation.Tests;
+namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>Where a client bullet stops once the players are counted (B415), as it left the view (D214).</summary>
 /// <remarks>

@@ -7,9 +7,9 @@ using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
 using Tf2DemoSalvage.Core.Schema;
 using Tf2DemoSalvage.Core.Tests;
-using Tf2DemoSalvage.Scene;
+using Tf2DemoSalvage.Presentation.Tests;
 
-namespace Tf2DemoSalvage.Presentation.Tests;
+namespace Tf2DemoSalvage.Scene.Tests;
 
 /// <summary>
 /// A client bullet a player stops — `FX_FireBullets` into `CTFPlayer::FireBullet`'s trace (tf_fx_shared.cpp:158,

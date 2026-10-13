@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 392 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 4 of the refactor done, the rest OPEN
+## B540 — the view reaches 282 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 5 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38301,3 +38301,191 @@ timeline to trace against.
 
 **Not tested here:** a building's box and a dropped weapon's collide in the target ID, which need a timeline that
 carries them, and the live bursts a pick names, which need a particle system that has emitted.
+
+**Slice 5, 2026-10-13. Measured first: where the 392 were.** The view's methods by distinct domain members used
+(*measured*, by the instrument, at `cdd1fbc7`):
+
+| | method | members | | method | members |
+|---|---|---|---|---|---|
+| 1 | `BuildOverlay` | 39 | 11 | `DrawScene` | 8 |
+| 2 | the constructor | 37 | 12 | `ViewerMenu`'s constructor | 8 |
+| 3 | `ReadMap` | 20 | 13 | `ChooseGameFolder` | 7 |
+| 4 | `ReplaySkip` | 18 | 14 | `DrawParticles` | 7 |
+| 5 | `Apply` | 15 | 15 | `LoadDemoAsync` | 6 |
+| 6 | `OnViewportHandleCreated` | 13 | 16 | `ReplayModelDecals` | 6 |
+| 7 | `StartCorpseRecord` | 12 | 17 | `UploadCamera` | 6 |
+| 8 | `HudStateAt` | 11 | 18 | `EnterCamera` | 5 |
+| 9 | `ProjectMap` | 10 | 19 | `FreeLookCamera` | 5 |
+| 10 | `ReadPosition` | 9 | 20 | `ShowOnly` | 5 |
+
+Past the twentieth, thirty more methods use four or fewer each. **So the list is no longer a few fat methods**: the
+HUD (`BuildOverlay`, `HudStateAt`), the composition (the constructor), the map read, the seek, and then a long tail
+of camera, settings and library methods that each name two or three things.
+
+**Slice 5, first commit: the composition — 392 to 377, 15 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 303 | 289 | 14 |
+| Core | 45 | 45 | 0 |
+| Content | 23 | 22 | 1 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 392 | 377 | 15 |
+
+`MainForm` uses 255 distinct domain members, from 263, and is 6,710 lines, from 6,869. *Measured*, by the instrument.
+
+*What moved:* the window constructed eight presenters, shared one `BulletStrikes` among four of them by hand, and
+called them in order from `DrawParticles`. All of that is `Presentation.FramePresenter` — D92's shape, a presenter
+that owns its parts: it constructs them, and `Draw` is `DrawParticles` moved whole, with the window's fields replaced
+by a `ViewFrame` record of what a window knows (the demo, the map, the clock, the size, the settings). The window
+holds the one object and hands it `ViewFrameNow`. `ClearMap`, the level's glow and sheet setup, the glow settle test,
+the particle counts, the pick and the target ID each became one call on it.
+
+*`BulletStrikes` went down to Scene*, with its seventeen tests (`BulletStrikesTests`, `BulletStrikesStruckTests`, now
+in Scene.Tests, which references TestSupport and compiles Presentation.Tests' `FakePosedEntities` in as it already
+compiles Content.Tests' VTF builder). Nothing in the view names it any more, so it adds no line.
+
+*The parts no longer take `Device3D`.* They took the concrete device only because the view called them and a
+callee's signature is the caller's `TypeRef`. Their owner calls them now, so each takes the Scene interface it asks —
+and `IFrameDevice` joins the three (lightmaps, decals, glow occlusion) with `SetParticles`, so the owner's `DrawOver`
+runs over a fake device.
+
+*One difference in when a value is read:* `FollowedEntity()` was asked for inside the bursts' step, on frames with a
+rocket trail definition; it is now read with the rest of the frame record, every frame. It is a query of the
+spectator and changes nothing.
+
+*Tests* (3, `FramePresenterTests`): a frame with no map still hands the device its particles once; the pick is asked
+with the frame's tick; the target ID with no map clears and never asks for the eye. Each seen red. **Not tested, and
+it is the larger half:** the ORDER the parts run in with a map loaded, because a `LoadedMap` cannot be built by a
+test — it has no public constructor and no synthetic BSP exists. The paused frames and the sound log hold that order,
+byte for byte. A map a test can write is the follow-up that would close it.
+
+*Proof* (*measured*): the beam frame, its `TF2VIEW_PICK` line and the 47 lines of the paused-seek sound log are
+byte-identical before and after this commit; the whole set is re-run on the slice's final code.
+
+**Slice 5, second commit: the seek — 377 to 352, 25 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 289 | 271 | 18 |
+| Core | 45 | 41 | 4 |
+| Content | 22 | 19 | 3 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 377 | 352 | 25 |
+
+`MainForm` uses 235 distinct domain members, from 255, and is 6,473 lines, from 6,710. *Measured*, by the instrument.
+
+*What moved:* `ReplaySkip`, `ReplayModelDecals`, the skip's state (`_skipShown`, the skip frame's sound list and tick),
+the flag both set, and the skip test inside `PlayHudSound`, into `FramePresenter.Seek.cs` — the same presenter, since
+a seek rebuilds exactly the parts it owns. The window's `ShowMoment` is one call, `FramePresenter.ShowMoment`, which
+runs the skip's frames, then the decals' replay, then the moment. It comes back to the window for the two things a
+window has: showing a tick (`ShowOnly`, which reads the camera and the settings, handed over as a delegate that
+answers the frame record afterwards) and one skip frame of the HUD (null while there is no HUD yet).
+
+*The instrument this needed, added first in its own commit:* `TF2VIEW_SEEK_THROUGH="52720 40"` — ticks a headless
+capture seeks through before its own. One `--tick` is only ever a seek from the start, so nothing headless could
+show a seek back, or a second seek. It is a debugging variable in the `--help` list beside `TF2VIEW_PICK`.
+
+*Proof nothing changed* (*measured*): `demostf-cp_process_f12` sought to 52720, back to 40 (frame at the wall of
+slice 2), and — in a second run — to 52720, back to 40 and forward to 52410 (frame at the blood on `t.`'s leg). Both
+frames are byte-identical before and after, and so are the lines each run logs with their timings cut: the skip to
+52720 from the start in 532 frames (sequence `880046adf58ffd86`), the skip to 40 from the start, the skip to 52410
+from 40 in 528 frames (sequence `302589e60d911af1`), the decal replays (ticks 51344 on, 358 and 200 posed, 73 and 75
+held) and the wave deck's deal (sequence `77385a089033e123`). Each was run twice on the old code first and repeated.
+**The forward frame is the SAME picture as slice 3's seek straight to 52410** (`6ad7fb90…`), which is a fact about
+the seek and not about the move: going by way of 52720 and 40 rebuilds the same decals.
+
+*Tests the moved code never had* (11, `FramePresenterSeekTests`), over a demo the file wrote and no map: a first seek
+runs a HUD frame and a show every ninety-nine packets from the demo's start, then the moment; what is held still
+around the skip's frames and not around the moment; the next tick is no skip; a seek forward starts after the last
+tick shown and a seek back from the start again; no HUD yet; no sound scripts; a HUD sound inside a skip frame is
+dealt and not played, outside one is played at the transport's tick, and is silent while the HUD replays; a device
+gets the decals' replay and nothing is left held. Each seen red in one of three rounds. One written for it was
+deleted: "with no device, no decals are replayed" cannot be reddened, because the code does not compile without the
+device it guards. **Not tested:** what the frames MAKE with a map, and the flags held around the decals' replay
+(`PlayersOnly`, the event walk) — with no map the decals pose no tick, so there is no moment to read them at. The
+seek frames above hold both.
+
+**Slice 5, third commit: the HUD's state — 352 to 343, 9 entries gone and none added.** Scene 271 to 262; Core 41,
+Content 19, Animation 6 and Audio 15 unchanged. `MainForm` uses 227 distinct domain members, from 235.
+
+*What moved:* the body of `HudStateAt` — the window's clock, field of view, projection and client convars laid over
+a tick's state, and on a demo with no recorded view the observer mode and target taken from the camera
+(`C_BasePlayer::GetObserverMode`, c_baseplayer.cpp:645) — into `HudStates.At`, beside `For` and
+`WithDrawnPositions`, which it calls. `FramePresenter.HudStateAt` runs it and then the target ID, so the window makes
+one call with a `HudView` record of what it knows. The camera's mode and the followed player are read with the rest
+of that record now, on every HUD frame, where they were read only on a demo with no recorded view; both are queries.
+The projection travels beside the record and not in it, because a record that exposes an array is CA1819.
+
+*Proof* (*measured*): a first-person frame of `tf2-2026-pub-pov-clean` at tick 11948, where the recorder looks at a
+teammate 180 units away and **the target ID draws that player's name under the crosshair**, is byte-identical before
+and after. The tick came from the data: the new `id-target` probe runs the viewer's own `IdTargets` over hulls from
+the eye the viewer builds, and lists the ticks whose ray passes nearest a player's middle — 11948 at one unit. Its
+first version used the recorded view's origin as the eye and named ticks where the crosshair sat a head above the
+player: the recorded origin is the feet, and `FreeCamera.AtEye` adds the class's eye height. A healer is not a
+target ID, either — three candidates showed only `Healer:`, which `CMainTargetID` draws for whoever heals the
+recorder and in place of the looked-at name when they are the same player.
+
+*Tests* (7, in `HudStatesTests`): the clock, field of view, projection and client convars; the observer mode for each
+of the three cameras and the target only while following; no target while following nobody yet; a point-of-view demo
+left alone; players placed where the frame drew them. Each seen red in one of three rounds.
+
+**Slice 5, fourth commit: the HUD's composition — 343 to 282, 61 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 262 | 213 | 49 |
+| Core | 41 | 38 | 3 |
+| Content | 19 | 10 | 9 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 343 | 282 (90 types, 192 members) | 61 |
+
+`MainForm` uses 188 distinct domain members, from 227, and is 6,254 lines, from 6,454. *Measured*, by the instrument.
+
+*What moved:* `BuildOverlay` — the largest method on the table at 39 — with `SkipHudFrame`, `HudArchives`,
+`ResolveVguiMaterial`, `PlayHudSound` and the ten fields they kept (the surface host, the HUD, the tools panel, the
+HUD's archives, scripts, attribute hooks and event feed, the resolver's device, the class panel's precache set, the
+replay flag), into `FramePresenter.Hud.cs`. In the frame presenter because the HUD and the frame need each other — a
+seek runs HUD frames, and the HUD asks for the target ID and plays through the skip — and one owner of both needs no
+callbacks between two. The chosen HUD is the presenter's property now; the window sets it from `--hud`, the settings
+and the picker.
+
+*What the HUD asks of the window stays a question, read when the HUD needs it* (`HudWindow`, attached once): the
+install, the demo's map name, the window's facts at a tick (bindings, client convars, clock, field of view, camera
+mode, followed player, projection, frame record), `cl_showpos`' subject, the real-time clock and the first-person
+camera. They are delegates and not a record of values because the old code read each at its own moment — the
+projection after the surface began its frame, the position readout when the tools panel was framed, the map name
+during a seek, which can run before the next overlay. Three were made values, each a query of state nothing in
+between changes: the crosshair settings, `cl_showfps`, and whether `+showscores` is held.
+
+*Proof nothing changed* (*measured*): the first-person frame with the looked-at player's name on it, both seek frames and their
+logged lines, the beam frame, its pick line and the 47 sound lines are byte-identical before and after this commit.
+
+*Tests* (3, `FramePresenterHudTests`), over `GameContent.Open( null )` — the machine with no TF2: the HUD is built
+once an install is open and asks the window at the overlay's tick, the position and the clock once each; a seek
+after the HUD exists runs a HUD frame for each skip frame at that frame's tick; a seek before any overlay skips
+without one and says so. Each seen red in one of two rounds. One written for it was deleted: "with no install,
+nothing is built" cannot be reddened, since nothing can be built without the install it guards. **Not tested:** the
+HUD's scripts and attribute hooks, which need `items_game.txt`; the class model panel's precache; and the material
+resolver the device is handed. `VguiHud` and `VguiTools` have their own suites for what is drawn.
+
+**What is left on the list, and why it was not this slice** (the instrument's table after the fourth commit):
+
+| method | members | what it is |
+|---|---|---|
+| the constructor | 37 | the composition root: the model set, the moment scene and presenter, the sound cache, soundscape and presenter, the spectator, the game systems |
+| `Apply` | 15 | a loaded demo becoming the open one |
+| `ReadMap` | 15 | the map read, on a worker behind the render barrier |
+| `OnViewportHandleCreated` | 13 | the device and what it is handed first |
+| `StartCorpseRecord` | 12 | the corpse pass's background record |
+| `ProjectMap`, `ReadPosition`, `DrawScene` | 10, 9, 8 | the overhead projection, `cl_showpos`, the draw call |
+| twenty-odd camera, settings and library methods | 2 to 7 each | each names two or three things |
+
+The load path (`Apply`, `ReadMap`, `LoadDemoAsync`, `StartCorpseRecord`) was read and left: it is one unit, it runs
+across a worker thread and the barrier that holds the render loop off (B146), and none of this slice's proofs can
+see it — a paused frame is the same whether the load was orchestrated correctly or merely finished. It wants its
+own slice and its own instrument (the load's log, line for line). The constructor's 37 fall when that slice gives
+the load an owner, because most of what the constructor builds is what a load fills.

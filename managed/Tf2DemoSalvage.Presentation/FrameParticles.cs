@@ -220,7 +220,7 @@ public sealed class FrameParticles
     /// <exception cref="ArgumentNullException">An argument is null.</exception>
     public IReadOnlyList<ParticleBatch> Build(
         in ParticleFrame frame,
-        Device3D device,
+        IGlowOcclusion device,
         Func<Vector3, Vector3, Vector3, Func<GlowQuery, float>, IReadOnlyList<ParticleBatch>> effectEntities)
     {
         ArgumentNullException.ThrowIfNull(device);

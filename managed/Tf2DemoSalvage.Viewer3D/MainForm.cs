@@ -450,9 +450,6 @@ internal class MainForm : Form, IFrameSteps
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
-    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
-    private string? _panelModelsPrecached;
-
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
@@ -884,17 +881,6 @@ internal class MainForm : Form, IFrameSteps
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
         _renderLog = loggers.CreateLogger("render");
-        _strikes = new BulletStrikes(_models, _renderLog);
-        _bursts = new BurstEffects(_particles, _models, _strikes, _renderLog);
-        _decals = new DecalEffects(_models, _strikes, _renderLog);
-        _lights = new LightStyleEffects(_renderLog);
-        _impacts = new ImpactParticles(_models, _strikes, _renderLog);
-        _idTargets = new IdTargets(_strikes, _mapLog);
-        _firstPersonEye = FirstPersonCamera;
-        _frameParticles = new FrameParticles(_particles, _renderLog);
-        _effectEntities = new EffectEntities(_models, _renderLog);
-        _walk = _decals.WorldOf;
-        _styleScale = _lights.Scale;
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
@@ -925,6 +911,18 @@ internal class MainForm : Form, IFrameSteps
         FrameLedger ledger = new();
 
         _moments = new MomentPresenter(_moment, ledger, _renderLog);
+
+        // Everything a frame makes around its models, composed in one presenter (D92, D214).
+        _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog, _audioLog);
+        _showOnly = shown =>
+        {
+            ShowOnly(shown);
+
+            return ViewFrameNow;
+        };
+        _clientConVars = ClientConVar;
+        _effects.AttachHud(new HudWindow(
+            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, FirstPersonCamera));
 
         // **The one fact that travels from the models back to the demo** (B269). Only a model says
         // which pose parameters wrap, and only the interpolator needs to know — `OnNewModel` in the
@@ -981,7 +979,7 @@ internal class MainForm : Form, IFrameSteps
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.
-        _chosenHud = _launch.Hud ?? _settings.ChosenHud;
+        _effects.ChosenHud = _launch.Hud ?? _settings.ChosenHud;
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -1535,15 +1533,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _loaded = null;
 
-        // Tracer paths, blood, dispatch points and beam starts were fixed against the map that is going.
-        _bursts.ClearMap();
-
-        // The decal pool is the map's; the device's copy goes with ClearWorld below. So are the impact effects and
-        // everything they read of the map.
-        _decals.ClearMap();
-        _lights.ClearMap();
-        _strikes.Clear();
-        _impacts.ClearMap();
+        _effects.ClearMap();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -1694,18 +1684,7 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
-            // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
-            // device counts their occlusion is decided here for the whole level (B378).
-            _frameParticles.LevelInit(_settings.DoPixelVisibility);
-
-            // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
-            // material with none, as the engine's pointer is.
-            _particles.Sheets = map.Assets?.ParticleMaterials is { } sheetsFrom
-                ? system => sheetsFrom.TryGetValue(ParticleEffects.MaterialOf(system), out ParticleMaterial material) &&
-                            material.Sequences.Count > 0
-                    ? material.Sequences
-                    : null
-                : null;
+            _effects.LevelInit(map, _settings.DoPixelVisibility);
 
             // **The chase camera clips against the world, and this is where it gets one.** Valve
             // traces a twelve-unit hull from the target to the camera and pulls the camera in to
@@ -2020,9 +1999,9 @@ internal class MainForm : Form, IFrameSteps
 
         // **And for the glows to arrive** (B378, B521): a lamp's halo fades in over a sixteenth of a second from the
         // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
-        if (_opening.Applied && !_frameParticles.GlowsSettled)
+        if (_opening.Applied && !_effects.GlowsSettled)
         {
-            ReportCaptureWaiting("glow occlusion", _frameParticles.GlowsUnsettled());
+            ReportCaptureWaiting("glow occlusion", _effects.GlowsUnsettled());
 
             return;
         }
@@ -2092,6 +2071,14 @@ internal class MainForm : Form, IFrameSteps
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
         // told the transport photographed tick zero while every log line said otherwise.
+        foreach (int through in OpeningSequence.SeekThrough(Environment.GetEnvironmentVariable("TF2VIEW_SEEK_THROUGH")))
+        {
+            _playback.Seek(through);
+            _transport.ShowTick(through);
+            ShowMoment(through);
+            _log.LogInformation("{Message}", $"opening state sought through tick {through}");
+        }
+
         _playback.Seek(_launch.ShotTick);
         _transport.ShowTick(_launch.ShotTick);
         ShowMoment(_launch.ShotTick);
@@ -2601,10 +2588,12 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        ReplaySkip((int)tick);
-        ReplayModelDecals((int)tick);
-        ShowOnly(tick);
+        // What a seek rebuilds on the way is the presenter's (D214); it comes back here to show each tick it needs.
+        _effects.ShowMoment(ViewFrameNow, tick, _device, _showOnly);
     }
+
+    /// <summary><see cref="ShowOnly"/> as the one delegate a seek is handed, answering what the window knows afterwards.</summary>
+    private readonly Func<double, ViewFrame> _showOnly;
 
     /// <summary>Builds the scene at a moment, with no replay before it.</summary>
     private void ShowOnly(double tick)
@@ -2673,24 +2662,37 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        string? report = PickReport.Describe(
-            Environment.GetEnvironmentVariable("TF2VIEW_PICK"),
-            new PickFrame(
-                _loaded,
-                _transport.CurrentTick,
-                _lastViewing,
-                _viewport.ClientSize.Width,
-                _viewport.ClientSize.Height,
-                _moment.Drawn,
-                _lastParticles,
-                _bursts.Bursts,
-                _particles));
+        string? report = _effects.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"), ViewFrameNow, _lastViewing);
 
         if (report is not null)
         {
             _renderLog.LogInformation("{Message}", report);
         }
     }
+
+    /// <summary>What this window knows of the frame it is drawing, for the presenter that draws it.</summary>
+    private ViewFrame ViewFrameNow =>
+        new(
+            _timeline,
+            _loaded,
+            _game,
+            _transport.CurrentTick,
+            _shownTick,
+            _transport.Playing,
+            _firstPerson,
+            FollowedEntity(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            (float)_clock.LastFrameSeconds,
+            _demoFrameSeconds,
+            _settings.DoPixelVisibility,
+            _settings.DrawViewmodel,
+            _settings.HealTargetMarker,
+            _settings.Decals,
+            _settings.MaxModelDecals);
+
+    /// <summary>Everything a frame makes around its models: lights, decals, sounds, particles, the target ID (D92, D214).</summary>
+    private readonly FramePresenter _effects;
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
     private FreeCamera? _lastViewing;
@@ -4190,7 +4192,7 @@ internal class MainForm : Form, IFrameSteps
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
     /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
-    private Func<string, string?>? _clientConVars;
+    private readonly Func<string, string?> _clientConVars;
 
     /// <summary>
     /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
@@ -4230,41 +4232,11 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>GDI, as VGUI's fonts reach it — the one Windows-bound piece of the surface (the Fonts project).</summary>
     private readonly GdiVgui _gdi = new();
 
-    /// <summary>The engine's tools panel and `CFPSPanel` on it, drawn through VGUI; null until the game's files are open.</summary>
-    /// <remarks>
-    /// **Its scheme is `platform/resource/SourceScheme.res`, read live from the install**, which D85's table allows:
-    /// that file is Valve-shipped game content, not user content under `tf/custom/`.
-    /// </remarks>
-    private VguiTools? _vguiTools;
-
     /// <summary>The frame-rate log's meter, independent of whether the on-screen one is shown.</summary>
     private readonly FpsMeter _loggedRate = new() { Mode = FpsMeter.Smoothed };
 
-    /// <summary>The surface, font manager and strings every VGUI root shares; null until the game's files are open.</summary>
-    private VguiSurfaceHost? _vguiHost;
-
-    /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
-    private VguiHud? _vguiHud;
-
-    // The HUD's stock view of the install, and the install it was made from.
-    private GameArchives? _hudArchives;
-    private GameContent? _hudArchivesOf;
-    private string? _hudArchivesFor;
-
-    // Which game events the HUD has heard, so each fires once as playback crosses it.
-    private readonly HudEventFeed _hudEvents = new();
-
-    /// <summary>The weapon and class scripts the HUD's ammo reads; null until the game's files are open.</summary>
-    private TfWeaponData? _hudScripts;
-
-    /// <summary>`CALL_ATTRIB_HOOK_*` over `items_game.txt`; null until the schema is loaded.</summary>
-    private AttributeHooks? _hudHooks;
-
     /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
     private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
-
-    /// <summary>The device the VGUI resolver was last handed to.</summary>
-    private Device3D? _vguiResolverDevice;
 
     // **The three phase totals were here until 2026-08-25.** They are `FrameLedger.Sampled`,
     // `.Posed` and `.Drawing` (B188, D90) — accumulators and a format string, with no window in any
@@ -4476,7 +4448,10 @@ internal class MainForm : Form, IFrameSteps
 
         long particlesAt = Stopwatch.GetTimestamp();
 
-        DrawParticles(viewing);
+        if (_device is { } drawing)
+        {
+            _effects.Draw(ViewFrameNow, viewing, drawing);
+        }
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.
@@ -4490,400 +4465,6 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
     private double _shownTick;
-
-    /// <summary>Where a bullet stops and which a player stopped — `FX_FireBullets`' trace (tf_fx_shared.cpp).</summary>
-    private readonly BulletStrikes _strikes;
-
-    /// <summary>Every one-shot particle effect the demo starts (B415).</summary>
-    private readonly BurstEffects _bursts;
-
-    /// <summary>What a bullet is traced against this frame.</summary>
-    private BulletScene BulletSceneNow => new(_timeline, _loaded?.Level, _moments.Source, _shownTick, _transport.Playing);
-
-    /// <summary>The decals on the world, its props and the players' models (B415, B421).</summary>
-    private readonly DecalEffects _decals;
-
-    /// <summary>The light styles, the lightmaps they rebuild and the faces under the dynamic lights (B424, B425).</summary>
-    private readonly LightStyleEffects _lights;
-
-    /// <summary>Every impact's debris and dust, every spark and every tracer line (B415).</summary>
-    private readonly ImpactParticles _impacts;
-
-    /// <summary>A frame's particles in the order they are made: trails, effects, sprites, strips (B373, B378).</summary>
-    private readonly FrameParticles _frameParticles;
-
-    /// <summary>The beams, sprite trails and ropes, and the holiday lights the ropes dispatch (B231, B475, B477, B478).</summary>
-    private readonly EffectEntities _effectEntities;
-
-    /// <summary>What the local player is looking at, for the target ID and the weapon pickup prompt.</summary>
-    private readonly IdTargets _idTargets;
-
-    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
-    private readonly Func<FreeCamera?> _firstPersonEye;
-
-    /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
-    private readonly Func<LoadedMap, DecalWorld> _walk;
-
-    /// <summary>A light style's value now, for the impact colours. One delegate, made once.</summary>
-    private readonly Func<int, float> _styleScale;
-
-    /// <summary>What the decals are stepped against at a tick this frame shows.</summary>
-    private DecalFrame DecalFrameAt(int tick) =>
-        new(
-            _timeline,
-            _loaded,
-            _game,
-            tick,
-            _moments.PlayersShownAt(tick),
-            BulletSceneNow,
-            _settings.Decals,
-            _settings.MaxModelDecals,
-            _sound.Scripts,
-            _replayingModelDecals);
-
-    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
-    private bool _replayingModelDecals;
-
-    /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
-    private int? _skipShown;
-
-    /// <summary>The HUD sounds of the skip frame being run, or null outside a skip.</summary>
-    private List<SceneSound>? _skipFrameSounds;
-
-    /// <summary>The last tick of the skip frame being run.</summary>
-    private int _skipFrameTick;
-
-    /// <summary>
-    /// What `demo_gototick` makes on its way to a tick (B504): a frame per <see cref="DemoSkip.PacketsPerFrame"/> packets,
-    /// each hearing its batch's game events in the HUD and crossing its animation events, whose script sounds deal.
-    /// </summary>
-    /// <remarks>
-    /// **The engine renders while it skips** — `CDemoPlayer::ReadPacket` (engine.dll FUN_180072ee0) caps a read loop at 99
-    /// packets, and `_Host_RunFrame` (FUN_1801a4570) renders after it with no skip test, only prediction off. A skip back
-    /// reloads the demo and reads from its start (FUN_180073b10), and the HUD with it. Only the sounds that DEAL are kept:
-    /// the HUD's and `AE_CL_PLAYSOUND`'s; footsteps and physics read the deck and change nothing in it. The sounds go to
-    /// <see cref="SoundPresenter.Skipped"/>, which deals them with the skip's temp entities, frame by frame, unplayed.
-    /// **Interpolated:** one frame per 99 ticks — see <see cref="DemoSkip.Frames"/>.
-    /// </remarks>
-    private void ReplaySkip(int target)
-    {
-        if (_replayingModelDecals || _skipFrameSounds is not null)
-        {
-            return;
-        }
-
-        int? from = _skipShown;
-
-        _skipShown = target;
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline || !SoundSchedule.IsSkip(from, target) || _sound.Scripts is not { } scripts)
-        {
-            return;
-        }
-
-        long began = Stopwatch.GetTimestamp();
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        bool back = from is not { } was || target < was;
-        int first = back ? timeline.FirstTick : from!.Value + 1;
-        IReadOnlyList<int> throughs = DemoSkip.Frames(first, Math.Max(first, target));
-        List<SkipFrame> frames = new(throughs.Count);
-        bool hud = _vguiHud is not null && _vguiHost is not null;
-        int heard = 0;
-        int crossed = 0;
-
-        // Every event the frames crossed, the instrument's control: none at all would mean no walk, not no sound.
-        int walked = 0;
-        int steps = 0;
-
-        // What the frames made, in order — every HUD sound and every crossed event — so two builds compare exactly.
-        ulong events = SequenceHash.Empty;
-        long hudTicks = 0;
-        long buildTicks = 0;
-        long poseTicks = 0;
-        long simulatedBefore = _models.SimulateTicks;
-        long sampleTicks = 0;
-        long drawListTicks = 0;
-        long modelTicks = 0;
-
-        _models.HoldsCorpses = true;
-        _moment.EntitiesOnly = true;
-        _models.SimulatesOnly = true;
-
-        try
-        {
-            foreach (int through in throughs)
-            {
-                List<SceneSound> live = [];
-
-                _skipFrameSounds = live;
-                _skipFrameTick = through;
-
-                long phase = Stopwatch.GetTimestamp();
-
-                if (hud)
-                {
-                    SkipHudFrame(timeline, through);
-                }
-
-                hudTicks += Stopwatch.GetTimestamp() - phase;
-                _skipFrameSounds = null;
-                heard += live.Count;
-
-                foreach (SceneSound made in live)
-                {
-                    events = SequenceHash.Add(events, made.Name);
-                }
-
-                phase = Stopwatch.GetTimestamp();
-                ShowOnly(through);
-                buildTicks += Stopwatch.GetTimestamp() - phase;
-                sampleTicks += _moments.LastBuild.Sampled;
-                drawListTicks += _moments.LastBuild.Built.DrawList;
-                modelTicks += _moments.LastBuild.Built.Models;
-                phase = Stopwatch.GetTimestamp();
-                _moments.PoseNow(ViewFrustum.Nothing);
-                poseTicks += Stopwatch.GetTimestamp() - phase;
-                _firedEvents.Clear();
-                _models.TakeFiredEvents(_firedEvents);
-
-                walked += _firedEvents.Count;
-
-                foreach (FiredAnimationEvent fired in _firedEvents)
-                {
-                    steps += fired.Event.Id == SoundPresenter.FootstepEvent ? 1 : 0;
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
-
-                    if (fired.Event.Id == SoundPresenter.PlaySoundEvent &&
-                        EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
-                    {
-                        live.Add(sound);
-                        crossed++;
-                    }
-                }
-
-                frames.Add(new SkipFrame(through, live));
-            }
-        }
-        finally
-        {
-            _skipFrameSounds = null;
-            _models.HoldsCorpses = false;
-            _moment.EntitiesOnly = false;
-            _models.SimulatesOnly = false;
-        }
-
-        _sound.Skipped(new SoundSkip(from, target, frames));
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _audioLog.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"skip: to {target} from {(back ? "the start" : from!.Value.ToString(CultureInfo.InvariantCulture))} in {frames.Count} frames " +
-                $"made {heard} HUD and {crossed} animation script sounds (of {walked} animation events, {steps} of them footsteps, which only read){(hud ? string.Empty : " (no HUD yet)")} in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
-                $"(hud {Ms(hudTicks):0}, build {Ms(buildTicks):0} (sample {Ms(sampleTicks):0}, drawlist {Ms(drawListTicks):0}, models {Ms(modelTicks):0}), pose {Ms(poseTicks):0} of which simulate {Ms(_models.SimulateTicks - simulatedBefore):0}; " +
-                $"last frame {_moment.Drawn.Count} drawn, {_moment.StaticProps.Count} static; sequence {events:x16})"));
-
-        static double Ms(long ticks) => ticks * 1000d / Stopwatch.Frequency;
-    }
-
-    /// <summary>One skip frame of the HUD: its batch's game events and user messages, heard and not painted.</summary>
-    private void SkipHudFrame(DemoTimeline timeline, int through)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_vguiHud is not { } hud)
-        {
-            return;
-        }
-
-        (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
-
-        hud.Frame(
-            HudStateAt(through),
-            HudEventFeed.Resolve(timeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks),
-            reset,
-            messages,
-            paint: false);
-    }
-
-    /// <summary>
-    /// After a seek, has the decals replay the ticks it skipped (<see cref="DecalEffects.Replay"/>), showing and posing
-    /// each tick they ask for — what TF2 does, since it cannot seek at all (`demo_gototick`).
-    /// </summary>
-    /// <remarks>Which ticks, and what lands on them, is the presenter's; this holds the scene still around it and times it.</remarks>
-    private void ReplayModelDecals(int target)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_replayingModelDecals || _timeline is null || _device is not { } device)
-        {
-            return;
-        }
-
-        long lookingBack = Stopwatch.GetTimestamp();
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_decals.ReplayStart(DecalFrameAt(target), target) is not { } start)
-        {
-            return;
-        }
-
-        TimeSpan lookback = Stopwatch.GetElapsedTime(lookingBack);
-        TimeSpan building = TimeSpan.Zero;
-        TimeSpan posing = TimeSpan.Zero;
-        (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
-
-        _replayingModelDecals = true;
-        _models.HoldsCorpses = true;
-        _moments.PlayersOnly = true;
-
-        // Ours, not the engine's: its poses must not move the animation-event walk (B504).
-        _models.WalksEvents = false;
-
-        long began = Stopwatch.GetTimestamp();
-        DecalReplayReport replayed;
-
-        try
-        {
-            replayed = _decals.Replay(
-                start,
-                target,
-                device,
-                tick =>
-                {
-                    long phase = Stopwatch.GetTimestamp();
-                    ShowMoment(tick);
-                    building += Stopwatch.GetElapsedTime(phase);
-
-                    // Simulated, not drawn: `CModelRender::AddDecal` sets up the struck player's bones itself (`SkinningOf`).
-                    phase = Stopwatch.GetTimestamp();
-                    _moments.PoseNow(ViewFrustum.Nothing);
-                    posing += Stopwatch.GetElapsedTime(phase);
-
-                    return DecalFrameAt(tick);
-                });
-        }
-        finally
-        {
-            _replayingModelDecals = false;
-            _models.HoldsCorpses = false;
-            _moments.PlayersOnly = false;
-            _models.WalksEvents = true;
-        }
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"model decals: a seek to {target} replayed ticks {start}-{target - 1}, posing {replayed.Stepped} of them, in {Stopwatch.GetElapsedTime(began).TotalMilliseconds:0} ms " +
-                $"(lookback {lookback.TotalMilliseconds:0}, skipped ticks {replayed.Skipping.TotalMilliseconds:0}, building {building.TotalMilliseconds:0}, " +
-                $"posing {posing.TotalMilliseconds:0} of which simulate {Milliseconds(_models.SimulateTicks - was.simulate):0}, " +
-                $"bones {Milliseconds(_models.SetupTicks - was.setup):0}, skin {Milliseconds(_models.SkinTicks - was.skin):0}; " +
-                $"the rest placing decals); {replayed.Held} held"));
-
-        static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
-    }
-
-    /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
-    /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
-    /// <remarks>
-    /// **Beside `SetCamera` because it needs the same camera** — a billboard faces the view, so the
-    /// quads cannot be built until the frame's camera is known, and this is the one per-frame view
-    /// setup. **What is decided here is the presenters'** (D214): this is the order they are called in, the sounds they
-    /// hand back, and the device.
-    /// </remarks>
-    private void DrawParticles(FreeCamera viewing)
-    {
-        if (_device is null)
-        {
-            return;
-        }
-
-        int tick = _transport.CurrentTick;
-
-        _lights.Step(new LightStyleFrame(_timeline, _loaded, tick, _moment.WorldLights, _moment.Drawn, _walk), _device);
-
-        // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
-        // A client bullet's landing sound comes back for the sound presenter: presenters do not reach sideways (D92).
-        foreach (SceneSound landed in _decals.Step(DecalFrameAt(tick), _device))
-        {
-            _sound.Emit(landed);
-        }
-
-        _sound.StepClientSounds(
-            new ClientSoundFrame(
-                _timeline,
-                _loaded,
-                _game,
-                tick,
-                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                _moments.Source,
-                _shownTick,
-                _transport.Playing,
-                _replayingModelDecals,
-                _demoFrameSeconds),
-            _models);
-
-        ImpactFrame impacts = new(
-            _timeline, _loaded, tick, BulletSceneNow, viewing, _viewport.ClientSize.Width, _styleScale, _walk);
-
-        _impacts.Step(impacts);
-
-        IReadOnlyList<ParticleBatch> batches = [];
-        ParticleFrame particles = new(
-            _timeline,
-            _loaded,
-            tick,
-            viewing,
-            _moment.Drawn,
-            (float)_clock.LastFrameSeconds,
-            _viewport.ClientSize.Height,
-            _settings.DoPixelVisibility);
-
-        if (_frameParticles.Trails(particles))
-        {
-            // The one-shot effects (D214). A tracer's near-miss whiz comes back for the sound presenter: presenters do
-            // not reach sideways (D92).
-            foreach (SceneSound whiz in _bursts.Step(new BurstFrame(
-                         _timeline,
-                         _loaded,
-                         _game,
-                         tick,
-                         viewing,
-                         _moments.Players,
-                         _moments.Source,
-                         _shownTick,
-                         _transport.Playing,
-                         _firstPerson,
-                         FollowedEntity(),
-                         _settings.DrawViewmodel,
-                         _settings.HealTargetMarker,
-                         _sound.Scripts,
-                         _replayingModelDecals)))
-            {
-                _sound.Emit(whiz);
-            }
-
-            EffectEntityFrame strips = new(
-                _timeline, _loaded, tick, viewing, _moment.Drawn, _viewport.ClientSize.Width, _moment.ViewerVisionFlags);
-
-            batches = _frameParticles.Build(
-                particles, _device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
-        }
-
-        batches = _impacts.With(batches, impacts);
-        _lastParticles = batches;
-
-        _device.SetParticles(batches);
-    }
-
-    /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
-    private IReadOnlyList<ParticleBatch> _lastParticles = [];
-
-    /// <summary>The effects running for this demo.</summary>
-    private readonly ParticleEffects _particles = new();
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
@@ -4923,21 +4504,6 @@ internal class MainForm : Form, IFrameSteps
     // went with it: `CBaseEntity::PrecacheSound` asserts "too late" rather than merely preferring
     // early (`SoundEmitterSystem.cpp:1497`), which is a fact about the engine, not about a window.
 
-    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
-    /// <returns>The draw list.</returns>
-    /// <remarks>
-    /// Everything but the window size, the clock and the settings is <see cref="VguiHud"/> and <see cref="VguiTools"/>
-    /// (D90). The meter is sampled every frame, drawn or not, because the frame-rate log reports it in exactly the
-    /// headless case nobody watches. The HUD's state is `default` — not in game, so every element hidden — until the
-    /// first element that reads the local player lands.
-    /// </remarks>
-    /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch, the
-    /// remembered choice from settings is the fallback, and the picker sets it at runtime; the HUD's files are remade
-    /// the next time <see cref="HudArchives"/> is asked, which is every frame — no restart needed.
-    /// </summary>
-    private string? _chosenHud;
-
     /// <summary>Where the picker looks for HUDs: this program's OWN <c>custom/</c> folder, never `tf/custom` (D193).</summary>
     private static string ProgramCustomFolder { get; } =
         System.IO.Path.Combine(AppContext.BaseDirectory, "custom");
@@ -4945,13 +4511,13 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Changes the HUD and remembers the choice, hot-swapped with no restart.</summary>
     /// <param name="hud">A folder or `.vpk` under <see cref="ProgramCustomFolder"/>, or null for TF2's stock HUD.</param>
     /// <remarks>
-    /// **The rebuild is not done here.** <see cref="HudArchives"/> already compares the stored choice
-    /// against what it last built and remakes itself when they differ, so setting the field is the
-    /// whole swap; the next frame's <see cref="VguiHud"/> reads through the new archives.
+    /// **The rebuild is not done here.** The presenter already compares the stored choice against what it last built
+    /// and remakes its archives when they differ, so setting it is the whole swap; the next frame's HUD reads through
+    /// the new archives. `--hud` sets it at launch and the remembered choice from settings is the fallback (D193).
     /// </remarks>
     private void SetChosenHud(string? hud)
     {
-        _chosenHud = hud;
+        _effects.ChosenHud = hud;
         _settings = _settings with { ChosenHud = hud };
 
         string? failure = _settings.Save();
@@ -4962,172 +4528,39 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
-    private GameArchives? HudArchives()
-    {
-        if (_game is null)
-        {
-            return null;
-        }
+    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
+    /// <returns>The draw list.</returns>
+    /// <remarks>What is built, and in which order, is the presenter's (D214); this is what a window knows of it.</remarks>
+    public VguiDrawList? BuildOverlay() =>
+        _effects.BuildOverlay(
+            new OverlayFrame(
+                _timeline,
+                _loaded,
+                _demo?.MapName,
+                _transport.CurrentTick,
+                _viewport.ClientSize.Width,
+                _viewport.ClientSize.Height,
+                _settings.Crosshair,
+                _settings.ShowFrameRate,
+                _console.IsHeld(ViewerAction.ShowScores),
+                _clock.LastFrameSeconds),
+            _device);
 
-        if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
-        {
-            _hudArchives = _game.Archives.WithHud(_chosenHud);
-            _hudArchivesOf = _game;
-            _hudArchivesFor = _chosenHud;
-        }
-
-        return _hudArchives;
-    }
-
-    public VguiDrawList? BuildOverlay()
-    {
-        // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
-        // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
-        if (_game is null)
-        {
-            return null;
-        }
-
-        // TF2's stock HUD by default (D193): a HUD in `custom/` is the user's to choose, not one the viewer picks up.
-        _vguiHost ??= new VguiSurfaceHost(
-            path => HudArchives()?.Read(path),
-            path => HudArchives()?.FullPathOnDisk(path),
-            _gdi,
-            material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
-        _vguiHud ??= new VguiHud(_vguiHost, _models);
-        _vguiTools ??= new VguiTools(_vguiHost);
-
-        if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
-        {
-            device.SetVguiResolver(ResolveVguiMaterial);
-            _vguiResolverDevice = device;
-        }
-
-        _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        _hudScripts ??= new TfWeaponData(path => HudArchives()?.Read(path));
-
-        if (_hudHooks is null && _game.Weapons.Items is { } items)
-        {
-            _hudHooks = new AttributeHooks(items);
-
-            // `CEconItemView::GetItemName`, under the HUD's own localisation.
-            _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
-                ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
-                : null;
-            _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
-            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
-            _vguiHud.Viewport.Items = items;
-        }
-
-        int hudTick = _transport.CurrentTick;
-        IReadOnlyList<HudGameEvent>? hudEvents = null;
-        IReadOnlyList<Core.Scene.SceneUserMessage>? hudMessages = null;
-        bool hudReset = false;
-
-        if (_timeline is { } hudTimeline)
-        {
-            (hudReset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, hudMessages) = _hudEvents.Advance(hudTimeline, hudTick);
-            hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
-        }
-
-        _vguiHud.Viewport.Scripts = _hudScripts;
-        _vguiHud.Viewport.ClassModels = _game.Classes;
-        _vguiHud.Viewport.ParticleSystems = _loaded?.Assets?.ParticleSystemsByName;
-        _vguiHud.Viewport.ParticleMaterials = _loaded?.Assets?.ParticleMaterials;
-
-        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
-        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
-        // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
-
-        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
-        {
-            _panelModelsPrecached = panelModels;
-            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
-        }
-        _vguiHud.Crosshair.Settings = _settings.Crosshair;
-        _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
-        _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
-        _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
-        _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
-        _clientConVars ??= ClientConVar;
-
-        HudState hudState = HudStateAt(hudTick);
-
-        _hudReplaying = hudReset;
-
-        try
-        {
-            _vguiHud.Frame(
-                hudState,
-                hudEvents,
-                hudReset,
-                hudMessages,
-                _console.IsHeld(ViewerAction.ShowScores));
-        }
-        finally
-        {
-            _hudReplaying = false;
-        }
-        _vguiTools.Frame(
-            _vguiClock.Elapsed.TotalSeconds,
-            _clock.LastFrameSeconds,
-            _settings.ShowFrameRate,
-            ReadPosition(),
-            _demo?.MapName);
-
-        return _vguiHost.List;
-    }
-
-    /// <summary>What the HUD reads at a tick: `CHud::IsHidden`'s state, the view's settings, and its camera.</summary>
-    private HudState HudStateAt(int hudTick)
-    {
-        // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
-        // eye, where `GetFOV` follows the HLTV camera's target.
-        // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
-        // Players where the frame drew them (B531): what a HUD element standing on one — the floating health icon — asks.
-        HudState hudState = HudStates.WithDrawnPositions(
-            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings), _moments.PlayersShownAt(hudTick));
-
-        hudState = hudState with
-        {
-            ConVars = hudState.ConVars with { Client = _clientConVars },
-            RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
-            Fov = ViewFovNow().World,
-
-            // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
-            WorldToScreen = ViewMatrix(),
-        };
-
-        // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,
-        // c_baseplayer.cpp:645): this viewer's camera — first person is in-eye, the shoulder camera chase, free roaming.
-        if (_timeline is { HasRecordedView: false })
-        {
-            hudState = hudState with
-            {
-                ObserverMode = _effectiveMode switch
-                {
-                    CameraMode.FirstPerson => Core.Scene.ObserverModes.InEye,
-                    CameraMode.ThirdPerson => Core.Scene.ObserverModes.Chase,
-                    _ => Core.Scene.ObserverModes.Roaming,
-                },
-                ObserverTarget = _followingAPlayer ? _spectator.Followed(hudTick) ?? 0 : 0,
-            };
-        }
-
-        return _idTargets.With(
-            hudState, hudTick, new IdTargetFrame(_timeline, _loaded, _game, _moments.PlayersShownAt(hudTick), _firstPersonEye));
-    }
-
-    /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
-    private MapTexture? ResolveVguiMaterial(string material) =>
-        HudArchives() is { } archives
-            ? MapAssets.ResolveVguiMaterial(_renderLog, material, PakFile.Read(ReadOnlyMemory<byte>.Empty), archives, MaximumVguiTextureSize)
-            : null;
-
-    /// <summary>The decode cap for VGUI textures, which are small and never want reducing.</summary>
-    private const int MaximumVguiTextureSize = 4096;
+    /// <summary>What this window knows that the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
+    private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>
+        (new HudView(
+            _timeline,
+            hudTick,
+            null,
+            null,
+            _bindings,
+            _clientConVars,
+            (float)_vguiClock.Elapsed.TotalSeconds,
+            ViewFovNow().World,
+            _effectiveMode,
+            _spectator.Followed(hudTick)),
+         ViewMatrix(),
+         ViewFrameNow);
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
     private readonly FrameRateLog _frameRateLog = new();
@@ -5207,13 +4640,14 @@ internal class MainForm : Form, IFrameSteps
             // The same phases the per-second line names, as means over every measured frame.
             double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
             FramePhases sum = _phasesMeasured;
+            (int trails, int bursts, int quads) = _effects.ParticleCounts;
 
             // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
                 $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
-                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_frameParticles.Quads} quads last frame"));
+                $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
         }
 
         _framesMeasured = 0;
@@ -5344,46 +4778,6 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
-
-    /// <summary>The animation events a skip's frame crossed; reused.</summary>
-    private readonly List<FiredAnimationEvent> _firedEvents = [];
-
-    /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
-    private bool _hudReplaying;
-
-    /// <summary>
-    /// Wired into the HUD as its <c>HudSoundEmitter</c>: resolves a `game_sounds.txt` name the same way a world sound
-    /// does (<see cref="HudSounds"/>) and hands it to the presenter, at the current tick, from the local player.
-    /// </summary>
-    /// <param name="scriptName">The script the HUD element asked for.</param>
-    /// <remarks>
-    /// **Silent while a seek replays the events before it.** They fired before the tick the viewer landed on, so the
-    /// sounds they ask for were over before then — the notices are rebuilt, and a burst of every kill in the window is not.
-    /// </remarks>
-    private void PlayHudSound(string scriptName)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_hudReplaying || _sound.Scripts is not { } scripts)
-        {
-            return;
-        }
-
-        // A skip frame's sound is dealt with the skip, never played (B504).
-        if (_skipFrameSounds is { } skipping)
-        {
-            if (HudSounds.Emit(_skipFrameTick, scriptName, scripts.Entries) is { } dealt)
-            {
-                skipping.Add(dealt);
-            }
-
-            return;
-        }
-
-        if (HudSounds.Emit(_transport.CurrentTick, scriptName, scripts.Entries) is { } sound)
-        {
-            _sound.Emit(sound);
-        }
-    }
 
     /// <summary>The registered game systems, told about every level load and teardown.</summary>
     /// <remarks>

@@ -30,3 +30,7 @@ first.
   refused, so "no effect runs" asserted on it failed green code; the quads are the reading.
 - A fixture default can confound every case: an unposed player's hull on the bullet's line stopped the bullets of
   three tests about something else. Put the default off the path and opt in.
+- **Restore a round's breaks in REVERSE order** (slice 5). Two breaks touching one statement: break 1 removed a line,
+  break 2 changed its twin; restoring in break order found the text twice and refused, leaving the file broken.
+  Write restore as `reversed(pairs)`, and write the file only after every assertion has passed.
+- A guard the code cannot compile without (`x is not { } y`) cannot be reddened; delete the test that only restates it.
