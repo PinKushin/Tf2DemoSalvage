@@ -198,6 +198,15 @@ public sealed partial class FramePresenter
             : null;
     }
 
+    /// <summary>What the HUD reads at a tick, with what the local player is looking at.</summary>
+    /// <param name="view">What the window knows that the HUD reads.</param>
+    /// <param name="worldToScreen">`engine->WorldToScreenMatrix()`.</param>
+    /// <param name="frame">What the window knows of the frame.</param>
+    /// <param name="eye">The first-person camera, asked for only once the local player is known to be able to look.</param>
+    /// <returns>The HUD's state.</returns>
+    public HudState HudStateAt(in HudView view, float[] worldToScreen, in ViewFrame frame, Func<FreeCamera?> eye) =>
+        WithIdTargets(HudStates.At(view, _moments.PlayersShownAt(view.Tick), worldToScreen), view.Tick, frame, eye);
+
     /// <summary>The HUD's state with what the local player is looking at.</summary>
     /// <param name="state">The HUD's state.</param>
     /// <param name="tick">The HUD's tick.</param>

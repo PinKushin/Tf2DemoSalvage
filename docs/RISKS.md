@@ -38407,3 +38407,27 @@ deleted: "with no device, no decals are replayed" cannot be reddened, because th
 device it guards. **Not tested:** what the frames MAKE with a map, and the flags held around the decals' replay
 (`PlayersOnly`, the event walk) — with no map the decals pose no tick, so there is no moment to read them at. The
 seek frames above hold both.
+
+**Slice 5, third commit: the HUD's state — 352 to 343, 9 entries gone and none added.** Scene 271 to 262; Core 41,
+Content 19, Animation 6 and Audio 15 unchanged. `MainForm` uses 227 distinct domain members, from 235.
+
+*What moved:* the body of `HudStateAt` — the window's clock, field of view, projection and client convars laid over
+a tick's state, and on a demo with no recorded view the observer mode and target taken from the camera
+(`C_BasePlayer::GetObserverMode`, c_baseplayer.cpp:645) — into `HudStates.At`, beside `For` and
+`WithDrawnPositions`, which it calls. `FramePresenter.HudStateAt` runs it and then the target ID, so the window makes
+one call with a `HudView` record of what it knows. The camera's mode and the followed player are read with the rest
+of that record now, on every HUD frame, where they were read only on a demo with no recorded view; both are queries.
+The projection travels beside the record and not in it, because a record that exposes an array is CA1819.
+
+*Proof* (*measured*): a first-person frame of `tf2-2026-pub-pov-clean` at tick 11948, where the recorder looks at a
+teammate 180 units away and **the target ID draws his name, `Befyyy`, under the crosshair**, is byte-identical before
+and after. The tick came from the data: the new `id-target` probe runs the viewer's own `IdTargets` over hulls from
+the eye the viewer builds, and lists the ticks whose ray passes nearest a player's middle — 11948 at one unit. Its
+first version used the recorded view's origin as the eye and named ticks where the crosshair sat a head above the
+player: the recorded origin is the feet, and `FreeCamera.AtEye` adds the class's eye height. A healer is not a
+target ID, either — three candidates showed only `Healer:`, which `CMainTargetID` draws for whoever heals the
+recorder and in place of the looked-at name when they are the same player.
+
+*Tests* (7, in `HudStatesTests`): the clock, field of view, projection and client convars; the observer mode for each
+of the three cameras and the target only while following; no target while following nobody yet; a point-of-view demo
+left alone; players placed where the frame drew them. Each seen red in one of three rounds.

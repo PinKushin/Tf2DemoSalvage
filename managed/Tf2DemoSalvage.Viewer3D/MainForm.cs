@@ -4720,43 +4720,23 @@ internal class MainForm : Form, IFrameSteps
     }
 
     /// <summary>What the HUD reads at a tick: `CHud::IsHidden`'s state, the view's settings, and its camera.</summary>
-    private HudState HudStateAt(int hudTick)
-    {
-        // The HUD's `GetFOV()` is the local player's. On a POV demo that is the view's own; on SourceTV it is the view's in
-        // eye, where `GetFOV` follows the HLTV camera's target.
-        // **Interpolated:** SourceTV out of eye gives the view's too, where the engine asks the SourceTV client's own.
-        // Players where the frame drew them (B531): what a HUD element standing on one — the floating health icon — asks.
-        HudState hudState = HudStates.WithDrawnPositions(
-            HudStates.For(_timeline, hudTick, _hudScripts, _hudHooks, _bindings), _moments.PlayersShownAt(hudTick));
-
-        hudState = hudState with
-        {
-            ConVars = hudState.ConVars with { Client = _clientConVars },
-            RealTime = (float)_vguiClock.Elapsed.TotalSeconds,
-            Fov = ViewFovNow().World,
-
-            // `engine->WorldToScreenMatrix()`, which `GetVectorInHudSpace` projects through.
-            WorldToScreen = ViewMatrix(),
-        };
-
-        // **On SourceTV the local player's observer mode and target are the HLTV camera's** (`C_BasePlayer::GetObserverMode`,
-        // c_baseplayer.cpp:645): this viewer's camera — first person is in-eye, the shoulder camera chase, free roaming.
-        if (_timeline is { HasRecordedView: false })
-        {
-            hudState = hudState with
-            {
-                ObserverMode = _effectiveMode switch
-                {
-                    CameraMode.FirstPerson => Core.Scene.ObserverModes.InEye,
-                    CameraMode.ThirdPerson => Core.Scene.ObserverModes.Chase,
-                    _ => Core.Scene.ObserverModes.Roaming,
-                },
-                ObserverTarget = _followingAPlayer ? _spectator.Followed(hudTick) ?? 0 : 0,
-            };
-        }
-
-        return _effects.WithIdTargets(hudState, hudTick, ViewFrameNow, _firstPersonEye);
-    }
+    /// <remarks>What it holds is the presenter's (`HudStates.At`, then the target ID); this is what a window knows of it.</remarks>
+    private HudState HudStateAt(int hudTick) =>
+        _effects.HudStateAt(
+            new HudView(
+                _timeline,
+                hudTick,
+                _hudScripts,
+                _hudHooks,
+                _bindings,
+                _clientConVars,
+                (float)_vguiClock.Elapsed.TotalSeconds,
+                ViewFovNow().World,
+                _effectiveMode,
+                _spectator.Followed(hudTick)),
+            ViewMatrix(),
+            ViewFrameNow,
+            _firstPersonEye);
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
     private MapTexture? ResolveVguiMaterial(string material) =>
