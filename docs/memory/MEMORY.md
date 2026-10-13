@@ -122,6 +122,7 @@
 - [A flag that changes state belongs in the state machine](a-flag-that-changes-state-belongs-in-the-state-machine.md) — class scripts carried into the decode (B437).
 - [Never stop a working subagent](never-stop-a-working-subagent.md) — limits apply to the next launch; resume, don't relaunch.
 - [A check is a test or it is not in](a-check-is-a-test-or-it-is-not-in.md) — never assert in teardown.
+- [A hook is not live until a control fires it](a-hook-is-not-live-until-a-control-fires-it.md) — hooks load from the base checkout.
 - [Mutation runs go to the box](mutation-runs-go-to-the-box.md) — local Stryker only for a few lines.
 - [Full corpus at most once a day](full-corpus-at-most-once-a-day.md) — recheck a failure with --filter, never a rerun.
 - [TF2 is a shared fixture](tf2-is-a-shared-fixture.md) — reuse the running client; never quit/relaunch.
