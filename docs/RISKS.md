@@ -38851,3 +38851,46 @@ load became once it held the frame presenter, the sound device, the camera prese
 the type, its three files, its tests and the window's field (`_presenter`) carry that name. `ILoadView` keeps its
 name: it is still what the LOAD asks of the window, and `ICameraView` is what the camera asks. Earlier entries in
 this file and in D214 say `LoadPresenter`; they are the history of slice 6 and are left as written.
+
+**Slice 7, final proofs, on the slice's last code** (*measured*, `slice7/final.sh`, one run): the four camera
+frames and the camera's log lines; the three loads' ordered logs (3,261, 2,021 and 3,975 lines), their sets (319,
+246, 510) and frames; the ten paused frames; the beam frame, its `TF2VIEW_PICK` line and the 47 sound lines; both
+seek frames and their lines; the four first-person frames — every one identical to its baseline.
+
+**What is left on the list after slice 7** (109 entries; the instrument's table):
+
+| assembly | entries |
+|---|---|
+| Scene | 91 |
+| Core | 11 |
+| Content | 7 |
+
+| method | members | what it is |
+|---|---|---|
+| `OnViewportHandleCreated` | 13 | the settings assigned to the new device |
+| the constructor | 11 | the launch options into settings, the menu's HUD list, the decode log's sink, the library |
+| `ViewerMenu`'s constructor | 8 | the menu's checked states, from settings |
+| `ChooseGameFolder` | 7 | the folder dialog's answer into settings |
+| `DrawScene`, `ViewFrameNow` | 5, 5 | the moment's instance lists; the frame record's demo, map and install |
+| `SetChosenHud`, `SetFullScreenMode`, `SetTextureQuality` | 4 each | a setting changed, saved and said |
+| `AddToLibrary`, `BuildOverlay`, `OnRetrieveVirtualItem`, `SetFrameRateMeter`, `SetPositionReadout` | 3 each | the playlist; the overlay's frame record; two settings |
+| `ApplyLogVerbosity`, `ExportDemo`, `OnIdle`, `Program.Main` | 2 each | |
+| thirteen more | 1 each | |
+
+**What stands between this and removing the three references:**
+
+- **Scene (91) is mostly one type**: `ViewerSettings` and its getters and setters are 44 of the 109 entries (*measured*, on the list),
+  read by the device setup, the menu, the folder dialog and every `Set…` method. A settings owner in Presentation —
+  one that applies a setting, saves it and says so, and hands the device and the menu values — takes most of what
+  is left in one slice. `SteamInstall`, `DemoLibrary`, `DemoEntry` and `PlaylistFilter` (the playlist) are a
+  second, smaller owner.
+- **Core (11)** is the frame records' `DemoTimeline`, the decode log's sink set in the constructor, and
+  `DemoAssembly`'s export and compile. The first goes when the composite presenter fills the frame record's demo,
+  map and install itself; the other two are one small mover each.
+- **Content (7)** is the HUD picker's catalog (`HudCatalog`, `HudOption`) and `BspHdr.MatHdrLevel`, a setting.
+- **What cannot leave by moving code:** the types the window passes THROUGH — `FreeCamera` to the device,
+  `ModelInstance` lists to `DrawFrame`, `IWorldUpload` and `IModelUpload` as the device's own interfaces,
+  `VguiDrawList`, `LoadedDemo` for the tests' `Demo` property. `Device3D` is Render's and takes them, so the view
+  names them while it is the one calling the device. They go only if the composite presenter drives the device
+  through an interface of its own, or if those types are accepted as the view's vocabulary and the three
+  references are replaced by what `Render` already brings transitively. That is a decision, not a move.
