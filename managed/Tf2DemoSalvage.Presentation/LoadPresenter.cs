@@ -36,7 +36,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <see cref="ILoadView.OnUi{T}"/>; <see cref="ReadingMap"/> is raised on the UI thread before the map read and lowered
 /// on it afterwards, and the render loop draws nothing in between.
 /// </remarks>
-public sealed class LoadPresenter : IDisposable
+public sealed partial class LoadPresenter : IDisposable
 {
     private readonly ILoadView _view;
     private readonly ILogger _log;
@@ -47,7 +47,6 @@ public sealed class LoadPresenter : IDisposable
     private readonly SpectatorView _spectator;
     private readonly MapProvider _maps;
     private readonly Func<ViewerSettings> _settingsNow;
-    private readonly Func<AudioOutput?> _audio;
     private readonly CancellationToken _shutdown;
 
     /// <summary>The window's settings as they are now: the old code read the window's field at each use.</summary>
@@ -191,7 +190,6 @@ public sealed class LoadPresenter : IDisposable
     /// <param name="spectator">Whose eyes the view uses; the map gives it a world and a demo gives it eyes.</param>
     /// <param name="maps">Where maps and the install are found.</param>
     /// <param name="settings">The window's settings as they are when asked.</param>
-    /// <param name="audio">The audio device as it is when asked; null on a machine with none.</param>
     /// <param name="playback">Owns the transport and the clock; the demo's systems drive it.</param>
     /// <param name="clientConVars">The watcher's own ConVar values, or null where unset (D190).</param>
     /// <param name="shutdown">Cancelled when the window closes, so the workers do not come back to a disposed one (B402).</param>
@@ -203,7 +201,6 @@ public sealed class LoadPresenter : IDisposable
         SpectatorView spectator,
         MapProvider maps,
         Func<ViewerSettings> settings,
-        Func<AudioOutput?> audio,
         PlaybackPresenter playback,
         Func<string, string?> clientConVars,
         CancellationToken shutdown)
@@ -215,7 +212,6 @@ public sealed class LoadPresenter : IDisposable
         ArgumentNullException.ThrowIfNull(spectator);
         ArgumentNullException.ThrowIfNull(maps);
         ArgumentNullException.ThrowIfNull(settings);
-        ArgumentNullException.ThrowIfNull(audio);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(clientConVars);
 
@@ -223,7 +219,6 @@ public sealed class LoadPresenter : IDisposable
         _spectator = spectator;
         _maps = maps;
         _settingsNow = settings;
-        _audio = audio;
         _shutdown = shutdown;
         _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
@@ -345,9 +340,6 @@ public sealed class LoadPresenter : IDisposable
     /// <summary>The moment presenter, for the window's show and its frame.</summary>
     public MomentPresenter Moments => _moments;
 
-    /// <summary>The sound presenter, for the window's listener.</summary>
-    public SoundPresenter Sound => _sound;
-
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;
 
@@ -370,10 +362,23 @@ public sealed class LoadPresenter : IDisposable
     public int LoadsInFlight => _loadsInFlight;
 
     /// <summary>Lets go of the background corpse pass. The window cancels its shutdown token first, which the pass is linked to.</summary>
-    public void Dispose()
+    public void ReleaseCorpseRecord()
     {
         _corpseRecording?.Dispose();
         _corpseRecording = null;
+    }
+
+    /// <summary>Closes the sound device, and the corpse pass if the window has not already let go of it.</summary>
+    /// <remarks>
+    /// **Two calls from a closing window, in the order it made them**: the corpse pass goes first, before the idle loop
+    /// stops, and the sound device after the display device.
+    /// </remarks>
+    public void Dispose()
+    {
+        ReleaseCorpseRecord();
+
+        _audio?.Dispose();
+        _audio = null;
     }
 
     /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
@@ -931,7 +936,7 @@ public sealed class LoadPresenter : IDisposable
         _demoSystems.Open(
             _timeline,
             _demo.LastTick,
-            _audio(),
+            _audio,
             autoPlay,
             autoPlayReason);
 
@@ -1035,7 +1040,7 @@ public sealed class LoadPresenter : IDisposable
         // (it silenced every run, B228) leaves this the only place a failed load can let go of the
         // previous demo's sounds. Two hand-maintained lists of what a demo owns is the shape that
         // let three sources go missing separately in B193.
-        _demoSystems.Open(_timeline, lastTick: 0, _audio(), autoPlay: false, autoPlayReason: string.Empty);
+        _demoSystems.Open(_timeline, lastTick: 0, _audio, autoPlay: false, autoPlayReason: string.Empty);
 
         // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
         // the returned message identically worded by construction rather than by `_status.Text`

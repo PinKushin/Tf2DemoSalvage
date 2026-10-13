@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 
 using Microsoft.Extensions.Logging.Abstractions;
 
+using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Tests.Bsp;
 using Tf2DemoSalvage.Core.Container;
 using Tf2DemoSalvage.Scene;
@@ -99,7 +100,6 @@ public sealed class LoadPresenterTests
             new SpectatorView(NullLogger.Instance),
             maps,
             static () => new ViewerSettings(),
-            static () => null,
             new PlaybackPresenter(transport, new FakeElapsedTime()),
             static _ => null,
             CancellationToken.None);
@@ -264,6 +264,133 @@ public sealed class LoadPresenterTests
             loader.LoadsInFlight.ShouldBe(0);
             view.Names.Count(static name => name == nameof(ILoadView.HideLoading)).ShouldBe(1, "only when no load is left in flight");
             view.Names.Count(static name => name == nameof(ILoadView.DemoOpening)).ShouldBe(1, "the overtaken demo was never opened");
+        }
+    }
+
+    [Test]
+    public void PlaySounds_WithNoDeviceOpened_NeverAsksForTheListener()
+    {
+        (LoadPresenter loader, _, _) = Loader();
+        int asked = 0;
+
+        using (loader)
+        {
+            loader.PlaySounds(
+                () =>
+                {
+                    asked++;
+
+                    return Ears;
+                },
+                () =>
+                {
+                    asked++;
+
+                    return null;
+                },
+                tick: 100);
+
+            asked.ShouldBe(0, "the camera is the window's to work out, and a silent machine never needs it");
+        }
+    }
+
+    [Test]
+    public void PlaySoundsOver_WithNoListener_AsksForNoEyesAndStepsNothing()
+    {
+        WriteMap();
+        (LoadPresenter loader, _, _) = Loader();
+        CountingSink sink = new();
+        int eyes = 0;
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("deaf")).Loaded.ShouldBeTrue();
+
+            loader.PlaySoundsOver(
+                sink,
+                static () => null,
+                () =>
+                {
+                    eyes++;
+
+                    return null;
+                },
+                tick: 100);
+
+            eyes.ShouldBe(0);
+            sink.Reclaims.ShouldBe(0, "no ears, so the sound presenter is not stepped");
+        }
+    }
+
+    [Test]
+    public void PlaySoundsOver_WithAListenerAndADemo_AsksForTheEyesAfterTheCameraAndStepsTheSoundOnce()
+    {
+        WriteMap();
+        (LoadPresenter loader, _, _) = Loader();
+        CountingSink sink = new();
+        List<string> asked = [];
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("heard")).Loaded.ShouldBeTrue();
+
+            loader.PlaySoundsOver(
+                sink,
+                () =>
+                {
+                    asked.Add("camera");
+
+                    return Ears;
+                },
+                () =>
+                {
+                    asked.Add("eyes");
+
+                    return null;
+                },
+                tick: 100);
+
+            asked.ShouldBe(["camera", "eyes"]);
+            sink.Reclaims.ShouldBe(1, "one step of the sound presenter, which reclaims finished voices once");
+        }
+    }
+
+    private static readonly FreeCamera Ears = new() { Origin = (0f, 0f, 0f), Angles = (0f, 0f, 0f) };
+
+    /// <summary>A sink that counts the sound presenter's steps: each reclaims finished voices exactly once.</summary>
+    private sealed class CountingSink : IAudioSink
+    {
+        public int Reclaims { get; private set; }
+
+        public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
+        {
+            // The written demo carries no sound; nothing is played.
+        }
+
+        public bool SetGain(int entity, int channel, float gain) => false;
+
+        public bool SetPitch(int entity, int channel, float pitch) => false;
+
+        public void SilenceAll()
+        {
+            // Nothing is held to silence.
+        }
+
+        public int Reclaim()
+        {
+            Reclaims++;
+
+            return 0;
+        }
+
+        public void Silence(int entity, int channel)
+        {
+            // Nothing is tracked per channel here.
+        }
+
+        public void Silence(int entity, int channel, SoundSample sample)
+        {
+            // As above.
         }
     }
 }

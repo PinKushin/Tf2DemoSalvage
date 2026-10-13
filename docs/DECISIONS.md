@@ -9851,4 +9851,8 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   whether the load ran in order or merely finished. Each baseline is run twice first; what the two disagree on is
   named and removed (duration thresholds), compared as a set (parallel workers) or masked (durations), and
   everything else is compared line for line in order.
+- **A device goes to the owner of what uses it, and the window keeps only what it alone knows** (slice 6): the sound
+  device sits beside the sound presenter it plays for, and the window's sound step hands over the listener's camera
+  and eyes as two questions. An assembly the view no longer names (Audio, Animation) is a reference that can come
+  out.
 

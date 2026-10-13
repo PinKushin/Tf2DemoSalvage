@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 195 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
+## B540 — the view reaches 190 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38613,3 +38613,82 @@ nothing put in its place, so the inverse had no text to find, the restore stoppe
 broken file. Repaired by three inverse edits and checked against the moved text (`difftext.py`: the same 35
 differences). The script now refuses a break with an empty side, checks every step before applying any, and
 `red.sh` refuses to start after a round that did not restore.
+
+**Slice 6, third commit: the sound device — 195 to 190, 5 entries gone and none added. Audio is off the list.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 149 | 149 | 0 |
+| Core | 35 | 34 | 1 |
+| Content | 7 | 7 | 0 |
+| Animation | 0 | 0 | 0 |
+| Audio | 4 | 0 | 4 |
+| total | 195 | 190 (51 types, 139 members) | 5 |
+
+`MainForm` uses 135 distinct domain members, from 137, and is 5,390 lines, from 5,452. *Measured*, by the instrument.
+
+*What moved:* the device field, opening it and the line that says whether there is one, the sound clock, and the
+body of `PlaySounds`, into `LoadPresenter.Sound.cs` — beside the sound presenter the device plays for and the demo
+systems that silence it when a demo closes. The owner no longer takes the device as a delegate: it holds it, so the
+two `_audio` arguments of `DemoSystems.Open` read as they did in the window. The window's `PlaySounds` is one call
+with what a window has: which camera the ears are at and whose eyes it is.
+
+*Every textual difference:*
+
+- `_firstPerson ? FirstPersonCamera() : FreeLookCamera()` and `_firstPerson ? FollowedEntity() : null` are two
+  delegates the window holds, called where the expressions stood: the camera after the device is known to exist,
+  the eyes after the camera. `_transport.CurrentTick`, read twice in one frame, is one argument.
+- `PlaySounds` is the device guard and `PlaySoundsOver( sink, … )`, the rest of the body, so a test can hand it a
+  sink (`DrawOver`'s arrangement).
+- The sound clock starts when the owner is constructed and not when the window's fields are initialised, a few
+  statements apart in one constructor. It is read for differences: when a soundscape was chosen, how long a fade
+  has run.
+- **Shutdown keeps its order with two calls**: `ReleaseCorpseRecord()` where the corpse pass's source was disposed,
+  before the idle loop stops, and `Dispose()` where the sound device was, after the display device.
+- `OpenAudio()` is a call and not part of the owner's constructor, so `audio output opened` stays where the window
+  logged it, after the launch options' lines.
+
+*Proof* (*measured*): the three loads' logs and frames, and every earlier frame and line, on the final code — below.
+
+*Tests* (3, in `LoadPresenterTests`): with no device opened the camera is never asked for; with no camera the eyes
+are not asked for and the sound presenter is not stepped; with a camera and a demo the eyes are asked for after the
+camera and the sound presenter steps once (it reclaims finished voices exactly once a step). Each seen red in a
+round of its own. **Not tested:** `OpenAudio` itself, which opens a real device or finds none, and the silence a
+closing demo asks of it.
+
+**Final proofs, on the slice's last code** (*measured*, `slice6/final.sh`):
+
+- the three loads again: the ordered logs (3,261, 2,021 and 3,975 lines), the sets (319, 246, 510) and the three
+  frames, identical to the old code's;
+- the ten paused frames of slice 3, the beam frame, its `TF2VIEW_PICK` line and the 47 lines of the paused-seek
+  sound log, identical;
+- both seek frames of slice 5 and their logged lines, identical;
+- the first-person frame with the looked-at player's name on it and the three of slice 4, identical.
+
+The seek and first-person part ran twice, the second started by mistake while the first was still going; the
+machine-wide lock serialised them and both came back identical.
+
+**What is left on the list** (the instrument's table after the third commit; 190 entries):
+
+| assembly | entries |
+|---|---|
+| Scene | 149 |
+| Core | 34 |
+| Content | 7 |
+| Animation | 0 |
+| Audio | 0 |
+
+| method | members | what it is |
+|---|---|---|
+| the constructor | 16 | the spectator, the world presenter, the leaf boxes, the launch options into settings, the menu's HUD list |
+| `OnViewportHandleCreated` | 13 | the device and what it is handed first |
+| `ProjectMap` | 10 | the world upload and the map's projection |
+| `ReadPosition` | 9 | `cl_showpos`' subject |
+| `DrawScene`, `ViewerMenu`'s constructor | 8, 8 | the draw call; the menu's settings |
+| `ChooseGameFolder`, `UploadCamera` | 7, 6 | the folder dialog; the camera into the device |
+| `EnterCamera`, `FreeLookCamera`, `ShowOnly`, `ToggleFirstPerson`, `ViewFrameNow` | 5 each | the camera cluster and the frame record |
+| `ILoadView.DemoOpening` | 4 | the camera for the demo's kind — the camera cluster's, called by the load |
+| thirty-odd settings, library and input methods | 1 to 4 each | each names one or two things |
+
+**Audio and Animation are at zero.** Viewer3D's project reference to Audio and its `global using Tf2DemoSalvage.Audio`
+can come out when the owner chooses; nothing in the view names the assembly.

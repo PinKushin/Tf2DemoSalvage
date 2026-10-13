@@ -375,8 +375,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
     private readonly ILogger _demoLog;
 
-    private readonly ILogger _audioLog;
-
     private readonly ILogger _spectateLog;
 
     private readonly ILogger _configLog;
@@ -399,7 +397,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // be two allocations a frame.
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
-    // The load owner's, as are `_moment`, `_moments`, `_sound` and `_effects` below: it constructs them and the frame
+    // The load owner's, as are `_moment`, `_moments` and `_effects` below: it constructs them and the frame
     // here still asks them (D214).
     private readonly EntityModelSet _models;
 
@@ -823,7 +821,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         _log = loggers.CreateLogger("viewer");
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
-        _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
         _configLog = loggers.CreateLogger("config");
 
@@ -848,16 +845,17 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
         // **What a load fills is composed by its owner** (D214): the model set, the sound cache, soundscape and
         // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
-        // order this constructor built them. The five fields below are the same objects, kept because the frame still
+        // order this constructor built them. The four fields below are the same objects, kept because the frame still
         // asks them; nothing here constructs or replaces one.
         _loader = new LoadPresenter(
-            this, loggers, ledger, _viewmodelScene, _spectator, _maps, () => _settings, () => _audio, _playback, ClientConVar, _shutdown.Token);
+            this, loggers, ledger, _viewmodelScene, _spectator, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
         _models = _loader.Models;
         _moment = _loader.Moment;
         _moments = _loader.Moments;
-        _sound = _loader.Sound;
         _effects = _loader.Effects;
 
+        _listener = () => _firstPerson ? FirstPersonCamera() : FreeLookCamera();
+        _listenerEyes = () => _firstPerson ? FollowedEntity() : null;
         _showOnly = shown =>
         {
             ShowOnly(shown);
@@ -933,17 +931,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         LoadUserConfig();
         _console.Triggered += OnConsoleAction;
 
-        // **Opened once, here, and null is a normal answer.** The measurement boxes and CI have no
-        // sound card, and neither does a machine with audio disabled — a viewer that refused to
-        // start over that would be worse than one that draws in silence. Reported either way, so
-        // "there is no sound" and "the sound is not working" are distinguishable in the log.
-        _audio = AudioOutput.TryCreate();
-
-        _audioLog.LogInformation(
-            "{Message}",
-            _audio is null
-                ? "no audio device could be opened; playback will be silent"
-                : "audio output opened");
+        _loader.OpenAudio();
 
         Text = "TF2 Demo Salvage";
         Name = MainWindowId;
@@ -2222,6 +2210,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
     /// <summary><see cref="ShowOnly"/> as the one delegate a seek is handed, answering what the window knows afterwards.</summary>
     private readonly Func<double, ViewFrame> _showOnly;
+
+    /// <summary>The camera the ears are at, as the delegate the sound step asks once it has a device.</summary>
+    private readonly Func<FreeCamera?> _listener;
+
+    /// <summary>Whose eyes the listener is in, or null outside first person (B483).</summary>
+    private readonly Func<int?> _listenerEyes;
 
     /// <summary>Builds the scene at a moment, with no replay before it.</summary>
     private void ShowOnly(double tick)
@@ -4009,56 +4003,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         }
     }
 
-    /// <summary>The audio device, or null when the machine has none.</summary>
-    private AudioOutput? _audio;
-
-    /// <summary>Decides what should be audible at a tick.</summary>
-    private readonly SoundPresenter _sound;
-
-    /// <summary>Starts whatever the recording plays at this tick.</summary>
+    /// <summary>Steps the sound for this frame, with the ears wherever the camera is.</summary>
     /// <remarks>
-    /// **The spatialisation is Valve's and stays Valve's (D80).** The gain comes from
-    /// <c>SoundGain.AtDistance</c> against the sound's own <c>SNDLVL</c>, and the pan from
-    /// <c>SoundGain.Pan</c> — the sink is handed finished stereo and applies no distance model of
-    /// its own. Anything else would replace a curve this project can compare against the engine
-    /// with one it cannot.
+    /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
+    /// it is, asked for by <see cref="LoadPresenter.PlaySounds"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds()
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_audio is not { } output)
-        {
-            return;
-        }
-
-        // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
-        // audible moved to SoundPresenter; a window's remaining business is that the ears are
-        // wherever the camera is, which is view state and cannot come from anywhere else.
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (SoundListener.From(_firstPerson ? FirstPersonCamera() : FreeLookCamera())
-            is not { } ears)
-        {
-            return;
-        }
-
-        long soundAt = Stopwatch.GetTimestamp();
-
-        // In the recorder's eyes, its networked soundscape rather than a simulation (B483).
-        int? eyes = _firstPerson ? FollowedEntity() : null;
-        SceneSoundscape? recorded = _timeline is { } timeline
-            ? SoundPresenter.RecordedSoundscape(timeline, _transport.CurrentTick, eyes)
-            : null;
-
-        SoundPhases phases = _sound.Update(
-            output,
-            _transport.CurrentTick,
-            ears.Origin,
-            ears.Right,
-            _audioClock.Elapsed.TotalSeconds,
-            recorded);
-
-        StallReport.Sounds(phases, Stopwatch.GetTimestamp() - soundAt, _audioLog);
-    }
+    private void PlaySounds() => _loader.PlaySounds(_listener, _listenerEyes, _transport.CurrentTick);
 
     // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
     // should be audible at a tick is not a window's job, and none of it needed one: the schedule,
@@ -4088,17 +4038,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // what a map sounds like and none of it is in the demo, because a soundscape is chosen by the
     // SERVER from `env_soundscape` entities and reaches the client as an index in private
     // per-player data that a SourceTV recording carries for nobody.
-    /// <summary>A clock that runs for the life of the window.</summary>
-    /// <remarks>
-    /// **Its own, because the flight clock is restarted every frame** and so can only report a
-    /// frame's duration, never a running time. A crossfade needs both: when the choice was last made
-    /// and how long since the last advance.
-    ///
-    /// Real time rather than demo time, deliberately. `soundscape_fadetime` is three seconds of
-    /// wall clock in the engine, so a fade tied to demo ticks would stretch when playback slows and
-    /// vanish when it is scrubbed.
-    /// </remarks>
-    private readonly System.Diagnostics.Stopwatch _audioClock = System.Diagnostics.Stopwatch.StartNew();
 
     // `Sample` was here until 2026-08-25, with `_soundCache`, `_soundsUnopened` and `_precaching`.
     // It is `SoundCache` in the Audio project now (B188, D90) — the engine keeps its sample cache
@@ -5279,7 +5218,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
             _shutdown.Cancel();
 
             // The corpse pass is linked to `_shutdown` and has just been told to stop; its source is ours to release (D181).
-            _loader.Dispose();
+            _loader.ReleaseCorpseRecord();
 
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
@@ -5334,8 +5273,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
             // Before the log line below, so a device that hangs on close is visible as a shutdown
             // that stalled here rather than as one that never reached the end.
-            _audio?.Dispose();
-            _audio = null;
+            _loader.Dispose();
 
             // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(

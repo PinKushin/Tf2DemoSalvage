@@ -1,7 +1,3 @@
-Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.AudioOutput
-Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.AudioOutput::Dispose(0)
-Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.AudioOutput::TryCreate(0)
-Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.IAudioSink
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.HudCatalog
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.HudCatalog::Options(1)
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.HudOption
@@ -36,7 +32,6 @@ Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScenePlayer::get_Y(0)
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScenePlayer::get_Yaw(0)
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScenePlayer::get_Z(0)
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScenePointCamera
-Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.SceneSoundscape
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.SceneTonemap
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScreenFadeView
 Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.TonemapFeed
