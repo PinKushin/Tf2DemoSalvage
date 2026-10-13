@@ -63,4 +63,17 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (int Sequence, int Frame, float Fraction)? FrameOf(int entityIndex) => null;
 
     public float? DuckJumpOffsetOf(int entityIndex) => null;
+
+    /// <summary>The hitbox point nearest a viewer, by entity and attachment number.</summary>
+    public Dictionary<(int Entity, int Number), Vector3> Nearest { get; } = [];
+
+    /// <summary>The viewer the last nearest-point question was asked from.</summary>
+    public Vector3? LastViewer { get; private set; }
+
+    public Vector3? HitboxPointNearest(int entity, int number, Vector3 viewer)
+    {
+        LastViewer = viewer;
+
+        return Nearest.TryGetValue((entity, number), out Vector3 point) ? point : null;
+    }
 }

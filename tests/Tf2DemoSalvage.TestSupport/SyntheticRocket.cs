@@ -75,7 +75,16 @@ internal static class SyntheticRocket
     /// <param name="positions">Tick and position for each snapshot; the first creates the rocket.</param>
     /// <returns>The demo's bytes.</returns>
     public static byte[] DemoOverTicks(
-        float intervalPerTick, params (int Tick, float X, float Y, float Z)[] positions)
+        float intervalPerTick, params (int Tick, float X, float Y, float Z)[] positions) =>
+        DemoOverTicks(intervalPerTick, ownerModel: 0, positions);
+
+    /// <summary>The same demo, with the bystander given a model index, which gives him a track of his own.</summary>
+    /// <param name="intervalPerTick">The demo's seconds per tick.</param>
+    /// <param name="ownerModel">The bystander's `m_nModelIndex`: 0 for none, <see cref="Model"/> for the rocket's.</param>
+    /// <param name="positions">Tick and position for each snapshot; the first creates the rocket.</param>
+    /// <returns>The demo's bytes.</returns>
+    public static byte[] DemoOverTicks(
+        float intervalPerTick, int ownerModel, (int Tick, float X, float Y, float Z)[] positions)
     {
         ArgumentNullException.ThrowIfNull(positions);
 
@@ -102,7 +111,7 @@ internal static class SyntheticRocket
             decoder,
             OwnerClassId,
             OwnerEntityIndex,
-            new Dictionary<string, PropertyValue> { ["m_nModelIndex"] = PropertyValue.FromInt(0) })
+            new Dictionary<string, PropertyValue> { ["m_nModelIndex"] = PropertyValue.FromInt(ownerModel) })
             with
         {
             UpdateType = EntityUpdateType.Enter,

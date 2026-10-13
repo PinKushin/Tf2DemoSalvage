@@ -38172,3 +38172,44 @@ runs, so the assertions read the quads.
 **Not tested here:** `LevelLighting.StylesChanged`, which has no reading a test can take; the faces a dynamic light
 reaches, which need a map's nodes (`WorldDynamicLights` has its own suite); the quads `ParticleEffects.Build` makes
 and the `Quads` count of them, which need a system that emits; and `BuildEffectEntities`, still the view's.
+
+**Slice 4, 2026-10-12, in three commits. First: the beams, sprite trails and ropes — 657 to 538, 119 entries gone and
+none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 431 | 373 | 58 |
+| Core | 138 | 91 | 47 |
+| Content | 58 | 44 | 14 |
+| Animation | 15 | 15 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 657 | 538 | 119 |
+
+`MainForm` uses 382 distinct domain members, from 470, and is 7,386 lines, from 7,837. *Measured*, by the instrument.
+
+*What moved:* `BuildEffectEntities` and the fifteen methods only it called — `KickRopes`, `RopeHolidayStyle`,
+`QueueHolidayLights`, `RopeEndDormantWithModel`, `RopeEnd`, `AngleForward`, `RopeLight`, `RopeCollide`, `TrailOrigin`,
+both `Dereference`, `AbsolutePose`, `BeamEnd` — with their eleven fields, into `Presentation.EffectEntities`. The text
+was moved by line range, asserted at both ends, and then the view's fields were replaced by the frame record's
+(`EffectEntityFrame`: timeline, map, tick, camera, drawn props, viewport width, vision flags). The view constructs it
+and `DrawParticles` hands `FrameParticles.Build` a callback to its `Build`, where it handed one to its own method.
+`IPosedEntities` gained `HitboxPointNearest`, for a beam end on `FBEAM_USE_HITBOXES`.
+
+*Proof nothing changed* (*measured*): a paused frame of `demostf-koth_harvest_event-1491260` at tick 1500 on beam
+entity 513 (the `effect-entities` probe's camera, `-1287 -467 104 0 -158`) is byte-identical before and after, and so
+is the `TF2VIEW_PICK="640 360 200"` line that run logs, which names the beam's sprite and every quad within 200
+pixels.
+
+*Tests the moved code never had* (17, `EffectEntitiesTests`): a beam built from the frame's camera and the map's
+sprites, against the same beam built beside it; `BeamEnd` by serial, by attachment, by nearest hitbox point from where
+the camera was, a player's hull centre, an entity the frame did not draw; `TrailOrigin`'s attachment, its entity's
+origin, its own place and its two refusals; `RopeEnd`'s attachment and forward, a player's hull, a player's active
+weapon's `buff_attach`; `RopeLight`, `RopeCollide` and a rope end that is not dormant. Each seen red in one of four
+rounds and restored by the inverse edit. One test written for it was deleted: "with no sprite materials, no beam" could
+not be reddened by any break short of supplying materials. `SyntheticRocket.DemoOverTicks` gained an overload that
+gives the bystander a model, which was tried for a player's track and does not give one: a player's track comes from
+his player properties, so the player tests use a `SyntheticEffects` demo.
+
+**Not tested here:** the frame time a beam's noise and a rope are stepped by (zero while paused or after a step
+back), `KickRopes`, `RopeHolidayStyle` and `QueueHolidayLights`, which need a rope that simulates and a game rules
+entity; and a rope end that IS dormant, which needs a demo whose entity leaves the PVS.
