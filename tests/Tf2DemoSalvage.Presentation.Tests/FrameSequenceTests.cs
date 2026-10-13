@@ -83,9 +83,9 @@ public sealed class FrameSequenceTests
             // The pose was taken with the camera; projecting adds nothing this test reads.
         }
 
-        public VguiDrawList? BuildOverlay() => null;
+        public FrameOverlay BuildOverlay() => default;
 
-        public void Draw(VguiDrawList? overlay) => Drawn = _posed;
+        public void Draw(FrameOverlay overlay) => Drawn = _posed;
     }
 
     [Test]
@@ -165,7 +165,7 @@ public sealed class FrameSequenceTests
 
         FrameSequence.Run(steps);
 
-        steps.Drawn.ShouldBeSameAs(steps.Built);
+        steps.Drawn.List.ShouldNotBeNull().ShouldBeSameAs(steps.Built.List);
     }
 
     [Test]
@@ -202,7 +202,7 @@ public sealed class FrameSequenceTests
     /// <summary>Records which stage ran when, and can make one of them slow.</summary>
     private sealed class RecordingSteps : IFrameSteps
     {
-        private readonly VguiDrawList _overlay = new(_ => (0, 0));
+        private readonly FrameOverlay _overlay = new(new VguiDrawList(_ => (0, 0)));
 
         /// <summary>The stages that ran, in order.</summary>
         public List<string> Ran { get; } = [];
@@ -211,10 +211,10 @@ public sealed class FrameSequenceTests
         public string? SlowStage { get; init; }
 
         /// <summary>What <see cref="BuildOverlay"/> returned.</summary>
-        public VguiDrawList? Built { get; private set; }
+        public FrameOverlay Built { get; private set; }
 
         /// <summary>What <see cref="Draw"/> was given.</summary>
-        public VguiDrawList? Drawn { get; private set; }
+        public FrameOverlay Drawn { get; private set; }
 
         public void Simulate() => Mark("Simulate");
 
@@ -226,14 +226,14 @@ public sealed class FrameSequenceTests
 
         public void TakeShot() => Mark("TakeShot");
 
-        public VguiDrawList? BuildOverlay()
+        public FrameOverlay BuildOverlay()
         {
             Mark("BuildOverlay");
             Built = _overlay;
             return _overlay;
         }
 
-        public void Draw(VguiDrawList? overlay)
+        public void Draw(FrameOverlay overlay)
         {
             Mark("Draw");
             Drawn = overlay;

@@ -194,8 +194,6 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Composes what a load fills. Nothing is read and no device is touched.</summary>
     /// <param name="view">The window: its thread, its status line, its progress display, its device and its camera.</param>
     /// <param name="loggers">The viewer's loggers, by area.</param>
-    /// <param name="ledger">The frame's phase ledger, shared with the window's reporter.</param>
-    /// <param name="viewmodels">The viewmodel scene the window's camera also asks.</param>
     /// <param name="cameraView">The window as the camera sees it.</param>
     /// <param name="window">The window's tick and shape, asked for when a camera is.</param>
     /// <param name="spectateWho">`--spectate`'s text as launched, or null; asked for when a demo opens.</param>
@@ -207,8 +205,6 @@ public sealed partial class ViewerPresenter : IDisposable
     public ViewerPresenter(
         ILoadView view,
         ILoggerFactory loggers,
-        FrameLedger ledger,
-        ViewmodelScene viewmodels,
         ICameraView cameraView,
         Func<CameraWindow> window,
         Func<string?> spectateWho,
@@ -220,8 +216,6 @@ public sealed partial class ViewerPresenter : IDisposable
     {
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(loggers);
-        ArgumentNullException.ThrowIfNull(ledger);
-        ArgumentNullException.ThrowIfNull(viewmodels);
         ArgumentNullException.ThrowIfNull(spectateWho);
         ArgumentNullException.ThrowIfNull(maps);
         ArgumentNullException.ThrowIfNull(settings);
@@ -256,13 +250,18 @@ public sealed partial class ViewerPresenter : IDisposable
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
-        _moment = new MomentScene(_models, viewmodels, _renderLog)
+        _moment = new MomentScene(_models, new ViewmodelScene(), _renderLog)
         {
             Lighting = LevelLighting.Unlit(_renderLog),
             Weapons = WeaponModels.None(_renderLog),
         };
 
+        // **A local, not a field.** Both readers are constructed here and neither hands it back — keeping one is what
+        // would let a later edit report a phase to a ledger nobody prints.
+        FrameLedger ledger = new();
+
         _moments = new MomentPresenter(_moment, ledger, _renderLog);
+        Frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
         // Everything a frame makes around its models, composed in one presenter (D92, D214).
         _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog, _audioLog);

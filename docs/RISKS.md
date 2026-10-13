@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 24 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
+## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -39006,3 +39006,57 @@ for before the window is attached says the wiring is missing; a moment shown wit
 and with one comes back through the window ending on the tick asked; the overlay asks the window for the frame,
 the scoreboard key and the clock; export then compile say how much and rebuild the same bytes; the decode log's
 losses and notes go to their own delegates. Each seen red in one round.
+
+**Slice 8, fourth commit: the device — 24 to 0. The list is empty.**
+
+| assembly | before | after |
+|---|---|---|
+| Scene | 20 | 0 |
+| Core | 4 | 0 |
+| total | 24 | 0 |
+
+`MainForm` uses no domain type or member, and is 4,295 lines. *Measured*, by the instrument.
+
+*The hand-over:* the window creates the device and calls `ViewerPresenter.AttachDevice( device, … )` once; it calls
+`DetachDevice()` before it disposes it. The entry takes Render's `Device3D`. Inside, the frame is driven through
+`IViewerDevice`, a Scene interface the device implements: the nine settings of the first commit, and now the
+view's setup beside the camera (fog, sky fog, monitor camera, tonemap, exposure, observer target, `SetCamera`), the
+pose's cull inputs (`Frustum`, `Views`, `Eye`, `ScreenView`), the screen overlay, the monitor's models and
+`DrawScene`. The window still makes the calls that are a device's alone, with plain arguments: a debug toggle, a
+resize, a capture, the exclusive mode, `ClearWorld`, `Dispose`.
+
+*What moved, to `ViewerPresenter.Device.cs`, with its order and every argument as it was:*
+
+- **`UploadCamera`**: the camera for the frame, the demo's four feeds, the exposure's time, the observer target,
+  `SetCamera`, the frame's effects, and the stall report. The window says the exposure's time (the capture rule,
+  B520, reads the window's launch options and opening state) and the surface-colour toggle.
+- **`DrawScene`**: the screen overlay, the monitor's models, and the draw with the leaf lines, the moment's
+  instance lists, the viewmodel camera and the frame's VGUI.
+- **The pose** of `ProjectWorld` (`PoseNow`), **the upload target** of the scene (in `AttachDevice`), **the
+  listener's two questions** of the sound step, **the last camera** the pick reads, **the viewmodel scene** and
+  **the frame reporter's construction** (the ledger is still a constructor local, now the presenter's).
+
+*`DrawFrame`'s arguments are the same.* `IViewerDevice.DrawScene` cannot name Render's `ScenePoint`, so it leaves out
+the two channels the window has passed empty since D98 (the flat fill and the flat markers), and the device's
+explicit implementation calls `DrawFrame( r, g, b, [], lines, [], models, viewmodels, viewmodelCamera, vgui )` —
+the call the window made.
+
+*The overlay still travels as an argument.* `IFrameSteps.BuildOverlay` returned a `VguiDrawList` and `Draw` took
+it; both now use `FrameOverlay`, an opaque Presentation struct around the draw list, so the window carries it from
+one stage to the next without naming it. A field between the two stages was the alternative, and it is the shape
+`FrameSequenceTests` exists to forbid (B193, B196); its test still holds that the overlay built is the one drawn.
+
+*Every textual difference:* `_device.X` is `device.X` on the interface; `_camera.ViewCameraNow( _demoFrameSeconds )`
+reads `Window.Frame().DemoFrameSeconds`, the same field; the exposure's ternary stays in the window and arrives as
+`exposureSeconds`; `_menu.SurfaceColours.Checked` is `surfaceColours`; `BackgroundRed/Green/Blue` and
+`_debug.LeafVis` are arguments; `_presenter.DrawEffects( viewing, drawing )` is `_effects.DrawOver( … )` on the
+same device; the two `[]` arguments are in the device's explicit implementation; `_camera.Mode != CameraMode.X`
+is `!_camera.AskedX` and `EnterCamera( CameraMode.X )` is `EnterX()` (2 each); `_presenter.Game is not null` is
+`HasInstall`.
+
+*Tests* (2, in `ViewerPresenterTests`, over `FakeViewerDevice`, which writes every set and call into one list):
+a camera upload sets the demo's feeds, then the exposure and the observer target, then the camera, then the
+effects' particles; the draw sets the screen overlay and the monitor's models, then draws with the overlay it was
+handed. Each seen red, the first twice (a wrong value, and the camera set before the feeds). **Not tested:**
+`AttachDevice` and `DetachDevice`, which take the real device; `PoseNow`, whose only effect is inside the moment
+presenter's cull; the two guards for "no device yet". The frames hold all of it.

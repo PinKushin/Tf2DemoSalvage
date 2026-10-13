@@ -48,10 +48,9 @@ public sealed partial class ViewerPresenter
     /// the players happen to be turns every scrub into a jump - the world should sit still while
     /// the players move within it.
     /// </remarks>
-    /// <param name="device">The device to upload to, or null before there is one.</param>
     /// <param name="surfaceColours">Whether the surface-colour view is on.</param>
     /// <param name="size">The viewport's size in pixels.</param>
-    public void ProjectMap(IWorldUpload? device, bool surfaceColours, (int Width, int Height) size)
+    public void ProjectMap(bool surfaceColours, (int Width, int Height) size)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
         if (_loaded is not { } map || map.Outline.IsEmpty)
@@ -80,7 +79,7 @@ public sealed partial class ViewerPresenter
         // world is actually pointed with.
         WorldUpload result = _world.Project(
             map,
-            device,
+            _device,
             _camera.ViewMatrix(),
             surfaceColours,
             size,

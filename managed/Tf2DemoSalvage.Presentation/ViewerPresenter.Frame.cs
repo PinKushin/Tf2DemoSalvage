@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 
 using Tf2DemoSalvage.Core.Text;
-using Tf2DemoSalvage.Render;
 using Tf2DemoSalvage.Scene;
 using Tf2DemoSalvage.Scene.Hud;
 
@@ -119,13 +118,12 @@ public sealed partial class ViewerPresenter
 
     /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
-    /// <param name="device">The device, or null before there is one.</param>
     /// <remarks>
     /// Takes a fractional tick rather than a whole one so the interpolation actually reaches the
     /// picture. Truncating here would leave every pose snapped to the last packet and make the
     /// whole interpolation layer a no-op that still passed its own tests.
     /// </remarks>
-    public void ShowMoment(double tick, Device3D? device)
+    public void ShowMoment(double tick)
     {
         if (_timeline is null)
         {
@@ -136,7 +134,7 @@ public sealed partial class ViewerPresenter
         _effects.ShowMoment(
             ViewFrameNow,
             tick,
-            device,
+            _device,
             shown =>
             {
                 Window.ShowOnly(shown);
@@ -145,24 +143,17 @@ public sealed partial class ViewerPresenter
             });
     }
 
-    /// <summary>Everything this frame makes around its models, handed to the device.</summary>
-    /// <param name="viewing">The camera this frame is seen through.</param>
-    /// <param name="device">The device.</param>
-    public void DrawEffects(FreeCamera viewing, Device3D device) => _effects.Draw(ViewFrameNow, viewing, device);
-
     /// <summary>`TF2VIEW_PICK="x y"`: what lies under that pixel of the shot — <see cref="PickReport"/> — or null.</summary>
     /// <param name="asked">The variable's text, or null.</param>
-    /// <param name="lastViewing">The camera the last frame was set up with.</param>
-    public string? Pick(string? asked, FreeCamera? lastViewing) => _effects.Pick(asked, ViewFrameNow, lastViewing);
+    public string? Pick(string? asked) => _effects.Pick(asked, ViewFrameNow, _lastViewing);
 
     /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
-    /// <param name="device">The device, or null before there is one.</param>
-    /// <returns>The draw list.</returns>
-    public VguiDrawList? BuildOverlay(Device3D? device)
+    /// <returns>The overlay, to hand to <see cref="DrawScene"/>.</returns>
+    public FrameOverlay BuildOverlay()
     {
         WindowFrame window = Window.Frame();
 
-        return _effects.BuildOverlay(
+        return new FrameOverlay(_effects.BuildOverlay(
             new OverlayFrame(
                 _timeline,
                 _loaded,
@@ -174,7 +165,7 @@ public sealed partial class ViewerPresenter
                 _settings.ShowFrameRate,
                 Window.ScoresHeld(),
                 Window.LastFrameSeconds()),
-            device);
+            _device));
     }
 
     /// <summary>Writes a demo's assembly text — the CLI's `--asm` — and says how much.</summary>

@@ -262,9 +262,9 @@ public sealed class SettingsPresenterTests
             DetailDistance = 100f,
             DetailFade = 50f,
         });
-        OrderedDevice device = new();
+        FakeViewerDevice device = new();
 
-        settings.ApplyOver(device, () => device.Set.Add("specular off"), mode => device.Set.Add("fullbright " + mode));
+        settings.ApplyOver(device, () => device.Mark("specular off"), mode => device.Mark("fullbright " + mode));
 
         device.Set.ShouldBe(
         [
@@ -278,9 +278,9 @@ public sealed class SettingsPresenterTests
     public void ApplyTo_WithReflectionsOnAndNormalLighting_LeavesTheMenuAlone()
     {
         (SettingsPresenter settings, _) = Owner();
-        OrderedDevice device = new();
+        FakeViewerDevice device = new();
 
-        settings.ApplyOver(device, () => device.Set.Add("specular off"), mode => device.Set.Add("fullbright " + mode));
+        settings.ApplyOver(device, () => device.Mark("specular off"), mode => device.Mark("fullbright " + mode));
 
         device.Set.ShouldNotContain("specular off");
         device.Set.ShouldNotContain("fullbright 0");
@@ -316,32 +316,6 @@ public sealed class SettingsPresenterTests
 
         settings.ConVar("demo_interpolateview").ShouldBe("0");
         settings.ConVar("never_set").ShouldBeNull();
-    }
-
-    /// <summary>A device that writes down each setting as it is assigned.</summary>
-    private sealed class OrderedDevice : IViewerDevice
-    {
-        public List<string> Set { get; } = [];
-
-        public bool VerticalSync { get => false; set => Note(nameof(VerticalSync), value); }
-
-        public bool Phong { get => false; set => Note(nameof(Phong), value); }
-
-        public bool DrawMonitors { get => false; set => Note(nameof(DrawMonitors), value); }
-
-        public bool DisableBloom { get => false; set => Note(nameof(DisableBloom), value); }
-
-        public float ForceToneMapScale { get => 0f; set => Note(nameof(ForceToneMapScale), value); }
-
-        public bool DrawHud { get => false; set => Note(nameof(DrawHud), value); }
-
-        public int Draw3dSky { get => 0; set => Note(nameof(Draw3dSky), value); }
-
-        public float DetailDistance { get => 0f; set => Note(nameof(DetailDistance), value); }
-
-        public float DetailFadeWidth { get => 0f; set => Note(nameof(DetailFadeWidth), value); }
-
-        private void Note(string name, object value) => Set.Add(string.Create(System.Globalization.CultureInfo.InvariantCulture, $"{name} {value}"));
     }
 
     /// <summary>A factory whose every category is one recording logger.</summary>

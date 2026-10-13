@@ -2818,6 +2818,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         }
     }
 
+    /// <inheritdoc/>
+    void IViewerDevice.DrawScene(
+        float red,
+        float green,
+        float blue,
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
+        IReadOnlyList<ModelInstance>? models,
+        IReadOnlyList<ModelInstance>? viewmodels,
+        float[]? viewmodelCamera,
+        VguiDrawList? vgui) =>
+        // The fill and the markers are empty, always: the first was dead by construction and the second went with the
+        // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
+        DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
+
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>
     /// <param name="surfaceColours">Whether to draw flat category colours instead of textures.</param>

@@ -96,8 +96,6 @@ public sealed class ViewerPresenterTests
         ViewerPresenter loader = new(
             view,
             NullLoggerFactory.Instance,
-            new FrameLedger(),
-            new ViewmodelScene(),
             view,
             () => view.Window,
             () => spectateWho,
@@ -450,7 +448,7 @@ public sealed class ViewerPresenterTests
 
         using (loader)
         {
-            Should.Throw<InvalidOperationException>(() => loader.BuildOverlay(device: null))
+            Should.Throw<InvalidOperationException>(() => loader.BuildOverlay())
                 .Message.ShouldContain("the window was not attached");
         }
     }
@@ -465,7 +463,7 @@ public sealed class ViewerPresenterTests
         {
             loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
 
-            loader.ShowMoment(12d, device: null);
+            loader.ShowMoment(12d);
 
             asked.Shown.ShouldBeEmpty();
             asked.Frames.ShouldBe(0);
@@ -484,7 +482,7 @@ public sealed class ViewerPresenterTests
             loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
             loader.LoadDemo(WriteDemo("shown")).Loaded.ShouldBeTrue();
 
-            loader.ShowMoment(12d, device: null);
+            loader.ShowMoment(12d);
 
             asked.Shown.ShouldNotBeEmpty();
             asked.Shown[^1].ShouldBe(12d, "the last tick shown is the one asked for; the ones before are the seek's");
@@ -505,7 +503,7 @@ public sealed class ViewerPresenterTests
             loader.LoadDemo(WriteDemo("overlay")).Loaded.ShouldBeTrue();
             int framesBefore = asked.Frames;
 
-            loader.BuildOverlay(device: null);
+            loader.BuildOverlay();
 
             (asked.Frames - framesBefore).ShouldBeGreaterThan(0);
             asked.Scores.ShouldBe(1);
@@ -552,6 +550,56 @@ public sealed class ViewerPresenterTests
         {
             DecodeLog.Sink = sinkBefore;
             DecodeLog.Notes = notesBefore;
+        }
+    }
+
+    [Test]
+    public void UploadCameraOver_AFrame_SetsTheDemosFeedsThenTheExposureThenTheCameraThenTheEffects()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+        FakeViewerDevice device = new();
+        FakeFrameDevice effects = new() { Told = device.Mark };
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("camera")).Loaded.ShouldBeTrue();
+
+            loader.UploadCameraOver(device, effects, flyTicks: 0, exposureSeconds: 0.25f, surfaceColours: true);
+
+            device.Set.ShouldBe(
+            [
+                "WorldFog none", "SkyFog none", "MonitorCamera none", "Tonemap default",
+                "ExposureSeconds 0.25", "ObserverTarget nobody",
+                nameof(IViewerDevice.SetCamera),
+                nameof(IFrameDevice.SetParticles),
+            ]);
+            device.Camera.SurfaceColours.ShouldBeTrue();
+            device.Camera.Camera.ShouldNotBeNull();
+        }
+    }
+
+    [Test]
+    public void DrawSceneOver_WithAnOverlay_SetsTheScreenOverlayAndMonitorModelsThenDrawsWithThatOverlay()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        FakeViewerDevice device = new();
+        FrameOverlay overlay = new(new Tf2DemoSalvage.Scene.Hud.VguiDrawList(static _ => (0, 0)));
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("draw")).Loaded.ShouldBeTrue();
+
+            loader.DrawSceneOver(device, 0.1f, 0.2f, 0.3f, leafVis: false, overlay);
+
+            device.Set.ShouldBe(["ScreenOverlay none", "MonitorOnlyModels 0", nameof(IViewerDevice.DrawScene)]);
+            device.Drawn.Vgui.ShouldBeSameAs(overlay.List);
+            (device.Drawn.Red, device.Drawn.Green, device.Drawn.Blue).ShouldBe((0.1f, 0.2f, 0.3f));
+            device.Drawn.Lines.ShouldBe(0, "mat_leafvis is off");
+            device.Drawn.ViewmodelCamera.ShouldBeNull("nobody's eyes: no viewmodel pass");
         }
     }
 
