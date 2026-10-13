@@ -2092,6 +2092,14 @@ internal class MainForm : Form, IFrameSteps
         // **The clock too, not just the transport.** Moving the camera marks the world stale, and
         // the reprojection that follows re-reads the moment from the clock - so a capture that only
         // told the transport photographed tick zero while every log line said otherwise.
+        foreach (int through in OpeningSequence.SeekThrough(Environment.GetEnvironmentVariable("TF2VIEW_SEEK_THROUGH")))
+        {
+            _playback.Seek(through);
+            _transport.ShowTick(through);
+            ShowMoment(through);
+            _log.LogInformation("{Message}", $"opening state sought through tick {through}");
+        }
+
         _playback.Seek(_launch.ShotTick);
         _transport.ShowTick(_launch.ShotTick);
         ShowMoment(_launch.ShotTick);

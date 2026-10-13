@@ -187,6 +187,17 @@ public sealed class OpeningSequenceTests
         sequence.Finished.ShouldBeFalse("nothing has confirmed the opening state was applied");
     }
 
+    [Test]
+    public void SeekThrough_TicksSeparatedBySpaces_AreTheSeeksInOrder() =>
+        OpeningSequence.SeekThrough("60000  5000 61000").ShouldBe([60000, 5000, 61000]);
+
+    [TestCase(null, TestName = "SeekThrough_WithNoRequest_IsNoSeeks")]
+    [TestCase("", TestName = "SeekThrough_AnEmptyRequest_IsNoSeeks")]
+    [TestCase("60000 soon", TestName = "SeekThrough_ARequestWithAWordInIt_IsNoSeeksAtAll")]
+    [TestCase("60000 -5", TestName = "SeekThrough_ANegativeTick_IsNoSeeksAtAll")]
+    public void SeekThrough_ARequestItCannotRead_IsNoSeeks(string? asked) =>
+        OpeningSequence.SeekThrough(asked).ShouldBeEmpty();
+
     /// <summary>Advances a number of frames, ignoring what it asks for.</summary>
     private static void Run(OpeningSequence sequence, int frames)
     {

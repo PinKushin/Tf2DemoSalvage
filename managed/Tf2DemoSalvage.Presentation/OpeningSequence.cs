@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Globalization;
 
 namespace Tf2DemoSalvage.Presentation;
 
@@ -161,5 +163,28 @@ public sealed class OpeningSequence(
         return _framesLeft-- > 0 || _shotPath is null
             ? OpeningStep.Nothing
             : OpeningStep.Capture;
+    }
+
+    /// <summary>
+    /// `TF2VIEW_SEEK_THROUGH="60000 5000"`: the ticks a headless capture seeks through, in order, before the one it
+    /// shows — an instrument for what a seek rebuilds, since one `--tick` is only ever a seek from the start.
+    /// </summary>
+    /// <param name="asked">Whole ticks separated by spaces, or null for none.</param>
+    /// <returns>The ticks; none when any part is not a tick, so a typo cannot pass as a shorter journey.</returns>
+    public static IReadOnlyList<int> SeekThrough(string? asked)
+    {
+        List<int> ticks = [];
+
+        foreach (string part in (asked ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!int.TryParse(part, NumberStyles.None, CultureInfo.InvariantCulture, out int tick))
+            {
+                return [];
+            }
+
+            ticks.Add(tick);
+        }
+
+        return ticks;
     }
 }
