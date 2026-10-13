@@ -28,7 +28,7 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 /// salvage case (B211).
 /// </remarks>
 [NonParallelizable]
-public sealed class LoadPresenterTests
+public sealed class ViewerPresenterTests
 {
     private const string Map = "ctf_written_by_a_test";
 
@@ -80,7 +80,7 @@ public sealed class LoadPresenterTests
     private void WriteMap() =>
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
-    private (LoadPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -92,7 +92,7 @@ public sealed class LoadPresenterTests
             gameFolder: static () => null);
 #pragma warning restore CA2000
 
-        LoadPresenter loader = new(
+        ViewerPresenter loader = new(
             view,
             NullLoggerFactory.Instance,
             new FrameLedger(),
@@ -116,7 +116,7 @@ public sealed class LoadPresenterTests
     {
         WriteMap();
         // A name nobody has: the camera says so while the demo is OPENING, which is the one thing a window sees of that step.
-        (LoadPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader(spectateWho: "nobody by this name");
+        (ViewerPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader(spectateWho: "nobody by this name");
         Dictionary<string, int> lengthWhen = [];
         view.Asked = name => lengthWhen[name] = transport.DemoLength;
 
@@ -148,7 +148,7 @@ public sealed class LoadPresenterTests
     public void LoadDemo_ADemoWithItsMap_HoldsTheDemoItsMapAndTheInstall()
     {
         WriteMap();
-        (LoadPresenter loader, _, FakePlaybackView transport) = Loader();
+        (ViewerPresenter loader, _, FakePlaybackView transport) = Loader();
 
         using (loader)
         {
@@ -171,7 +171,7 @@ public sealed class LoadPresenterTests
     [Test]
     public void LoadDemo_WithNoMapAnywhere_OpensTheDemoAndSaysTheMapIsMissing()
     {
-        (LoadPresenter loader, FakeLoadView view, _) = Loader();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
 
         using (loader)
         {
@@ -181,7 +181,7 @@ public sealed class LoadPresenterTests
             result.Message.ShouldEndWith("(map not found)");
             loader.Demo.ShouldNotBeNull();
             loader.Map.ShouldBeNull();
-            view.Names.ShouldContain("Status: " + LoadPresenter.NoGameInstalled, "the missing install is mentioned, and the load carries on (B211)");
+            view.Names.ShouldContain("Status: " + ViewerPresenter.NoGameInstalled, "the missing install is mentioned, and the load carries on (B211)");
             view.Names.ShouldContain("Status: Map " + Map + " is not installed");
             view.Names.ShouldNotContain(nameof(ILoadView.MapRead));
             view.Names.ShouldContain(nameof(ILoadView.ClearWorld), "the old map goes whether or not a new one comes");
@@ -192,7 +192,7 @@ public sealed class LoadPresenterTests
     public void LoadDemo_AFileThatIsNoDemo_ClosesTheOpenDemoAndSaysWhy()
     {
         WriteMap();
-        (LoadPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader();
+        (ViewerPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader();
         string broken = Path.Combine(_folder, "broken.dem");
         File.WriteAllText(broken, "version https://git-lfs.github.com/spec/v1");
 
@@ -215,7 +215,7 @@ public sealed class LoadPresenterTests
     public async Task LoadDemoAsync_ADemoWithItsMap_ReadsTheMapOffTheWindowsThreadBehindTheBarrier()
     {
         WriteMap();
-        (LoadPresenter loader, FakeLoadView view, _) = Loader();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
 
         using (loader)
         {
@@ -245,7 +245,7 @@ public sealed class LoadPresenterTests
     public async Task LoadDemoAsync_ANewerLoad_SupersedesTheOlderAndTakesTheProgressDownOnce()
     {
         WriteMap();
-        (LoadPresenter loader, FakeLoadView view, _) = Loader();
+        (ViewerPresenter loader, FakeLoadView view, _) = Loader();
         view.Loads = 2;
 
         using (loader)
@@ -270,7 +270,7 @@ public sealed class LoadPresenterTests
     [Test]
     public void PlaySounds_WithNoDeviceOpened_NeverAsksForTheListener()
     {
-        (LoadPresenter loader, _, _) = Loader();
+        (ViewerPresenter loader, _, _) = Loader();
         int asked = 0;
 
         using (loader)
@@ -298,7 +298,7 @@ public sealed class LoadPresenterTests
     public void PlaySoundsOver_WithNoListener_AsksForNoEyesAndStepsNothing()
     {
         WriteMap();
-        (LoadPresenter loader, _, _) = Loader();
+        (ViewerPresenter loader, _, _) = Loader();
         CountingSink sink = new();
         int eyes = 0;
 
@@ -326,7 +326,7 @@ public sealed class LoadPresenterTests
     public void PlaySoundsOver_WithAListenerAndADemo_AsksForTheEyesAfterTheCameraAndStepsTheSoundOnce()
     {
         WriteMap();
-        (LoadPresenter loader, _, _) = Loader();
+        (ViewerPresenter loader, _, _) = Loader();
         CountingSink sink = new();
         List<string> asked = [];
 
@@ -358,7 +358,7 @@ public sealed class LoadPresenterTests
     [Test]
     public void InvalidateWorld_ThenProjected_AsksForOneProjection()
     {
-        (LoadPresenter loader, _, _) = Loader();
+        (ViewerPresenter loader, _, _) = Loader();
 
         using (loader)
         {

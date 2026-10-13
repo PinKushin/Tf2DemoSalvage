@@ -5,7 +5,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <summary>What a load asks of the window it fills: its thread, its words, its device and its camera (D214).</summary>
 /// <remarks>
 /// **Each member is a place the load reached into the window when it lived there**, called at that same moment by
-/// <see cref="LoadPresenter"/> [no engine counterpart: the engine's loader and its window are one program]. The view
+/// <see cref="ViewerPresenter"/> [no engine counterpart: the engine's loader and its window are one program]. The view
 /// keeps the dialog, the progress display and what only a window has; it decides nothing about a load's order.
 ///
 /// **No member takes or returns a domain type.** The window asks the presenter for the demo and the map when one of

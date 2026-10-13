@@ -16,10 +16,15 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>
-/// Owns what a load fills — the model set, the moment, the sound, the game systems, the frame's effects — and the load
-/// itself: the decode, the map read behind the render barrier, and the demo becoming the open one (D90, D92, D214).
+/// The viewer window's composite presenter (D92): it owns the frame presenter, the camera presenter, what a load fills —
+/// the model set, the moment, the sound, the game systems — and the load itself: the decode, the map read behind the
+/// render barrier, and the demo becoming the open one (D90, D214).
 /// </summary>
 /// <remarks>
+/// **Was `LoadPresenter` for one slice.** It began as the owner of a load, then took the sound device, the camera
+/// presenter and the draw's decisions, each because it already held what they read. D92 names the role — a composite
+/// view gets a composite presenter that owns its sub-presenters — and the name now says it.
+///
 /// **Moved out of the window whole, in the order and on the threads it ran there** [no engine counterpart: the engine
 /// loads a level on one thread behind a loading screen it draws itself; the worker and the barrier are this viewer's,
 /// B146]. The window constructed these collaborators, kept the four things a load assigns (the demo, its timeline, the
@@ -36,7 +41,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <see cref="ILoadView.OnUi{T}"/>; <see cref="ReadingMap"/> is raised on the UI thread before the map read and lowered
 /// on it afterwards, and the render loop draws nothing in between.
 /// </remarks>
-public sealed partial class LoadPresenter : IDisposable
+public sealed partial class ViewerPresenter : IDisposable
 {
     private readonly ILoadView _view;
     private readonly ILogger _log;
@@ -199,7 +204,7 @@ public sealed partial class LoadPresenter : IDisposable
     /// <param name="playback">Owns the transport and the clock; the demo's systems drive it.</param>
     /// <param name="clientConVars">The watcher's own ConVar values, or null where unset (D190).</param>
     /// <param name="shutdown">Cancelled when the window closes, so the workers do not come back to a disposed one (B402).</param>
-    public LoadPresenter(
+    public ViewerPresenter(
         ILoadView view,
         ILoggerFactory loggers,
         FrameLedger ledger,

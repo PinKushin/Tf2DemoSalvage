@@ -38844,3 +38844,10 @@ constructor, where the window's constructed them: neither reads anything.
 follow-up, the leaf outline, the screen overlay and the feeds each need a map with faces, leaves with bounds, an
 overlay material or a demo with a fog controller, and the map and demos a test can write have none. The load logs
 hold the upload (its lines are in all three), and every frame holds the moment's view, the feeds and the overlay.
+
+**Slice 7, fourth commit: `LoadPresenter` is `ViewerPresenter`.** No reach change (109). D92 names the role and not
+the type: *a composite view gets a composite presenter that owns its sub-presenters*. That is what the owner of the
+load became once it held the frame presenter, the sound device, the camera presenter and the draw's decisions, so
+the type, its three files, its tests and the window's field (`_presenter`) carry that name. `ILoadView` keeps its
+name: it is still what the LOAD asks of the window, and `ICameraView` is what the camera asks. Earlier entries in
+this file and in D214 say `LoadPresenter`; they are the history of slice 6 and are left as written.

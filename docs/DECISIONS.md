@@ -9860,6 +9860,10 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   inside the three methods that can change the mode — so D128 and D188 are a property of the owner, not of each
   key handler remembering to ask. The window passes raw input (a notch's direction, a drag in pixels, the flight
   input's reader, an action already resolved through the bindings) and its tick and shape (`CameraWindow`).
+- **The window's composite presenter is named for the role D92 gives it** (slice 7): `ViewerPresenter`, which was
+  `LoadPresenter` while a load was all it owned. It constructs the frame presenter and the camera presenter and
+  holds what both read; the window holds it and nothing it constructs. `ILoadView` and `ICameraView` are what two
+  of its concerns ask of the window, and stay two interfaces.
 - **An input that is consumed by being read is handed over as its reader** (slice 7): flight's `Intent` loses its
   impulse bits on a read, so the camera is given the function and reads it once, only in the free camera — the
   window cannot read it at the wrong time because the window no longer reads it.

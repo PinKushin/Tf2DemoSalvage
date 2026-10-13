@@ -268,9 +268,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private readonly DemoLibrary _library = new();
 
     /// <summary>Owns what a load fills and the load itself; this window is its <see cref="ILoadView"/> (D214).</summary>
-    private readonly LoadPresenter _loader;
+    private readonly ViewerPresenter _presenter;
 
-    private LoadedDemo? _demo => _loader.Demo;
+    private LoadedDemo? _demo => _presenter.Demo;
 
     // **`_scene` was here until 2026-08-26** (D98) — entity positions already projected to clip
     // space, held that way so the render loop did no per-frame work beyond handing them over. That
@@ -282,7 +282,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // it could never produce a visible triangle. Deleted with the projection that built it.
 
     /// <summary>The map the load owner holds, or null when none is open.</summary>
-    private LoadedMap? _loaded => _loader.Map;
+    private LoadedMap? _loaded => _presenter.Map;
 
     /// <summary>The map as it was read, for a test to ask what came with it (B393).</summary>
     internal LoadedMap? Loaded => _loaded;
@@ -315,7 +315,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private string _releasing = string.Empty;
 
     /// <summary>The install the load owner holds, null until a map read or a decode opens it.</summary>
-    private GameContent? _game => _loader.Game;
+    private GameContent? _game => _presenter.Game;
 
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
@@ -387,7 +387,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // drawn with a pass-through depth.
 
     /// <summary>The open demo's timeline, which the load owner holds.</summary>
-    private DemoTimeline? _timeline => _loader.Timeline;
+    private DemoTimeline? _timeline => _presenter.Timeline;
 
     // **`_players` and `_props` were here until 2026-08-26** (B188, D90). They existed only because
     // `ShowMoment` sampled the timeline in the window; `MomentPresenter` owns them now, and reuses
@@ -729,12 +729,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
         // order this constructor built them. The three fields below are the same objects, kept because the frame still
         // asks them; nothing here constructs or replaces one.
-        _loader = new LoadPresenter(
+        _presenter = new ViewerPresenter(
             this, loggers, ledger, _viewmodelScene, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
-        _moment = _loader.Moment;
-        _moments = _loader.Moments;
-        _effects = _loader.Effects;
-        _camera = _loader.Camera;
+        _moment = _presenter.Moment;
+        _moments = _presenter.Moments;
+        _effects = _presenter.Effects;
+        _camera = _presenter.Camera;
 
         _listener = () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera();
         _listenerEyes = () => _camera.FirstPerson ? _camera.FollowedEntity() : null;
@@ -748,7 +748,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         _effects.AttachHud(new HudWindow(
             _gdi, () => _game, () => _demo?.MapName, HudWindowAt, _camera.ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, _camera.FirstPersonCamera));
 
-        _frames = new FrameReporter(ledger, _loader.Models, new StopwatchTime(), _renderLog);
+        _frames = new FrameReporter(ledger, _presenter.Models, new StopwatchTime(), _renderLog);
 
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -809,7 +809,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         LoadUserConfig();
         _console.Triggered += OnConsoleAction;
 
-        _loader.OpenAudio();
+        _presenter.OpenAudio();
 
         Text = "TF2 Demo Salvage";
         Name = MainWindowId;
@@ -1168,14 +1168,14 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>The demo currently loaded, or <c>null</c> if none is.</summary>
     public LoadedDemo? Demo => _demo;
 
-    /// <summary>Loads a demo by path, on this thread: <see cref="LoadPresenter.LoadDemo"/>.</summary>
+    /// <summary>Loads a demo by path, on this thread: <see cref="ViewerPresenter.LoadDemo"/>.</summary>
     /// <param name="path">Full path to the demo.</param>
-    public DemoLoadResult LoadDemo(string path) => _loader.LoadDemo(path);
+    public DemoLoadResult LoadDemo(string path) => _presenter.LoadDemo(path);
 
-    /// <summary>Opens a demo without freezing the window: <see cref="LoadPresenter.LoadDemoAsync"/>.</summary>
+    /// <summary>Opens a demo without freezing the window: <see cref="ViewerPresenter.LoadDemoAsync"/>.</summary>
     /// <param name="path">Full path to the demo.</param>
     /// <returns>A task that completes when the demo is on screen.</returns>
-    public Task<DemoLoadResult> LoadDemoAsync(string path) => _loader.LoadDemoAsync(path);
+    public Task<DemoLoadResult> LoadDemoAsync(string path) => _presenter.LoadDemoAsync(path);
 
     /// <summary>Loads the demo selected in the playlist, if any.</summary>
     /// <remarks>
@@ -1197,7 +1197,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return NothingSelected;
         }
 
-        return _loader.LoadDemoAsync(_shown[index].Path);
+        return _presenter.LoadDemoAsync(_shown[index].Path);
     }
 
     /// <summary>The load in flight, kept so it is observed rather than discarded.</summary>
@@ -1416,7 +1416,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // **A load in flight is not a demo that never came.** The patience is a frame count, and a
         // window that draws at 300 fps while an 80-second decode runs would give up two thirds of
         // the way through it.
-        if (_loader.LoadsInFlight > 0)
+        if (_presenter.LoadsInFlight > 0)
         {
             return;
         }
@@ -1693,7 +1693,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     {
         _shownTick = tick;
 
-        _loader.Show(tick, _transport.Playing);
+        _presenter.Show(tick, _transport.Playing);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -1881,7 +1881,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return await NothingSelected.ConfigureAwait(true);
         }
 
-        DemoLoadResult result = await _loader.LoadDemoAsync(_openOnShow).ConfigureAwait(true);
+        DemoLoadResult result = await _presenter.LoadDemoAsync(_openOnShow).ConfigureAwait(true);
 
         if (result.Outcome == DemoLoadOutcome.Failed)
         {
@@ -1930,7 +1930,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
 
-        if (_loader.LoadsInFlight == 0 && _demo is null)
+        if (_presenter.LoadsInFlight == 0 && _demo is null)
         {
             _status.Text = $"{_status.Text} {started}";
         }
@@ -1975,7 +1975,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         IsHandleCreated && InvokeRequired ? Invoke(work) : work();
 
     // **What a load asks of this window** (`ILoadView`, D214). The load itself — the decode, the map read behind the
-    // render barrier, the demo becoming the open one — is `LoadPresenter`'s; each member below is the part of it that
+    // render barrier, the demo becoming the open one — is `ViewerPresenter`'s; each member below is the part of it that
     // is a window's, called at the moment the load reached for it when it lived here.
 
     /// <summary>What this window knows that a camera needs: the transport's tick, the tick last shown, its shape.</summary>
@@ -1993,7 +1993,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <inheritdoc/>
     void ICameraView.CameraChanged()
     {
-        _loader.InvalidateWorld();
+        _presenter.InvalidateWorld();
         _viewport.Invalidate();
     }
 
@@ -2035,7 +2035,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
     /// <summary>Projects the map: whether it needs uploading and what follows an upload are the load owner's; this window's part is its device, the surface-colour toggle and the viewport's size.</summary>
     private void ProjectMap() =>
-        _loader.ProjectMap(_device, _menu.SurfaceColours.Checked, (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
+        _presenter.ProjectMap(_device, _menu.SurfaceColours.Checked, (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
 
     /// <inheritdoc/>
     void ILoadView.DemoOpened()
@@ -3329,9 +3329,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>Steps the sound for this frame, with the ears wherever the camera is.</summary>
     /// <remarks>
     /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
-    /// it is, asked for by <see cref="LoadPresenter.PlaySounds"/> only once it knows there is a device to play through.
+    /// it is, asked for by <see cref="ViewerPresenter.PlaySounds"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds() => _loader.PlaySounds(_listener, _listenerEyes, _transport.CurrentTick);
+    private void PlaySounds() => _presenter.PlaySounds(_listener, _listenerEyes, _transport.CurrentTick);
 
     // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
     // should be audible at a tick is not a window's job, and none of it needed one: the schedule,
@@ -3392,7 +3392,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // The window keeps pumping, which is the whole point: it stays responsive, the menus work,
         // and Windows stops calling it hung. What it shows meanwhile is the last frame drawn, which
         // is what a frozen window showed anyway.
-        if (_loader.ReadingMap)
+        if (_presenter.ReadingMap)
         {
             return false;
         }
@@ -3427,7 +3427,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
         // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
         // was the entire measurement in one sample.
-        bool onScreen = _demo is not null && _loader.LoadsInFlight == 0;
+        bool onScreen = _demo is not null && _presenter.LoadsInFlight == 0;
 
         if (onScreen && _wasOnScreen)
         {
@@ -3613,12 +3613,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             _moments.PoseNow();
         }
 
-        if (!_loader.WorldNeedsProjecting)
+        if (!_presenter.WorldNeedsProjecting)
         {
             return;
         }
 
-        _loader.WorldProjected();
+        _presenter.WorldProjected();
         ProjectMap();
         ReprojectScene();
     }
@@ -3656,7 +3656,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
 
         // The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).
-        _device.ScreenOverlay = _loader.ScreenOverlay;
+        _device.ScreenOverlay = _presenter.ScreenOverlay;
 
         // The followed player, whom a monitor view force-draws though the main view does not (B511).
         _device.MonitorOnlyModels = _moment.UndrawnInstances;
@@ -3680,7 +3680,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
             // it. `MapOutline` still supplies the play-area bounds, which is the half that was
             // actually wanted.
-            _loader.LeafBoxLines(_debug.LeafVis),
+            _presenter.LeafBoxLines(_debug.LeafVis),
 
             // **Empty since 2026-08-26** (D98), like the fill above it. This channel carried the
             // flat player markers, projected through the orthographic camera. The parameter stays
@@ -3805,7 +3805,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
 
         _dragFrom = e.Location;
-        _loader.InvalidateWorld();
+        _presenter.InvalidateWorld();
     }
 
     private void OnViewportMouseUp(object? sender, MouseEventArgs e)
@@ -3851,7 +3851,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
-        _loader.InvalidateWorld();
+        _presenter.InvalidateWorld();
 
         if (_device is null || _viewport.ClientSize.Width <= 0 || _viewport.ClientSize.Height <= 0)
         {
@@ -4436,7 +4436,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             _shutdown.Cancel();
 
             // The corpse pass is linked to `_shutdown` and has just been told to stop; its source is ours to release (D181).
-            _loader.ReleaseCorpseRecord();
+            _presenter.ReleaseCorpseRecord();
 
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them
@@ -4491,7 +4491,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
             // Before the log line below, so a device that hangs on close is visible as a shutdown
             // that stalled here rather than as one that never reached the end.
-            _loader.Dispose();
+            _presenter.Dispose();
 
             // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             _renderLog.LogInformation(

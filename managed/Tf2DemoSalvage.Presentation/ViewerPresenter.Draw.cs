@@ -12,7 +12,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// moment's view, the leaf outline, the screen overlay (D214). The device calls stay the window's; each member here
 /// is the decision that stood beside one [no engine counterpart: the engine's renderer and its window are one program].
 /// </content>
-public sealed partial class LoadPresenter
+public sealed partial class ViewerPresenter
 {
     // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
     // beside the code that reads it (B188, D90).

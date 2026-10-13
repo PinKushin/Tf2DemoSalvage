@@ -4,7 +4,7 @@ using System.Linq;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
-/// <summary>A window for <see cref="LoadPresenter"/> that writes down what it was asked, in order, and how (D214).</summary>
+/// <summary>A window for <see cref="ViewerPresenter"/> that writes down what it was asked, in order, and how (D214).</summary>
 /// <remarks>
 /// **Two facts beside each name, because they are what a moved load could get wrong and still finish**: whether the
 /// call came through <see cref="OnUi{T}"/> — the old code's marshal to the window's thread — and whether the map read's
