@@ -91,8 +91,6 @@ internal sealed class FakeLoadView : ILoadView, ICameraView
 
     public void ClearWorld() => Note(nameof(ClearWorld));
 
-    public void MapReading() => Note(nameof(MapReading));
-
     public void MapRead() => Note(nameof(MapRead));
 
     public void DemoOpened() => Note(nameof(DemoOpened));

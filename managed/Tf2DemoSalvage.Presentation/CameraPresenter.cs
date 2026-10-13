@@ -17,6 +17,13 @@ namespace Tf2DemoSalvage.Presentation;
 /// <param name="FullScreenExclusive">Whether the window is full screen in the exclusive mode (`view.cpp:1077`'s "not windowed").</param>
 public readonly record struct CameraWindow(int Tick, double ShownTick, int Width, int Height, bool FullScreenExclusive);
 
+/// <summary>What the demo says of a tick that the device is set with beside the camera: the fog, the monitor's camera, the tonemap.</summary>
+/// <param name="WorldFog">The fog in force (B139): `EnableWorldFog` runs in every view setup.</param>
+/// <param name="SkyFog">The 3D sky's fog.</param>
+/// <param name="MonitorCamera">The `point_camera` a monitor shows, or null.</param>
+/// <param name="Tonemap">The tonemap controller's state.</param>
+public readonly record struct TickFeeds(SceneFog? WorldFog, SceneFog? SkyFog, ScenePointCamera? MonitorCamera, SceneTonemap Tonemap);
+
 /// <summary>
 /// Owns which camera the viewport is drawn through — the requested mode, the spectator, the free camera — and every
 /// decision about entering, leaving, cycling and moving one (D90, D92, D214).
@@ -105,6 +112,14 @@ public sealed class CameraPresenter
         _spectateLog = loggers.CreateLogger("spectate");
         _freeCamera = new FreeCameraController(_renderLog);
     }
+
+    /// <summary>The demo's feeds at the transport's tick, for the device, read where the window read them: after the camera.</summary>
+    public TickFeeds FeedsNow() =>
+        new(
+            _timeline?.FogAt(_window().Tick),
+            _timeline?.SkyFogAt(_window().Tick),
+            _timeline?.PointCameras.At(_window().Tick),
+            _timeline?.Tonemap.At(_window().Tick) ?? default);
 
     /// <summary>The mode the user asked for, which death does not change; see <see cref="EffectiveMode"/>.</summary>
     public CameraMode Mode => _cameraMode;

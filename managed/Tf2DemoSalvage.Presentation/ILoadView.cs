@@ -33,11 +33,8 @@ public interface ILoadView
     /// <summary>Takes the progress display down: no load is in flight.</summary>
     public void HideLoading();
 
-    /// <summary>Drops the device's world and what the window drew from the old map. UI thread.</summary>
+    /// <summary>Drops the device's world. UI thread.</summary>
     public void ClearWorld();
-
-    /// <summary>A map is about to be read: the resident textures are no longer this level's.</summary>
-    public void MapReading();
 
     /// <summary>A map was read and the presenter holds it: project it.</summary>
     public void MapRead();

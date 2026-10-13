@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 145 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
+## B540 — the view reaches 109 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38788,3 +38788,59 @@ has), and was seen red again with the camera told after the systems opened.
 in the file three times, so the inverse found it four times and refused. Nothing was half-written (every step is
 checked first), the file was left fully broken, and it was restored by one edit and the script's own inverse, then
 compared with the copy. The script now simulates each round's break AND its restore before touching a file.
+
+**Slice 7, third commit: the draw's decisions — 145 to 109, 36 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 119 | 91 | 28 |
+| Core | 19 | 11 | 8 |
+| Content | 7 | 7 | 0 |
+| total | 145 | 109 (38 types, 71 members) | 36 |
+
+`MainForm` uses 67 distinct domain members, from 96, and is 4,608 lines, from 4,772. *Measured*, by the instrument.
+
+*What moved, to the owner of the load (`LoadPresenter.Draw.cs`), each a decision that stood beside a device call:*
+
+- **`ProjectMap`**, whole: is there a map with an outline, the world presenter's upload, and what follows one — the
+  problem on the status line, the entity models' copies released once the world is up (B407), the map read again
+  when released textures were lost. The window's `ProjectMap` is one call with its device, the surface-colour
+  toggle and the viewport's size. The world presenter and its three questions (`InvalidateWorld`,
+  `WorldNeedsProjecting`, `WorldProjected`) are the owner's.
+- **`LeafBoxLines`**, with the leaf boxes; the window says whether `mat_leafvis` is on.
+- **`ShowOnly`'s moment**: the `MomentView` — whose eyes, the eye camera, the viewmodel's field of view, the
+  watcher's three viewmodel settings — is `Show( tick, playing )`. The window still sets the tick it showed first.
+- **The screen overlay's lookup** (`ScreenOverlay`), and **the tick's feeds for the device** — the fog, the sky's
+  fog, the monitor's camera, the tonemap — as `CameraPresenter.FeedsNow()`, one record read where the four lines
+  stood, after the camera.
+
+**Two lines slice 6 had to leave in the window are back in the load where they were**: `ClearMap` forgets the leaf
+boxes and marks the world's textures stale itself, between the systems' shutdown and the device's `ClearWorld`,
+and `ReadMap` marks them stale before the level loads. `ILoadView.MapReading` is gone and `ILoadView.ClearWorld`
+is the device call alone.
+
+*Left, and why:*
+
+- **`OnViewportHandleCreated` (13)**: every line is a device call or a WinForms one — the device created, eleven
+  settings assigned to its properties, the idle handler and the key filter installed. What it reaches is
+  `ViewerSettings`' getters; it thins when the settings get an owner, not by moving device calls.
+- **`DrawScene` (5)** hands the device the moment's instance lists (`Instances`, `ViewmodelInstances`,
+  `UndrawnInstances`, the viewmodel camera). They are arguments of one device call; a record of them would be a
+  second name for `MomentScene`.
+- **`ProjectWorld`** is the device's frustum handed to the moment presenter and the three world questions; nothing
+  in it decides.
+- **`ViewFrameNow` (5)** still carries the demo, the map and the install to the frame presenter, which the owner
+  of both could supply itself. That changes `ViewFrame`'s shape for every part that reads it and is its own slice.
+
+*Every textual difference:* `_device`, `_menu.SurfaceColours.Checked` and the viewport's size are `ProjectMap`'s
+arguments; `_status.Text` is `_view.Status`; `_loader.LoadMap` is `LoadMap`; `!_debug.LeafVis` is `!on`;
+`_transport.CurrentTick` in the moment's view is `_window().Tick` and `_transport.Playing` is `playing`; the four
+feed lines read `_window().Tick` in a record's constructor; `_world.Invalidate()` in the window is
+`_loader.InvalidateWorld()` (3). The world presenter and the leaf boxes are constructed in the owner's
+constructor, where the window's constructed them: neither reads anything.
+
+*Tests:* one, `InvalidateWorld_ThenProjected_AsksForOneProjection`, seen red. The load's two order tests lose the
+`MapReading` call they recorded, since it is no longer a call on the window. **Not tested, and why:** the upload's
+follow-up, the leaf outline, the screen overlay and the feeds each need a map with faces, leaves with bounds, an
+overlay material or a demo with a fog controller, and the map and demos a test can write have none. The load logs
+hold the upload (its lines are in all three), and every frame holds the moment's view, the feeds and the overlay.

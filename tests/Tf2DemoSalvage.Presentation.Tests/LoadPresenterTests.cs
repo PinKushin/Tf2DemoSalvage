@@ -133,7 +133,6 @@ public sealed class LoadPresenterTests
                 nameof(ICameraView.FailHeadless),
                 nameof(ILoadView.DemoOpened),
                 nameof(ILoadView.ClearWorld),
-                nameof(ILoadView.MapReading),
                 nameof(ILoadView.MapRead),
                 "Status: " + result.Message,
                 nameof(ILoadView.DemoShown),
@@ -231,7 +230,6 @@ public sealed class LoadPresenterTests
                 ("Report: " + FakeLoadView.Decoding, false, false),
                 ("Report: Loading the map", true, false),
                 (nameof(ILoadView.ClearWorld), true, true),
-                (nameof(ILoadView.MapReading), false, true),
                 (nameof(ILoadView.MapRead), false, true),
                 ("Report: Loading models and sounds", true, true),
                 (nameof(ILoadView.DemoOpened), true, false),
@@ -354,6 +352,24 @@ public sealed class LoadPresenterTests
 
             asked.ShouldBe(["camera", "eyes"]);
             sink.Reclaims.ShouldBe(1, "one step of the sound presenter, which reclaims finished voices once");
+        }
+    }
+
+    [Test]
+    public void InvalidateWorld_ThenProjected_AsksForOneProjection()
+    {
+        (LoadPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            loader.WorldProjected();
+            loader.WorldNeedsProjecting.ShouldBeFalse("the control: nothing has moved the view");
+
+            loader.InvalidateWorld();
+            loader.WorldNeedsProjecting.ShouldBeTrue();
+
+            loader.WorldProjected();
+            loader.WorldNeedsProjecting.ShouldBeFalse();
         }
     }
 

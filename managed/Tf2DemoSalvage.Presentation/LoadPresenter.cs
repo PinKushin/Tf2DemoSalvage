@@ -46,6 +46,8 @@ public sealed partial class LoadPresenter : IDisposable
     private readonly ILogger _audioLog;
     private readonly SpectatorView _spectator;
     private readonly CameraPresenter _camera;
+    private readonly ILoggerFactory _loggers;
+    private readonly Func<CameraWindow> _window;
     private readonly Func<string?> _spectateWho;
     private readonly MapProvider _maps;
     private readonly Func<ViewerSettings> _settingsNow;
@@ -223,6 +225,8 @@ public sealed partial class LoadPresenter : IDisposable
 
         _view = view;
         _spectateWho = spectateWho;
+        _loggers = loggers;
+        _window = window;
         _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
         _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, settings);
         _maps = maps;
@@ -234,6 +238,8 @@ public sealed partial class LoadPresenter : IDisposable
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
+        _world = new WorldPresenter(_renderLog);
+        _leafBoxes = new LeafBoxes(_renderLog);
 
         // **Given its collaborators rather than reaching for them**, which is what lets it be
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
@@ -443,6 +449,25 @@ public sealed partial class LoadPresenter : IDisposable
         // all. Adding a fifth system meant guessing which of the three places it belonged in.
         _levels.Shutdown();
 
+        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
+        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
+        // the previous map's lumps until the next read replaced them. Nothing read them in between —
+        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
+        // methods away" is the kind of thing a record makes impossible to get wrong.
+        //
+        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
+        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
+        // read it (B196).
+        _leafBoxes.Forget();
+        _world.TexturesAreCurrent = false;
+
+        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
+        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
+        // set that is still in memory has nowhere on the device to live until it is uploaded again
+        // (B148).
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
+
         _view.ClearWorld();
     }
 
@@ -544,7 +569,7 @@ public sealed partial class LoadPresenter : IDisposable
             // between "this could be made eager" and "there is nothing to hurry".
             _game = _levels.Install(_maps.GameFolder);
 
-            _view.MapReading();
+            _world.TexturesAreCurrent = false;
 
             // **Reading a map is not window work and telling the systems about it is not either**
             // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the

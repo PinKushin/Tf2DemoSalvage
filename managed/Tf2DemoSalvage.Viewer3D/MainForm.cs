@@ -394,10 +394,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // them for the same reason — a moment is rebuilt every frame while playing, so fresh lists would
     // be two allocations a frame.
 
-    /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
-    // The load owner's, as are `_moment`, `_moments` and `_effects` below: it constructs them and the frame
-    // here still asks them (D214).
-    private readonly EntityModelSet _models;
+    // `_moment`, `_moments` and `_effects` below are the load owner's: it constructs them and the frame here still
+    // asks them (D214). The model set was a fourth until the world upload's follow-up left with `ProjectMap`.
 
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
@@ -467,25 +465,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// others were measured away.
     /// </remarks>
     private readonly FrameReporter _frames;
-
-    // `_texturesUploaded` was here until 2026-08-26. It is `WorldPresenter.TexturesAreCurrent`,
-    // beside the code that reads it (B188, D90).
-    //
-    // **It has to exist at all because `HasWorldTextures` answers a different question.** The device
-    // knows whether textures are RESIDENT, which stays true across a map change — they are simply
-    // the wrong ones. Only something that knows about levels can say "resident AND for this one".
-
-    /// <summary>The world upload, and whether this level's textures are the resident ones.</summary>
-    private readonly WorldPresenter _world;
-
-    /// <summary>The leaf outline for <c>mat_leafvis</c>, and the warning it may write.</summary>
-    /// <remarks>
-    /// **Was `_reportedNoLeafBox`, a bool in this window** (B188, D90), whose only job was to stop a
-    /// per-frame warning becoming a per-frame warning. The latch, the log and the three reasons it
-    /// chooses between now sit with the outline they describe — the same arrangement `MomentScene`
-    /// already uses for "no player appearance".
-    /// </remarks>
-    private readonly LeafBoxes _leafBoxes;
 
     // **`_worldIsStale` was here until 2026-08-26** (B188, D90). It is
     // `WorldPresenter.NeedsProjecting`, beside `TexturesAreCurrent`, which it resembled in every
@@ -748,11 +727,10 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         // **What a load fills is composed by its owner** (D214): the model set, the sound cache, soundscape and
         // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
-        // order this constructor built them. The four fields below are the same objects, kept because the frame still
+        // order this constructor built them. The three fields below are the same objects, kept because the frame still
         // asks them; nothing here constructs or replaces one.
         _loader = new LoadPresenter(
             this, loggers, ledger, _viewmodelScene, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
-        _models = _loader.Models;
         _moment = _loader.Moment;
         _moments = _loader.Moments;
         _effects = _loader.Effects;
@@ -770,10 +748,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         _effects.AttachHud(new HudWindow(
             _gdi, () => _game, () => _demo?.MapName, HudWindowAt, _camera.ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, _camera.FirstPersonCamera));
 
-        _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
+        _frames = new FrameReporter(ledger, _loader.Models, new StopwatchTime(), _renderLog);
 
-        _world = new WorldPresenter(_renderLog);
-        _leafBoxes = new LeafBoxes(_renderLog);
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
         // rendering defects this session were found by the owner photographing their own screen and
@@ -1284,67 +1260,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     //
     // Where Steam puts things is not a fact about a window.
 
-    /// <summary>Projects the map through a camera fitted to its own bounds.</summary>
-    /// <remarks>
-    /// Fitted to the MAP rather than to the players. A camera that reframes itself around wherever
-    /// the players happen to be turns every scrub into a jump - the world should sit still while
-    /// the players move within it.
-    /// </remarks>
-    private void ProjectMap()
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded is not { } map || map.Outline.IsEmpty)
-        {
-            return;
-        }
-
-        // **The segment projection and the flat fill are gone, not skipped.** The first projected all
-        // 60,764 of the BSP's edge segments for an overhead view that was removed; the second was
-        // dead by construction, built FROM the map as a fallback for having no map. Together they
-        // measured `project 615.8 ms` in a 679 ms frame, re-run on every camera change, for
-        // triangles nothing would draw.
-        //
-        // **The early return that replaced them was a real bug, caught before it shipped.** Returning
-        // here skips everything below, and everything below is the TEXTURED WORLD UPLOAD. Dropping
-        // the fill must not drop the world.
-        // **What is left here is the camera, the viewport and the status bar.** Deciding whether the
-        // world needs uploading is a question about a level and about what already reached the GPU;
-        // performing the upload needs a device, which arrives through `IWorldUpload` — the same seam
-        // `IModelUpload` already uses, and the same reason: the decision becomes testable with a
-        // fake, and the code that decides stops being the code that talks to Direct3D.
-        //
-        // **A `TopDownCamera` was passed alongside the matrix until 2026-08-26** (D98). It was
-        // threaded down through `BuildWorld` into `MapWorld.Build`, which never read it — a leftover
-        // of the top-down culling that broke the free camera once already. The matrix is what the
-        // world is actually pointed with.
-        WorldUpload result = _world.Project(
-            map,
-            _device,
-            _camera.ViewMatrix(),
-            _menu.SurfaceColours.Checked,
-            (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
-            _loggers);
-
-        if (result.Problem is { } problem)
-        {
-            _status.Text = problem;
-        }
-
-        // **The world is up and the map's copies are gone, so the entity models' can go too** (B407). Armed only now, because a
-        // failure before this point clears the renderer's model buffers and must be able to re-upload from memory.
-        if (result.Uploaded && map?.Assets is { Released: true })
-        {
-            _models.ReleaseUploaded();
-        }
-
-        // The textures and props were released after their first upload and a failure cleared them (B407): read the map again.
-        if (result.NeedsReload && _demo is { } open)
-        {
-            _log.LogWarning("{Message}", $"world textures lost after their pixels were released; reading {open.MapName} again");
-            _loader.LoadMap(open.MapName);
-        }
-    }
-
     // `LightAt`, `SunAt`, `ReportLightTerms` and their two report fields were here until
     // 2026-08-25. They are `LevelLighting` in the Scene project now (B188, D90): the engine answers
     // this query through `IVEngineClient::ComputeLighting` (`cdll_int.h:392`) rather than the window
@@ -1651,34 +1566,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
     private double _demoFrameSeconds;
 
-    /// <summary>The leaf outline to draw over the world, when that overlay is switched on.</summary>
-    /// <returns>World-space segments, or nothing when the mode is off or there is no leaf.</returns>
-    /// <remarks>
-    /// **What is left here is the TOGGLE, which is view state, and the eye, which the camera owns.**
-    /// The tree walk is <see cref="LeafVis"/>'s and the transform is the GPU's (D95) — this method
-    /// no longer takes a matrix at all, because nothing on this side of the seam projects anything.
-    ///
-    /// The origin is the one the free camera flies from, so the box is the leaf the VIEWER is in
-    /// rather than the one the recording happens to be looking from.
-    ///
-    /// **It reads `_loaded` rather than a field of its own, and that is the fix for a regression
-    /// this method carried for a day** (B196). A separate `_level` survived the move that created
-    /// <see cref="LoadedMap"/> and its assignment did not, so it held null for ever and this drew
-    /// nothing on every map. One field, or it drifts.
-    /// </remarks>
-    private IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> LeafBoxLines()
-    {
-        if (!_debug.LeafVis)
-        {
-            return [];
-        }
-
-        // **The warning and its once-per-map latch went with the outline** (B188, D90). Saying which
-        // of the three silences this is, and saying it once, are both `LeafBoxes`' business — the
-        // window's part is which camera to measure from.
-        return _leafBoxes.Lines(_loaded, _camera.LeafEye);
-    }
-
     // **`WhyNoLeafBox` was a wrapper here until 2026-08-26** (B208 moved its body, B188 removed the
     // wrapper). It is `LeafVis.WhyNothing`, called by `LeafBoxes` where the warning is written.
     //
@@ -1806,38 +1693,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     {
         _shownTick = tick;
 
-        // **`EnsureWeaponRoles()` was called here until 2026-08-26** (B188, D90). It was the last
-        // non-view work in the frame path: one line reaching for `_timeline` and `_game` on every
-        // frame, to keep `MomentScene.Appearance` current. `MomentPresenter` asks
-        // `PlayerAppearances` now, still before the sampling and still outside both timers — the
-        // first call reads weapon scripts out of the archives at an ICE decryption each, and
-        // charging that to `sampling` or to `posing` would misname the same spike either way.
-        _moments.Show(
-            tick,
-            new MomentView(
-                _transport.CurrentTick,
-                _camera.FirstPerson,
-                _camera.FollowedEntity(),
-                _camera.FirstPerson ? _camera.FirstPersonCamera() : null,
-
-                // `fovViewmodel`: the setting moved by however far the view is from `default_fov` (view.cpp:725).
-                _camera.ViewFovNow().RenderedViewmodel(_settings.ViewmodelFieldOfView, _camera.Aspect),
-
-                // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
-                // the field of view because they are the same kind of thing: a setting the watcher
-                // owns, applied to the moment being drawn rather than stored in the scene.
-                _settings.DrawViewmodel,
-
-                // **Paused draws a different pose, not a frozen one** (B399). The engine clears
-                // `s_bInterpolate` while paused, so the transport's own state decides whether the
-                // sampler interpolates at all.
-                _transport.Playing,
-
-                // The watcher's `cl_flipviewmodels` (B515).
-                _settings.FlipViewModels,
-
-                // The watcher's `tf_use_min_viewmodels` (B525).
-                _settings.UseMinViewmodels));
+        _loader.Show(tick, _transport.Playing);
     }
 
     // `HandsForFollowed` lived here for exactly one commit, and its own comment admitted what it
@@ -2137,7 +1993,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <inheritdoc/>
     void ICameraView.CameraChanged()
     {
-        _world.Invalidate();
+        _loader.InvalidateWorld();
         _viewport.Invalidate();
     }
 
@@ -2171,33 +2027,15 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <inheritdoc/>
     void ILoadView.ClearWorld()
     {
-        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
-        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
-        // the previous map's lumps until the next read replaced them. Nothing read them in between —
-        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
-        // methods away" is the kind of thing a record makes impossible to get wrong.
-        //
-        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
-        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
-        // read it (B196).
-        _leafBoxes.Forget();
-        _world.TexturesAreCurrent = false;
-
-        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
-        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
-        // set that is still in memory has nowhere on the device to live until it is uploaded again
-        // (B148).
-        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
-        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
-
         _device?.ClearWorld();
     }
 
     /// <inheritdoc/>
-    void ILoadView.MapReading() => _world.TexturesAreCurrent = false;
-
-    /// <inheritdoc/>
     void ILoadView.MapRead() => ProjectMap();
+
+    /// <summary>Projects the map: whether it needs uploading and what follows an upload are the load owner's; this window's part is its device, the surface-colour toggle and the viewport's size.</summary>
+    private void ProjectMap() =>
+        _loader.ProjectMap(_device, _menu.SurfaceColours.Checked, (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
 
     /// <inheritdoc/>
     void ILoadView.DemoOpened()
@@ -3208,10 +3046,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         // **The fog in force at this tick, from the demo** (B139) — `EnableWorldFog` runs in every
         // view setup, so this is set beside the camera rather than once per map.
-        _device.WorldFog = _timeline?.FogAt(_transport.CurrentTick);
-        _device.SkyFog = _timeline?.SkyFogAt(_transport.CurrentTick);
-        _device.MonitorCamera = _timeline?.PointCameras.At(_transport.CurrentTick);
-        _device.Tonemap = _timeline?.Tonemap.At(_transport.CurrentTick) ?? default;
+        TickFeeds feeds = _camera.FeedsNow();
+
+        _device.WorldFog = feeds.WorldFog;
+        _device.SkyFog = feeds.SkyFog;
+        _device.MonitorCamera = feeds.MonitorCamera;
+        _device.Tonemap = feeds.Tonemap;
 
         // The exposure walks by game frame time and resets when the followed player changes (B514).
         // **A pending capture is a paused frame, and gets a tick of time anyway** (B520): TF2 arrives at a tick by playing
@@ -3773,12 +3613,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             _moments.PoseNow();
         }
 
-        if (!_world.NeedsProjecting)
+        if (!_loader.WorldNeedsProjecting)
         {
             return;
         }
 
-        _world.Projected();
+        _loader.WorldProjected();
         ProjectMap();
         ReprojectScene();
     }
@@ -3816,11 +3656,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
 
         // The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).
-        _device.ScreenOverlay =
-            _moment.ScreenOverlay is { } overlayName &&
-            _loaded?.Assets?.ScreenOverlays.TryGetValue(overlayName, out ScreenOverlayMaterial? screenOverlay) == true
-                ? screenOverlay
-                : null;
+        _device.ScreenOverlay = _loader.ScreenOverlay;
 
         // The followed player, whom a monitor view force-draws though the main view does not (B511).
         _device.MonitorOnlyModels = _moment.UndrawnInstances;
@@ -3844,7 +3680,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
             // it. `MapOutline` still supplies the play-area bounds, which is the half that was
             // actually wanted.
-            LeafBoxLines(),
+            _loader.LeafBoxLines(_debug.LeafVis),
 
             // **Empty since 2026-08-26** (D98), like the fill above it. This channel carried the
             // flat player markers, projected through the orthographic camera. The parameter stays
@@ -3969,7 +3805,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
 
         _dragFrom = e.Location;
-        _world.Invalidate();
+        _loader.InvalidateWorld();
     }
 
     private void OnViewportMouseUp(object? sender, MouseEventArgs e)
@@ -4015,7 +3851,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private void OnViewportResize(object? sender, EventArgs e)
     {
         _overlay?.PositionOver(_viewport);
-        _world.Invalidate();
+        _loader.InvalidateWorld();
 
         if (_device is null || _viewport.ClientSize.Width <= 0 || _viewport.ClientSize.Height <= 0)
         {
