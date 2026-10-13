@@ -57,7 +57,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// needs a real handle and the panel does not have one until it is shown. Constructing the form
 /// therefore stays free of side effects, which is also what lets it be tested without a display.
 /// </remarks>
-internal class MainForm : Form, IFrameSteps, ILoadView
+internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 {
     /// <summary>Automation id of the Direct3D viewport panel.</summary>
     public const string ViewportId = "Viewport";
@@ -375,8 +375,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
     private readonly ILogger _demoLog;
 
-    private readonly ILogger _spectateLog;
-
     private readonly ILogger _configLog;
 
     // What light the map casts is `LevelLighting`, the engine's `ComputeLighting` behind an
@@ -405,14 +403,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
     // install itself now, so there is one holder and nothing to keep in step.
-
-    /// <summary>Whose eyes the first-person view is using, and where they are.</summary>
-    /// <remarks>
-    /// **Valve's <c>CalcView</c> dispatch, and it is not window work** (<c>c_baseplayer.h:112</c>).
-    /// The form asks it two questions — which entity to hide, and where the eye is — and supplies
-    /// only the viewport's aspect ratio (B188, D90).
-    /// </remarks>
-    private readonly SpectatorView _spectator;
 
     /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
     /// <remarks>
@@ -509,71 +499,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // map the view was magnified, and where it was centred. Both are meaningless without that
     // projection: the free camera has a position, not a zoom and a centre.
 
-    /// <summary>Which camera the viewport is drawn through.</summary>
-    /// <remarks>
-    /// **Free by default, because after D98 there is no other kind.** The orthographic top-down
-    /// camera is gone; what remains is the free camera and the first-person one, and a demo opens
-    /// into the free camera.
-    ///
-    /// **A stale doc block sat above this one until 2026-08-26**, describing a deleted `_freeLook`
-    /// bool — *"Off by default, because the top-down view is what this viewer is for"*. Two
-    /// <c>&lt;summary&gt;</c> tags on one field, of which the compiler says nothing, and the first
-    /// asserted the exact opposite of what the code now does. Residue of the ortho removal itself:
-    /// the field went, its documentation did not.
-    /// </remarks>
-    private CameraMode _cameraMode = CameraMode.Free;
-
-    /// <summary>
-    /// Shorthand for the free camera, so the flight and drag handlers read as they did.
-    /// </summary>
-    /// <remarks>
-    /// **Kept deliberately rather than replaced everywhere.** A dozen sites ask "is the free camera
-    /// on" to decide whether a drag turns the view or pans the map, and rewriting each to compare
-    /// against an enum would be a dozen chances to write the comparison backwards for no gain. The
-    /// mode is the state; this is a reading of it.
-    /// </remarks>
-    private bool _freeLook => _cameraMode == CameraMode.Free;
-
-    /// <summary>The mode actually drawn through, which death can change.</summary>
-    /// <remarks>
-    /// **`_cameraMode` is what the user ASKED for; this is what the engine allows.** A dead target
-    /// cannot be watched from inside his head, so `C_HLTVCamera::CalcInEyeCamView` hands to the
-    /// chase camera — see <c>SpectatorView.Effective</c> for the citation.
-    ///
-    /// **Everything that asks "are we in first person" must ask THIS**, because the answer carries
-    /// more than the camera: the viewmodel is drawn only in first person
-    /// (<c>ShouldDrawViewModel</c>), and the followed player is hidden only in first person. Reading
-    /// the requested mode instead would draw a weapon over a chase view and hide the very player
-    /// the chase camera is pointed at.
-    /// </remarks>
-    private CameraMode _effectiveMode =>
-        _spectator.Effective(_transport.CurrentTick, _cameraMode);
-
-    /// <summary>Whether the viewport is drawn through a player's eyes.</summary>
-    private bool _firstPerson => _effectiveMode == CameraMode.FirstPerson;
-
-    /// <summary>Whether the camera is pointed at a player at all, from inside or behind.</summary>
-    /// <remarks>
-    /// **The engine's observer-mode gate, which is a range and not an equality.** `spec_next` and
-    /// `spec_prev` both run under `if ( GetObserverMode() &gt; OBS_MODE_FIXED )`
-    /// (<c>player.cpp:6643</c> and <c>:6661</c>), and `shareddefs.h:493` orders the modes so that
-    /// `OBS_MODE_IN_EYE` and `OBS_MODE_CHASE` are the two directly above `OBS_MODE_FIXED`. So
-    /// cycling targets is a property of following somebody, not of being inside their head.
-    ///
-    /// **Distinct from <see cref="_firstPerson"/> and it must stay distinct.** That one decides the
-    /// viewmodel and whether the followed player is hidden, which really are first-person-only
-    /// (<c>ShouldDrawViewModel</c>). Widening it would draw a weapon over the chase view; this is a
-    /// second question with a wider answer, asked by the things that care who is followed.
-    ///
-    /// **`OBS_MODE_ROAMING` is also above the gate and the free camera is deliberately excluded**
-    /// (D135). A roaming spectator in TF2 looks with raw mouse movement, so its `+attack` is free;
-    /// here the left button is the look-around drag, and a click that both turned the camera and
-    /// jumped to another player would fight itself. Stated as a decision rather than left as an
-    /// oversight — see <c>Click_TheCycleTargetButton_InTheFreeCamera_DoesNotCycle</c>, which pins it.
-    /// </remarks>
-    private bool _followingAPlayer =>
-        _effectiveMode is CameraMode.FirstPerson or CameraMode.ThirdPerson;
-
     // **`_freeAngles` is gone entirely as of 2026-08-26** (B206). It was an accessor onto
     // `FreeCameraController.Angles` for the drag and wheel handlers to read and write; both now ask
     // the controller to move itself, so the window neither reads nor writes the camera's angles.
@@ -586,25 +511,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // no longer sits a fixed distance from a focus point — it is placed above the map at whatever
     // height frames the play area, which is a computed distance rather than a chosen one.
 
-    /// <summary>Where the free camera is, once it has been placed.</summary>
-    /// <remarks>
-    /// **A position, not an orbit.** Orbiting a point was the first version and it could not do the
-    /// one thing the view was added for: a side-on look at a player. The orbit centre sat at the
-    /// middle of the map's height range, so levelling the camera looked out well above everybody's
-    /// heads, and there was no way to bring it down — the owner's "not low enough for actual side
-    /// on, and the camera doesn't move".
-    ///
-    /// So the camera flies. The orbit maths is still what PLACES it on entry, which keeps whatever
-    /// the map view was centred on in the middle of the first frame.
-    /// </remarks>
-    private (float X, float Y, float Z)? _freeOrigin
-    {
-        get => _freeCamera.Origin;
-        set => _freeCamera.Origin = value;
-    }
-
-    /// <summary>Where the free camera is and how it is placed.</summary>
-    private readonly FreeCameraController _freeCamera;
+    /// <summary>Which camera the viewport is drawn through, and every decision about changing it (D214).</summary>
+    private readonly CameraPresenter _camera;
 
     // **`DegreesPerPixel` was here until 2026-08-26** (B206). It is
     // `FreeCameraController.DegreesPerPixel`, along with the drag arithmetic it belonged to — which
@@ -821,12 +729,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         _log = loggers.CreateLogger("viewer");
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
-        _spectateLog = loggers.CreateLogger("spectate");
         _configLog = loggers.CreateLogger("config");
-
-        _freeCamera = new FreeCameraController(_renderLog);
-
-        _spectator = new SpectatorView(_spectateLog);
 
         // **A local, not a field.** Both readers are constructed here and neither hands it back, so
         // the window has no reason to keep a reference — and keeping one is what would let a later
@@ -848,14 +751,15 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // order this constructor built them. The four fields below are the same objects, kept because the frame still
         // asks them; nothing here constructs or replaces one.
         _loader = new LoadPresenter(
-            this, loggers, ledger, _viewmodelScene, _spectator, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
+            this, loggers, ledger, _viewmodelScene, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
         _models = _loader.Models;
         _moment = _loader.Moment;
         _moments = _loader.Moments;
         _effects = _loader.Effects;
+        _camera = _loader.Camera;
 
-        _listener = () => _firstPerson ? FirstPersonCamera() : FreeLookCamera();
-        _listenerEyes = () => _firstPerson ? FollowedEntity() : null;
+        _listener = () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera();
+        _listenerEyes = () => _camera.FirstPerson ? _camera.FollowedEntity() : null;
         _showOnly = shown =>
         {
             ShowOnly(shown);
@@ -864,7 +768,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         };
         _clientConVars = ClientConVar;
         _effects.AttachHud(new HudWindow(
-            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, FirstPersonCamera));
+            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, _camera.ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, _camera.FirstPersonCamera));
 
         _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
@@ -889,10 +793,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
         // Detection reads the live cl_game_folder, so `+cl_game_folder` beats the cfg as in Source (D210).
         SteamInstall.ConfiguredFolder = () => _settings.GameFolder;
-        _spectator.Spectating = _launch.Spectate;
-
         // The watcher's `spec_autodirector` (B535).
-        _spectator.AutoDirector = _settings.AutoDirector;
+        _camera.Spectate(_launch.Spectate, _settings.AutoDirector);
 
         // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
         Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
@@ -908,8 +810,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // them". An accepted-and-dropped option is the same defect as B223, and the answer needed
         // no invention: the overhead placement is the map view's successor, so they reshape what it
         // frames.
-        _freeCamera.LookAt = _launch.LookAt;
-        _freeCamera.Zoom = _launch.Zoom;
+        _camera.Free.LookAt = _launch.LookAt;
+        _camera.Free.Zoom = _launch.Zoom;
 
         // **This line was MISSING for a day and `--shot` did nothing at all** (B196). `_shotPath`
         // stayed out of the record because taking the shot CONSUMES it, and staying out of the
@@ -1418,7 +1320,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         WorldUpload result = _world.Project(
             map,
             _device,
-            ViewMatrix(),
+            _camera.ViewMatrix(),
             _menu.SurfaceColours.Checked,
             (_viewport.ClientSize.Width, _viewport.ClientSize.Height),
             _loggers);
@@ -1715,9 +1617,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // Skipped when the mode is already first person, because on a point-of-view recording the
         // D128 lock entered it at load — and `ToggleFirstPerson` TOGGLES, so calling it again
         // would be an attempt to leave, refused with a warning on every `--first-person` run.
-        if (_launch.FirstPerson && _cameraMode != CameraMode.FirstPerson)
+        if (_launch.FirstPerson && _camera.Mode != CameraMode.FirstPerson)
         {
-            _ = ToggleFirstPerson();
+            _ = _camera.ToggleFirstPerson();
         }
 
         // **Entered directly rather than by cycling** (D134). `CycleCameraMode` goes Free → first
@@ -1725,9 +1627,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // photograph whichever one the count happened to land on. `EnterCamera` takes the mode it
         // is given, and it is the same call the key ends in — so the launch route and the key
         // cannot drift apart.
-        if (_launch.ThirdPerson && _cameraMode != CameraMode.ThirdPerson)
+        if (_launch.ThirdPerson && _camera.Mode != CameraMode.ThirdPerson)
         {
-            _ = EnterCamera(CameraMode.ThirdPerson);
+            _ = _camera.EnterCamera(CameraMode.ThirdPerson);
         }
 
         // **`--look-at` and `--zoom` applied here until 2026-08-26** (D98). They centred and
@@ -1745,103 +1647,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // keeping: the countdown keeps running after it reaches zero, and re-applying the seek every
     // frame would pin the transport to one tick — a viewer that cannot be scrubbed, which is the
     // opposite of the point.
-
-    /// <summary>The free camera, orbiting whatever the top-down view is centred on.</summary>
-    /// <remarks>
-    /// **Orbits the same point the map view is looking at**, so toggling between them does not
-    /// move the subject — drag the map to a player, switch, and that player is still in the middle.
-    ///
-    /// The height it orbits is the middle of the map's own vertical range rather than the ground:
-    /// a focus at floor level puts half the picture below the world, and the range is already known
-    /// because the depth projection needs it.
-    /// </remarks>
-    /// <summary>The view matrix for whichever camera is active.</summary>
-    /// <returns>Sixteen floats for the camera constant buffer.</returns>
-    /// <remarks>
-    /// **One chooser rather than a conditional at each draw site.** There are two places that set
-    /// the camera — the world draw and the resize path — and they were a copied ternary apart.
-    /// Adding a third mode to a copied ternary is how the viewer's two drawing paths drifted until
-    /// one of them stopped showing decals.
-    ///
-    /// First person falls back rather than failing: a demo can lose its subject mid-playback — the
-    /// recorded view runs out before the first packet, and a spectated player can leave — and a
-    /// black screen would read as a rendering fault rather than as the end of the material.
-    /// </remarks>
-    /// <remarks>
-    /// **Zero seconds, because projecting the map is not a frame.** It happens on load, on resize
-    /// and when the world asks to be re-projected, so advancing the chase camera's wall recovery
-    /// from here would ease it by an amount that depends on how often the map was invalidated.
-    /// </remarks>
-    private float[] ViewMatrix() => ViewCameraNow(0d).ToMatrix();
-
-    /// <summary>The camera this frame is seen through, whichever mode is on.</summary>
-    /// <returns>The first-person camera when there is one and the mode asks for it, else the free one.</returns>
-    /// <remarks>
-    /// **One answer to "which camera", because two things now derive from it** — the projection and
-    /// the view frustum the draw culls against. A frustum built from the free camera while the
-    /// picture is drawn through a player's eyes would cull the geometry the viewer is looking at.
-    /// </remarks>
-    /// <remarks>
-    /// **Only the active mode's camera is built**, as `C_BasePlayer::CalcView` dispatches to one of `CalcInEyeCamView`,
-    /// `CalcChaseCamView` or `CalcRoamingView`. All three were built every frame, and the chase camera's world sweep then cost
-    /// 16 ms a frame in the free camera: measured paused on `z1800` after the playback UI test, `camera` 1.3 → 16.3 ms,
-    /// which made every automation call after it slow. Building it eagerly also advanced its wall recovery
-    /// (`m_flLastDistance`) on frames that were not chasing.
-    /// </remarks>
-    private FreeCamera ViewCameraNow(double seconds) =>
-        ViewCamera.Active(
-            _effectiveMode,
-            _effectiveMode == CameraMode.FirstPerson ? FirstPersonCamera() : null,
-            _effectiveMode == CameraMode.ThirdPerson ? ChaseCamera(seconds) : null,
-            FreeLookCamera());
-
-    /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
-    /// <remarks>
-    /// Sibling of <see cref="FirstPersonCamera"/>, and it follows the same target for the reason
-    /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
-    /// it, so two independent choices would let the modes drift apart.
-    /// </remarks>
-    /// <summary>The camera for the third-person view, or <c>null</c> when there is no target.</summary>
-    /// <param name="seconds">
-    /// Demo time since the last frame, which advances the wall clip's recovery. Zero from anything
-    /// that is not the per-frame view setup, so only the frame advances it.
-    /// </param>
-    /// <remarks>
-    /// Sibling of <see cref="FirstPersonCamera"/>, and it follows the same target for the reason
-    /// recorded on <c>SpectatorView.Chase</c>: `C_HLTVCamera` keeps one target with a mode beside
-    /// it, so two independent choices would let the modes drift apart.
-    /// </remarks>
-    private FreeCamera? ChaseCamera(double seconds) =>
-        _spectator.Chase(_shownTick, Aspect, seconds)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
-
-    /// <summary>Whether the fov's widening stops at 1.85:1 this frame — `view.cpp:1077-1078`, `ViewFov.RestrictsAspect`.</summary>
-    /// <remarks>
-    /// `sv_restrict_aspect_ratio_fov` is the SERVER's, so it is the demo's: 1 unless a `net_SetConVar` said otherwise
-    /// (*interpolated*: the default, which the engine declares and the SDK does not publish). The viewer is a window
-    /// unless it is full screen in the exclusive mode.
-    /// </remarks>
-    private bool FovRestricted()
-    {
-        string? sent = _timeline?.ServerConVarsAt(_transport.CurrentTick).Value(ViewFov.RestrictAspectConVar);
-
-        return ViewFov.RestrictsAspect(
-            int.TryParse(sent, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : 1,
-            windowed: !(IsFullScreen && FullScreenMode == FullScreenMode.Exclusive),
-            _timeline?.MaxClients ?? 0);
-    }
-
-    /// <summary>The view's field of view this frame — <see cref="SpectatorView.Fov"/>, which every camera takes.</summary>
-    /// <remarks>
-    /// `curtime` is the SERVER's — `m_flFOVTime` is stamped on its clock — so the tick is the last `net_Tick`.
-    /// **Interpolated:** the tick's own time, where the engine's render clock sits between ticks.
-    /// </remarks>
-    private ViewFov ViewFovNow()
-    {
-        int tick = _transport.CurrentTick;
-        float interval = _timeline is { IntervalPerTick: > 0f } timeline ? timeline.IntervalPerTick : (float)ScenePropTrack.Tf2TickInterval;
-
-        return _spectator.Fov(tick, _effectiveMode, _settings.DemoFovOverride, (_timeline?.ServerTickAt(tick) ?? tick) * interval);
-    }
 
     /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
     private double _demoFrameSeconds;
@@ -1871,7 +1676,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // **The warning and its once-per-map latch went with the outline** (B188, D90). Saying which
         // of the three silences this is, and saying it once, are both `LeafBoxes`' business — the
         // window's part is which camera to measure from.
-        return _leafBoxes.Lines(_loaded, _freeOrigin ?? FreeLookCamera().Origin);
+        return _leafBoxes.Lines(_loaded, _camera.LeafEye);
     }
 
     // **`WhyNoLeafBox` was a wrapper here until 2026-08-26** (B208 moved its body, B188 removed the
@@ -1881,180 +1686,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // leaf box" is true of all three causes and useful for none — a map that never loaded, a map
     // with no BSP tree, and a camera standing in a leaf whose bounds the lump does not carry are
     // three different problems with three different fixes, and only the first two are ours.
-
-    /// <summary>Enters or leaves the first-person view, saying why when it cannot be entered.</summary>
-    /// <returns>Whether the key was handled.</returns>
-    /// <remarks>
-    /// **Refusing has to be visible.** A key that silently does nothing reads as a broken key, and
-    /// the reason it can refuse is a real property of the demo rather than a failure — a recording
-    /// with nobody in it has no eyes to borrow.
-    /// </remarks>
-    /// <summary>Enters a camera mode outright, rather than cycling to it.</summary>
-    /// <param name="mode">The mode wanted.</param>
-    /// <returns>Always true: the key was ours whether or not the mode could be entered.</returns>
-    /// <remarks>
-    /// **Both player modes need a target, and acquiring one is what can fail** — a demo with nobody
-    /// worth following has no eye and nothing to chase. `SpectatorView.Enter` already answers that
-    /// question and says why when the answer is no, so this reuses it rather than asking again.
-    ///
-    /// **Failing to enter leaves the mode alone rather than dropping to Free.** The user asked for a
-    /// view they cannot have; taking away the one they were in as well would be a second surprise.
-    /// </remarks>
-    private bool EnterCamera(CameraMode mode)
-    {
-        // **Before anything else, because a refused mode must change nothing** (D128). The key was
-        // still ours — returning true stops it falling through to whatever else Space means.
-        if (RefusedByTheDemo(mode))
-        {
-            return true;
-        }
-
-        CameraMode leftFrom = _cameraMode;
-
-        if (mode == CameraMode.Free)
-        {
-            _cameraMode = CameraMode.Free;
-            _world.Invalidate();
-            _viewport.Invalidate();
-
-            // **Leaving has to say so, and this line was missing.** Every other mode change is
-            // logged, so a silent one is invisible to anything reading the log — including the UI
-            // suite, which waits for it to know the camera came back. The cycle reached Free
-            // correctly and appeared to skip straight past it, which reads as a broken cycle rather
-            // than as a missing sentence.
-            //
-            // Named for the mode being LEFT, since "first person off" is untrue when the camera was
-            // chasing; the shared tail is what a reader waits on.
-            _renderLog.LogInformation(
-                "{Message}",
-                leftFrom == CameraMode.ThirdPerson
-                    ? "third person off, back to the free camera"
-                    : "first person off, back to the free camera");
-
-            return true;
-        }
-
-        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
-
-        if (!entry.Entered)
-        {
-            _renderLog.LogWarning("{Message}", entry.Message);
-            _status.Text = entry.Status;
-
-            return true;
-        }
-
-        _cameraMode = mode;
-        _world.Invalidate();
-        _viewport.Invalidate();
-
-        // **Third person says so in its own words.** `Enter`'s message is about acquiring a target,
-        // which both player modes share; without a line naming the MODE, a log cannot distinguish
-        // watching through a player's eyes from watching over his shoulder — and those look very
-        // different on screen while producing identical target messages.
-        _renderLog.LogInformation(
-            "{Message}",
-            mode == CameraMode.ThirdPerson
-                ? $"third person on, chasing {entry.Message}"
-                : entry.Message);
-
-        return true;
-    }
-
-    /// <summary>Moves to the next camera mode, which is what TF2's "Switch Camera Mode" does.</summary>
-    /// <remarks>
-    /// **Three modes, because the engine has three and cycles them.** A TF2 spectator's mode runs
-    /// through `OBS_MODE_IN_EYE`, `OBS_MODE_CHASE` and `OBS_MODE_ROAMING` (`shareddefs.h:490`), and
-    /// `C_HLTVCamera::ToggleChaseAsFirstPerson` (`hltvcamera.cpp:843`) flips between the first two
-    /// directly. This viewer had only two, so third person was unreachable from the key TF2 puts
-    /// the cycle on — the commands `firstperson` and `thirdperson` were the only way in.
-    ///
-    /// Free comes last so the cycle ends where a viewer with no target can always sit, which is the
-    /// same reason D98 makes it the fallback.
-    /// </remarks>
-    private bool CycleCameraMode() =>
-        EnterCamera(_cameraMode switch
-        {
-            CameraMode.Free => CameraMode.FirstPerson,
-            CameraMode.FirstPerson => CameraMode.ThirdPerson,
-            _ => CameraMode.Free,
-        });
-
-    /// <summary>Refuses a camera this demo cannot answer, saying why — the D128 lock.</summary>
-    /// <param name="wanted">The mode about to be entered.</param>
-    /// <returns>True when the mode was refused and reported; the caller should change nothing.</returns>
-    /// <remarks>
-    /// **The rule is <see cref="SpectatorView.Refuses"/>; this is only the reporting.** A
-    /// point-of-view recording is locked to the recorder's view because entities outside his
-    /// visibility were never transmitted — the refusal names that, in the log and the status bar,
-    /// because a key that silently does nothing reads as a broken key.
-    ///
-    /// **The headless instrument is exempt, and deliberately.** `TF2VIEW_CAMERA` places a camera
-    /// for a capture or a measurement; refusing it would blind this project's own instruments on
-    /// every point-of-view specimen. An explicitly placed camera is a measurement, not playback —
-    /// the lock is about what a VIEWER offers, and the environment variable is not offered, it is
-    /// typed.
-    /// </remarks>
-    private bool RefusedByTheDemo(CameraMode wanted)
-    {
-        if (Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable)
-            is { Length: > 0 })
-        {
-            return false;
-        }
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_spectator.Refuses(wanted) is not { } refusal)
-        {
-            return false;
-        }
-
-        _renderLog.LogWarning("{Message}", refusal.Message);
-        _status.Text = refusal.Status;
-
-        return true;
-    }
-
-    private bool ToggleFirstPerson()
-    {
-        // **The REQUESTED mode, not the effective one.** A dead target is drawn in third person, so
-        // `_firstPerson` reads false while the user is still in the first-person mode — asking that
-        // here would make this key try to ENTER a mode the user is already in, and leaving would
-        // become impossible for the whole of a death.
-        if (_cameraMode == CameraMode.FirstPerson)
-        {
-            // Leaving first person is entering the free camera, so the D128 lock applies to the
-            // exit exactly as it does to the cycle: on a point-of-view recording there is nowhere
-            // to leave TO.
-            if (RefusedByTheDemo(CameraMode.Free))
-            {
-                return true;
-            }
-
-            _cameraMode = CameraMode.Free;
-            _world.Invalidate();
-            _viewport.Invalidate();
-            _renderLog.LogInformation("{Message}", "first person off, back to the free camera");
-            return true;
-        }
-
-        FirstPersonEntry entry = _spectator.Enter(_transport.CurrentTick, Aspect);
-
-        if (!entry.Entered)
-        {
-            _renderLog.LogWarning("{Message}", entry.Message);
-            _status.Text = entry.Status;
-            return true;
-        }
-
-        _cameraMode = CameraMode.FirstPerson;
-        _world.Invalidate();
-        _viewport.Invalidate();
-
-        _renderLog.LogInformation("{Message}", entry.Message);
-
-        return true;
-    }
 
     // The prose about WHY a viewmodel is placed at the eye — `CBaseViewModel::CalcViewModelView`,
     // and why the bob, lag and shake are deliberately not copied — moved with the code that acts on
@@ -2082,58 +1713,11 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // has — a viewmodel there is a real networked entity — so they belong beside the type that
     // assigns them rather than in the form that used to.
 
-    /// <summary>Whose eyes the first-person camera is in, or <c>null</c> when it is not in any.</summary>
-    /// <remarks>
-    /// **The same choice the camera makes, asked separately** — the camera needs a position and
-    /// the renderer needs an entity to hide, and deriving one from the other would let them
-    /// disagree. On a point-of-view demo it is the recorder; on a SourceTV demo it is whoever is
-    /// being spectated.
-    /// </remarks>
-    private int? FollowedEntity() => _spectator.Followed(_transport.CurrentTick);
-
     // `Spectated`, `FirstPersonCamera`, `PlayerAt`, `Ducking` and `_spectating` are `SpectatorView`
     // in Scene (B188, D90). Valve computes a view on the PLAYER and dispatches on observer mode —
     // `C_BasePlayer::CalcView` (`c_baseplayer.h:112`) to `CalcObserverView` (`:455`) to
     // `CalcInEyeCamView`/`CalcChaseCamView`/`CalcRoamingView` (`:463`) — so none of it belonged in a
     // window there either. The only thing it wanted from one was the viewport's aspect ratio.
-
-    /// <summary>The viewport's width over its height, which is all a camera needs from a window.</summary>
-    /// <remarks>16:9 before the control has a size, so a camera built during construction is sane.</remarks>
-    private float Aspect =>
-        _viewport.ClientSize.Height > 0
-            ? _viewport.ClientSize.Width / (float)_viewport.ClientSize.Height
-            : 16f / 9f;
-
-    /// <summary>The camera for the first-person view, or <c>null</c> when there is none.</summary>
-    /// <remarks>
-    /// **The field of view is the view's, as in the free camera**: `CalcInEyeCamView` and `CalcChaseCamView` both end with
-    /// `fov = GetFOV()` (c_baseplayer.cpp:1609, :1751). Both cameras were built at the compiled-in 90 and ignored the setting.
-    /// </remarks>
-    private FreeCamera? FirstPersonCamera() =>
-        _spectator.Eye(_shownTick, Aspect)?.WithFieldOfView(ViewFovNow().Rendered(Aspect, FovRestricted()));
-
-    /// <summary>The free camera, placed by the controller if nothing has placed it yet.</summary>
-    /// <remarks>
-    /// **All that is left here is the aspect ratio** (D90). Placing a camera, parsing a placement
-    /// and framing a map are presenter work and moved to <see cref="FreeCameraController"/>; the
-    /// viewport's width over its height is the only part that needs a window, and it is one float.
-    /// </remarks>
-    private FreeCamera FreeLookCamera()
-    {
-        // **Read from the settings every time, not captured once.** A config can be reloaded while
-        // the viewer runs, and a field of view latched at construction would ignore it — which is
-        // the shape of no-op this project keeps catching: the setting exists, the config is read,
-        // and nothing downstream asks.
-        // The controller holds the player's fov, clamped as `demo_fov_override` is; the widening is `CViewRender::Render`'s,
-        // applied to the finished view, so it goes on after (B518 — set through the clamp, 106° came back as 90°).
-        ViewFov fov = ViewFovNow();
-        _freeCamera.FieldOfView = fov.World;
-
-        return _freeCamera.Camera(
-            Math.Max(1, _viewport.ClientSize.Width) / (float)Math.Max(1, _viewport.ClientSize.Height),
-            _loaded?.Outline,
-            _loaded?.HeightRange is { } range ? range.Highest : 0f).WithFieldOfView(fov.Rendered(Aspect, FovRestricted()));
-    }
 
     // **Placing the free camera and parsing a placement moved to FreeCameraController on
     // 2026-08-25** (D90). Both are presenter work — the only thing either needed from a window was
@@ -2232,12 +1816,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView
             tick,
             new MomentView(
                 _transport.CurrentTick,
-                _firstPerson,
-                FollowedEntity(),
-                _firstPerson ? FirstPersonCamera() : null,
+                _camera.FirstPerson,
+                _camera.FollowedEntity(),
+                _camera.FirstPerson ? _camera.FirstPersonCamera() : null,
 
                 // `fovViewmodel`: the setting moved by however far the view is from `default_fov` (view.cpp:725).
-                ViewFovNow().RenderedViewmodel(_settings.ViewmodelFieldOfView, Aspect),
+                _camera.ViewFovNow().RenderedViewmodel(_settings.ViewmodelFieldOfView, _camera.Aspect),
 
                 // **`r_drawviewmodel`, which the viewer never read until B166.** It travels beside
                 // the field of view because they are the same kind of thing: a setting the watcher
@@ -2301,8 +1885,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView
             _transport.CurrentTick,
             _shownTick,
             _transport.Playing,
-            _firstPerson,
-            FollowedEntity(),
+            _camera.FirstPerson,
+            _camera.FollowedEntity(),
             _viewport.ClientSize.Width,
             _viewport.ClientSize.Height,
             (float)_clock.LastFrameSeconds,
@@ -2538,6 +2122,31 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     // render barrier, the demo becoming the open one — is `LoadPresenter`'s; each member below is the part of it that
     // is a window's, called at the moment the load reached for it when it lived here.
 
+    /// <summary>What this window knows that a camera needs: the transport's tick, the tick last shown, its shape.</summary>
+    private CameraWindow CameraWindowNow =>
+        new(
+            _transport.CurrentTick,
+            _shownTick,
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            IsFullScreen && FullScreenMode == FullScreenMode.Exclusive);
+
+    /// <inheritdoc/>
+    void ICameraView.Say(string? status) => _status.Text = status;
+
+    /// <inheritdoc/>
+    void ICameraView.CameraChanged()
+    {
+        _world.Invalidate();
+        _viewport.Invalidate();
+    }
+
+    /// <inheritdoc/>
+    void ICameraView.ReleaseHeldKeys() => ReleaseHeldKeys();
+
+    /// <inheritdoc/>
+    void ICameraView.FailHeadless(string reason) => FailHeadless(reason);
+
     /// <inheritdoc/>
     T ILoadView.OnUi<T>(Func<T> work) => OnUi(work);
 
@@ -2591,81 +2200,11 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     void ILoadView.MapRead() => ProjectMap();
 
     /// <inheritdoc/>
-    void ILoadView.DemoOpening()
-    {
-        // **A point-of-view demo HAS one camera, so it opens on it** (D153). The recorder's own
-        // view is in the file — `democmdinfo_t` on every packet — and it is what that player saw
-        // alive and dead alike, because a POV recording keeps rolling through the deathcam and
-        // through whoever they spectated afterwards. Opening such a demo on a free camera offers a
-        // choice the recording does not contain.
-        //
-        // **A SourceTV recording has no such view** and keeps the free camera, because there the
-        // choice is real: eighteen players and no recorder.
-        if (_timeline?.HasRecordedView == true)
-        {
-            _cameraMode = CameraMode.FirstPerson;
-        }
-
-        // **A name is resolved HERE because this is where the roster exists.** `--spectate` accepts
-        // a player name, a user id or an entity index, and only the demo can say which — so the
-        // text is carried from the command line and turned into an entity once the file is read.
-        if (_launch.SpectateWho is { Length: > 0 } who && _timeline is { } loaded)
-        {
-            if (loaded.EntityForPlayer(who) is { } chosen)
-            {
-                _spectator.Spectating = chosen;
-
-                // **Naming somebody is asking to WATCH them**, which is the option's whole purpose:
-                // *"allow the input of a player name or id to first person cam a specific player on
-                // boot"*. Setting the target and leaving the camera overhead answers half of it and
-                // shows the map from above, which is what it did.
-                _cameraMode = CameraMode.FirstPerson;
-            }
-            else
-            {
-                // Not silent: spectating somebody else because a name was mistyped is a recording
-                // of the wrong person, which is worse than refusing.
-                _log.LogWarning(
-                    "{Message}", $"--spectate {who} matches nobody in this demo; choosing normally");
-
-                // **A capture of the wrong subject is not a capture** (2026-10-11): headless, this ends the run —
-                // stderr, exit 1 — as a demo that will not open does. A person's window keeps the warning.
-                FailHeadless($"--spectate {who} matches nobody in this demo (`roster <demo>` lists who is in it)");
-            }
-        }
-
-        // **The free camera flies at the SERVER's speeds** (D106). `sv_maxspeed * sv_specspeed` is
-        // what TF2's roaming spectator clamps to, both are replicated, and a mod that changes
-        // movement sends the new values in this demo. One assignment, here, because this is where
-        // the timeline arrives — and a camera whose speed is decided anywhere else is the shape
-        // B193 collected six of.
-        // A demo whose timeline failed to build keeps Valve's defaults, which is what the engine
-        // would use for a server that changed nothing — and the alternative, carrying the PREVIOUS
-        // demo's server, would be silently wrong rather than merely vanilla.
-        _freeCamera.SetServer(_timeline?.ServerConVars ?? FreeFlightPath.Shipped);
-    }
-
-    /// <inheritdoc/>
     void ILoadView.DemoOpened()
     {
         if (_launch.PlaybackSpeed is { } speed)
         {
             _transport.SetSpeed(speed);
-        }
-
-        // **A point-of-view recording opens through the recorder's eyes** (D128). TF2's playback
-        // of a POV demo is the recorded view and nothing else, so the free camera this viewer
-        // normally starts in does not exist for the demo kind — entering first person at load is
-        // not a preference, it is the only camera the file can answer. Through `EnterCamera` so
-        // the entry is logged and the target acquired exactly as a keypress would. The headless
-        // instrument (`TF2VIEW_CAMERA`) keeps the free camera, the same exemption every lock site
-        // honours.
-        if (_spectator.Refuses(CameraMode.Free) is { }
-            && _cameraMode != CameraMode.FirstPerson
-            && Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable)
-                is not { Length: > 0 })
-        {
-            _ = EnterCamera(CameraMode.FirstPerson);
         }
     }
 
@@ -3357,7 +2896,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
                         _clock.LastFrameSeconds,
                         new FrameView(
                             _transport.Playing,
-                            _freeLook && _console.AnyHeld,
+                            _camera.FreeLook && _console.AnyHeld,
 
                             // The one part of the line a second frontend could not produce: a
                             // Windows message id, named by the window that received it.
@@ -3661,7 +3200,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // has a camera of its own and no business culling against the world's.
         // **The one per-frame view setup, so this is what advances the chase camera's recovery** —
         // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
-        FreeCamera viewing = ViewCameraNow(_demoFrameSeconds);
+        FreeCamera viewing = _camera.ViewCameraNow(_demoFrameSeconds);
 
         _lastViewing = viewing;
 
@@ -3680,7 +3219,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         _device.ExposureSeconds = _launch.ShotPath is not null && !_opening.Finished
             ? CaptureExposureSeconds
             : (float)_demoFrameSeconds;
-        _device.ObserverTarget = FollowedEntity();
+        _device.ObserverTarget = _camera.FollowedEntity();
 
         _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
 
@@ -3794,10 +3333,10 @@ internal class MainForm : Form, IFrameSteps, ILoadView
             _bindings,
             _clientConVars,
             (float)_vguiClock.Elapsed.TotalSeconds,
-            ViewFovNow().World,
-            _effectiveMode,
-            _spectator.Followed(hudTick)),
-         ViewMatrix(),
+            _camera.ViewFovNow().World,
+            _camera.EffectiveMode,
+            _camera.Followed(hudTick)),
+         _camera.ViewMatrix(),
          ViewFrameNow);
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
@@ -3897,51 +3436,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         }
     }
 
-    /// <summary>This frame's <c>cl_showpos</c> subject, gathered from the camera and the demo.</summary>
-    /// <returns>The readout; hidden when the convar is off.</returns>
-    /// <remarks>
-    /// **Gathering only — every rule about what is SHOWN lives in <see cref="PositionReadout"/>**
-    /// (D55). This picks up the four values the engine's own `Paint` picks up and hands them over;
-    /// which of them reaches the screen is the readout's decision, not a window's.
-    ///
-    /// **The angles for mode 2 are the player's BODY angles**, which is what
-    /// <c>GetAbsAngles()</c> returns for a player: pitch and roll are zero and the yaw is the
-    /// entity's. The eyes are a separate question the engine answers with <c>EyeAngles()</c>, and
-    /// <c>cl_showpos</c> does not ask it — so `EyePitch` is deliberately not substituted here even
-    /// though this project decodes it.
-    ///
-    /// **`vel` is a DIVERGENCE and it is forced by the data.** Valve reports
-    /// <c>GetLocalVelocity().Length()</c>, a 3D velocity the server sends; `m_vecVelocity` lives in
-    /// <c>DT_LocalPlayerExclusive</c>, so a SourceTV recording carries nobody's and a POV recording
-    /// carries only the recorder's. `ScenePlayer.Speed` is differenced from position over a tenth
-    /// of a second and is HORIZONTAL — see `DemoTimeline.SpeedAt` — so this line is that number,
-    /// which is the same quantity the animation system already runs on. It is close for a player
-    /// running and reads low for one falling.
-    /// </remarks>
-    private PositionReadout ReadPosition()
-    {
-        int mode = _settings.ShowPosition;
-
-        if (mode <= PositionReadout.Hidden)
-        {
-            // **Returned early rather than built and discarded**, because the camera below is not
-            // free: `ViewCameraNow` resolves the spectator target and the free camera's placement.
-            // A viewer that never switches this on should pay nothing for it.
-            return default;
-        }
-
-        FreeCamera camera = ViewCameraNow(0d);
-        ScenePlayer? watched = _spectator.Viewed(_transport.CurrentTick);
-
-        return new PositionReadout(
-            mode,
-            camera.Origin,
-            camera.Angles,
-            watched is { } player ? (player.X, player.Y, player.Z) : default,
-            watched is { } angles ? (0f, angles.Yaw, 0f) : default,
-            watched?.Speed ?? 0f);
-    }
-
     /// <summary>Flies the camera by however long the last frame took.</summary>
     /// <remarks>
     /// **Here rather than in the key handler, which is the whole of B97.** A message-driven camera
@@ -3982,20 +3476,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // `FrameClock.Drew` recorded it as `LastFrameSeconds` above; the assignment that used to be
         // here is gone with the field (B188, D90).
 
-        if (!_freeLook)
-        {
-            return;
-        }
-
-        // **`Intent` is read exactly once per frame, and that is a requirement rather than a
-        // convenience.** Reading a button consumes its impulse bits — Valve's `CInput::KeyState`
-        // ends with `key->state &= 1` — so a second read in the same frame reports a plain held
-        // button and loses the partial credit a tapped key earns. This is the only call site.
-        //
-        // **The old "nothing is held, so skip" guard is gone with it.** A key pressed and released
-        // between two frames is up by the time anyone looks, so that guard would have thrown the
-        // tap away; `Fly` returning false still costs nothing when genuinely idle.
-        if (_freeCamera.Fly(_console.Intent(), seconds, FreeLookCamera().Origin))
+        // Which mode flies, and that `Intent` is read exactly once a frame and only then, are the camera's
+        // (`CameraPresenter.Fly`); it is handed the reader and not the reading.
+        if (_camera.Fly(_console.Intent, seconds))
         {
             // The view, and nothing else. Flight only happens in the free camera, where the map's
             // screen-space projection is not what is being drawn (B98).
@@ -4394,33 +3877,13 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     /// </remarks>
     private void OnViewportWheel(object? sender, MouseEventArgs e)
     {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded is not { } shown || shown.Outline.IsEmpty)
-        {
-            return;
-        }
-
         // `step` was `e.Delta > 0 ? 1.25f : 1f / 1.25f` here until 2026-08-26 (B208). The ratio is
         // `MapZoom.Step` and the direction is `In()` or `Out()`, so the window reads the wheel and
         // names neither.
 
-        // In the free view the wheel moves the camera in and out instead of magnifying a flat map.
-        // The near limit is a little over a player's height, so a model can be filled the frame
-        // with without the near plane cutting into it.
-        // In the free view the wheel flies forward and back, which is what a wheel does in every
-        // editor and is far quicker than tapping W across a map.
-        if (_freeLook)
-        {
-            // **The whole branch is one call now** (B204, B206). It was a hand-inlined copy of
-            // `AngleVectors`' forward vector — the fourth in this repository — multiplied by a
-            // travel distance spelled `FlySpeed * 4f`. How far a notch flies and along which vector
-            // are both camera rules; that the WHEEL is what asks is the part this window owns.
-            _freeCamera.Dolly(e.Delta > 0, FreeLookCamera().Origin);
-
-            _world.Invalidate();
-            _viewport.Invalidate();
-            return;
-        }
+        // Whether there is a map to fly over, whether the free camera is the one on and how far a notch
+        // flies are the camera's (`CameraPresenter.Wheel`); that the WHEEL asks is this window's.
+        _camera.Wheel(e.Delta > 0);
 
         // **The zoom-at-cursor branch was here until 2026-08-26** (D98). It magnified the
         // orthographic map and recentred so the world point under the pointer stayed put — correct
@@ -4500,19 +3963,10 @@ internal class MainForm : Form, IFrameSteps, ILoadView
     private void OnViewportMouseMove(object? sender, MouseEventArgs e)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_dragFrom is not { } from || _loaded is not { } shown || shown.Outline.IsEmpty)
+        if (_dragFrom is not { } from || !_camera.Drag(e.Location.X - from.X, e.Location.Y - from.Y))
         {
             return;
         }
-
-        // **A drag turns the camera.** Pitch is clamped by the camera itself, at the same 89 degrees
-        // the engine clamps a player to, because the basis is degenerate looking exactly along the
-        // world's up axis.
-        //
-        // **The `if (_freeLook)` around this went with the pan branch on 2026-08-26** (D98). The
-        // other arm slid the orthographic map by converting pixels to world units through
-        // `WorldUnitsPerPixel`; with one camera left there is no second thing for a drag to mean.
-        _freeCamera.Drag(e.Location.X - from.X, e.Location.Y - from.Y);
 
         _dragFrom = e.Location;
         _world.Invalidate();
@@ -4541,55 +3995,16 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         switch (e.Action)
         {
             case ViewerAction.CycleTargetForward:
-                CycleTarget(reverse: false);
+                _camera.CycleTarget(reverse: false);
                 break;
 
             case ViewerAction.CycleTargetReverse:
-                CycleTarget(reverse: true);
+                _camera.CycleTarget(reverse: true);
                 break;
 
             default:
                 break;
         }
-    }
-
-    /// <summary>Follows the next or previous player.</summary>
-    /// <remarks>
-    /// **Only while spectating, which is the gate the game applies too.** `spec_next` does nothing
-    /// unless `GetObserverMode() > OBS_MODE_FIXED`, and in the free camera the left button is
-    /// already the look-around drag — cycling on it would fight the gesture.
-    ///
-    /// **A cycle that finds nobody leaves the camera where it is**, following
-    /// `if ( target ) SetObserverTarget( target );`. The first seconds of a competitive match really
-    /// are SourceTV alone, and a click then must not blank the view.
-    ///
-    /// **This read `_firstPerson` until B289, which excluded the chase view** — the one mode where
-    /// choosing a subject matters most, since you can see who you are following. The gate is a
-    /// range in the engine and was an equality here, so third person accepted the click and threw
-    /// it away. Found by the owner using it, not by any test: every unit test of the search passed,
-    /// because the search was never the part that was wrong.
-    /// </remarks>
-    private void CycleTarget(bool reverse)
-    {
-        // **Following somebody is the window's condition, not the spectator's.** Which player comes
-        // next is a fact about the roster whether or not anyone is watching; that this key does
-        // nothing in the free camera is a decision about this UI, recorded on `_followingAPlayer`.
-        if (!_followingAPlayer)
-        {
-            return;
-        }
-
-        SpectatorSwitch switched = _spectator.Cycle(_transport.CurrentTick, reverse);
-
-        _spectateLog.LogDebug("{Message}", switched.Message);
-
-        if (!switched.Switched)
-        {
-            return;
-        }
-
-        _world.Invalidate();
-        _viewport.Invalidate();
     }
 
     // **`WorldAt` was here until 2026-08-26** (D98). It answered "which world point is under this
@@ -4736,7 +4151,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // message meant Windows' auto-repeat set the speed: nothing for the repeat delay, then fixed
         // jumps at the repeat rate, and never two directions at once because auto-repeat reports
         // only the last key held. See FreeFlight.
-        if (_freeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode, _bindings))
+        if (_camera.FreeLook && FreeFlight.IsFlightKey(keyData & Keys.KeyCode, _bindings))
         {
             _console.KeyDown(KeyNames.NameOf(keyData));
             return true;
@@ -4750,7 +4165,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // **Switch camera mode defaults to Space**, which is what TF2 binds it to.
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.SwitchCameraMode)))
         {
-            return CycleCameraMode();
+            return _camera.CycleCameraMode();
         }
 
         // **Source's own `firstperson` and `thirdperson`, so a config reaches them by name.** They
@@ -4759,12 +4174,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView
         // anyone who wants to land on one directly.
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FirstPersonView)))
         {
-            return EnterCamera(CameraMode.FirstPerson);
+            return _camera.EnterCamera(CameraMode.FirstPerson);
         }
 
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ThirdPersonView)))
         {
-            return EnterCamera(CameraMode.ThirdPerson);
+            return _camera.EnterCamera(CameraMode.ThirdPerson);
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
@@ -4778,40 +4193,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView
 
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ResetCamera)))
         {
-            // The reset lands in the free camera, so the D128 lock applies here too: on a
-            // point-of-view recording "show me the whole map" asks for a map that was never
-            // transmitted.
-            if (RefusedByTheDemo(CameraMode.Free))
-            {
-                return true;
-            }
-
-            // **F now RESETS the camera to the overhead placement rather than switching mode.**
-            // It used to toggle between the map view and the free camera; with the orthographic
-            // camera gone (D49) there is no second mode to switch to, and the overhead view is a
-            // placement of this one. So the key keeps its meaning — "show me the whole map again" —
-            // and drops the mode it used to carry.
-            _cameraMode = CameraMode.Free;
-            _freeOrigin = null;
-
-            // A key still recorded as held would move the camera the instant it is re-placed.
-            ReleaseHeldKeys();
-
-            _world.Invalidate();
-            _viewport.Invalidate();
-
-            // **Says what it did, not which mode it is in.** The old line reported "free camera on"
-            // or "free camera off, back to the map view", and both are now false: there is one
-            // camera and this key does not switch anything. A log that names the wrong quantity
-            // misdirects with authority (`docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured`).
-            // **Information rather than Debug since 2026-08-26.** It is a thing the user did and the
-            // picture jumps because of it, which is the same class as "wrote shot-…" beside it — and
-            // at Debug the app discarded it, so nothing outside a debugger could ever tell whether
-            // the key arrived (`docs/memory/logs-are-the-debugger.md#a-log-level-regression-is-invisible-to-unit-tests`).
-            // Found because a UI test asserted on this line and watched a line that is never written.
-            _renderLog.LogInformation("{Message}", "camera reset to the overhead placement");
-
-            return true;
+            return _camera.ResetCamera();
         }
 
         // **Through the binding table, and its default key MOVED** (B214, D101). This was

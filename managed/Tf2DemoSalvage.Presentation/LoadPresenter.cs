@@ -45,6 +45,8 @@ public sealed partial class LoadPresenter : IDisposable
     private readonly ILogger _demoLog;
     private readonly ILogger _audioLog;
     private readonly SpectatorView _spectator;
+    private readonly CameraPresenter _camera;
+    private readonly Func<string?> _spectateWho;
     private readonly MapProvider _maps;
     private readonly Func<ViewerSettings> _settingsNow;
     private readonly CancellationToken _shutdown;
@@ -187,7 +189,9 @@ public sealed partial class LoadPresenter : IDisposable
     /// <param name="loggers">The viewer's loggers, by area.</param>
     /// <param name="ledger">The frame's phase ledger, shared with the window's reporter.</param>
     /// <param name="viewmodels">The viewmodel scene the window's camera also asks.</param>
-    /// <param name="spectator">Whose eyes the view uses; the map gives it a world and a demo gives it eyes.</param>
+    /// <param name="cameraView">The window as the camera sees it.</param>
+    /// <param name="window">The window's tick and shape, asked for when a camera is.</param>
+    /// <param name="spectateWho">`--spectate`'s text as launched, or null; asked for when a demo opens.</param>
     /// <param name="maps">Where maps and the install are found.</param>
     /// <param name="settings">The window's settings as they are when asked.</param>
     /// <param name="playback">Owns the transport and the clock; the demo's systems drive it.</param>
@@ -198,7 +202,9 @@ public sealed partial class LoadPresenter : IDisposable
         ILoggerFactory loggers,
         FrameLedger ledger,
         ViewmodelScene viewmodels,
-        SpectatorView spectator,
+        ICameraView cameraView,
+        Func<CameraWindow> window,
+        Func<string?> spectateWho,
         MapProvider maps,
         Func<ViewerSettings> settings,
         PlaybackPresenter playback,
@@ -209,14 +215,16 @@ public sealed partial class LoadPresenter : IDisposable
         ArgumentNullException.ThrowIfNull(loggers);
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(viewmodels);
-        ArgumentNullException.ThrowIfNull(spectator);
+        ArgumentNullException.ThrowIfNull(spectateWho);
         ArgumentNullException.ThrowIfNull(maps);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(clientConVars);
 
         _view = view;
-        _spectator = spectator;
+        _spectateWho = spectateWho;
+        _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
+        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, settings);
         _maps = maps;
         _settingsNow = settings;
         _shutdown = shutdown;
@@ -339,6 +347,9 @@ public sealed partial class LoadPresenter : IDisposable
 
     /// <summary>The moment presenter, for the window's show and its frame.</summary>
     public MomentPresenter Moments => _moments;
+
+    /// <summary>The camera presenter this owns, with the spectator the map gives a world and a demo gives eyes.</summary>
+    public CameraPresenter Camera => _camera;
 
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;
@@ -918,7 +929,7 @@ public sealed partial class LoadPresenter : IDisposable
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
-        _view.DemoOpening();
+        _camera.DemoOpening(_spectateWho());
 
         // **One call where there were six assignments, and that is the whole point** (B193). The
         // eyes, the viewmodels, the sound schedule and the appearance were each written inline
@@ -941,6 +952,7 @@ public sealed partial class LoadPresenter : IDisposable
             autoPlayReason);
 
         _view.DemoOpened();
+        _camera.DemoOpened();
 
         // **`_transport.SetDemoLength(_demo.LastTick)` was here, and it was the bug** (B223, D118).
         // `Open` starts autoplay; this line ran immediately afterwards and its last act is

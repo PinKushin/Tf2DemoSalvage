@@ -42,10 +42,7 @@ public interface ILoadView
     /// <summary>A map was read and the presenter holds it: project it.</summary>
     public void MapRead();
 
-    /// <summary>A demo is becoming the open one, before its systems open: the camera for its kind, `--spectate`, the server's flight speeds.</summary>
-    public void DemoOpening();
-
-    /// <summary>The demo's systems are open: `--speed`, and a point-of-view demo enters its recorder's eyes.</summary>
+    /// <summary>The demo's systems are open: `--speed`. The camera is told next, by the load itself.</summary>
     public void DemoOpened();
 
     /// <summary>The demo and its map are in place: restart whatever waits on a settled scene.</summary>

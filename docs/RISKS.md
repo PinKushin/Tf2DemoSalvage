@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 190 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
+## B540 — the view reaches 145 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38699,3 +38699,92 @@ with no warning and the view suite passes at 133. **There was no Animation refer
 Animation only through Scene's and Presentation's signatures, never by a project reference or a using of its own.
 Both assemblies still arrive in the viewer's output folder, through Presentation, which is what references them. No
 reach change (190); three direct domain references are left — Core, Content and Scene.
+
+**Slice 7, second commit: the camera — 190 to 145, 45 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 149 | 119 | 30 |
+| Core | 34 | 19 | 15 |
+| Content | 7 | 7 | 0 |
+| total | 190 | 145 (45 types, 100 members) | 45 |
+
+`MainForm` uses 96 distinct domain members, from 135, and is 4,772 lines, from 5,390. *Measured*, by the instrument.
+
+*What moved:* the requested mode and its four readings (`_freeLook`, `_effectiveMode`, `_firstPerson`,
+`_followingAPlayer`); `EnterCamera`, `CycleCameraMode`, `ToggleFirstPerson`, `RefusedByTheDemo`, `CycleTarget`;
+`ViewMatrix`, `ViewCameraNow`, `ChaseCamera`, `FirstPersonCamera`, `FreeLookCamera`, `FovRestricted`, `ViewFovNow`,
+`FollowedEntity`, `Aspect`; `ReadPosition`; the fifty lines of `ILoadView.DemoOpening` and the entering half of
+`DemoOpened`; and the decisions inside four handlers — the wheel's (is a map drawn, is the free camera on), the
+drag's, the reset key's and the flight's. All of it is `Presentation.CameraPresenter`, which the load owner
+constructs with the spectator and the free camera's controller; neither is built by the window any more.
+
+*What the window passes:* its tick, the tick last shown, the viewport's size and whether it is full screen in the
+exclusive mode (`CameraWindow`, asked for when a camera is), and raw input — a wheel notch's direction, a drag in
+pixels, the flight input's reader, and the action a key resolved to through the bindings. It gets a camera to
+upload. `ICameraView` is the four places the moved code reached back: the status line, "the camera changed" (the
+two invalidations), letting go of held keys, and ending a headless run.
+
+**D188 holds, and in one place**: `RefusedByTheDemo` is asked inside `EnterCamera`, `ToggleFirstPerson` and
+`ResetCamera`, which are the only ways the mode changes, and they are the presenter's. No caller can skip it.
+
+*Every textual difference* (*measured*: `slice7/difftext.py` lists the 33 of 551 moved lines not present as
+written):
+
+- `_transport.CurrentTick` is `_window().Tick` (8), `_shownTick` is `_window().ShownTick` (2), the viewport's
+  width and height are `_window().Width` and `.Height` (5), and the full-screen test is
+  `_window().FullScreenExclusive`.
+- The pair `_world.Invalidate(); _viewport.Invalidate();` is `_view.CameraChanged()` (6, and once more in the
+  wheel's branch); `_status.Text = x` is `_view.Say( x )` (3); `FailHeadless` and `ReleaseHeldKeys` go through
+  `_view`.
+- `_launch.SpectateWho` is the argument `spectateWho`; `e.Delta > 0` is `forward`; the drag's two differences are
+  `deltaX, deltaY`; `_console.Intent()` is `intent()`, the reader handed in, called where the read stood.
+- `Fly` returns what `FreeCameraController.Fly` answered, where the window tested it and uploaded; the window
+  still uploads on true.
+- The two map guards of the wheel and the drag are the presenter's; the drag's `_dragFrom` test stays the window's
+  and runs first, as it did.
+- The reset key's branch returns through `ResetCamera`; the leaf box's eye, `_freeOrigin ?? FreeLookCamera().Origin`,
+  is `LeafEye`.
+- Eleven members the window and the load call are `public`; the four readings keep their names privately and have
+  public twins (`FreeLook`, `EffectiveMode`, `FirstPerson`, `Mode`).
+- In the load: `_view.DemoOpening()` is `_camera.DemoOpening( _spectateWho() )`, and `_camera.DemoOpened()` follows
+  `_view.DemoOpened()`, which keeps `--speed`. Same order: the camera's opening, the demo's systems, the speed, the
+  recorder's eyes.
+- In the window's constructor the launch option's spectator and the watcher's `spec_autodirector` are one call,
+  `Spectate`, where the second assignment stood.
+
+*Proof nothing changed* (*measured*; each baseline run twice on the old code first, and repeated): on
+`demostf-cp_process_f12`, a chase frame of a dead target (tick 57200), a first-person frame of the same player
+alive (52720), first person asked for while he is dead (57200, where the engine hands to the chase camera), and
+the chase frame alive with `cl_showpos 1` on — the readout's text is in the picture — are byte-identical before and
+after, with the camera's log lines of the last. The living chase frame is slice 3's, the point-of-view frame slice
+5's, and the free-camera frames every `TF2VIEW_CAMERA` frame of the earlier sets; all are re-run on the slice's
+final code.
+
+*Tests the moved code never had* (21, `CameraPresenterTests`), over a SourceTV demo of two players one of whom
+dies and a point-of-view demo, both written by the test: the mode of a new camera; nobody to follow; the chase; the
+cycle; the toggle; a dead target drawn through the chase while the mode asked for stays, and left by the mode asked
+for; a point-of-view demo opening on its recorder; a SourceTV demo keeping the free camera; `--spectate` by entity
+and by a name nobody has; **every manual camera refused on a point-of-view demo, four ways**; the recorder's eyes
+entered when the systems open; the reset; flight reading its input never outside the free camera and exactly once
+in it; the target cycle in and out of the free camera; the aspect before the viewport has a size; the readout off;
+the launch options' spectator. Each seen red in one of five rounds. One written for it was deleted:
+`Wheel_WithNoMapDrawn_MovesNothingAndTellsNobody` cannot be reddened, since the code does not compile without the
+map guard it restates. The load's order test now sees the camera's opening through `FailHeadless` (a name nobody
+has), and was seen red again with the camera told after the systems opened.
+
+**Camera paths no proof or test of mine reaches** — the UI suite's, in phase 2:
+
+- a wheel notch and a drag that MOVE the free camera (they need a map with an outline, and the map a test can
+  write has none);
+- flight that moves the camera, and the upload that follows it;
+- the keys themselves: that the bound key reaches `CycleCameraMode`, `EnterCamera`, `ResetCamera` and
+  `CycleTarget` (the presenter's side of each is tested; the window's `ProcessCmdKey` and console wiring are not);
+- the chase camera's wall recovery over PLAYING frames (every frame here is paused, so `seconds` is zero);
+- a camera change while a demo plays, and the free camera's placement over a real map's outline after a reset;
+- `--first-person` and `--third-person` on a point-of-view demo, which the lock refuses.
+
+**A restore failed once more, differently**: a break replaced `_cameraMode = mode;` with a line that already stood
+in the file three times, so the inverse found it four times and refused. Nothing was half-written (every step is
+checked first), the file was left fully broken, and it was restored by one edit and the script's own inverse, then
+compared with the copy. The script now simulates each round's break AND its restore before touching a file.

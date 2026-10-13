@@ -9855,4 +9855,12 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   device sits beside the sound presenter it plays for, and the window's sound step hands over the listener's camera
   and eyes as two questions. An assembly the view no longer names (Audio, Animation) is a reference that can come
   out.
+- **The camera's mode has one owner, and the lock on a point-of-view demo lives where the mode changes** (slice 7):
+  `CameraPresenter` holds the requested mode, the spectator and the free camera, and `RefusedByTheDemo` is asked
+  inside the three methods that can change the mode — so D128 and D188 are a property of the owner, not of each
+  key handler remembering to ask. The window passes raw input (a notch's direction, a drag in pixels, the flight
+  input's reader, an action already resolved through the bindings) and its tick and shape (`CameraWindow`).
+- **An input that is consumed by being read is handed over as its reader** (slice 7): flight's `Intent` loses its
+  impulse bits on a read, so the camera is given the function and reads it once, only in the free camera — the
+  window cannot read it at the wrong time because the window no longer reads it.
 

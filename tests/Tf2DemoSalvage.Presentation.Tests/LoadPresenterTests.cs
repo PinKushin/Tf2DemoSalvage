@@ -80,7 +80,7 @@ public sealed class LoadPresenterTests
     private void WriteMap() =>
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
-    private (LoadPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader()
+    private (LoadPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -97,7 +97,9 @@ public sealed class LoadPresenterTests
             NullLoggerFactory.Instance,
             new FrameLedger(),
             new ViewmodelScene(),
-            new SpectatorView(NullLogger.Instance),
+            view,
+            () => view.Window,
+            () => spectateWho,
             maps,
             static () => new ViewerSettings(),
             new PlaybackPresenter(transport, new FakeElapsedTime()),
@@ -113,7 +115,8 @@ public sealed class LoadPresenterTests
     public void LoadDemo_ADemoWithItsMap_AsksTheWindowInTheLoadsOrder()
     {
         WriteMap();
-        (LoadPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader();
+        // A name nobody has: the camera says so while the demo is OPENING, which is the one thing a window sees of that step.
+        (LoadPresenter loader, FakeLoadView view, FakePlaybackView transport) = Loader(spectateWho: "nobody by this name");
         Dictionary<string, int> lengthWhen = [];
         view.Asked = name => lengthWhen[name] = transport.DemoLength;
 
@@ -127,7 +130,7 @@ public sealed class LoadPresenterTests
             result.Message.ShouldEndWith("(map not found)");
             view.Names.ShouldBe(
             [
-                nameof(ILoadView.DemoOpening),
+                nameof(ICameraView.FailHeadless),
                 nameof(ILoadView.DemoOpened),
                 nameof(ILoadView.ClearWorld),
                 nameof(ILoadView.MapReading),
@@ -137,7 +140,7 @@ public sealed class LoadPresenterTests
             ]);
 
             // The demo's systems open BETWEEN the two: the transport has no length at the first and the demo's at the second.
-            lengthWhen[nameof(ILoadView.DemoOpening)].ShouldBe(-1);
+            lengthWhen[nameof(ICameraView.FailHeadless)].ShouldBe(-1);
             lengthWhen[nameof(ILoadView.DemoOpened)].ShouldBe(12345);
         }
     }
@@ -231,7 +234,6 @@ public sealed class LoadPresenterTests
                 (nameof(ILoadView.MapReading), false, true),
                 (nameof(ILoadView.MapRead), false, true),
                 ("Report: Loading models and sounds", true, true),
-                (nameof(ILoadView.DemoOpening), true, false),
                 (nameof(ILoadView.DemoOpened), true, false),
                 ("Status: " + result.Message, true, false),
                 (nameof(ILoadView.DemoShown), true, false),
@@ -263,7 +265,7 @@ public sealed class LoadPresenterTests
             loader.Demo.ShouldNotBeNull().LastTick.ShouldBe(222);
             loader.LoadsInFlight.ShouldBe(0);
             view.Names.Count(static name => name == nameof(ILoadView.HideLoading)).ShouldBe(1, "only when no load is left in flight");
-            view.Names.Count(static name => name == nameof(ILoadView.DemoOpening)).ShouldBe(1, "the overtaken demo was never opened");
+            view.Names.Count(static name => name == nameof(ILoadView.DemoOpened)).ShouldBe(1, "the overtaken demo was never opened");
         }
     }
 

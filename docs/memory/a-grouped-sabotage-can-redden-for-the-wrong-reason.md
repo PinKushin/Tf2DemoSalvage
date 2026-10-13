@@ -40,3 +40,7 @@ first.
   on both sides; assert no side is empty before touching anything; check every step applies before applying any; and
   make the runner refuse to start after a round that did not restore. Keep a COPY from before the break, not only a
   hash: a hash file rewritten by the next round records the broken state as clean.
+- **A break's REPLACEMENT must be unique too, not only its original** (slice 7): `_cameraMode = mode;` became a line
+  that already stood three times, and the inverse found four. Simulate the round's break and then its restore in
+  memory, and compare with the file, before writing anything; a break that fails that check is rewritten with a
+  neighbouring line on both sides.
