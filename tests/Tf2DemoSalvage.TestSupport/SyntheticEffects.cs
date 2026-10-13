@@ -35,6 +35,9 @@ internal static class SyntheticEffects
     /// <summary>The class a weapon entity is created with: one that reaches `DT_BaseCombatWeapon`.</summary>
     public const string WeaponClass = "CTFScattergun";
 
+    /// <summary>The class a viewmodel entity is created with.</summary>
+    public const string ViewmodelClass = "CTFViewModel";
+
     private const int NoScale = 1 << 2;
 
     private static readonly (string Class, SendTable Table)[] EffectTables =
@@ -57,7 +60,16 @@ internal static class SyntheticEffects
             Int("m_nAttachmentIndex"), Int("m_nSurfaceProp"), Int("m_nDamageType"), Int("m_nHitBox"), Int("entindex"),
             Int("m_bControlPoint1"),
             Float("m_ControlPoint1.m_vecOffset[0]"), Float("m_ControlPoint1.m_vecOffset[1]"),
-            Float("m_ControlPoint1.m_vecOffset[2]"),
+            Float("m_ControlPoint1.m_vecOffset[2]"), Float("m_flScale"),
+        ])),
+        ("CTESparks", new SendTable("DT_TESparks", NeedsDecoder: true,
+        [
+            Float("m_vecOrigin[0]"), Float("m_vecOrigin[1]"), Float("m_vecOrigin[2]"), Int("m_nMagnitude"),
+            Int("m_nTrailLength"), Vector("m_vecDir"),
+        ])),
+        ("CTEMetalSparks", new SendTable("DT_TEMetalSparks", NeedsDecoder: true,
+        [
+            Vector("m_vecPos"), Vector("m_vecDir"),
         ])),
         ("CTETFParticleEffect", new SendTable("DT_TETFParticleEffect", NeedsDecoder: true,
         [
@@ -110,6 +122,9 @@ internal static class SyntheticEffects
                 Table("item", "DT_ScriptCreatedItem"),
             ]),
             new("DT_TFScattergun", NeedsDecoder: true, [Table("combatweapon", "DT_BaseCombatWeapon")]),
+
+            // The first-person flash travels in the viewmodel's own counter, beside its weapon and owner (B415).
+            new("DT_BaseViewModel", NeedsDecoder: true, [Int("m_hWeapon"), Int("m_hOwner"), Int("m_nMuzzleFlashParity")]),
         ];
 
         return new DemoSchema(
@@ -128,8 +143,9 @@ internal static class SyntheticEffects
             [
                 .. players.ServerClasses,
                 new ServerClass(players.ServerClasses.Count, WeaponClass, "DT_TFScattergun"),
+                new ServerClass(players.ServerClasses.Count + 1, ViewmodelClass, "DT_BaseViewModel"),
                 .. EffectTables.Select((effect, index) =>
-                    new ServerClass(players.ServerClasses.Count + 1 + index, effect.Class, effect.Table.Name)),
+                    new ServerClass(players.ServerClasses.Count + 2 + index, effect.Class, effect.Table.Name)),
             ]);
     }
 
@@ -146,11 +162,30 @@ internal static class SyntheticEffects
         IReadOnlyList<string> effectNames,
         IReadOnlyList<string> particleNames,
         IReadOnlyList<Change> changes,
+        params Effect[] effects) =>
+        DemoWithLightStyles(entities, effectNames, particleNames, [], changes, effects);
+
+    /// <summary>The same, with a `lightstyles` table at signon: each style's pattern, by index.</summary>
+    /// <param name="entities">Each entity's slot, class and properties.</param>
+    /// <param name="effectNames">The `EffectDispatch` string table, by index.</param>
+    /// <param name="particleNames">The `ParticleEffectNames` string table, by index.</param>
+    /// <param name="lightStyles">Each light style's pattern, by index — `"m"`, `"a"`, `"az"`; empty for no table.</param>
+    /// <param name="changes">Later changes, in tick order, each after <see cref="PlayersTick"/>.</param>
+    /// <param name="effects">The temp entities, in tick order; one message each.</param>
+    /// <returns>The demo's bytes.</returns>
+    /// <exception cref="ArgumentNullException">An argument is null.</exception>
+    public static byte[] DemoWithLightStyles(
+        IReadOnlyList<Placed> entities,
+        IReadOnlyList<string> effectNames,
+        IReadOnlyList<string> particleNames,
+        IReadOnlyList<string> lightStyles,
+        IReadOnlyList<Change> changes,
         params Effect[] effects)
     {
         ArgumentNullException.ThrowIfNull(entities);
         ArgumentNullException.ThrowIfNull(effectNames);
         ArgumentNullException.ThrowIfNull(particleNames);
+        ArgumentNullException.ThrowIfNull(lightStyles);
         ArgumentNullException.ThrowIfNull(changes);
         ArgumentNullException.ThrowIfNull(effects);
 
@@ -162,14 +197,29 @@ internal static class SyntheticEffects
         // nine bits out and decodes to "no class" (B112).
         ServerInfoMessage serverInfo = ServerInfo(schema.ServerClasses.Count);
 
+        // A style's entry is its index as text; the PATTERN travels in the entry's user data (`LightStyleFeed`).
+        List<INetMessage> signon =
+        [
+            serverInfo,
+            SyntheticDemo.StringTable(EffectDispatchFeed.TableName, [.. effectNames], maxEntries: 64),
+            SyntheticDemo.StringTable(EffectDispatchFeed.ParticleTableName, [.. particleNames], maxEntries: 64),
+        ];
+
+        if (lightStyles.Count > 0)
+        {
+            signon.Add(SyntheticDemo.StringTable(
+                LightStyleFeed.TableName,
+                [
+                    .. lightStyles.Select((pattern, index) => (
+                        index.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        (IReadOnlyList<byte>)System.Text.Encoding.ASCII.GetBytes(pattern))),
+                ],
+                maxEntries: 64));
+        }
+
         List<DemoCommand> commands =
         [
-            SyntheticDemo.Packet(
-                SyntheticDemo.DefaultProtocol,
-                0,
-                serverInfo,
-                SyntheticDemo.StringTable(EffectDispatchFeed.TableName, [.. effectNames], maxEntries: 64),
-                SyntheticDemo.StringTable(EffectDispatchFeed.ParticleTableName, [.. particleNames], maxEntries: 64)),
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, [.. signon]),
             SyntheticDemo.DataTables(schema),
         ];
 

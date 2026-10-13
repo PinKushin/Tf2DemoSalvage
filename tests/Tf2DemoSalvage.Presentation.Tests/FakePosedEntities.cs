@@ -33,6 +33,9 @@ internal sealed class FakePosedEntities : IPosedEntities
     public (float X, float Y, float Z)? AttachmentPosition(int entity, string name) =>
         Named.TryGetValue((entity, name), out ParticleControlPoint point) ? (point.At.X, point.At.Y, point.At.Z) : null;
 
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, int number) =>
+        Numbered.TryGetValue((entity, number), out ParticleControlPoint point) ? (point.At.X, point.At.Y, point.At.Z) : null;
+
     public ParticleControlPoint? AttachmentPoint(int entity, int number) =>
         Numbered.TryGetValue((entity, number), out ParticleControlPoint point) ? point : null;
 

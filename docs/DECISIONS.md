@@ -9810,4 +9810,11 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
 - **A helper two presenters share stays in Presentation while the view still calls it**, though D92 sends it to the
   model layer: moved to Scene with the view still naming it, it would add a line to a list that only shrinks.
   `BulletStrikes` is the case; it goes down when its last view caller does.
+- **What one presenter needs of another, the view hands over as a delegate** (slice 3): the map's light walk
+  (`DecalEffects.WorldOf`) to the light styles and the impacts, and a style's value (`LightStyleEffects.Scale`) to the
+  impacts. A presenter that called a sibling would be the sideways reach D92 forbids; a delegate of `LoadedMap` or
+  `int` adds nothing to the view's list.
+- **A part of a frame that is its own seam stays in the view as a callback** rather than being dragged along:
+  `FrameParticles.Build` is handed `BuildEffectEntities` (beams, trails, ropes) and calls it where `DrawParticles`
+  did. It leaves with its own slice.
 

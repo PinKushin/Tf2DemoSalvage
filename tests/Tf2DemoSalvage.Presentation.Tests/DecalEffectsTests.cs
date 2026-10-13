@@ -409,6 +409,46 @@ public sealed class DecalEffectsTests
     }
 
     [Test]
+    public void StepOver_AClientBulletAStaticPropStopped_DecalsThePropAndDrawsItAfterTheWorldsOwn()
+    {
+        (DecalEffects decals, FakeDecalUpload device, FakePosedEntities models, _) = Presenter();
+
+        // Nobody is in the way: the victim is posed and the ray misses his hitboxes.
+        models.Fractions.Clear();
+
+        // The prop is the one triangle facing +x at the origin; the bullet stops on it, coming along −x.
+        DecalAssets assets = Assets() with
+        {
+            Shaders = [string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, "DecalModulate"],
+            PlacedProps = new Dictionary<int, PlacedProp>
+            {
+                [0] = new PlacedProp(
+                    new PropShape(
+                        [new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, 2f), new Vector3(0f, -2f, -2f)],
+                        [Vector3.UnitX, Vector3.UnitX, Vector3.UnitX]),
+                    PropTransform.Identity),
+            },
+        };
+        ShotImpact onTheProp = new(0, 0, 50, Shooter, Red, (100f, 0f, 0f), (0f, 0f, 0f), (-900f, 0f, 0f), -1, Normal: (1f, 0f, 0f))
+        {
+            StaticProp = 0,
+        };
+
+        decals.StepOver(
+            Frame(50), new DecalContent(new DecalMap(Empty, [onTheProp], Decals(), SolidBrushEntities.None, assets), Surfaces, Scripts), device);
+
+        (WorldVertex[] vertices, WorldBatch[] batches, WorldBatch[] entityBatches) = device.Uploads[^1];
+
+        batches.ShouldBeEmpty("the world itself took no decal");
+        entityBatches.ShouldHaveSingleItem().MaterialIndex.ShouldBe(6, "decals/concrete/shot1, the prop's own decal run");
+        vertices.Length.ShouldBe(entityBatches[0].VertexCount);
+        vertices.Select(static vertex => (vertex.Red, vertex.Green, vertex.Blue)).Distinct().ShouldBe(
+            [(Render.Device3D.ModulateTwiceLight, Render.Device3D.ModulateTwiceLight, Render.Device3D.ModulateTwiceLight)],
+            "a mod2x decal's corners carry the pipeline's light");
+        decals.ModelDecalCount.ShouldBe(1, "one pool for every model: the prop's decal is held with the players'");
+    }
+
+    [Test]
     public void StepOver_WithNoMapAssets_TouchesNothing()
     {
         (DecalEffects decals, FakeDecalUpload device, _, _) = Presenter();
