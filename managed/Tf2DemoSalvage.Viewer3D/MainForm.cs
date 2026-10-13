@@ -57,7 +57,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// needs a real handle and the panel does not have one until it is shown. Constructing the form
 /// therefore stays free of side effects, which is also what lets it be tested without a display.
 /// </remarks>
-internal class MainForm : Form, IFrameSteps
+internal class MainForm : Form, IFrameSteps, ILoadView
 {
     /// <summary>Automation id of the Direct3D viewport panel.</summary>
     public const string ViewportId = "Viewport";
@@ -201,17 +201,6 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Automation id of the texture quality menu.</summary>
     public const string TextureQualityMenuId = "TextureQualityMenu";
 
-    /// <summary>Shown when no TF2 installation could be found.</summary>
-    /// <remarks>
-    /// **It names the fix, not just the fault** (B211). "Map not found" was what this said before,
-    /// which sent the reader looking for the wrong thing entirely — and the demo still plays without
-    /// a map, so the sentence has to say that too or it reads as a refusal.
-    /// </remarks>
-    public const string NoGameInstalled =
-        "No Team Fortress 2 installation found, so maps and models cannot be loaded. "
-        + "The demo will still play. Install TF2 through Steam, or put maps in the viewer's own "
-        + "maps folder.";
-
     /// <summary>The scene's surface. Disposed by <c>base.Dispose</c>, not by us (B402).</summary>
     /// <remarks>
     /// **Every child control here carries this suppression, and the reason is measured.** Each sits
@@ -278,7 +267,10 @@ internal class MainForm : Form, IFrameSteps
     private IReadOnlyList<DemoEntry> _shown = [];
     private readonly DemoLibrary _library = new();
 
-    private LoadedDemo? _demo;
+    /// <summary>Owns what a load fills and the load itself; this window is its <see cref="ILoadView"/> (D214).</summary>
+    private readonly LoadPresenter _loader;
+
+    private LoadedDemo? _demo => _loader.Demo;
 
     // **`_scene` was here until 2026-08-26** (D98) — entity positions already projected to clip
     // space, held that way so the render loop did no per-frame work beyond handing them over. That
@@ -289,14 +281,8 @@ internal class MainForm : Form, IFrameSteps
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
     // it could never produce a visible triangle. Deleted with the projection that built it.
 
-    /// <summary>The map, read and ready to draw, or null when none is open.</summary>
-    /// <remarks>
-    /// **Eleven fields until 2026-08-25** — the outline, the assets, the height range and the eight
-    /// that were `MapLevel` unpacked. Reading a map is not window work and none of it happens here
-    /// any more: what is left is handing the result to the systems that asked for it, which is the
-    /// engine's `LevelInitPreEntity` shape (`igamesystem.h:39`).
-    /// </remarks>
-    private LoadedMap? _loaded;
+    /// <summary>The map the load owner holds, or null when none is open.</summary>
+    private LoadedMap? _loaded => _loader.Map;
 
     /// <summary>The map as it was read, for a test to ask what came with it (B393).</summary>
     internal LoadedMap? Loaded => _loaded;
@@ -328,33 +314,8 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Which member <see cref="Dispose(bool)"/> is releasing, for the crash line (B402).</summary>
     private string _releasing = string.Empty;
 
-    /// <summary>What the installed game provides, opened once and reused for every map.</summary>
-    /// <remarks>
-    /// **`_archives`, `_classModels` and `_entityClasses` were three fields opened inside the first
-    /// map read** (B188, D90). None of them is per-map: they are what the INSTALL supplies, and
-    /// they sat there because that is where the first caller happened to be.
-    ///
-    /// Null until a map is read, because locating the install is the one thing that waits for a
-    /// reason to happen.
-    ///
-    /// **Opening it stopped being this window's job on 2026-08-26** (B188, D90) —
-    /// `LevelSystems.Install` owns the branch, the caching and the `OpenGame` call. What is left
-    /// here is B208's arrangement and nothing else: the content is carried from the map read to the
-    /// two precaches **as a value**, so a wrong order has nothing to pass. Every remaining use is
-    /// either that assignment or one of those hand-offs; nothing asks it a question.
-    ///
-    /// **So this field is not a leftover, and the distinction matters** — the reason to keep it is
-    /// the same reason B208 introduced it, and deleting it would restore the silent-ordering bug it
-    /// was created to prevent.
-    /// </remarks>
-    private GameContent? _game;
-
-    /// <summary>Each class model's gib list, read once per install — see where <c>Gibs</c> is set.</summary>
-    private readonly Dictionary<string, IReadOnlyList<PhysicsBreakPiece>> _breakPieces =
-        new(StringComparer.Ordinal);
-
-    /// <summary>The install <see cref="_breakPieces"/> was read from, so a new one starts empty.</summary>
-    private GameContent? _breakPiecesFor;
+    /// <summary>The install the load owner holds, null until a map read or a decode opens it.</summary>
+    private GameContent? _game => _loader.Game;
 
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
@@ -410,8 +371,6 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private readonly ILogger _log;
 
-    private readonly ILogger _mapLog;
-
     private readonly ILogger _renderLog;
 
     private readonly ILogger _demoLog;
@@ -431,15 +390,8 @@ internal class MainForm : Form, IFrameSteps
     // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
     // drawn with a pass-through depth.
 
-    /// <summary>The decoded demo, for the things a window still asks it.</summary>
-    /// <remarks>
-    /// **Still here, and worth saying why rather than leaving it implied.** The sampling left on
-    /// 2026-08-26 (B188, D90) and took the two buffers with it, but four callers in this file still
-    /// need the timeline itself — <c>EnsureWeaponRoles</c>, the model precache, the sound precache
-    /// and <c>DemoSystems.Open</c>. Each of those hands it to something in Presentation or Scene; the
-    /// window holds the reference and asks it nothing.
-    /// </remarks>
-    private DemoTimeline? _timeline;
+    /// <summary>The open demo's timeline, which the load owner holds.</summary>
+    private DemoTimeline? _timeline => _loader.Timeline;
 
     // **`_players` and `_props` were here until 2026-08-26** (B188, D90). They existed only because
     // `ShowMoment` sampled the timeline in the window; `MomentPresenter` owns them now, and reuses
@@ -447,7 +399,8 @@ internal class MainForm : Form, IFrameSteps
     // be two allocations a frame.
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
-    // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
+    // The load owner's, as are `_moment`, `_moments`, `_sound` and `_effects` below: it constructs them and the frame
+    // here still asks them (D214).
     private readonly EntityModelSet _models;
 
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
@@ -506,16 +459,6 @@ internal class MainForm : Form, IFrameSteps
     /// sixteen tests that run in milliseconds with no window.
     /// </remarks>
     private readonly PlaybackPresenter _playback;
-
-    /// <summary>The systems told about a newly-opened demo, as `_levels` are told about a level.</summary>
-    /// <remarks>
-    /// **The demo mirror of <c>LevelSystems</c>, and ours rather than Valve's — checked, not
-    /// assumed.** In the engine, playing a demo IS loading a level, so systems get `LevelInit*` and
-    /// there is no separate event. It does not bind here because this viewer opens a demo BEFORE it
-    /// knows whether the map exists, which the engine never faces: a client cannot play a demo whose
-    /// map it lacks, and ours must (B201).
-    /// </remarks>
-    private readonly DemoSystems _demoSystems;
 
     /// <summary>Where a second of frames went, counted and reported once a second.</summary>
     /// <remarks>
@@ -877,43 +820,44 @@ internal class MainForm : Form, IFrameSteps
         // writes to most of them — map, assets, render, demo, audio, spectate, viewer, config — and
         // each keeps the category ViewerLog used as its area string, so the log format is unchanged.
         _loggers = loggers;
-        _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
-        _mapLog = loggers.CreateLogger("map");
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
         _configLog = loggers.CreateLogger("config");
 
-        // **Given its collaborators rather than reaching for them**, which is what lets it be
-        // tested without a window: the loops it shares with one-shot playback, the decode cache,
-        // and somewhere to report. Its map-dependent state arrives when a map is read.
-        _sounds = new SoundCache(_audioLog);
-        _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog);
-        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog) { ClientSoundLog = _renderLog };
         _freeCamera = new FreeCameraController(_renderLog);
 
-        // **A real source that answers unlit, rather than a null field checked at every call.** The
-        // asset loader and the model set both take it as a delegate, and a null there is the shape
-        // that hid a missed wiring across 193 call sites once already (D83).
         _spectator = new SpectatorView(_spectateLog);
-
-        _moment = new MomentScene(_models, _viewmodelScene, _renderLog)
-        {
-            Lighting = LevelLighting.Unlit(_renderLog),
-            Weapons = WeaponModels.None(_renderLog),
-        };
 
         // **A local, not a field.** Both readers are constructed here and neither hands it back, so
         // the window has no reason to keep a reference — and keeping one is what would let a later
         // edit report a phase to a ledger nobody prints.
         FrameLedger ledger = new();
 
-        _moments = new MomentPresenter(_moment, ledger, _renderLog);
+        _transport = new TransportBar();
 
-        // Everything a frame makes around its models, composed in one presenter (D92, D214).
-        _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog, _audioLog);
+        // **Playback belongs to a presenter now, not to this form (D62).** What used to be three
+        // event handlers and a stopwatch here — scrub, play/pause, speed, each with a rule about
+        // when to restart the watch — is `PlaybackPresenter`, which knows nothing about WinForms
+        // and has sixteen tests. None of that logic could be tested while it lived in this file.
+        //
+        // The form keeps exactly one job in this area: the moment changed, so redraw.
+        _playback = new PlaybackPresenter(_transport, new StopwatchTime());
+
+        // **What a load fills is composed by its owner** (D214): the model set, the sound cache, soundscape and
+        // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
+        // order this constructor built them. The five fields below are the same objects, kept because the frame still
+        // asks them; nothing here constructs or replaces one.
+        _loader = new LoadPresenter(
+            this, loggers, ledger, _viewmodelScene, _spectator, _maps, () => _settings, () => _audio, _playback, ClientConVar, _shutdown.Token);
+        _models = _loader.Models;
+        _moment = _loader.Moment;
+        _moments = _loader.Moments;
+        _sound = _loader.Sound;
+        _effects = _loader.Effects;
+
         _showOnly = shown =>
         {
             ShowOnly(shown);
@@ -924,29 +868,8 @@ internal class MainForm : Form, IFrameSteps
         _effects.AttachHud(new HudWindow(
             _gdi, () => _game, () => _demo?.MapName, HudWindowAt, ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, FirstPersonCamera));
 
-        // **The one fact that travels from the models back to the demo** (B269). Only a model says
-        // which pose parameters wrap, and only the interpolator needs to know — `OnNewModel` in the
-        // engine, where `m_iv_flPoseParameter.SetLooping` is called. Read through the property
-        // rather than captured, because the source arrives with a demo and this runs before one is
-        // open.
-        _models.ModelResolved = (entity, looping, staticProp) =>
-            _moments.Source?.OnNewModel(entity, looping, staticProp);
         _frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
-        // **Registered here, after every system exists, and this is the only place the list is
-        // written.** A system added later is added to this call rather than to whichever method
-        // happens to load a map — which is the arrangement that let three assignments go missing
-        // separately (B193) and two more sit unnoticed for a day (B196).
-        // **One holder, two setters, and the window is neither.** The appearance needs a demo and an
-        // install, which arrive at different moments — `DemoSystems.Open` supplies the first and
-        // `LevelSystems.Install` the second. Held as a local here because both take it and neither
-        // hands it back, the same reason `FrameLedger` is a local (B188, D90).
-        PlayerAppearances appearances = new(_demoLog);
-
-        _levels = new LevelSystems(
-            _moment, _models, _sounds, _soundscape, _sound, appearances, _loggers);
-
-        _moments.Appearances = appearances;
         _world = new WorldPresenter(_renderLog);
         _leafBoxes = new LeafBoxes(_renderLog);
 
@@ -1146,75 +1069,6 @@ internal class MainForm : Form, IFrameSteps
         // Fill before Top, for the same reason the form itself adds the viewport first.
         playlistPanel.Controls.Add(_playlist);
         playlistPanel.Controls.Add(_search);
-
-        _transport = new TransportBar();
-
-        // **Playback belongs to a presenter now, not to this form (D62).** What used to be three
-        // event handlers and a stopwatch here — scrub, play/pause, speed, each with a rule about
-        // when to restart the watch — is `PlaybackPresenter`, which knows nothing about WinForms
-        // and has sixteen tests. None of that logic could be tested while it lived in this file.
-        //
-        // The form keeps exactly one job in this area: the moment changed, so redraw.
-        _playback = new PlaybackPresenter(_transport, new StopwatchTime());
-
-        // Registered after the presenter it drives, for the same reason `_levels` waits for the
-        // scene: a system list is only as good as every member existing when it is built.
-        _demoSystems = new DemoSystems(
-            _spectator, _moment, _moments, appearances, _sound, _playback, _loops, _loggers)
-        {
-            // The watcher's demo_* ConVars, read by InterpolateViewpoint (B56, D190).
-            ClientConVars = ClientConVar,
-        };
-
-        // **The gib list comes from the INSTALL, not from the model set** (B371). It was wired to
-        // `_models.BreakPiecesOf` on the reasoning that a break list is a fact about a loaded model
-        // — and that is the trap `docs/memory/precache-what-the-engine-precaches.md#a-lookup-is-not-a-loader`
-        // names: the model set answers out of a cache filled from the props DRAWN at a tick, and a
-        // gibbed corpse draws no body, so it asked for a model that could not be there and got
-        // "no pieces" for one that
-        // declares nine. Nothing was drawn at all, which is what the picture showed.
-        //
-        // The engine reads it at precache time, from the collide data, before anything spawns:
-        // `PrecachePropsForModel` (`props_shared.cpp:1239`). So does this.
-        //
-        // **Read ONCE per model per install, as precache is once.** This called `BreakPiecesOf` on
-        // every frame for every gibbed corpse, which reopened the archive and reparsed the `.phy`
-        // each time — measured at 3.5% of a Debug frame, and most of the 3 ms `sample` column.
-        _demoSystems.Arrows = () => _loaded?.Arrows;
-        _demoSystems.World = () => _loaded?.Level;
-
-        // The ground's surface data, through the same texinfo-to-surfaceprop route a footstep and an impact take.
-        _demoSystems.GroundSurface = trace =>
-            _loaded?.ImpactDecals is { } decals ? _game?.Surfaces?.GetSurfaceData(decals.SurfacePropOfTrace(trace)) : null;
-
-        _demoSystems.Gibs = model =>
-        {
-            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (_game is not { } install)
-            {
-                return [];
-            }
-
-            if (!ReferenceEquals(_breakPiecesFor, install))
-            {
-                _breakPieces.Clear();
-                _breakPiecesFor = install;
-            }
-
-            if (!_breakPieces.TryGetValue(model, out IReadOnlyList<PhysicsBreakPiece>? pieces))
-            {
-                pieces = DemoModels.BreakPiecesOf(model, install);
-                _breakPieces[model] = pieces;
-            }
-
-            return pieces;
-        };
-
-        // **The same owner, for the same reason** (B395). A corpse's `m_nBody` is the player's,
-        // copied at death (`c_tf_player.cpp:790-793`), and turning a cosmetic's declared part name
-        // into an index needs the loaded `.mdl` — which is this set. Without it every corpse draws
-        // at body 0 and wears its hats on top of the stock geometry they replace.
-        _demoSystems.Bodygroups = _models;
 
         _playback.MomentChanged += (_, moment) =>
         {
@@ -1448,6 +1302,15 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The demo currently loaded, or <c>null</c> if none is.</summary>
     public LoadedDemo? Demo => _demo;
 
+    /// <summary>Loads a demo by path, on this thread: <see cref="LoadPresenter.LoadDemo"/>.</summary>
+    /// <param name="path">Full path to the demo.</param>
+    public DemoLoadResult LoadDemo(string path) => _loader.LoadDemo(path);
+
+    /// <summary>Opens a demo without freezing the window: <see cref="LoadPresenter.LoadDemoAsync"/>.</summary>
+    /// <param name="path">Full path to the demo.</param>
+    /// <returns>A task that completes when the demo is on screen.</returns>
+    public Task<DemoLoadResult> LoadDemoAsync(string path) => _loader.LoadDemoAsync(path);
+
     /// <summary>Loads the demo selected in the playlist, if any.</summary>
     /// <remarks>
     /// **A failure to load is reported, never thrown.** Half the point of this project is opening
@@ -1468,7 +1331,7 @@ internal class MainForm : Form, IFrameSteps
             return NothingSelected;
         }
 
-        return LoadDemoAsync(_shown[index].Path);
+        return _loader.LoadDemoAsync(_shown[index].Path);
     }
 
     /// <summary>The load in flight, kept so it is observed rather than discarded.</summary>
@@ -1488,244 +1351,9 @@ internal class MainForm : Form, IFrameSteps
     private static readonly Task<DemoLoadResult> NothingSelected =
         Task.FromResult(new DemoLoadResult(DemoLoadOutcome.Superseded, "No demo is selected."));
 
-    /// <summary>Loads the map a demo was recorded on, if a copy can be found.</summary>
-    /// <param name="mapName">Map name from the demo header.</param>
-    /// <returns>Whether a map was found and read.</returns>
-    /// <remarks>
-    /// **A missing or unreadable map is not an error.** A demo of a community map nobody has still
-    /// plays; the viewport shows the players without a world behind them. Reporting it and
-    /// carrying on is the behaviour this whole project is built around.
-    /// </remarks>
-    public bool LoadMap(string mapName)
-    {
-        ClearMap();
-        return ReadMapNamed(mapName, _timeline).Drawn;
-    }
-
     // `_modelsUploaded` was here until 2026-08-25. It is `MomentScene.Uploaded` now, beside the
     // packing it guards (B188, D90) — and the question it answers is unchanged: "is the packed
     // geometry on the device right now", which is NOT "has the set grown". Conflating them was B148.
-
-    /// <summary>Whether a map is being read on another thread right now.</summary>
-    /// <remarks>
-    /// **Volatile because two threads share it and one of them is a tight loop.** The reader writes
-    /// a dozen fields and the render loop reads them; this is what keeps the loop out from between.
-    /// </remarks>
-    private volatile bool _readingMap;
-
-    // **`_mapProblem` was here until 2026-08-26, and it was a second copy of `_loaded.Problem`.**
-    // Four assignments, in two perfectly matched pairs — `ClearMap` nulled both, `LoadMap` set both
-    // from the same `map` — with nothing making them agree except that they were written next to
-    // each other. Its own doc argued it had to be a field because the read runs off the UI thread,
-    // which is true of `_loaded` as well and is therefore an argument for one field, not two.
-    //
-    // The status bar asks `_loaded?.Problem` now. That is the same value by construction rather
-    // than by care, which is the whole of the difference.
-
-    /// <summary>Drops the current map and its GPU resources. UI thread only.</summary>
-    /// <remarks>
-    /// **Separated from the reading because only this half belongs to the device (B146).**
-    /// `ClearWorld` disposes Direct3D resources and an immediate context is owned by the thread that
-    /// made it; everything after this point is file reading and arithmetic, which is where the
-    /// thirteen to eighteen seconds go.
-    /// </remarks>
-    private void ClearMap()
-    {
-        _loaded = null;
-
-        _effects.ClearMap();
-
-        // **Every system is told the level is going, in reverse registration order** — Valve's
-        // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
-        //
-        // Teardown used to be split three ways and was asymmetric: two systems were reset here, the
-        // soundscape was cleared inside the map READ, and the sound schedule was never torn down at
-        // all. Adding a fifth system meant guessing which of the three places it belonged in.
-        _levels.Shutdown();
-
-        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
-        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
-        // the previous map's lumps until the next read replaced them. Nothing read them in between —
-        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
-        // methods away" is the kind of thing a record makes impossible to get wrong.
-        //
-        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
-        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
-        // read it (B196).
-        _leafBoxes.Forget();
-        _world.TexturesAreCurrent = false;
-
-        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
-        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
-        // set that is still in memory has nowhere on the device to live until it is uploaded again
-        // (B148).
-        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
-        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
-
-        _device?.ClearWorld();
-    }
-
-    /// <summary>Reads a map by name, and hands back the install it opened.</summary>
-    /// <param name="mapName">The map the demo names.</param>
-    /// <param name="timeline">The demo being opened, which decides what content loads with the map.</param>
-    /// <returns>Whether a world was drawn, and the game content now open.</returns>
-    /// <remarks>
-    /// **Safe off the UI thread once <see cref="ClearMap"/> has run, verified by reading rather than
-    /// assumed**: across its hundred and forty lines this path touches no control, no demo, no
-    /// timeline and no device. The one exception was a `_status.Text` assignment in a catch, which
-    /// records the failure on <see cref="LoadedMap.Problem"/> for the UI thread to show.
-    ///
-    /// **The `GameContent` is RETURNED rather than left in a field, and that is a correctness fix
-    /// rather than a tidy-up** (B208). Reading a map is what opens the install, and both precaches
-    /// begin `if (timeline is null || game is null) return;` — **silently**. So the three calls in
-    /// `LoadDemoAsync` had a load-bearing order that nothing enforced: put either precache first and
-    /// it does nothing at all, with no error and a green suite.
-    ///
-    /// Handing the content back makes the dependency an argument, so the wrong order has nothing to
-    /// pass. **It is not airtight** — `_game` is still reachable as a field — but the natural form
-    /// now carries the order, which is the difference between a comment and a shape.
-    ///
-    /// This is B203's lesson at a smaller scale: an order that matters, in a window, failing quietly.
-    ///
-    /// **The timeline is an argument for the same reason, and it was the same bug** (B393). This read
-    /// `_timeline`, which `Apply` assigns — and `LoadDemoAsync` reads the map BEFORE `Apply`, so a demo
-    /// opened from the playlist had its map read with the previous demo's timeline, or with none on
-    /// the first open, and `MapAssets.Load` was told of no sprites and no worn items.
-    /// </remarks>
-    /// <param name="prepared">
-    /// What <see cref="MapProvider.PrepareAsync"/> came back with for this demo, or null on a path that prepared
-    /// nothing — the synchronous <see cref="LoadDemo"/> and a reload, which never fetch.
-    /// </param>
-    private (bool Drawn, GameContent? Game) ReadMapNamed(string mapName, DemoTimeline? timeline, MapFetch? prepared = null)
-    {
-        MapSearch found = _maps.Find(mapName);
-
-        // **Three outcomes, because "not here" had two causes and only one earns a download**
-        // (B211). This asked `Locate`, got null, and said "not installed; fetching it" — so a
-        // machine with no TF2 at all was told about the MAP and watched a download start, which is
-        // the wrong cause and useless work. The owner's requirement is that a missing install "must
-        // just error and mention it", and mentioning the wrong thing is worse than silence.
-        // **Says so and CARRIES ON, which the first version of this did not** (B211). Returning here
-        // was a regression and CI caught it: with no TF2 the viewer stopped downloading the map, so
-        // the world was never built. Every UI test failed with `worlds 0, textures 0`.
-        //
-        // **"No TF2 install" is not "nothing can be done about the map."** The downloader writes into
-        // the viewer's OWN maps folder, which `Locate` searches, and a map there draws without the
-        // game — models and stock textures are what go missing. Watching a demo on a machine with no
-        // TF2 is the salvage case, not an error case.
-        //
-        // The owner's requirement was to *mention* it, and mentioning it is all this does.
-        if (found.Outcome == MapOutcome.NoGame)
-        {
-            _status.Text = NoGameInstalled;
-            _mapLog.LogWarning("{Message}", NoGameInstalled);
-        }
-
-        // **The fetch already happened, from the header, and the load waited for it** (B507). This branch started it
-        // fire-and-forget once the decode was done, and the read it ended in ran on a pool thread outside the
-        // `_readingMap` barrier and skipped both precaches: a first download left the view mapless or crashed it.
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (found.Path is not { } path)
-        {
-            string absent = prepared?.Status is { Length: > 0 } why ? why : $"Map {mapName} is not installed";
-            _status.Text = absent;
-            _mapLog.LogWarning("{Message}", absent);
-            return (false, _game);
-        }
-
-        _mapLog.LogInformation("{Message}", $"found {path}");
-
-        return (ReadMap(mapName, path, timeline), _game);
-    }
-
-    // `DownloadMapAsync` was here until B507: a fetch started after the decode, fire-and-forget, whose map read ran
-    // on a pool thread (the continuation of a task begun inside `Task.Run` has no UI context to return to) beside the
-    // render loop. `MapProvider.PrepareAsync`, awaited inside `LoadDemoAsync`, replaces it. The D162 history it
-    // carried — the recorded version is wanted, from the first source that has it — is in `docs/DECISIONS.md`.
-
-    /// <summary>Reads a map file into the viewport's geometry.</summary>
-    private bool ReadMap(string mapName, string path, DemoTimeline? timeline)
-    {
-        try
-        {
-            byte[] bytes = File.ReadAllBytes(path);
-
-            _mapLog.LogInformation(
-                "{Message}",
-                $"loading {Path.GetFileName(path)} ({bytes.Length / 1024 / 1024} MB)");
-
-            // **Opening the install is a lifecycle question, not a window's** (B188, D90). The
-            // branch, the field and the `OpenGame` call beside it were all here; `LevelSystems.Install`
-            // owns them and answers the same content every time after the first.
-            //
-            // It is deferred because the folder is not knowable until the user points at it, NOT
-            // because it is slow — which is what the comment here used to say, and is the difference
-            // between "this could be made eager" and "there is nothing to hurry".
-            _game = _levels.Install(_maps.GameFolder);
-
-            _world.TexturesAreCurrent = false;
-
-            // **Reading a map is not window work and telling the systems about it is not either**
-            // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
-            // level boundary — `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) —
-            // rather than one method reaching into six collaborators, which is the arrangement that
-            // let B193 and B196 drop assignments unnoticed.
-            LoadedMap map = _levels.Load(
-                bytes,
-                _game,
-                timeline,
-                (int)_settings.TextureQuality,
-                mapName);
-
-            // **The LEVEL survives a content failure, and it did not before.** The old catch set
-            // `_level = null` alongside `_assets = null`, throwing away lumps that had read
-            // perfectly because the TEXTURES did not — so `mat_leafvis` went blank on a map whose
-            // BSP tree was fine. `LoadedMap` separates the two: the lumps are read or they throw,
-            // and the content is a nullable beside them.
-            _loaded = map;
-
-            _effects.LevelInit(map, _settings.DoPixelVisibility);
-
-            // **The chase camera clips against the world, and this is where it gets one.** Valve
-            // traces a twelve-unit hull from the target to the camera and pulls the camera in to
-            // whatever it hits (`hltvcamera.cpp`, and see `ChaseCamera`). Null until a map is open,
-            // which is why `SpectatorView.World` is nullable rather than assumed.
-            // **`MapLevel.Sweep`, which asks the BRUSHES and the TERRAIN** (B227). This asked only
-            // `Leaves` until 2026-08-29, and displacements are not in the BSP tree at all — measured
-            // on cp_badlands, where none of the 1191 displacement faces is reachable from any leaf —
-            // so the camera passed straight through every hillside in the game.
-            _spectator.World = (from, to, extent) => map.Level.Sweep(from, to, extent);
-
-            // **And the corpses get the map's BAKED physics collision, which is a different thing**
-            // (B58). `Sweep` above answers a camera's question about brush faces; this is
-            // `LUMP_PHYSCOLLIDE`, the hulls the compiler baked and the engine feeds to
-            // `CreatePolyObjectStatic`. Set before any corpse is seeded — a simulation created
-            // without a world falls through the map for its whole life, and `Clear` on a map change
-            // is what stops one outliving its geometry.
-            StopCorpseRecord();
-            _models.Corpses.Clear();
-
-            // **The corpses' environment is the ported driver's, with the map's collide in it** (D172, D179): the world, the
-            // static solids, the virtual terrain and the static props, as `PhysicsLevelInit` builds `physenv`. The game's surfaces
-            // are what stop a corpse sliding; a viewer with no game folder gives every body the no-install friction.
-            Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces =
-                _game?.Surfaces ?? new Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps([]);
-            _models.Corpses.Surfaces = surfaces;
-            _models.Corpses.CreateWorld = IvpMapWorld.Factory(bytes, _game, surfaces, _mapLog);
-
-            // **The map's detail models are packed inside `LevelSystems.Load`** (B363), beside the
-            // geometry loader that reads them — a call here instead ran after something else had
-            // already added the path with no geometry, and the packer skips a path it has seen.
-
-            ProjectMap();
-            return !map.Outline.IsEmpty;
-        }
-        catch (Exception failure) when (failure is IOException or InvalidDataException)
-        {
-            _status.Text = MapProvider.CouldNotRead(mapName, failure);
-            return false;
-        }
-    }
 
     // `MapLines` was here: the map outline projected into clip space for the overhead view. It had
     // no consumer in production or in a test, and the view it served was removed. Deleted with the
@@ -1823,7 +1451,7 @@ internal class MainForm : Form, IFrameSteps
         if (result.NeedsReload && _demo is { } open)
         {
             _log.LogWarning("{Message}", $"world textures lost after their pixels were released; reading {open.MapName} again");
-            LoadMap(open.MapName);
+            _loader.LoadMap(open.MapName);
         }
     }
 
@@ -1983,7 +1611,7 @@ internal class MainForm : Form, IFrameSteps
         // **A load in flight is not a demo that never came.** The patience is a frame count, and a
         // window that draws at 300 fps while an 80-second decode runs would give up two thirds of
         // the way through it.
-        if (_loadsInFlight > 0)
+        if (_loader.LoadsInFlight > 0)
         {
             return;
         }
@@ -2053,7 +1681,7 @@ internal class MainForm : Form, IFrameSteps
     /// earlier test happened to move the transport first.
     ///
     /// So it is called from both ends now: from the countdown, as before, and from
-    /// <see cref="Apply"/> when a demo finishes loading. <c>OpeningSequence.Applied</c> makes the
+    /// the load's <c>Apply</c> when a demo finishes loading. <c>OpeningSequence.Applied</c> makes the
     /// second of those a no-op.
     /// </remarks>
     private void ApplyOpeningState()
@@ -2803,210 +2431,6 @@ internal class MainForm : Form, IFrameSteps
     // could read what the viewport was drawing. With the markers gone there is nothing flat left to
     // expose, and what the viewport draws now is a 3D scene that a property cannot summarise.
 
-    /// <summary>Loads a demo by path and brings the transport up on it.</summary>
-    /// <param name="path">Full path to the demo.</param>
-    /// <remarks>
-    /// Split from <see cref="LoadSelected"/> so loading can be exercised without a live ListView:
-    /// selection state needs a created window handle, so a form that was never shown reports no
-    /// selection at all — which made the first version of this test fail for a reason that had
-    /// nothing to do with loading.
-    /// </remarks>
-    public DemoLoadResult LoadDemo(string path)
-    {
-        // **Takes a ticket it never asks about**, so that starting a synchronous load supersedes any
-        // async one already decoding. Both paths end by assigning the same fields.
-        _loads.Take();
-
-        try
-        {
-            return Apply(DecodedDemo.Read(
-                path, _demoLog, interp: _settings.Interp, classes: _levels.Install(_maps.GameFolder).ClassAnimation));
-        }
-        catch (Exception failure) when (failure is IOException or InvalidDataException)
-        {
-            return CouldNotOpen(path, failure);
-        }
-    }
-
-    /// <summary>Opens a demo without freezing the window (B146).</summary>
-    /// <param name="path">Full path to the demo.</param>
-    /// <returns>A task that completes when the demo is on screen.</returns>
-    /// <remarks>
-    /// **The decode is seconds of work and it was running in the click handler.** Measured from the
-    /// viewer's own log: 0.33–0.76 s for a small point-of-view recording, and **4.66–4.88 s** for
-    /// `z1800.dem`, a 24-minute nine-versus-nine match. Windows marks a window that has not pumped
-    /// messages for five seconds as "Not Responding", which is exactly the threshold a real match
-    /// crosses — the owner watched it happen.
-    ///
-    /// **The split is decode-then-show, and the line between them is "does this touch the form".**
-    /// <see cref="DecodedDemo.Read"/> reads and decodes and lives in another project entirely, so it
-    /// cannot reach the UI at all; <see cref="Apply"/> assigns the fields, the transport, the
-    /// clock and the map, and must be on the UI thread because it ends in Direct3D. The `await`
-    /// returns to the UI thread on its own — WinForms installs a synchronisation context, so there
-    /// is no marshalling to write and none to get wrong.
-    ///
-    /// **A newer request wins.** Double-clicking two demos in a row starts two decodes, and the
-    /// slower one must not overwrite the faster: each takes a ticket and only the newest is shown.
-    /// Without that, opening a big demo and changing your mind leaves you looking at the big one.
-    ///
-    /// **The synchronous <see cref="LoadDemo"/> stays** for the command line, the `--shot` capture
-    /// path and the tests, where there is no window to freeze and a caller that returns before the
-    /// demo exists is simply wrong.
-    /// </remarks>
-    public async Task<DemoLoadResult> LoadDemoAsync(string path)
-    {
-        int ticket = _loads.Take();
-
-        _status.Text = DemoLoadResult.Opening(path);
-        _loadsInFlight++;
-        _loading.Report(LoadingDecode, 0d);
-
-        try
-        {
-            ILogger demoLog = _demoLog;
-            Core.Net.ClientInterp interp = _settings.Interp;
-
-            // **Posted, so a report can arrive after the decode has moved on** — the stage check
-            // keeps a late one from dragging the overlay back to "decoding".
-            bool decoding = true;
-            IProgress<double> progress = new Progress<double>(fraction =>
-            {
-                if (decoding && _loads.IsCurrent(ticket))
-                {
-                    _loading.Report(LoadingDecode, fraction);
-                }
-            });
-
-            // **The shutdown token, on both worker hops** (B402). Neither read can be interrupted
-            // part-way — a decode and a map read are one operation each — but the token means a
-            // window that closes mid-load does not come back to a disposed form afterwards, which
-            // is the same crash the map fetch had.
-            // **The map is found or fetched from the HEADER, in parallel with the decode** (B507): the fetch used to start
-            // only after a decode of tens of seconds, and its read then raced the render loop off the load's barrier.
-            Task<MapFetch> mapReady = _maps.PrepareAsync(
-                path,
-                mapName => _mapLog.LogInformation("{Message}", $"{mapName} is not installed; fetching it"),
-                _shutdown.Token);
-
-            // **The install is opened first, because the decode reads its class scripts** (B437): `DontDoAirwalk` and
-            // `DontDoNewJump` are anim-state inputs the demo does not carry. `Install` opens once and answers the same
-            // content every time after, so the map read below gets this same one.
-            DecodedDemo decoded = await Task
-                .Run(
-                    () => DecodedDemo.Read(
-                        path, demoLog, progress.Report, interp, _levels.Install(_maps.GameFolder).ClassAnimation),
-                    _shutdown.Token)
-                .ConfigureAwait(false);
-
-            if (!_loads.IsCurrent(ticket))
-            {
-                return OnUi(() => Superseded(_demoLog, path));
-            }
-
-            OnUi(() =>
-            {
-                decoding = false;
-                _loading.Report(LoadingMap, fraction: null);
-                return 0;
-            });
-
-            // **Waited for here, under the loading overlay** — a first download ends with the map loaded, never a mapless
-            // view left behind (owner, 2026-10-05). An installed map's task finished long ago.
-            MapFetch prepared = await mapReady.ConfigureAwait(false);
-
-            if (!_loads.IsCurrent(ticket))
-            {
-                return OnUi(() => Superseded(_demoLog, path));
-            }
-
-            // **The map read is the expensive half — 13 to 18 seconds of it (B146).** Dropping the
-            // old map touches the device and stays here; finding and reading the new one touches
-            // nothing but files and arithmetic, and goes to a worker.
-            //
-            // **`_readingMap` is what makes that safe.** The read assigns a dozen fields as it
-            // goes, and the render loop reads them, so between the two the world is half replaced.
-            // The flag holds the loop off until the marshal back, which is also the barrier that
-            // publishes the writes.
-            OnUi(() =>
-            {
-                _readingMap = true;
-                ClearMap();
-                return 0;
-            });
-
-            bool read;
-
-            try
-            {
-                read = await Task.Run(() =>
-                {
-                    // **The read comes first because it is what opens the install**, and both
-                    // precaches return silently without one (B208). That order used to be three
-                    // statements anyone could reorder into a silent no-op; it is now carried by
-                    // `game`, which does not exist until the read has produced it.
-                    (bool drawn, GameContent? game) =
-                        ReadMapNamed(decoded.Demo.MapName, decoded.Timeline, prepared);
-
-                    OnUi(() =>
-                    {
-                        _loading.Report(LoadingAssets, fraction: null);
-                        return 0;
-                    });
-
-                    // **Packed here rather than when a prop first appears, which is what Valve
-                    // does** (D86). `CBaseEntity::PrecacheModel` sits behind `IsPrecacheAllowed()`
-                    // and warns on an out-of-order precache: the engine loads models at level load,
-                    // deliberately, so nothing is decoded mid-game.
-                    //
-                    // Ours was packing on sight, and it cost 385 ms in a single frame the first time
-                    // a crowd of props came into view — measured 2026-08-24. Inside this Task.Run
-                    // and before `_readingMap` is cleared, so it runs on the worker behind the
-                    // barrier that already holds the render loop off during a map read (B146).
-                    DemoModels.Precache(_models, decoded.Timeline, game, _renderLog);
-
-                    // Same timing, same reason, and the audio path is where the cost actually
-                    // landed once the model stalls were gone. **No emitted sounds yet**: those join
-                    // the schedule in `Apply`, which precaches them itself.
-                    DemoSounds.Precache(_sounds, decoded.Timeline, game, _soundscape, _audioLog, emitted: [], scripts: null);
-
-                    return drawn;
-                }, _shutdown.Token).ConfigureAwait(false);
-            }
-            finally
-            {
-                OnUi(() =>
-                {
-                    _readingMap = false;
-                    return 0;
-                });
-            }
-
-            return OnUi(() => _loads.IsCurrent(ticket)
-                ? Apply(decoded, read)
-                : Superseded(_demoLog, path));
-        }
-        catch (Exception failure) when (failure is IOException or InvalidDataException)
-        {
-            return OnUi(() => _loads.IsCurrent(ticket)
-                ? CouldNotOpen(path, failure)
-                : Superseded(_demoLog, path));
-        }
-        finally
-        {
-            OnUi(() =>
-            {
-                // **Hidden only when no newer load is still running**, which would otherwise lose
-                // its overlay to the one it superseded.
-                if (--_loadsInFlight == 0)
-                {
-                    _loading.Visible = false;
-                }
-
-                return 0;
-            });
-        }
-    }
-
     /// <summary>The demo named on the command line, opened once the window is up; null when none was.</summary>
     private readonly string? _openOnShow;
 
@@ -3023,7 +2447,7 @@ internal class MainForm : Form, IFrameSteps
             return await NothingSelected.ConfigureAwait(true);
         }
 
-        DemoLoadResult result = await LoadDemoAsync(_openOnShow).ConfigureAwait(true);
+        DemoLoadResult result = await _loader.LoadDemoAsync(_openOnShow).ConfigureAwait(true);
 
         if (result.Outcome == DemoLoadOutcome.Failed)
         {
@@ -3058,68 +2482,6 @@ internal class MainForm : Form, IFrameSteps
         BeginInvoke(Close);
     }
 
-    /// <summary>Stops the background corpse pass for the demo and map being closed (D181).</summary>
-    private void StopCorpseRecord()
-    {
-        _corpseRecording?.Cancel();
-        _corpseRecording?.Dispose();
-        _corpseRecording = null;
-    }
-
-    /// <summary>Starts simulating every corpse in the open demo in the background, straight through, for seeks to read (D181).</summary>
-    /// <remarks>
-    /// **The live viewer reads the record the moment it reaches a tick, and D179's replay covers the rest**, so a seek ahead of the
-    /// pass still works — it is only slower. The pass has its own environment and entities and shares nothing writable with the
-    /// render thread: the map's model frames are fixed once the map is read, and the record publishes a tick only after writing it.
-    /// </remarks>
-    private void StartCorpseRecord()
-    {
-        StopCorpseRecord();
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_moments.Source is not TimelineMoments source || source.RecordedCorpses() is not { Count: > 0 } corpses)
-        {
-            return;
-        }
-
-        CorpseRecord record = new(corpses);
-        _models.Corpses.Record = record;
-
-        // **The corpse pass says what it heard, whichever path posed the corpse** — f12's 26990 death played none after a seek to
-        // 26960, when only the record was read.
-        _sound.ForgetCorpseSounds();
-        _models.Corpses.FrictionHeard = _sound.CorpseFrictionHeard;
-        _models.Corpses.ImpactHeard = _sound.CorpseImpactHeard;
-        _corpseRecording = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
-
-        Func<string, PropModels.ModelFrames?> geometry = _models.Geometry;
-        Func<float, Tf2DemoSalvage.Animation.Animating.IvpRagdollWorld>? createWorld = _models.Corpses.CreateWorld;
-        Tf2DemoSalvage.Animation.Animating.VphysicsSurfaceProps surfaces = _models.Corpses.Surfaces;
-        float interval = source.IntervalPerTick;
-        CancellationToken token = _corpseRecording.Token;
-        ILogger log = _renderLog;
-
-        CorpseRecording = Task.Run(
-            () =>
-            {
-                Stopwatch taken = Stopwatch.StartNew();
-                record.Run(geometry, createWorld, surfaces, interval, token);
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                log.LogInformation(
-                    "{Message}",
-                    string.Create(
-                        CultureInfo.InvariantCulture,
-                        $"corpse record: {corpses.Count} bodies to tick {record.Reached} in {taken.Elapsed.TotalSeconds:F1} s"));
-            },
-            token);
-    }
-
-    /// <summary>Cancels the pass on a demo or map change, and on shutdown through <see cref="_shutdown"/>.</summary>
-    private CancellationTokenSource? _corpseRecording;
-
-    /// <summary>The background corpse pass, held so its outcome is observed — a test awaits it, and a fault is not lost (D181).</summary>
-    public Task CorpseRecording { get; private set; } = Task.CompletedTask;
-
     /// <summary>Says how long the program took to put this window on screen, from the process starting (D182).</summary>
     /// <param name="elapsed">Process start to this window's first <c>Shown</c>.</param>
     /// <remarks>
@@ -3134,7 +2496,7 @@ internal class MainForm : Form, IFrameSteps
 
         _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
 
-        if (_loadsInFlight == 0 && _demo is null)
+        if (_loader.LoadsInFlight == 0 && _demo is null)
         {
             _status.Text = $"{_status.Text} {started}";
         }
@@ -3155,40 +2517,12 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>UIA AutomationId of the loading overlay's progress bar.</summary>
     public const string LoadingProgressId = "LoadingProgress";
 
-    /// <summary>The overlay's words for the decode.</summary>
-    private const string LoadingDecode = "Decoding the demo";
-
-    /// <summary>The overlay's words for the map read.</summary>
-    private const string LoadingMap = "Loading the map";
-
-    /// <summary>The overlay's words for the model and sound precache.</summary>
-    private const string LoadingAssets = "Loading models and sounds";
-
     /// <summary>What a demo load is doing, over the viewport.</summary>
     [SuppressMessage(
         "Usage",
         "CA2213:Disposable fields should be disposed",
         Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly LoadingOverlay _loading = new();
-
-    /// <summary>Asynchronous loads not yet finished; the `--shot` patience waits while any is.</summary>
-    private int _loadsInFlight;
-
-    /// <summary>Says a load was overtaken, without touching anything.</summary>
-    // The logger is a parameter because this is static (D83).
-    private static DemoLoadResult Superseded(ILogger demoLog, string path)
-    {
-        // **The wording is `DemoLoadResult`'s** (B188, D90). This method was already static so it
-        // could not reach the form — the same shape `DecodedDemo` was in before it moved, and the
-        // same note applies: the only thing keeping the sentence here was the file it sat in.
-        //
-        // What is left is the logging, which is a side effect the result cannot perform for itself.
-        DemoLoadResult result = DemoLoadResult.Superseded(path);
-
-        demoLog.LogInformation("{Message}", result.Message);
-
-        return result;
-    }
 
     /// <summary>Runs something on the UI thread and waits for its answer.</summary>
     /// <remarks>
@@ -3206,33 +2540,65 @@ internal class MainForm : Form, IFrameSteps
     private T OnUi<T>(Func<T> work) =>
         IsHandleCreated && InvokeRequired ? Invoke(work) : work();
 
-    /// <summary>Which load is still the one wanted.</summary>
-    /// <remarks>
-    /// **Was `_loadsRequested` and four bare comparisons against it** (B188, D90). The policy — a
-    /// newer request wins — needed no window to state and could only be reached by racing two real
-    /// loads against a real 24-minute demo.
-    /// </remarks>
-    private readonly LoadTickets _loads = new();
+    // **What a load asks of this window** (`ILoadView`, D214). The load itself — the decode, the map read behind the
+    // render barrier, the demo becoming the open one — is `LoadPresenter`'s; each member below is the part of it that
+    // is a window's, called at the moment the load reached for it when it lived here.
 
-    // `Decoded` and `Decode` were here until 2026-08-25. They are `DecodedDemo` in the Scene project
-    // now (B188, D90). Nothing about them was ever window work: the static was made static when the
-    // load went off-thread, precisely so it could not reach the form — so the only thing keeping it
-    // here, and untested, was the file it sat in. That is the drift D89 names.
+    /// <inheritdoc/>
+    T ILoadView.OnUi<T>(Func<T> work) => OnUi(work);
 
-    /// <summary>Puts a decoded demo on screen. UI thread only.</summary>
-    /// <param name="decoded">The demo and its timeline.</param>
-    /// <param name="read">Whether the map was already read off-thread, or null to read it here.</param>
-    /// <returns>What to tell the caller.</returns>
-    /// <remarks>
-    /// **Everything here touches the form, and the last thing it does is Direct3D**, which is why
-    /// the split is where it is rather than a few lines either side. `LoadMap` reads a BSP and
-    /// uploads textures to the device, and a device is owned by the thread that made it.
-    /// </remarks>
-    private DemoLoadResult Apply(DecodedDemo decoded, bool? read = null)
+    /// <inheritdoc/>
+    string ILoadView.Status
     {
-        _demo = decoded.Demo;
-        _timeline = decoded.Timeline;
+        get => _status.Text ?? string.Empty;
+        set => _status.Text = value;
+    }
 
+    /// <inheritdoc/>
+    void ILoadView.ReportLoading(string stage, double? fraction) => _loading.Report(stage, fraction);
+
+    /// <inheritdoc/>
+    void ILoadView.HideLoading() => _loading.Visible = false;
+
+    /// <inheritdoc/>
+    (bool Play, string Reason) ILoadView.AutoPlay =>
+        (_launch.AutoPlay || Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 },
+            _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
+
+    /// <inheritdoc/>
+    void ILoadView.ClearWorld()
+    {
+        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
+        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
+        // the previous map's lumps until the next read replaced them. Nothing read them in between —
+        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
+        // methods away" is the kind of thing a record makes impossible to get wrong.
+        //
+        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
+        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
+        // read it (B196).
+        _leafBoxes.Forget();
+        _world.TexturesAreCurrent = false;
+
+        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
+        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
+        // set that is still in memory has nowhere on the device to live until it is uploaded again
+        // (B148).
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
+
+        _device?.ClearWorld();
+    }
+
+    /// <inheritdoc/>
+    void ILoadView.MapReading() => _world.TexturesAreCurrent = false;
+
+    /// <inheritdoc/>
+    void ILoadView.MapRead() => ProjectMap();
+
+    /// <inheritdoc/>
+    void ILoadView.DemoOpening()
+    {
         // **A point-of-view demo HAS one camera, so it opens on it** (D153). The recorder's own
         // view is in the file — `democmdinfo_t` on every packet — and it is what that player saw
         // alive and dead alike, because a POV recording keeps rolling through the deathcam and
@@ -3282,29 +2648,12 @@ internal class MainForm : Form, IFrameSteps
         // A demo whose timeline failed to build keeps Valve's defaults, which is what the engine
         // would use for a server that changed nothing — and the alternative, carrying the PREVIOUS
         // demo's server, would be silently wrong rather than merely vanilla.
-        _freeCamera.SetServer(decoded.Timeline?.ServerConVars ?? FreeFlightPath.Shipped);
+        _freeCamera.SetServer(_timeline?.ServerConVars ?? FreeFlightPath.Shipped);
+    }
 
-        // **One call where there were six assignments, and that is the whole point** (B193). The
-        // eyes, the viewmodels, the sound schedule and the appearance were each written inline
-        // here, and three of them separately became a property nobody set — two of those shipped,
-        // with the viewer suite green throughout. `DemoSystems` is the demo mirror of
-        // `LevelSystems`: one place to read, and one place a test can reach.
-        //
-        // **Two ways to ask for autoplay, and only one of them is testable.** `--autoplay` is the
-        // option (D118); the environment variable predates it and still works, because a shell
-        // somewhere may already export it and silently dropping that would be a regression nobody
-        // could see. The window is still the only place that reads the environment — a process-wide
-        // variable is the business of whatever owns the process.
-        bool autoPlay = _launch.AutoPlay
-            || Environment.GetEnvironmentVariable(AutoPlayVariable) is { Length: > 0 };
-
-        _demoSystems.Open(
-            _timeline,
-            _demo.LastTick,
-            _audio,
-            autoPlay,
-            _launch.AutoPlay ? "--autoplay" : $"{AutoPlayVariable} is set");
-
+    /// <inheritdoc/>
+    void ILoadView.DemoOpened()
+    {
         if (_launch.PlaybackSpeed is { } speed)
         {
             _transport.SetSpeed(speed);
@@ -3324,84 +2673,11 @@ internal class MainForm : Form, IFrameSteps
         {
             _ = EnterCamera(CameraMode.FirstPerson);
         }
+    }
 
-        // **`_transport.SetDemoLength(_demo.LastTick)` was here, and it was the bug** (B223, D118).
-        // `Open` starts autoplay; this line ran immediately afterwards and its last act is
-        // `Playing = false`, which silently switched playback back off. `DemoSystems.Open` sets the
-        // length itself now, before the clock exists, so there is no longer a gap for a second
-        // caller to write into.
-
-        // **The map may already have been read, off the UI thread (B146).** `LoadDemoAsync` does
-        // that and passes what it found; the synchronous path passes null and reads it here, which
-        // is what the command line, `--shot` and the tests want.
-        bool haveMap = read ?? LoadMap(_demo.MapName);
-
-        // **Here as well as on the load worker, because there are TWO load paths and only one of
-        // them went through the worker.** `LoadDemoAsync` is the playlist's route; `LoadDemo` is the
-        // command line's, `--shot`'s and the tests', and it calls Apply directly. The first attempt
-        // put the precache only in the async path, so launching with a demo on the command line
-        // precached nothing at all and the 425 ms stall was still in the log — which is
-        // `docs/memory/one-place-or-it-drifts.md`, and the log is what caught it.
-        //
-        // Cheap to call twice: `EntityModelSet.Add` skips a model it already holds, so on the async
-        // path this finds the work already done and returns.
-        //
-        // After `haveMap` rather than before, because packing reads the geometry the MAP read
-        // decoded into `_assets.EntityModels`. Called earlier it would find nothing, mark every path
-        // as seen, and models would never load at all.
-        //
-        // **This path reads `_game` rather than a returned value** (B208), unlike the one in
-        // `LoadDemoAsync`, and the difference is real: here the map may have been read on either
-        // path — `read ?? LoadMap(...)` — so there is no single call whose result could carry it.
-        // The comment above is the whole of the guarantee here, which is exactly why the other call
-        // site was changed to carry it structurally instead.
-        DemoModels.Precache(_models, _timeline, _game, _renderLog);
-
-        // **Every explosion's sound, which the client emits and no demo carries** (B415). After the map read,
-        // because that is what opens the install whose scripts name them.
-        IReadOnlyList<SceneSound> emitted = _demoSystems.AddEffectSounds(_game, DecalEffects.Landings(_loaded, _game, _timeline));
-
-        // Cheap to call twice for the same reason models are: `Sample` returns the cached decode,
-        // so on the async path this finds the work already done.
-        DemoSounds.Precache(_sounds, _timeline, _game, _soundscape, _audioLog, emitted, _sound.Scripts?.Entries);
-
-        // **After the map and the models, because the pass reads both** (D181): the environment is the map's, and a corpse's
-        // bones come from its model.
-        StartCorpseRecord();
-
-        // **Where the memory is, once everything is loaded** (B407): the process held ~16 GB after a map load and nobody could say
-        // whether that was the managed heap or native memory (textures, the device). The two numbers answer it.
-        //
-        // **One blocking, compacting collection first** (D199, B433). A load allocates many GB and reaches few gen2
-        // collections, so the dead half stayed committed and the line reported it as if live. Collected here, the
-        // working set gives it back and the heap figure is the live set. Paid once per load, about a second.
-        long collectAt = Stopwatch.GetTimestamp();
-        System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-#pragma warning disable S1215 // The owner chose this collection (D199): the load's dead gigabytes stay committed without it.
-        // Aggressive, not Forced: Forced left 8.7 GB committed on z1800 (working set 9.6 GB against a 4.5 GB live heap);
-        // Aggressive also decommits the freed regions, which is what hands them back to Windows.
-        GC.Collect(GC.MaxGeneration, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-#pragma warning restore S1215
-        double collectMs = Stopwatch.GetElapsedTime(collectAt).TotalMilliseconds;
-
-        GCMemoryInfo heap = GC.GetGCMemoryInfo(GCKind.FullBlocking);
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _log.LogInformation(
-            "{Message}",
-            string.Create(
-                CultureInfo.InvariantCulture,
-                $"memory after load (after a {collectMs:F0} ms full collection): working set {Environment.WorkingSet / 1048576d:F0} MB, live managed heap {heap.HeapSizeBytes / 1048576d:F0} MB " +
-                $"(committed {heap.TotalCommittedBytes / 1048576d:F0} MB, fragmented {heap.FragmentedBytes / 1048576d:F0} MB); " +
-                $"entity model vertices {_models.Vertices.Count:N0} in {_models.VertexBytes / 1048576d:F0} MB"));
-
-        _status.Text = _loaded?.Problem
-            ?? (_demo.Describe() + (haveMap ? string.Empty : "  (map not found)"));
-
-        // **A marker pass ran here so opening a demo showed the players standing where they
-        // started, rather than an empty map waiting for someone to press play** (D98). The intent
-        // survives the markers: `ShowMoment` below draws the first tick's MODELS for the same
-        // reason, which is the half that was always the better answer.
-
+    /// <inheritdoc/>
+    void ILoadView.DemoShown()
+    {
         // **Restart the settling countdown, rather than applying the opening state here.** A demo
         // opened from the playlist arrives long after the frame the countdown used to fire on, so
         // the state was being lost — but applying it at this instant is worse than useless: the
@@ -3415,38 +2691,6 @@ internal class MainForm : Form, IFrameSteps
         {
             _opening.Restart();
         }
-
-        return new DemoLoadResult(DemoLoadOutcome.Loaded, _status.Text);
-    }
-
-    /// <summary>Puts the form back into a state with no demo, and says why. UI thread only.</summary>
-    private DemoLoadResult CouldNotOpen(string path, Exception failure)
-    {
-        _demo = null;
-        _timeline = null;
-
-        // **`DemoSystems.Open` with no timeline IS "close the demo", and calling it is what makes
-        // this path complete** (B228). It was three hand-written lines — the clock, the transport
-        // length, and nothing else — while `Open`'s null path clears every source there is: eyes,
-        // viewmodels, moments, the sound schedule, the appearance and the loops in flight.
-        //
-        // That gap mattered as of 2026-08-29. The sound schedule used to be cleared by the LEVEL
-        // teardown, which meant a failed load happened to be covered from the side; removing that
-        // (it silenced every run, B228) leaves this the only place a failed load can let go of the
-        // previous demo's sounds. Two hand-maintained lists of what a demo owns is the shape that
-        // let three sources go missing separately in B193.
-        _demoSystems.Open(_timeline, lastTick: 0, _audio, autoPlay: false, autoPlayReason: string.Empty);
-
-        // **The wording is `DemoLoadResult`'s** (B188, D90), which also keeps the status line and
-        // the returned message identically worded by construction rather than by `_status.Text`
-        // being read back — two wordings for one event is how a log and a window come to disagree.
-        DemoLoadResult result = DemoLoadResult.CouldNotOpen(path, failure);
-
-        _status.Text = result.Message;
-
-        _demoLog.LogWarning(failure, "{Message}", $"opening {System.IO.Path.GetFileName(path)}");
-
-        return result;
     }
 
     /// <summary>The playback controls, exposed for the tests that address them.</summary>
@@ -4768,53 +4012,8 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The audio device, or null when the machine has none.</summary>
     private AudioOutput? _audio;
 
-    /// <summary>The looping sounds in flight, shared by the presenter and the soundscape.</summary>
-    /// <remarks>
-    /// **Still here only because two collaborators share it**, and the window is where they are
-    /// both constructed. The schedule, the audible-crossing memory and Valve's MIN_AUDIBLE_VOLUME
-    /// went with SoundPresenter on 2026-08-25 (B188) — they were its state, not a window's.
-    /// </remarks>
-    private readonly ActiveLoops _loops = new();
-
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
-
-    /// <summary>The registered game systems, told about every level load and teardown.</summary>
-    /// <remarks>
-    /// **Valve's arrangement: a LIST walked at the level boundary** —
-    /// `LevelInitPreEntityAllSystems( pMapName )` (`igamesystem.h:77`) — rather than one method
-    /// reaching into six collaborators. That reaching is what let B193 and B196 drop assignments
-    /// with every test still green, and what left teardown split across three places with one
-    /// system torn down nowhere at all.
-    ///
-    /// **Three systems, and the two absences were checked rather than assumed.** Valve models the
-    /// renderables builder as a game system (`IClientLeafSystem : … IGameSystemPerFrame`), and the
-    /// soundscape and sound emitter likewise; it does NOT model model-geometry or the sample cache
-    /// that way — `IVModelInfo` and `IEngineSound` are plain interfaces set up once. So those two
-    /// are configured rather than walked.
-    /// </remarks>
-    private readonly LevelSystems _levels;
-
-    /// <summary>The map's ambience, chosen and faded as the listener moves through it.</summary>
-    /// <remarks>
-    /// **A system rather than five fields and a method** (B188). The mixer, the voices the sink is
-    /// holding, the choose timer, the fade clock and the two constants all moved with it — they were
-    /// its state, not the window's, and nothing about any of them needed a window.
-    ///
-    /// Valve's own arrangement: <c>C_SoundscapeSystem : CBaseGameSystemPerFrame</c>
-    /// (<c>c_soundscape.cpp:78</c>).
-    /// </remarks>
-    private readonly SoundscapeSystem _soundscape;
-
-    /// <summary>Decoded sounds, kept because a demo plays the same footstep hundreds of times.</summary>
-    /// <remarks>
-    /// **The engine's sample cache, behind the engine's own interface shape.** <c>IEngineSound</c>
-    /// carries <c>PrecacheSound</c>, <c>IsSoundPrecached</c> and <c>PrefetchSound</c> together
-    /// (<c>IEngineSound.h:89-91</c>); game code asks rather than holding samples. The dictionary,
-    /// the unopened count, the precache flag and <c>Sample</c> were all fields and methods here
-    /// (B188, D90).
-    /// </remarks>
-    private readonly SoundCache _sounds;
 
     /// <summary>Starts whatever the recording plays at this tick.</summary>
     /// <remarks>
@@ -4931,7 +4130,7 @@ internal class MainForm : Form, IFrameSteps
         // The window keeps pumping, which is the whole point: it stays responsive, the menus work,
         // and Windows stops calling it hung. What it shows meanwhile is the last frame drawn, which
         // is what a frozen window showed anyway.
-        if (_readingMap)
+        if (_loader.ReadingMap)
         {
             return false;
         }
@@ -4966,7 +4165,7 @@ internal class MainForm : Form, IFrameSteps
         // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
         // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
         // was the entire measurement in one sample.
-        bool onScreen = _demo is not null && _loadsInFlight == 0;
+        bool onScreen = _demo is not null && _loader.LoadsInFlight == 0;
 
         if (onScreen && _wasOnScreen)
         {
@@ -6080,8 +5279,7 @@ internal class MainForm : Form, IFrameSteps
             _shutdown.Cancel();
 
             // The corpse pass is linked to `_shutdown` and has just been told to stop; its source is ours to release (D181).
-            _corpseRecording?.Dispose();
-            _corpseRecording = null;
+            _loader.Dispose();
 
             // **Timed, because a slow exit is a defect nobody can diagnose from the outside.**
             // Two hundred textures, a lightmap atlas and a swap chain go here, and which of them

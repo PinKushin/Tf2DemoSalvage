@@ -34,3 +34,9 @@ first.
   break 2 changed its twin; restoring in break order found the text twice and refused, leaving the file broken.
   Write restore as `reversed(pairs)`, and write the file only after every assertion has passed.
 - A guard the code cannot compile without (`x is not { } y`) cannot be reddened; delete the test that only restates it.
+- **A break that only DELETES has no inverse a replace can find** (slice 6): `("x;", "")` restores as
+  `("", "x;")`, the count of the empty string is not one, the restore stops, and the NEXT round runs on the broken
+  file and reddens for it. It happened twice in one loop of three rounds. Write a deletion with its neighbouring line
+  on both sides; assert no side is empty before touching anything; check every step applies before applying any; and
+  make the runner refuse to start after a round that did not restore. Keep a COPY from before the break, not only a
+  hash: a hash file rewritten by the next round records the broken state as clean.

@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 282 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 5 of the refactor done, the rest OPEN
+## B540 — the view reaches 195 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38510,3 +38510,106 @@ particles. Seen red with the light styles' step moved after the decals', restore
 **What it still cannot hold:** the decals' landing sound before the client's own and the bursts' whiz after. A
 landing needs a decal material and the bursts need the rocket trail's particle file, and both come out of an
 install. The paused frames and the sound log hold that part.
+
+**Slice 6, second commit: the load — 282 to 195, 87 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 213 | 149 | 64 |
+| Core | 38 | 35 | 3 |
+| Content | 10 | 7 | 3 |
+| Animation | 6 | 0 | 6 |
+| Audio | 15 | 4 | 11 |
+| total | 282 | 195 (54 types, 141 members) | 87 |
+
+`MainForm` uses 137 distinct domain members, from 188, and is 5,452 lines, from 6,254. *Measured*, by the instrument.
+**Animation is off the list**: the view names nothing of it any more.
+
+*What moved:* `LoadDemo`, `LoadDemoAsync`, `Apply`, `CouldNotOpen`, `Superseded`, `LoadMap`, `ClearMap`,
+`ReadMapNamed`, `ReadMap`, `StartCorpseRecord` and `StopCorpseRecord`; the state they assign (the demo, its timeline,
+the install, the map, the gib cache, the load tickets, the loads in flight, the map-read barrier, the corpse pass's
+token and task); and what the constructor built for them (the model set, the sound cache, the soundscape, the sound
+presenter, the looping sounds, the moment scene and presenter, the frame presenter, the player appearances, the
+level's systems, the demo's systems and their five wirings). All of it is `Presentation.LoadPresenter`, 959 lines
+(869 not blank) moved by asserted line range. The window keeps the dialog, the progress overlay, the playlist and one call:
+`_loader.LoadDemoAsync( path )`.
+
+*The threads are the ones it ran on* (B146, B507): the decode and the map read on `Task.Run` workers, everything
+that touches the window through `ILoadView.OnUi`, the barrier raised on the window's thread before the map read and
+lowered on it after. The window's `OnUi` is unchanged and is what the interface calls.
+
+*What the load asks of the window* (`ILoadView`, eleven members, none naming a domain type): the marshal; the status
+line; the progress stage and taking it down; autoplay (the launch option or the variable — a process's environment
+is the window's to read); dropping the device's world; "a map is about to be read" (the resident textures are no
+longer this level's); "a map was read" (project it); "a demo is opening" (the camera for its kind, `--spectate`, the
+server's flight speeds — fifty lines that went to the presenter with `Apply` and came back whole, because the camera
+mode is the window's until the camera slice); "its systems are open" (`--speed`, a point-of-view demo entering its
+recorder's eyes); "it is shown" (restart the opening countdown).
+
+*Every textual difference from the moved code* (*measured*: `slice6/difftext.py` lists the 35 of 869 moved lines
+that are not present as written in either file):
+
+- `_status.Text` is `_view.Status` (7); `_loading.Report` is `_view.ReportLoading` (4); `_loading.Visible = false`
+  is `_view.HideLoading()`; `OnUi(` is `_view.OnUi(` (9).
+- `_shutdown.Token` is `_shutdown` (4): the presenter is handed the token and not the source.
+- `_viewmodelScene`, `_playback`, `ClientConVar` and `_loggers` are the constructor's arguments `viewmodels`,
+  `playback`, `clientConVars` and `loggers`.
+- `_audio` is `_audio()` (2): the device is asked for when the demo's systems open, as the field was read then.
+- The two autoplay lines are one read of `ILoadView.AutoPlay`, which answers both the flag and the reason.
+- `_freeCamera.SetServer(decoded.Timeline?.ServerConVars …)` reads `_timeline?.ServerConVars` in the window: the
+  same object, assigned two lines before the window is asked.
+- A doc comment's `cref` to the window's `LoadSelected`.
+
+*In the window's constructor* the transport bar and the playback presenter are built ten lines earlier, before the
+owner that takes the playback presenter; neither constructor reads anything. The five objects the frame still asks
+(`_models`, `_moment`, `_moments`, `_sound`, `_effects`) are fields assigned from the owner, and the four a load
+assigns (`_demo`, `_timeline`, `_game`, `_loaded`) are properties over it, so no line that reads one changed.
+`MainForm.NoGameInstalled` is `LoadPresenter.NoGameInstalled`. The status line the result carries is
+`_status.Text ?? string.Empty` where it was `_status.Text`.
+
+*Proof nothing changed* (*measured*): **the full viewer log of three loads to a `--shot`, before and after, line for
+line in order** — `demostf-cp_process_f12` to tick 60000 (3,261 lines), `demostf-koth_harvest_event` to 1500 (2,021)
+and the point-of-view `tf2-2026-pub-pov-clean` to 11948 in first person (3,975) — and each load's frame, byte for
+byte. The three go through `LoadDemoAsync`, the worker and the barrier: a command line's demo is opened that way.
+
+*What two runs of the OLD code do not repeat, and what was done about each* (each baseline was run twice first;
+`slice6/notrepeatable.txt`):
+
+- **Removed, because the line exists or not by how long something took:** `SLOW FRAME/CAMERA/MOMENT/SOUND`,
+  `STALL decoding/reading models/uploading`, the once-a-second `frame rate` line, `moment cost`, and
+  `capture waiting on`.
+- **Compared as a sorted set, because the order is a scheduler's:** the texture workers' `[assets] blended` lines,
+  `[props] remap group`, the two `(from the command line)` echoes, and `light styles at 0`, which moved four lines
+  against its neighbours between two old runs. 319, 246 and 510 lines; the sets are identical.
+- **Masked inside a compared line:** the clock, every duration and byte count, the phase breakdowns after
+  `timeline`, `skip:` and `model decals:`, the soundscape loop's starting gain (a fade's value at a wall-clock
+  moment), and the capture's own output path.
+
+**No headless path loads a second demo in one process**: two paths on the command line are listed in the playlist
+and none is opened, and a capture given two refuses. The second load is the view suite's — `LoadedDemoTests` opens
+a second demo over a first, races two and discards the slower — and all 133 of it pass unchanged; the UI suite
+drives the playlist's double-click and the failure paths in phase 2.
+
+*Tests the moved code never had* (6, `LoadPresenterTests`), over a demo of a header and a stop command, a map of a
+BSP header in the viewer's own maps folder, a provider told there is no game folder, and a window that writes down
+each call with two facts — whether it came through the marshal, and whether the barrier was up:
+
+- a load on the calling thread asks the window in the load's order, with the demo's systems opening between
+  "opening" and "opened";
+- it holds the demo, its timeline, the map and the install, and opens the transport to the demo's length;
+- with no map anywhere the demo still opens, the missing install is mentioned and no map is projected;
+- a file that is no demo closes the open one and says why;
+- **the worker path: thirteen calls in order, each on the right side of the marshal and of the barrier** — the
+  map's two calls off the window's thread with the barrier up, the stage report between them through it;
+- a newer load supersedes the older, which never opens, and the progress comes down once.
+
+Each seen red in one of four rounds (`slice6/sab.py`), restored by the inverse edit and compared with a copy taken
+before the break. **Not tested here:** the corpse pass (a demo with no death records none), the three guards that
+drop an overtaken load one by one (any one of them is enough, so removing one reddens nothing), and what the load
+MAKES on a real map — the logs above hold that.
+
+**A restore failed twice in the first attempt, and the instrument was at fault**: two breaks deleted a line with
+nothing put in its place, so the inverse had no text to find, the restore stopped, and the next round ran on the
+broken file. Repaired by three inverse edits and checked against the moved text (`difftext.py`: the same 35
+differences). The script now refuses a break with an empty side, checks every step before applying any, and
+`red.sh` refuses to start after a round that did not restore.

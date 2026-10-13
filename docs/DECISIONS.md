@@ -9838,4 +9838,17 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
 - **A proof that needs a capability the viewer lacks gets an instrument first, in its own commit** (slice 5):
   `TF2VIEW_SEEK_THROUGH` exists because one `--tick` is only ever a seek from the start, so nothing headless could
   show a seek back. The baseline is taken with the instrument in, so before and after differ only by the move.
+- **What a load fills has one owner, and the load is its method** (slice 6): `LoadPresenter` constructs the model
+  set, the sound cache, soundscape and presenter, the moment scene and presenter, the frame presenter, the level's
+  systems and the demo's, holds the four things a load assigns (the demo, its timeline, the install, the map), and
+  runs the load on the threads the window ran it on. It is the frame presenter's owner and not its peer, because a
+  load tears down and fills what the frame draws from.
+- **What the moved code reached into the window for is an interface, one member per reach, called at the same
+  moment** (slice 6, `ILoadView`): the marshal, the status line, the progress display, the device's world, the
+  projection, the camera for the demo's kind, the countdown. No member takes or returns a domain type — the window
+  asks the owner for the demo when one runs — so implementing it adds nothing to the list.
+- **A load's proof is its LOG, cut to what two runs of the old code repeat** (slice 6). A paused frame is the same
+  whether the load ran in order or merely finished. Each baseline is run twice first; what the two disagree on is
+  named and removed (duration thresholds), compared as a set (parallel workers) or masked (durations), and
+  everything else is compared line for line in order.
 
