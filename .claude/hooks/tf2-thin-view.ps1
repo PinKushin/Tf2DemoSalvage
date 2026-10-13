@@ -30,6 +30,17 @@ try {
     if ([string]::IsNullOrWhiteSpace($path)) { exit 0 }
 } catch { exit 0 }   # Never let the guard break the tool it guards.
 
+# THE GUARDS THEMSELVES. An edit to the conformance tests, to this hook or to its cases is ASKED, not denied:
+# weakening any of them reopens the view with every suite green, so the owner sees the edit first.
+if (($path -replace '\\', '/') -match '(^|/)(ThinViewConformanceTests\.cs|tf2-thin-view\.(ps1|tests\.json))$') {
+    @{ hookSpecificOutput = @{
+          hookEventName            = 'PreToolUse'
+          permissionDecision       = 'ask'
+          permissionDecisionReason = 'This edits a guard of the thin view (D214). Approve only if it does not weaken the rule.' } } |
+        ConvertTo-Json -Depth 4 -Compress
+    exit 0
+}
+
 if (($path -replace '\\', '/') -notmatch '(^|/)managed/Tf2DemoSalvage\.Viewer3D/') { exit 0 }
 
 $edit = $call.tool_input

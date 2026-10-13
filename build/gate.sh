@@ -1934,7 +1934,10 @@ run Tf2DemoSalvage.Rendering.Tests rendering 781
 # to the surface colours) while still naming the wrong key for the screenshot.
 # 108 -> 109: PlaylistMapLoadTests (B393). The playlist's load read the map with the previous demo's
 # timeline; it needs the corpus demo and an install, and skips without the install, which still counts.
-run Tf2DemoSalvage.Viewer3D.Tests viewer    109
+# 109 -> 135 on 2026-10-13: closed DRIFT. The floor sat 26 below the suite, so a run that lost the three
+# ThinViewConformanceTests (D214) would have passed. Measured: 135 locally and 135 in CI's viewer.trx (run
+# 38416241601). The same number is in .github/workflows/test.yml.
+run Tf2DemoSalvage.Viewer3D.Tests viewer    135
 
 echo
 echo "Phase 2 is NOT run here: it takes over the desktop and belongs inside run-exclusive.ps1."

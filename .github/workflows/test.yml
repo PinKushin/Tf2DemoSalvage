@@ -645,7 +645,10 @@ jobs:
           # already drifted below. Both run headless-STA on the runner like the rest of this suite.
           # 108 -> 109 on 2026-09-11: PlaylistMapLoadTests (B393). It needs an install, so it is
           # skipped here, and a skipped test is still in the .trx total this reads.
-          ./build/assert-test-count.sh '**/viewer.trx' 109 Viewer
+          # 109 -> 135 on 2026-10-13: closed DRIFT, read off run 38416241601's viewer.trx (135 total,
+          # 132 executed; the three skipped need an install or the SDK). At 109 a run that lost the
+          # three ThinViewConformanceTests (D214) passed. The same number is in build/gate.sh.
+          ./build/assert-test-count.sh '**/viewer.trx' 135 Viewer
           # 553 -> 582 on 2026-08-28: TwoPassConformanceTests (28) and TwoPassWiringTests (1).
           #
           # **This floor has drifted from the local gate's and the delta is all that was raised.**
