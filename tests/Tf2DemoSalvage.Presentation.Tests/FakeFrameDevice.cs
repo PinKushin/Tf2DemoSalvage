@@ -13,6 +13,9 @@ internal sealed class FakeFrameDevice : IFrameDevice
     /// <summary>Every set of particle batches handed over, one a frame.</summary>
     public List<IReadOnlyList<ParticleBatch>> Particles { get; } = [];
 
+    /// <summary>Every call that hands the device something, by name, in the order made.</summary>
+    public List<string> Calls { get; } = [];
+
     public ModelDecals? ModelDecals
     {
         get => Decals.ModelDecals;
@@ -24,10 +27,17 @@ internal sealed class FakeFrameDevice : IFrameDevice
     public IReadOnlyList<WorldBatch> ModelBatches(string modelPath) => Decals.ModelBatches(modelPath);
 
     public void UploadShotDecals(
-        IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, IReadOnlyList<WorldBatch> entityBatches) =>
+        IReadOnlyList<WorldVertex> vertices, IReadOnlyList<WorldBatch> batches, IReadOnlyList<WorldBatch> entityBatches)
+    {
+        Calls.Add(nameof(UploadShotDecals));
         Decals.UploadShotDecals(vertices, batches, entityBatches);
+    }
 
-    public void SetParticles(IReadOnlyList<ParticleBatch> batches) => Particles.Add(batches);
+    public void SetParticles(IReadOnlyList<ParticleBatch> batches)
+    {
+        Calls.Add(nameof(SetParticles));
+        Particles.Add(batches);
+    }
 
     /// <summary>Every lightmap upload: the atlas it was given, its width, and the regions, copied.</summary>
     public List<(byte[] Pixels, int Width, AtlasRegion[] Regions)> Lightmaps { get; } = [];
@@ -41,8 +51,11 @@ internal sealed class FakeFrameDevice : IFrameDevice
     /// <summary>Every set of proxies handed over, one a frame.</summary>
     public List<PixelVisibilityProxy[]> Proxies { get; } = [];
 
-    public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions) =>
+    public void UpdateLightmap(byte[] pixels, int width, IReadOnlyList<AtlasRegion> regions)
+    {
+        Calls.Add(nameof(UpdateLightmap));
         Lightmaps.Add((pixels, width, [.. regions]));
+    }
 
     public (int Pixels, int Possible)? OcclusionResult(int entity)
     {
@@ -51,5 +64,9 @@ internal sealed class FakeFrameDevice : IFrameDevice
         return Counts.TryGetValue(entity, out (int Pixels, int Possible) counted) ? counted : null;
     }
 
-    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies) => Proxies.Add([.. proxies]);
+    public void SetOcclusionProxies(IReadOnlyList<PixelVisibilityProxy> proxies)
+    {
+        Calls.Add(nameof(SetOcclusionProxies));
+        Proxies.Add([.. proxies]);
+    }
 }

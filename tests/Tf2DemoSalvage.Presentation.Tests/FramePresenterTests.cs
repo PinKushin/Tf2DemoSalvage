@@ -10,15 +10,17 @@ namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
 /// The presenter that owns a frame's parts (D92, D214) [no engine counterpart: the composition is this viewer's], over a
-/// device a test can read and with no map loaded.
+/// device a test can read, with no map loaded and with one a test wrote.
 /// </summary>
 /// <remarks>
 /// **What a frame with no map still does, and what a seek asks of the parts.** Each part has its own suite over data a
 /// test wrote; this holds what only the owner does.
 ///
-/// **Not here, and it is the larger half:** the ORDER the parts run in with a map loaded — the decals' landing sound
-/// before the client's own, the bursts' whiz after — because a `LoadedMap` cannot be built by a test. The paused frames
-/// and the sound log hold that order, byte for byte.
+/// **The ORDER the parts run in with a map loaded is held as far as a map with no install reaches**
+/// (<see cref="SyntheticMap"/>): the light styles' lightmap, then the decals, then the frame's particles, each seen at
+/// the device. **Still not here:** the decals' landing sound before the client's own and the bursts' whiz after — a
+/// landing needs a decal material and the bursts need a particle file, and both come out of an install. The paused
+/// frames and the sound log hold that part of the order, byte for byte.
 /// </remarks>
 public sealed class FramePresenterTests
 {
@@ -51,6 +53,22 @@ public sealed class FramePresenterTests
 
         device.Particles.ShouldHaveSingleItem().ShouldBeEmpty("no map: no trails, no bursts, no impacts");
         frames.ParticleCounts.ShouldBe((0, 0, 0));
+    }
+
+    [Test]
+    public void DrawOver_WithAMapLoaded_UploadsTheLightmapThenTheDecalsThenTheParticles()
+    {
+        DemoTimeline timeline = SyntheticEffects.TimelineWrittenWith(PlayerFlagLayout.Current);
+        LoadedMap map = SyntheticMap.Read(timeline);
+        FramePresenter frames = Presenter();
+        FakeFrameDevice device = new();
+
+        frames.LevelInit(map, doPixelVisibility: true);
+        frames.DrawOver(Frame(timeline) with { Loaded = map, Game = SyntheticMap.NoInstall() }, AlongX, device);
+
+        device.Calls.ShouldBe(
+            [nameof(FakeFrameDevice.UpdateLightmap), nameof(FakeFrameDevice.UploadShotDecals), nameof(FakeFrameDevice.SetParticles)],
+            "light styles first, because the decals and the particles are lit by them; the particles last, with the impacts joined");
     }
 
     [Test]

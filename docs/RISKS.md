@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 282 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 5 of the refactor done, the rest OPEN
+## B540 — the view reaches 190 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38489,3 +38489,206 @@ across a worker thread and the barrier that holds the render loop off (B146), an
 see it — a paused frame is the same whether the load was orchestrated correctly or merely finished. It wants its
 own slice and its own instrument (the load's log, line for line). The constructor's 37 fall when that slice gives
 the load an owner, because most of what the constructor builds is what a load fills.
+
+**Slice 6, 2026-10-13, first commit: a map a test can write, and the order test slice 5 could not have.** No reach
+change (282).
+
+*The map* (`SyntheticMap`, in Presentation.Tests): the smallest file `LoadedMap.Read` accepts — a version 21 header
+and no lumps, from the BSP writer Content.Tests already had, linked and not copied — read with the install of a
+machine without TF2 (`GameContent.Open( null )`). *Measured* on what comes back: no problem, a level with a leaf tree
+and no faces, the content record with an empty lightmap atlas, the decal system, and no rocket trail definition
+(that is a particle file, and there is no archive to read one from). **A `LoadedMap` still has no public
+constructor, and it did not need one**: a test gets a map the way production does, from bytes. It sits in
+Presentation.Tests and not in TestSupport because TestSupport references Core alone and Core.Tests references it; a
+Scene reference there would reach Core's suite. Scene.Tests can link the file as it links `FakePosedEntities`.
+
+*The test* (`DrawOver_WithAMapLoaded_UploadsTheLightmapThenTheDecalsThenTheParticles`): one frame over that map
+reaches the device three times, in this order — the light styles' lightmap, the decals' upload, the frame's
+particles. Seen red with the light styles' step moved after the decals', restored by the inverse edit, hash checked.
+`FakeFrameDevice` gained the ordered list of calls it reads.
+
+**What it still cannot hold:** the decals' landing sound before the client's own and the bursts' whiz after. A
+landing needs a decal material and the bursts need the rocket trail's particle file, and both come out of an
+install. The paused frames and the sound log hold that part.
+
+**Slice 6, second commit: the load — 282 to 195, 87 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 213 | 149 | 64 |
+| Core | 38 | 35 | 3 |
+| Content | 10 | 7 | 3 |
+| Animation | 6 | 0 | 6 |
+| Audio | 15 | 4 | 11 |
+| total | 282 | 195 (54 types, 141 members) | 87 |
+
+`MainForm` uses 137 distinct domain members, from 188, and is 5,452 lines, from 6,254. *Measured*, by the instrument.
+**Animation is off the list**: the view names nothing of it any more.
+
+*What moved:* `LoadDemo`, `LoadDemoAsync`, `Apply`, `CouldNotOpen`, `Superseded`, `LoadMap`, `ClearMap`,
+`ReadMapNamed`, `ReadMap`, `StartCorpseRecord` and `StopCorpseRecord`; the state they assign (the demo, its timeline,
+the install, the map, the gib cache, the load tickets, the loads in flight, the map-read barrier, the corpse pass's
+token and task); and what the constructor built for them (the model set, the sound cache, the soundscape, the sound
+presenter, the looping sounds, the moment scene and presenter, the frame presenter, the player appearances, the
+level's systems, the demo's systems and their five wirings). All of it is `Presentation.LoadPresenter`, 959 lines
+(869 not blank) moved by asserted line range. The window keeps the dialog, the progress overlay, the playlist and one call:
+`_loader.LoadDemoAsync( path )`.
+
+*The threads are the ones it ran on* (B146, B507): the decode and the map read on `Task.Run` workers, everything
+that touches the window through `ILoadView.OnUi`, the barrier raised on the window's thread before the map read and
+lowered on it after. The window's `OnUi` is unchanged and is what the interface calls.
+
+*What the load asks of the window* (`ILoadView`, eleven members, none naming a domain type): the marshal; the status
+line; the progress stage and taking it down; autoplay (the launch option or the variable — a process's environment
+is the window's to read); dropping the device's world; "a map is about to be read" (the resident textures are no
+longer this level's); "a map was read" (project it); "a demo is opening" (the camera for its kind, `--spectate`, the
+server's flight speeds — fifty lines that went to the presenter with `Apply` and came back whole, because the camera
+mode is the window's until the camera slice); "its systems are open" (`--speed`, a point-of-view demo entering its
+recorder's eyes); "it is shown" (restart the opening countdown).
+
+*Every textual difference from the moved code* (*measured*: `slice6/difftext.py` lists the 35 of 869 moved lines
+that are not present as written in either file):
+
+- `_status.Text` is `_view.Status` (7); `_loading.Report` is `_view.ReportLoading` (4); `_loading.Visible = false`
+  is `_view.HideLoading()`; `OnUi(` is `_view.OnUi(` (9).
+- `_shutdown.Token` is `_shutdown` (4): the presenter is handed the token and not the source.
+- `_viewmodelScene`, `_playback`, `ClientConVar` and `_loggers` are the constructor's arguments `viewmodels`,
+  `playback`, `clientConVars` and `loggers`.
+- `_audio` is `_audio()` (2): the device is asked for when the demo's systems open, as the field was read then.
+- The two autoplay lines are one read of `ILoadView.AutoPlay`, which answers both the flag and the reason.
+- `_freeCamera.SetServer(decoded.Timeline?.ServerConVars …)` reads `_timeline?.ServerConVars` in the window: the
+  same object, assigned two lines before the window is asked.
+- A doc comment's `cref` to the window's `LoadSelected`.
+
+*In the window's constructor* the transport bar and the playback presenter are built ten lines earlier, before the
+owner that takes the playback presenter; neither constructor reads anything. The five objects the frame still asks
+(`_models`, `_moment`, `_moments`, `_sound`, `_effects`) are fields assigned from the owner, and the four a load
+assigns (`_demo`, `_timeline`, `_game`, `_loaded`) are properties over it, so no line that reads one changed.
+`MainForm.NoGameInstalled` is `LoadPresenter.NoGameInstalled`. The status line the result carries is
+`_status.Text ?? string.Empty` where it was `_status.Text`.
+
+*Proof nothing changed* (*measured*): **the full viewer log of three loads to a `--shot`, before and after, line for
+line in order** — `demostf-cp_process_f12` to tick 60000 (3,261 lines), `demostf-koth_harvest_event` to 1500 (2,021)
+and the point-of-view `tf2-2026-pub-pov-clean` to 11948 in first person (3,975) — and each load's frame, byte for
+byte. The three go through `LoadDemoAsync`, the worker and the barrier: a command line's demo is opened that way.
+
+*What two runs of the OLD code do not repeat, and what was done about each* (each baseline was run twice first;
+`slice6/notrepeatable.txt`):
+
+- **Removed, because the line exists or not by how long something took:** `SLOW FRAME/CAMERA/MOMENT/SOUND`,
+  `STALL decoding/reading models/uploading`, the once-a-second `frame rate` line, `moment cost`, and
+  `capture waiting on`.
+- **Compared as a sorted set, because the order is a scheduler's:** the texture workers' `[assets] blended` lines,
+  `[props] remap group`, the two `(from the command line)` echoes, and `light styles at 0`, which moved four lines
+  against its neighbours between two old runs. 319, 246 and 510 lines; the sets are identical.
+- **Masked inside a compared line:** the clock, every duration and byte count, the phase breakdowns after
+  `timeline`, `skip:` and `model decals:`, the soundscape loop's starting gain (a fade's value at a wall-clock
+  moment), and the capture's own output path.
+
+**No headless path loads a second demo in one process**: two paths on the command line are listed in the playlist
+and none is opened, and a capture given two refuses. The second load is the view suite's — `LoadedDemoTests` opens
+a second demo over a first, races two and discards the slower — and all 133 of it pass unchanged; the UI suite
+drives the playlist's double-click and the failure paths in phase 2.
+
+*Tests the moved code never had* (6, `LoadPresenterTests`), over a demo of a header and a stop command, a map of a
+BSP header in the viewer's own maps folder, a provider told there is no game folder, and a window that writes down
+each call with two facts — whether it came through the marshal, and whether the barrier was up:
+
+- a load on the calling thread asks the window in the load's order, with the demo's systems opening between
+  "opening" and "opened";
+- it holds the demo, its timeline, the map and the install, and opens the transport to the demo's length;
+- with no map anywhere the demo still opens, the missing install is mentioned and no map is projected;
+- a file that is no demo closes the open one and says why;
+- **the worker path: thirteen calls in order, each on the right side of the marshal and of the barrier** — the
+  map's two calls off the window's thread with the barrier up, the stage report between them through it;
+- a newer load supersedes the older, which never opens, and the progress comes down once.
+
+Each seen red in one of four rounds (`slice6/sab.py`), restored by the inverse edit and compared with a copy taken
+before the break. **Not tested here:** the corpse pass (a demo with no death records none), the three guards that
+drop an overtaken load one by one (any one of them is enough, so removing one reddens nothing), and what the load
+MAKES on a real map — the logs above hold that.
+
+**A restore failed twice in the first attempt, and the instrument was at fault**: two breaks deleted a line with
+nothing put in its place, so the inverse had no text to find, the restore stopped, and the next round ran on the
+broken file. Repaired by three inverse edits and checked against the moved text (`difftext.py`: the same 35
+differences). The script now refuses a break with an empty side, checks every step before applying any, and
+`red.sh` refuses to start after a round that did not restore.
+
+**Slice 6, third commit: the sound device — 195 to 190, 5 entries gone and none added. Audio is off the list.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 149 | 149 | 0 |
+| Core | 35 | 34 | 1 |
+| Content | 7 | 7 | 0 |
+| Animation | 0 | 0 | 0 |
+| Audio | 4 | 0 | 4 |
+| total | 195 | 190 (51 types, 139 members) | 5 |
+
+`MainForm` uses 135 distinct domain members, from 137, and is 5,390 lines, from 5,452. *Measured*, by the instrument.
+
+*What moved:* the device field, opening it and the line that says whether there is one, the sound clock, and the
+body of `PlaySounds`, into `LoadPresenter.Sound.cs` — beside the sound presenter the device plays for and the demo
+systems that silence it when a demo closes. The owner no longer takes the device as a delegate: it holds it, so the
+two `_audio` arguments of `DemoSystems.Open` read as they did in the window. The window's `PlaySounds` is one call
+with what a window has: which camera the ears are at and whose eyes it is.
+
+*Every textual difference:*
+
+- `_firstPerson ? FirstPersonCamera() : FreeLookCamera()` and `_firstPerson ? FollowedEntity() : null` are two
+  delegates the window holds, called where the expressions stood: the camera after the device is known to exist,
+  the eyes after the camera. `_transport.CurrentTick`, read twice in one frame, is one argument.
+- `PlaySounds` is the device guard and `PlaySoundsOver( sink, … )`, the rest of the body, so a test can hand it a
+  sink (`DrawOver`'s arrangement).
+- The sound clock starts when the owner is constructed and not when the window's fields are initialised, a few
+  statements apart in one constructor. It is read for differences: when a soundscape was chosen, how long a fade
+  has run.
+- **Shutdown keeps its order with two calls**: `ReleaseCorpseRecord()` where the corpse pass's source was disposed,
+  before the idle loop stops, and `Dispose()` where the sound device was, after the display device.
+- `OpenAudio()` is a call and not part of the owner's constructor, so `audio output opened` stays where the window
+  logged it, after the launch options' lines.
+
+*Proof* (*measured*): the three loads' logs and frames, and every earlier frame and line, on the final code — below.
+
+*Tests* (3, in `LoadPresenterTests`): with no device opened the camera is never asked for; with no camera the eyes
+are not asked for and the sound presenter is not stepped; with a camera and a demo the eyes are asked for after the
+camera and the sound presenter steps once (it reclaims finished voices exactly once a step). Each seen red in a
+round of its own. **Not tested:** `OpenAudio` itself, which opens a real device or finds none, and the silence a
+closing demo asks of it.
+
+**Final proofs, on the slice's last code** (*measured*, `slice6/final.sh`):
+
+- the three loads again: the ordered logs (3,261, 2,021 and 3,975 lines), the sets (319, 246, 510) and the three
+  frames, identical to the old code's;
+- the ten paused frames of slice 3, the beam frame, its `TF2VIEW_PICK` line and the 47 lines of the paused-seek
+  sound log, identical;
+- both seek frames of slice 5 and their logged lines, identical;
+- the first-person frame with the looked-at player's name on it and the three of slice 4, identical.
+
+The seek and first-person part ran twice, the second started by mistake while the first was still going; the
+machine-wide lock serialised them and both came back identical.
+
+**What is left on the list** (the instrument's table after the third commit; 190 entries):
+
+| assembly | entries |
+|---|---|
+| Scene | 149 |
+| Core | 34 |
+| Content | 7 |
+| Animation | 0 |
+| Audio | 0 |
+
+| method | members | what it is |
+|---|---|---|
+| the constructor | 16 | the spectator, the world presenter, the leaf boxes, the launch options into settings, the menu's HUD list |
+| `OnViewportHandleCreated` | 13 | the device and what it is handed first |
+| `ProjectMap` | 10 | the world upload and the map's projection |
+| `ReadPosition` | 9 | `cl_showpos`' subject |
+| `DrawScene`, `ViewerMenu`'s constructor | 8, 8 | the draw call; the menu's settings |
+| `ChooseGameFolder`, `UploadCamera` | 7, 6 | the folder dialog; the camera into the device |
+| `EnterCamera`, `FreeLookCamera`, `ShowOnly`, `ToggleFirstPerson`, `ViewFrameNow` | 5 each | the camera cluster and the frame record |
+| `ILoadView.DemoOpening` | 4 | the camera for the demo's kind — the camera cluster's, called by the load |
+| thirty-odd settings, library and input methods | 1 to 4 each | each names one or two things |
+
+**Audio and Animation are at zero.** Viewer3D's project reference to Audio and its `global using Tf2DemoSalvage.Audio`
+can come out when the owner chooses; nothing in the view names the assembly.
