@@ -451,6 +451,49 @@ public sealed class SpectatorViewTests
 
     private static ScenePlayer Zoomed(int entity) => Player(entity) with { Fov = 20, DefaultFov = 90 };
 
+    [Test]
+    public void Target_WhileTheNamedPlayerIsAbsent_SaysSoOncePerAbsenceAndFollowsTheDefault()
+    {
+        // `--spectate 5` on a demo whose first ticks have no player 5: every camera, the HUD and the sound step ask
+        // for the target several times a frame, and each asking wrote the warning again — over a hundred lines before
+        // a capture's seek landed. The answer was always right; only the saying of it repeated.
+        RecordingLogger log = new();
+        SpectatorView view = new(log) { Eyes = new LateArrival(), Spectating = 5 };
+
+        for (int asked = 0; asked < 4; asked++)
+        {
+            view.Target(tick: 0).ShouldNotBeNull().EntityIndex.ShouldBe(2, "the default is followed while the named player is away");
+        }
+
+        view.Target(tick: 3).ShouldNotBeNull().EntityIndex.ShouldBe(2);
+        log.Count("--spectate 5 is not playing").ShouldBe(1);
+        log.Count("--spectate 5 is not playing at tick 0; following the default").ShouldBe(1, "the tick it says is the first it was asked at");
+
+        // He arrives, is followed, and leaves again: a second absence is news and is said once more.
+        view.Target(tick: LateArrival.Arrives).ShouldNotBeNull().EntityIndex.ShouldBe(5);
+        view.Target(tick: LateArrival.Leaves).ShouldNotBeNull().EntityIndex.ShouldBe(2);
+        view.Target(tick: LateArrival.Leaves + 1).ShouldNotBeNull().EntityIndex.ShouldBe(2);
+
+        log.Count("--spectate 5 is not playing").ShouldBe(2);
+    }
+
+    /// <summary>A roster whose player 5 is present only between two ticks.</summary>
+    private sealed class LateArrival : IEyeSource
+    {
+        public const int Arrives = 10;
+
+        public const int Leaves = 20;
+
+        public bool HasRecordedView => false;
+
+        public int? RecorderEntityIndex => null;
+
+        public RecordedView? RecordedViewAt(int tick) => null;
+
+        public IReadOnlyList<ScenePlayer> PlayersAt(int tick) =>
+            tick is >= Arrives and < Leaves ? [Player(2), Player(5)] : [Player(2)];
+    }
+
     private static SpectatorView View(IEyeSource eyes) =>
         new(new RecordingLogger()) { Eyes = eyes };
 

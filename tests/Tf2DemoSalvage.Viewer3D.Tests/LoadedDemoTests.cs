@@ -114,7 +114,7 @@ public sealed class LoadedDemoTests
         // that resolves a selection is covered by the UI tests, against a real window.
         form.LoadDemo(path);
 
-        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
+        form.Presenter.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
         form.Transport.LastTick.ShouldBe(12345);
     }
 
@@ -130,7 +130,7 @@ public sealed class LoadedDemoTests
 
         Should.NotThrow(() => form.LoadDemo(path));
 
-        form.Demo.ShouldBeNull();
+        form.Presenter.Demo.ShouldBeNull();
         form.StatusText.ShouldContain("Could not open");
         form.Transport.LastTick.ShouldBe(0);
     }
@@ -146,7 +146,7 @@ public sealed class LoadedDemoTests
 
         form.LoadDemo(path).Outcome.ShouldBe(DemoLoadOutcome.Failed);
 
-        form.Demo.ShouldBeNull();
+        form.Presenter.Demo.ShouldBeNull();
         form.StatusText.ShouldContain("pointer.dem");
         form.StatusText.ShouldContain("invalid demo header ID");
     }
@@ -253,7 +253,7 @@ public sealed class LoadedDemoTests
         DemoLoadResult result = await form.OpenCommandLineDemo().ConfigureAwait(false);
 
         result.Loaded.ShouldBeTrue(result.Message);
-        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_snakewater_final1");
+        form.Presenter.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_snakewater_final1");
         form.Transport.LastTick.ShouldBe(22000);
     }
 
@@ -267,7 +267,7 @@ public sealed class LoadedDemoTests
         using MainForm form = new(_folder);
 
         form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
-        form.Demo.ShouldBeNull();
+        form.Presenter.Demo.ShouldBeNull();
         form.Transport.LastTick.ShouldBe(0);
     }
 
@@ -281,7 +281,7 @@ public sealed class LoadedDemoTests
         using MainForm form = new(first, second);
 
         form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
-        form.Demo.ShouldBeNull();
+        form.Presenter.Demo.ShouldBeNull();
     }
 
     [Test]
@@ -311,7 +311,7 @@ public sealed class LoadedDemoTests
         result.Loaded.ShouldBeTrue(result.Message);
         result.Outcome.ShouldBe(DemoLoadOutcome.Loaded);
 
-        form.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
+        form.Presenter.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_gullywash_final1");
         form.Transport.LastTick.ShouldBe(12345);
     }
 
@@ -332,7 +332,7 @@ public sealed class LoadedDemoTests
         result.Outcome.ShouldBe(DemoLoadOutcome.Failed);
         result.Message.ShouldContain("Could not open");
 
-        form.Demo.ShouldBeNull();
+        form.Presenter.Demo.ShouldBeNull();
         form.Transport.LastTick.ShouldBe(0);
     }
 
@@ -360,7 +360,7 @@ public sealed class LoadedDemoTests
             DemoLoadOutcome.Superseded, "the first request was overtaken and must stand aside");
         results[1].Outcome.ShouldBe(DemoLoadOutcome.Loaded);
 
-        form.Demo.ShouldNotBeNull().MapName.ShouldBe(
+        form.Presenter.Demo.ShouldNotBeNull().MapName.ShouldBe(
             "koth_product", "the demo asked for last is the one on screen");
     }
 

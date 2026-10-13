@@ -124,6 +124,20 @@ public sealed class CameraPresenter
     /// <summary>The mode the user asked for, which death does not change; see <see cref="EffectiveMode"/>.</summary>
     public CameraMode Mode => _cameraMode;
 
+    /// <summary>Whether first person is the mode asked for, which a dead target does not change.</summary>
+    public bool AskedFirstPerson => _cameraMode == CameraMode.FirstPerson;
+
+    /// <summary>Whether third person is the mode asked for.</summary>
+    public bool AskedThirdPerson => _cameraMode == CameraMode.ThirdPerson;
+
+    /// <summary>The first-person action: enters a player's eyes outright, rather than cycling to them.</summary>
+    /// <returns>Always true: the key was the camera's.</returns>
+    public bool EnterFirstPerson() => EnterCamera(CameraMode.FirstPerson);
+
+    /// <summary>The third-person action: enters the chase camera outright.</summary>
+    /// <returns>Always true: the key was the camera's.</returns>
+    public bool EnterThirdPerson() => EnterCamera(CameraMode.ThirdPerson);
+
     /// <summary>The free camera's controller: where it is and how it is placed.</summary>
     public FreeCameraController Free => _freeCamera;
 

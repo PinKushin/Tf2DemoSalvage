@@ -146,6 +146,10 @@ public sealed class SpectatorView
 {
     private readonly ILogger _spectate;
 
+    /// <summary>The entity whose absence the log has been told about; null once that player is found again.</summary>
+    /// <remarks>A different entity asked for is a different absence, so it is the index and not a flag.</remarks>
+    private int? _saidAbsent;
+
     /// <summary>Creates a view over a demo.</summary>
     /// <param name="spectate">Where an overridden target that cannot be followed is reported.</param>
     /// <exception cref="ArgumentNullException"><paramref name="spectate"/> is null.</exception>
@@ -248,13 +252,20 @@ public sealed class SpectatorView
             {
                 if (player.EntityIndex == wanted)
                 {
+                    _saidAbsent = null;
                     return player;
                 }
             }
 
-            _spectate.LogWarning(
-                "{Message}",
-                $"--spectate {wanted} is not playing at tick {tick}; following the default");
+            // Said once per absence, not once per asking: every camera, the HUD and the sound step ask several times
+            // a frame, and a viewer waiting at tick 0 for its seek wrote this line over a hundred times (B540).
+            if (_saidAbsent != wanted)
+            {
+                _saidAbsent = wanted;
+                _spectate.LogWarning(
+                    "{Message}",
+                    $"--spectate {wanted} is not playing at tick {tick}; following the default");
+            }
         }
 
         return SpectatorTarget.Choose(players);

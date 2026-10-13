@@ -15,6 +15,22 @@ namespace Tf2DemoSalvage.Presentation;
 /// `ComputeCameraVariables`, `UpdateListener` is `engine->SetAudioState`, and `ProjectWorld` is
 /// `SetupVis`.
 /// </remarks>
+/// <summary>A frame's VGUI on its way from the stage that builds it to the stage that draws it.</summary>
+/// <remarks>
+/// **Opaque to whatever carries it** (D214): a window implements <see cref="IFrameSteps"/> and passes this through
+/// without naming what is inside, which is the draw list. It still travels as an ARGUMENT — a field between the two
+/// stages is the shape that produced B193 and B196.
+/// </remarks>
+public readonly record struct FrameOverlay
+{
+    /// <summary>Wraps a draw list, or none.</summary>
+    /// <param name="list">The draw list, or null when there is no surface yet.</param>
+    internal FrameOverlay(VguiDrawList? list) => List = list;
+
+    /// <summary>The draw list, or null when there is no surface yet.</summary>
+    internal VguiDrawList? List { get; }
+}
+
 public interface IFrameSteps
 {
     /// <summary>Advance the world to the moment this frame shows.</summary>
@@ -46,12 +62,12 @@ public interface IFrameSteps
     public void TakeShot();
 
     /// <summary>Lay out and paint this frame's VGUI.</summary>
-    /// <returns>The draw list, or null when there is no surface yet.</returns>
-    public VguiDrawList? BuildOverlay();
+    /// <returns>The frame's VGUI, to hand to <see cref="Draw"/>.</returns>
+    public FrameOverlay BuildOverlay();
 
     /// <summary>Draw the frame.</summary>
-    /// <param name="overlay">The draw list from <see cref="BuildOverlay"/>.</param>
-    public void Draw(VguiDrawList? overlay);
+    /// <param name="overlay">What <see cref="BuildOverlay"/> returned.</param>
+    public void Draw(FrameOverlay overlay);
 }
 
 /// <summary>Runs one frame's stages in the engine's order, and times each of them.</summary>
@@ -110,7 +126,7 @@ public static class FrameSequence
         long project = Time(steps.ProjectWorld);
 
         long hudAt = Stopwatch.GetTimestamp();
-        VguiDrawList? overlay = steps.BuildOverlay();
+        FrameOverlay overlay = steps.BuildOverlay();
         long hud = Stopwatch.GetTimestamp() - hudAt;
 
         long draw = Time(() => steps.Draw(overlay));

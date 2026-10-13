@@ -32,7 +32,7 @@ namespace Tf2DemoSalvage.Render;
 /// is for: the alternative at this boundary is a copy per frame, and this is exactly the case the
 /// "unsafe before native" rule describes.
 /// </remarks>
-public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, IFrameDevice
+public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, IFrameDevice, IViewerDevice
 {
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>
@@ -2817,6 +2817,20 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             _world.TranslucentLeaves = null;
         }
     }
+
+    /// <inheritdoc/>
+    void IViewerDevice.DrawScene(
+        float red,
+        float green,
+        float blue,
+        IReadOnlyList<((float X, float Y, float Z) From, (float X, float Y, float Z) To)> mapLines,
+        IReadOnlyList<ModelInstance>? models,
+        IReadOnlyList<ModelInstance>? viewmodels,
+        float[]? viewmodelCamera,
+        VguiDrawList? vgui) =>
+        // The fill and the markers are empty, always: the first was dead by construction and the second went with the
+        // orthographic camera (D98). Both parameters stay until this signature is revised, which is a change to the render seam.
+        DrawFrame(red, green, blue, [], mapLines, [], models, viewmodels, viewmodelCamera, vgui);
 
     /// <summary>Sets the view the world is drawn through, and the volume it culls against.</summary>
     /// <param name="camera">The camera the frame is seen through.</param>

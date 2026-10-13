@@ -55,11 +55,11 @@ public sealed partial class ViewerPresenter : IDisposable
     private readonly Func<CameraWindow> _window;
     private readonly Func<string?> _spectateWho;
     private readonly MapProvider _maps;
-    private readonly Func<ViewerSettings> _settingsNow;
+    private readonly SettingsPresenter _settingsOwner;
     private readonly CancellationToken _shutdown;
 
     /// <summary>The window's settings as they are now: the old code read the window's field at each use.</summary>
-    private ViewerSettings _settings => _settingsNow();
+    private ViewerSettings _settings => _settingsOwner.Current;
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
     private readonly EntityModelSet _models;
@@ -194,8 +194,6 @@ public sealed partial class ViewerPresenter : IDisposable
     /// <summary>Composes what a load fills. Nothing is read and no device is touched.</summary>
     /// <param name="view">The window: its thread, its status line, its progress display, its device and its camera.</param>
     /// <param name="loggers">The viewer's loggers, by area.</param>
-    /// <param name="ledger">The frame's phase ledger, shared with the window's reporter.</param>
-    /// <param name="viewmodels">The viewmodel scene the window's camera also asks.</param>
     /// <param name="cameraView">The window as the camera sees it.</param>
     /// <param name="window">The window's tick and shape, asked for when a camera is.</param>
     /// <param name="spectateWho">`--spectate`'s text as launched, or null; asked for when a demo opens.</param>
@@ -207,21 +205,17 @@ public sealed partial class ViewerPresenter : IDisposable
     public ViewerPresenter(
         ILoadView view,
         ILoggerFactory loggers,
-        FrameLedger ledger,
-        ViewmodelScene viewmodels,
         ICameraView cameraView,
         Func<CameraWindow> window,
         Func<string?> spectateWho,
         MapProvider maps,
-        Func<ViewerSettings> settings,
+        SettingsPresenter settings,
         PlaybackPresenter playback,
         Func<string, string?> clientConVars,
         CancellationToken shutdown)
     {
         ArgumentNullException.ThrowIfNull(view);
         ArgumentNullException.ThrowIfNull(loggers);
-        ArgumentNullException.ThrowIfNull(ledger);
-        ArgumentNullException.ThrowIfNull(viewmodels);
         ArgumentNullException.ThrowIfNull(spectateWho);
         ArgumentNullException.ThrowIfNull(maps);
         ArgumentNullException.ThrowIfNull(settings);
@@ -233,9 +227,9 @@ public sealed partial class ViewerPresenter : IDisposable
         _loggers = loggers;
         _window = window;
         _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
-        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, settings);
+        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;
-        _settingsNow = settings;
+        _settingsOwner = settings;
         _shutdown = shutdown;
         _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
@@ -256,13 +250,18 @@ public sealed partial class ViewerPresenter : IDisposable
         // **A real source that answers unlit, rather than a null field checked at every call.** The
         // asset loader and the model set both take it as a delegate, and a null there is the shape
         // that hid a missed wiring across 193 call sites once already (D83).
-        _moment = new MomentScene(_models, viewmodels, _renderLog)
+        _moment = new MomentScene(_models, new ViewmodelScene(), _renderLog)
         {
             Lighting = LevelLighting.Unlit(_renderLog),
             Weapons = WeaponModels.None(_renderLog),
         };
 
+        // **A local, not a field.** Both readers are constructed here and neither hands it back — keeping one is what
+        // would let a later edit report a phase to a ledger nobody prints.
+        FrameLedger ledger = new();
+
         _moments = new MomentPresenter(_moment, ledger, _renderLog);
+        Frames = new FrameReporter(ledger, _models, new StopwatchTime(), _renderLog);
 
         // Everything a frame makes around its models, composed in one presenter (D92, D214).
         _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog, _audioLog);
@@ -361,6 +360,40 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>The camera presenter this owns, with the spectator the map gives a world and a demo gives eyes.</summary>
     public CameraPresenter Camera => _camera;
+
+    /// <summary>The settings' owner, which the window talks to in plain values.</summary>
+    public SettingsPresenter Settings => _settingsOwner;
+
+    /// <summary>Reads the command line and applies what it says of the settings, the spectator, the lighting and the HUD.</summary>
+    /// <param name="arguments">The command line.</param>
+    /// <returns>What was asked for; the window keeps what is its own (the shot, the tick, the paths).</returns>
+    public LaunchOptions ReadLaunch(IReadOnlyList<string> arguments)
+    {
+        LaunchOptions launch = _settingsOwner.ReadLaunch(arguments);
+
+        // The watcher's `spec_autodirector` (B535).
+        _camera.Spectate(launch.Spectate, _settings.AutoDirector);
+
+        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
+        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
+
+        // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
+        // launch option is for one run; the settings file is what the picker changes and expects to
+        // stick without being passed again every time.
+        _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
+
+        return launch;
+    }
+
+    /// <summary>The picker chose a HUD: draw it from the next overlay, and remember it.</summary>
+    /// <param name="hud">The HUD's folder or archive, or null for TF2's stock one.</param>
+    /// <returns>What to say on the status line, or null for nothing.</returns>
+    public string? SetChosenHud(string? hud)
+    {
+        _effects.ChosenHud = hud;
+
+        return _settingsOwner.SetChosenHud(hud);
+    }
 
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;

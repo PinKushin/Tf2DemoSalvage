@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 109 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
+## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, CLOSED 2026-10-13 after slices 1 to 8: the list is empty, the three references are out, three tests hold it
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38894,3 +38894,210 @@ seek frames and their lines; the four first-person frames — every one identica
   names them while it is the one calling the device. They go only if the composite presenter drives the device
   through an interface of its own, or if those types are accepted as the view's vocabulary and the three
   references are replaced by what `Render` already brings transitively. That is a decision, not a move.
+
+**Slice 8, 2026-10-13. The owner's decision on the device's types**: *"1 true thin view"* (relayed by the
+coordinating agent; D214 has the two options). So the list goes to empty and the Scene reference leaves.
+
+**Slice 8, first commit: the settings — 109 to 60, 49 entries gone and none added. Content is off the list.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 91 | 49 | 42 |
+| Core | 11 | 11 | 0 |
+| Content | 7 | 0 | 7 |
+| total | 109 | 60 (31 types, 29 members) | 49 |
+
+`MainForm` uses 27 distinct domain members, from 67, and is 4,503 lines, from 4,608. *Measured*, by the instrument.
+
+*What moved:* the settings record and everything that rewrote it — the full-screen mode, the texture quality,
+`cl_showfps`, `cl_showpos`, the chosen HUD, the game folder (asking, declining, choosing, refusing), the launch
+options read over it, `SteamInstall`'s configured folder, `mat_hdr_level` into the BSP loader, the HUD picker's
+catalog, and the nine settings a new device is given — into `Presentation.SettingsPresenter`, which the composite
+presenter is constructed with. The window, the menu and the folder dialog talk to it in plain values:
+
+- the menu is built from a `MenuState` (bools, and `MenuChoice` lists for the texture levels and the HUDs), and its
+  two typed actions are `Action<bool>` (exclusive) and `Action<string>` (the level's name);
+- a handler calls one method and shows the status it returns, if any;
+- the device setup is `ApplyTo( device, … )`, which assigns the nine in the window's order with the two that go
+  through the menu (Reflections, `mat_fullbright`) called back where they stood. It takes Render's `Device3D` at the
+  one public entry and `IViewerDevice` — a Scene interface the device now implements — inside, so the view names no
+  Scene type for it. **The first build of this added a line to the list** (`IViewerDevice`, as the public
+  parameter's type); the entry was changed before the list was touched, and that is the shape step 4 needs: the
+  hand-over names the concrete Render device.
+
+*Every textual difference:*
+
+- The record is loaded in the settings owner's constructor, called from the window's, where the window's field
+  initialiser loaded it a few statements earlier. Nothing reads it in between.
+- `SetFullScreenMode( mode )` is `SetFullScreenExclusive( bool )`: the check marks are set before the record is
+  replaced, where they were set after; the device's refusal and the save's failure come back as ONE status (the
+  later of the two, as the status line ended up showing). `SetTextureQuality` takes the level's name and the status
+  is built from the parsed level, the same text.
+- The folder dialog's refusal and outcome are logged before the status line is set, where they were logged after;
+  `_game is null` is read once, before the choice, as `installOpen`.
+- `ClientConVar` is `ConVar( name ) ?? _console.ConVar( name )`, where it was a `TryGetValue` ternary.
+- The two `cl_showfps`/`cl_showpos` log lines, the frame-rate line and the menu's texture labels are built in the
+  owner from the same expressions. The HUD menu is built when the catalog has an entry, as before; the catalog is
+  read by the owner.
+- The view test `ViewerSettings_TheForm_ExposesAndChangesTheMode` calls `SetFullScreenExclusive` and reads
+  `FullScreenExclusive`.
+
+*Tests the moved code never had* (17, `SettingsPresenterTests`), from a record the test built, saved to a file the
+test owns — never the machine's settings: the menu state from defaults and from changed settings; the full-screen
+mode remembered, refused by the device, and unsaveable; the texture quality; both meters and their log lines; the
+chosen HUD; declining the folder; a folder that is not TF2's and the folder above `tf`; **the nine device settings
+in order with the menu's two between**, and neither called at the defaults; the frame-rate line; a `+cvar` option
+applying to the run and saving nothing; a ConVar the viewer keeps no setting for. Each seen red in one of two
+rounds. **Observed, not changed:** the view test above still saves to the machine's real settings file, as it did
+before this slice — it constructs a `MainForm`, which loads and saves the default path.
+
+**Slice 8, second commit: the playlist — 60 to 49, 11 entries gone and none added.** Scene 49 to 38; Core 11.
+`MainForm` uses 19 distinct domain members, from 27.
+
+*What moved:* the demo library, its display order and the rows a search leaves (`DemoLibrary`, two `DemoEntry`
+lists, `PlaylistFilter.Order` and `.Apply`, the count's words) into `Presentation.PlaylistPresenter`. The window
+gets strings and counts: `Add( search, paths )` answers the status line's words, `Filter( search )` narrows,
+`Count` sizes the virtual list, and `Row( index )` is a row's name, folder and path — or null past either end,
+which is the paint handler's blank row and the "nothing selected" of a load. `SteamInstall` left the view with the
+settings in the first commit.
+
+*Every textual difference:* the two range checks (`index < 0 || index >= _shown.Count`) are one, inside `Row`;
+`AddToLibrary` filters inside `Add` and then sizes the list control (`ShowPlaylist`, the control's three lines of
+`RefreshPlaylist`), where it called `RefreshPlaylist` whole; the status is assigned from `Add`'s answer after the
+control is sized, as before.
+
+*Tests the moved code never had* (5, `PlaylistPresenterTests`), over a folder of empty files — a row is a name and
+no demo is read to list one: a folder with a subfolder, ordered and counted; one demo and none; text already in
+the search box; a filter applied and cleared; a row past either end. Each seen red in one of two rounds.
+
+**Slice 8, third commit: Core's remainder and the frame records — 49 to 24, 25 entries gone and none added.**
+Scene 38 to 20; Core 11 to 4. `MainForm` uses 7 distinct domain members, from 19, and is 4,422 lines.
+
+*What moved, to the composite presenter (`ViewerPresenter.Frame.cs`):*
+
+- **The frame records.** The window says what a window knows — `WindowFrame`: the transport's tick, the tick it
+  showed, playing, the viewport's size, two clocks — and the presenter adds the demo, the map, the install, the
+  camera's answers and the settings (`FrameOf`, which is `ViewFrameNow` moved). The overlay's record and the HUD's
+  (`HudWindowAt`, moved whole) are built there too.
+- **The HUD's wiring.** `AttachWindow( ViewerWindow, gdi )` replaces the window's `AttachHud`: the window's questions
+  are a `ViewerWindow` of delegates, read when the old code read them, and the presenter supplies the install, the
+  map name, the position readout and the first-person camera itself. The rasteriser is a type parameter
+  constrained to `IVguiGdi`, because Fonts is the window's project's alone (D84) and the window must not name the
+  interface.
+- **`ShowMoment`, the pick, the effects' draw and the overlay** as calls on the presenter, which builds the frame
+  record for each; the seek's callback is built there over the window's `ShowOnly`.
+- **Export and compile** (`ExportDemo`, `CompileDemo`: the `DemoAssembly` call and the status line's words), and
+  **the decode log's sink** (`AttachDecodeLog`, which `Program` calls with the two delegates it built).
+- **The demo, as questions**: `HasDemo`, `DemoPath`, `HasTimeline`. The window's `_demo`, `_timeline`, `_game`,
+  `_loaded` and `_settings` properties are gone, with its `Demo` and `Loaded`.
+
+**The view tests' `Demo` and `Loaded`** read `form.Presenter.Demo` and `form.Presenter.Map` now: the window exposes
+the composite presenter (`internal`, a Presentation type), and the tests ask it. Eleven call sites in
+`LoadedDemoTests` and `PlaylistMapLoadTests`; nothing else about them changed.
+
+*Every textual difference:* the frame record's window fields read `window.X` where they read the window's
+controls; `_bindings`, `_clientConVars`, the VGUI clock, `+showscores` and the last frame's seconds are
+`Window.X()`; `_demo is null` is `!HasDemo` (4) and `_timeline is null` is `!HasTimeline` (2) in the window; the
+export's "no demo open" line reads `DemoPath ?? "no demo open"`; the two export and compile messages are built
+with `string.Create( CultureInfo.CurrentCulture, … )`, the culture the interpolation used.
+
+*Tests* (7, in `ViewerPresenterTests`): the demo's three questions across a load and a failed one; an overlay asked
+for before the window is attached says the wiring is missing; a moment shown with no demo asks the window nothing,
+and with one comes back through the window ending on the tick asked; the overlay asks the window for the frame,
+the scoreboard key and the clock; export then compile say how much and rebuild the same bytes; the decode log's
+losses and notes go to their own delegates. Each seen red in one round.
+
+**Slice 8, fourth commit: the device — 24 to 0. The list is empty.**
+
+| assembly | before | after |
+|---|---|---|
+| Scene | 20 | 0 |
+| Core | 4 | 0 |
+| total | 24 | 0 |
+
+`MainForm` uses no domain type or member, and is 4,295 lines. *Measured*, by the instrument.
+
+*The hand-over:* the window creates the device and calls `ViewerPresenter.AttachDevice( device, … )` once; it calls
+`DetachDevice()` before it disposes it. The entry takes Render's `Device3D`. Inside, the frame is driven through
+`IViewerDevice`, a Scene interface the device implements: the nine settings of the first commit, and now the
+view's setup beside the camera (fog, sky fog, monitor camera, tonemap, exposure, observer target, `SetCamera`), the
+pose's cull inputs (`Frustum`, `Views`, `Eye`, `ScreenView`), the screen overlay, the monitor's models and
+`DrawScene`. The window still makes the calls that are a device's alone, with plain arguments: a debug toggle, a
+resize, a capture, the exclusive mode, `ClearWorld`, `Dispose`.
+
+*What moved, to `ViewerPresenter.Device.cs`, with its order and every argument as it was:*
+
+- **`UploadCamera`**: the camera for the frame, the demo's four feeds, the exposure's time, the observer target,
+  `SetCamera`, the frame's effects, and the stall report. The window says the exposure's time (the capture rule,
+  B520, reads the window's launch options and opening state) and the surface-colour toggle.
+- **`DrawScene`**: the screen overlay, the monitor's models, and the draw with the leaf lines, the moment's
+  instance lists, the viewmodel camera and the frame's VGUI.
+- **The pose** of `ProjectWorld` (`PoseNow`), **the upload target** of the scene (in `AttachDevice`), **the
+  listener's two questions** of the sound step, **the last camera** the pick reads, **the viewmodel scene** and
+  **the frame reporter's construction** (the ledger is still a constructor local, now the presenter's).
+
+*`DrawFrame`'s arguments are the same.* `IViewerDevice.DrawScene` cannot name Render's `ScenePoint`, so it leaves out
+the two channels the window has passed empty since D98 (the flat fill and the flat markers), and the device's
+explicit implementation calls `DrawFrame( r, g, b, [], lines, [], models, viewmodels, viewmodelCamera, vgui )` —
+the call the window made.
+
+*The overlay still travels as an argument.* `IFrameSteps.BuildOverlay` returned a `VguiDrawList` and `Draw` took
+it; both now use `FrameOverlay`, an opaque Presentation struct around the draw list, so the window carries it from
+one stage to the next without naming it. A field between the two stages was the alternative, and it is the shape
+`FrameSequenceTests` exists to forbid (B193, B196); its test still holds that the overlay built is the one drawn.
+
+*Every textual difference:* `_device.X` is `device.X` on the interface; `_camera.ViewCameraNow( _demoFrameSeconds )`
+reads `Window.Frame().DemoFrameSeconds`, the same field; the exposure's ternary stays in the window and arrives as
+`exposureSeconds`; `_menu.SurfaceColours.Checked` is `surfaceColours`; `BackgroundRed/Green/Blue` and
+`_debug.LeafVis` are arguments; `_presenter.DrawEffects( viewing, drawing )` is `_effects.DrawOver( … )` on the
+same device; the two `[]` arguments are in the device's explicit implementation; `_camera.Mode != CameraMode.X`
+is `!_camera.AskedX` and `EnterCamera( CameraMode.X )` is `EnterX()` (2 each); `_presenter.Game is not null` is
+`HasInstall`.
+
+*Tests* (2, in `ViewerPresenterTests`, over `FakeViewerDevice`, which writes every set and call into one list):
+a camera upload sets the demo's feeds, then the exposure and the observer target, then the camera, then the
+effects' particles; the draw sets the screen overlay and the monitor's models, then draws with the overlay it was
+handed. Each seen red, the first twice (a wrong value, and the camera set before the feeds). **Not tested:**
+`AttachDevice` and `DetachDevice`, which take the real device; `PoseNow`, whose only effect is inside the moment
+presenter's cull; the two guards for "no device yet". The frames hold all of it.
+
+**Slice 8, fifth commit: the three references are out, and the end state is held by tests.**
+
+`Tf2DemoSalvage.Viewer3D.csproj` references Render, Presentation and Fonts (Logging arrives through them, as it
+did); the Core, Content and Scene references are gone, with `global using Tf2DemoSalvage.Scene` and six `using`
+lines in `MainForm.cs` and one in `Program.cs`. The solution builds with no warning.
+
+**Removing the usings found one more thing, which the list could not have:** `ViewerSettings.ExclusiveFullScreenRefused`,
+a `const` — the compiler copies a constant's value in, so the assembly holds no reference to it and the instrument
+read zero with it still there. It is `SettingsPresenter.ExclusiveFullScreenRefused` now. This is the limit the
+instrument's own documentation named (*"What it cannot see: a `const`…"*), met once.
+
+**The compiler does not enforce the end state, and cannot.** The plan in D214 said it would once the references
+were gone. *Measured*: the domain assemblies still arrive through Presentation and Render, so a `using
+Tf2DemoSalvage.Scene` in the view compiles; and they cannot be shut out, because the view uses `Device3D`, which
+implements Scene's interfaces, and a type whose interfaces are unresolvable cannot be used at all. So the end
+state is held by `ThinViewConformanceTests`, three tests where there was one:
+
+- `DomainReach_OfTheBuiltViewAssembly_IsNothing` — the instrument, asserting empty and not equality with a list;
+- `ProjectReferences_OfTheViewsProject_NameNoDomainAssembly` — the csproj names no domain project;
+- `Sources_OfTheView_NameNoDomainNamespace` — no code line of the view's sources names a domain namespace, which
+  refuses the `using` the compiler allows and sees a fully qualified constant the instrument cannot.
+
+Each seen red in one round — a Scene project reference, a `global using`, and `typeof( FreeCamera )` added to the
+view — and restored, the fifteen files compared with copies.
+
+**Left for the owner, and not done here:** the hook `.claude/hooks/tf2-thin-view.ps1` and the D214 section of
+`CLAUDE.md` still describe a list that only shrinks. Both are configuration, and an instruction to change them
+reached this work through another agent, which is not the owner's own word; they are named in the slice's report
+with the sentence to use. `thin-view-domain-reach.txt` is empty, is still copied beside the test's binaries, and is
+read by nothing; it is left in place for the hook that guards it.
+
+**Slice 8, a defect seen during the proofs and fixed on its own: the `--spectate` warning repeated.** A capture
+with `--spectate N` wrote `--spectate N is not playing at tick 0; following the default` over a hundred times
+before its seek landed. *Read from the code*: `SpectatorView.Target` is a stateless lookup, asked several times a
+frame (`Followed`, `Viewed`, the eye, the chase camera, the field of view, the sound step), and it logged on every
+asking while the named player was absent. The spectator is not being re-resolved when it should not be — a lookup
+per asking is the design, and the answer was right each time; only the saying repeated. So it is a missing latch:
+the view remembers the entity whose absence it has reported, and forgets it when that player is found, so a second
+absence is said again. `Target_WhileTheNamedPlayerIsAbsent_SaysSoOncePerAbsenceAndFollowsTheDefault`, seen red
+first (the count was the number of askings, not 1). The line keeps the first tick it was asked at.

@@ -16,6 +16,9 @@ internal sealed class FakeFrameDevice : IFrameDevice
     /// <summary>Every call that hands the device something, by name, in the order made.</summary>
     public List<string> Calls { get; } = [];
 
+    /// <summary>Told each call's name as it is made, for a test that orders these calls among another fake's.</summary>
+    public System.Action<string>? Told { get; set; }
+
     public ModelDecals? ModelDecals
     {
         get => Decals.ModelDecals;
@@ -36,6 +39,7 @@ internal sealed class FakeFrameDevice : IFrameDevice
     public void SetParticles(IReadOnlyList<ParticleBatch> batches)
     {
         Calls.Add(nameof(SetParticles));
+        Told?.Invoke(nameof(SetParticles));
         Particles.Add(batches);
     }
 

@@ -51,6 +51,14 @@ public sealed partial class ViewerPresenter
                 : "audio output opened");
     }
 
+    /// <summary>Steps the sound for this frame, with the ears wherever the camera is and in whoever's eyes it is (B483).</summary>
+    /// <param name="tick">The transport's tick.</param>
+    public void PlaySounds(int tick) =>
+        PlaySounds(
+            () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera(),
+            () => _camera.FirstPerson ? _camera.FollowedEntity() : null,
+            tick);
+
     /// <summary>Starts whatever the recording plays at this tick.</summary>
     /// <remarks>
     /// **The spatialisation is Valve's and stays Valve's (D80).** The gain comes from
@@ -62,7 +70,7 @@ public sealed partial class ViewerPresenter
     /// <param name="listener">The camera the ears are at, asked for only when there is a device; null for none.</param>
     /// <param name="listenerEyes">Whose eyes the listener is in, or null outside first person; asked for after the camera.</param>
     /// <param name="tick">The transport's tick.</param>
-    public void PlaySounds(Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
+    internal void PlaySounds(Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
     {
         ArgumentNullException.ThrowIfNull(listener);
         ArgumentNullException.ThrowIfNull(listenerEyes);
@@ -76,7 +84,7 @@ public sealed partial class ViewerPresenter
         PlaySoundsOver(output, listener, listenerEyes, tick);
     }
 
-    /// <summary><see cref="PlaySounds"/> over a sink a test can read.</summary>
+    /// <summary><see cref="PlaySounds(int)"/> over a sink a test can read.</summary>
     internal void PlaySoundsOver(IAudioSink output, Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
     {
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be

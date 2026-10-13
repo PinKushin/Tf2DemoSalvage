@@ -27,13 +27,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 // `Core.Scene` is the honest remaining coupling: the window holds a `DemoTimeline`, a
 // `PlaybackClock`, and lists of `ScenePlayer` and `ScenePoint` to hand to the presenters that act
 // on them. It reasons about none of them.
-using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Core.Text;
 using Tf2DemoSalvage.Logging;
-using Tf2DemoSalvage.Scene.Hud;
-using Tf2DemoSalvage.Scene.Prediction;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -81,7 +75,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     public const string GameFolderItemName = "TF2 folder";
 
     /// <summary>How a refused folder choice begins, in the status bar and the log.</summary>
-    public const string NotAGameFolder = "Not a TF2 folder:";
+    public const string NotAGameFolder = SettingsPresenter.NotAGameFolder;
 
     /// <summary>How the startup log line naming the discovered game folder begins.</summary>
     public const string GameFolderLog = "game folder at startup: ";
@@ -90,7 +84,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     public const string GameFolderNotFound = "not found";
 
     /// <summary>How an accepted folder choice begins, in the status bar and the log.</summary>
-    public const string GameFolderSet = "TF2 folder set to ";
+    public const string GameFolderSet = SettingsPresenter.GameFolderSet;
 
     /// <summary>Automation id of the File &gt; Compile assembly item.</summary>
     public const string CompileItemId = "CompileMenuItem";
@@ -260,17 +254,14 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         Justification = "Disposed by base.Dispose, which walks Controls; ours was redundant (B402).")]
     private readonly TextBox _search;
 
-    /// <summary>The library sorted for display: folder first, then name.</summary>
-    private IReadOnlyList<DemoEntry> _ordered = [];
-
-    /// <summary>The rows the playlist is currently showing.</summary>
-    private IReadOnlyList<DemoEntry> _shown = [];
-    private readonly DemoLibrary _library = new();
+    /// <summary>The playlist's owner: the library, its order and the rows a search leaves. This window gets strings and counts (D214).</summary>
+    private readonly PlaylistPresenter _library = new();
 
     /// <summary>Owns what a load fills and the load itself; this window is its <see cref="ILoadView"/> (D214).</summary>
     private readonly ViewerPresenter _presenter;
 
-    private LoadedDemo? _demo => _presenter.Demo;
+    /// <summary>The composite presenter, for the tests that ask it what a load left (the demo, the map).</summary>
+    internal ViewerPresenter Presenter => _presenter;
 
     // **`_scene` was here until 2026-08-26** (D98) — entity positions already projected to clip
     // space, held that way so the render loop did no per-frame work beyond handing them over. That
@@ -280,12 +271,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // `_mapFill` was here: the map's surfaces projected to clip space for the overhead fallback.
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
     // it could never produce a visible triangle. Deleted with the projection that built it.
-
-    /// <summary>The map the load owner holds, or null when none is open.</summary>
-    private LoadedMap? _loaded => _presenter.Map;
-
-    /// <summary>The map as it was read, for a test to ask what came with it (B393).</summary>
-    internal LoadedMap? Loaded => _loaded;
 
     /// <summary>Where maps come from: the disk first, then the network.</summary>
     /// <remarks>
@@ -313,9 +298,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
     /// <summary>Which member <see cref="Dispose(bool)"/> is releasing, for the crash line (B402).</summary>
     private string _releasing = string.Empty;
-
-    /// <summary>The install the load owner holds, null until a map read or a decode opens it.</summary>
-    private GameContent? _game => _presenter.Game;
 
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
@@ -386,9 +368,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
     // drawn with a pass-through depth.
 
-    /// <summary>The open demo's timeline, which the load owner holds.</summary>
-    private DemoTimeline? _timeline => _presenter.Timeline;
-
     // **`_players` and `_props` were here until 2026-08-26** (B188, D90). They existed only because
     // `ShowMoment` sampled the timeline in the window; `MomentPresenter` owns them now, and reuses
     // them for the same reason — a moment is rebuilt every frame while playing, so fresh lists would
@@ -402,16 +381,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
     // install itself now, so there is one holder and nothing to keep in step.
 
-    /// <summary>Assembles what one moment draws: the draw list, the packing, the poses.</summary>
-    /// <remarks>
-    /// **`ShowMoment` and the four members it drove** (B188, D90). It is told the tick, the camera
-    /// and the followed entity through <see cref="MomentInfo"/> — <c>SetupRenderInfo_t</c>'s
-    /// arrangement (<c>clientleafsystem.h:75</c>) — rather than reaching back here for them, and the
-    /// one thing it needed a window for is <see cref="IModelUpload"/>.
-    /// </remarks>
-    private readonly MomentScene _moment;
-
-    /// <summary>Samples the demo for a moment and hands it to <see cref="_moment"/>.</summary>
+    /// <summary>Samples the demo for a moment and hands it to the moment scene, which the composite presenter holds.</summary>
     /// <remarks>
     /// **The last non-view work in <c>ShowMoment</c>** (B188, D90). The owner's question is what
     /// found it — *"does the view need to hold them to pass them on?"* — and it did not: the two
@@ -581,7 +551,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // **`ViewerSettings.Verbosity` rather than a switch here** (B208). The mapping was stated in
         // `Developer`'s own documentation over in `Scene` and implemented here — the same rule
         // written twice, in two projects, with only one of them running.
-        LogLevel level = _settings.Verbosity;
+        LogLevel level = _settingsOwner.Verbosity;
 
         set(level);
 
@@ -590,7 +560,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             "{Message}",
             string.Create(
                 CultureInfo.InvariantCulture,
-                $"developer {_settings.Developer}; the log accepts {level} and above"));
+                $"developer {_settingsOwner.Developer}; the log accepts {level} and above"));
     }
 
     // The "have we already reported this viewmodel" state moved into ViewmodelScene on 2026-08-24
@@ -649,8 +619,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // `_borderlessMode`, `_exclusiveMode` and `_textureQualityItems` were here until 2026-08-26.
     // They are `ViewerMenu.Borderless`, `.Exclusive` and `.TextureQualityItems` (B188, D90).
 
-    /// <summary>Preferences remembered between runs.</summary>
-    private ViewerSettings _settings = ViewerSettings.Load();
+    /// <summary>The settings' owner; this window talks to it in plain values (D214).</summary>
+    private readonly SettingsPresenter _settingsOwner;
 
     /// <summary>Controls hidden while full screen, all of them direct children of the form.</summary>
     /// <remarks>
@@ -710,11 +680,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         _demoLog = loggers.CreateLogger("demo");
         _configLog = loggers.CreateLogger("config");
 
-        // **A local, not a field.** Both readers are constructed here and neither hands it back, so
-        // the window has no reason to keep a reference — and keeping one is what would let a later
-        // edit report a phase to a ledger nobody prints.
-        FrameLedger ledger = new();
-
         _transport = new TransportBar();
 
         // **Playback belongs to a presenter now, not to this form (D62).** What used to be three
@@ -727,28 +692,28 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         // **What a load fills is composed by its owner** (D214): the model set, the sound cache, soundscape and
         // presenter, the moment scene and presenter, the frame presenter, the level's systems and the demo's — in the
-        // order this constructor built them. The three fields below are the same objects, kept because the frame still
+        // order this constructor built them. The fields below are the same objects, kept because the frame still
         // asks them; nothing here constructs or replaces one.
+        _settingsOwner = new SettingsPresenter(loggers);
         _presenter = new ViewerPresenter(
-            this, loggers, ledger, _viewmodelScene, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, () => _settings, _playback, ClientConVar, _shutdown.Token);
-        _moment = _presenter.Moment;
+            this, loggers, this, () => CameraWindowNow, () => _launch.SpectateWho, _maps, _settingsOwner, _playback, ClientConVar, _shutdown.Token);
         _moments = _presenter.Moments;
         _effects = _presenter.Effects;
         _camera = _presenter.Camera;
 
-        _listener = () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera();
-        _listenerEyes = () => _camera.FirstPerson ? _camera.FollowedEntity() : null;
-        _showOnly = shown =>
-        {
-            ShowOnly(shown);
+        // What the presenter asks of this window at its own moment, attached once; it gives the HUD the rest (D214).
+        _presenter.AttachWindow(
+            new ViewerWindow(
+                () => WindowFrameNow,
+                ShowOnly,
+                () => _bindings,
+                ClientConVar,
+                () => _vguiClock.Elapsed.TotalSeconds,
+                () => _console.IsHeld(ViewerAction.ShowScores),
+                () => _clock.LastFrameSeconds),
+            _gdi);
 
-            return ViewFrameNow;
-        };
-        _clientConVars = ClientConVar;
-        _effects.AttachHud(new HudWindow(
-            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, _camera.ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, _camera.FirstPersonCamera));
-
-        _frames = new FrameReporter(ledger, _presenter.Models, new StopwatchTime(), _renderLog);
+        _frames = _presenter.Frames;
 
 
         // **A capture flag, because the alternative was asking a person to press F12.** Several
@@ -763,22 +728,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // the six `_shot*` fields it used to write into are gone, and the two things it configures
         // that live elsewhere — the settings and the spectator target — are applied here where both
         // are visible together.
-        _launch = LaunchOptionsReader.Read(initialPaths, _settings, _log);
-
-        _settings = _launch.Settings;
-
-        // Detection reads the live cl_game_folder, so `+cl_game_folder` beats the cfg as in Source (D210).
-        SteamInstall.ConfiguredFolder = () => _settings.GameFolder;
-        // The watcher's `spec_autodirector` (B535).
-        _camera.Spectate(_launch.Spectate, _settings.AutoDirector);
-
-        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
-        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
-
-        // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
-        // launch option is for one run; the settings file is what the picker changes and expects to
-        // stick without being passed again every time.
-        _effects.ChosenHud = _launch.Hud ?? _settings.ChosenHud;
+        // What the options say of the settings, the game folder, the spectator, the lighting and the HUD is applied by
+        // the presenter that owns each, in the order this constructor applied them (`ViewerPresenter.ReadLaunch`).
+        _launch = _presenter.ReadLaunch(initialPaths);
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -941,7 +893,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
             // viewer has one path from "which moment" to "who is where" rather than two that can
             // disagree.
-            if (_timeline is null)
+            if (!_presenter.HasTimeline)
             {
                 return;
             }
@@ -985,7 +937,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
                 CompileDemo: () => BeginInvoke(() => FileWork = CompileDemo()),
                 Exit: Close,
                 SetFullScreen: SetFullScreen,
-                SetFullScreenMode: SetFullScreenMode,
+                SetFullScreenExclusive: SetFullScreenExclusive,
                 SetTextureQuality: SetTextureQuality,
                 SetSurfaceColours: SetSurfaceColours,
                 SetFrameRateMeter: SetFrameRateMeter,
@@ -1001,16 +953,15 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
                 SetChosenHud: SetChosenHud,
                 // Posted for the same reason as Export: the menu closes before the dialog opens.
                 ChooseGameFolder: () => BeginInvoke(ChooseGameFolder)),
-            _settings,
+
+            // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
+            // imported into the program, not what is in their TF2 install.
+            _settingsOwner.Menu(ProgramCustomFolder),
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
             // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
             // six of them on keys TF2 binds to something else.
-            _bindings,
-
-            // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
-            // imported into the program, not what is in their TF2 install.
-            HudCatalog.Options(ProgramCustomFolder));
+            _bindings);
 
         MenuStrip menu = _menu.Strip;
 
@@ -1165,9 +1116,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
     }
 
-    /// <summary>The demo currently loaded, or <c>null</c> if none is.</summary>
-    public LoadedDemo? Demo => _demo;
-
     /// <summary>Loads a demo by path, on this thread: <see cref="ViewerPresenter.LoadDemo"/>.</summary>
     /// <param name="path">Full path to the demo.</param>
     public DemoLoadResult LoadDemo(string path) => _presenter.LoadDemo(path);
@@ -1190,14 +1138,13 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return NothingSelected;
         }
 
-        int index = _playlist.SelectedIndices[0];
-
-        if (index < 0 || index >= _shown.Count)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_library.Row(_playlist.SelectedIndices[0]) is not { } selected)
         {
             return NothingSelected;
         }
 
-        return _presenter.LoadDemoAsync(_shown[index].Path);
+        return _presenter.LoadDemoAsync(selected.Path);
     }
 
     /// <summary>The load in flight, kept so it is observed rather than discarded.</summary>
@@ -1491,7 +1438,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void ApplyOpeningState()
     {
-        if (_opening.Applied || _timeline is null)
+        if (_opening.Applied || !_presenter.HasTimeline)
         {
             return;
         }
@@ -1532,7 +1479,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // Skipped when the mode is already first person, because on a point-of-view recording the
         // D128 lock entered it at load — and `ToggleFirstPerson` TOGGLES, so calling it again
         // would be an attempt to leave, refused with a warning on every `--first-person` run.
-        if (_launch.FirstPerson && _camera.Mode != CameraMode.FirstPerson)
+        if (_launch.FirstPerson && !_camera.AskedFirstPerson)
         {
             _ = _camera.ToggleFirstPerson();
         }
@@ -1542,9 +1489,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // photograph whichever one the count happened to land on. `EnterCamera` takes the mode it
         // is given, and it is the same call the key ends in — so the launch route and the key
         // cannot drift apart.
-        if (_launch.ThirdPerson && _camera.Mode != CameraMode.ThirdPerson)
+        if (_launch.ThirdPerson && !_camera.AskedThirdPerson)
         {
-            _ = _camera.EnterCamera(CameraMode.ThirdPerson);
+            _ = _camera.EnterThirdPerson();
         }
 
         // **`--look-at` and `--zoom` applied here until 2026-08-26** (D98). They centred and
@@ -1579,10 +1526,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // it, onto `MomentScene.AddViewmodel` (B188, D90). It was orphaned here the moment the placement
     // left, and commentary that outlives its code is how a comment starts describing something that
     // is no longer true.
-
-    /// <summary>Decides what the first-person view contains; the scene supplies where and whose.</summary>
-    /// <remarks>Constructed here and handed to <see cref="MomentScene"/>, which drives it.</remarks>
-    private readonly ViewmodelScene _viewmodelScene = new();
 
     // `_viewmodelCamera` went with `AddViewmodel` on 2026-08-25 (B188, D90). It is
     // `MomentScene.ViewmodelCamera`, set by the pass that decides whether anything is drawn in it at
@@ -1670,23 +1613,10 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     public void ShowMoment(double tick)
     {
-        if (_timeline is null)
-        {
-            return;
-        }
-
-        // What a seek rebuilds on the way is the presenter's (D214); it comes back here to show each tick it needs.
-        _effects.ShowMoment(ViewFrameNow, tick, _device, _showOnly);
+        // Whether there is a timeline, and what a seek rebuilds on the way, are the presenter's (D214); it comes back
+        // here through `ShowOnly` to show each tick it needs.
+        _presenter.ShowMoment(tick);
     }
-
-    /// <summary><see cref="ShowOnly"/> as the one delegate a seek is handed, answering what the window knows afterwards.</summary>
-    private readonly Func<double, ViewFrame> _showOnly;
-
-    /// <summary>The camera the ears are at, as the delegate the sound step asks once it has a device.</summary>
-    private readonly Func<FreeCamera?> _listener;
-
-    /// <summary>Whose eyes the listener is in, or null outside first person (B483).</summary>
-    private readonly Func<int?> _listenerEyes;
 
     /// <summary>Builds the scene at a moment, with no replay before it.</summary>
     private void ShowOnly(double tick)
@@ -1724,7 +1654,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        string? report = _effects.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"), ViewFrameNow, _lastViewing);
+        string? report = _presenter.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"));
 
         if (report is not null)
         {
@@ -1732,32 +1662,19 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
     }
 
-    /// <summary>What this window knows of the frame it is drawing, for the presenter that draws it.</summary>
-    private ViewFrame ViewFrameNow =>
+    /// <summary>What this window knows of the frame it is drawing; the presenter adds the demo, the map and the settings.</summary>
+    private WindowFrame WindowFrameNow =>
         new(
-            _timeline,
-            _loaded,
-            _game,
             _transport.CurrentTick,
             _shownTick,
             _transport.Playing,
-            _camera.FirstPerson,
-            _camera.FollowedEntity(),
             _viewport.ClientSize.Width,
             _viewport.ClientSize.Height,
             (float)_clock.LastFrameSeconds,
-            _demoFrameSeconds,
-            _settings.DoPixelVisibility,
-            _settings.DrawViewmodel,
-            _settings.HealTargetMarker,
-            _settings.Decals,
-            _settings.MaxModelDecals);
+            _demoFrameSeconds);
 
     /// <summary>Everything a frame makes around its models: lights, decals, sounds, particles, the target ID (D92, D214).</summary>
     private readonly FramePresenter _effects;
-
-    /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
-    private FreeCamera? _lastViewing;
 
     /// <summary>Writes the next drawn frame to a PNG.</summary>
     /// <param name="path">Where to write it.</param>
@@ -1812,7 +1729,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // the fallback itself: the log's folder, which is also where captures go — one directory, one
     // retention policy (D83). `FileLogWriter` owns that path so both writers agree on it.
     public string CaptureFolder =>
-        Captures.Folder(_settings.ScreenshotFolder, FileLogWriter.DefaultFolder, _renderLog);
+        Captures.Folder(_settingsOwner.ScreenshotFolder, FileLogWriter.DefaultFolder, _renderLog);
 
     /// <summary>Captures the viewport to a stamped file beside the log.</summary>
     /// <remarks>
@@ -1930,7 +1847,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
 
-        if (_presenter.LoadsInFlight == 0 && _demo is null)
+        if (_presenter.LoadsInFlight == 0 && !_presenter.HasDemo)
         {
             _status.Text = $"{_status.Text} {started}";
         }
@@ -1985,7 +1902,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             _shownTick,
             _viewport.ClientSize.Width,
             _viewport.ClientSize.Height,
-            IsFullScreen && FullScreenMode == FullScreenMode.Exclusive);
+            IsFullScreen && _settingsOwner.FullScreenExclusive);
 
     /// <inheritdoc/>
     void ICameraView.Say(string? status) => _status.Text = status;
@@ -2035,7 +1952,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
     /// <summary>Projects the map: whether it needs uploading and what follows an upload are the load owner's; this window's part is its device, the surface-colour toggle and the viewport's size.</summary>
     private void ProjectMap() =>
-        _presenter.ProjectMap(_device, _menu.SurfaceColours.Checked, (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
+        _presenter.ProjectMap(_menu.SurfaceColours.Checked, (_viewport.ClientSize.Width, _viewport.ClientSize.Height));
 
     /// <inheritdoc/>
     void ILoadView.DemoOpened()
@@ -2070,64 +1987,41 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>How full screen is entered.</summary>
     // The stray second summary removed here on 2026-08-26 — "Whether the viewport is filling the
     // screen" — belongs to `IsFullScreen`, sixty lines below, which has its own.
-    public FullScreenMode FullScreenMode => _settings.FullScreenMode;
+    public bool FullScreenExclusive => _settingsOwner.FullScreenExclusive;
 
     /// <summary>Chooses how full screen is entered, and remembers it.</summary>
-    /// <param name="mode">The mode to use.</param>
+    /// <param name="exclusive">The exclusive mode; borderless otherwise.</param>
     /// <remarks>
     /// Applied immediately when already full screen, so the choice can be judged by making it
-    /// rather than by restarting.
+    /// rather than by restarting. What is remembered, saved and said is the settings owner's
+    /// (`SettingsPresenter.SetFullScreenExclusive`); the check marks and the device are this window's.
     /// </remarks>
-    public void SetFullScreenMode(FullScreenMode mode)
+    public void SetFullScreenExclusive(bool exclusive)
     {
-        _settings = _settings with { FullScreenMode = mode };
-        _menu.Borderless.Checked = mode == FullScreenMode.Borderless;
-        _menu.Exclusive.Checked = mode == FullScreenMode.Exclusive;
+        _menu.Borderless.Checked = !exclusive;
+        _menu.Exclusive.Checked = exclusive;
 
-        if (IsFullScreen && _device is not null)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_settingsOwner.SetFullScreenExclusive(exclusive, IsFullScreen && _device is { } device ? device.SetExclusiveFullScreen : null)
+            is { } said)
         {
-            bool wanted = mode == FullScreenMode.Exclusive;
-
-            if (!_device.SetExclusiveFullScreen(wanted) && wanted)
-            {
-                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
-            }
-        }
-
-        string? failure = _settings.Save();
-
-        if (failure is not null)
-        {
-            // Reported rather than swallowed: a preference that silently does not stick is worse
-            // than one that says so.
-            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
+            _status.Text = said;
         }
     }
 
-    /// <summary>How much texture detail is loaded.</summary>
-    public TextureQuality TextureQuality => _settings.TextureQuality;
+    /// <summary>How much texture detail is loaded, by level name.</summary>
+    public string TextureQuality => _settingsOwner.TextureQuality;
 
     /// <summary>Chooses how much texture detail to load, and remembers it.</summary>
-    /// <param name="quality">The detail level.</param>
-    /// <remarks>
-    /// The map is not reloaded here. Textures are decoded when a map is opened, so the change
-    /// applies to the next one — which is honest about what it costs rather than pretending a
-    /// setting is free.
-    /// </remarks>
-    public void SetTextureQuality(TextureQuality quality)
+    /// <param name="quality">The detail level's name, as the menu's item carries it.</param>
+    public void SetTextureQuality(string quality)
     {
-        _settings = _settings with { TextureQuality = quality };
-
-        foreach (KeyValuePair<TextureQuality, ToolStripMenuItem> item in _menu.TextureQualityItems)
+        foreach (KeyValuePair<string, ToolStripMenuItem> item in _menu.TextureQualityItems)
         {
             item.Value.Checked = item.Key == quality;
         }
 
-        string? failure = _settings.Save();
-
-        _status.Text = failure is null
-            ? "Texture quality: " + quality + ". Applies to the next map opened."
-            : ViewerSettings.SavedForThisSessionOnly(failure);
+        _status.Text = _settingsOwner.SetTextureQuality(quality);
     }
 
     /// <summary>Turns the surface-category view on or off.</summary>
@@ -2183,15 +2077,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// well as the average, and the smoothed single number is the one this project has repeatedly
     /// found hides a stall.
     /// </remarks>
-    internal void SetFrameRateMeter(bool on)
-    {
-        _settings = _settings with { ShowFrameRate = on ? 2 : 0 };
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(CultureInfo.InvariantCulture, $"cl_showfps {_settings.ShowFrameRate}"));
-    }
+    internal void SetFrameRateMeter(bool on) => _settingsOwner.SetFrameRateMeter(on);
 
     /// <summary>Shows or hides Valve's position readout.</summary>
     /// <param name="on">Whether to draw it.</param>
@@ -2204,12 +2090,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     internal void SetPositionReadout(bool on)
     {
-        _settings = _settings with { ShowPosition = on ? PositionReadout.View : 0 };
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _renderLog.LogInformation(
-            "{Message}",
-            string.Create(CultureInfo.InvariantCulture, $"cl_showpos {_settings.ShowPosition}"));
+        _settingsOwner.SetPositionReadout(on);
 
         // **Invalidated, unlike the frame-rate meter beside it.** That one is only ever switched on
         // while frames are already being produced, because it exists to measure them. This can be
@@ -2408,13 +2289,13 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // **The window is sized first, then the display is taken.** DXGI wants the window
             // already covering the output it is about to own; asking for exclusive from a small
             // window is the case it most often refuses.
-            if (_settings.FullScreenMode == FullScreenMode.Exclusive &&
+            if (_settingsOwner.FullScreenExclusive &&
                 _device is not null &&
                 !_device.SetExclusiveFullScreen(true))
             {
                 // Refused - another application holds the output, or this is a WARP device.
                 // Borderless is already in effect, so this is a note rather than a failure.
-                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
+                _status.Text = SettingsPresenter.ExclusiveFullScreenRefused;
             }
 
             _overlay = new OverlayWindow(_transport);
@@ -2535,62 +2416,16 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
                 _viewport.ClientSize.Width,
                 _viewport.ClientSize.Height,
                 _loggers);
-            _device.VerticalSync = _settings.VerticalSync;
 
-            // **`mat_phong` from the config, applied where `mat_vsync` is and for the same reason.**
-            // `SetRenderToggle` no-ops while there is no device, so a config read before this point
-            // reaches nothing — and `Device3D._phong` defaults to ON, so `mat_phong 0` would be
-            // silently dropped rather than visibly failing. That is the null-object shape recorded
-            // in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`.
-            _device.Phong = _settings.Phong;
-
-            // `cl_drawmonitors` from the config, for the same reason (B511).
-            _device.DrawMonitors = _settings.DrawMonitors;
-
-            // The golden comparison's three switches, applied where the others are (B161).
-            _device.DisableBloom = _settings.DisableBloom;
-            _device.ForceToneMapScale = _settings.ForceToneMapScale;
-            _device.DrawHud = _settings.DrawHud;
-
-            // **`mat_specular` and `mat_fullbright` from the config or the command line** (B521). Both were menu items
-            // only: a `+mat_specular 0` was logged as set by the launch options and reached nothing, so a picture taken
-            // to switch reflections off was byte-identical to its control. Through the menu's own item and method, so
-            // the check marks follow: unchecking Reflections is what calls `SetSpecular`.
-            if (!_settings.Specular)
-            {
-                _menu.Specular.Checked = false;
-            }
-
-            if (_settings.Fullbright != 0)
-            {
-                SetFullbright((Fullbright)_settings.Fullbright);
-            }
-
-            // **`r_3dsky`, applied here for exactly the reason `mat_phong` is.** The device
-            // defaults it to Valve's 1, so a config saying `r_3dsky 0` would be silently dropped —
-            // the null-object shape in `docs/memory/logs-are-the-debugger.md#a-null-object-default-hides-a-missed-wiring`,
-            // where the default and the ignored setting agree and nothing looks wrong.
-            _device.Draw3dSky = _settings.ThreeDimensionalSky;
-
-            // **`cl_detaildist` and `cl_detailfade`, applied for the reason `r_3dsky` above is.**
-            // The device defaults them to Valve's 1200 and 400, so a config saying
-            // `cl_detaildist 0` — which `tf/cfg/low.cfg` ships, and which means draw no grass at
-            // all — would be silently dropped: the default and the ignored setting would agree
-            // everywhere except on the one machine that set it.
-            _device.DetailDistance = _settings.DetailDistance;
-            _device.DetailFadeWidth = _settings.DetailFade;
-
-            // **Where packed geometry goes, and forgetting it draws NOTHING** (B193). Without this
-            // the scene packs every model, poses it, transforms it correctly and submits it against
-            // a vertex buffer the renderer never received — B148's symptom exactly, and silent.
-            // Assigned here rather than at construction because the device does not exist until the
-            // viewport has a handle.
-            _moment.Upload = _device;
+            // The hand-over (D214): the presenter gives the device every setting a new one takes, in the order they were
+            // assigned here, and tells the scene where packed geometry goes (B193). The two settings that go through
+            // the menu come back as these two calls, where they stood: unticking Reflections is what calls
+            // `SetSpecular`, and the check marks follow `SetFullbright`.
+            _presenter.AttachDevice(_device, () => _menu.Specular.Checked = false, mode => SetFullbright((Fullbright)mode));
 
             _renderLog.LogInformation(
                 "{Message}",
-                $"frame rate limit {(_settings.FrameRateLimit > 0 ? _settings.FrameRateLimit + " a second" : "none")}, " +
-                $"vertical sync {(_settings.VerticalSync ? "on" : "off")}");
+                _settingsOwner.FrameRateLine);
             _renderLog.LogInformation(
                 "{Message}",
                 $"device created for a {_viewport.ClientSize.Width}x{_viewport.ClientSize.Height} viewport");
@@ -2600,7 +2435,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // by now - and announcing the graphics device over the top of it threw that away. The
             // user saw "Direct3D ready." for a demo that had loaded fine, which reads like the
             // demo did not load.
-            if (_demo is null)
+            if (!_presenter.HasDemo)
             {
                 _status.Text = "Direct3D ready.";
             }
@@ -2716,14 +2551,14 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // from whether the next frame is due — putting it in `WaitForTheNextFrame` would mean an
             // unfocused window still rendered at full rate whenever a frame WAS due, which is every
             // frame at any reachable limit.
-            int idle = FramePacer.NoFocusSleep(ContainsFocus, _settings.NoFocusSleep);
+            int idle = FramePacer.NoFocusSleep(ContainsFocus, _settingsOwner.NoFocusSleep);
 
             if (idle > 0)
             {
                 Thread.Sleep(idle);
             }
 
-            if (_clock.IsDue(_settings.FrameRateLimit))
+            if (_clock.IsDue(_settingsOwner.FrameRateLimit))
             {
                 // **Counted only when something was drawn.** RenderFrame declines during a map
                 // read, and counting those turned the per-second report into a measurement of how
@@ -2806,15 +2641,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
-    /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
-    private readonly Func<string, string?> _clientConVars;
-
     /// <summary>
     /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
     /// Source's command-line cvars do, else the watcher's TF2 configs; null for the SDK default.
     /// </summary>
     private string? ClientConVar(string name) =>
-        _settings.ConVars.TryGetValue(name, out string? value) ? value : _console.ConVar(name);
+        _settingsOwner.ConVar(name) ?? _console.ConVar(name);
 
     /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
     /// <remarks>
@@ -2982,7 +2814,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // **`FramePacer` decides, this acts** (B208). The threading primitive stays beside the
         // message pump; the policy — including the granularity threshold — is testable without any
         // test ever sleeping.
-        switch (_clock.WaitFor(_settings.FrameRateLimit))
+        switch (_clock.WaitFor(_settingsOwner.FrameRateLimit))
         {
             case FrameWait.Sleep:
                 Thread.Sleep(1);
@@ -3026,58 +2858,16 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void UploadCamera(long flyTicks = 0)
     {
-        if (_device is null || !_device.HasWorld)
-        {
-            return;
-        }
-
-        long viewAt = Stopwatch.GetTimestamp();
-
-        // **The camera itself rather than its matrix**, so the projection and the cull volume are
-        // derived from one thing. `SetCamera(float[])` still exists for the viewmodel pass, which
-        // has a camera of its own and no business culling against the world's.
-        // **The one per-frame view setup, so this is what advances the chase camera's recovery** —
-        // `CViewRender::SetUpView` computes the view once and everything downstream reads it.
-        FreeCamera viewing = _camera.ViewCameraNow(_demoFrameSeconds);
-
-        _lastViewing = viewing;
-
-        long deviceAt = Stopwatch.GetTimestamp();
-
-        // **The fog in force at this tick, from the demo** (B139) — `EnableWorldFog` runs in every
-        // view setup, so this is set beside the camera rather than once per map.
-        TickFeeds feeds = _camera.FeedsNow();
-
-        _device.WorldFog = feeds.WorldFog;
-        _device.SkyFog = feeds.SkyFog;
-        _device.MonitorCamera = feeds.MonitorCamera;
-        _device.Tonemap = feeds.Tonemap;
-
-        // The exposure walks by game frame time and resets when the followed player changes (B514).
-        // **A pending capture is a paused frame, and gets a tick of time anyway** (B520): TF2 arrives at a tick by playing
+        // The view's setup beside the camera, in the order it ran here, is the presenter's (`ViewerPresenter.UploadCamera`).
+        // The exposure's time is this window's to say: it walks by game frame time (B514), and
+        // **a pending capture is a paused frame, and gets a tick of time anyway** (B520): TF2 arrives at a tick by playing
         // to it, so its exposure has had seconds; a still that held the reset value of 1 was 1/0.70 too bright outdoors.
-        _device.ExposureSeconds = _launch.ShotPath is not null && !_opening.Finished
-            ? CaptureExposureSeconds
-            : (float)_demoFrameSeconds;
-        _device.ObserverTarget = _camera.FollowedEntity();
-
-        _device.SetCamera(viewing, _menu.SurfaceColours.Checked);
-
-        long particlesAt = Stopwatch.GetTimestamp();
-
-        if (_device is { } drawing)
-        {
-            _effects.Draw(ViewFrameNow, viewing, drawing);
-        }
-
-        // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
-        // in seconds with no collection, and it is four unrelated pieces of work.
-        StallReport.Camera(
+        _presenter.UploadCamera(
             flyTicks,
-            deviceAt - viewAt,
-            particlesAt - deviceAt,
-            Stopwatch.GetTimestamp() - particlesAt,
-            _renderLog);
+            _launch.ShotPath is not null && !_opening.Finished
+                ? CaptureExposureSeconds
+                : (float)_demoFrameSeconds,
+            _menu.SurfaceColours.Checked);
     }
 
     /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
@@ -3134,50 +2924,17 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void SetChosenHud(string? hud)
     {
-        _effects.ChosenHud = hud;
-        _settings = _settings with { ChosenHud = hud };
-
-        string? failure = _settings.Save();
-
-        if (failure is not null)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_presenter.SetChosenHud(hud) is { } said)
         {
-            _status.Text = ViewerSettings.SavedForThisSessionOnly(failure);
+            _status.Text = said;
         }
     }
 
     /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
     /// <returns>The draw list.</returns>
     /// <remarks>What is built, and in which order, is the presenter's (D214); this is what a window knows of it.</remarks>
-    public VguiDrawList? BuildOverlay() =>
-        _effects.BuildOverlay(
-            new OverlayFrame(
-                _timeline,
-                _loaded,
-                _demo?.MapName,
-                _transport.CurrentTick,
-                _viewport.ClientSize.Width,
-                _viewport.ClientSize.Height,
-                _settings.Crosshair,
-                _settings.ShowFrameRate,
-                _console.IsHeld(ViewerAction.ShowScores),
-                _clock.LastFrameSeconds),
-            _device);
-
-    /// <summary>What this window knows that the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
-    private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>
-        (new HudView(
-            _timeline,
-            hudTick,
-            null,
-            null,
-            _bindings,
-            _clientConVars,
-            (float)_vguiClock.Elapsed.TotalSeconds,
-            _camera.ViewFovNow().World,
-            _camera.EffectiveMode,
-            _camera.Followed(hudTick)),
-         _camera.ViewMatrix(),
-         ViewFrameNow);
+    public FrameOverlay BuildOverlay() => _presenter.BuildOverlay();
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
     private readonly FrameRateLog _frameRateLog = new();
@@ -3331,7 +3088,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
     /// it is, asked for by <see cref="ViewerPresenter.PlaySounds"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds() => _presenter.PlaySounds(_listener, _listenerEyes, _transport.CurrentTick);
+    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick);
 
     // **Two hundred and thirty lines moved to SoundPresenter on 2026-08-25** (B188). Deciding what
     // should be audible at a tick is not a window's job, and none of it needed one: the schedule,
@@ -3427,7 +3184,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
         // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
         // was the entire measurement in one sample.
-        bool onScreen = _demo is not null && _presenter.LoadsInFlight == 0;
+        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0;
 
         if (onScreen && _wasOnScreen)
         {
@@ -3604,14 +3361,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // A span cannot be null-coalesced, so the device is tested once and both halves come from
         // the same one — which is also what stops a frustum and a visible set from different frames
         // reaching the cull together.
-        if (_device is { } device)
-        {
-            _moments.PoseNow(device.Frustum, device.Views, device.Eye, device.ScreenView);
-        }
-        else
-        {
-            _moments.PoseNow();
-        }
+        _presenter.PoseNow();
 
         if (!_presenter.WorldNeedsProjecting)
         {
@@ -3632,7 +3382,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
     /// <summary>Draw the frame.</summary>
     /// <param name="overlay">The VGUI built for this frame.</param>
-    public void Draw(VguiDrawList? overlay)
+    public void Draw(FrameOverlay overlay)
     {
         // **B431's output-level check.** The tick CARRIED from the camera placement, never re-read:
         // the UI suite asserts this names the opening tick.
@@ -3647,51 +3397,9 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         DrawScene(overlay);
     }
 
-    /// <summary>Hands this frame's scene to the device.</summary>
-    private void DrawScene(VguiDrawList? overlay)
-    {
-        if (_device is null)
-        {
-            return;
-        }
-
-        // The recorder's screen overlay, resolved against the map's loaded materials (`CViewRender::PerformScreenOverlay`).
-        _device.ScreenOverlay = _presenter.ScreenOverlay;
-
-        // The followed player, whom a monitor view force-draws though the main view does not (B511).
-        _device.MonitorOnlyModels = _moment.UndrawnInstances;
-
-        _device.DrawFrame(
-            BackgroundRed,
-            BackgroundGreen,
-            BackgroundBlue,
-            // Empty, always. The flat fill was drawn only when there was no textured map and was
-            // built from the map, so it was dead in both branches (see ProjectMap). The parameter
-            // stays until Device3D's signature is revised, which is a change to the render seam and
-            // not to this frame.
-            [],
-            // **The line channel carries mat_leafvis, in WORLD units, drawn depth-tested** (D95).
-            // It used to be the BSP's own edge segments projected for the overhead view; that view
-            // is gone (D49) and `mat_wireframe` replaced the outline, so the channel now does what
-            // the engine's debug lines do — absolute coordinates, transformed on the GPU, occluded
-            // by the geometry the box describes.
-            //
-            // The projected outline is gone entirely (B151 closed by deletion rather than by the
-            // split it proposed): nothing read it, and 615 ms of a 679 ms frame was spent building
-            // it. `MapOutline` still supplies the play-area bounds, which is the half that was
-            // actually wanted.
-            _presenter.LeafBoxLines(_debug.LeafVis),
-
-            // **Empty since 2026-08-26** (D98), like the fill above it. This channel carried the
-            // flat player markers, projected through the orthographic camera. The parameter stays
-            // until `Device3D`'s signature is revised, which belongs with the render seam rather
-            // than with this window.
-            [],
-            _moment.Instances,
-            _moment.ViewmodelInstances,
-            _moment.ViewmodelCamera?.ToMatrix(),
-            overlay);
-    }
+    /// <summary>Hands this frame's scene to the device: what is handed, and in which order, is the presenter's (D214).</summary>
+    private void DrawScene(FrameOverlay overlay) =>
+        _presenter.DrawScene(BackgroundRed, BackgroundGreen, BackgroundBlue, _debug.LeafVis, overlay);
 
     /// <summary>
     /// Notes that the viewport changed size, without doing the work yet.
@@ -4010,12 +3718,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // anyone who wants to land on one directly.
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.FirstPersonView)))
         {
-            return _camera.EnterCamera(CameraMode.FirstPerson);
+            return _camera.EnterFirstPerson();
         }
 
         if (keyData == KeyNames.Resolve(_bindings.KeyFor(ViewerAction.ThirdPersonView)))
         {
-            return _camera.EnterCamera(CameraMode.ThirdPerson);
+            return _camera.EnterThirdPerson();
         }
 
         // **The first binding added through B214's mechanism rather than as a literal** (B216). It
@@ -4133,27 +3841,12 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>Adds paths to the library and refreshes the playlist.</summary>
     private void AddToLibrary(params string[] paths)
     {
-        foreach (string path in paths)
-        {
-            _library.Open(path);
-        }
+        // Opening, ordering, filtering and the count's words are the playlist owner's (`PlaylistPresenter.Add`).
+        string count = _library.Add(_search.Text, paths);
 
-        // Sorted once per library change rather than per keystroke: folder first so the list
-        // reads as folders, then name within each.
-        // **Beside the filter whose contract depends on it** (B188, D90). This was three lines here
-        // while `PlaylistFilter.Apply` documented its dependence on them — a precondition stated in
-        // one assembly and satisfied in another is a precondition nothing enforces.
-        _ordered = PlaylistFilter.Order(_library.Entries);
+        ShowPlaylist();
 
-        RefreshPlaylist();
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        _status.Text = _library.Entries.Count switch
-        {
-            0 => "No demos found.",
-            1 => "1 demo.",
-            int count => string.Create(CultureInfo.InvariantCulture, $"{count} demos."),
-        };
+        _status.Text = count;
     }
 
     /// <summary>Rebuilds the playlist from the library and the search box.</summary>
@@ -4164,19 +3857,26 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void RefreshPlaylist()
     {
-        _shown = PlaylistFilter.Apply(_ordered, _search.Text);
+        _library.Filter(_search.Text);
 
+        ShowPlaylist();
+    }
+
+    /// <summary>Tells the list control how many rows there are now.</summary>
+    private void ShowPlaylist()
+    {
         // Selection indices refer to the OLD list. Clearing first avoids the control asking for a
         // row that the new, shorter list does not have.
         _playlist.SelectedIndices.Clear();
-        _playlist.VirtualListSize = _shown.Count;
+        _playlist.VirtualListSize = _library.Count;
         _playlist.Invalidate();
     }
 
     /// <summary>Supplies one row of the playlist on demand.</summary>
     private void OnRetrieveVirtualItem(object? sender, RetrieveVirtualItemEventArgs e)
     {
-        if (e.ItemIndex < 0 || e.ItemIndex >= _shown.Count)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_library.Row(e.ItemIndex) is not { } entry)
         {
             // Reachable during a resize that races a filter change. A blank row is survivable;
             // an exception out of a paint handler is not.
@@ -4184,7 +3884,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             return;
         }
 
-        DemoEntry entry = _shown[e.ItemIndex];
         ListViewItem row = new(entry.Name) { Tag = entry.Path };
         row.SubItems.Add(entry.Folder);
         e.Item = row;
@@ -4197,15 +3896,15 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private Task<string> ExportDemo()
     {
         // Before anything that can return early, so a press that did nothing is visible.
-        _log.LogInformation("{Message}", $"export: pressed with {(_demo is null ? "no demo open" : _demo.Path)}");
+        _log.LogInformation("{Message}", $"export: pressed with {_presenter.DemoPath ?? "no demo open"}");
 
-        if (_demo is null)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_presenter.DemoPath is not { } demoPath)
         {
             _status.Text = "Open a demo first.";
             return Task.FromResult(_status.Text);
         }
 
-        string demoPath = _demo.Path;
         using SaveFileDialog dialog = new()
         {
             Filter = "Demo assembly (*.txt)|*.txt|All files (*.*)|*.*",
@@ -4215,7 +3914,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         return ShowModal(dialog) == DialogResult.OK
             ? RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", dialog.FileName, output =>
-                $"Exported {DemoAssembly.Export(demoPath, output):N0} commands to {output}")
+                ViewerPresenter.ExportDemo(demoPath, output))
             : FileWork;
     }
 
@@ -4247,10 +3946,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         return ShowModal(save) == DialogResult.OK
             ? RunFileWork($"Compiling {Path.GetFileName(source)}...", save.FileName, output =>
-            {
-                (int commands, int bytes) = DemoAssembly.Compile(source, output);
-                return $"Compiled {commands:N0} commands to {output} ({bytes:N0} bytes)";
-            })
+                ViewerPresenter.CompileDemo(source, output))
             : FileWork;
     }
 
@@ -4309,7 +4005,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // Logged before any dialog: the UI test's control that discovery really failed.
         _log.LogInformation("{Message}", GameFolderLog + (found ?? GameFolderNotFound));
 
-        if (_settings.ShouldAskForGameFolder(found, headless))
+        if (_settingsOwner.ShouldAskForGameFolder(found, headless))
         {
             ChooseGameFolder(atStartup: true);
         }
@@ -4337,49 +4033,34 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
                 ? "Team Fortress 2 was not found. Choose its tf folder, or Cancel to watch without maps and models."
                 : "Choose the Team Fortress 2 tf folder.",
             UseDescriptionForTitle = true,
-            InitialDirectory = _settings.GameFolder ?? string.Empty,
+            InitialDirectory = _settingsOwner.GameFolder ?? string.Empty,
         };
 
         if (ShowModal(dialog) != DialogResult.OK)
         {
             if (atStartup)
             {
-                _settings = _settings with { AskForGameFolder = false };
-                _status.Text = _settings.Save() is { } declineFailure
-                    ? ViewerSettings.SavedForThisSessionOnly(declineFailure)
-                    : "No TF2 folder chosen. File > TF2 folder sets it any time.";
+                _status.Text = _settingsOwner.DeclineGameFolder();
             }
 
             return;
         }
 
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (SteamInstall.AsGameFolder(dialog.SelectedPath) is not { } game)
+        // Whether the folder is a TF2 folder, remembering it and the words for both outcomes are the settings owner's
+        // (`SettingsPresenter.ChooseGameFolder`), which logs them; this window shows them.
+        bool installOpen = _presenter.HasInstall;
+        GameFolderChoice choice = _settingsOwner.ChooseGameFolder(dialog.SelectedPath, installOpen);
+
+        _status.Text = choice.Status;
+
+        if (!choice.Accepted)
         {
-            string refused = $"{NotAGameFolder} {dialog.SelectedPath} holds no {SteamInstall.Recogniser}. "
-                + "Choose the tf folder inside Team Fortress 2.";
-            _status.Text = refused;
-            _log.LogWarning("{Message}", refused);
             return;
         }
 
-        _settings = _settings with { GameFolder = game };
-
-        string outcome = _game is null
-            ? $"{GameFolderSet}{game}."
-            : $"{GameFolderSet}{game}. It takes effect the next time the viewer starts.";
-
-        if (_settings.Save() is { } failure)
-        {
-            outcome = $"TF2 folder could not be saved: {failure}";
-        }
-
-        _status.Text = outcome;
-        _log.LogInformation("{Message}", outcome);
-
         // Nothing has opened the archives yet, so the player's own config can be read from the new folder now.
         // The menu was built from the bindings before this read, so its shortcuts are redone from the new ones.
-        if (_game is null)
+        if (!installOpen)
         {
             LoadUserConfig();
             _menu.ApplyBindings(_bindings);
@@ -4484,7 +4165,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             TimeSpan idleStopped = closing.Elapsed;
 
             // Dropped before the device is disposed, so nothing can hand geometry to a dead one.
-            _moment.Upload = null;
+            _presenter.DetachDevice();
 
             _device?.Dispose();
             _device = null;

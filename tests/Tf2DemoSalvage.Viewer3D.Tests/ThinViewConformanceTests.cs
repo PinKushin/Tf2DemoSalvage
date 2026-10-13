@@ -12,14 +12,20 @@ using System.Text;
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>
-/// The view's DOMAIN REACH: every type and member the built viewer assembly uses from the domain assemblies, held
-/// equal to a committed list that may only shrink (D90, D214).
+/// The view's DOMAIN REACH: every type and member the built viewer assembly uses from the domain assemblies. There
+/// are none, and this holds it there (D90, D214).
 /// </summary>
 /// <remarks>
 /// **The measure is reach, not size.** A thin view knows nothing a presenter or a model would; whether it does is what
-/// its assembly REFERENCES, which the compiler writes down. The list is `thin-view-domain-reach.txt` beside this file,
-/// one `Assembly!Namespace.Type` or `Assembly!Namespace.Type::Member(arity)` a line, sorted ordinally. The end state is
-/// the list empty and the project references gone, at which point the compiler enforces what this test does.
+/// its assembly REFERENCES, which the compiler writes down. A committed list of what it reached,
+/// `thin-view-domain-reach.txt`, shrank over eight slices from 1,025 entries to none (2026-10-13). The three tests
+/// here are the end state: the assembly reaches nothing, the project references no domain project, and no source
+/// file names a domain namespace.
+///
+/// **Why three, and why the compiler alone does not hold it:** the domain assemblies still arrive through Presentation
+/// and Render, and the view cannot shut them out — `Device3D` implements Scene's interfaces, so using it at all needs
+/// Scene to be resolvable. So a `using` would compile. The source test refuses it, and it also sees what the assembly
+/// test cannot: a `const` the compiler copied in.
 ///
 /// **Domain is Core, Content, Scene, Audio, Animation and GameSystems.** Presentation and Render are where behaviour
 /// goes (D90's table: presenter and renderer), and Fonts and Logging are services; none of the four is counted.
@@ -47,38 +53,66 @@ public sealed class ThinViewConformanceTests
         "Tf2DemoSalvage.GameSystems",
     ];
 
-    private const string ListName = "thin-view-domain-reach.txt";
-
     private const string ViewAssembly = "tf2demoview.dll";
 
+    /// <summary>The view's project folder, found from the test's binaries.</summary>
+    private static string ViewProject => Path.GetFullPath(Path.Combine(
+        TestContext.CurrentContext.TestDirectory, "..", "..", "..", "..", "..", "managed", "Tf2DemoSalvage.Viewer3D"));
+
     [Test]
-    public void DomainReach_OfTheBuiltViewAssembly_IsExactlyTheCommittedList()
+    public void DomainReach_OfTheBuiltViewAssembly_IsNothing()
     {
         Reach reach = Reach.Of(Path.Combine(AppContext.BaseDirectory, ViewAssembly));
 
-        // What the assembly uses today, beside the test's binaries: the lines to delete are a diff against this.
-        File.WriteAllText(
-            Path.Combine(AppContext.BaseDirectory, "thin-view-domain-reach.actual.txt"), string.Join('\n', reach.Entries) + "\n");
         TestContext.Out.WriteLine(reach.Report());
 
-        string[] listed = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, ListName))
-            .Where(static line => line.Length > 0)
+        reach.Entries.ShouldBeEmpty(
+            $"the view assembly uses {reach.Entries.Length} domain type(s) or member(s), and a thin view uses none (D214). " +
+            "Behaviour goes in Presentation/Scene/Render with tests; the view gets one call.\n  " +
+            string.Join("\n  ", reach.Entries.Select(reach.WithUsers)));
+    }
+
+    [Test]
+    public void ProjectReferences_OfTheViewsProject_NameNoDomainAssembly()
+    {
+        string project = File.ReadAllText(Path.Combine(ViewProject, "Tf2DemoSalvage.Viewer3D.csproj"));
+
+        string[] referenced = Domain
+            .Where(assembly => project.Contains($"{assembly}.csproj", StringComparison.Ordinal))
             .ToArray();
 
-        string[] added = reach.Entries.Except(listed, StringComparer.Ordinal).ToArray();
-        string[] gone = listed.Except(reach.Entries, StringComparer.Ordinal).ToArray();
+        referenced.ShouldBeEmpty("the view's project references Presentation, Render, Fonts and Logging, and no domain project (D214)");
+    }
 
-        added.ShouldBeEmpty(
-            $"the view assembly uses {added.Length} domain type(s) or member(s) that are not in {ListName}. " +
-            "Behaviour goes in Presentation/Scene/Render with tests; the view gets one call. " +
-            "The list only shrinks: do not add these lines.\n  " + string.Join("\n  ", added.Select(reach.WithUsers)));
+    [Test]
+    public void Sources_OfTheView_NameNoDomainNamespace()
+    {
+        List<string> named = [];
 
-        gone.ShouldBeEmpty(
-            $"{ListName} holds {gone.Length} entr(ies) the view assembly no longer uses. Delete these lines:\n  " +
-            string.Join("\n  ", gone));
+        foreach (string file in Directory.EnumerateFiles(ViewProject, "*.cs", SearchOption.TopDirectoryOnly))
+        {
+            string[] lines = File.ReadAllLines(file);
 
-        listed.ShouldBe(listed.Order(StringComparer.Ordinal).ToArray(), $"{ListName} is kept sorted, ordinally");
-        listed.Distinct(StringComparer.Ordinal).Count().ShouldBe(listed.Length, $"{ListName} holds no line twice");
+            for (int at = 0; at < lines.Length; at++)
+            {
+                string code = lines[at].TrimStart();
+
+                // Comments may name what moved and where it went; code may not name the namespace at all.
+                if (code.StartsWith("//", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (Domain.Any(assembly => code.Contains(assembly + ".", StringComparison.Ordinal) || code.Contains(assembly + ";", StringComparison.Ordinal)))
+                {
+                    named.Add($"{Path.GetFileName(file)}({at + 1}): {code}");
+                }
+            }
+        }
+
+        named.ShouldBeEmpty(
+            "a view source file names a domain namespace — a `using`, or a fully qualified type or constant, which the " +
+            "assembly test cannot see when the compiler copies the value in (D214):\n  " + string.Join("\n  ", named));
     }
 
     /// <summary>One assembly's references into the domain, and which of its own methods hold them.</summary>
