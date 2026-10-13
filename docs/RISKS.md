@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 392 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 4 of the refactor done, the rest OPEN
+## B540 — the view reaches 282 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 5 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38431,3 +38431,61 @@ recorder and in place of the looked-at name when they are the same player.
 *Tests* (7, in `HudStatesTests`): the clock, field of view, projection and client convars; the observer mode for each
 of the three cameras and the target only while following; no target while following nobody yet; a point-of-view demo
 left alone; players placed where the frame drew them. Each seen red in one of three rounds.
+
+**Slice 5, fourth commit: the HUD's composition — 343 to 282, 61 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 262 | 213 | 49 |
+| Core | 41 | 38 | 3 |
+| Content | 19 | 10 | 9 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 343 | 282 (90 types, 192 members) | 61 |
+
+`MainForm` uses 188 distinct domain members, from 227, and is 6,254 lines, from 6,454. *Measured*, by the instrument.
+
+*What moved:* `BuildOverlay` — the largest method on the table at 39 — with `SkipHudFrame`, `HudArchives`,
+`ResolveVguiMaterial`, `PlayHudSound` and the ten fields they kept (the surface host, the HUD, the tools panel, the
+HUD's archives, scripts, attribute hooks and event feed, the resolver's device, the class panel's precache set, the
+replay flag), into `FramePresenter.Hud.cs`. In the frame presenter because the HUD and the frame need each other — a
+seek runs HUD frames, and the HUD asks for the target ID and plays through the skip — and one owner of both needs no
+callbacks between two. The chosen HUD is the presenter's property now; the window sets it from `--hud`, the settings
+and the picker.
+
+*What the HUD asks of the window stays a question, read when the HUD needs it* (`HudWindow`, attached once): the
+install, the demo's map name, the window's facts at a tick (bindings, client convars, clock, field of view, camera
+mode, followed player, projection, frame record), `cl_showpos`' subject, the real-time clock and the first-person
+camera. They are delegates and not a record of values because the old code read each at its own moment — the
+projection after the surface began its frame, the position readout when the tools panel was framed, the map name
+during a seek, which can run before the next overlay. Three were made values, each a query of state nothing in
+between changes: the crosshair settings, `cl_showfps`, and whether `+showscores` is held.
+
+*Proof nothing changed* (*measured*): the first-person frame with `Befyyy`'s name on it, both seek frames and their
+logged lines, the beam frame, its pick line and the 47 sound lines are byte-identical before and after this commit.
+
+*Tests* (3, `FramePresenterHudTests`), over `GameContent.Open( null )` — the machine with no TF2: the HUD is built
+once an install is open and asks the window at the overlay's tick, the position and the clock once each; a seek
+after the HUD exists runs a HUD frame for each skip frame at that frame's tick; a seek before any overlay skips
+without one and says so. Each seen red in one of two rounds. One written for it was deleted: "with no install,
+nothing is built" cannot be reddened, since nothing can be built without the install it guards. **Not tested:** the
+HUD's scripts and attribute hooks, which need `items_game.txt`; the class model panel's precache; and the material
+resolver the device is handed. `VguiHud` and `VguiTools` have their own suites for what is drawn.
+
+**What is left on the list, and why it was not this slice** (the instrument's table after the fourth commit):
+
+| method | members | what it is |
+|---|---|---|
+| the constructor | 37 | the composition root: the model set, the moment scene and presenter, the sound cache, soundscape and presenter, the spectator, the game systems |
+| `Apply` | 15 | a loaded demo becoming the open one |
+| `ReadMap` | 15 | the map read, on a worker behind the render barrier |
+| `OnViewportHandleCreated` | 13 | the device and what it is handed first |
+| `StartCorpseRecord` | 12 | the corpse pass's background record |
+| `ProjectMap`, `ReadPosition`, `DrawScene` | 10, 9, 8 | the overhead projection, `cl_showpos`, the draw call |
+| twenty-odd camera, settings and library methods | 2 to 7 each | each names two or three things |
+
+The load path (`Apply`, `ReadMap`, `LoadDemoAsync`, `StartCorpseRecord`) was read and left: it is one unit, it runs
+across a worker thread and the barrier that holds the render loop off (B146), and none of this slice's proofs can
+see it — a paused frame is the same whether the load was orchestrated correctly or merely finished. It wants its
+own slice and its own instrument (the load's log, line for line). The constructor's 37 fall when that slice gives
+the load an owner, because most of what the constructor builds is what a load fills.

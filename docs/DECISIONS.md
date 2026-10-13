@@ -9580,6 +9580,7 @@ the next start). The sort:
 | `TF2VIEW_CAPTURE_FOLDER` | env | — | read by nothing; `--help` still listed it; removed (`cl_screenshot_folder` replaced it) |
 | `TF2VIEW_AUTOPLAY`, `TF2VIEW_CAMERA`, `TF2VIEW_PICK`, `TF2VIEW_MODEL_CULL`, `TF2VIEW_WARP`, `TF2VIEW_WINDOW_POS`, `TF2VIEW_WINDOW_SIZE` | env | dev/debug/CI | unchanged; `--help` marks the section "nothing a user needs" |
 | `TF2VIEW_SETTINGS`, `TF2VIEW_STEAM_ROOT` | env | test seams (B497) | new |
+| `TF2VIEW_SEEK_THROUGH` | env | dev/debug: ticks a `--shot` seeks through before its own (D214, slice 5) | new, 2026-10-13 |
 | `TF2DEMOSALVAGE_GCOR_ONLY` | env | gate/tests | unchanged |
 | `--autoplay`, `--first-person`, `--third-person`, `--tick`, `--spectate` | launch | per-run choice of what to open, not a setting | unchanged |
 | `--hud` | launch | per-run; the persistent setting already exists (`hud_chosen` + picker) | unchanged |
@@ -9824,4 +9825,17 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   and the class is `partial`. A second sound presenter would have called the first.
 - **A value the old code asked for last is handed over as a delegate, not a value** (slice 4): the target ID's
   first-person camera sat behind five cheaper guards, and a record field would have computed it every frame.
+- **The composition is a presenter's, in D92's shape** (slice 5): `FramePresenter` constructs the parts the window
+  constructed, runs them in order, and owns what a seek rebuilds and the HUD beside them. The window holds the one
+  object and hands it records of what a window knows (`ViewFrame`, `OverlayFrame`) and, for what the old code read at
+  its own moment, questions (`HudWindow`). No container was added: an owner that constructs its parts is the whole
+  mechanism.
+- **A part its owner calls takes the interface it asks, not the concrete type** (slice 5). The parts took `Device3D`
+  only because the view called them and a callee's signature is the caller's `TypeRef`; once an owner in Presentation
+  calls them, each takes its Scene interface, and only the owner's public entry names the concrete device.
+- **What two presenters share goes down the moment the view stops naming it** (slice 5): `BulletStrikes` is Scene's
+  now, with its tests, as D92 said it should be and the list had forbidden since slice 1.
+- **A proof that needs a capability the viewer lacks gets an instrument first, in its own commit** (slice 5):
+  `TF2VIEW_SEEK_THROUGH` exists because one `--tick` is only ever a seek from the start, so nothing headless could
+  show a seek back. The baseline is taken with the instrument in, so before and after differ only by the move.
 

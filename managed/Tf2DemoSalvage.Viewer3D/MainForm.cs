@@ -450,9 +450,6 @@ internal class MainForm : Form, IFrameSteps
     // Constructed in the constructor rather than inline, so it gets the form's loggers (D83).
     private readonly EntityModelSet _models;
 
-    /// <summary>The class model panel's model set last handed to <see cref="EntityModelSet.Precache"/>.</summary>
-    private string? _panelModelsPrecached;
-
     // `_weapons` was here until the load set stopped asking the window for it. The form held a
     // second reference to `GameContent.Weapons` so `DemoModelPaths` could reach it — and keeping the
     // two in step was the reason both were assigned in one block. `DemoModels` reads it off the
@@ -884,7 +881,6 @@ internal class MainForm : Form, IFrameSteps
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
         _renderLog = loggers.CreateLogger("render");
-        _firstPersonEye = FirstPersonCamera;
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
@@ -918,13 +914,15 @@ internal class MainForm : Form, IFrameSteps
 
         // Everything a frame makes around its models, composed in one presenter (D92, D214).
         _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog, _audioLog);
-        _skipHudFrame = SkipHudFrame;
         _showOnly = shown =>
         {
             ShowOnly(shown);
 
             return ViewFrameNow;
         };
+        _clientConVars = ClientConVar;
+        _effects.AttachHud(new HudWindow(
+            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, FirstPersonCamera));
 
         // **The one fact that travels from the models back to the demo** (B269). Only a model says
         // which pose parameters wrap, and only the interpolator needs to know — `OnNewModel` in the
@@ -981,7 +979,7 @@ internal class MainForm : Form, IFrameSteps
         // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
         // launch option is for one run; the settings file is what the picker changes and expects to
         // stick without being passed again every time.
-        _chosenHud = _launch.Hud ?? _settings.ChosenHud;
+        _effects.ChosenHud = _launch.Hud ?? _settings.ChosenHud;
 
         // **`--look` and `--zoom` were parsed here and read by nobody** (B226). D98 removed the
         // orthographic camera they were written for and kept the fields with a note saying what
@@ -2591,15 +2589,11 @@ internal class MainForm : Form, IFrameSteps
         }
 
         // What a seek rebuilds on the way is the presenter's (D214); it comes back here to show each tick it needs.
-        _effects.ShowMoment(
-            ViewFrameNow, tick, _device, _showOnly, _vguiHud is not null && _vguiHost is not null ? _skipHudFrame : null);
+        _effects.ShowMoment(ViewFrameNow, tick, _device, _showOnly);
     }
 
     /// <summary><see cref="ShowOnly"/> as the one delegate a seek is handed, answering what the window knows afterwards.</summary>
     private readonly Func<double, ViewFrame> _showOnly;
-
-    /// <summary><see cref="SkipHudFrame"/> as the one delegate a seek is handed.</summary>
-    private readonly Action<DemoTimeline, int> _skipHudFrame;
 
     /// <summary>Builds the scene at a moment, with no replay before it.</summary>
     private void ShowOnly(double tick)
@@ -2699,9 +2693,6 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Everything a frame makes around its models: lights, decals, sounds, particles, the target ID (D92, D214).</summary>
     private readonly FramePresenter _effects;
-
-    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
-    private readonly Func<FreeCamera?> _firstPersonEye;
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
     private FreeCamera? _lastViewing;
@@ -4201,7 +4192,7 @@ internal class MainForm : Form, IFrameSteps
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
 
     /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
-    private Func<string, string?>? _clientConVars;
+    private readonly Func<string, string?> _clientConVars;
 
     /// <summary>
     /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
@@ -4241,41 +4232,11 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>GDI, as VGUI's fonts reach it — the one Windows-bound piece of the surface (the Fonts project).</summary>
     private readonly GdiVgui _gdi = new();
 
-    /// <summary>The engine's tools panel and `CFPSPanel` on it, drawn through VGUI; null until the game's files are open.</summary>
-    /// <remarks>
-    /// **Its scheme is `platform/resource/SourceScheme.res`, read live from the install**, which D85's table allows:
-    /// that file is Valve-shipped game content, not user content under `tf/custom/`.
-    /// </remarks>
-    private VguiTools? _vguiTools;
-
     /// <summary>The frame-rate log's meter, independent of whether the on-screen one is shown.</summary>
     private readonly FpsMeter _loggedRate = new() { Mode = FpsMeter.Smoothed };
 
-    /// <summary>The surface, font manager and strings every VGUI root shares; null until the game's files are open.</summary>
-    private VguiSurfaceHost? _vguiHost;
-
-    /// <summary>The client's HUD viewport under `ClientScheme.res`; null until the game's files are open.</summary>
-    private VguiHud? _vguiHud;
-
-    // The HUD's stock view of the install, and the install it was made from.
-    private GameArchives? _hudArchives;
-    private GameContent? _hudArchivesOf;
-    private string? _hudArchivesFor;
-
-    // Which game events the HUD has heard, so each fires once as playback crosses it.
-    private readonly HudEventFeed _hudEvents = new();
-
-    /// <summary>The weapon and class scripts the HUD's ammo reads; null until the game's files are open.</summary>
-    private TfWeaponData? _hudScripts;
-
-    /// <summary>`CALL_ATTRIB_HOOK_*` over `items_game.txt`; null until the schema is loaded.</summary>
-    private AttributeHooks? _hudHooks;
-
     /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
     private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
-
-    /// <summary>The device the VGUI resolver was last handed to.</summary>
-    private Device3D? _vguiResolverDevice;
 
     // **The three phase totals were here until 2026-08-25.** They are `FrameLedger.Sampled`,
     // `.Posed` and `.Drawing` (B188, D90) — accumulators and a format string, with no window in any
@@ -4505,25 +4466,6 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
     private double _shownTick;
 
-    /// <summary>One skip frame of the HUD: its batch's game events and user messages, heard and not painted.</summary>
-    private void SkipHudFrame(DemoTimeline timeline, int through)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_vguiHud is not { } hud)
-        {
-            return;
-        }
-
-        (bool reset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, IReadOnlyList<Core.Scene.SceneUserMessage> messages) = _hudEvents.Advance(timeline, through);
-
-        hud.Frame(
-            HudStateAt(through),
-            HudEventFeed.Resolve(timeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks),
-            reset,
-            messages,
-            paint: false);
-    }
-
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
     // `MomentPhases` already carried. Eight `long`s in the right order is a signature that can be
@@ -4562,21 +4504,6 @@ internal class MainForm : Form, IFrameSteps
     // went with it: `CBaseEntity::PrecacheSound` asserts "too late" rather than merely preferring
     // early (`SoundEmitterSystem.cpp:1497`), which is a fact about the engine, not about a window.
 
-    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
-    /// <returns>The draw list.</returns>
-    /// <remarks>
-    /// Everything but the window size, the clock and the settings is <see cref="VguiHud"/> and <see cref="VguiTools"/>
-    /// (D90). The meter is sampled every frame, drawn or not, because the frame-rate log reports it in exactly the
-    /// headless case nobody watches. The HUD's state is `default` — not in game, so every element hidden — until the
-    /// first element that reads the local player lands.
-    /// </remarks>
-    /// <summary>
-    /// The HUD the user chose — a folder or `.vpk` — or null for TF2's stock HUD (D193). `--hud` sets it at launch, the
-    /// remembered choice from settings is the fallback, and the picker sets it at runtime; the HUD's files are remade
-    /// the next time <see cref="HudArchives"/> is asked, which is every frame — no restart needed.
-    /// </summary>
-    private string? _chosenHud;
-
     /// <summary>Where the picker looks for HUDs: this program's OWN <c>custom/</c> folder, never `tf/custom` (D193).</summary>
     private static string ProgramCustomFolder { get; } =
         System.IO.Path.Combine(AppContext.BaseDirectory, "custom");
@@ -4584,13 +4511,13 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>Changes the HUD and remembers the choice, hot-swapped with no restart.</summary>
     /// <param name="hud">A folder or `.vpk` under <see cref="ProgramCustomFolder"/>, or null for TF2's stock HUD.</param>
     /// <remarks>
-    /// **The rebuild is not done here.** <see cref="HudArchives"/> already compares the stored choice
-    /// against what it last built and remakes itself when they differ, so setting the field is the
-    /// whole swap; the next frame's <see cref="VguiHud"/> reads through the new archives.
+    /// **The rebuild is not done here.** The presenter already compares the stored choice against what it last built
+    /// and remakes its archives when they differ, so setting it is the whole swap; the next frame's HUD reads through
+    /// the new archives. `--hud` sets it at launch and the remembered choice from settings is the fallback (D193).
     /// </remarks>
     private void SetChosenHud(string? hud)
     {
-        _chosenHud = hud;
+        _effects.ChosenHud = hud;
         _settings = _settings with { ChosenHud = hud };
 
         string? failure = _settings.Save();
@@ -4601,151 +4528,39 @@ internal class MainForm : Form, IFrameSteps
         }
     }
 
-    /// <summary>The files the HUD reads: the chosen HUD over the stock files, remade when the install or the choice changes.</summary>
-    private GameArchives? HudArchives()
-    {
-        if (_game is null)
-        {
-            return null;
-        }
-
-        if (!ReferenceEquals(_hudArchivesOf, _game) || !string.Equals(_hudArchivesFor, _chosenHud, StringComparison.Ordinal))
-        {
-            _hudArchives = _game.Archives.WithHud(_chosenHud);
-            _hudArchivesOf = _game;
-            _hudArchivesFor = _chosenHud;
-        }
-
-        return _hudArchives;
-    }
-
-    public VguiDrawList? BuildOverlay()
-    {
-        // A scheme read before the install is open is empty, and an empty scheme's `Panel.BgColor` falls back to opaque
-        // white — the viewport would fill the screen with it and keep it, since only a new size loads the scheme again.
-        if (_game is null)
-        {
-            return null;
-        }
-
-        // TF2's stock HUD by default (D193): a HUD in `custom/` is the user's to choose, not one the viewer picks up.
-        _vguiHost ??= new VguiSurfaceHost(
-            path => HudArchives()?.Read(path),
-            path => HudArchives()?.FullPathOnDisk(path),
-            _gdi,
-            material => ResolveVguiMaterial(material) is { } texture ? (texture.MappingWidth, texture.MappingHeight) : (0, 0));
-        _vguiHud ??= new VguiHud(_vguiHost, _models);
-        _vguiTools ??= new VguiTools(_vguiHost);
-
-        if (_device is { } device && !ReferenceEquals(device, _vguiResolverDevice))
-        {
-            device.SetVguiResolver(ResolveVguiMaterial);
-            _vguiResolverDevice = device;
-        }
-
-        _vguiHost.BeginFrame(_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        _hudScripts ??= new TfWeaponData(path => HudArchives()?.Read(path));
-
-        if (_hudHooks is null && _game.Weapons.Items is { } items)
-        {
-            _hudHooks = new AttributeHooks(items);
-
-            // `CEconItemView::GetItemName`, under the HUD's own localisation.
-            _vguiHud.Viewport.ItemName = (definition, quality) => definition is { } index
-                ? TfItemName.Generate(items, index, quality, token => _vguiHud.Viewport.Context?.Localize?.Invoke(token))
-                : null;
-            _vguiHud.Viewport.PlayerAttribute = _hudHooks.OnPlayer;
-            _vguiHud.Viewport.WeaponAttribute = _hudHooks.OnWeapon;
-            _vguiHud.Viewport.Items = items;
-        }
-
-        int hudTick = _transport.CurrentTick;
-        IReadOnlyList<HudGameEvent>? hudEvents = null;
-        IReadOnlyList<Core.Scene.SceneUserMessage>? hudMessages = null;
-        bool hudReset = false;
-
-        if (_timeline is { } hudTimeline)
-        {
-            (hudReset, IReadOnlyList<Core.Scene.SceneGameEvent> crossed, hudMessages) = _hudEvents.Advance(hudTimeline, hudTick);
-            hudEvents = HudEventFeed.Resolve(hudTimeline, crossed, _demo?.MapName ?? string.Empty, _hudHooks);
-        }
-
-        _vguiHud.Viewport.Scripts = _hudScripts;
-        _vguiHud.Viewport.ClassModels = _game.Classes;
-        _vguiHud.Viewport.ParticleSystems = _loaded?.Assets?.ParticleSystemsByName;
-        _vguiHud.Viewport.ParticleMaterials = _loaded?.Assets?.ParticleMaterials;
-
-        // What the class model panel will draw, checked every frame so a model first needed mid-demo reaches the GPU
-        // (`MomentScene.Pack` uploads whatever `Grown` says was added). Only a changed set is passed: `Precache` re-reads
-        // a model that failed to load, which must not happen sixty times a second.
-        string panelModels = string.Join('\n', _vguiHud.ModelsToPrecache());
-
-        if (!string.Equals(panelModels, _panelModelsPrecached, StringComparison.Ordinal))
-        {
-            _panelModelsPrecached = panelModels;
-            _models.Precache(panelModels.Split('\n', StringSplitOptions.RemoveEmptyEntries));
-        }
-        _vguiHud.Crosshair.Settings = _settings.Crosshair;
-        _vguiHud.DeathNotice.SoundEmitter ??= PlayHudSound;
-        _vguiHud.Chat.SoundEmitter ??= PlayHudSound;
-        _vguiHud.MatchStatus.SoundEmitter ??= PlayHudSound;
-        _vguiHud.ItemEffectMeters.SoundEmitter ??= PlayHudSound;
-        _clientConVars ??= ClientConVar;
-
-        HudState hudState = HudStateAt(hudTick);
-
-        _hudReplaying = hudReset;
-
-        try
-        {
-            _vguiHud.Frame(
-                hudState,
-                hudEvents,
-                hudReset,
-                hudMessages,
-                _console.IsHeld(ViewerAction.ShowScores));
-        }
-        finally
-        {
-            _hudReplaying = false;
-        }
-        _vguiTools.Frame(
-            _vguiClock.Elapsed.TotalSeconds,
-            _clock.LastFrameSeconds,
-            _settings.ShowFrameRate,
-            ReadPosition(),
-            _demo?.MapName);
-
-        return _vguiHost.List;
-    }
-
-    /// <summary>What the HUD reads at a tick: `CHud::IsHidden`'s state, the view's settings, and its camera.</summary>
-    /// <remarks>What it holds is the presenter's (`HudStates.At`, then the target ID); this is what a window knows of it.</remarks>
-    private HudState HudStateAt(int hudTick) =>
-        _effects.HudStateAt(
-            new HudView(
+    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
+    /// <returns>The draw list.</returns>
+    /// <remarks>What is built, and in which order, is the presenter's (D214); this is what a window knows of it.</remarks>
+    public VguiDrawList? BuildOverlay() =>
+        _effects.BuildOverlay(
+            new OverlayFrame(
                 _timeline,
-                hudTick,
-                _hudScripts,
-                _hudHooks,
-                _bindings,
-                _clientConVars,
-                (float)_vguiClock.Elapsed.TotalSeconds,
-                ViewFovNow().World,
-                _effectiveMode,
-                _spectator.Followed(hudTick)),
-            ViewMatrix(),
-            ViewFrameNow,
-            _firstPersonEye);
+                _loaded,
+                _demo?.MapName,
+                _transport.CurrentTick,
+                _viewport.ClientSize.Width,
+                _viewport.ClientSize.Height,
+                _settings.Crosshair,
+                _settings.ShowFrameRate,
+                _console.IsHeld(ViewerAction.ShowScores),
+                _clock.LastFrameSeconds),
+            _device);
 
-    /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
-    private MapTexture? ResolveVguiMaterial(string material) =>
-        HudArchives() is { } archives
-            ? MapAssets.ResolveVguiMaterial(_renderLog, material, PakFile.Read(ReadOnlyMemory<byte>.Empty), archives, MaximumVguiTextureSize)
-            : null;
-
-    /// <summary>The decode cap for VGUI textures, which are small and never want reducing.</summary>
-    private const int MaximumVguiTextureSize = 4096;
+    /// <summary>What this window knows that the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
+    private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>
+        (new HudView(
+            _timeline,
+            hudTick,
+            null,
+            null,
+            _bindings,
+            _clientConVars,
+            (float)_vguiClock.Elapsed.TotalSeconds,
+            ViewFovNow().World,
+            _effectiveMode,
+            _spectator.Followed(hudTick)),
+         ViewMatrix(),
+         ViewFrameNow);
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
     private readonly FrameRateLog _frameRateLog = new();
@@ -4963,20 +4778,6 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
-
-    /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
-    private bool _hudReplaying;
-
-    /// <summary>
-    /// Wired into the HUD as its <c>HudSoundEmitter</c>: resolves a `game_sounds.txt` name the same way a world sound
-    /// does (<see cref="HudSounds"/>) and hands it to the presenter, at the current tick, from the local player.
-    /// </summary>
-    /// <param name="scriptName">The script the HUD element asked for.</param>
-    /// <remarks>
-    /// **Silent while a seek replays the events before it.** They fired before the tick the viewer landed on, so the
-    /// sounds they ask for were over before then — the notices are rebuilt, and a burst of every kill in the window is not.
-    /// </remarks>
-    private void PlayHudSound(string scriptName) => _effects.HudSound(_transport.CurrentTick, scriptName, _hudReplaying);
 
     /// <summary>The registered game systems, told about every level load and teardown.</summary>
     /// <remarks>

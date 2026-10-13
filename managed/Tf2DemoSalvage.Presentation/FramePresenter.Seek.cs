@@ -15,8 +15,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// <remarks>
 /// **Moved out of `MainForm` whole**, where it was `ReplaySkip`, `ReplayModelDecals`, the flag both set and the HUD
 /// sound's skip test: the same frames, the same flags held around them, the same two log lines. The window calls
-/// <see cref="ShowMoment"/> once and is handed back to twice — to show a tick (its own `ShowOnly`, which reads the
-/// camera and the settings) and to run one skip frame of the HUD.
+/// <see cref="ShowMoment"/> once and is handed back to once — to show a tick (its own `ShowOnly`, which reads the
+/// camera and the settings). A skip frame of the HUD is this presenter's own, since the HUD is.
 /// </remarks>
 public sealed partial class FramePresenter
 {
@@ -40,11 +40,9 @@ public sealed partial class FramePresenter
     /// <param name="tick">The moment to show, which may fall between ticks.</param>
     /// <param name="device">The device, or null before there is one.</param>
     /// <param name="show">Shows a tick as the window shows it, and answers what the window knows afterwards.</param>
-    /// <param name="skipHudFrame">One skip frame of the HUD at a tick, or null while there is no HUD yet.</param>
     /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public void ShowMoment(
-        in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show, Action<DemoTimeline, int>? skipHudFrame) =>
-        ShowMomentOver(frame, tick, device, show, skipHudFrame);
+    public void ShowMoment(in ViewFrame frame, double tick, Device3D? device, Func<double, ViewFrame> show) =>
+        ShowMomentOver(frame, tick, device, show, HasHud ? SkipHudFrame : null);
 
     /// <summary>The same, over any device (D214).</summary>
     /// <param name="frame">What the window knows of the frame.</param>
