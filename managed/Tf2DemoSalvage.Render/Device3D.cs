@@ -32,7 +32,7 @@ namespace Tf2DemoSalvage.Render;
 /// is for: the alternative at this boundary is a copy per frame, and this is exactly the case the
 /// "unsafe before native" rule describes.
 /// </remarks>
-public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, IDecalUpload, ILightmapUpload, IGlowOcclusion
+public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, IFrameDevice
 {
     /// <summary>Whether to present in step with the display's refresh.</summary>
     /// <remarks>

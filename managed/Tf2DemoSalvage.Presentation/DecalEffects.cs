@@ -254,7 +254,7 @@ public sealed class DecalEffects
     /// <param name="device">The device that draws them.</param>
     /// <returns>The landing sounds of the client bullets met this frame, to be emitted in this order; valid until the next call.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="device"/> is null.</exception>
-    public IReadOnlyList<SceneSound> Step(in DecalFrame frame, Device3D device)
+    public IReadOnlyList<SceneSound> Step(in DecalFrame frame, IDecalUpload device)
     {
         ArgumentNullException.ThrowIfNull(device);
 
@@ -754,7 +754,7 @@ public sealed class DecalEffects
     /// playing at the target had his decals wiped (<see cref="WipesDecals"/>) or was not yet alive, so nothing earlier can
     /// show. Each posed tick is a full moment and a model decal step, the same path playback takes.
     /// </remarks>
-    public DecalReplayReport Replay(int start, int target, Device3D device, Func<int, DecalFrame> pose)
+    public DecalReplayReport Replay(int start, int target, IDecalUpload device, Func<int, DecalFrame> pose)
     {
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(pose);

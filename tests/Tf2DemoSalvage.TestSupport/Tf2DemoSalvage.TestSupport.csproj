@@ -25,6 +25,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Tf2DemoSalvage.Core.Tests" />
     <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
   </ItemGroup>
 
   <ItemGroup>

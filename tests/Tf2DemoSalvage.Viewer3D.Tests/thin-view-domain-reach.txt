@@ -35,7 +35,6 @@ Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.PakFile::Read(1)
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.ParticleSystem
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.PhysicsBreakPiece
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.PlayerClassModels
-Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.SheetSequence
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.StudioEvent
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.StudioEvent::get_Id(0)
 Tf2DemoSalvage.Content!Tf2DemoSalvage.Content.Assets.StudioEvent::get_Options(0)
@@ -111,7 +110,6 @@ Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CorpseRecord::.ctor(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CorpseRecord::Run(5)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CorpseRecord::get_Reached(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.CrosshairSettings
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DecalWorld
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DecodedDemo
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DecodedDemo::Read(5)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DecodedDemo::get_Demo(0)
@@ -127,7 +125,6 @@ Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoLibrary::get_Entries(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoModels
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoModels::BreakPiecesOf(2)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DemoModels::Precache(4)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.DynamicLights
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.EntityModelSet
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.EntityModelSet::.ctor(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.EntityModelSet::Precache(1)
@@ -164,7 +161,6 @@ Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.GameContent::get_ClassAnimation(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.GameContent::get_Classes(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.GameContent::get_Surfaces(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.GameContent::get_Weapons(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.GlowQuery
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.Hud.HudConVars
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.Hud.HudConVars::set_Client(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.Hud.HudGameEvent
@@ -262,24 +258,13 @@ Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_Instances(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ScreenOverlay(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_StaticProps(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_UndrawnInstances(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ViewerVisionFlags(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ViewmodelCamera(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_ViewmodelInstances(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::get_WorldLights(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::set_EntitiesOnly(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::set_Lighting(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::set_Upload(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.MomentScene::set_Weapons(1)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleBatch
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleBurst
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::.ctor(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::MaterialOf(1)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::get_BurstCount(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::get_Count(0)
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::set_Sheets(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleMaterial
-Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleMaterial::get_Sequences(0)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlayerAppearances
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlayerAppearances::.ctor(1)
 Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.PlaylistFilter

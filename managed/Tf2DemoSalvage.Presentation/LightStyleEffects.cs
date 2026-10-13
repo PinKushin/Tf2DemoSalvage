@@ -90,7 +90,7 @@ public sealed class LightStyleEffects
     /// to a changed style rebuilt and uploaded, as `R_BuildLightMap` rebuilds a face whose style was stamped. The time is
     /// the tick's, so a seek lands on the same step however it was reached.
     /// </remarks>
-    public void Step(in LightStyleFrame frame, Device3D device)
+    public void Step(in LightStyleFrame frame, ILightmapUpload device)
     {
         ArgumentNullException.ThrowIfNull(device);
 

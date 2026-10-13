@@ -884,17 +884,7 @@ internal class MainForm : Form, IFrameSteps
         _log = loggers.CreateLogger("viewer");
         _mapLog = loggers.CreateLogger("map");
         _renderLog = loggers.CreateLogger("render");
-        _strikes = new BulletStrikes(_models, _renderLog);
-        _bursts = new BurstEffects(_particles, _models, _strikes, _renderLog);
-        _decals = new DecalEffects(_models, _strikes, _renderLog);
-        _lights = new LightStyleEffects(_renderLog);
-        _impacts = new ImpactParticles(_models, _strikes, _renderLog);
-        _idTargets = new IdTargets(_strikes, _mapLog);
         _firstPersonEye = FirstPersonCamera;
-        _frameParticles = new FrameParticles(_particles, _renderLog);
-        _effectEntities = new EffectEntities(_models, _renderLog);
-        _walk = _decals.WorldOf;
-        _styleScale = _lights.Scale;
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
@@ -925,6 +915,9 @@ internal class MainForm : Form, IFrameSteps
         FrameLedger ledger = new();
 
         _moments = new MomentPresenter(_moment, ledger, _renderLog);
+
+        // Everything a frame makes around its models, composed in one presenter (D92, D214).
+        _effects = new FramePresenter(_models, _moment, _moments, _sound, _renderLog, _mapLog);
 
         // **The one fact that travels from the models back to the demo** (B269). Only a model says
         // which pose parameters wrap, and only the interpolator needs to know — `OnNewModel` in the
@@ -1535,15 +1528,7 @@ internal class MainForm : Form, IFrameSteps
     {
         _loaded = null;
 
-        // Tracer paths, blood, dispatch points and beam starts were fixed against the map that is going.
-        _bursts.ClearMap();
-
-        // The decal pool is the map's; the device's copy goes with ClearWorld below. So are the impact effects and
-        // everything they read of the map.
-        _decals.ClearMap();
-        _lights.ClearMap();
-        _strikes.Clear();
-        _impacts.ClearMap();
+        _effects.ClearMap();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -1694,18 +1679,7 @@ internal class MainForm : Form, IFrameSteps
             // and the content is a nullable beside them.
             _loaded = map;
 
-            // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
-            // device counts their occlusion is decided here for the whole level (B378).
-            _frameParticles.LevelInit(_settings.DoPixelVisibility);
-
-            // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
-            // material with none, as the engine's pointer is.
-            _particles.Sheets = map.Assets?.ParticleMaterials is { } sheetsFrom
-                ? system => sheetsFrom.TryGetValue(ParticleEffects.MaterialOf(system), out ParticleMaterial material) &&
-                            material.Sequences.Count > 0
-                    ? material.Sequences
-                    : null
-                : null;
+            _effects.LevelInit(map, _settings.DoPixelVisibility);
 
             // **The chase camera clips against the world, and this is where it gets one.** Valve
             // traces a twelve-unit hull from the target to the camera and pulls the camera in to
@@ -2020,9 +1994,9 @@ internal class MainForm : Form, IFrameSteps
 
         // **And for the glows to arrive** (B378, B521): a lamp's halo fades in over a sixteenth of a second from the
         // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
-        if (_opening.Applied && !_frameParticles.GlowsSettled)
+        if (_opening.Applied && !_effects.GlowsSettled)
         {
-            ReportCaptureWaiting("glow occlusion", _frameParticles.GlowsUnsettled());
+            ReportCaptureWaiting("glow occlusion", _effects.GlowsUnsettled());
 
             return;
         }
@@ -2681,24 +2655,40 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        string? report = PickReport.Describe(
-            Environment.GetEnvironmentVariable("TF2VIEW_PICK"),
-            new PickFrame(
-                _loaded,
-                _transport.CurrentTick,
-                _lastViewing,
-                _viewport.ClientSize.Width,
-                _viewport.ClientSize.Height,
-                _moment.Drawn,
-                _lastParticles,
-                _bursts.Bursts,
-                _particles));
+        string? report = _effects.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"), ViewFrameNow, _lastViewing);
 
         if (report is not null)
         {
             _renderLog.LogInformation("{Message}", report);
         }
     }
+
+    /// <summary>What this window knows of the frame it is drawing, for the presenter that draws it.</summary>
+    private ViewFrame ViewFrameNow =>
+        new(
+            _timeline,
+            _loaded,
+            _game,
+            _transport.CurrentTick,
+            _shownTick,
+            _transport.Playing,
+            _firstPerson,
+            FollowedEntity(),
+            _viewport.ClientSize.Width,
+            _viewport.ClientSize.Height,
+            (float)_clock.LastFrameSeconds,
+            _demoFrameSeconds,
+            _settings.DoPixelVisibility,
+            _settings.DrawViewmodel,
+            _settings.HealTargetMarker,
+            _settings.Decals,
+            _settings.MaxModelDecals);
+
+    /// <summary>Everything a frame makes around its models: lights, decals, sounds, particles, the target ID (D92, D214).</summary>
+    private readonly FramePresenter _effects;
+
+    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
+    private readonly Func<FreeCamera?> _firstPersonEye;
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
     private FreeCamera? _lastViewing;
@@ -4484,7 +4474,10 @@ internal class MainForm : Form, IFrameSteps
 
         long particlesAt = Stopwatch.GetTimestamp();
 
-        DrawParticles(viewing);
+        if (_device is { } drawing)
+        {
+            _effects.Draw(ViewFrameNow, viewing, drawing);
+        }
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
         // in seconds with no collection, and it is four unrelated pieces of work.
@@ -4498,59 +4491,6 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
     private double _shownTick;
-
-    /// <summary>Where a bullet stops and which a player stopped — `FX_FireBullets`' trace (tf_fx_shared.cpp).</summary>
-    private readonly BulletStrikes _strikes;
-
-    /// <summary>Every one-shot particle effect the demo starts (B415).</summary>
-    private readonly BurstEffects _bursts;
-
-    /// <summary>What a bullet is traced against this frame.</summary>
-    private BulletScene BulletSceneNow => new(_timeline, _loaded?.Level, _moments.Source, _shownTick, _transport.Playing);
-
-    /// <summary>The decals on the world, its props and the players' models (B415, B421).</summary>
-    private readonly DecalEffects _decals;
-
-    /// <summary>The light styles, the lightmaps they rebuild and the faces under the dynamic lights (B424, B425).</summary>
-    private readonly LightStyleEffects _lights;
-
-    /// <summary>Every impact's debris and dust, every spark and every tracer line (B415).</summary>
-    private readonly ImpactParticles _impacts;
-
-    /// <summary>A frame's particles in the order they are made: trails, effects, sprites, strips (B373, B378).</summary>
-    private readonly FrameParticles _frameParticles;
-
-    /// <summary>The beams, sprite trails and ropes, and the holiday lights the ropes dispatch (B231, B475, B477, B478).</summary>
-    private readonly EffectEntities _effectEntities;
-
-    /// <summary>What the local player is looking at, for the target ID and the weapon pickup prompt.</summary>
-    private readonly IdTargets _idTargets;
-
-    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
-    private readonly Func<FreeCamera?> _firstPersonEye;
-
-    /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
-    private readonly Func<LoadedMap, DecalWorld> _walk;
-
-    /// <summary>A light style's value now, for the impact colours. One delegate, made once.</summary>
-    private readonly Func<int, float> _styleScale;
-
-    /// <summary>What the decals are stepped against at a tick this frame shows.</summary>
-    private DecalFrame DecalFrameAt(int tick) =>
-        new(
-            _timeline,
-            _loaded,
-            _game,
-            tick,
-            _moments.PlayersShownAt(tick),
-            BulletSceneNow,
-            _settings.Decals,
-            _settings.MaxModelDecals,
-            _sound.Scripts,
-            _replayingModelDecals);
-
-    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
-    private bool _replayingModelDecals;
 
     /// <summary>The whole tick <see cref="ShowMoment"/> last showed, or null before the first.</summary>
     private int? _skipShown;
@@ -4575,7 +4515,7 @@ internal class MainForm : Form, IFrameSteps
     /// </remarks>
     private void ReplaySkip(int target)
     {
-        if (_replayingModelDecals || _skipFrameSounds is not null)
+        if (_effects.Replaying || _skipFrameSounds is not null)
         {
             return;
         }
@@ -4724,7 +4664,7 @@ internal class MainForm : Form, IFrameSteps
     private void ReplayModelDecals(int target)
     {
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_replayingModelDecals || _timeline is null || _device is not { } device)
+        if (_effects.Replaying || _timeline is null || _device is not { } device)
         {
             return;
         }
@@ -4732,7 +4672,7 @@ internal class MainForm : Form, IFrameSteps
         long lookingBack = Stopwatch.GetTimestamp();
 
         // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_decals.ReplayStart(DecalFrameAt(target), target) is not { } start)
+        if (_effects.DecalReplayStart(ViewFrameNow, target) is not { } start)
         {
             return;
         }
@@ -4742,7 +4682,7 @@ internal class MainForm : Form, IFrameSteps
         TimeSpan posing = TimeSpan.Zero;
         (long simulate, long setup, long skin) was = (_models.SimulateTicks, _models.SetupTicks, _models.SkinTicks);
 
-        _replayingModelDecals = true;
+        _effects.Replaying = true;
         _models.HoldsCorpses = true;
         _moments.PlayersOnly = true;
 
@@ -4754,7 +4694,8 @@ internal class MainForm : Form, IFrameSteps
 
         try
         {
-            replayed = _decals.Replay(
+            replayed = _effects.DecalReplay(
+                ViewFrameNow,
                 start,
                 target,
                 device,
@@ -4769,12 +4710,12 @@ internal class MainForm : Form, IFrameSteps
                     _moments.PoseNow(ViewFrustum.Nothing);
                     posing += Stopwatch.GetElapsedTime(phase);
 
-                    return DecalFrameAt(tick);
+                    return ViewFrameNow;
                 });
         }
         finally
         {
-            _replayingModelDecals = false;
+            _effects.Replaying = false;
             _models.HoldsCorpses = false;
             _moments.PlayersOnly = false;
             _models.WalksEvents = true;
@@ -4793,105 +4734,6 @@ internal class MainForm : Form, IFrameSteps
 
         static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     }
-
-    /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
-    /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
-    /// <remarks>
-    /// **Beside `SetCamera` because it needs the same camera** — a billboard faces the view, so the
-    /// quads cannot be built until the frame's camera is known, and this is the one per-frame view
-    /// setup. **What is decided here is the presenters'** (D214): this is the order they are called in, the sounds they
-    /// hand back, and the device.
-    /// </remarks>
-    private void DrawParticles(FreeCamera viewing)
-    {
-        if (_device is null)
-        {
-            return;
-        }
-
-        int tick = _transport.CurrentTick;
-
-        _lights.Step(new LightStyleFrame(_timeline, _loaded, tick, _moment.WorldLights, _moment.Drawn, _walk), _device);
-
-        // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
-        // A client bullet's landing sound comes back for the sound presenter: presenters do not reach sideways (D92).
-        foreach (SceneSound landed in _decals.Step(DecalFrameAt(tick), _device))
-        {
-            _sound.Emit(landed);
-        }
-
-        _sound.StepClientSounds(
-            new ClientSoundFrame(
-                _timeline,
-                _loaded,
-                _game,
-                tick,
-                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                _moments.Source,
-                _shownTick,
-                _transport.Playing,
-                _replayingModelDecals,
-                _demoFrameSeconds),
-            _models);
-
-        ImpactFrame impacts = new(
-            _timeline, _loaded, tick, BulletSceneNow, viewing, _viewport.ClientSize.Width, _styleScale, _walk);
-
-        _impacts.Step(impacts);
-
-        IReadOnlyList<ParticleBatch> batches = [];
-        ParticleFrame particles = new(
-            _timeline,
-            _loaded,
-            tick,
-            viewing,
-            _moment.Drawn,
-            (float)_clock.LastFrameSeconds,
-            _viewport.ClientSize.Height,
-            _settings.DoPixelVisibility);
-
-        if (_frameParticles.Trails(particles))
-        {
-            // The one-shot effects (D214). A tracer's near-miss whiz comes back for the sound presenter: presenters do
-            // not reach sideways (D92).
-            foreach (SceneSound whiz in _bursts.Step(new BurstFrame(
-                         _timeline,
-                         _loaded,
-                         _game,
-                         tick,
-                         viewing,
-                         _moments.Players,
-                         _moments.Source,
-                         _shownTick,
-                         _transport.Playing,
-                         _firstPerson,
-                         FollowedEntity(),
-                         _settings.DrawViewmodel,
-                         _settings.HealTargetMarker,
-                         _sound.Scripts,
-                         _replayingModelDecals)))
-            {
-                _sound.Emit(whiz);
-            }
-
-            EffectEntityFrame strips = new(
-                _timeline, _loaded, tick, viewing, _moment.Drawn, _viewport.ClientSize.Width, _moment.ViewerVisionFlags);
-
-            batches = _frameParticles.Build(
-                particles, _device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
-        }
-
-        batches = _impacts.With(batches, impacts);
-        _lastParticles = batches;
-
-        _device.SetParticles(batches);
-    }
-
-    /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
-    private IReadOnlyList<ParticleBatch> _lastParticles = [];
-
-    /// <summary>The effects running for this demo.</summary>
-    private readonly ParticleEffects _particles = new();
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
@@ -5124,8 +4966,7 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        return _idTargets.With(
-            hudState, hudTick, new IdTargetFrame(_timeline, _loaded, _game, _moments.PlayersShownAt(hudTick), _firstPersonEye));
+        return _effects.WithIdTargets(hudState, hudTick, ViewFrameNow, _firstPersonEye);
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
@@ -5215,13 +5056,14 @@ internal class MainForm : Form, IFrameSteps
             // The same phases the per-second line names, as means over every measured frame.
             double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
             FramePhases sum = _phasesMeasured;
+            (int trails, int bursts, int quads) = _effects.ParticleCounts;
 
             // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
             Console.WriteLine(string.Create(
                 CultureInfo.InvariantCulture,
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
                 $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
-                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_frameParticles.Quads} quads last frame"));
+                $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
         }
 
         _framesMeasured = 0;

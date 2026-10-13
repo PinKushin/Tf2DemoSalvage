@@ -38301,3 +38301,65 @@ timeline to trace against.
 
 **Not tested here:** a building's box and a dropped weapon's collide in the target ID, which need a timeline that
 carries them, and the live bursts a pick names, which need a particle system that has emitted.
+
+**Slice 5, 2026-10-13. Measured first: where the 392 were.** The view's methods by distinct domain members used
+(*measured*, by the instrument, at `cdd1fbc7`):
+
+| | method | members | | method | members |
+|---|---|---|---|---|---|
+| 1 | `BuildOverlay` | 39 | 11 | `DrawScene` | 8 |
+| 2 | the constructor | 37 | 12 | `ViewerMenu`'s constructor | 8 |
+| 3 | `ReadMap` | 20 | 13 | `ChooseGameFolder` | 7 |
+| 4 | `ReplaySkip` | 18 | 14 | `DrawParticles` | 7 |
+| 5 | `Apply` | 15 | 15 | `LoadDemoAsync` | 6 |
+| 6 | `OnViewportHandleCreated` | 13 | 16 | `ReplayModelDecals` | 6 |
+| 7 | `StartCorpseRecord` | 12 | 17 | `UploadCamera` | 6 |
+| 8 | `HudStateAt` | 11 | 18 | `EnterCamera` | 5 |
+| 9 | `ProjectMap` | 10 | 19 | `FreeLookCamera` | 5 |
+| 10 | `ReadPosition` | 9 | 20 | `ShowOnly` | 5 |
+
+Past the twentieth, thirty more methods use four or fewer each. **So the list is no longer a few fat methods**: the
+HUD (`BuildOverlay`, `HudStateAt`), the composition (the constructor), the map read, the seek, and then a long tail
+of camera, settings and library methods that each name two or three things.
+
+**Slice 5, first commit: the composition — 392 to 377, 15 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 303 | 289 | 14 |
+| Core | 45 | 45 | 0 |
+| Content | 23 | 22 | 1 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 392 | 377 | 15 |
+
+`MainForm` uses 255 distinct domain members, from 263, and is 6,710 lines, from 6,869. *Measured*, by the instrument.
+
+*What moved:* the window constructed eight presenters, shared one `BulletStrikes` among four of them by hand, and
+called them in order from `DrawParticles`. All of that is `Presentation.FramePresenter` — D92's shape, a presenter
+that owns its parts: it constructs them, and `Draw` is `DrawParticles` moved whole, with the window's fields replaced
+by a `ViewFrame` record of what a window knows (the demo, the map, the clock, the size, the settings). The window
+holds the one object and hands it `ViewFrameNow`. `ClearMap`, the level's glow and sheet setup, the glow settle test,
+the particle counts, the pick and the target ID each became one call on it.
+
+*`BulletStrikes` went down to Scene*, with its seventeen tests (`BulletStrikesTests`, `BulletStrikesStruckTests`, now
+in Scene.Tests, which references TestSupport and compiles Presentation.Tests' `FakePosedEntities` in as it already
+compiles Content.Tests' VTF builder). Nothing in the view names it any more, so it adds no line.
+
+*The parts no longer take `Device3D`.* They took the concrete device only because the view called them and a
+callee's signature is the caller's `TypeRef`. Their owner calls them now, so each takes the Scene interface it asks —
+and `IFrameDevice` joins the three (lightmaps, decals, glow occlusion) with `SetParticles`, so the owner's `DrawOver`
+runs over a fake device.
+
+*One difference in when a value is read:* `FollowedEntity()` was asked for inside the bursts' step, on frames with a
+rocket trail definition; it is now read with the rest of the frame record, every frame. It is a query of the
+spectator and changes nothing.
+
+*Tests* (3, `FramePresenterTests`): a frame with no map still hands the device its particles once; the pick is asked
+with the frame's tick; the target ID with no map clears and never asks for the eye. Each seen red. **Not tested, and
+it is the larger half:** the ORDER the parts run in with a map loaded, because a `LoadedMap` cannot be built by a
+test — it has no public constructor and no synthetic BSP exists. The paused frames and the sound log hold that order,
+byte for byte. A map a test can write is the follow-up that would close it.
+
+*Proof* (*measured*): the beam frame, its `TF2VIEW_PICK` line and the 47 lines of the paused-seek sound log are
+byte-identical before and after this commit; the whole set is re-run on the slice's final code.

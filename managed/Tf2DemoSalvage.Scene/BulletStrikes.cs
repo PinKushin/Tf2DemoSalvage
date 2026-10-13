@@ -6,9 +6,8 @@ using Microsoft.Extensions.Logging;
 
 using Tf2DemoSalvage.Content.Bsp;
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Scene;
 
-namespace Tf2DemoSalvage.Presentation;
+namespace Tf2DemoSalvage.Scene;
 
 /// <summary>What a bullet trace is asked against this frame: the demo, the map, and the players as the frame posed them.</summary>
 /// <param name="Timeline">The loaded demo, or null.</param>
@@ -24,10 +23,10 @@ public readonly record struct BulletScene(
 /// the view whole (D214), where it was `StruckEnd`, `StruckPlayer`, `HitboxesOrUntested` and `ShotOrder`.
 /// </summary>
 /// <remarks>
-/// **In Presentation only while the view still calls it.** The tracers ask it from <see cref="BurstEffects"/> and the
-/// decals from <see cref="DecalEffects"/>; the impact effects and the id traces, still in the view, ask it too. Two
-/// presenters needing one thing is the model layer's (D92), and it has not gone down for one reason: a Scene type the
-/// view names is a line added to the thin-view list, which only shrinks (D214). It goes with its last view caller.
+/// **In the model layer because four presenters need it** (D92): the tracers, the decals, the impact effects and the
+/// target ID each ask it, and what two presenters share goes down. It stayed in Presentation through four slices for
+/// one reason — the view constructed it, and a Scene type the view names is a line added to the thin-view list, which
+/// only shrinks (D214). `FramePresenter` constructs it now, so it came down in slice 5.
 /// </remarks>
 public sealed class BulletStrikes
 {
