@@ -38489,3 +38489,24 @@ across a worker thread and the barrier that holds the render loop off (B146), an
 see it — a paused frame is the same whether the load was orchestrated correctly or merely finished. It wants its
 own slice and its own instrument (the load's log, line for line). The constructor's 37 fall when that slice gives
 the load an owner, because most of what the constructor builds is what a load fills.
+
+**Slice 6, 2026-10-13, first commit: a map a test can write, and the order test slice 5 could not have.** No reach
+change (282).
+
+*The map* (`SyntheticMap`, in Presentation.Tests): the smallest file `LoadedMap.Read` accepts — a version 21 header
+and no lumps, from the BSP writer Content.Tests already had, linked and not copied — read with the install of a
+machine without TF2 (`GameContent.Open( null )`). *Measured* on what comes back: no problem, a level with a leaf tree
+and no faces, the content record with an empty lightmap atlas, the decal system, and no rocket trail definition
+(that is a particle file, and there is no archive to read one from). **A `LoadedMap` still has no public
+constructor, and it did not need one**: a test gets a map the way production does, from bytes. It sits in
+Presentation.Tests and not in TestSupport because TestSupport references Core alone and Core.Tests references it; a
+Scene reference there would reach Core's suite. Scene.Tests can link the file as it links `FakePosedEntities`.
+
+*The test* (`DrawOver_WithAMapLoaded_UploadsTheLightmapThenTheDecalsThenTheParticles`): one frame over that map
+reaches the device three times, in this order — the light styles' lightmap, the decals' upload, the frame's
+particles. Seen red with the light styles' step moved after the decals', restored by the inverse edit, hash checked.
+`FakeFrameDevice` gained the ordered list of calls it reads.
+
+**What it still cannot hold:** the decals' landing sound before the client's own and the bursts' whiz after. A
+landing needs a decal material and the bursts need the rocket trail's particle file, and both come out of an
+install. The paused frames and the sound log hold that part.

@@ -42,4 +42,10 @@
     <ProjectReference Include="..\Tf2DemoSalvage.TestSupport\Tf2DemoSalvage.TestSupport.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The BSP writer Content.Tests already has, linked and not copied, as Scene.Tests links `VtfFixture`: `SyntheticMap`
+         reads a `LoadedMap` out of its bytes, for the presenters that take one (D214). -->
+    <Compile Include="..\Tf2DemoSalvage.Content.Tests\Bsp\SyntheticBsp.cs" Link="SyntheticBsp.cs" />
+  </ItemGroup>
+
 </Project>
