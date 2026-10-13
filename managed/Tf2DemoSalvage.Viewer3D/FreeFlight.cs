@@ -62,7 +62,7 @@ internal static class FreeFlight
         // `Keys` value into a Source key name. Deciding what that name MEANS was a loop over
         // `ConfigConsole.HeldActions` compared against `KeyBindings.KeyFor` — two Presentation
         // tables joined in a view — and is `ConfigConsole.IsHeldKey` now (B188, D90).
-        ConfigConsole.IsHeldKey(KeyNames.NameOf(key), bindings ?? Default);
+        ConfigConsole.IsHeldKey(KeyNames.NameOf(key), bindings ?? new KeyBindings());
 
     // **`FlightActions` was here until 2026-08-26** (B208), and its own comment was the finding: it
     // claimed the actions were "listed once so `IsFlightKey` and the console cannot disagree about
@@ -85,6 +85,4 @@ internal static class FreeFlight
     // What remains is the one thing that is genuinely about this toolkit: deciding whether a
     // `Keys` value is a flight key at all, so `ProcessCmdKey` knows whether to swallow it.
 
-    /// <summary>The default bindings, so a caller with none still flies.</summary>
-    private static readonly KeyBindings Default = new();
 }

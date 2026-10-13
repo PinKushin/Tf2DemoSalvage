@@ -30,13 +30,32 @@ try {
     if ([string]::IsNullOrWhiteSpace($path)) { exit 0 }
 } catch { exit 0 }   # Never let the guard break the tool it guards.
 
-# THE GUARDS THEMSELVES. An edit to the conformance tests, to this hook or to its cases is ASKED, not denied:
-# weakening any of them reopens the view with every suite green, so the owner sees the edit first.
+# THE GUARDS THEMSELVES: the conformance tests, this hook and its cases. Weakening any of them reopens the view
+# with every suite green, so an edit that TAKES SOMETHING AWAY is asked, with the lines it removes. An edit that only
+# adds passes silently: the first version asked on every edit, and the owner approved four additions blind in one
+# afternoon (2026-10-13: "no idea if it was right or not"), which is a prompt that enforces nothing.
+#   adds only            - an Edit whose old text survives whole in the new text: allowed
+#   adds a disabling word - Ignore, Explicit, Assert.Pass, Assert.Inconclusive: asked
+#   removes or rewrites  - asked, naming the removed lines
+#   a whole-file Write   - asked
 if (($path -replace '\\', '/') -match '(^|/)(ThinViewConformanceTests\.cs|tf2-thin-view\.(ps1|tests\.json))$') {
+    $old = [string]$call.tool_input.old_string
+    $new = [string]$call.tool_input.new_string
+    $isEdit = $null -ne $call.tool_input.PSObject.Properties['old_string']
+    $why = if (-not $isEdit) { 'it rewrites the whole file' }
+           elseif (-not $new.Contains($old)) {
+               $kept = [System.Collections.Generic.HashSet[string]]::new([string[]]($new -split "`r?`n" | ForEach-Object { $_.Trim() }))
+               $gone = @($old -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $kept.Contains($_) })
+               'it removes or rewrites: ' + (($gone | Select-Object -First 8) -join ' | ')
+           }
+           elseif ($new.Replace($old, '') -match '\b(Ignore|Explicit|Assert\.Pass|Assert\.Inconclusive)\b') { "it adds '" + $Matches[1] + "', which can switch a test off" }
+           else { $null }
+    if ($null -eq $why) { exit 0 }
+
     @{ hookSpecificOutput = @{
           hookEventName            = 'PreToolUse'
           permissionDecision       = 'ask'
-          permissionDecisionReason = 'This edits a guard of the thin view (D214). Approve only if it does not weaken the rule.' } } |
+          permissionDecisionReason = "This edits a guard of the thin view (D214) and $why. Approve only if the rule is not weakened." } } |
         ConvertTo-Json -Depth 4 -Compress
     exit 0
 }

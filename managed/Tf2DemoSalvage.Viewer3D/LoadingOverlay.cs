@@ -59,12 +59,11 @@ internal sealed class LoadingOverlay : Panel
     /// <param name="fraction">How far through it, or null when the stage cannot say.</param>
     public void Report(string stage, double? fraction)
     {
-        _stage.Text = fraction is { } done
-            ? $"{stage}… {done * 100d:0}%"
-            : $"{stage}…";
+        // The words and the bar's position are `LoadingProgress`'s (D214); a stage that cannot say how far it is marches.
+        _stage.Text = LoadingProgress.Label(stage, fraction);
 
         _bar.Style = fraction is null ? ProgressBarStyle.Marquee : ProgressBarStyle.Continuous;
-        _bar.Value = (int)Math.Round(Math.Clamp(fraction ?? 0d, 0d, 1d) * _bar.Maximum);
+        _bar.Value = LoadingProgress.Position(fraction, _bar.Maximum);
 
         Center();
         Visible = true;

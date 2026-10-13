@@ -364,11 +364,11 @@ public sealed class ViewerSettingsTests
         // End to end through the shell, since the menu items are what a user actually touches.
         using MainForm form = new();
 
-        form.SetFullScreenExclusive(true);
-        form.FullScreenExclusive.ShouldBeTrue();
+        form.Session.SetFullScreenExclusive(true);
+        form.Session.FullScreenExclusive.ShouldBeTrue();
 
-        form.SetFullScreenExclusive(false);
-        form.FullScreenExclusive.ShouldBeFalse();
+        form.Session.SetFullScreenExclusive(false);
+        form.Session.FullScreenExclusive.ShouldBeFalse();
     }
 
     [Test]

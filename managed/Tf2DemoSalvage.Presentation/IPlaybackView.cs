@@ -96,6 +96,16 @@ public interface IPlaybackView
     /// callers agreeing on it.
     /// </remarks>
     public void SetDemoLength(int lastTick);
+
+    /// <summary>The tick the scrubber stands on.</summary>
+    public int CurrentTick { get; }
+
+    /// <summary>Sets the playback speed and reports it as a user's change would be.</summary>
+    /// <param name="speed">The speed, 1 being real time.</param>
+    public void SetSpeed(double speed);
+
+    /// <summary>Puts the playback speed back to real time.</summary>
+    public void ResetSpeed();
 }
 
 /// <summary>How much real time has passed, so playback can be tested without waiting.</summary>

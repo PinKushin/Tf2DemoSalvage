@@ -9,6 +9,10 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 
+using Tf2DemoSalvage.Presentation;
+
+#pragma warning disable CA1812 // HoldsWhatAViewMayNot is never instantiated: it exists to be reflected over by the field rule's control.
+
 namespace Tf2DemoSalvage.Viewer3D.Tests;
 
 /// <summary>
@@ -114,6 +118,124 @@ public sealed class ThinViewConformanceTests
             "a view source file names a domain namespace — a `using`, or a fully qualified type or constant, which the " +
             "assembly test cannot see when the compiler copies the value in (D214):\n  " + string.Join("\n  ", named));
     }
+
+    [Test]
+    public void Fields_OfEveryViewType_HoldNoObjectOfTheLayersBelowButTheSession()
+    {
+        // **The guard slice 9 found a sound rule for** (D214). Reach at zero did not make the view thin: it still held
+        // the playback presenter, the camera presenter, the frame clock, the opening sequence, the console, the launch
+        // options and the device, and sequenced them itself — in plain values and Presentation's own types, which the
+        // reach count is not about. Every one of those needed a FIELD of a class from below. A view holds its controls,
+        // its own window state, and the one session.
+        string[] held = HeldFromBelow(typeof(MainForm).Assembly.GetTypes());
+
+        held.ShouldBeEmpty(
+            "a view type holds an object of a layer below it. Behaviour and its state go in the session " +
+            "(`ViewerSession`, Presentation) with tests; the view holds controls, window state and the session (D214):\n  " +
+            string.Join("\n  ", held));
+    }
+
+    [Test]
+    public void Fields_OfATypeThatHoldsAPresenterAndADevice_AreReportedAndItsValuesAndSessionAreNot()
+    {
+        // The control: the same question asked of a type that does what the rule forbids.
+        HeldFromBelow([typeof(HoldsWhatAViewMayNot)]).ShouldBe(
+        [
+            "HoldsWhatAViewMayNot._devices: Tf2DemoSalvage.Render.Device3D",
+            "HoldsWhatAViewMayNot._library: Tf2DemoSalvage.Presentation.PlaylistPresenter",
+            "HoldsWhatAViewMayNot._window: Tf2DemoSalvage.Presentation.IViewerWindow",
+        ]);
+    }
+
+    /// <summary>The assemblies whose objects a view may not hold: everything of this program's but the view, its fonts and its log.</summary>
+    private static bool IsBelow(System.Reflection.Assembly assembly)
+    {
+        string name = assembly.GetName().Name ?? string.Empty;
+
+        return name.StartsWith("Tf2DemoSalvage.", StringComparison.Ordinal)
+            && name is not ("Tf2DemoSalvage.Fonts" or "Tf2DemoSalvage.Logging")
+            && !name.EndsWith(".Tests", StringComparison.Ordinal);
+    }
+
+    /// <summary>Every field of the given types — compiler-made closures and backing fields included — that holds a class or interface from below.</summary>
+    /// <remarks>
+    /// **Classes and interfaces, not values.** An enum or a struct from Presentation (`ViewerAction` in the menu's
+    /// shortcut table, a `DebugModes` in a delegate's signature) is a value handed across; an object is something to
+    /// call, and calling is where the behaviour was. The type is taken apart first, so a `List&lt;Device3D&gt;` or a
+    /// `Func&lt;PlaybackPresenter&gt;` is the same finding as the object itself.
+    /// </remarks>
+    private static string[] HeldFromBelow(IEnumerable<Type> types)
+    {
+        const System.Reflection.BindingFlags Declared =
+            System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
+            System.Reflection.BindingFlags.DeclaredOnly;
+
+        SortedSet<string> held = new(StringComparer.Ordinal);
+
+        foreach (Type type in types)
+        {
+            foreach (System.Reflection.FieldInfo field in type.GetFields(Declared))
+            {
+                foreach (Type part in Parts(field.FieldType))
+                {
+                    if ((part.IsClass || part.IsInterface)
+                        && !typeof(Delegate).IsAssignableFrom(part)
+
+                        // An event's argument is a value handed across, as a struct is: the transport's three events
+                        // are `EventHandler<TickEventArgs>` and the like, which `IPlaybackView` requires of it.
+                        && !typeof(EventArgs).IsAssignableFrom(part)
+                        && IsBelow(part.Assembly)
+                        && part != typeof(ViewerSession))
+                    {
+                        held.Add($"{type.Name}.{field.Name}: {part.FullName}");
+                    }
+                }
+            }
+        }
+
+        return [.. held];
+    }
+
+    /// <summary>A type and everything it is built from: array elements and generic arguments, all the way down.</summary>
+    private static IEnumerable<Type> Parts(Type type)
+    {
+        if (type.HasElementType)
+        {
+            foreach (Type part in Parts(type.GetElementType()!))
+            {
+                yield return part;
+            }
+
+            yield break;
+        }
+
+        yield return type.IsGenericType ? type.GetGenericTypeDefinition() : type;
+
+        foreach (Type argument in type.GetGenericArguments())
+        {
+            foreach (Type part in Parts(argument))
+            {
+                yield return part;
+            }
+        }
+    }
+
+    /// <summary>What the field rule forbids, and two things it allows, in one type.</summary>
+#pragma warning disable CS0649, CS0169, CA1823, S1144, S3459, IDE0051 // Never assigned or read: the fields exist to be found.
+    private sealed class HoldsWhatAViewMayNot
+    {
+        private readonly PlaylistPresenter? _library;
+
+        private readonly List<Device3D>? _devices;
+
+        private readonly Func<IViewerWindow?[]>? _window;
+
+        private readonly ViewerSession? _session;
+
+        private readonly (ViewerAction Action, DebugModes Modes) _values;
+    }
+#pragma warning restore CS0649, CS0169, CA1823, S1144, S3459, IDE0051
 
     /// <summary>One assembly's references into the domain, and which of its own methods hold them.</summary>
     private sealed class Reach

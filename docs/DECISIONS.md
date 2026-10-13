@@ -9888,4 +9888,14 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
 - **A value carried between two frame stages stays an argument, even when the carrier must not name it** (slice 8):
   `FrameOverlay` is an opaque struct around the draw list, so the window passes it from `BuildOverlay` to `Draw`
   without a field in between (B193, B196).
+- **Reach at zero is necessary and was not sufficient; the window holds one session** (slice 9, 2026-10-13). The
+  owner asked: *"are you sure thin view is fully closed, and wont ever be made fat again?"* The coordinating agent
+  relayed that he approved an audit of the view for behaviour the reach count cannot see; no further reason was
+  given. The audit found the idle loop, the frame's steps, the capture and measurement runs, the key dispatch and
+  the render switches still in `MainForm`, written over Presentation objects it held. They are `ViewerSession` now,
+  the window is `IViewerWindow` and `IIdleHost`, and a fourth conformance test holds the mechanism that made it
+  possible: no view type has a field holding a class or interface of Presentation, Render or the domain, except the
+  session. That rule is sound and is not complete — a decision made in locals between two session calls passes it —
+  and the rules that would have been weak (a branch count, a ban on arithmetic, a pinned list of callable members)
+  were judged and left out rather than added (B540, slice 9).
 

@@ -4,6 +4,9 @@
   { "name": "Edit adds a domain project reference", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj", "old_string": "<ItemGroup>", "new_string": "<ItemGroup>\n<ProjectReference Include=\"..\\Tf2DemoSalvage.Content\\Tf2DemoSalvage.Content.csproj\" />"}, "expect": "deny" },
   { "name": "Write of a view file naming a domain namespace", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/New.cs", "content": "using Tf2DemoSalvage.Audio;\n"}, "expect": "deny" },
   { "name": "Edit of the conformance tests", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/ThinViewConformanceTests.cs", "old_string": "a", "new_string": "b"}, "expect": "ask" },
+  { "name": "Edit of the conformance tests that removes an assertion", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/ThinViewConformanceTests.cs", "old_string": "    [Test]\n    held.ShouldBeEmpty();\n", "new_string": "    [Test]\n"}, "expect": "ask" },
+  { "name": "Edit of the conformance tests that adds Ignore", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/ThinViewConformanceTests.cs", "old_string": "    [Test]\n", "new_string": "    [Test]\n    [Ignore(\"later\")]\n"}, "expect": "ask" },
+  { "name": "CONTROL: Edit of the conformance tests that only adds", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/ThinViewConformanceTests.cs", "old_string": "using System;\n", "new_string": "using System;\nusing Tf2DemoSalvage.Presentation;\n"}, "expect": "allow" },
   { "name": "Edit of this hook, absolute path", "input": {"file_path": "C:\\repo\\.claude\\hooks\\tf2-thin-view.ps1", "old_string": "a", "new_string": "b"}, "expect": "ask" },
   { "name": "Write of this hook's cases", "input": {"file_path": ".claude/hooks/tf2-thin-view.tests.json", "content": "[]"}, "expect": "ask" },
 

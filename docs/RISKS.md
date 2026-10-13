@@ -39101,3 +39101,66 @@ per asking is the design, and the answer was right each time; only the saying re
 the view remembers the entity whose absence it has reported, and forgets it when that player is found, so a second
 absence is said again. `Target_WhileTheNamedPlayerIsAbsent_SaysSoOncePerAbsenceAndFollowsTheDefault`, seen red
 first (the count was the number of askings, not 1). The line keeps the first tick it was asked at.
+
+**Slice 9, 2026-10-13: reach at zero was not a thin view, and the audit that says so.** The owner asked whether the
+thin view was *"fully closed, and wont ever be made fat again"*. It was not: the three tests measure what the view
+REFERENCES in the domain, and behaviour written with plain values, BCL types and Presentation's own types reads as
+zero. *Read from the source, every file under `managed/Tf2DemoSalvage.Viewer3D/`*: `MainForm` at reach 0 still held
+the idle loop, the frame's seven steps, the opening sequence and its capture gates, the `--measure` accounting and
+its printing, the key dispatch, the drag arithmetic, the render switches and their state, the command line's
+branches, export and compile, the game-folder aftermath, the startup report and the device's creation — sequencing
+fifteen Presentation objects it held as fields.
+
+**What moved, as text and not as a rewrite:** 1,887 lines of `MainForm.cs` (4,289 to 2,278 after the window's
+new members) went to `ViewerSession` in Presentation, six partials carried by line range with their comments
+(`ViewerSession.cs`, `.Capture`, `.Frame`, `.Idle`, `.Input`, `.Switches`) and a seventh written for what had to
+change shape (`.Window`: the constructor, the startup plan, the device, the pointer, export and compile, shutdown's
+three steps). The window is an `IViewerWindow` — a status, a viewport size, a repaint, a close, eight check marks —
+and an `IIdleHost`, four calls onto the message queue and the thread. `IPlaybackView` gained `CurrentTick`,
+`SetSpeed` and `ResetSpeed`; Render gained `IRenderDevice` (the switches, the capture, the mode and the size), which
+`Device3D` implements, so what surrounds those calls can be tested with no GPU. `ViewerHost` stands for the
+process: two streams, the exit code, the environment and the clocks. `Help` went whole to Presentation as
+`ViewerHelp` (WinForms has a `Help`), and the loading overlay's words and bar position to `LoadingProgress`.
+
+**Every textual difference in the moved code** is one of: a control read or write became the `IViewerWindow` member
+that names it; `Console`, `Environment` and `new StopwatchTime()` became the `ViewerHost`; `MessageQueue` and
+`Thread` became the `IIdleHost`; `ProcessCmdKey`'s key-code comparisons became `KeyPress.IsChord` with the order of
+its branches unchanged; `_menu.SurfaceColours.Checked` as the surface-colour state became a field the menu's own
+change event sets; `Loading` and `FileWork` are kept by the session and read through the window. The log lines, their
+categories and their order are unchanged, which the load-log proof holds.
+
+**Tests: 74 new in Presentation** (`ViewerSessionTests` 66, `LoadingProgressTests` 4, `ViewerHelpTests` 2 new beside
+the 2 that travelled), every one seen red in eight sabotage rounds of 2 to 22 independent breaks each, restored and
+compared with copies. One test was deleted as written: it asserted that a frame is drawn when nothing is loading,
+which nothing could make false. Presentation 911 to 985; the view's suite stays 135 (two help tests out, the guard
+and its control in).
+
+**The guard, and what it is not.** One rule is sound and is the fourth conformance test:
+`Fields_OfEveryViewType_HoldNoObjectOfTheLayersBelowButTheSession` — no field of any type in the view assembly,
+compiler-made closures included, holds a class or interface of Presentation, Render or the domain, other than
+`ViewerSession`; values pass (an enum, a struct, and an event's argument — the first run of the rule reported the
+transport's three `EventHandler<TickEventArgs>` events, which `IPlaybackView` requires of it). Every piece of behaviour found needed such a field, because
+sequencing presenters means holding them. Its control asks the same question of a type that holds a presenter, a
+list of devices and a window interface, and gets exactly those three. To make the rule absolute the playlist's owner
+moved under the session and `FreeFlight` lost a static `KeyBindings`.
+**It does not make the view provably thin**, and three other rules were judged and not added: a branch count per
+method (the full-screen transition, the key-name table and the teardown are legitimately branchy; any threshold
+either passes behaviour or fails them); a ban on arithmetic or on `double`/`long`/`Stopwatch` fields (layout is
+arithmetic, and a DPI scale is a legitimate `double`); a pinned allow-list of the Presentation members the view may
+call (decidable, but it is the shrinking list again with no end state, and a legitimate new view interface fails it).
+What the field rule cannot see: a decision made with locals between two session calls, and behaviour in BCL types
+alone. Those remain a reviewer's.
+
+**Judged view, and close enough to say so** (the owner can overrule any): `SetFullScreen` (window state saved and
+restored, the overlay, focus — all controls, but sixty lines with two branches); the two full-screen log lines built
+from `ForegroundProbe.Describe` and `FocusHere` (strings, but of Win32 and focus state only a window can read);
+`Dispose`'s order, its timing line and its per-member announcements (the composition root's own teardown; the
+session's three steps are calls inside it); `KeyNames` (the WinForms key to Source name table, both directions);
+`FocusKind` (control type to `FocusedWidget`); `MessageQueue.ArrivesWithin` (a spin on `PeekMessage`);
+`StartupSplash.Open` (a second UI thread and its close race); `ApplyGeometryOverride` (two environment reads handed to
+`WindowGeometry`); `TransportBar` (enables on `lastTick > 0`, lays out its children, asks `TimeScale` for every
+number); `ViewerMenu`'s table of which item sets which `DebugModes` member and which `Fullbright`; the game-folder
+dialog choosing one of two descriptions by whether it is the startup prompt; `Program`'s unhandled-exception lines.
+
+**Dead in production after the move, left in place:** `FreeFlight.IsFlightKey` — the session asks
+`ConfigConsole.IsHeldKey` by name, so only `FreeFlightTests` calls it (D180). Not deleted here.
