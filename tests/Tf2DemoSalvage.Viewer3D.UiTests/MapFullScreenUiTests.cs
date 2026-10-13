@@ -78,7 +78,10 @@ public sealed class MapFullScreenUiTests
         // Found once and polled by property: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
         AutomationElement viewport = _viewer.Find("Viewport");
 
-        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.FullScreenItemName);
+        // Real key, and the View > Full screen item was tried instead (2026-10-13): entered through the
+        // item and left with Escape, the shared viewer then drew no position readout, and
+        // `PositionReadoutUiTests` failed after this fixture at 362 == 362 white pixels. Unexplained (D215).
+        _viewer.PressRealKey(VirtualKeyShort.F11);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 

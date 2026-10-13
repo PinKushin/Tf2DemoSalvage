@@ -9932,7 +9932,7 @@ Real input is kept for what has no other route, goes through three named helpers
 | What | Where | Why no other route |
 |---|---|---|
 | Left click on the viewport | `FirstPersonUiTests`, three tests | a raw Direct3D surface with no pattern; the mouse binding is the subject (B145) |
-| F11, Escape | `ShellUiTests`; teardown of `MapFullScreenUiTests` | the key binding is the subject, and full screen hides the menu a pattern would need to leave it |
+| F11, Escape | `ShellUiTests`, `MapFullScreenUiTests` | the key binding is the subject, and full screen hides the menu a pattern would need to leave it. In `MapFullScreenUiTests` the key is not the subject and the View > Full screen item was tried: entered that way and left with Escape, the shared viewer drew no position readout afterwards and `PositionReadoutUiTests` failed (362 == 362 white pixels, twice in the full suite, once in a two-fixture run; alone it read 0 -> 671). Unexplained, so the key stays |
 | SPACE | `ViewerSession.PressSwitchCameraMode`, every caller | the binding reaching the window is the subject |
 | Home, End | `TransportUiTests` | which control hears the key is the subject |
 | Enter on a playlist row | `ViewerApplication.LoadFromPlaylist` | a WinForms list row's invoke only focuses it and raises no `ItemActivate` |
@@ -9942,8 +9942,7 @@ B216 stands: a modified shortcut such as Ctrl+R still cannot be driven.
 
 **Moved off real input:** the three Export and Compile button clicks, the File and View menu clicks and the TF2
 folder item in `GameFolderUiTests`, the screenshot key in `FirstPerson_TheCapturedFrame_IsAViewRatherThanASurface`
-(the View menu item instead; the key is not that test's subject) and F11 in `MapFullScreenUiTests` (the Full screen
-item). `ViewerApplication.Focus`, which fell back to a real click on the window and had no caller, is removed.
+(the View menu item instead; the key is not that test's subject). `ViewerApplication.Focus`, which fell back to a real click on the window and had no caller, is removed.
 
 **Held by** `ViewerApplicationActivateUiTests`: another application is put in front, the cursor position is read,
 a transport button and a menu item are driven, and the cursor must be exactly where it was while the control's

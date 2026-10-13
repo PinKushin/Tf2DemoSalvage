@@ -48,6 +48,10 @@ public sealed class PositionReadoutUiTests
 
         long before = WhitePixelsTopRight();
 
+        // Counted from here, not from zero: a line left by any earlier switch in the shared viewer
+        // would let the wait pass before this test's own switch had arrived.
+        int switchedOn = Viewer.Count("cl_showpos 1");
+
         SetReadout(on: true);
 
         try
@@ -55,7 +59,7 @@ public sealed class PositionReadoutUiTests
             // The menu reached the form. `SetPositionReadout` logs the convar and its value, in
             // the same shape the frame-rate meter beside it does.
             Retry.WhileFalse(
-                () => Viewer.Count("cl_showpos 1") > 0,
+                () => Viewer.Count("cl_showpos 1") > switchedOn,
                 TimeSpan.FromSeconds(10),
                 throwOnTimeout: true,
                 timeoutMessage: "the Position menu item never reached SetPositionReadout.");
