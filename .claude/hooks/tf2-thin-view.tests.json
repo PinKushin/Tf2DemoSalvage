@@ -1,13 +1,12 @@
 [
-  { "name": "Edit adds an entry below one that is kept", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt", "old_string": "Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.SoundMixer\n", "new_string": "Tf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.SoundMixer\nTf2DemoSalvage.Audio!Tf2DemoSalvage.Audio.SoundMixer::Brand(1)\n"}, "expect": "deny" },
-  { "name": "Edit changes one member into another", "input": {"file_path": "C:\\repo\\tests\\Tf2DemoSalvage.Viewer3D.Tests\\thin-view-domain-reach.txt", "old_string": "Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::Bursts(4)", "new_string": "Tf2DemoSalvage.Scene!Tf2DemoSalvage.Scene.ParticleEffects::Bursts(5)"}, "expect": "deny" },
-  { "name": "Edit swaps a removed entry for a new one", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt", "old_string": "A!N.Old\nA!N.Kept\n", "new_string": "A!N.Kept\nA!N.New\n"}, "expect": "deny" },
-  { "name": "Write over the list that exists", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt", "content": "Tf2DemoSalvage.Core!Tf2DemoSalvage.Core.Scene.ScenePlayer\n"}, "expect": "deny" },
+  { "name": "Edit adds a domain using to the view", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/MainForm.cs", "old_string": "using System;\n", "new_string": "using System;\nusing Tf2DemoSalvage.Scene;\n"}, "expect": "deny" },
+  { "name": "Edit adds a qualified domain name, absolute path", "input": {"file_path": "C:\\repo\\managed\\Tf2DemoSalvage.Viewer3D\\ViewerMenu.cs", "old_string": "a", "new_string": "Tf2DemoSalvage.Core.Scene.ScenePlayer p;"}, "expect": "deny" },
+  { "name": "Edit adds a domain project reference", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/Tf2DemoSalvage.Viewer3D.csproj", "old_string": "<ItemGroup>", "new_string": "<ItemGroup>\n<ProjectReference Include=\"..\\Tf2DemoSalvage.Content\\Tf2DemoSalvage.Content.csproj\" />"}, "expect": "deny" },
+  { "name": "Write of a view file naming a domain namespace", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/New.cs", "content": "using Tf2DemoSalvage.Audio;\n"}, "expect": "deny" },
 
-  { "name": "CONTROL: Edit removes a line", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt", "old_string": "A!N.Kept\nA!N.Gone\nA!N.AlsoKept\n", "new_string": "A!N.Kept\nA!N.AlsoKept\n"}, "expect": "allow" },
-  { "name": "CONTROL: Edit removes the last lines, leaving nothing", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/thin-view-domain-reach.txt", "old_string": "A!N.Gone\nA!N.GoneToo\n", "new_string": ""}, "expect": "allow" },
-  { "name": "CONTROL: Edit adds a line to another file", "input": {"file_path": "managed/Tf2DemoSalvage.Presentation/MomentPresenter.cs", "old_string": "a\n", "new_string": "a\nb\n"}, "expect": "allow" },
-  { "name": "CONTROL: Write of the test's own output", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/bin/Debug/net10.0-windows/thin-view-domain-reach.actual.txt", "content": "anything\n"}, "expect": "allow" },
-  { "name": "CONTROL: Write of another file", "input": {"file_path": "docs/RISKS.md", "content": "anything\n"}, "expect": "allow" },
-  { "name": "CONTROL: Write that creates the list where none exists", "input": {"file_path": "tests/NoSuchProject/thin-view-domain-reach.txt", "content": "A!N.First\n"}, "expect": "allow" }
+  { "name": "CONTROL: Edit of the view naming Presentation", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/MainForm.cs", "old_string": "a", "new_string": "using Tf2DemoSalvage.Presentation;\nusing Tf2DemoSalvage.Render;\n"}, "expect": "allow" },
+  { "name": "CONTROL: Edit of the view naming no namespace", "input": {"file_path": "managed/Tf2DemoSalvage.Viewer3D/MainForm.cs", "old_string": "a\n", "new_string": "a\n_presenter.Step();\n"}, "expect": "allow" },
+  { "name": "CONTROL: Edit of a presenter naming Scene", "input": {"file_path": "managed/Tf2DemoSalvage.Presentation/MomentPresenter.cs", "old_string": "a\n", "new_string": "using Tf2DemoSalvage.Scene;\n"}, "expect": "allow" },
+  { "name": "CONTROL: Edit of the view's tests naming Core", "input": {"file_path": "tests/Tf2DemoSalvage.Viewer3D.Tests/LoadedDemoTests.cs", "old_string": "a\n", "new_string": "using Tf2DemoSalvage.Core;\n"}, "expect": "allow" },
+  { "name": "CONTROL: Write of another file", "input": {"file_path": "docs/RISKS.md", "content": "Tf2DemoSalvage.Scene is named here\n"}, "expect": "allow" }
 ]

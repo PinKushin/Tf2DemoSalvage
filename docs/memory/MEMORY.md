@@ -148,4 +148,5 @@
 - [One KeyValues tokenizer](one-keyvalues-tokenizer.md) — `KeyValuesTokens` for every reader; `""` ended a VMT, `360?` overwrote PC; only `hdr?`/`srgb?` hold (B524).
 - [A seek rebuilds what playing accumulated](a-seek-rebuilds-what-playing-accumulated.md) — catch-up at each tick's own points; a stopped effect still follows; match a playing reference at HUD tick minus interp (B527).
 - [A directorless STV chase does not turn](a-directorless-stv-chase-does-not-turn.md) — hand-typed `spec_mode` = director off = zero angles; four checks before any golden pixel (B535).
+- [Game handles are not personal information](game-handles-are-not-personal-information.md) — fine in committed docs; no history scrub.
 - [A paused frame is two moments](a-paused-frame-is-two-moments.md) — entities at the tick, particles a lerp behind; added light is an effect, ask `mat_fullbright 2`; SpriteCard tint is gamma (B538).

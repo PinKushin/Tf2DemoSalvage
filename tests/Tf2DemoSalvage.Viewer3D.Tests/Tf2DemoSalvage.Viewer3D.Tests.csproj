@@ -42,7 +42,6 @@
 
   <ItemGroup>
     <!-- The view's domain reach, which ThinViewConformanceTests holds the built assembly to (D214). It only shrinks. -->
-    <None Include="thin-view-domain-reach.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('thin-view-domain-reach.txt')" />
   </ItemGroup>
 
   <ItemGroup>
