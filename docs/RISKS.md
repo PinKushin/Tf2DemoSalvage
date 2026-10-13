@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 190 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 6 of the refactor done, the rest OPEN
+## B540 — the view reaches 109 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38692,3 +38692,205 @@ machine-wide lock serialised them and both came back identical.
 
 **Audio and Animation are at zero.** Viewer3D's project reference to Audio and its `global using Tf2DemoSalvage.Audio`
 can come out when the owner chooses; nothing in the view names the assembly.
+
+**Slice 7, 2026-10-13, first commit: the Audio reference is out of the view's project.** `Tf2DemoSalvage.Viewer3D.csproj`
+no longer references `Tf2DemoSalvage.Audio` and `GlobalUsings.cs` no longer imports its namespace; the solution builds
+with no warning and the view suite passes at 133. **There was no Animation reference to remove**: the view reached
+Animation only through Scene's and Presentation's signatures, never by a project reference or a using of its own.
+Both assemblies still arrive in the viewer's output folder, through Presentation, which is what references them. No
+reach change (190); three direct domain references are left — Core, Content and Scene.
+
+**Slice 7, second commit: the camera — 190 to 145, 45 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 149 | 119 | 30 |
+| Core | 34 | 19 | 15 |
+| Content | 7 | 7 | 0 |
+| total | 190 | 145 (45 types, 100 members) | 45 |
+
+`MainForm` uses 96 distinct domain members, from 135, and is 4,772 lines, from 5,390. *Measured*, by the instrument.
+
+*What moved:* the requested mode and its four readings (`_freeLook`, `_effectiveMode`, `_firstPerson`,
+`_followingAPlayer`); `EnterCamera`, `CycleCameraMode`, `ToggleFirstPerson`, `RefusedByTheDemo`, `CycleTarget`;
+`ViewMatrix`, `ViewCameraNow`, `ChaseCamera`, `FirstPersonCamera`, `FreeLookCamera`, `FovRestricted`, `ViewFovNow`,
+`FollowedEntity`, `Aspect`; `ReadPosition`; the fifty lines of `ILoadView.DemoOpening` and the entering half of
+`DemoOpened`; and the decisions inside four handlers — the wheel's (is a map drawn, is the free camera on), the
+drag's, the reset key's and the flight's. All of it is `Presentation.CameraPresenter`, which the load owner
+constructs with the spectator and the free camera's controller; neither is built by the window any more.
+
+*What the window passes:* its tick, the tick last shown, the viewport's size and whether it is full screen in the
+exclusive mode (`CameraWindow`, asked for when a camera is), and raw input — a wheel notch's direction, a drag in
+pixels, the flight input's reader, and the action a key resolved to through the bindings. It gets a camera to
+upload. `ICameraView` is the four places the moved code reached back: the status line, "the camera changed" (the
+two invalidations), letting go of held keys, and ending a headless run.
+
+**D188 holds, and in one place**: `RefusedByTheDemo` is asked inside `EnterCamera`, `ToggleFirstPerson` and
+`ResetCamera`, which are the only ways the mode changes, and they are the presenter's. No caller can skip it.
+
+*Every textual difference* (*measured*: `slice7/difftext.py` lists the 33 of 551 moved lines not present as
+written):
+
+- `_transport.CurrentTick` is `_window().Tick` (8), `_shownTick` is `_window().ShownTick` (2), the viewport's
+  width and height are `_window().Width` and `.Height` (5), and the full-screen test is
+  `_window().FullScreenExclusive`.
+- The pair `_world.Invalidate(); _viewport.Invalidate();` is `_view.CameraChanged()` (6, and once more in the
+  wheel's branch); `_status.Text = x` is `_view.Say( x )` (3); `FailHeadless` and `ReleaseHeldKeys` go through
+  `_view`.
+- `_launch.SpectateWho` is the argument `spectateWho`; `e.Delta > 0` is `forward`; the drag's two differences are
+  `deltaX, deltaY`; `_console.Intent()` is `intent()`, the reader handed in, called where the read stood.
+- `Fly` returns what `FreeCameraController.Fly` answered, where the window tested it and uploaded; the window
+  still uploads on true.
+- The two map guards of the wheel and the drag are the presenter's; the drag's `_dragFrom` test stays the window's
+  and runs first, as it did.
+- The reset key's branch returns through `ResetCamera`; the leaf box's eye, `_freeOrigin ?? FreeLookCamera().Origin`,
+  is `LeafEye`.
+- Eleven members the window and the load call are `public`; the four readings keep their names privately and have
+  public twins (`FreeLook`, `EffectiveMode`, `FirstPerson`, `Mode`).
+- In the load: `_view.DemoOpening()` is `_camera.DemoOpening( _spectateWho() )`, and `_camera.DemoOpened()` follows
+  `_view.DemoOpened()`, which keeps `--speed`. Same order: the camera's opening, the demo's systems, the speed, the
+  recorder's eyes.
+- In the window's constructor the launch option's spectator and the watcher's `spec_autodirector` are one call,
+  `Spectate`, where the second assignment stood.
+
+*Proof nothing changed* (*measured*; each baseline run twice on the old code first, and repeated): on
+`demostf-cp_process_f12`, a chase frame of a dead target (tick 57200), a first-person frame of the same player
+alive (52720), first person asked for while he is dead (57200, where the engine hands to the chase camera), and
+the chase frame alive with `cl_showpos 1` on — the readout's text is in the picture — are byte-identical before and
+after, with the camera's log lines of the last. The living chase frame is slice 3's, the point-of-view frame slice
+5's, and the free-camera frames every `TF2VIEW_CAMERA` frame of the earlier sets; all are re-run on the slice's
+final code.
+
+*Tests the moved code never had* (21, `CameraPresenterTests`), over a SourceTV demo of two players one of whom
+dies and a point-of-view demo, both written by the test: the mode of a new camera; nobody to follow; the chase; the
+cycle; the toggle; a dead target drawn through the chase while the mode asked for stays, and left by the mode asked
+for; a point-of-view demo opening on its recorder; a SourceTV demo keeping the free camera; `--spectate` by entity
+and by a name nobody has; **every manual camera refused on a point-of-view demo, four ways**; the recorder's eyes
+entered when the systems open; the reset; flight reading its input never outside the free camera and exactly once
+in it; the target cycle in and out of the free camera; the aspect before the viewport has a size; the readout off;
+the launch options' spectator. Each seen red in one of five rounds. One written for it was deleted:
+`Wheel_WithNoMapDrawn_MovesNothingAndTellsNobody` cannot be reddened, since the code does not compile without the
+map guard it restates. The load's order test now sees the camera's opening through `FailHeadless` (a name nobody
+has), and was seen red again with the camera told after the systems opened.
+
+**Camera paths no proof or test of mine reaches** — the UI suite's, in phase 2:
+
+- a wheel notch and a drag that MOVE the free camera (they need a map with an outline, and the map a test can
+  write has none);
+- flight that moves the camera, and the upload that follows it;
+- the keys themselves: that the bound key reaches `CycleCameraMode`, `EnterCamera`, `ResetCamera` and
+  `CycleTarget` (the presenter's side of each is tested; the window's `ProcessCmdKey` and console wiring are not);
+- the chase camera's wall recovery over PLAYING frames (every frame here is paused, so `seconds` is zero);
+- a camera change while a demo plays, and the free camera's placement over a real map's outline after a reset;
+- `--first-person` and `--third-person` on a point-of-view demo, which the lock refuses.
+
+**A restore failed once more, differently**: a break replaced `_cameraMode = mode;` with a line that already stood
+in the file three times, so the inverse found it four times and refused. Nothing was half-written (every step is
+checked first), the file was left fully broken, and it was restored by one edit and the script's own inverse, then
+compared with the copy. The script now simulates each round's break AND its restore before touching a file.
+
+**Slice 7, third commit: the draw's decisions — 145 to 109, 36 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 119 | 91 | 28 |
+| Core | 19 | 11 | 8 |
+| Content | 7 | 7 | 0 |
+| total | 145 | 109 (38 types, 71 members) | 36 |
+
+`MainForm` uses 67 distinct domain members, from 96, and is 4,608 lines, from 4,772. *Measured*, by the instrument.
+
+*What moved, to the owner of the load (`LoadPresenter.Draw.cs`), each a decision that stood beside a device call:*
+
+- **`ProjectMap`**, whole: is there a map with an outline, the world presenter's upload, and what follows one — the
+  problem on the status line, the entity models' copies released once the world is up (B407), the map read again
+  when released textures were lost. The window's `ProjectMap` is one call with its device, the surface-colour
+  toggle and the viewport's size. The world presenter and its three questions (`InvalidateWorld`,
+  `WorldNeedsProjecting`, `WorldProjected`) are the owner's.
+- **`LeafBoxLines`**, with the leaf boxes; the window says whether `mat_leafvis` is on.
+- **`ShowOnly`'s moment**: the `MomentView` — whose eyes, the eye camera, the viewmodel's field of view, the
+  watcher's three viewmodel settings — is `Show( tick, playing )`. The window still sets the tick it showed first.
+- **The screen overlay's lookup** (`ScreenOverlay`), and **the tick's feeds for the device** — the fog, the sky's
+  fog, the monitor's camera, the tonemap — as `CameraPresenter.FeedsNow()`, one record read where the four lines
+  stood, after the camera.
+
+**Two lines slice 6 had to leave in the window are back in the load where they were**: `ClearMap` forgets the leaf
+boxes and marks the world's textures stale itself, between the systems' shutdown and the device's `ClearWorld`,
+and `ReadMap` marks them stale before the level loads. `ILoadView.MapReading` is gone and `ILoadView.ClearWorld`
+is the device call alone.
+
+*Left, and why:*
+
+- **`OnViewportHandleCreated` (13)**: every line is a device call or a WinForms one — the device created, eleven
+  settings assigned to its properties, the idle handler and the key filter installed. What it reaches is
+  `ViewerSettings`' getters; it thins when the settings get an owner, not by moving device calls.
+- **`DrawScene` (5)** hands the device the moment's instance lists (`Instances`, `ViewmodelInstances`,
+  `UndrawnInstances`, the viewmodel camera). They are arguments of one device call; a record of them would be a
+  second name for `MomentScene`.
+- **`ProjectWorld`** is the device's frustum handed to the moment presenter and the three world questions; nothing
+  in it decides.
+- **`ViewFrameNow` (5)** still carries the demo, the map and the install to the frame presenter, which the owner
+  of both could supply itself. That changes `ViewFrame`'s shape for every part that reads it and is its own slice.
+
+*Every textual difference:* `_device`, `_menu.SurfaceColours.Checked` and the viewport's size are `ProjectMap`'s
+arguments; `_status.Text` is `_view.Status`; `_loader.LoadMap` is `LoadMap`; `!_debug.LeafVis` is `!on`;
+`_transport.CurrentTick` in the moment's view is `_window().Tick` and `_transport.Playing` is `playing`; the four
+feed lines read `_window().Tick` in a record's constructor; `_world.Invalidate()` in the window is
+`_loader.InvalidateWorld()` (3). The world presenter and the leaf boxes are constructed in the owner's
+constructor, where the window's constructed them: neither reads anything.
+
+*Tests:* one, `InvalidateWorld_ThenProjected_AsksForOneProjection`, seen red. The load's two order tests lose the
+`MapReading` call they recorded, since it is no longer a call on the window. **Not tested, and why:** the upload's
+follow-up, the leaf outline, the screen overlay and the feeds each need a map with faces, leaves with bounds, an
+overlay material or a demo with a fog controller, and the map and demos a test can write have none. The load logs
+hold the upload (its lines are in all three), and every frame holds the moment's view, the feeds and the overlay.
+
+**Slice 7, fourth commit: `LoadPresenter` is `ViewerPresenter`.** No reach change (109). D92 names the role and not
+the type: *a composite view gets a composite presenter that owns its sub-presenters*. That is what the owner of the
+load became once it held the frame presenter, the sound device, the camera presenter and the draw's decisions, so
+the type, its three files, its tests and the window's field (`_presenter`) carry that name. `ILoadView` keeps its
+name: it is still what the LOAD asks of the window, and `ICameraView` is what the camera asks. Earlier entries in
+this file and in D214 say `LoadPresenter`; they are the history of slice 6 and are left as written.
+
+**Slice 7, final proofs, on the slice's last code** (*measured*, `slice7/final.sh`, one run): the four camera
+frames and the camera's log lines; the three loads' ordered logs (3,261, 2,021 and 3,975 lines), their sets (319,
+246, 510) and frames; the ten paused frames; the beam frame, its `TF2VIEW_PICK` line and the 47 sound lines; both
+seek frames and their lines; the four first-person frames — every one identical to its baseline.
+
+**What is left on the list after slice 7** (109 entries; the instrument's table):
+
+| assembly | entries |
+|---|---|
+| Scene | 91 |
+| Core | 11 |
+| Content | 7 |
+
+| method | members | what it is |
+|---|---|---|
+| `OnViewportHandleCreated` | 13 | the settings assigned to the new device |
+| the constructor | 11 | the launch options into settings, the menu's HUD list, the decode log's sink, the library |
+| `ViewerMenu`'s constructor | 8 | the menu's checked states, from settings |
+| `ChooseGameFolder` | 7 | the folder dialog's answer into settings |
+| `DrawScene`, `ViewFrameNow` | 5, 5 | the moment's instance lists; the frame record's demo, map and install |
+| `SetChosenHud`, `SetFullScreenMode`, `SetTextureQuality` | 4 each | a setting changed, saved and said |
+| `AddToLibrary`, `BuildOverlay`, `OnRetrieveVirtualItem`, `SetFrameRateMeter`, `SetPositionReadout` | 3 each | the playlist; the overlay's frame record; two settings |
+| `ApplyLogVerbosity`, `ExportDemo`, `OnIdle`, `Program.Main` | 2 each | |
+| thirteen more | 1 each | |
+
+**What stands between this and removing the three references:**
+
+- **Scene (91) is mostly one type**: `ViewerSettings` and its getters and setters are 44 of the 109 entries (*measured*, on the list),
+  read by the device setup, the menu, the folder dialog and every `Set…` method. A settings owner in Presentation —
+  one that applies a setting, saves it and says so, and hands the device and the menu values — takes most of what
+  is left in one slice. `SteamInstall`, `DemoLibrary`, `DemoEntry` and `PlaylistFilter` (the playlist) are a
+  second, smaller owner.
+- **Core (11)** is the frame records' `DemoTimeline`, the decode log's sink set in the constructor, and
+  `DemoAssembly`'s export and compile. The first goes when the composite presenter fills the frame record's demo,
+  map and install itself; the other two are one small mover each.
+- **Content (7)** is the HUD picker's catalog (`HudCatalog`, `HudOption`) and `BspHdr.MatHdrLevel`, a setting.
+- **What cannot leave by moving code:** the types the window passes THROUGH — `FreeCamera` to the device,
+  `ModelInstance` lists to `DrawFrame`, `IWorldUpload` and `IModelUpload` as the device's own interfaces,
+  `VguiDrawList`, `LoadedDemo` for the tests' `Demo` property. `Device3D` is Render's and takes them, so the view
+  names them while it is the one calling the device. They go only if the composite presenter drives the device
+  through an interface of its own, or if those types are accepted as the view's vocabulary and the three
+  references are replaced by what `Render` already brings transitively. That is a decision, not a move.

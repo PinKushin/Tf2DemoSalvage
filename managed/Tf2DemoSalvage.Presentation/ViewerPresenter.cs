@@ -16,10 +16,15 @@ using Tf2DemoSalvage.Scene;
 namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>
-/// Owns what a load fills — the model set, the moment, the sound, the game systems, the frame's effects — and the load
-/// itself: the decode, the map read behind the render barrier, and the demo becoming the open one (D90, D92, D214).
+/// The viewer window's composite presenter (D92): it owns the frame presenter, the camera presenter, what a load fills —
+/// the model set, the moment, the sound, the game systems — and the load itself: the decode, the map read behind the
+/// render barrier, and the demo becoming the open one (D90, D214).
 /// </summary>
 /// <remarks>
+/// **Was `LoadPresenter` for one slice.** It began as the owner of a load, then took the sound device, the camera
+/// presenter and the draw's decisions, each because it already held what they read. D92 names the role — a composite
+/// view gets a composite presenter that owns its sub-presenters — and the name now says it.
+///
 /// **Moved out of the window whole, in the order and on the threads it ran there** [no engine counterpart: the engine
 /// loads a level on one thread behind a loading screen it draws itself; the worker and the barrier are this viewer's,
 /// B146]. The window constructed these collaborators, kept the four things a load assigns (the demo, its timeline, the
@@ -36,7 +41,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <see cref="ILoadView.OnUi{T}"/>; <see cref="ReadingMap"/> is raised on the UI thread before the map read and lowered
 /// on it afterwards, and the render loop draws nothing in between.
 /// </remarks>
-public sealed partial class LoadPresenter : IDisposable
+public sealed partial class ViewerPresenter : IDisposable
 {
     private readonly ILoadView _view;
     private readonly ILogger _log;
@@ -45,6 +50,10 @@ public sealed partial class LoadPresenter : IDisposable
     private readonly ILogger _demoLog;
     private readonly ILogger _audioLog;
     private readonly SpectatorView _spectator;
+    private readonly CameraPresenter _camera;
+    private readonly ILoggerFactory _loggers;
+    private readonly Func<CameraWindow> _window;
+    private readonly Func<string?> _spectateWho;
     private readonly MapProvider _maps;
     private readonly Func<ViewerSettings> _settingsNow;
     private readonly CancellationToken _shutdown;
@@ -187,18 +196,22 @@ public sealed partial class LoadPresenter : IDisposable
     /// <param name="loggers">The viewer's loggers, by area.</param>
     /// <param name="ledger">The frame's phase ledger, shared with the window's reporter.</param>
     /// <param name="viewmodels">The viewmodel scene the window's camera also asks.</param>
-    /// <param name="spectator">Whose eyes the view uses; the map gives it a world and a demo gives it eyes.</param>
+    /// <param name="cameraView">The window as the camera sees it.</param>
+    /// <param name="window">The window's tick and shape, asked for when a camera is.</param>
+    /// <param name="spectateWho">`--spectate`'s text as launched, or null; asked for when a demo opens.</param>
     /// <param name="maps">Where maps and the install are found.</param>
     /// <param name="settings">The window's settings as they are when asked.</param>
     /// <param name="playback">Owns the transport and the clock; the demo's systems drive it.</param>
     /// <param name="clientConVars">The watcher's own ConVar values, or null where unset (D190).</param>
     /// <param name="shutdown">Cancelled when the window closes, so the workers do not come back to a disposed one (B402).</param>
-    public LoadPresenter(
+    public ViewerPresenter(
         ILoadView view,
         ILoggerFactory loggers,
         FrameLedger ledger,
         ViewmodelScene viewmodels,
-        SpectatorView spectator,
+        ICameraView cameraView,
+        Func<CameraWindow> window,
+        Func<string?> spectateWho,
         MapProvider maps,
         Func<ViewerSettings> settings,
         PlaybackPresenter playback,
@@ -209,14 +222,18 @@ public sealed partial class LoadPresenter : IDisposable
         ArgumentNullException.ThrowIfNull(loggers);
         ArgumentNullException.ThrowIfNull(ledger);
         ArgumentNullException.ThrowIfNull(viewmodels);
-        ArgumentNullException.ThrowIfNull(spectator);
+        ArgumentNullException.ThrowIfNull(spectateWho);
         ArgumentNullException.ThrowIfNull(maps);
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(playback);
         ArgumentNullException.ThrowIfNull(clientConVars);
 
         _view = view;
-        _spectator = spectator;
+        _spectateWho = spectateWho;
+        _loggers = loggers;
+        _window = window;
+        _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
+        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, settings);
         _maps = maps;
         _settingsNow = settings;
         _shutdown = shutdown;
@@ -226,6 +243,8 @@ public sealed partial class LoadPresenter : IDisposable
         _renderLog = loggers.CreateLogger("render");
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
+        _world = new WorldPresenter(_renderLog);
+        _leafBoxes = new LeafBoxes(_renderLog);
 
         // **Given its collaborators rather than reaching for them**, which is what lets it be
         // tested without a window: the loops it shares with one-shot playback, the decode cache,
@@ -340,6 +359,9 @@ public sealed partial class LoadPresenter : IDisposable
     /// <summary>The moment presenter, for the window's show and its frame.</summary>
     public MomentPresenter Moments => _moments;
 
+    /// <summary>The camera presenter this owns, with the spectator the map gives a world and a demo gives eyes.</summary>
+    public CameraPresenter Camera => _camera;
+
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;
 
@@ -431,6 +453,25 @@ public sealed partial class LoadPresenter : IDisposable
         // soundscape was cleared inside the map READ, and the sound schedule was never torn down at
         // all. Adding a fifth system meant guessing which of the three places it belonged in.
         _levels.Shutdown();
+
+        // **One field where four were cleared, and the fourth was never cleared at all.** `_terrain`
+        // and `_overlays` were dropped here while `_brushModels` and `_leaves` were left pointing at
+        // the previous map's lumps until the next read replaced them. Nothing read them in between —
+        // `ClearMap` is followed immediately by a read — but "correct because of the call order two
+        // methods away" is the kind of thing a record makes impossible to get wrong.
+        //
+        // `_level` was cleared here too until 2026-08-25. It was a SECOND map field left behind by
+        // the move that created `LoadedMap`, never assigned anything but null, and `mat_leafvis`
+        // read it (B196).
+        _leafBoxes.Forget();
+        _world.TexturesAreCurrent = false;
+
+        // **The models go with the world, because the world owned their buffer.** `ClearWorld`
+        // disposes the `WorldRenderer`, and `_modelVertices` is one of its fields — so the packed
+        // set that is still in memory has nowhere on the device to live until it is uploaded again
+        // (B148).
+        // `_moment.Uploaded = false` was here. It is `MomentScene.LevelShutdownPreEntity`, told by
+        // the walk above — the scene knows what it uploaded, so the scene is what forgets it.
 
         _view.ClearWorld();
     }
@@ -533,7 +574,7 @@ public sealed partial class LoadPresenter : IDisposable
             // between "this could be made eager" and "there is nothing to hurry".
             _game = _levels.Install(_maps.GameFolder);
 
-            _view.MapReading();
+            _world.TexturesAreCurrent = false;
 
             // **Reading a map is not window work and telling the systems about it is not either**
             // (B188, D90). `LevelSystems` is the engine's own shape: a registered LIST walked at the
@@ -918,7 +959,7 @@ public sealed partial class LoadPresenter : IDisposable
         _demo = decoded.Demo;
         _timeline = decoded.Timeline;
 
-        _view.DemoOpening();
+        _camera.DemoOpening(_spectateWho());
 
         // **One call where there were six assignments, and that is the whole point** (B193). The
         // eyes, the viewmodels, the sound schedule and the appearance were each written inline
@@ -941,6 +982,7 @@ public sealed partial class LoadPresenter : IDisposable
             autoPlayReason);
 
         _view.DemoOpened();
+        _camera.DemoOpened();
 
         // **`_transport.SetDemoLength(_demo.LastTick)` was here, and it was the bug** (B223, D118).
         // `Open` starts autoplay; this line ran immediately afterwards and its last act is

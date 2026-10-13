@@ -4,14 +4,14 @@ using System.Linq;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
 
-/// <summary>A window for <see cref="LoadPresenter"/> that writes down what it was asked, in order, and how (D214).</summary>
+/// <summary>A window for <see cref="ViewerPresenter"/> that writes down what it was asked, in order, and how (D214).</summary>
 /// <remarks>
 /// **Two facts beside each name, because they are what a moved load could get wrong and still finish**: whether the
 /// call came through <see cref="OnUi{T}"/> — the old code's marshal to the window's thread — and whether the map read's
 /// barrier was up when it arrived. A window that is asked for the same things in the same order from the wrong side of
 /// either draws a half-replaced world.
 /// </remarks>
-internal sealed class FakeLoadView : ILoadView
+internal sealed class FakeLoadView : ILoadView, ICameraView
 {
     /// <summary>The decode's stage; its progress reports are posted and arrive when they arrive, so the order ignores them.</summary>
     public const string Decoding = "Decoding the demo";
@@ -27,6 +27,9 @@ internal sealed class FakeLoadView : ILoadView
 
     /// <summary>Told each call's name as it arrives, for a test that reads something else at that moment.</summary>
     public Action<string>? Asked { get; set; }
+
+    /// <summary>The window's tick and shape, as the camera asks for it.</summary>
+    public CameraWindow Window { get; set; } = new(0, 0d, 1280, 720, false);
 
     /// <summary>What the window answers for autoplay.</summary>
     public (bool Play, string Reason) AutoPlay { get; set; } = (false, "test");
@@ -88,15 +91,19 @@ internal sealed class FakeLoadView : ILoadView
 
     public void ClearWorld() => Note(nameof(ClearWorld));
 
-    public void MapReading() => Note(nameof(MapReading));
-
     public void MapRead() => Note(nameof(MapRead));
-
-    public void DemoOpening() => Note(nameof(DemoOpening));
 
     public void DemoOpened() => Note(nameof(DemoOpened));
 
     public void DemoShown() => Note(nameof(DemoShown));
+
+    public void Say(string? status) => Note("Say: " + status);
+
+    public void CameraChanged() => Note(nameof(CameraChanged));
+
+    public void ReleaseHeldKeys() => Note(nameof(ReleaseHeldKeys));
+
+    public void FailHeadless(string reason) => Note(nameof(FailHeadless));
 
     private void Note(string name)
     {

@@ -49,10 +49,10 @@
          between them needs to know GDI exists. -->
     <ProjectReference Include="..\Tf2DemoSalvage.Fonts\Tf2DemoSalvage.Fonts.csproj" />
 
-    <!-- B168. This reference is the whole of what was missing: the audio project was finished,
-         tested and unreachable — nothing outside it named its namespace, so 102 passing tests
-         covered a subsystem that had never made a sound. -->
-    <ProjectReference Include="..\Tf2DemoSalvage.Audio\Tf2DemoSalvage.Audio.csproj" />
+    <!-- The Audio reference was here from B168 — the audio project was finished, tested and unreachable until
+         something named its namespace — until 2026-10-13 (D214, slice 7). The view names nothing of it now: the
+         sound device is opened by Presentation's load owner, which is the project that references Audio. The
+         assembly still arrives here, through Presentation. -->
   </ItemGroup>
 
 </Project>

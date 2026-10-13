@@ -14,7 +14,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// window supplies (D214). The engine's split is the same — `CSoundEmitterSystem : CBaseGameSystem`
 /// (`SoundEmitterSystem.cpp:134`) decides what to emit and calls through `enginesound`; the device is not game code's.
 /// </content>
-public sealed partial class LoadPresenter
+public sealed partial class ViewerPresenter
 {
     /// <summary>The audio device, or null when the machine has none.</summary>
     private AudioOutput? _audio;

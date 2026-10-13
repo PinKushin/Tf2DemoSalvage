@@ -5,7 +5,7 @@ namespace Tf2DemoSalvage.Presentation;
 /// <summary>What a load asks of the window it fills: its thread, its words, its device and its camera (D214).</summary>
 /// <remarks>
 /// **Each member is a place the load reached into the window when it lived there**, called at that same moment by
-/// <see cref="LoadPresenter"/> [no engine counterpart: the engine's loader and its window are one program]. The view
+/// <see cref="ViewerPresenter"/> [no engine counterpart: the engine's loader and its window are one program]. The view
 /// keeps the dialog, the progress display and what only a window has; it decides nothing about a load's order.
 ///
 /// **No member takes or returns a domain type.** The window asks the presenter for the demo and the map when one of
@@ -33,19 +33,13 @@ public interface ILoadView
     /// <summary>Takes the progress display down: no load is in flight.</summary>
     public void HideLoading();
 
-    /// <summary>Drops the device's world and what the window drew from the old map. UI thread.</summary>
+    /// <summary>Drops the device's world. UI thread.</summary>
     public void ClearWorld();
-
-    /// <summary>A map is about to be read: the resident textures are no longer this level's.</summary>
-    public void MapReading();
 
     /// <summary>A map was read and the presenter holds it: project it.</summary>
     public void MapRead();
 
-    /// <summary>A demo is becoming the open one, before its systems open: the camera for its kind, `--spectate`, the server's flight speeds.</summary>
-    public void DemoOpening();
-
-    /// <summary>The demo's systems are open: `--speed`, and a point-of-view demo enters its recorder's eyes.</summary>
+    /// <summary>The demo's systems are open: `--speed`. The camera is told next, by the load itself.</summary>
     public void DemoOpened();
 
     /// <summary>The demo and its map are in place: restart whatever waits on a settled scene.</summary>
