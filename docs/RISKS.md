@@ -38692,3 +38692,10 @@ machine-wide lock serialised them and both came back identical.
 
 **Audio and Animation are at zero.** Viewer3D's project reference to Audio and its `global using Tf2DemoSalvage.Audio`
 can come out when the owner chooses; nothing in the view names the assembly.
+
+**Slice 7, 2026-10-13, first commit: the Audio reference is out of the view's project.** `Tf2DemoSalvage.Viewer3D.csproj`
+no longer references `Tf2DemoSalvage.Audio` and `GlobalUsings.cs` no longer imports its namespace; the solution builds
+with no warning and the view suite passes at 133. **There was no Animation reference to remove**: the view reached
+Animation only through Scene's and Presentation's signatures, never by a project reference or a using of its own.
+Both assemblies still arrive in the viewer's output folder, through Presentation, which is what references them. No
+reach change (190); three direct domain references are left — Core, Content and Scene.

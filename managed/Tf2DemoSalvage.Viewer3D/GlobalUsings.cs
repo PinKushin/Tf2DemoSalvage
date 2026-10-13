@@ -9,7 +9,8 @@
 // Note: System is deliberately NOT global here, for the same reason the test projects give — the
 // SDK-generated AssemblyInfo.cs emits its own `using System;`, which collides with a global using
 // of the same namespace and fails the build under Zero Warnings as CS8933.
-global using Tf2DemoSalvage.Audio;
+//
+// Tf2DemoSalvage.Audio was global here until 2026-10-13 (D214): the view names nothing of it any more.
 global using Tf2DemoSalvage.Fonts;
 global using Tf2DemoSalvage.Presentation;
 global using Tf2DemoSalvage.Render;
