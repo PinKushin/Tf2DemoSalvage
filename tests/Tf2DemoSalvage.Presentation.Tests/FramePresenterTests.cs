@@ -35,7 +35,7 @@ public sealed class FramePresenterTests
             static _ => null,
             NullLogger.Instance);
 
-        return new FramePresenter(models, moment, moments, sound, NullLogger.Instance, NullLogger.Instance);
+        return new FramePresenter(models, moment, moments, sound, NullLogger.Instance, NullLogger.Instance, NullLogger.Instance);
     }
 
     private static ViewFrame Frame(DemoTimeline? timeline = null, int tick = 4321) =>

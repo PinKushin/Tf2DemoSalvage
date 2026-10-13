@@ -38363,3 +38363,47 @@ byte for byte. A map a test can write is the follow-up that would close it.
 
 *Proof* (*measured*): the beam frame, its `TF2VIEW_PICK` line and the 47 lines of the paused-seek sound log are
 byte-identical before and after this commit; the whole set is re-run on the slice's final code.
+
+**Slice 5, second commit: the seek — 377 to 352, 25 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 289 | 271 | 18 |
+| Core | 45 | 41 | 4 |
+| Content | 22 | 19 | 3 |
+| Animation | 6 | 6 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 377 | 352 | 25 |
+
+`MainForm` uses 235 distinct domain members, from 255, and is 6,473 lines, from 6,710. *Measured*, by the instrument.
+
+*What moved:* `ReplaySkip`, `ReplayModelDecals`, the skip's state (`_skipShown`, the skip frame's sound list and tick),
+the flag both set, and the skip test inside `PlayHudSound`, into `FramePresenter.Seek.cs` — the same presenter, since
+a seek rebuilds exactly the parts it owns. The window's `ShowMoment` is one call, `FramePresenter.ShowMoment`, which
+runs the skip's frames, then the decals' replay, then the moment. It comes back to the window for the two things a
+window has: showing a tick (`ShowOnly`, which reads the camera and the settings, handed over as a delegate that
+answers the frame record afterwards) and one skip frame of the HUD (null while there is no HUD yet).
+
+*The instrument this needed, added first in its own commit:* `TF2VIEW_SEEK_THROUGH="52720 40"` — ticks a headless
+capture seeks through before its own. One `--tick` is only ever a seek from the start, so nothing headless could
+show a seek back, or a second seek. It is a debugging variable in the `--help` list beside `TF2VIEW_PICK`.
+
+*Proof nothing changed* (*measured*): `demostf-cp_process_f12` sought to 52720, back to 40 (frame at the wall of
+slice 2), and — in a second run — to 52720, back to 40 and forward to 52410 (frame at the blood on `t.`'s leg). Both
+frames are byte-identical before and after, and so are the lines each run logs with their timings cut: the skip to
+52720 from the start in 532 frames (sequence `880046adf58ffd86`), the skip to 40 from the start, the skip to 52410
+from 40 in 528 frames (sequence `302589e60d911af1`), the decal replays (ticks 51344 on, 358 and 200 posed, 73 and 75
+held) and the wave deck's deal (sequence `77385a089033e123`). Each was run twice on the old code first and repeated.
+**The forward frame is the SAME picture as slice 3's seek straight to 52410** (`6ad7fb90…`), which is a fact about
+the seek and not about the move: going by way of 52720 and 40 rebuilds the same decals.
+
+*Tests the moved code never had* (11, `FramePresenterSeekTests`), over a demo the file wrote and no map: a first seek
+runs a HUD frame and a show every ninety-nine packets from the demo's start, then the moment; what is held still
+around the skip's frames and not around the moment; the next tick is no skip; a seek forward starts after the last
+tick shown and a seek back from the start again; no HUD yet; no sound scripts; a HUD sound inside a skip frame is
+dealt and not played, outside one is played at the transport's tick, and is silent while the HUD replays; a device
+gets the decals' replay and nothing is left held. Each seen red in one of three rounds. One written for it was
+deleted: "with no device, no decals are replayed" cannot be reddened, because the code does not compile without the
+device it guards. **Not tested:** what the frames MAKE with a map, and the flags held around the decals' replay
+(`PlayersOnly`, the event walk) — with no map the decals pose no tick, so there is no moment to read them at. The
+seek frames above hold both.

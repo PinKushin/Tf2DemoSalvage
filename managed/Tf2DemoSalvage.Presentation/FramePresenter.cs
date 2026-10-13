@@ -64,7 +64,7 @@ public readonly record struct ViewFrame(
 /// **What each part decides is still that part's.** This is the order they run in, the sounds one hands back for the
 /// sound presenter to emit, and the two things two of them share: the map's walk and a light style's value.
 /// </remarks>
-public sealed class FramePresenter
+public sealed partial class FramePresenter
 {
     private readonly EntityModelSet _models;
 
@@ -73,6 +73,10 @@ public sealed class FramePresenter
     private readonly MomentPresenter _moments;
 
     private readonly SoundPresenter _sound;
+
+    private readonly ILogger _renderLog;
+
+    private readonly ILogger _audioLog;
 
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
@@ -120,13 +124,22 @@ public sealed class FramePresenter
     /// <param name="sound">Where a sound a part hands back is emitted.</param>
     /// <param name="render">The render log.</param>
     /// <param name="map">The map log.</param>
+    /// <param name="audio">The audio log, where a seek's skip is reported.</param>
     public FramePresenter(
-        EntityModelSet models, MomentScene moment, MomentPresenter moments, SoundPresenter sound, ILogger render, ILogger map)
+        EntityModelSet models,
+        MomentScene moment,
+        MomentPresenter moments,
+        SoundPresenter sound,
+        ILogger render,
+        ILogger map,
+        ILogger audio)
     {
         _models = models;
         _moment = moment;
         _moments = moments;
         _sound = sound;
+        _renderLog = render;
+        _audioLog = audio;
         _strikes = new BulletStrikes(models, render);
         _bursts = new BurstEffects(_particles, models, _strikes, render);
         _decals = new DecalEffects(models, _strikes, render);
@@ -138,9 +151,6 @@ public sealed class FramePresenter
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;
     }
-
-    /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
-    public bool Replaying { get; set; }
 
     /// <summary>Whether every glow's brightness has settled, for a capture that waits on it.</summary>
     public bool GlowsSettled => _frameParticles.GlowsSettled;
@@ -215,43 +225,6 @@ public sealed class FramePresenter
                 _lastParticles,
                 _bursts.Bursts,
                 _particles));
-
-    /// <summary>Where the decals' seek replay starts, or null for none.</summary>
-    /// <param name="frame">What the window knows of the frame.</param>
-    /// <param name="target">The tick sought.</param>
-    /// <returns>The first tick to replay.</returns>
-    public int? DecalReplayStart(in ViewFrame frame, int target)
-    {
-        _frame = frame;
-
-        return _decals.ReplayStart(DecalFrameAt(target), target);
-    }
-
-    /// <summary>Has the decals replay the ticks a seek skipped.</summary>
-    /// <param name="frame">What the window knows of the frame.</param>
-    /// <param name="start">The first tick to replay.</param>
-    /// <param name="target">The tick sought.</param>
-    /// <param name="device">The device that holds the decals.</param>
-    /// <param name="show">Shows and poses a tick, and answers what the window knows of the frame then.</param>
-    /// <returns>What the replay did.</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="show"/> is null.</exception>
-    public DecalReplayReport DecalReplay(in ViewFrame frame, int start, int target, Device3D device, Func<int, ViewFrame> show)
-    {
-        ArgumentNullException.ThrowIfNull(show);
-
-        _frame = frame;
-
-        return _decals.Replay(
-            start,
-            target,
-            device,
-            tick =>
-            {
-                _frame = show(tick);
-
-                return DecalFrameAt(tick);
-            });
-    }
 
     /// <summary>What a bullet is traced against this frame.</summary>
     private BulletScene BulletSceneNow => new(_frame.Timeline, _frame.Loaded?.Level, _moments.Source, _frame.ShownTick, _frame.Playing);
