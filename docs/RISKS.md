@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 657 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 3 of the refactor done, the rest OPEN
+## B540 — the view reaches 392 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 4 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38259,3 +38259,45 @@ back, and a frame with no scripts. Each seen red in one of three rounds and rest
 
 **Not tested here:** the recorder's predicted landing, which needs a prediction that has run a fall, and a footstep on
 ground a trace found, which needs a map with a floor and its surface properties.
+
+**Slice 4, third commit: the target ID and the pick — 500 to 392, 108 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 352 | 303 | 49 |
+| Core | 83 | 45 | 38 |
+| Content | 43 | 23 | 20 |
+| Animation | 7 | 6 | 1 |
+| Audio | 15 | 15 | 0 |
+| total | 500 | 392 (125 types, 267 members) | 108 |
+
+`MainForm` uses 263 distinct domain members, from 351, and is 6,860 lines, from 7,067. *Measured*, by the instrument.
+
+*What moved:* `WithIdTraces`, its three constants and its cache of dropped weapon collides, into
+`Presentation.IdTargets`; and `Pick`, into the static `Presentation.PickReport`, which returns the line instead of
+logging it. The view keeps the request (`TF2VIEW_PICK`), the frame it hands over and the log; and for the target ID
+the HUD state, the frame's own sample of the players and the first-person camera, handed over as a delegate so it is
+still asked for last, once every cheaper guard has passed.
+
+*`BulletStrikes` is still in Presentation, and the list is still why.* The view no longer asks it anything — the id
+traces were its last question — but the view still CONSTRUCTS it and clears it with the map, because one instance is
+shared by four presenters (bursts, decals, impacts, target ID) and the view is where they are made. Moved to Scene it
+would add its type, its constructor and `Clear` to the list. It can go down when something other than the view owns
+the four, which is a composition change and was not made for this.
+
+*Proof nothing changed* (*measured*): the `TF2VIEW_PICK="640 360 200"` line of `demostf-koth_harvest_event-1491260` at
+tick 1500 is byte-identical before and after. For the target ID, three first-person frames of
+`tf2-2026-pub-pov-clean` (ticks 6200, 6240, 6300: a living recorder, so the trace runs) are byte-identical against
+the commit before, built in a second worktree. None of the three shows a looked-at target's name, so they hold the
+path and its no-target answer; the name itself is held by the tests.
+
+*Tests the moved code never had* (24): `IdTargetsTests` (11) — the recorder looking at a player, the pickup range, a
+dead player looked through, looking away, the five places nothing is traced and the camera never asked for, no
+camera; `PickReportTests` (13) — the request it cannot read, the header, the ray through an off-centre pixel, the
+world hit, drawn models nearest the ray first and at most eight, a quad's name, centre, size and colour, the pixel
+window and its third number, a quad behind the camera. Each seen red in one of three rounds and restored by the
+inverse edit. One case written for it was deleted: "with no demo, nothing is traced" could not be reddened without a
+timeline to trace against.
+
+**Not tested here:** a building's box and a dropped weapon's collide in the target ID, which need a timeline that
+carries them, and the live bursts a pick names, which need a particle system that has emitted.

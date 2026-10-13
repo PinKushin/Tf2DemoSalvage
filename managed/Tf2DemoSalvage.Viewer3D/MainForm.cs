@@ -889,6 +889,8 @@ internal class MainForm : Form, IFrameSteps
         _decals = new DecalEffects(_models, _strikes, _renderLog);
         _lights = new LightStyleEffects(_renderLog);
         _impacts = new ImpactParticles(_models, _strikes, _renderLog);
+        _idTargets = new IdTargets(_strikes, _mapLog);
+        _firstPersonEye = FirstPersonCamera;
         _frameParticles = new FrameParticles(_particles, _renderLog);
         _effectEntities = new EffectEntities(_models, _renderLog);
         _walk = _decals.WorldOf;
@@ -2668,130 +2670,26 @@ internal class MainForm : Form, IFrameSteps
     // worse than none — it is read as information. `MapOverview` still holds that mapping for
     // whatever draws markers next.
 
-    /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — a debugging instrument.</summary>
-    /// <remarks>
-    /// Casts the camera's ray through the pixel (<see cref="FreeCamera.RayThrough"/>) and logs the world's hit, brushes and
-    /// static props, then every drawn model whose origin lies near the ray, nearest the ray first. Built to name a glow seen
-    /// on screen without guessing a camera to fly to it.
-    /// </remarks>
+    /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (Environment.GetEnvironmentVariable("TF2VIEW_PICK") is not { } asked ||
-            asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys, .. { } more] ||
-            !float.TryParse(xs, NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-            !float.TryParse(ys, NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-            _lastViewing is not { } viewing)
+        string? report = PickReport.Describe(
+            Environment.GetEnvironmentVariable("TF2VIEW_PICK"),
+            new PickFrame(
+                _loaded,
+                _transport.CurrentTick,
+                _lastViewing,
+                _viewport.ClientSize.Width,
+                _viewport.ClientSize.Height,
+                _moment.Drawn,
+                _lastParticles,
+                _bursts.Bursts,
+                _particles));
+
+        if (report is not null)
         {
-            return;
+            _renderLog.LogInformation("{Message}", report);
         }
-
-        (float dx, float dy, float dz) = viewing.RayThrough(px, py, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
-        Vector3 ray = new(dx, dy, dz);
-        System.Text.StringBuilder report = new();
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) at tick {_transport.CurrentTick} from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
-
-        if (_loaded?.Level is { } level)
-        {
-            Vector3 end = eye + (ray * 16000f);
-            BspTrace hit = level.Trace((eye.X, eye.Y, eye.Z), (end.X, end.Y, end.Z), 0f);
-
-            float wall = hit.Fraction * 16000f;
-            Vector3 at = eye + (ray * wall);
-
-            string? Owner(ParticleEffect effect) =>
-                Enumerable.Range(0, effect.Particles.Count).Any(i => Vector3.Distance(effect.Particles.PositionOf(i), at) < 100f)
-                    ? effect.System.Name
-                    : effect.Children.Select(Owner).FirstOrDefault(static name => name is not null);
-
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            report.Append(CultureInfo.InvariantCulture, $"world at {wall:0} units ({at.X:0} {at.Y:0} {at.Z:0}) texinfo {hit.Texinfo} static prop {hit.StaticProp}; ");
-
-            foreach (ParticleBurst burst in _bursts.Bursts)
-            {
-                // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
-                // A pick of 500 pixels or wider asks for the whole frame, so every live burst is named.
-                // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-                if (_particles.BurstEffect(burst.Key) is not { } effect ||
-                    (Owner(effect) ?? (more is [{ } all] && float.Parse(all, CultureInfo.InvariantCulture) >= 500f ? effect.System.Name : null)) is not { } owner)
-                {
-                    continue;
-                }
-
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0}) forward ({burst.At.Forward.X:0.00} {burst.At.Forward.Y:0.00} {burst.At.Forward.Z:0.00}) end ({burst.End?.At.X:0} {burst.End?.At.Y:0} {burst.End?.At.Z:0}) own particles {effect.Particles.Count}{string.Concat(Enumerable.Range(0, Math.Min(effect.Particles.Count, 6)).Select(i => i * Math.Max(1, effect.Particles.Count / 6)).Select(i => string.Create(CultureInfo.InvariantCulture, $" #{i} age {effect.Particles.AgeOf(i):0.00} at ({effect.Particles.PositionOf(i).X:0} {effect.Particles.PositionOf(i).Y:0} {effect.Particles.PositionOf(i).Z:0}) radius {effect.Particles.RadiusOf(i):0.0} alpha {effect.Particles.AlphaOf(i):0.00}")))}}} ");
-            }
-        }
-
-        foreach ((SceneProp prop, float along, float off) in (_moment.Drawn ?? [])
-            .Select(prop =>
-            {
-                Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
-                float along = Vector3.Dot(origin - eye, ray);
-
-                return (prop, along, off: Vector3.Distance(origin, eye + (ray * along)));
-            })
-            .Where(static seen => seen.along > 0f && seen.off < 128f)
-            .OrderBy(static seen => seen.off)
-            .Take(8))
-        {
-            // The sequence is the DRAWN prop's own — what the frame posed with — beside what chose it (B523).
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off, at ({prop.Pose.X:0.#} {prop.Pose.Y:0.#} {prop.Pose.Z:0.#}) sequence {prop.Pose.Sequence} slot {prop.Pose.Slot ?? "-"} jump {prop.Pose.JumpActivity?.ToString() ?? "-"} flags {prop.Pose.Flags?.ToString(CultureInfo.InvariantCulture) ?? "-"}] ");
-        }
-
-        // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick — or within the third
-        // number of `TF2VIEW_PICK="x y pixels"`, for a whole effect rather than one spot of it.
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        float within = more is [{ } wide] && float.TryParse(wide, NumberStyles.Float, CultureInfo.InvariantCulture, out float pixels)
-            ? pixels
-            : 24f;
-        float[] m = viewing.ToMatrix();
-        int width = _viewport.ClientSize.Width;
-        int height = _viewport.ClientSize.Height;
-
-        foreach (ParticleBatch batch in _lastParticles)
-        {
-            string named = _loaded?.Assets?.ParticleMaterials?.FirstOrDefault(pair => pair.Value.Equals(batch.Material)).Key ??
-                           _loaded?.Assets?.SpriteMaterials?.FirstOrDefault(pair => pair.Value.Material.Equals(batch.Material)).Key ?? "?";
-
-            for (int i = 0; i + 5 < batch.Corners.Count; i += 6)
-            {
-                Vector3 centre = Vector3.Zero;
-
-                for (int c = 0; c < 6; c++)
-                {
-                    centre += new Vector3(batch.Corners[i + c].X, batch.Corners[i + c].Y, batch.Corners[i + c].Z);
-                }
-
-                centre /= 6f;
-                float w = (centre.X * m[3]) + (centre.Y * m[7]) + (centre.Z * m[11]) + m[15];
-
-                if (w <= 0f)
-                {
-                    continue;
-                }
-
-                float sx = (((centre.X * m[0]) + (centre.Y * m[4]) + (centre.Z * m[8]) + m[12]) / w + 1f) * 0.5f * width;
-                float sy = (1f - (((centre.X * m[1]) + (centre.Y * m[5]) + (centre.Z * m[9]) + m[13]) / w)) * 0.5f * height;
-
-                if (MathF.Abs(sx - px) < within && MathF.Abs(sy - py) < within)
-                {
-                    DetailSpriteVertex first = batch.Corners[i];
-
-                    // The size is the drawn quad's own: its first corner's distance from its centre, in world units.
-                    float reach = Vector3.Distance(centre, new Vector3(first.X, first.Y, first.Z));
-
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) corner {reach:0.0} out rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
-                }
-            }
-        }
-
-        _renderLog.LogInformation("{Message}", report.ToString());
     }
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
@@ -4617,6 +4515,12 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The beams, sprite trails and ropes, and the holiday lights the ropes dispatch (B231, B475, B477, B478).</summary>
     private readonly EffectEntities _effectEntities;
 
+    /// <summary>What the local player is looking at, for the target ID and the weapon pickup prompt.</summary>
+    private readonly IdTargets _idTargets;
+
+    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
+    private readonly Func<FreeCamera?> _firstPersonEye;
+
     /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
     private readonly Func<LoadedMap, DecalWorld> _walk;
 
@@ -4880,118 +4784,6 @@ internal class MainForm : Form, IFrameSteps
                 $"the rest placing decals); {replayed.Held} held"));
 
         static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
-    }
-
-    /// <summary>`LIFE_ALIVE`.</summary>
-    private const int Alive = 0;
-
-    /// <summary>`FL_DUCKING`.</summary>
-    private const int Ducking = 1 << 1;
-
-    /// <summary>`SOLID_VPHYSICS`.</summary>
-    private const int SolidVphysics = 6;
-
-    /// <summary>Each dropped weapon model's collide, read once.</summary>
-    private readonly Dictionary<string, Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide?> _modelCollides = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
-    /// <remarks>
-    /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
-    /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
-    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>). The same traces answer `GetDroppedWeaponInRange`'s
-    /// (tf_player_shared.cpp:14761), `TF_WEAPON_PICKUP_RANGE` long.
-    /// </remarks>
-    private HudState WithIdTraces(HudState state, int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
-            || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
-            || FirstPersonCamera() is not { } eye)
-        {
-            return state with { IdTarget = null };
-        }
-
-        List<BulletTarget> targets = [];
-        Dictionary<int, int> teams = [];
-
-        // Their hulls where the frame drew them — `GetCollisionOrigin()` — beside the hitboxes posed there (B526); the
-        // recording's newest frame put a running player's hull an interpolation delay ahead of his body.
-        foreach (ScenePlayer player in _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick))
-        {
-            if ((player.LifeState ?? Alive) == Alive)
-            {
-                targets.Add(new BulletTarget(player.EntityIndex, new Vector3(player.X, player.Y, player.Z), ((player.Flags ?? 0) & Ducking) != 0));
-                teams[player.EntityIndex] = player.Team ?? 0;
-            }
-        }
-
-        // A standing building's `SOLID_BBOX`: its origin plus the networked collision box; a blueprint is `FSOLID_NOT_SOLID`.
-        List<IdTargetBox> boxes = [];
-
-        foreach (Core.Scene.SceneBuilding building in timeline.BuildingsAt(tick))
-        {
-            if (building is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
-            {
-                boxes.Add(new IdTargetBox(
-                    building.EntityIndex,
-                    building.Team ?? 0,
-                    new Vector3(at.X + mins.X, at.Y + mins.Y, at.Z + mins.Z),
-                    new Vector3(at.X + maxs.X, at.Y + maxs.Y, at.Z + maxs.Z)));
-            }
-        }
-
-        // A `SOLID_BBOX` — a revive marker, or a dropped weapon whose `VPhysicsInitNormal` failed (tf_dropped_weapon.cpp:113-116)
-        // — is its box, world-aligned; a `SOLID_VPHYSICS` weapon its model's collide, placed (`ClipRayToCollideable`).
-        foreach (Core.Scene.SceneIdEntity entity in timeline.IdEntitiesAt(tick))
-        {
-            if (entity is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
-            {
-                Vector3 origin = new(at.X, at.Y, at.Z);
-                StaticPropCollision? hull = null;
-
-                if (entity is { SolidType: SolidVphysics, Model: { } model } && _game is { } game)
-                {
-                    (float pitch, float yaw, float roll) = entity.Angles ?? (0f, 0f, 0f);
-
-                    hull = StaticPropCollision.From(
-                        [new BspStaticProp(model, at.X, at.Y, at.Z, pitch, yaw, roll, 1f, Solid: SolidVphysics)],
-                        path =>
-                        {
-                            if (!_modelCollides.TryGetValue(path, out Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide? known))
-                            {
-                                known = IvpMapWorld.ModelCollide(path, game, _mapLog);
-                                _modelCollides[path] = known;
-                            }
-
-                            return known;
-                        },
-                        _ => -1);
-                }
-
-                boxes.Add(new IdTargetBox(
-                    entity.EntityIndex, entity.Team ?? 0, origin + new Vector3(mins.X, mins.Y, mins.Z), origin + new Vector3(maxs.X, maxs.Y, maxs.Z), hull));
-            }
-        }
-
-        IdTargetTraces traces = new(
-            targets,
-            teams,
-            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
-            _strikes.HitboxesOrUntested,
-            boxes);
-        (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
-        Vector3 from = new(eye.Origin.X, eye.Origin.Y, eye.Origin.Z);
-        Vector3 forward = new(x, y, z);
-
-        return state with
-        {
-            IdTarget = IdTargetTrace.GetIdTarget(
-                from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
-
-            // `EyePosition() + vecForward * TF_WEAPON_PICKUP_RANGE`, the same mask and filter as the ID trace.
-            WeaponPickupTraceHit = traces.Solid(from, from + (forward * 150f), state.LocalIndex).Entity,
-            EyePosition = (eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
-        };
     }
 
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
@@ -5324,7 +5116,8 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        return WithIdTraces(hudState, hudTick);
+        return _idTargets.With(
+            hudState, hudTick, new IdTargetFrame(_timeline, _loaded, _game, _moments.PlayersShownAt(hudTick), _firstPersonEye));
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
