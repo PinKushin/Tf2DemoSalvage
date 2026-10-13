@@ -57,6 +57,11 @@ Moving logic to another file inside `Viewer3D` buys nothing if the project is st
   by the coordinating agent; option 1 was the presenter driving the device through its own interface and the Scene
   reference leaving). So no Scene, Core or Content type is "just vocabulary" in `Viewer3D`: a type the view only
   passes through is still reach, and it goes behind an interface (D214).
+- **End state reached 2026-10-13 (B540 closed): reach 0, Core/Content/Scene/Audio references out of the csproj.** The
+  compiler does NOT enforce it — domain assemblies still arrive through Presentation and Render, and `Device3D`
+  implements Scene interfaces, so they cannot be shut out. `ThinViewConformanceTests` (3 tests) holds it: IL reach
+  empty, no domain ProjectReference, no domain namespace in a code line. The IL instrument cannot see an inlined
+  `const`; the source test can.
 
 Related: [[conformance-test-before-implementation]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

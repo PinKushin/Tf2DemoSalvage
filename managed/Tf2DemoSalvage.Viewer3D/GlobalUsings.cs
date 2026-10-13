@@ -14,4 +14,3 @@
 global using Tf2DemoSalvage.Fonts;
 global using Tf2DemoSalvage.Presentation;
 global using Tf2DemoSalvage.Render;
-global using Tf2DemoSalvage.Scene;

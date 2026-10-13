@@ -3,7 +3,6 @@ using System.Windows.Forms;
 
 using Microsoft.Extensions.Logging;
 
-using Tf2DemoSalvage.Core.Diagnostics;
 using Tf2DemoSalvage.Logging;
 
 namespace Tf2DemoSalvage.Viewer3D;

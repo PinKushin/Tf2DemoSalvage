@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
+## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, CLOSED 2026-10-13 after slices 1 to 8: the list is empty, the three references are out, three tests hold it
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -39060,3 +39060,34 @@ effects' particles; the draw sets the screen overlay and the monitor's models, t
 handed. Each seen red, the first twice (a wrong value, and the camera set before the feeds). **Not tested:**
 `AttachDevice` and `DetachDevice`, which take the real device; `PoseNow`, whose only effect is inside the moment
 presenter's cull; the two guards for "no device yet". The frames hold all of it.
+
+**Slice 8, fifth commit: the three references are out, and the end state is held by tests.**
+
+`Tf2DemoSalvage.Viewer3D.csproj` references Render, Presentation and Fonts (Logging arrives through them, as it
+did); the Core, Content and Scene references are gone, with `global using Tf2DemoSalvage.Scene` and six `using`
+lines in `MainForm.cs` and one in `Program.cs`. The solution builds with no warning.
+
+**Removing the usings found one more thing, which the list could not have:** `ViewerSettings.ExclusiveFullScreenRefused`,
+a `const` — the compiler copies a constant's value in, so the assembly holds no reference to it and the instrument
+read zero with it still there. It is `SettingsPresenter.ExclusiveFullScreenRefused` now. This is the limit the
+instrument's own documentation named (*"What it cannot see: a `const`…"*), met once.
+
+**The compiler does not enforce the end state, and cannot.** The plan in D214 said it would once the references
+were gone. *Measured*: the domain assemblies still arrive through Presentation and Render, so a `using
+Tf2DemoSalvage.Scene` in the view compiles; and they cannot be shut out, because the view uses `Device3D`, which
+implements Scene's interfaces, and a type whose interfaces are unresolvable cannot be used at all. So the end
+state is held by `ThinViewConformanceTests`, three tests where there was one:
+
+- `DomainReach_OfTheBuiltViewAssembly_IsNothing` — the instrument, asserting empty and not equality with a list;
+- `ProjectReferences_OfTheViewsProject_NameNoDomainAssembly` — the csproj names no domain project;
+- `Sources_OfTheView_NameNoDomainNamespace` — no code line of the view's sources names a domain namespace, which
+  refuses the `using` the compiler allows and sees a fully qualified constant the instrument cannot.
+
+Each seen red in one round — a Scene project reference, a `global using`, and `typeof( FreeCamera )` added to the
+view — and restored, the fifteen files compared with copies.
+
+**Left for the owner, and not done here:** the hook `.claude/hooks/tf2-thin-view.ps1` and the D214 section of
+`CLAUDE.md` still describe a list that only shrinks. Both are configuration, and an instruction to change them
+reached this work through another agent, which is not the owner's own word; they are named in the slice's report
+with the sentence to use. `thin-view-domain-reach.txt` is empty, is still copied beside the test's binaries, and is
+read by nothing; it is left in place for the hook that guards it.

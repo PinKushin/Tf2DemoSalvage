@@ -9875,4 +9875,17 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   vocabulary and keep the reference. His answer, as the coordinating agent relayed it: *"1 true thin view"*. No
   reason was given beyond those words. Slice 8 is that: a settings owner, a playlist owner, the frame records
   filled by the presenter, the device behind `IViewerDevice`, and then the three references out.
+- **The end state, 2026-10-13: the view reaches nothing, and three tests hold it — not the compiler.** The plan above
+  said removing the project references would make the compiler enforce D90. It does not: the domain assemblies
+  still arrive through Presentation and Render, so a `using` compiles, and they cannot be shut out because the
+  view uses `Device3D`, which implements Scene's interfaces. `ThinViewConformanceTests` asserts the assembly's
+  reach is empty, the csproj names no domain project, and no code line of the view's sources names a domain
+  namespace — the last of which also sees an inlined `const`, the one thing the reach instrument read as zero
+  while it was still there (B540, slice 8).
+- **The device is handed over by its concrete type, once** (slice 8): `AttachDevice( Device3D, … )`. Presentation
+  references Render, so the entry may name Render's device; a Scene interface as the parameter's type would have
+  been a Scene type in the view's signature table. Inside, the presenter drives it through `IViewerDevice`.
+- **A value carried between two frame stages stays an argument, even when the carrier must not name it** (slice 8):
+  `FrameOverlay` is an opaque struct around the draw list, so the window passes it from `BuildOverlay` to `Draw`
+  without a field in between (B193, B196).
 

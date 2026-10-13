@@ -82,6 +82,9 @@ public sealed class SettingsPresenter
     /// <summary>Shown when a chosen folder is not a TF2 `tf` folder; the folder and the reason follow it.</summary>
     public const string NotAGameFolder = "Not a TF2 folder:";
 
+    /// <summary>Shown when the display refuses the exclusive mode: the settings' own words, for a window that names no settings type.</summary>
+    public const string ExclusiveFullScreenRefused = ViewerSettings.ExclusiveFullScreenRefused;
+
     /// <summary>Shown when a TF2 folder is chosen; the folder follows it.</summary>
     public const string GameFolderSet = "TF2 folder set to ";
 

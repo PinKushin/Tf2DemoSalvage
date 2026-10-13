@@ -27,13 +27,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 // `Core.Scene` is the honest remaining coupling: the window holds a `DemoTimeline`, a
 // `PlaybackClock`, and lists of `ScenePlayer` and `ScenePoint` to hand to the presenters that act
 // on them. It reasons about none of them.
-using Tf2DemoSalvage.Content.Assets;
-using Tf2DemoSalvage.Content.Bsp;
-using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Core.Text;
 using Tf2DemoSalvage.Logging;
-using Tf2DemoSalvage.Scene.Hud;
-using Tf2DemoSalvage.Scene.Prediction;
 
 namespace Tf2DemoSalvage.Viewer3D;
 
@@ -2301,7 +2295,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             {
                 // Refused - another application holds the output, or this is a WARP device.
                 // Borderless is already in effect, so this is a note rather than a failure.
-                _status.Text = ViewerSettings.ExclusiveFullScreenRefused;
+                _status.Text = SettingsPresenter.ExclusiveFullScreenRefused;
             }
 
             _overlay = new OverlayWindow(_transport);
