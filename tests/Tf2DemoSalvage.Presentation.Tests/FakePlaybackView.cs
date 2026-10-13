@@ -56,6 +56,22 @@ internal sealed class FakePlaybackView : IPlaybackView
     /// </remarks>
     public void SetDemoLength(int lastTick) => DemoLength = lastTick;
 
+    /// <inheritdoc/>
+    public int CurrentTick { get; set; }
+
+    /// <summary>Every speed set through the interface, in order; a reset is 1.</summary>
+    public List<double> Speeds { get; } = [];
+
+    /// <inheritdoc/>
+    public void SetSpeed(double speed)
+    {
+        Speeds.Add(speed);
+        SpeedChanged?.Invoke(this, new SpeedEventArgs(speed));
+    }
+
+    /// <inheritdoc/>
+    public void ResetSpeed() => SetSpeed(1d);
+
     /// <summary>Acts as the user dragging the scrubber.</summary>
     public void Scrub(int tick) => Scrubbed?.Invoke(this, new TickEventArgs(tick));
 

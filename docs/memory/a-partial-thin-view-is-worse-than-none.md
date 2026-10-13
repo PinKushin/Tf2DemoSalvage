@@ -62,6 +62,14 @@ Moving logic to another file inside `Viewer3D` buys nothing if the project is st
   implements Scene interfaces, so they cannot be shut out. `ThinViewConformanceTests` (3 tests) holds it: IL reach
   empty, no domain ProjectReference, no domain namespace in a code line. The IL instrument cannot see an inlined
   `const`; the source test can.
+- **Reach 0 was not thin (slice 9, same day).** The owner: *"are you sure thin view is fully closed, and wont ever be
+  made fat again?"* It was not: the idle loop, frame steps, capture and measure runs, key dispatch and render
+  switches were all still in `MainForm`, written over Presentation objects held as fields, which reach does not
+  count. They are `ViewerSession`; the window is `IViewerWindow` + `IIdleHost`. A fourth test holds the mechanism:
+  no view type has a field of a class or interface from Presentation, Render or the domain except the session.
+  **How to apply:** when a measure reads zero, ask what it does not measure before calling the thing done; and a
+  new view field that is a presenter, a device or any object from below goes on the session instead. The field
+  rule is sound, not complete: a decision in locals between two session calls still needs a reviewer.
 
 Related: [[conformance-test-before-implementation]], [[output-level-assertion-or-it-is-not-done]],
 [[one-place-or-it-drifts]], [[valve-parity-is-the-first-principle]].

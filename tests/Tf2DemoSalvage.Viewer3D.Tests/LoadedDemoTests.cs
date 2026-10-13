@@ -250,7 +250,7 @@ public sealed class LoadedDemoTests
 
         using MainForm form = new(path);
 
-        DemoLoadResult result = await form.OpenCommandLineDemo().ConfigureAwait(false);
+        DemoLoadResult result = await form.Session.OpenCommandLineDemo().ConfigureAwait(false);
 
         result.Loaded.ShouldBeTrue(result.Message);
         form.Presenter.Demo.ShouldNotBeNull().MapName.ShouldBe("cp_snakewater_final1");
@@ -266,7 +266,7 @@ public sealed class LoadedDemoTests
 
         using MainForm form = new(_folder);
 
-        form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
+        form.Session.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
         form.Presenter.Demo.ShouldBeNull();
         form.Transport.LastTick.ShouldBe(0);
     }
@@ -280,7 +280,7 @@ public sealed class LoadedDemoTests
 
         using MainForm form = new(first, second);
 
-        form.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
+        form.Session.OpenCommandLineDemo().Result.Loaded.ShouldBeFalse();
         form.Presenter.Demo.ShouldBeNull();
     }
 

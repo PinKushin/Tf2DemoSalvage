@@ -1,0 +1,608 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+
+using Microsoft.Extensions.Logging;
+
+using Tf2DemoSalvage.Logging;
+using Tf2DemoSalvage.Render;
+
+namespace Tf2DemoSalvage.Presentation;
+
+public sealed partial class ViewerSession
+{
+    /// <summary>Times a full screen transition from the keystroke to the first frame drawn.</summary>
+    /// <remarks>
+    /// **The number a user actually feels**, and the one that would have caught this project's
+    /// worst performance defect on its own. Full screen took roughly a frame a second because
+    /// entering it rebuilt the world seventeen times; every individual step looked fine and only
+    /// the end-to-end time was absurd. Timing the parts would not have found it either — the cost
+    /// was in how MANY times a fast thing ran.
+    ///
+    /// Stopped at the first PRESENTED frame rather than when the window finishes resizing, because
+    /// a window that has changed size while still showing the old picture is not yet full screen
+    /// as far as anyone looking at it is concerned.
+    /// </remarks>
+    private Stopwatch? _fullScreenClock;
+
+    /// <summary>Demo time the last drawn frame covered: zero while paused.</summary>
+    private double _demoFrameSeconds;
+
+    /// <summary>Draws the whole world at a moment: players and every model-bearing entity.</summary>
+    /// <param name="tick">The moment to show, which may fall between ticks.</param>
+    /// <remarks>
+    /// **All that is left here is what the window knows**, gathered into a <see cref="MomentView"/>
+    /// and handed on: the camera mode, the transport's tick, the followed entity, the eye that needs
+    /// this viewport's aspect ratio, and a setting. The sampling, the timing, the scene build and the
+    /// stall report all left on 2026-08-26 (B188, D90).
+    ///
+    /// Takes a fractional tick rather than a whole one so the interpolation actually reaches the
+    /// picture. Truncating here would leave every pose snapped to the last packet and make the
+    /// whole interpolation layer a no-op that still passed its own tests.
+    /// </remarks>
+    public void ShowMoment(double tick)
+    {
+        // Whether there is a timeline, and what a seek rebuilds on the way, are the presenter's (D214); it comes back
+        // here through `ShowOnly` to show each tick it needs.
+        _presenter.ShowMoment(tick);
+    }
+
+    /// <summary>Builds the scene at a moment, with no replay before it.</summary>
+    private void ShowOnly(double tick)
+    {
+        _shownTick = tick;
+
+        _presenter.Show(tick, _transport.Playing);
+    }
+
+    /// <summary>What this window knows of the frame it is drawing; the presenter adds the demo, the map and the settings.</summary>
+    private WindowFrame WindowFrameNow =>
+        new(
+            _transport.CurrentTick,
+            _shownTick,
+            _transport.Playing,
+            _window.Viewport.Width,
+            _window.Viewport.Height,
+            (float)_clock.LastFrameSeconds,
+            _demoFrameSeconds);
+
+    /// <summary>What this window knows that a camera needs: the transport's tick, the tick last shown, its shape.</summary>
+    private CameraWindow CameraWindowNow =>
+        new(
+            _transport.CurrentTick,
+            _shownTick,
+            _window.Viewport.Width,
+            _window.Viewport.Height,
+            _window.IsFullScreen && _settingsOwner.FullScreenExclusive);
+
+    /// <summary>The colour behind everything: a dark blue, and deliberately not black.</summary>
+    /// <remarks>
+    /// **A diagnostic choice more than a cosmetic one.** This started at 0.06/0.07/0.09, which is
+    /// near enough to black that a surface drawn black and a surface not drawn at all look
+    /// identical — so a hole in the map reads as background and nobody investigates it. The owner
+    /// found a black box on cp_process's last points only after suspecting the background was
+    /// hiding it, and could not tell whether it was geometry or a gap.
+    ///
+    /// It also still does the job the near-black one was written for: a viewport that stays the
+    /// form's grey looks the same whether the device failed or simply drew nothing, so the clear
+    /// colour is the evidence that the swap chain is bound to this panel and presenting.
+    ///
+    /// Blue rather than any other hue because nothing in a TF2 map is this colour: the team blues
+    /// are far brighter, and the world is browns, greys and greens.
+    /// </remarks>
+    private const float BackgroundRed = 0.07f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundGreen = 0.10f;
+
+    /// <inheritdoc cref="BackgroundRed"/>
+    private const float BackgroundBlue = 0.20f;
+
+    /// <summary>The frame clocks: when a frame may begin, and how long the last one took.</summary>
+    /// <remarks>
+    /// **Was `_flyWatch` and `_lastFrameAt`, two fields whose docs never mentioned each other**
+    /// (B188, D90). They are still two clocks — Valve keeps at least four and names each by what it
+    /// obeys, and the demo free camera flies by `absoluteframetime` while a limiter cannot pace
+    /// itself by the duration of the frame it is deciding to allow. `FrameClock` states the
+    /// relationship; `FrameTimingConformanceTests` carries the citations.
+    /// </remarks>
+    private readonly FrameClock _clock;
+
+    /// <summary>The frame-rate log's meter, independent of whether the on-screen one is shown.</summary>
+    private readonly FpsMeter _loggedRate = new() { Mode = FpsMeter.Smoothed };
+
+    /// <summary>Seconds since the window opened, for VGUI's 250 ms ticks.</summary>
+    private readonly Stopwatch _vguiClock = Stopwatch.StartNew();
+
+    /// <summary>Sends the current view to the device, without rebuilding anything.</summary>
+    /// <remarks>
+    /// **Sixty-four bytes, where telling the device the camera moved used to cost a projection of
+    /// the whole map** (B98). The `SetCamera` call lived inside <see cref="ProjectMap"/>, so the
+    /// only way to update the view was to re-project every map segment and every surface triangle
+    /// into screen space for the top-down overlay — which the free view does not draw.
+    ///
+    /// Affordable while the camera moved once per keystroke; the frame budget once it flew. The
+    /// tell was that flight stayed smooth while the demo was paused and stuttered while it played,
+    /// because playback's per-frame scene rebuild was competing for the same milliseconds.
+    ///
+    /// **Safe to use instead of a full rebuild in the FREE view only**, and each half of that was
+    /// checked rather than assumed. The world's vertices are in map coordinates and only the view
+    /// changes (D35). The 3D models are world-space too, placed by their own matrices. And the
+    /// screen-space scene points are a map-view fallback drawn only for players with no model, so
+    /// they are empty in any modern demo and are projected through the top-down camera anyway. The
+    /// map view still rebuilds, because there everything IS projected to screen space.
+    /// </remarks>
+    private void UploadCamera(long flyTicks = 0)
+    {
+        // The view's setup beside the camera, in the order it ran here, is the presenter's (`ViewerPresenter.UploadCamera`).
+        // The exposure's time is this window's to say: it walks by game frame time (B514), and
+        // **a pending capture is a paused frame, and gets a tick of time anyway** (B520): TF2 arrives at a tick by playing
+        // to it, so its exposure has had seconds; a still that held the reset value of 1 was 1/0.70 too bright outdoors.
+        _presenter.UploadCamera(
+            flyTicks,
+            _launch.ShotPath is not null && !_opening.Finished
+                ? CaptureExposureSeconds
+                : (float)_demoFrameSeconds,
+            _surfaceColours);
+    }
+
+    /// <summary>The moment <see cref="ShowMoment"/> last showed, fraction included — what the players are posed at.</summary>
+    private double _shownTick;
+
+    /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
+    /// <returns>The draw list.</returns>
+    /// <remarks>What is built, and in which order, is the presenter's (D214); this is what a window knows of it.</remarks>
+    public FrameOverlay BuildOverlay() => _presenter.BuildOverlay();
+
+    /// <summary>Writes the frame rate to the log once a second.</summary>
+    private readonly FrameRateLog _frameRateLog = new();
+
+    /// <summary>
+    /// Seconds of drawn frames, accumulated from the clock rather than from a wall clock.
+    /// </summary>
+    /// <remarks>
+    /// Summing the frame durations rather than reading a stopwatch keeps the interval measured in
+    /// the same quantity the reading describes: a run paused at a breakpoint, or one whose window is
+    /// hidden and drawing nothing, does not silently accrue an interval it never rendered.
+    /// </remarks>
+    private double _frameSeconds;
+
+    /// <summary>Every per-second line this run produced, for <c>--measure</c> to print.</summary>
+    private readonly MeasureLog _measured = new();
+
+    /// <summary>Whether the previous frame had a loaded demo on screen — the first frame after a load is not counted.</summary>
+    private bool _wasOnScreen;
+
+    /// <summary>Prints what <c>--measure</c> gathered and closes.</summary>
+    /// <remarks>
+    /// **To stdout, because the log is buffered.** Reading the log file while the viewer is still
+    /// running shows only what has been flushed — 52 lines of asset loading, and nothing about
+    /// frames — which was misread twice in one session, once as the viewer having exited on its own.
+    /// A measurement that has to be read out of a file nobody can read yet is not a measurement.
+    ///
+    /// **The first line is dropped.** It covers the second in which the map finished loading and
+    /// playback began, so it averages a handful of frames against a rebuild that included model
+    /// uploads; keeping it drags the mean toward a cost no steady frame pays.
+    /// </remarks>
+    private void FinishMeasuring()
+    {
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        PrintMeasured(
+            _seekedForMeasure
+                ? string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds paused at {_launch.ThenSeek} after the seek, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports)")
+                : MeasuredPlaybackHeading());
+
+        _window.Close(posted: false);
+    }
+
+    /// <summary>
+    /// The heading <c>PlaybackUiTests</c> parses: seconds played, rate reports, rebuild reports, and the tick
+    /// the demo was showing when measuring ended.
+    /// </summary>
+    /// <remarks>
+    /// **The tick is the proof the demo played**, carried from <see cref="_shownTick"/>, the value the frame drew. The
+    /// rebuild count cannot be: its line prints once per hundred rebuilds, and a backgrounded viewer (always, in the gate)
+    /// can finish twenty seconds without reaching a hundred (2026-10-01, the cut ESEA demo).
+    /// </remarks>
+    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+    private string MeasuredPlaybackHeading() =>
+        string.Create(CultureInfo.InvariantCulture, $"measured {_frameSeconds:0.#} seconds of playback, {_measured.Samples} samples ({_measured.Rebuilds} rebuild reports), ending at tick {_shownTick:0}");
+
+    /// <summary>Frames counted into <see cref="_frameSeconds"/> since the last printed measurement.</summary>
+    private int _framesMeasured;
+
+    /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
+    private FramePhases _phasesMeasured;
+
+    /// <summary>Whether <c>--then-seek</c> has already paused and seeked, so the second measurement is running.</summary>
+    private bool _seekedForMeasure;
+
+    /// <summary>Prints one measurement's heading and its per-second lines, the first dropped.</summary>
+    private void PrintMeasured(string heading)
+    {
+        // The frame count beside the seconds: a paused frame writes no per-second line (the rate meter samples only
+        // while the scene rebuilds), so for B420's paused measurement this mean IS the measurement.
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _host.Out.WriteLine(string.Create(
+            CultureInfo.InvariantCulture,
+            $"{heading}; {_framesMeasured} frames, mean {(_framesMeasured > 0 ? _frameSeconds * 1000d / _framesMeasured : 0d):0.00} ms"));
+
+        if (_framesMeasured > 0)
+        {
+            // The same phases the per-second line names, as means over every measured frame.
+            double each(double total) => total * 1000d / Stopwatch.Frequency / _framesMeasured;
+            FramePhases sum = _phasesMeasured;
+            (int trails, int bursts, int quads) = _effects.ParticleCounts;
+
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+            _host.Out.WriteLine(string.Create(
+                CultureInfo.InvariantCulture,
+                $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
+                $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
+                $"particles now: {trails} trails, {bursts} bursts, {quads} quads last frame"));
+        }
+
+        _framesMeasured = 0;
+        _phasesMeasured = default;
+
+        foreach (string line in _measured.Lines)
+        {
+            _host.Out.WriteLine(line);
+        }
+    }
+
+    /// <summary>Flies the camera by however long the last frame took.</summary>
+    /// <remarks>
+    /// **Here rather than in the key handler, which is the whole of B97.** A message-driven camera
+    /// moves at whatever rate Windows repeats a held key; a frame-driven one moves at a speed. Its
+    /// own stopwatch, because the playback clock only runs while the demo is playing and the camera
+    /// has to fly while paused.
+    /// </remarks>
+    private void FlyCamera()
+    {
+        // **`absoluteframetime`, which is what Valve's own demo camera flies by** — see
+        // `CalcDemoViewOverride` (`view.cpp:153`) and `FrameTimingConformanceTests`.
+        double seconds = _clock.Drew();
+
+        // **The demo frame time, kept beside the absolute one because the two are not the same
+        // clock and the chase camera needs this one.** Valve flies the demo camera on
+        // absoluteframetime so it works while paused — the comment above — while the chase
+        // recovery is `m_flLastDistance += gpGlobals->frametime * 32.0f` (`hltvcamera.cpp:227`),
+        // and frametime stops when the game does. A paused demo therefore keeps flying and stops
+        // easing, and both halves of that are the engine's rather than a choice made here.
+        _demoFrameSeconds = _transport.Playing ? seconds : 0d;
+
+        // Every frame's duration passes through here, so this is where the worst one is noticed —
+        // and where the meter takes its reading, rather than starting a second clock (B174).
+        //
+        // **Recorded UNCLAMPED, and the clamp used to be applied here, which hid the very defect it
+        // was meant to help find.** The reading was `Math.Min(seconds, MaximumFrameSeconds)`, so the
+        // worst frame could never be reported as worse than 100 ms — the ceiling. The owner's report
+        // was "everything freezes for a half a second to maybe a second", and the log for those
+        // exact seconds said `longest 100 ms`: not a coincidence, not a measurement, just the clamp
+        // showing through. A saturating instrument is worse than a missing one.
+        //
+        // The clamp lives with FLIGHT now, in `FreeCameraController`, which is what it was always
+        // for; applying it to the record of what happened was the mistake.
+        // The longest frame is the LEDGER's business now — `FrameReporter.Drew` is handed this
+        // duration from the idle loop and the ledger keeps the maximum itself, so there is one place
+        // that knows what "worst frame this second" means rather than a field here and a reset there.
+        //
+        // `FrameClock.Drew` recorded it as `LastFrameSeconds` above; the assignment that used to be
+        // here is gone with the field (B188, D90).
+
+        // Which mode flies, and that `Intent` is read exactly once a frame and only then, are the camera's
+        // (`CameraPresenter.Fly`); it is handed the reader and not the reading.
+        if (_camera.Fly(_console.Intent, seconds))
+        {
+            // The view, and nothing else. Flight only happens in the free camera, where the map's
+            // screen-space projection is not what is being drawn (B98).
+            UploadCamera();
+        }
+    }
+
+    /// <summary>Steps the sound for this frame, with the ears wherever the camera is.</summary>
+    /// <remarks>
+    /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
+    /// it is, asked for by <see cref="ViewerPresenter.PlaySounds(int)"/> only once it knows there is a device to play through.
+    /// </remarks>
+    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick);
+
+    /// <returns>Whether a frame was actually drawn.</returns>
+    /// <remarks>
+    /// **The return value exists because the frame count was counting frames this method
+    /// declined to draw.** The idle loop ran `RenderFrame(); CountFrame();` unconditionally, so
+    /// during a map read — when this returns immediately — the loop still counted a frame per
+    /// iteration. The per-second report then read
+    ///
+    /// <code>186.5 frames a second, longest 0 ms, drawing 0 ms</code>
+    ///
+    /// which is not a frame rate at all: it is how fast an empty loop spins. Every number in that
+    /// line was consistent with itself and none of it measured rendering, which is the failure
+    /// `docs/memory/logs-are-the-debugger.md#a-log-must-name-what-it-measured` is about. It survived because a high frame
+    /// rate is the answer nobody investigates.
+    /// </remarks>
+    public bool RenderFrame()
+    {
+        // **Nothing is drawn while a map is being read on another thread (B146).** That read
+        // replaces a dozen fields one at a time — the outline, the surfaces, the assets, the
+        // terrain, the overlays — and drawing halfway through it would be drawing a world that does
+        // not exist yet.
+        //
+        // The window keeps pumping, which is the whole point: it stays responsive, the menus work,
+        // and Windows stops calling it hung. What it shows meanwhile is the last frame drawn, which
+        // is what a frozen window showed anyway.
+        if (_presenter.ReadingMap)
+        {
+            return false;
+        }
+
+        // **A ledger over the whole frame, because four rounds of guessing found three causes and
+        // missed the fourth.** Each hypothesis so far — the model upload, the model read, the sound
+        // decode — was instrumented one at a time, and the sound one recorded nothing. Timing every
+        // phase and printing the breakdown whenever the frame is slow answers the question once
+        // instead of proposing a suspect at a time.
+        //
+        // The residual is the important column: it is everything between these timers, so a large
+        // one says the cost is somewhere nobody has thought to measure yet, which is precisely the
+        // state this whole hunt started in.
+        //
+        // **The ORDER of those phases moved to `FrameSequence`** (B188, B203, D90). It is the
+        // engine's frame order, it was wrong here for months, and it was wrong because a window
+        // cannot be asked what order it does things in.
+        GarbageReading frameBegan = GarbageReading.FromRuntime();
+
+        FramePhases phases = FrameSequence.Run(this);
+
+        _frames.Drawing(phases.Draw);
+
+        StallReport.Frame(phases, _renderLog, frameBegan, GarbageReading.FromRuntime());
+
+        // **Every frame, averaged over the second — not sampled once a second.** `StallReport.Frame`
+        // above fires only past 30 ms, so at the 90 fps this actually runs at it never fires and
+        // nothing says where the 11 ms goes. Fed here rather than in `BuildOverlay` because this is
+        // where the whole frame's phases exist; the overlay only knows its own.
+        //
+        // **Only once a demo is on screen** (D182). The window draws from the moment it opens now, behind the loading overlay, and
+        // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
+        // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
+        // was the entire measurement in one sample.
+        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0;
+
+        if (onScreen && _wasOnScreen)
+        {
+            _frameSeconds += _clock.LastFrameSeconds;
+            _framesMeasured++;
+            _phasesMeasured = new FramePhases(
+                _phasesMeasured.Sound + phases.Sound,
+                _phasesMeasured.Camera + phases.Camera,
+                _phasesMeasured.Project + phases.Project,
+                _phasesMeasured.Advance + phases.Advance,
+                _phasesMeasured.Capture + phases.Capture,
+                _phasesMeasured.Hud + phases.Hud,
+                _phasesMeasured.Draw + phases.Draw,
+                _phasesMeasured.Total + phases.Total);
+        }
+
+        _wasOnScreen = onScreen;
+
+        // **The log's own meter, always smoothed**, fed the frame time the on-screen one gets. The on-screen meter answers
+        // nothing while `cl_showfps` is 0 — Valve's rule for drawing it — and with no TF2 install it is never built, so a
+        // log that borrowed its reading went silent on a fresh profile and `--measure` counted 0 samples on CI.
+        if (_frameRateLog.Report(_loggedRate.Sample(_clock.LastFrameSeconds), phases, _frameSeconds) is { } rate)
+        {
+            _renderLog.LogInformation("{Message}", rate);
+
+            // **`--measure`, and the line it prints is the one just logged.** Reported from here
+            // rather than gathered separately so the two cannot differ: what stdout shows is
+            // literally what the log shows, which is the rule that stops a summary from being a
+            // second, disagreeing measurement.
+            _measured.AddRate(rate);
+
+            // The rebuild breakdown beside the rate, since one without the other says where the
+            // frame went but not what it was doing.
+            if (_moments.LastCost is { } cost)
+            {
+                _measured.AddCost(cost);
+                _moments.LastCost = null;
+            }
+        }
+
+        // **Counted in seconds of PLAYBACK.** A wall clock would spend the first twenty seconds on
+        // archives and the map, so `--measure 40` would be about two seconds of frames — which is
+        // exactly the mistake this replaces.
+        if (_launch.MeasureSeconds is not null && !_transport.Playing)
+        {
+            // A paused viewer repaints only when asked; a measurement of the paused frame asks every frame, as a user
+            // moving the free camera does (B420 was measured that way).
+            _window.Redraw();
+        }
+
+        if (_launch.MeasureSeconds is { } run && _frameSeconds >= run)
+        {
+            if (_launch.ThenSeek is { } back && !_seekedForMeasure)
+            {
+                // B420's scenario: print what playback measured, then pause, seek and measure the paused frame as long.
+                _seekedForMeasure = true;
+                PrintMeasured(MeasuredPlaybackHeading());
+                _transport.Playing = false;
+                _playback.Seek(back);
+                _transport.ShowTick(back);
+                ShowMoment(back);
+                _frameSeconds = 0d;
+                _measured.Clear();
+            }
+            else
+            {
+                FinishMeasuring();
+            }
+        }
+
+        // **NOT cleared here, and that was a real bug.** `Instances` clears the list it fills, so
+        // it is emptied and refilled by the pose step exactly like the world's own list — and the
+        // pose step does not run on a paused frame. Clearing after the draw meant the viewmodel
+        // survived exactly one frame and every capture, which is taken while paused, got nothing.
+        //
+        // The pass is fed empty when first person is off because AddViewmodel drops the camera
+        // then, which is the state that actually means "draw none".
+
+        if (_fullScreenClock is { } clock)
+        {
+            _fullScreenClock = null;
+
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"full screen {(_window.IsFullScreen ? "on" : "off")} took " +
+                    $"{clock.Elapsed.TotalMilliseconds:F0} ms to the first frame at " +
+                    $"{_window.Viewport.Width}x{_window.Viewport.Height}"));
+        }
+
+        return true;
+    }
+
+    /// <summary>Advance the world to the moment this frame shows.</summary>
+    /// <remarks>
+    /// **This ran AFTER the camera until 2026-08-26** (B203), so every frame drew tick T+1's
+    /// entities through tick T's eye. Valve simulates in `CHLClient::HudUpdate`, before the view is
+    /// built at all (`cdll_client_int.cpp:1308`).
+    /// </remarks>
+    public void Simulate() => _playback.Advance();
+
+    /// <summary>Work out where the eye is and hand the camera to the GPU.</summary>
+    /// <remarks>
+    /// **Uploaded every frame, because the view can change without anything here being told.** This
+    /// used to be sent only from FlyCamera, and only when the free camera had actually moved — so in
+    /// the first-person view the recorded camera advanced every tick, produced a correct matrix, and
+    /// never reached the GPU. The owner: "pov isnt actually updating cam position at the tick rate
+    /// either, the only way to get the cam in pov to move is by clicking and moving the mouse",
+    /// which is mouse-look going through the flight path that does upload.
+    ///
+    /// Same shape as the debug views not appearing until the camera moved, and the same lesson: a
+    /// value computed correctly and not sent is indistinguishable from one computed wrongly.
+    /// Uploading unconditionally costs one 112-byte constant write per frame and removes the whole
+    /// class — a spectator switch, a scrub, a demo change and playback itself all move the view
+    /// without touching FlyCamera.
+    /// </remarks>
+    public void PlaceCamera()
+    {
+        long flyAt = Stopwatch.GetTimestamp();
+
+        FlyCamera();
+
+        UploadCamera(Stopwatch.GetTimestamp() - flyAt);
+
+        _cameraPlacedAtTick = _shownTick;
+    }
+
+    /// <summary>The tick shown when this frame's camera was placed, carried to the draw (B431).</summary>
+    private double _cameraPlacedAtTick;
+
+    /// <summary>Whether the next draw is the first after the opening state, and should say what it drew.</summary>
+    private bool _reportFirstDrawAfterOpening;
+
+    /// <summary>Put the ears where the eye is, and play what is due.</summary>
+    /// <remarks>
+    /// **This ran FIRST until 2026-08-26** (B203), so the listener sat at the previous frame's eye.
+    /// Valve sets the audio state from the same `viewEye` it just built the camera from, four
+    /// statements later (`view.cpp:779-796`).
+    /// </remarks>
+    public void UpdateListener() => PlaySounds();
+
+    /// <summary>Rebuild the projected world, if anything invalidated it.</summary>
+    /// <remarks>
+    /// **Reprojected here rather than in the resize handler**, which is what coalesces a burst of
+    /// resizes into one rebuild. Idle runs when the message queue empties, so every layout step of a
+    /// full-screen transition — or every pixel of a window drag — is collapsed into the single size
+    /// that was current when the pump went quiet.
+    ///
+    /// **The scene is projected too, so a camera change invalidates it as well.** Points are stored
+    /// in screen space while the world's vertices are not, so rebuilding one and not the other left
+    /// every dot at the pixel it had before the zoom while the map moved underneath it. Playback hid
+    /// this by rebuilding the scene every frame regardless; it only showed while paused.
+    ///
+    /// Done here rather than beside each camera change: five places already set this flag, and the
+    /// next one added would have had the same bug again.
+    /// </remarks>
+    public void ProjectWorld()
+    {
+        // **The pose, here and not in `Simulate`** (B255). The engine's order is `SetUpView`, then
+        // `BuildWorldLists`, then `BuildRenderablesList` — which is where `SetupBones` becomes
+        // reachable — so posing belongs after the view exists and beside the world lists, not before
+        // the camera has been placed. Posing in `Simulate` meant the newest frustum available was
+        // the previous frame's, and culling against a stale view pops entities in at the screen edge.
+        //
+        // **The frustum is the device's own**, the same one the world cull and the draw use, rather
+        // than a second one built from the camera here
+        // (`docs/memory/instrument-bugs-outnumber-decoder-bugs.md#one-camera-or-the-cull-lies`).
+        //
+        // **Before the early return, because the two are unrelated.** `NeedsProjecting` asks whether
+        // the WORLD's screen-space projection is stale, which a camera move invalidates and a demo
+        // tick does not; the pose is due on every frame that built a moment.
+        // A span cannot be null-coalesced, so the device is tested once and both halves come from
+        // the same one — which is also what stops a frustum and a visible set from different frames
+        // reaching the cull together.
+        _presenter.PoseNow();
+
+        if (!_presenter.WorldNeedsProjecting)
+        {
+            return;
+        }
+
+        _presenter.WorldProjected();
+        ProjectMap();
+        ReprojectScene();
+    }
+
+    /// <summary>Take a screenshot if one was asked for.</summary>
+    /// <remarks>
+    /// **Not named `Capture`**, which is `Control.Capture` — WinForms' mouse capture. See
+    /// <see cref="IFrameSteps.TakeShot"/>.
+    /// </remarks>
+    public void TakeShot() => TakeAutomaticShot();
+
+    /// <summary>Draw the frame.</summary>
+    /// <param name="overlay">The VGUI built for this frame.</param>
+    public void Draw(FrameOverlay overlay)
+    {
+        // **B431's output-level check.** The tick CARRIED from the camera placement, never re-read:
+        // the UI suite asserts this names the opening tick.
+        if (_reportFirstDrawAfterOpening)
+        {
+            _reportFirstDrawAfterOpening = false;
+            _log.LogInformation(
+                "{Message}",
+                $"first frame after the opening state draws the camera placed at tick {_cameraPlacedAtTick:0}");
+        }
+
+        DrawScene(overlay);
+    }
+
+    /// <summary>Hands this frame's scene to the device: what is handed, and in which order, is the presenter's (D214).</summary>
+    private void DrawScene(FrameOverlay overlay) =>
+        _presenter.DrawScene(BackgroundRed, BackgroundGreen, BackgroundBlue, _debug.LeafVis, overlay);
+
+    /// <summary>Rebuilds the projected scene after the camera has moved.</summary>
+    /// <remarks>
+    /// Uses the clock's position when there is one, so a paused viewer reprojects the moment it is
+    /// actually showing rather than jumping to the scrub bar's whole tick.
+    /// </remarks>
+    private void ReprojectScene()
+    {
+        // **The `_timeline is null` guard here was redundant and is gone** (2026-08-26).
+        // `ShowMoment` opens with the same test, so this one could not change what happened — and a
+        // condition nothing can distinguish from its absence is dead code that also survives every
+        // mutation of itself. The same argument retired a `ticket != 0` guard in `LoadTickets` an
+        // hour earlier.
+        //
+        // The guard at `MomentChanged` is NOT redundant and stays: it also skips a
+        // `_viewport.Invalidate()`, so removing it would repaint for a demo that is not there.
+        ShowMoment(_playback.Position ?? _transport.CurrentTick);
+    }
+}

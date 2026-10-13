@@ -69,9 +69,9 @@ internal static class Program
         // that must open a window and read a map before it can list its own options is one nobody
         // asks — which is how `--first-person` came to be reported as not existing while it was
         // parsed one project along.
-        if (Help.Wanted(args))
+        if (ViewerHelp.Wanted(args))
         {
-            Console.Write(Help.Text);
+            Console.Write(ViewerHelp.Text);
             return;
         }
 
@@ -126,7 +126,7 @@ internal static class Program
         {
             closeSplash();
             using System.Diagnostics.Process self = System.Diagnostics.Process.GetCurrentProcess();
-            shell.ReportStartup(DateTime.UtcNow - self.StartTime.ToUniversalTime());
+            shell.Session.ReportStartup(DateTime.UtcNow - self.StartTime.ToUniversalTime());
         };
 
         // **The `developer` cvar's other end.** The sink has always filtered on a settable Minimum
@@ -134,8 +134,8 @@ internal static class Program
         // deletion wearing a comment. The form knows the setting — from the config or `+developer 1`
         // — and this is the only place that holds the provider, so the switch is handed over rather
         // than the provider being reached for from inside.
-        shell.SetLogVerbosity = level => logs.Minimum = level;
-        shell.ApplyLogVerbosity();
+        shell.Session.SetLogVerbosity = level => logs.Minimum = level;
+        shell.Session.ApplyLogVerbosity();
 
         // **Three lines that split the last unmeasured stretch of the shutdown** (B402). The form's
         // own log reaches `shutdown: the base returned` and the process still dies, so what is left

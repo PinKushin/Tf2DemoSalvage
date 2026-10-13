@@ -1,6 +1,6 @@
 using System;
 
-namespace Tf2DemoSalvage.Viewer3D;
+namespace Tf2DemoSalvage.Presentation;
 
 /// <summary>What the viewer accepts, printed on <c>--help</c>.</summary>
 /// <remarks>
@@ -17,7 +17,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// **Env vars are listed beside the flags because they are not otherwise discoverable at all** —
 /// each is one `Environment.GetEnvironmentVariable` in a file nobody greps for by name.
 /// </remarks>
-internal static class Help
+public static class ViewerHelp
 {
     /// <summary>Whether the arguments ask for the list.</summary>
     /// <param name="arguments">The command line, as given.</param>
