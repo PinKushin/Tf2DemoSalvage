@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 784 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 and 2 of the refactor done, the rest OPEN
+## B540 — the view reaches 657 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 3 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38053,6 +38053,7 @@ and `BulletStrikes` against players (the hitboxes, the unposed hull, the shooter
 server and brush-only refusals, `ShotOrder`). `BurstEffects.Step` is split for it: `Step` unpacks `LoadedMap` and
 `GameContent` into an internal `BurstWorld` and calls `StepOver`, which is what a test calls. **Still not tested:** the
 first-person muzzle flash (`FlashPoint`'s viewmodel branch), which needs a viewmodel entity the fixture does not write.
+**Closed in slice 3**, below.
 
 *What moved:* `StepDecals`, `StepModelDecals`, the body of `ReplayModelDecals` and the twenty methods they called —
 `DecalReplayOf`, `DecalWorldOf`, `PlaceModelDecal`, `ModelDecalFor`, `BulletLandings`, `WorldLanding`, `EmitLanding`,
@@ -38096,4 +38097,78 @@ bullet on an enemy, a teammate, the water and the world behind, the shot's sound
 landings. Each seen red and restored by the inverse edit; one round's break overflowed `int.MinValue` and reddened
 everything, so it was rewritten and rerun. **Not tested here:** a decal on a static prop and the mesh `DecalMesh`
 builds, which need a map's faces and a placed prop — Scene.Tests holds `WorldDecals`, `DecalReplay` and `DecalMesh`,
-and the wall frame holds the wiring.
+and the wall frame holds the wiring. The static prop is **closed in slice 3**, below.
+
+**Slice 3, 2026-10-12: the light styles, the impact runner and the frame's particles — 784 to 657, 127 entries gone and
+none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 525 | 431 | 94 |
+| Core | 162 | 138 | 24 |
+| Content | 67 | 58 | 9 |
+| Animation | 15 | 15 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 784 (214 types, 570 members) | 657 (183 types, 474 members) | 127 |
+
+`MainForm` uses 470 distinct domain members, from 566, and is 7,837 lines, from 8,403. *Measured*, by the instrument.
+
+*What moved, into three presenters:*
+
+- **`Presentation.LightStyleEffects`** — `StepLightStyles` with its values, its dynamic light walk and its region
+  list (`R_AnimateLight`, then `R_BuildLightMap` for a face whose style changed). The view calls `Step` first in a
+  frame, `ClearMap` when a map goes, and hands `Scale` to whoever lights by a style.
+- **`Presentation.ImpactParticles`** — `StepImpactEffects`, `StepSparks`, `WithImpactEffects`, `AddTracerLines`,
+  `ColourOf` and `WorldTrace` with their ten fields. The viewport's width and the camera arrive in the frame record as
+  a number and a `FreeCamera`; the view calls `Step` and `With` once a frame.
+- **`Presentation.FrameParticles`** — what `DrawParticles` decided: which drawn prop is a rocket and where its trail
+  was born (`TrackAt`), the order the batches are joined in (the effects' quads, the entity sprites, then the strips),
+  and the glow occlusion gate both pass through, with `PixelVisibility` and `EntitySpriteBatches` and their state.
+
+`DrawParticles` is now the call order and nothing else: light styles, decals, three sound steps, the impacts' step,
+the trails, the bursts, the build, the impacts' quads, `SetParticles`.
+
+*Two more seams to the device, both Scene's:* `ILightmapUpload` (one member) and `IGlowOcclusion` (the count read back
+and the proxies handed over). `Device3D` implements both. `IPosedEntities` gained `AttachmentPosition` by number, for a
+tracer's barrel. **No presenter calls another**: the map's light walk is `DecalEffects.WorldOf`, which the view hands
+to the light styles and the impacts as a delegate, and the light styles' `Scale` reaches the impacts the same way.
+
+*What the view still holds of it, with why:*
+
+- **`BuildEffectEntities`** (beams, trails, ropes) is a callback `FrameParticles.Build` calls with the camera's axes
+  and the gate. It is its own seam — beam and rope state, the moment's entities — and was not in this slice's scope.
+- **`BulletStrikes` is still in Presentation.** The view still constructs it, builds the `BulletScene` each presenter
+  is handed, clears it with the map and asks it for hitboxes in the id traces. Moved to Scene now it would add lines.
+- **The three sound steppers** between the decals and the impacts, which are the sound presenter's slice.
+
+*Proof nothing changed* (*measured*): the seven frames of slice 2 and three more, chosen from the data. An electric
+spark with an impact's dust beside it — `demostf-cp_process_f12-2026-08-08-2207`, the spark temp entity of tick 3272
+seen at 3275. And a light style switching: `demostf-koth_harvest_event-1491260` holds style 36 at `m` until tick 1560
+and at `a` until 2360 (f12 never changes a style), so one camera above the `lightGroup1` spots at tick 1500 and at
+1700, which differ from each other as they should. All ten PNGs are byte-identical before and after, by SHA-1.
+
+*Tests the moved code never had* (33): `LightStyleEffectsTests` (6) over a demo whose `lightstyles` table the test
+wrote — every style set from the table, only the faces a stepped style lights rebuilt, the level's lights reading the
+same values, the walk asked for once a map; `ImpactParticlesTests` (20) — a tracer line's age, start, barrel and
+window, a spark's effect and seed against the same effect built beside it, an impact refused for a player, for water
+and for a surface with no decal, the two windows, the batch order; `FrameParticlesTests` (7) — a drawn rocket's trail
+started and dropped, the camera axes the strips are handed, sprite before strip, the gate's count read back from the
+device and its proxies handed over.
+
+*The two gaps the earlier slices named* (6): `SyntheticEffects` writes a `CTFViewModel`, so the first-person muzzle
+flash is tested on the weapon attached to the hands, on the viewmodel when there is none, and refused outside first
+person, in someone else's eyes and with the viewmodel hidden. And a client bullet a static prop stops decals the prop
+and draws it after the world's own.
+
+Each of the 39 was seen red by a break of the moved code in one of four rounds and restored by the inverse edit, the
+files' hashes checked after each. Three tests written for this slice were deleted instead, because no single break of
+the presenter reddened them — Scene refuses the same case a layer down (a tracer under 256 units, a spark offered a
+tick early, a build with nothing to draw) — and a test that cannot fail was not kept. A fourth was rewritten: "a bullet
+into the sky has no impact effect" passed with the presenter's guard removed, since `ImpactEffects.Perform` refuses
+sky itself, and is now a metal surface whose decal has no material, which only the presenter's guard stops. The
+runner's count was the wrong instrument for all of these: it counts an effect that was refused as well as one that
+runs, so the assertions read the quads.
+
+**Not tested here:** `LevelLighting.StylesChanged`, which has no reading a test can take; the faces a dynamic light
+reaches, which need a map's nodes (`WorldDynamicLights` has its own suite); the quads `ParticleEffects.Build` makes
+and the `Quads` count of them, which need a system that emits; and `BuildEffectEntities`, still the view's.

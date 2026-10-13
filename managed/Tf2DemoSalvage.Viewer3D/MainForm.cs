@@ -887,6 +887,11 @@ internal class MainForm : Form, IFrameSteps
         _strikes = new BulletStrikes(_models, _renderLog);
         _bursts = new BurstEffects(_particles, _models, _strikes, _renderLog);
         _decals = new DecalEffects(_models, _strikes, _renderLog);
+        _lights = new LightStyleEffects(_renderLog);
+        _impacts = new ImpactParticles(_models, _strikes, _renderLog);
+        _frameParticles = new FrameParticles(_particles, _renderLog);
+        _walk = _decals.WorldOf;
+        _styleScale = _lights.Scale;
         _demoLog = loggers.CreateLogger("demo");
         _audioLog = loggers.CreateLogger("audio");
         _spectateLog = loggers.CreateLogger("spectate");
@@ -1533,14 +1538,9 @@ internal class MainForm : Form, IFrameSteps
         // The decal pool is the map's; the device's copy goes with ClearWorld below. So are the impact effects and
         // everything they read of the map.
         _decals.ClearMap();
-        _worldLights = null;
-        _surfaceColour = null;
-        _lightStyles = new();
-        _thumbnails.Clear();
+        _lights.ClearMap();
         _strikes.Clear();
-        _impactEffects.Clear();
-        _sparkEffects.Clear();
-        _tracerLines.Clear();
+        _impacts.ClearMap();
 
         // **Every system is told the level is going, in reverse registration order** — Valve's
         // `LevelShutdownPreEntity`/`PostEntity`, which this window did not have.
@@ -1693,7 +1693,7 @@ internal class MainForm : Form, IFrameSteps
 
             // `CPixelVisibilitySystem::LevelInitPreEntity`: the level's glows start from nothing, and whether the
             // device counts their occlusion is decided here for the whole level (B378).
-            _pixelVisibility.LevelInit(_settings.DoPixelVisibility);
+            _frameParticles.LevelInit(_settings.DoPixelVisibility);
 
             // A collection's `m_Sheet` is its material's, which `Lifetime From Sequence` reads at birth; null for a
             // material with none, as the engine's pointer is.
@@ -2017,9 +2017,9 @@ internal class MainForm : Form, IFrameSteps
 
         // **And for the glows to arrive** (B378, B521): a lamp's halo fades in over a sixteenth of a second from the
         // first frame its occlusion query answers, so a capture taken sooner photographs it part way.
-        if (_opening.Applied && !_pixelVisibility.Settled)
+        if (_opening.Applied && !_frameParticles.GlowsSettled)
         {
-            ReportCaptureWaiting("glow occlusion", _pixelVisibility.Unsettled());
+            ReportCaptureWaiting("glow occlusion", _frameParticles.GlowsUnsettled());
 
             return;
         }
@@ -4613,6 +4613,21 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The decals on the world, its props and the players' models (B415, B421).</summary>
     private readonly DecalEffects _decals;
 
+    /// <summary>The light styles, the lightmaps they rebuild and the faces under the dynamic lights (B424, B425).</summary>
+    private readonly LightStyleEffects _lights;
+
+    /// <summary>Every impact's debris and dust, every spark and every tracer line (B415).</summary>
+    private readonly ImpactParticles _impacts;
+
+    /// <summary>A frame's particles in the order they are made: trails, effects, sprites, strips (B373, B378).</summary>
+    private readonly FrameParticles _frameParticles;
+
+    /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
+    private readonly Func<LoadedMap, DecalWorld> _walk;
+
+    /// <summary>A light style's value now, for the impact colours. One delegate, made once.</summary>
+    private readonly Func<int, float> _styleScale;
+
     /// <summary>What the decals are stepped against at a tick this frame shows.</summary>
     private DecalFrame DecalFrameAt(int tick) =>
         new(
@@ -4626,21 +4641,6 @@ internal class MainForm : Form, IFrameSteps
             _settings.MaxModelDecals,
             _sound.Scripts,
             _replayingModelDecals);
-
-    /// <summary>`GetColorForSurface` over this map, built with the first impact effect that asks.</summary>
-    private SurfaceColour? _surfaceColour;
-
-    /// <summary>Each texdata's thumbnail, decoded the first time a colour asks for it.</summary>
-    private readonly Dictionary<int, SurfaceThumbnail?> _thumbnails = [];
-
-    /// <summary>The impact effects in flight.</summary>
-    private readonly ImpactEffectRunner _impactEffects = new();
-
-    /// <summary>The impacts in the effects' window this tick, reused.</summary>
-    private readonly List<(int Index, ShotImpact Impact)> _impactsNow = [];
-
-    /// <summary>How long an impact effect is offered: a fleck lives three seconds, which is 198 ticks.</summary>
-    private const int ImpactWindowTicks = 200;
 
     /// <summary>True while a seek replays the ticks it skipped, so nothing heard is emitted and nothing re-enters.</summary>
     private bool _replayingModelDecals;
@@ -4886,358 +4886,6 @@ internal class MainForm : Form, IFrameSteps
 
         static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     }
-
-    /// <summary>Each light style's value at this tick, and the world's lightmaps rebuilt where one changed.</summary>
-    /// <remarks>
-    /// `R_AnimateLight` (`engine.dll` `0x1800d3ec0`) once a frame from the `lightstyles` table, then each face answering
-    /// to a changed style rebuilt and uploaded, as `R_BuildLightMap` rebuilds a face whose style was stamped. The time is
-    /// the tick's, so a seek lands on the same step however it was reached.
-    /// </remarks>
-    private void StepLightStyles(int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_device is null || _timeline is not { } timeline || _loaded?.Assets is not { } assets)
-        {
-            return;
-        }
-
-        for (int style = 0; style < LightStyleValues.Count; style++)
-        {
-            _lightStyles.Set(style, timeline.LightStyles.PatternAt(style, tick));
-        }
-
-        IReadOnlyList<int> changed = _lightStyles.Advance(tick * timeline.IntervalPerTick);
-
-        // The world lights answer to the same values (`0x1801b8e20`), so a model under a switched lamp samples again.
-        LevelLighting lighting = _loaded.Lighting;
-
-        // Also what a baked static prop's styled lights are drawn at, on top of its colours (B424, `FUN_1801b5400`).
-        lighting.StyleScale ??= style => _lightStyles.Scale(style);
-
-        if (changed.Count > 0 && lighting.Answers(changed))
-        {
-            lighting.StylesChanged();
-        }
-
-        _lightmapRegions.Clear();
-        assets.Lightmaps.Recompose(_lightStyles.Scale, changed, _lightmapRegions);
-
-        // B425: after the styles, so a dlit styled face is rebuilt with both; from the lights as the frame drew them.
-        _worldLights ??= new WorldDynamicLights(_decals.WorldOf(_loaded));
-        _worldLights.Frame(
-            _moment.WorldLights,
-            assets.Lightmaps,
-            _lightStyles.Scale,
-            _lightmapRegions,
-            WorldDynamicLights.BrushesOf(_moment.Drawn, _loaded.Level.BrushModels ?? []));
-
-        _device.UpdateLightmap(assets.Lightmaps.Pixels, assets.Lightmaps.Width, _lightmapRegions);
-
-        // Once per style change past the first frame, so a toggle is visible in the log with what it rebuilt.
-        if (_lightmapRegions.Count > 0 && _renderLog.IsEnabled(LogLevel.Information))
-        {
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            _renderLog.LogInformation(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"light styles at {tick}: {changed.Count} changed ({string.Join(",", changed.Take(8))}), {_lightmapRegions.Count} lightmaps rebuilt"));
-        }
-    }
-
-    /// <summary>Every light style's value, animated once a frame.</summary>
-    private LightStyleValues _lightStyles = new();
-
-    /// <summary>The world's faces under the dlights, built with the map's decal world.</summary>
-    private WorldDynamicLights? _worldLights;
-
-    /// <summary>The atlas regions rebuilt this frame, reused.</summary>
-    private readonly List<AtlasRegion> _lightmapRegions = [];
-
-    /// <summary>Starts and steps the debris, dust and sparks of every impact in the window (B415).</summary>
-    /// <remarks>
-    /// **Only where `Impact` returned true**, as `ImpactCallback` asks: a bullet with a decal on the world, not one a
-    /// player stopped. The surface's colour is asked only by the effects that tint.
-    /// </remarks>
-    private void StepImpactEffects(int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline ||
-            _loaded is not { ImpactDecals: { } impacts, LightSamples: { } samples, Assets: { } assets } loaded)
-        {
-            return;
-        }
-
-        MapLevel level = loaded.Level;
-
-        TickWindow.Between(loaded.Impacts, static impact => impact.Tick, tick - ImpactWindowTicks, tick, _impactsNow);
-
-        _impactEffects.Advance(
-            _impactsNow,
-            tick,
-            timeline.IntervalPerTick,
-            (_, impact, random) =>
-            {
-                // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-                if (impact.WaterEntry is not null ||
-                    _strikes.StruckPlayer(impact, tick, BulletSceneNow) ||
-                    impacts.For(impact) is null ||
-                    impacts.Surface(impact) is not { } surface)
-                {
-                    return null;
-                }
-
-                Vector3 start = new(impact.Start.X, impact.Start.Y, impact.Start.Z);
-                Vector3 end = new(impact.End.X, impact.End.Y, impact.End.Z);
-                Vector3 normal = new(impact.Normal.X, impact.Normal.Y, impact.Normal.Z);
-
-                return ImpactEffects.Perform(
-                    surface.GameMaterial,
-                    surface.Flags,
-                    end,
-                    normal,
-                    Vector3.Normalize(end - start),
-                    () =>
-                    {
-                        // `GetColorForSurface`: a static prop asks the prop manager, the world asks `R_LightVec`.
-                        (float r, float g, float b) = impact.StaticProp >= 0
-                            ? SurfaceColour.OfStaticProp(
-                                loaded.Lighting.LightingAt(end.X, end.Y, end.Z), loaded.Lighting.SunAt(end.X, end.Y, end.Z), end, normal)
-                            : ColourOf(loaded, samples, assets).At(start, end);
-
-                        return new Vector3(r, g, b);
-                    },
-                    WorldTrace(level),
-                    random);
-            },
-            WorldTrace(level));
-    }
-
-    /// <summary>Each impact effect material's corners this frame, the lists reused.</summary>
-    private readonly Dictionary<string, List<DetailSpriteVertex>> _impactCorners = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>The impact effects' quads added to the frame's particle batches, one per material.</summary>
-    /// <remarks>The corner lists are handed to the device and read by this frame's draw, before the next refill.</remarks>
-    private IReadOnlyList<ParticleBatch> WithImpactEffects(IReadOnlyList<ParticleBatch> batches, FreeCamera viewing)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded?.Assets?.ParticleMaterials is not { } materials)
-        {
-            return batches;
-        }
-
-        foreach (List<DetailSpriteVertex> corners in _impactCorners.Values)
-        {
-            corners.Clear();
-        }
-
-        (float fx, float fy, float fz) = AngleVectors.Forward(viewing.Angles.Pitch, viewing.Angles.Yaw);
-        (float rx, float ry, float rz) = AngleVectors.Right(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
-        (float ux, float uy, float uz) = AngleVectors.Up(viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
-        Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
-
-        foreach (ImpactEffectRunner runner in (ImpactEffectRunner[])[_impactEffects, _sparkEffects])
-        {
-            if (runner.Count > 0)
-            {
-                runner.Build(
-                    eye,
-                    new Vector3(fx, fy, fz),
-                    new Vector3(rx, ry, rz),
-                    new Vector3(ux, uy, uz),
-                    name => materials.TryGetValue(name, out ParticleMaterial material) ? material.Alpha : 1f,
-                    _impactCorners);
-            }
-        }
-
-        AddTracerLines(eye, new Vector3(fx, fy, fz));
-
-        if (!_impactCorners.Values.Any(static corners => corners.Count > 0))
-        {
-            return batches;
-        }
-
-        List<ParticleBatch> all = [.. batches];
-
-        foreach ((string name, List<DetailSpriteVertex> corners) in _impactCorners)
-        {
-            if (corners.Count > 0 && materials.TryGetValue(name, out ParticleMaterial material))
-            {
-                all.Add(new ParticleBatch(corners, material));
-
-                // What each impact material drew and where, so a glow seen on screen can be named from the log.
-                if (_renderLog.IsEnabled(LogLevel.Debug))
-                {
-                    DetailSpriteVertex first = corners[0];
-                    DetailSpriteVertex lowest = corners.MinBy(static corner => corner.Z);
-
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    _renderLog.LogDebug(
-                        "{Message}",
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"impact batch {name} at {_transport.CurrentTick}: {corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}), lowest ({lowest.X:0} {lowest.Y:0} {lowest.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
-                }
-            }
-        }
-
-        return all;
-    }
-
-    /// <summary>How long a `"Tracer"` dispatch is offered: 8192 units at 5000 a second is 1.64 s.</summary>
-    private const int TracerLineWindowTicks = 120;
-
-    /// <summary>`TRACER_FLAG_USEATTACHMENT`.</summary>
-    private const int TracerUseAttachment = 0x2;
-
-    /// <summary>Every effect dispatch in the tracer window this frame, reused.</summary>
-    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _tracerDispatchesNow = [];
-
-    /// <summary>Each `"Tracer"` dispatch's line by its index in the feed, fixed at first sight; null for one too short.</summary>
-    private readonly Dictionary<int, DiscreetLine?> _tracerLines = [];
-
-    /// <summary>Draws every `"Tracer"` dispatch in flight as `CFXDiscreetLine` quads — `TracerCallback` (B415).</summary>
-    /// <remarks>
-    /// **The start is read ONCE**, as `GetTracerOrigin` reads the attachment when the dispatch arrives: the line then
-    /// flies its own path and does not follow the barrel. A server-side shooter's `m_vStart` is the multiplayer
-    /// sentinel (999, 999, 999) from `ComputeTracerStartPosition`, "so the results … should never actually get used";
-    /// so a dispatch whose entity is not posed yet is asked again next frame rather than fixed there. Stepped by
-    /// ticks: `Draw` runs `Update` first, so the line is one tick old on the tick it arrives.
-    /// </remarks>
-    private void AddTracerLines(Vector3 eye, Vector3 forward)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline)
-        {
-            return;
-        }
-
-        int tick = _transport.CurrentTick;
-
-        TickWindow.Between(
-            timeline.Dispatches.All, static dispatch => dispatch.Tick, tick - TracerLineWindowTicks, tick, _tracerDispatchesNow);
-
-        if (!_impactCorners.TryGetValue(DiscreetLines.TracerMaterial, out List<DetailSpriteVertex>? corners))
-        {
-            corners = [];
-            _impactCorners[DiscreetLines.TracerMaterial] = corners;
-        }
-
-        float halfWidth = _viewport.ClientSize.Width * 0.5f;
-
-        foreach ((int index, SceneEffectDispatch dispatch) in _tracerDispatchesNow)
-        {
-            if (!string.Equals(timeline.Dispatches.Names.Name(dispatch.Name), "Tracer", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            if (!_tracerLines.TryGetValue(index, out DiscreetLine? line))
-            {
-                (float X, float Y, float Z)? barrel = (dispatch.Flags & TracerUseAttachment) != 0
-                    ? _models.AttachmentPosition(dispatch.Entity, dispatch.Attachment)
-                    : null;
-
-                if (barrel is null && (dispatch.Flags & TracerUseAttachment) != 0 && !_models.IsPosed(dispatch.Entity))
-                {
-                    continue;
-                }
-
-                (float X, float Y, float Z) start = barrel ?? dispatch.Start;
-
-                line = DiscreetLines.Tracer(
-                    new Vector3(start.X, start.Y, start.Z),
-                    new Vector3(dispatch.Origin.X, dispatch.Origin.Y, dispatch.Origin.Z),
-                    dispatch.Scale != 0f ? dispatch.Scale : DiscreetLines.TracerSpeed,
-                    SeededDraw.For(SeededDraw.Of(index, 0, salt: 3)));
-
-                _tracerLines[index] = line;
-            }
-
-            if (line is { } flying)
-            {
-                DiscreetLines.Draw(
-                    flying, (tick - dispatch.Tick + 1) * timeline.IntervalPerTick, eye, forward, halfWidth, corners);
-            }
-        }
-    }
-
-    /// <summary>Every spark temp entity's effect, stepped by ticks as the impacts' are.</summary>
-    private readonly ImpactEffectRunner _sparkEffects = new();
-
-    /// <summary>How long a spark is offered — ten seconds, past a magnitude-15 electric spark's thirty-second ceiling only in theory.</summary>
-    private const int SparkWindowTicks = 660;
-
-    /// <summary>Every spark in the window this tick, reused.</summary>
-    private readonly List<(int Index, SceneSpark Spark)> _sparksNow = [];
-
-    /// <summary>The window's sparks as the runner's events, reused.</summary>
-    private readonly List<(int Index, int Tick, int Seed)> _sparkEvents = [];
-
-    /// <summary>Brings every spark's effect to this tick — `IEffects::Sparks`, `::MetalSparks` and `::Ricochet` (B415).</summary>
-    /// <remarks>*Not built:* `FX_RicochetSound` for an armor ricochet.</remarks>
-    private void StepSparks(int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline || _loaded?.Level is not { } level)
-        {
-            return;
-        }
-
-        IReadOnlyList<SceneSpark> sparks = timeline.Sparks.All;
-
-        TickWindow.Between(sparks, static spark => spark.Tick, tick - SparkWindowTicks, tick, _sparksNow);
-
-        _sparkEvents.Clear();
-
-        foreach ((int index, SceneSpark spark) in _sparksNow)
-        {
-            _sparkEvents.Add((index, spark.Tick, SeededDraw.Of(index, 0, salt: 4)));
-        }
-
-        Func<Vector3, Vector3, BspTrace> trace = WorldTrace(level);
-
-        _sparkEffects.Advance(
-            _sparkEvents,
-            tick,
-            timeline.IntervalPerTick,
-            (index, random) =>
-            {
-                SceneSpark spark = sparks[index];
-                Vector3 at = new(spark.Position.X, spark.Position.Y, spark.Position.Z);
-                Vector3 toward = new(spark.Direction.X, spark.Direction.Y, spark.Direction.Z);
-
-                return spark.Kind == SparkKind.Electric
-                    ? ImpactEffects.Sparks(at, spark.Magnitude, spark.TrailLength, toward, trace, random)
-                    : ImpactEffects.MetalSparks(at, toward, random);
-            },
-            trace);
-    }
-
-    /// <summary>The world trace the legacy particles collide with — `MASK_SOLID_BRUSHONLY`, terrain included.</summary>
-    private static Func<Vector3, Vector3, BspTrace> WorldTrace(MapLevel level) =>
-        (from, to) => level.TraceBrushOnly((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f);
-
-    private SurfaceColour ColourOf(LoadedMap loaded, BspLightSamples samples, MapAssets assets) =>
-        _surfaceColour ??= new SurfaceColour(_decals.WorldOf(loaded), samples, texdata =>
-        {
-            if (!_thumbnails.TryGetValue(texdata, out SurfaceThumbnail? thumbnail))
-            {
-                thumbnail = texdata >= 0 && texdata < assets.Textures.Count &&
-                            assets.Textures[texdata] is { Thumbnail: { } small } texture
-                    ? new SurfaceThumbnail(
-                        small.Image.ToRgba(small.Width, small.Height), small.Width, small.Height,
-                        texture.MappingWidth, texture.MappingHeight)
-                    : null;
-
-                _thumbnails[texdata] = thumbnail;
-            }
-
-            return thumbnail;
-        })
-        {
-            StyleScale = style => _lightStyles.Scale(style),
-        };
 
     /// <summary>`LIFE_ALIVE`.</summary>
     private const int Alive = 0;
@@ -5679,15 +5327,8 @@ internal class MainForm : Form, IFrameSteps
     /// <remarks>
     /// **Beside `SetCamera` because it needs the same camera** — a billboard faces the view, so the
     /// quads cannot be built until the frame's camera is known, and this is the one per-frame view
-    /// setup.
-    ///
-    /// **The basis comes from the camera's ANGLES rather than from its matrix.** `AngleVectors.Right`
-    /// and `Up` are the engine's own decomposition and are what every other direction in this
-    /// project is taken from; pulling rows out of a view matrix would be a second route to the same
-    /// number, free to disagree with the first (B243).
-    ///
-    /// **A missing definition costs the trails and nothing else** — no TF2 install means no `.pcf`,
-    /// which is every CI run, and the rockets still draw.
+    /// setup. **What is decided here is the presenters'** (D214): this is the order they are called in, the sounds they
+    /// hand back, and the device.
     /// </remarks>
     private void DrawParticles(FreeCamera viewing)
     {
@@ -5696,100 +5337,46 @@ internal class MainForm : Form, IFrameSteps
             return;
         }
 
-        StepLightStyles(_transport.CurrentTick);
+        int tick = _transport.CurrentTick;
+
+        _lights.Step(new LightStyleFrame(_timeline, _loaded, tick, _moment.WorldLights, _moment.Drawn, _walk), _device);
 
         // With the tracers' player pass, after the model pass has posed this frame's hitboxes.
         // A client bullet's landing sound comes back for the sound presenter: presenters do not reach sideways (D92).
-        foreach (SceneSound landed in _decals.Step(DecalFrameAt(_transport.CurrentTick), _device))
+        foreach (SceneSound landed in _decals.Step(DecalFrameAt(tick), _device))
         {
             _sound.Emit(landed);
         }
 
-        StepAnimationSounds(_transport.CurrentTick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
-        StepLandingSounds(_transport.CurrentTick);
-        StepCorpseSounds(_transport.CurrentTick);
-        StepImpactEffects(_transport.CurrentTick);
-        StepSparks(_transport.CurrentTick);
+        StepAnimationSounds(tick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
+        StepLandingSounds(tick);
+        StepCorpseSounds(tick);
+
+        ImpactFrame impacts = new(
+            _timeline, _loaded, tick, BulletSceneNow, viewing, _viewport.ClientSize.Width, _styleScale, _walk);
+
+        _impacts.Step(impacts);
 
         IReadOnlyList<ParticleBatch> batches = [];
+        ParticleFrame particles = new(
+            _timeline,
+            _loaded,
+            tick,
+            viewing,
+            _moment.Drawn,
+            (float)_clock.LastFrameSeconds,
+            _viewport.ClientSize.Height,
+            _settings.DoPixelVisibility);
 
-        if (_loaded?.Assets?.RocketTrail is { } trail)
+        if (_frameParticles.Trails(particles))
         {
-            _projectilesNow.Clear();
-
-            foreach (SceneProp prop in _moment.Drawn)
-            {
-                if (string.Equals(
-                    prop.ClassName, ParticleEffects.RocketClass, StringComparison.Ordinal))
-                {
-                    // **The rocket's own frame, not just its position.** `CreateTrails` attaches
-                    // with `PATTACH_POINT_FOLLOW`, so the control point carries the projectile's
-                    // orientation — and `rockettrail` pushes its particles ten units per second
-                    // down that point's LOCAL Z. Passing a bare position would blow every trail in
-                    // the game the same way regardless of where its rocket pointed.
-                    // Forward takes no roll, because rolling about the forward axis cannot move it.
-                    (float fx, float fy, float fz) = AngleVectors.Forward(
-                        prop.Pose.Pitch, prop.Pose.Yaw);
-
-                    (float px, float py, float pz) = AngleVectors.Right(
-                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
-
-                    (float qx, float qy, float qz) = AngleVectors.Up(
-                        prop.Pose.Pitch, prop.Pose.Yaw, prop.Pose.Roll);
-
-                    ParticleControlPoint here = new(
-                        new Vector3(prop.Pose.X, prop.Pose.Y, prop.Pose.Z),
-                        new Vector3(fx, fy, fz),
-                        new Vector3(px, py, pz),
-                        new Vector3(qx, qy, qz));
-
-                    // **Where it started and how long ago**, so a trail seen for the first time
-                    // mid-flight can be replayed along the path instead of piling up at the rocket.
-                    // The track is the demo's own record of where the thing was; nothing is guessed.
-                    ParticleControlPoint? born = null;
-                    int age = 0;
-
-                    // **`TrackFor` cannot answer this, because entity indices are REUSED.** This
-                    // demo has 1,669 rocket tracks across a couple of thousand edict slots, and
-                    // `_trackByEntity` keeps only the last track written for an index — so asking
-                    // it for entity 407 returns a rocket from later in the match, whose `FirstTick`
-                    // is past the current tick, so the age clamped to zero and the replay never ran.
-                    // That is a lookup keyed on something that does not identify the thing
-                    // (`docs/memory/key-a-lookup-on-the-question.md#lookups-must-match-exactly`).
-                    //
-                    // The track wanted is the one for this entity that CONTAINS this tick. Scanned
-                    // rather than indexed because it happens once per projectile, when its effect
-                    // is created, and not per frame.
-                    if (TrackAt(prop.EntityIndex, _transport.CurrentTick) is { } track)
-                    {
-                        (int first, ScenePose pose) = track.Keyframes[0];
-
-                        age = Math.Max(0, _transport.CurrentTick - first);
-                        born = new ParticleControlPoint(
-                            new Vector3(pose.X, pose.Y, pose.Z),
-                            here.Forward,
-                            here.Right,
-                            here.Up);
-                    }
-
-                    _projectilesNow.Add((prop.EntityIndex, here, born, age));
-                }
-            }
-
-            _particles.Update(
-                _projectilesNow,
-                trail,
-                _timeline?.IntervalPerTick ?? (1f / 66f),
-                _loaded?.Assets?.ParticleSystemsByName,
-                _transport.CurrentTick);
-
             // The one-shot effects (D214). A tracer's near-miss whiz comes back for the sound presenter: presenters do
             // not reach sideways (D92).
             foreach (SceneSound whiz in _bursts.Step(new BurstFrame(
                          _timeline,
                          _loaded,
                          _game,
-                         _transport.CurrentTick,
+                         tick,
                          viewing,
                          _moments.Players,
                          _moments.Source,
@@ -5805,117 +5392,11 @@ internal class MainForm : Form, IFrameSteps
                 _sound.Emit(whiz);
             }
 
-            (float rx, float ry, float rz) = AngleVectors.Right(
-                viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
-
-            (float ux, float uy, float uz) = AngleVectors.Up(
-                viewing.Angles.Pitch, viewing.Angles.Yaw, viewing.Angles.Roll);
-
-            batches = _particles.Build(
-                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                new Vector3(rx, ry, rz),
-                new Vector3(ux, uy, uz),
-                _loaded?.Assets?.ParticleMaterials ?? NoParticleMaterials);
-
-            _particleQuads = 0;
-
-            foreach (ParticleBatch built in batches)
-            {
-                _particleQuads += built.Corners.Count / 6;
-
-                // What each particle material drew and where, so a glow seen on screen can be named from the log.
-                if (_renderLog.IsEnabled(LogLevel.Debug) && built.Corners.Count > 0)
-                {
-                    string named = _loaded?.Assets?.ParticleMaterials?
-                        .FirstOrDefault(pair => pair.Value.Equals(built.Material)).Key ?? "?";
-                    DetailSpriteVertex first = built.Corners[0];
-
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    _renderLog.LogDebug(
-                        "{Message}",
-                        string.Create(
-                            CultureInfo.InvariantCulture,
-                            $"particle batch {named} at {_transport.CurrentTick}: {built.Corners.Count / 6} quads, first corner ({first.X:0} {first.Y:0} {first.Z:0}) rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00})"));
-                }
-            }
-
-            // **Entity sprites join the particle batches rather than getting a pass of their own**
-            // (B378). A sprite IS a particle with one quad — a texture, a blend and six corners — so
-            // it goes through the same renderer, and a second pass would agree with this one only
-            // until one of them gained a feature.
-            (float ahead, float across, float above) = AngleVectors.Forward(
-                viewing.Angles.Pitch, viewing.Angles.Yaw);
-
-            // **The occlusion gate: `PixelVisibility_FractionVisible`** (B378, B521) — how much of each glow's proxy
-            // the last frame's depth let through, counted by the device and approached over the fade time. One gate
-            // for the entity sprites and the beams' halos. It was a line of sight, all or nothing (`GlowSight`, the
-            // engine's fallback), which left a ceiling lamp seen at a slant a fifth brighter than TF2's.
-            //
-            // **The frame's real duration, where the engine's is the demo's** and so zero while paused: this camera
-            // flies while paused, and a glow held where the pause found it would then be wrong for good.
-            Device3D occluding = _device;
-
-            // **`r_dopixelvisibility 0` is the engine's line of sight** (`GlowSight`, `c_pixel_visibility.cpp:567-570`),
-            // and a user's config may say so (D69): brushes AND static props, as `MASK_OPAQUE` is — on
-            // `koth_harvest_final` a lamp's halo sits under a roof of `corrugated_metal` props. Latched at the level's
-            // load (`LoadMap`); the live reading only stops new queries.
-            _pixelVisibility.DoPixelVisibility = _settings.DoPixelVisibility;
-            _pixelVisibility.BeginFrame(
-                (float)_clock.LastFrameSeconds,
-                occluding.OcclusionResult,
-                glow => _loaded?.Level is not { } level ||
-                    GlowSight.Visible(
-                        new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                        new Vector3(ahead, across, above),
-                        glow,
-                        (from, to) => level.Trace((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f).Fraction >= 1f));
-
-            float Sees(GlowQuery glow) => _pixelVisibility.FractionVisible(glow);
-
-            IReadOnlyList<ParticleBatch> glows = _sprites.Build(
-                _moment.Drawn,
-                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
-                new Vector3(rx, ry, rz),
-                new Vector3(ux, uy, uz),
-                new Vector3(ahead, across, above),
-                _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
-                Sees);
-
-            // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
-            IReadOnlyList<ParticleBatch> drawnByClass = BuildEffectEntities(
-                viewing, new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
-
-            // `PixelVisibility_EndCurrentView`: the proxies this frame's view counts, read back by the next.
-            occluding.SetOcclusionProxies(
-                _pixelVisibility.EndView(PixelVisibilityView.From(viewing, Math.Max(1, _viewport.ClientSize.Height))));
-
-            if (drawnByClass.Count > 0)
-            {
-                glows = [.. glows, .. drawnByClass];
-            }
-
-            // **The value the builder USED, carried here rather than recounted** (B243). A picture
-            // can only show a glow the camera happens to face, so the count is what says the pass
-            // ran at all — and DRAWN beside SKIPPED is what separates "no sprites in this moment"
-            // from "every sprite refused for a reason nobody printed".
-            if (_renderLog.IsEnabled(LogLevel.Debug) &&
-                (_sprites.Drawn > 0 || _sprites.Skipped > 0))
-            {
-                _renderLog.LogDebug(
-                    "{Message}",
-                    $"entity sprites: {_sprites.Drawn} drawn in {glows.Count} batches, " +
-                    $"{_sprites.Skipped} skipped");
-            }
-
-            if (glows.Count > 0)
-            {
-                List<ParticleBatch> both = [.. batches, .. glows];
-
-                batches = both;
-            }
+            batches = _frameParticles.Build(
+                particles, _device, (forward, right, up, sees) => BuildEffectEntities(viewing, forward, right, up, sees));
         }
 
-        batches = WithImpactEffects(batches, viewing);
+        batches = _impacts.With(batches, impacts);
         _lastParticles = batches;
 
         _device.SetParticles(batches);
@@ -6381,53 +5862,9 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
 
-    /// <summary>Every `env_sprite` in the moment, as quads (B378).</summary>
-    private readonly EntitySpriteBatches _sprites = new();
-
-    /// <summary>How much of each glow the scene lets through — <c>CPixelVisibilitySystem</c> (B378, B521).</summary>
-    private readonly PixelVisibility _pixelVisibility = new();
-
-    /// <summary>The track for one entity that covers a given tick.</summary>
-    /// <remarks>
-    /// **An entity index does not identify a track**, because the engine reuses edict slots: this
-    /// demo has 1,669 rocket tracks and a couple of thousand slots, so one index names many rockets
-    /// across a match. Only the index PLUS the tick picks one.
-    /// </remarks>
-    private ScenePropTrack? TrackAt(int entity, int tick)
-    {
-        if (_timeline is null)
-        {
-            return null;
-        }
-
-        foreach (ScenePropTrack track in _timeline.Props)
-        {
-            if (track.EntityIndex != entity || track.Keyframes.Count == 0)
-            {
-                continue;
-            }
-
-            if (track.Keyframes[0].Tick <= tick && tick <= track.Keyframes[^1].Tick)
-            {
-                return track;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>What a machine with no TF2 has: no particle materials at all.</summary>
-    private static readonly IReadOnlyDictionary<string, ParticleMaterial> NoParticleMaterials =
-        new Dictionary<string, ParticleMaterial>(StringComparer.OrdinalIgnoreCase);
-
     /// <summary>What a machine with no TF2 has: no entity sprites either (B390).</summary>
     private static readonly IReadOnlyDictionary<string, EngineSprite> NoEngineSprites =
         new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>This tick's projectiles, reused for the same reason.</summary>
-    private readonly
-        List<(int Entity, ParticleControlPoint At, ParticleControlPoint? From, int Ticks)>
-        _projectilesNow = [];
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
@@ -6732,9 +6169,6 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>The measured frames' phases, summed, for a paused measurement that writes no per-second line.</summary>
     private FramePhases _phasesMeasured;
 
-    /// <summary>The particle quads the last frame built — carried from the batches `Build` returned (B243).</summary>
-    private int _particleQuads;
-
     /// <summary>Whether <c>--then-seek</c> has already paused and seeked, so the second measurement is running.</summary>
     private bool _seekedForMeasure;
 
@@ -6759,7 +6193,7 @@ internal class MainForm : Form, IFrameSteps
                 CultureInfo.InvariantCulture,
                 $"  phases, mean ms: sound {each(sum.Sound):0.00}, camera {each(sum.Camera):0.00}, project {each(sum.Project):0.00}, " +
                 $"advance {each(sum.Advance):0.00}, capture {each(sum.Capture):0.00}, hud {each(sum.Hud):0.00}, draw {each(sum.Draw):0.00}; " +
-                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_particleQuads} quads last frame"));
+                $"particles now: {_particles.Count} trails, {_particles.BurstCount} bursts, {_frameParticles.Quads} quads last frame"));
         }
 
         _framesMeasured = 0;

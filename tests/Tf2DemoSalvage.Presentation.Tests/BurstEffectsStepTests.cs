@@ -599,6 +599,84 @@ public sealed class BurstEffectsStepTests
         bursts.Bursts.ShouldBeEmpty("pOwner->IsLocalPlayer(): tf_weapon_rocketlauncher.cpp:383");
     }
 
+    private const int Viewmodel = 60;
+
+    /// <summary>
+    /// A timeline whose viewmodel, the scout's and holding his scattergun, raises its own muzzle flash parity at tick
+    /// 100 — the first-person flash, which the server sends in the viewmodel's counter and to its owner alone (B415).
+    /// </summary>
+    private static readonly DemoTimeline FiringInFirstPerson = DemoTimeline.Build(SyntheticEffects.Demo(
+        [
+            .. Players,
+            new SyntheticEffects.Placed(Weapon, SyntheticEffects.WeaponClass, new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["m_iItemDefinitionIndex"] = PropertyValue.FromInt(200),
+                ["DT_BaseEntity.m_iTeamNum"] = PropertyValue.FromInt(Blue),
+                ["m_hOwnerEntity"] = PropertyValue.FromInt(Scout),
+                ["DT_BaseAnimating.m_nMuzzleFlashParity"] = PropertyValue.FromInt(0),
+            }),
+            new SyntheticEffects.Placed(Viewmodel, SyntheticEffects.ViewmodelClass, new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["m_hWeapon"] = PropertyValue.FromInt(Weapon),
+                ["m_hOwner"] = PropertyValue.FromInt(Scout),
+                ["DT_BaseViewModel.m_nMuzzleFlashParity"] = PropertyValue.FromInt(0),
+            }),
+        ],
+        EffectNames,
+        ParticleNames,
+        [
+            new SyntheticEffects.Change(100, Viewmodel, new Dictionary<string, PropertyValue>(StringComparer.Ordinal)
+            {
+                ["DT_BaseViewModel.m_nMuzzleFlashParity"] = PropertyValue.FromInt(1),
+            }),
+        ]));
+
+    private static readonly ParticleControlPoint OnTheHands = ParticleControlPoint.Unoriented(new Vector3(5f, 5f, 60f));
+
+    [Test]
+    public void StepOver_AViewmodelFlashInItsOwnersEyes_StartsOnTheWeaponAttachedToTheHands()
+    {
+        SceneMuzzleFlash flash = FiringInFirstPerson.MuzzleFlashes.All.ShouldHaveSingleItem();
+        (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
+
+        flash.ShouldBe(new SceneMuzzleFlash(100, Weapon, 200, Blue) { Viewmodel = Viewmodel, Owner = Scout }, "the control: the feed's own reading");
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = OnTheHands;
+        models.Named[(ViewmodelScene.ArmsEntityIndex, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(-9f, -9f, 60f));
+        models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(300f, 0f, 60f));
+        bursts.StepOver(Frame(FiringInFirstPerson, 100, firstPerson: true, followed: Scout), World());
+
+        bursts.Bursts.ShouldHaveSingleItem().ShouldBe(
+            new ParticleBurst(WeaponFlashKeys, Systems["muzzle_scattergun"], OnTheHands, 100),
+            "GetAppropriateWorldOrViewModel: the viewmodel's weapon, not the world model");
+    }
+
+    [Test]
+    public void StepOver_AViewmodelFlashWithNoWeaponOnTheHands_StartsOnTheViewmodelItself()
+    {
+        (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
+        ParticleControlPoint arms = ParticleControlPoint.Unoriented(new Vector3(-9f, -9f, 60f));
+
+        models.Named[(ViewmodelScene.ArmsEntityIndex, "muzzle")] = arms;
+        bursts.StepOver(Frame(FiringInFirstPerson, 100, firstPerson: true, followed: Scout), World());
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(arms);
+    }
+
+    [TestCase(false, Scout, true, TestName = "StepOver_AViewmodelFlashOutsideFirstPerson_StartsNothing")]
+    [TestCase(true, Soldier, true, TestName = "StepOver_AViewmodelFlashInSomeoneElsesEyes_StartsNothing")]
+    [TestCase(true, Scout, false, TestName = "StepOver_AViewmodelFlashWithTheViewmodelHidden_StartsNothing")]
+    public void StepOver_AViewmodelFlashItsOwnerDoesNotSee_StartsNothing(bool firstPerson, int followed, bool drawViewmodel)
+    {
+        (BurstEffects bursts, FakePosedEntities models, _) = Presenter();
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = OnTheHands;
+        models.Named[(Weapon, "muzzle")] = ParticleControlPoint.Unoriented(new Vector3(300f, 0f, 60f));
+        bursts.StepOver(
+            Frame(FiringInFirstPerson, 100, firstPerson: firstPerson, followed: followed, drawViewmodel: drawViewmodel), World());
+
+        bursts.Bursts.ShouldBeEmpty("CTFViewModel::ProcessMuzzleFlashEvent, and r_drawviewmodel 0");
+    }
+
     [TestCase(66, 1, TestName = "StepOver_AWeaponsFlashASecondOld_IsStillOffered")]
     [TestCase(67, 0, TestName = "StepOver_AWeaponsFlashPastItsWindow_IsNotOffered")]
     public void StepOver_AroundAWeaponFlashsWindow_OffersItForASecond(int after, int expected)

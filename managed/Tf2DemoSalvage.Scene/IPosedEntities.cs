@@ -11,7 +11,8 @@ namespace Tf2DemoSalvage.Scene;
 /// </summary>
 /// <remarks>
 /// **Narrow on purpose.** <see cref="EntityModelSet"/> answers a hundred questions; the particle effects, the bullet
-/// traces and the decals that left the view ask these ten, and a test can answer ten without loading a model.
+/// traces, the decals and the impact effects that left the view ask these eleven, and a test can answer eleven without
+/// loading a model.
 /// </remarks>
 public interface IPosedEntities
 {
@@ -20,6 +21,12 @@ public interface IPosedEntities
     /// <param name="name">The attachment's name.</param>
     /// <returns>The position, or null when the entity is not posed or its model has no such attachment.</returns>
     public (float X, float Y, float Z)? AttachmentPosition(int entity, string name);
+
+    /// <summary>Where an attachment of an entity's model is in the world, by the one-based number a dispatch carries.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="number">The attachment's number; 0 is none.</param>
+    /// <returns>The position, or null when the entity is not posed or its model has no such attachment.</returns>
+    public (float X, float Y, float Z)? AttachmentPosition(int entity, int number);
 
     /// <summary>An attachment by its one-based number, as a control point with the attachment's own axes.</summary>
     /// <param name="entity">The entity.</param>

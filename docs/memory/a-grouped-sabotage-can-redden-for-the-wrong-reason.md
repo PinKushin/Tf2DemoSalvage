@@ -23,3 +23,10 @@ first.
 - Two breaks on one path go in different rounds. A test not seen red by the end gets a round of its own.
 - Restore by the inverse replacement and check the file's hash against the one taken before; a break whose
   replacement text is not unique in the file (`return true;`, `||`) cannot be restored by search.
+- **A test that stays green against its own break, alone, is guarded a layer down** (slice 3, `ImpactParticles`): a
+  sky bullet drew nothing with the presenter's guard removed because `ImpactEffects.Perform` refuses sky too. Give the
+  test a case only the layer under test stops, or delete it; do not report it as seen red.
+- **Check what the assertion reads before the break.** `ImpactEffectRunner.Count` counts an effect whose spawn was
+  refused, so "no effect runs" asserted on it failed green code; the quads are the reading.
+- A fixture default can confound every case: an unposed player's hull on the bullet's line stopped the bullets of
+  three tests about something else. Put the default off the path and opt in.
