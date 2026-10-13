@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 109 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 7 of the refactor done, the rest OPEN
+## B540 — the view reaches 60 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38894,3 +38894,59 @@ seek frames and their lines; the four first-person frames — every one identica
   names them while it is the one calling the device. They go only if the composite presenter drives the device
   through an interface of its own, or if those types are accepted as the view's vocabulary and the three
   references are replaced by what `Render` already brings transitively. That is a decision, not a move.
+
+**Slice 8, 2026-10-13. The owner's decision on the device's types**: *"1 true thin view"* (relayed by the
+coordinating agent; D214 has the two options). So the list goes to empty and the Scene reference leaves.
+
+**Slice 8, first commit: the settings — 109 to 60, 49 entries gone and none added. Content is off the list.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 91 | 49 | 42 |
+| Core | 11 | 11 | 0 |
+| Content | 7 | 0 | 7 |
+| total | 109 | 60 (31 types, 29 members) | 49 |
+
+`MainForm` uses 27 distinct domain members, from 67, and is 4,503 lines, from 4,608. *Measured*, by the instrument.
+
+*What moved:* the settings record and everything that rewrote it — the full-screen mode, the texture quality,
+`cl_showfps`, `cl_showpos`, the chosen HUD, the game folder (asking, declining, choosing, refusing), the launch
+options read over it, `SteamInstall`'s configured folder, `mat_hdr_level` into the BSP loader, the HUD picker's
+catalog, and the nine settings a new device is given — into `Presentation.SettingsPresenter`, which the composite
+presenter is constructed with. The window, the menu and the folder dialog talk to it in plain values:
+
+- the menu is built from a `MenuState` (bools, and `MenuChoice` lists for the texture levels and the HUDs), and its
+  two typed actions are `Action<bool>` (exclusive) and `Action<string>` (the level's name);
+- a handler calls one method and shows the status it returns, if any;
+- the device setup is `ApplyTo( device, … )`, which assigns the nine in the window's order with the two that go
+  through the menu (Reflections, `mat_fullbright`) called back where they stood. It takes Render's `Device3D` at the
+  one public entry and `IViewerDevice` — a Scene interface the device now implements — inside, so the view names no
+  Scene type for it. **The first build of this added a line to the list** (`IViewerDevice`, as the public
+  parameter's type); the entry was changed before the list was touched, and that is the shape step 4 needs: the
+  hand-over names the concrete Render device.
+
+*Every textual difference:*
+
+- The record is loaded in the settings owner's constructor, called from the window's, where the window's field
+  initialiser loaded it a few statements earlier. Nothing reads it in between.
+- `SetFullScreenMode( mode )` is `SetFullScreenExclusive( bool )`: the check marks are set before the record is
+  replaced, where they were set after; the device's refusal and the save's failure come back as ONE status (the
+  later of the two, as the status line ended up showing). `SetTextureQuality` takes the level's name and the status
+  is built from the parsed level, the same text.
+- The folder dialog's refusal and outcome are logged before the status line is set, where they were logged after;
+  `_game is null` is read once, before the choice, as `installOpen`.
+- `ClientConVar` is `ConVar( name ) ?? _console.ConVar( name )`, where it was a `TryGetValue` ternary.
+- The two `cl_showfps`/`cl_showpos` log lines, the frame-rate line and the menu's texture labels are built in the
+  owner from the same expressions. The HUD menu is built when the catalog has an entry, as before; the catalog is
+  read by the owner.
+- The view test `ViewerSettings_TheForm_ExposesAndChangesTheMode` calls `SetFullScreenExclusive` and reads
+  `FullScreenExclusive`.
+
+*Tests the moved code never had* (17, `SettingsPresenterTests`), from a record the test built, saved to a file the
+test owns — never the machine's settings: the menu state from defaults and from changed settings; the full-screen
+mode remembered, refused by the device, and unsaveable; the texture quality; both meters and their log lines; the
+chosen HUD; declining the folder; a folder that is not TF2's and the folder above `tf`; **the nine device settings
+in order with the menu's two between**, and neither called at the defaults; the frame-rate line; a `+cvar` option
+applying to the run and saving nothing; a ConVar the viewer keeps no setting for. Each seen red in one of two
+rounds. **Observed, not changed:** the view test above still saves to the machine's real settings file, as it did
+before this slice — it constructs a `MainForm`, which loads and saves the default path.

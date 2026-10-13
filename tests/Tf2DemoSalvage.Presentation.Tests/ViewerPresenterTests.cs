@@ -101,7 +101,7 @@ public sealed class ViewerPresenterTests
             () => view.Window,
             () => spectateWho,
             maps,
-            static () => new ViewerSettings(),
+            new SettingsPresenter(NullLoggerFactory.Instance, new ViewerSettings()),
             new PlaybackPresenter(transport, new FakeElapsedTime()),
             static _ => null,
             CancellationToken.None);

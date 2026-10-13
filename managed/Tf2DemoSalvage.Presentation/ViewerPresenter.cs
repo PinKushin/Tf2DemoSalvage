@@ -55,11 +55,11 @@ public sealed partial class ViewerPresenter : IDisposable
     private readonly Func<CameraWindow> _window;
     private readonly Func<string?> _spectateWho;
     private readonly MapProvider _maps;
-    private readonly Func<ViewerSettings> _settingsNow;
+    private readonly SettingsPresenter _settingsOwner;
     private readonly CancellationToken _shutdown;
 
     /// <summary>The window's settings as they are now: the old code read the window's field at each use.</summary>
-    private ViewerSettings _settings => _settingsNow();
+    private ViewerSettings _settings => _settingsOwner.Current;
 
     /// <summary>Entity models, packed once in model space and posed by the GPU.</summary>
     private readonly EntityModelSet _models;
@@ -213,7 +213,7 @@ public sealed partial class ViewerPresenter : IDisposable
         Func<CameraWindow> window,
         Func<string?> spectateWho,
         MapProvider maps,
-        Func<ViewerSettings> settings,
+        SettingsPresenter settings,
         PlaybackPresenter playback,
         Func<string, string?> clientConVars,
         CancellationToken shutdown)
@@ -233,9 +233,9 @@ public sealed partial class ViewerPresenter : IDisposable
         _loggers = loggers;
         _window = window;
         _spectator = new SpectatorView(loggers.CreateLogger("spectate"));
-        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, settings);
+        _camera = new CameraPresenter(cameraView, _spectator, loggers, window, () => _timeline, () => _loaded, () => settings.Current);
         _maps = maps;
-        _settingsNow = settings;
+        _settingsOwner = settings;
         _shutdown = shutdown;
         _models = new EntityModelSet(loggers);
         _log = loggers.CreateLogger("viewer");
@@ -361,6 +361,40 @@ public sealed partial class ViewerPresenter : IDisposable
 
     /// <summary>The camera presenter this owns, with the spectator the map gives a world and a demo gives eyes.</summary>
     public CameraPresenter Camera => _camera;
+
+    /// <summary>The settings' owner, which the window talks to in plain values.</summary>
+    public SettingsPresenter Settings => _settingsOwner;
+
+    /// <summary>Reads the command line and applies what it says of the settings, the spectator, the lighting and the HUD.</summary>
+    /// <param name="arguments">The command line.</param>
+    /// <returns>What was asked for; the window keeps what is its own (the shot, the tick, the paths).</returns>
+    public LaunchOptions ReadLaunch(IReadOnlyList<string> arguments)
+    {
+        LaunchOptions launch = _settingsOwner.ReadLaunch(arguments);
+
+        // The watcher's `spec_autodirector` (B535).
+        _camera.Spectate(launch.Spectate, _settings.AutoDirector);
+
+        // The watcher's `mat_hdr_level` (B537), before any map is read: which lighting every loader takes.
+        Content.Bsp.BspHdr.MatHdrLevel = _settings.HdrLevel;
+
+        // **`--hud` wins over the remembered choice, which wins over TF2's stock HUD (D193).** A
+        // launch option is for one run; the settings file is what the picker changes and expects to
+        // stick without being passed again every time.
+        _effects.ChosenHud = launch.Hud ?? _settings.ChosenHud;
+
+        return launch;
+    }
+
+    /// <summary>The picker chose a HUD: draw it from the next overlay, and remember it.</summary>
+    /// <param name="hud">The HUD's folder or archive, or null for TF2's stock one.</param>
+    /// <returns>What to say on the status line, or null for nothing.</returns>
+    public string? SetChosenHud(string? hud)
+    {
+        _effects.ChosenHud = hud;
+
+        return _settingsOwner.SetChosenHud(hud);
+    }
 
     /// <summary>The frame presenter this owns.</summary>
     public FramePresenter Effects => _effects;

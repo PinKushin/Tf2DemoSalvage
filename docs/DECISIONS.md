@@ -9867,4 +9867,12 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
 - **An input that is consumed by being read is handed over as its reader** (slice 7): flight's `Intent` loses its
   impulse bits on a read, so the camera is given the function and reads it once, only in the free camera — the
   window cannot read it at the wrong time because the window no longer reads it.
+- **The device goes behind an interface, and the Scene reference leaves: the owner's decision, 2026-10-13.** Slice 7
+  ended on a question a move could not answer: the window passes `FreeCamera`, `ModelInstance` lists, `IWorldUpload`,
+  `IModelUpload`, `VguiDrawList` and `LoadedDemo` through to the device, so it names them while it is the one calling
+  the device. Two options were put to him: (1) the composite presenter drives the device through an interface of its
+  own, the view names no Scene type, and the Scene reference leaves the csproj; (2) accept those types as the view's
+  vocabulary and keep the reference. His answer, as the coordinating agent relayed it: *"1 true thin view"*. No
+  reason was given beyond those words. Slice 8 is that: a settings owner, a playlist owner, the frame records
+  filled by the presenter, the device behind `IViewerDevice`, and then the three references out.
 

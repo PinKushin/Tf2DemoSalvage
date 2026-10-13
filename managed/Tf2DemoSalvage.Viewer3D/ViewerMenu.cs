@@ -11,7 +11,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="CompileDemo">Compile an assembly text file back into a demo.</param>
 /// <param name="Exit">Close the window.</param>
 /// <param name="SetFullScreen">Enter or leave full screen.</param>
-/// <param name="SetFullScreenMode">Choose borderless or exclusive.</param>
+/// <param name="SetFullScreenExclusive">Choose borderless or exclusive.</param>
 /// <param name="SetTextureQuality">Choose which mip level to load from.</param>
 /// <param name="SetSurfaceColours">Colour surfaces by category.</param>
 /// <param name="SetFrameRateMeter">Show Valve's frame rate meter.</param>
@@ -43,8 +43,8 @@ internal readonly record struct ViewerMenuActions(
     Action CompileDemo,
     Action Exit,
     Action<bool> SetFullScreen,
-    Action<FullScreenMode> SetFullScreenMode,
-    Action<TextureQuality> SetTextureQuality,
+    Action<bool> SetFullScreenExclusive,
+    Action<string> SetTextureQuality,
     Action<bool> SetSurfaceColours,
     Action<bool> SetFrameRateMeter,
     Action<bool> SetPositionReadout,
@@ -162,7 +162,7 @@ internal sealed class ViewerMenu : IDisposable
     public ToolStripMenuItem DebugMenu { get; }
 
     /// <summary>The texture-quality items, by level, so one can be checked and the rest cleared.</summary>
-    public IReadOnlyDictionary<TextureQuality, ToolStripMenuItem> TextureQualityItems { get; }
+    public IReadOnlyDictionary<string, ToolStripMenuItem> TextureQualityItems { get; }
 
     /// <summary>The HUD picker's items, by path (<see cref="StockHudKey"/> for TF2's stock HUD), so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<string, ToolStripMenuItem> HudItems { get; }
@@ -172,12 +172,8 @@ internal sealed class ViewerMenu : IDisposable
 
     /// <summary>Builds the whole menu.</summary>
     /// <param name="actions">What each item asks the viewer to do.</param>
-    /// <param name="settings">The saved settings, for the items that open already checked.</param>
+    /// <param name="state">What the saved settings say, in plain values, for the items that open already checked.</param>
     /// <param name="bindings">Which key performs which action, so no shortcut is written in here.</param>
-    /// <param name="hudOptions">
-    /// The HUD picker's entries — "TF2 default" plus every HUD found in the program's own
-    /// <c>custom/</c> folder (D193). Null or empty builds no HUD menu at all.
-    /// </param>
     /// <remarks>
     /// **Initial checked state comes from settings, not from the form**, so the menu can be built
     /// before anything else exists. Three items open checked because their feature is on by
@@ -186,13 +182,13 @@ internal sealed class ViewerMenu : IDisposable
     /// </remarks>
     public ViewerMenu(
         ViewerMenuActions actions,
-        ViewerSettings settings,
-        KeyBindings bindings,
-        IReadOnlyList<Content.Assets.HudOption>? hudOptions = null)
+        MenuState state,
+        KeyBindings bindings)
     {
+        ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(bindings);
 
-        Dictionary<TextureQuality, ToolStripMenuItem> textureQualityItems = [];
+        Dictionary<string, ToolStripMenuItem> textureQualityItems = new(StringComparer.Ordinal);
 
         TextureQualityItems = textureQualityItems;
 
@@ -258,17 +254,17 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.BorderlessItemId,
             AccessibleName = "Borderless full screen",
-            Checked = settings.FullScreenMode == FullScreenMode.Borderless,
+            Checked = !state.FullScreenExclusive,
         };
-        Borderless.Click += (_, _) => actions.SetFullScreenMode(FullScreenMode.Borderless);
+        Borderless.Click += (_, _) => actions.SetFullScreenExclusive(false);
 
         Exclusive = new ToolStripMenuItem("&Exclusive")
         {
             Name = MainForm.ExclusiveItemId,
             AccessibleName = "Exclusive full screen",
-            Checked = settings.FullScreenMode == FullScreenMode.Exclusive,
+            Checked = state.FullScreenExclusive,
         };
-        Exclusive.Click += (_, _) => actions.SetFullScreenMode(FullScreenMode.Exclusive);
+        Exclusive.Click += (_, _) => actions.SetFullScreenExclusive(true);
 
         ToolStripMenuItem fullScreenMode = new("Full screen &mode")
         {
@@ -287,23 +283,18 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = "Texture quality",
         };
 
-        foreach (TextureQuality quality in new[]
+        // The levels, their labels and which is in force are the settings owner's (`SettingsPresenter.Menu`); the
+        // item's name and accessible name are built from the level's name here, as they were.
+        foreach (MenuChoice choice in state.TextureQualities)
         {
-            TextureQuality.Full, TextureQuality.High, TextureQuality.Medium, TextureQuality.Low,
-        })
-        {
-            TextureQuality chosen = quality;
-            int pixels = (int)quality;
+            string chosen = choice.Key ?? string.Empty;
+            string quality = chosen;
 
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            ToolStripMenuItem item = new(
-                pixels == 0
-                    ? "&Full"
-                    : string.Create(CultureInfo.InvariantCulture, $"{quality} ({pixels} px)"))
+            ToolStripMenuItem item = new(choice.Label)
             {
                 Name = "TextureQuality" + quality,
                 AccessibleName = "Texture quality " + quality,
-                Checked = settings.TextureQuality == quality,
+                Checked = choice.Chosen,
             };
 
             item.Click += (_, _) => actions.SetTextureQuality(chosen);
@@ -349,7 +340,7 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.FrameRateItemId,
             CheckOnClick = true,
-            Checked = settings.ShowFrameRate != 0,
+            Checked = state.ShowFrameRate,
             AccessibleName = "Frame rate",
             AccessibleDescription =
                 "Draws TF2's own frame rate meter in the top right: the average, the worst and best " +
@@ -372,7 +363,7 @@ internal sealed class ViewerMenu : IDisposable
         {
             Name = MainForm.PositionReadoutItemId,
             CheckOnClick = true,
-            Checked = settings.ShowPosition != 0,
+            Checked = state.ShowPosition,
             AccessibleName = "Position",
             AccessibleDescription =
                 "Draws TF2's own position readout under the frame rate: the camera's coordinates, " +
@@ -445,7 +436,7 @@ internal sealed class ViewerMenu : IDisposable
 
             // From the config, like every other item here that has one. A tick that disagreed with
             // what the renderer was doing would be worse than no tick at all.
-            Checked = settings.Phong,
+            Checked = state.Phong,
             AccessibleName = "Highlights",
             AccessibleDescription =
                 "Adds specular highlights to materials that ask for them. Turn off to see whether " +
@@ -664,7 +655,7 @@ internal sealed class ViewerMenu : IDisposable
 
         HudItems = hudItems;
 
-        if (hudOptions is { Count: > 0 })
+        if (state.Huds is { Count: > 0 } hudOptions)
         {
             ToolStripMenuItem hudMenu = new("&Hud")
             {
@@ -672,15 +663,15 @@ internal sealed class ViewerMenu : IDisposable
                 AccessibleName = "Hud",
             };
 
-            foreach (Content.Assets.HudOption option in hudOptions)
+            foreach (MenuChoice option in hudOptions)
             {
-                string? path = option.Path;
+                string? path = option.Key;
 
-                ToolStripMenuItem item = new(option.Name)
+                ToolStripMenuItem item = new(option.Label)
                 {
                     Name = "Hud" + (path ?? "Default").GetHashCode(StringComparison.Ordinal),
-                    AccessibleName = "Hud " + option.Name,
-                    Checked = string.Equals(settings.ChosenHud, path, StringComparison.Ordinal),
+                    AccessibleName = "Hud " + option.Label,
+                    Checked = option.Chosen,
                 };
 
                 item.Click += (_, _) =>
