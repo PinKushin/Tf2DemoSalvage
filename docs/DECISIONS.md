@@ -9899,3 +9899,54 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   and the rules that would have been weak (a branch count, a ban on arithmetic, a pinned list of callable members)
   were judged and left out rather than added (B540, slice 9).
 
+## D215 — the UI suite uses no real input where the control can be driven without it (2026-10-13)
+
+**Owner, in his words:** *"i cant even move the mouse while the ui is running or it fails, that doesnt work, tests
+whould not be using the real mouse unless they have to, like no other option"*, and on which call it was: *"its
+the mouse.click, flauis click moves the mouse yes, and is a real click yes, but it moves and clicks in one thing, I
+cant and havent been able to fuck those up, but using asseccability stuff would be better"*.
+
+**What prompted it.** The viewer UI suite takes about seven minutes and `ViewerApplication.Click(element, what)`
+took the foreground, waited, and then clicked the real mouse at the element's centre. A hand on the mouse or a
+focus change in that gap put the click somewhere else, so the owner could not use the machine during a run.
+
+**The rule.** A control is driven through `ViewerApplication.Activate`: no cursor, no key, no foreground demanded.
+Real input is kept for what has no other route, goes through three named helpers grouped in one region of
+`ViewerApplication` (`RealClick`, `PressRealKey`, `TypeRealText`), and each call carries a comment saying why.
+
+**Two things measured on the way that changed the shape** (both 2026-10-13, both on the owner's machine):
+
+- **A button is sent a posted `BM_CLICK`, not the invoke pattern.** The invoke of a WinForms button runs its click
+  handler inside the automation call. When the handler opens a modal dialog the call does not return, and while it
+  is outstanding the viewer answers no other automation request — running the invoke off the test thread, the
+  shape first built, changed nothing, and all eight tests in the run fell with `0x80131505`. A posted message is
+  handled from the viewer's own loop; `ButtonBase` turns it into `PerformClick`. It is not a UI Automation pattern.
+  It is the route that moves no cursor and needs no foreground, which is what was asked for.
+- **A WinForms menu that opens brings its form forward.** Expanding a menu through the pattern sends no input, and
+  the viewer still held the foreground afterwards. So a menu needs nothing from the desktop and does take the
+  foreground from whoever had it; a button press takes neither. The test holds the button to both and the menu to
+  the cursor only, and says so.
+
+**What remains real input, and why:**
+
+| What | Where | Why no other route |
+|---|---|---|
+| Left click on the viewport | `FirstPersonUiTests`, three tests | a raw Direct3D surface with no pattern; the mouse binding is the subject (B145) |
+| F11, Escape | `ShellUiTests`; teardown of `MapFullScreenUiTests` | the key binding is the subject, and full screen hides the menu a pattern would need to leave it |
+| SPACE | `ViewerSession.PressSwitchCameraMode`, every caller | the binding reaching the window is the subject |
+| Home, End | `TransportUiTests` | which control hears the key is the subject |
+| Enter on a playlist row | `ViewerApplication.LoadFromPlaylist` | a WinForms list row's invoke only focuses it and raises no `ItemActivate` |
+| A path typed into the common file and folder dialogs | `ExportCompileUiTests.FillDialog`, `GameFolderUiTests.Choose` | on the CI runner the file dialog saved its default name when the box was set through `ValuePattern` (`docs/memory/a-uia-expanded-menu-eats-later-keys.md`); a local pass cannot show otherwise, and the folder box is the same dialog, unmeasured |
+
+B216 stands: a modified shortcut such as Ctrl+R still cannot be driven.
+
+**Moved off real input:** the three Export and Compile button clicks, the File and View menu clicks and the TF2
+folder item in `GameFolderUiTests`, the screenshot key in `FirstPerson_TheCapturedFrame_IsAViewRatherThanASurface`
+(the View menu item instead; the key is not that test's subject) and F11 in `MapFullScreenUiTests` (the Full screen
+item). `ViewerApplication.Focus`, which fell back to a real click on the window and had no caller, is removed.
+
+**Held by** `ViewerApplicationActivateUiTests`: another application is put in front, the cursor position is read,
+a transport button and a menu item are driven, and the cursor must be exactly where it was while the control's
+effect has happened (for the button, the other application must still hold the foreground too). Putting the old
+`Mouse.Click` back at the top of `Activate` reddened both on the cursor position.
+

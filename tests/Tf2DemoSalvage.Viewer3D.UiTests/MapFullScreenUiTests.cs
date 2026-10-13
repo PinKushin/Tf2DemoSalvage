@@ -78,7 +78,7 @@ public sealed class MapFullScreenUiTests
         // Found once and polled by property: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
         AutomationElement viewport = _viewer.Find("Viewport");
 
-        _viewer.PressKey(VirtualKeyShort.F11);
+        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.FullScreenItemName);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
@@ -123,7 +123,7 @@ public sealed class MapFullScreenUiTests
             return;
         }
 
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
+        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
 
         Retry.WhileTrue(
             () => _viewer.Window.BoundingRectangle.Width >= screen.Width,

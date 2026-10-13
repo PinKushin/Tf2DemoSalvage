@@ -10,11 +10,12 @@ UI tests must not use the real mouse, synthesized keys or the foreground window 
 **Why:** owner, 2026-10-13: "i cant even move the mouse while the ui is running or it fails, that doesnt work, tests whould not be using the real mouse unless they have to, like no other option". A 7-minute suite that needs the desktop untouched was voided by his use four times in two days (YouTube, Copilot, typing a reply). He called a test that dies in a menu check from that "a bad test".
 
 **How to apply:**
-- Menu item, button: `InvokePattern` / `ExpandCollapsePattern`, not FlaUI `.Click()` (which moves the real cursor) and not `Mouse.Click`.
-- Text into a dialog field: `ValuePattern.SetValue`, not `Keyboard.Type`.
+- Menu, menu item, button: `ViewerApplication.Activate` (D215), not FlaUI `.Click()` (which moves the real cursor) and not `Mouse.Click`.
+- **A button is sent a posted `BM_CLICK`, not `InvokePattern`** (measured 2026-10-13). Invoke on a WinForms button whose handler opens a modal dialog never returns, and while it is outstanding the viewer answers no other UIA call, from any thread: eight tests fell with 0x80131505. A menu item's Invoke does return.
+- **A WinForms menu that opens takes the foreground**, with no click sent. Menus need nothing from the desktop but still pull the viewer forward; a button press does not.
+- Text into a field of the viewer: `ValuePattern`. Text into the Win32 common dialog's name box stays typed (`TypeRealText`): on CI a ValuePattern set is ignored ([[a-uia-expanded-menu-eats-later-keys]]).
 - Reading state: UIA properties; never require focus to read.
-- Real input only where the thing under test IS input (a key binding reaching the window, a drag on the viewport). Say so in a comment at the call, and keep those tests few and grouped.
-- The one the owner breaks is `ViewerApplication.Click(element, what)`: it takes the foreground, then `Mouse.Click` at the element's centre, so a moved mouse or a focus change in the gap lands the click elsewhere. FlaUI's own `.Click()` moves and clicks in one step; the owner has not broken those. Fix the helper first.
-- Count on 2026-10-13: 11 `.Click(`, 1 `Mouse.Click`, 4 real `Keyboard.*`, 15 focus/foreground calls across `Tf2DemoSalvage.Viewer3D.UiTests`.
+- Real input only where the thing under test IS input (a key binding reaching the window, a click on the viewport). It goes through `RealClick`, `PressRealKey` or `TypeRealText`, with a comment at the call saying why.
+- Count on 2026-10-13, before: 11 `.Click(`, 1 `Mouse.Click`, 5 `Keyboard.*`, 17 `PressKey` calls. After D215: 1 `Mouse.Click` (`RealClick`, 3 viewport callers), 0 FlaUI `.Click()`, 3 `Keyboard.*` (all inside `PressRealKey` and `TypeRealText`), 16 `PressRealKey` calls, 2 `TypeRealText` calls.
 
 Related: [[ui-tests-run-every-time]], [[a-uia-expanded-menu-eats-later-keys]], [[take-the-desktop-lock-dont-defer]].

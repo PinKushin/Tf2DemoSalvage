@@ -22,8 +22,11 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// asserted before any dialog is expected; without it, a machine whose TF2 leaked through would skip
 /// the picker and the test would be measuring nothing.
 ///
-/// **Menus are clicked, never expanded through UIA**, which strands WinForms in keyboard menu mode
-/// after a modal dialog (<c>docs/memory/a-uia-expanded-menu-eats-later-keys.md</c>).
+/// **Menus are expanded and their items invoked through UIA, with no real click** (D215). That
+/// strands WinForms in keyboard menu mode after a modal dialog
+/// (<c>docs/memory/a-uia-expanded-menu-eats-later-keys.md</c>), which the viewer itself undoes for
+/// its file dialogs and which costs nothing here in any case: each test has its own viewer and
+/// presses no key after its menu.
 /// </remarks>
 [TestFixture]
 public sealed class GameFolderUiTests
@@ -110,8 +113,8 @@ public sealed class GameFolderUiTests
         string tf = Directory.CreateDirectory(Path.Combine(game, "tf")).FullName;
         File.WriteAllBytes(Path.Combine(tf, SteamInstall.Recogniser), []);
 
-        Viewer.Click(FindShown("File menu"), "File menu");
-        Viewer.Click(FindShown(MainForm.GameFolderItemName), MainForm.GameFolderItemName);
+        Viewer.Activate(FindShown("File menu"), "File menu");
+        Viewer.Activate(FindShown(MainForm.GameFolderItemName), MainForm.GameFolderItemName);
         Choose(game);
 
         Retry.WhileFalse(() => Viewer.Count("] " + MainForm.GameFolderSet) > 0, DialogTimeout)
@@ -132,9 +135,13 @@ public sealed class GameFolderUiTests
         Retry.WhileFalse(() => Viewer.Count("] " + MainForm.GameFolderSet) > 0, DialogTimeout)
             .Success.ShouldBeTrue($"the folder was not accepted; status '{Viewer.StatusText()}'");
 
-        Viewer.Click(FindShown(MainForm.ViewMenuName), MainForm.ViewMenuName);
-        FindShown(MainForm.ScreenshotItemName).Properties.AcceleratorKey.ValueOrDefault
-            .ShouldBe("F9", "the menu still prints the key bound before the player's config was read");
+        AutomationElement view = FindShown(MainForm.ViewMenuName);
+        Viewer.Activate(view, MainForm.ViewMenuName);
+        string? key = FindShown(MainForm.ScreenshotItemName).Properties.AcceleratorKey.ValueOrDefault;
+
+        // Closed before the viewer is asked to exit: an open menu was still up when teardown closed it.
+        view.Patterns.ExpandCollapse.Pattern.Collapse();
+        key.ShouldBe("F9", "the menu still prints the key bound before the player's config was read");
     }
 
     /// <summary>Types a folder into the open folder dialog and confirms it.</summary>
@@ -158,8 +165,9 @@ public sealed class GameFolderUiTests
         box.Focus();
         Retry.WhileFalse(Viewer.HasFocus, DialogTimeout).Success
             .ShouldBeTrue("the folder dialog did not take the foreground, so typing would go elsewhere");
-        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-        Keyboard.Type(folder);
+        // Real keys: the same common dialog whose name box, on the CI runner, saved its default when
+        // the text was set through ValuePattern (ExportCompileUiTests.FillDialog); unmeasured for this box.
+        Viewer.TypeRealText(folder);
         Retry.WhileFalse(() => box.Patterns.Value.Pattern.Value.ValueOrDefault == folder, DialogTimeout)
             .Success.ShouldBeTrue("the Folder box did not end up holding the typed path");
 
