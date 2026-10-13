@@ -456,3 +456,11 @@ decodes it cleanly, the harness is the suspect.
 (`m_nType`) flipped to "implemented" with no code reading it. **How to apply:** search the metadata block
 (`PEReader.GetMetadata()`), where literals and member names live — never the file — and expect any new
 embedded data file to be able to fool a raw byte search.
+
+## A before/after comparison needs a same-binary control first (B540 slice 4, 2026-10-12)
+
+Sound log of a PLAYING run (`--measure 6`, `+developer 1`): two runs of ONE binary differed in 46 of ~130 lines.
+Which frame crosses an event is the clock's. A before/after diff of it proves nothing.
+**How to apply:** run the old binary twice; only what repeats is an instrument. For sounds that is a paused seek
+(`--tick N --shot`, `+developer 1`): 47 lines repeat once the skip line's timings are cut. It holds no corpse line.
+`+developer 1` is what makes the log accept Debug; without it the sound lines are absent, not zero.

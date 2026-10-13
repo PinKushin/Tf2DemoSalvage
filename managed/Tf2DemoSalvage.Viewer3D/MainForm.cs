@@ -889,7 +889,10 @@ internal class MainForm : Form, IFrameSteps
         _decals = new DecalEffects(_models, _strikes, _renderLog);
         _lights = new LightStyleEffects(_renderLog);
         _impacts = new ImpactParticles(_models, _strikes, _renderLog);
+        _idTargets = new IdTargets(_strikes, _mapLog);
+        _firstPersonEye = FirstPersonCamera;
         _frameParticles = new FrameParticles(_particles, _renderLog);
+        _effectEntities = new EffectEntities(_models, _renderLog);
         _walk = _decals.WorldOf;
         _styleScale = _lights.Scale;
         _demoLog = loggers.CreateLogger("demo");
@@ -902,7 +905,7 @@ internal class MainForm : Form, IFrameSteps
         // and somewhere to report. Its map-dependent state arrives when a map is read.
         _sounds = new SoundCache(_audioLog);
         _soundscape = new SoundscapeSystem(_loops, _sounds.Sample, _audioLog);
-        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog);
+        _sound = new SoundPresenter(_soundscape, _loops, _sounds.Sample, _audioLog) { ClientSoundLog = _renderLog };
         _freeCamera = new FreeCameraController(_renderLog);
 
         // **A real source that answers unlit, rather than a null field checked at every call.** The
@@ -2667,130 +2670,26 @@ internal class MainForm : Form, IFrameSteps
     // worse than none — it is read as information. `MapOverview` still holds that mapping for
     // whatever draws markers next.
 
-    /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — a debugging instrument.</summary>
-    /// <remarks>
-    /// Casts the camera's ray through the pixel (<see cref="FreeCamera.RayThrough"/>) and logs the world's hit, brushes and
-    /// static props, then every drawn model whose origin lies near the ray, nearest the ray first. Built to name a glow seen
-    /// on screen without guessing a camera to fly to it.
-    /// </remarks>
+    /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (Environment.GetEnvironmentVariable("TF2VIEW_PICK") is not { } asked ||
-            asked.Split(' ', StringSplitOptions.RemoveEmptyEntries) is not [{ } xs, { } ys, .. { } more] ||
-            !float.TryParse(xs, NumberStyles.Float, CultureInfo.InvariantCulture, out float px) ||
-            !float.TryParse(ys, NumberStyles.Float, CultureInfo.InvariantCulture, out float py) ||
-            _lastViewing is not { } viewing)
+        string? report = PickReport.Describe(
+            Environment.GetEnvironmentVariable("TF2VIEW_PICK"),
+            new PickFrame(
+                _loaded,
+                _transport.CurrentTick,
+                _lastViewing,
+                _viewport.ClientSize.Width,
+                _viewport.ClientSize.Height,
+                _moment.Drawn,
+                _lastParticles,
+                _bursts.Bursts,
+                _particles));
+
+        if (report is not null)
         {
-            return;
+            _renderLog.LogInformation("{Message}", report);
         }
-
-        (float dx, float dy, float dz) = viewing.RayThrough(px, py, _viewport.ClientSize.Width, _viewport.ClientSize.Height);
-        Vector3 eye = new(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z);
-        Vector3 ray = new(dx, dy, dz);
-        System.Text.StringBuilder report = new();
-
-        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-        report.Append(CultureInfo.InvariantCulture, $"pick ({px} {py}) at tick {_transport.CurrentTick} from ({eye.X:0} {eye.Y:0} {eye.Z:0}) along ({dx:0.000} {dy:0.000} {dz:0.000}): ");
-
-        if (_loaded?.Level is { } level)
-        {
-            Vector3 end = eye + (ray * 16000f);
-            BspTrace hit = level.Trace((eye.X, eye.Y, eye.Z), (end.X, end.Y, end.Z), 0f);
-
-            float wall = hit.Fraction * 16000f;
-            Vector3 at = eye + (ray * wall);
-
-            string? Owner(ParticleEffect effect) =>
-                Enumerable.Range(0, effect.Particles.Count).Any(i => Vector3.Distance(effect.Particles.PositionOf(i), at) < 100f)
-                    ? effect.System.Name
-                    : effect.Children.Select(Owner).FirstOrDefault(static name => name is not null);
-
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            report.Append(CultureInfo.InvariantCulture, $"world at {wall:0} units ({at.X:0} {at.Y:0} {at.Z:0}) texinfo {hit.Texinfo} static prop {hit.StaticProp}; ");
-
-            foreach (ParticleBurst burst in _bursts.Bursts)
-            {
-                // Only a burst with particles near the ray's hit, within 100 units, named down to the child that owns them.
-                // A pick of 500 pixels or wider asks for the whole frame, so every live burst is named.
-                // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-                if (_particles.BurstEffect(burst.Key) is not { } effect ||
-                    (Owner(effect) ?? (more is [{ } all] && float.Parse(all, CultureInfo.InvariantCulture) >= 500f ? effect.System.Name : null)) is not { } owner)
-                {
-                    continue;
-                }
-
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                report.Append(CultureInfo.InvariantCulture, $"{{burst {burst.Definition.Name} child {owner} key {burst.Key} tick {burst.Tick} stop {burst.StopTick} at ({burst.At.At.X:0} {burst.At.At.Y:0} {burst.At.At.Z:0}) forward ({burst.At.Forward.X:0.00} {burst.At.Forward.Y:0.00} {burst.At.Forward.Z:0.00}) end ({burst.End?.At.X:0} {burst.End?.At.Y:0} {burst.End?.At.Z:0}) own particles {effect.Particles.Count}{string.Concat(Enumerable.Range(0, Math.Min(effect.Particles.Count, 6)).Select(i => i * Math.Max(1, effect.Particles.Count / 6)).Select(i => string.Create(CultureInfo.InvariantCulture, $" #{i} age {effect.Particles.AgeOf(i):0.00} at ({effect.Particles.PositionOf(i).X:0} {effect.Particles.PositionOf(i).Y:0} {effect.Particles.PositionOf(i).Z:0}) radius {effect.Particles.RadiusOf(i):0.0} alpha {effect.Particles.AlphaOf(i):0.00}")))}}} ");
-            }
-        }
-
-        foreach ((SceneProp prop, float along, float off) in (_moment.Drawn ?? [])
-            .Select(prop =>
-            {
-                Vector3 origin = new(prop.Pose.X, prop.Pose.Y, prop.Pose.Z);
-                float along = Vector3.Dot(origin - eye, ray);
-
-                return (prop, along, off: Vector3.Distance(origin, eye + (ray * along)));
-            })
-            .Where(static seen => seen.along > 0f && seen.off < 128f)
-            .OrderBy(static seen => seen.off)
-            .Take(8))
-        {
-            // The sequence is the DRAWN prop's own — what the frame posed with — beside what chose it (B523).
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            report.Append(CultureInfo.InvariantCulture, $"[{prop.ModelPath} entity {prop.EntityIndex} kind {prop.Kind} {along:0} along, {off:0} off, at ({prop.Pose.X:0.#} {prop.Pose.Y:0.#} {prop.Pose.Z:0.#}) sequence {prop.Pose.Sequence} slot {prop.Pose.Slot ?? "-"} jump {prop.Pose.JumpActivity?.ToString() ?? "-"} flags {prop.Pose.Flags?.ToString(CultureInfo.InvariantCulture) ?? "-"}] ");
-        }
-
-        // Every particle and sprite quad whose projected centre lands within 24 pixels of the pick — or within the third
-        // number of `TF2VIEW_PICK="x y pixels"`, for a whole effect rather than one spot of it.
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        float within = more is [{ } wide] && float.TryParse(wide, NumberStyles.Float, CultureInfo.InvariantCulture, out float pixels)
-            ? pixels
-            : 24f;
-        float[] m = viewing.ToMatrix();
-        int width = _viewport.ClientSize.Width;
-        int height = _viewport.ClientSize.Height;
-
-        foreach (ParticleBatch batch in _lastParticles)
-        {
-            string named = _loaded?.Assets?.ParticleMaterials?.FirstOrDefault(pair => pair.Value.Equals(batch.Material)).Key ??
-                           _loaded?.Assets?.SpriteMaterials?.FirstOrDefault(pair => pair.Value.Material.Equals(batch.Material)).Key ?? "?";
-
-            for (int i = 0; i + 5 < batch.Corners.Count; i += 6)
-            {
-                Vector3 centre = Vector3.Zero;
-
-                for (int c = 0; c < 6; c++)
-                {
-                    centre += new Vector3(batch.Corners[i + c].X, batch.Corners[i + c].Y, batch.Corners[i + c].Z);
-                }
-
-                centre /= 6f;
-                float w = (centre.X * m[3]) + (centre.Y * m[7]) + (centre.Z * m[11]) + m[15];
-
-                if (w <= 0f)
-                {
-                    continue;
-                }
-
-                float sx = (((centre.X * m[0]) + (centre.Y * m[4]) + (centre.Z * m[8]) + m[12]) / w + 1f) * 0.5f * width;
-                float sy = (1f - (((centre.X * m[1]) + (centre.Y * m[5]) + (centre.Z * m[9]) + m[13]) / w)) * 0.5f * height;
-
-                if (MathF.Abs(sx - px) < within && MathF.Abs(sy - py) < within)
-                {
-                    DetailSpriteVertex first = batch.Corners[i];
-
-                    // The size is the drawn quad's own: its first corner's distance from its centre, in world units.
-                    float reach = Vector3.Distance(centre, new Vector3(first.X, first.Y, first.Z));
-
-                    // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                    report.Append(CultureInfo.InvariantCulture, $"<quad {named} centre ({centre.X:0} {centre.Y:0} {centre.Z:0}) at ({sx:0} {sy:0}) corner {reach:0.0} out rgba ({first.Red:0.00} {first.Green:0.00} {first.Blue:0.00} {first.Alpha:0.00}) blend {batch.Material.Blend}> ");
-                }
-            }
-        }
-
-        _renderLog.LogInformation("{Message}", report.ToString());
     }
 
     /// <summary>The camera the last frame was set up with, for <see cref="Pick"/>.</summary>
@@ -3186,18 +3085,9 @@ internal class MainForm : Form, IFrameSteps
 
         // **The corpse pass says what it heard, whichever path posed the corpse** — f12's 26990 death played none after a seek to
         // 26960, when only the record was read.
-        _heardCorpseSounds.Clear();
-        _heardCorpseFrictions.Clear();
-        _models.Corpses.FrictionHeard = (tick, friction) => _heardCorpseFrictions.Add((tick, friction));
-        _models.Corpses.ImpactHeard = (tick, sound) =>
-        {
-            if (!_heardCorpseSounds.TryGetValue(tick, out List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound>? heard))
-            {
-                _heardCorpseSounds[tick] = heard = [];
-            }
-
-            heard.Add(sound);
-        };
+        _sound.ForgetCorpseSounds();
+        _models.Corpses.FrictionHeard = _sound.CorpseFrictionHeard;
+        _models.Corpses.ImpactHeard = _sound.CorpseImpactHeard;
         _corpseRecording = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
 
         Func<string, PropModels.ModelFrames?> geometry = _models.Geometry;
@@ -4622,6 +4512,15 @@ internal class MainForm : Form, IFrameSteps
     /// <summary>A frame's particles in the order they are made: trails, effects, sprites, strips (B373, B378).</summary>
     private readonly FrameParticles _frameParticles;
 
+    /// <summary>The beams, sprite trails and ropes, and the holiday lights the ropes dispatch (B231, B475, B477, B478).</summary>
+    private readonly EffectEntities _effectEntities;
+
+    /// <summary>What the local player is looking at, for the target ID and the weapon pickup prompt.</summary>
+    private readonly IdTargets _idTargets;
+
+    /// <summary><see cref="FirstPersonCamera"/> as the one delegate the target ID is handed each frame.</summary>
+    private readonly Func<FreeCamera?> _firstPersonEye;
+
     /// <summary>The map as the engine's walks see it — the decals', which the lights and the impact colours share. One delegate, made once.</summary>
     private readonly Func<LoadedMap, DecalWorld> _walk;
 
@@ -4752,11 +4651,11 @@ internal class MainForm : Form, IFrameSteps
 
                 foreach (FiredAnimationEvent fired in _firedEvents)
                 {
-                    steps += fired.Event.Id == FootstepEvent ? 1 : 0;
+                    steps += fired.Event.Id == SoundPresenter.FootstepEvent ? 1 : 0;
                     // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
                     events = SequenceHash.Add(events, string.Create(CultureInfo.InvariantCulture, $"{through}:{fired.EntityIndex}:{fired.Event.Id}"));
 
-                    if (fired.Event.Id == PlaySoundEvent &&
+                    if (fired.Event.Id == SoundPresenter.PlaySoundEvent &&
                         EntitySounds.Emit(through, fired.EntityIndex, fired.Event.Options, fired.Origin, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
                     {
                         live.Add(sound);
@@ -4887,441 +4786,6 @@ internal class MainForm : Form, IFrameSteps
         static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
     }
 
-    /// <summary>`LIFE_ALIVE`.</summary>
-    private const int Alive = 0;
-
-    /// <summary>`FL_DUCKING`.</summary>
-    private const int Ducking = 1 << 1;
-
-    /// <summary>`SOLID_VPHYSICS`.</summary>
-    private const int SolidVphysics = 6;
-
-    /// <summary>Each dropped weapon model's collide, read once.</summary>
-    private readonly Dictionary<string, Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide?> _modelCollides = new(StringComparer.OrdinalIgnoreCase);
-
-    /// <summary>`C_TFPlayer::GetIDTarget()` for the local player this frame — <see cref="IdTargetTrace"/> from the view.</summary>
-    /// <remarks>
-    /// Traced only where `CMainTargetID` can draw: a point-of-view demo's living recorder outside any observer mode. The
-    /// view is the first-person camera, `MainViewOrigin()` and `MainViewForward()`; the world is the BSP, the players
-    /// their hulls and posed hitboxes (<see cref="IdTargetTraces"/>). The same traces answer `GetDroppedWeaponInRange`'s
-    /// (tf_player_shared.cpp:14761), `TF_WEAPON_PICKUP_RANGE` long.
-    /// </remarks>
-    private HudState WithIdTraces(HudState state, int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (!state.HasLocalPlayer || !state.Alive || state.ObserverMode > Core.Scene.ObserverModes.None
-            || _timeline is not { HasRecordedView: true } timeline || _loaded?.Level is not { } level
-            || FirstPersonCamera() is not { } eye)
-        {
-            return state with { IdTarget = null };
-        }
-
-        List<BulletTarget> targets = [];
-        Dictionary<int, int> teams = [];
-
-        // Their hulls where the frame drew them — `GetCollisionOrigin()` — beside the hitboxes posed there (B526); the
-        // recording's newest frame put a running player's hull an interpolation delay ahead of his body.
-        foreach (ScenePlayer player in _moments.PlayersShownAt(tick) ?? timeline.PlayersAt(tick))
-        {
-            if ((player.LifeState ?? Alive) == Alive)
-            {
-                targets.Add(new BulletTarget(player.EntityIndex, new Vector3(player.X, player.Y, player.Z), ((player.Flags ?? 0) & Ducking) != 0));
-                teams[player.EntityIndex] = player.Team ?? 0;
-            }
-        }
-
-        // A standing building's `SOLID_BBOX`: its origin plus the networked collision box; a blueprint is `FSOLID_NOT_SOLID`.
-        List<IdTargetBox> boxes = [];
-
-        foreach (Core.Scene.SceneBuilding building in timeline.BuildingsAt(tick))
-        {
-            if (building is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
-            {
-                boxes.Add(new IdTargetBox(
-                    building.EntityIndex,
-                    building.Team ?? 0,
-                    new Vector3(at.X + mins.X, at.Y + mins.Y, at.Z + mins.Z),
-                    new Vector3(at.X + maxs.X, at.Y + maxs.Y, at.Z + maxs.Z)));
-            }
-        }
-
-        // A `SOLID_BBOX` — a revive marker, or a dropped weapon whose `VPhysicsInitNormal` failed (tf_dropped_weapon.cpp:113-116)
-        // — is its box, world-aligned; a `SOLID_VPHYSICS` weapon its model's collide, placed (`ClipRayToCollideable`).
-        foreach (Core.Scene.SceneIdEntity entity in timeline.IdEntitiesAt(tick))
-        {
-            if (entity is { IsSolid: true, Position: { } at, Mins: { } mins, Maxs: { } maxs })
-            {
-                Vector3 origin = new(at.X, at.Y, at.Z);
-                StaticPropCollision? hull = null;
-
-                if (entity is { SolidType: SolidVphysics, Model: { } model } && _game is { } game)
-                {
-                    (float pitch, float yaw, float roll) = entity.Angles ?? (0f, 0f, 0f);
-
-                    hull = StaticPropCollision.From(
-                        [new BspStaticProp(model, at.X, at.Y, at.Z, pitch, yaw, roll, 1f, Solid: SolidVphysics)],
-                        path =>
-                        {
-                            if (!_modelCollides.TryGetValue(path, out Tf2DemoSalvage.Animation.Animating.IvpStaticPropCollide? known))
-                            {
-                                known = IvpMapWorld.ModelCollide(path, game, _mapLog);
-                                _modelCollides[path] = known;
-                            }
-
-                            return known;
-                        },
-                        _ => -1);
-                }
-
-                boxes.Add(new IdTargetBox(
-                    entity.EntityIndex, entity.Team ?? 0, origin + new Vector3(mins.X, mins.Y, mins.Z), origin + new Vector3(maxs.X, maxs.Y, maxs.Z), hull));
-            }
-        }
-
-        IdTargetTraces traces = new(
-            targets,
-            teams,
-            (from, to) => level.Sweep((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 0f),
-            _strikes.HitboxesOrUntested,
-            boxes);
-        (float x, float y, float z) = AngleVectors.Forward(eye.Angles.Pitch, eye.Angles.Yaw);
-        Vector3 from = new(eye.Origin.X, eye.Origin.Y, eye.Origin.Z);
-        Vector3 forward = new(x, y, z);
-
-        return state with
-        {
-            IdTarget = IdTargetTrace.GetIdTarget(
-                from, forward, state.LocalIndex, state.Team, isObserver: false, observerTarget: 0, traces.Solid, traces.Shot),
-
-            // `EyePosition() + vecForward * TF_WEAPON_PICKUP_RANGE`, the same mask and filter as the ID trace.
-            WeaponPickupTraceHit = traces.Solid(from, from + (forward * 150f), state.LocalIndex).Entity,
-            EyePosition = (eye.Origin.X, eye.Origin.Y, eye.Origin.Z),
-        };
-    }
-
-    /// <summary>`AE_CL_PLAYSOUND`, the old-system client event that names a sound script.</summary>
-    private const int PlaySoundEvent = 5004;
-
-    /// <summary>TF2's footstep event, answered by `C_TFPlayer::FireEvent`.</summary>
-    private const int FootstepEvent = 7001;
-
-    /// <summary>`VEC_HULL_MAX.x`: the player hull's half width, the cube `GetGroundSurface` sweeps.</summary>
-    private const float HullHalfWidth = 24f;
-
-    /// <summary>How far `GetGroundSurface` looks down.</summary>
-    private const float GroundProbe = 64f;
-
-    private readonly Footsteps _footsteps = new();
-
-    /// <summary>The last ground trace, for the footstep log.</summary>
-    private BspTrace _lastGround;
-
-    /// <summary>Players at the shown moment, for the events that name one; reused.</summary>
-    private readonly List<ScenePlayer> _eventPlayers = [];
-
-    /// <summary>The animation events taken this frame; reused.</summary>
-    private readonly List<FiredAnimationEvent> _firedEvents = [];
-
-    /// <summary>One footstep event, gated by the flag list the loaded demo was written with (B501).</summary>
-    /// <param name="footsteps">The viewer's footstep state.</param>
-    /// <param name="tick">When.</param>
-    /// <param name="stepper">The player.</param>
-    /// <param name="ground">What is under them.</param>
-    /// <param name="named">A surface by name.</param>
-    /// <param name="scripts">The sound scripts.</param>
-    /// <param name="timeline">The loaded demo, whose `FlagLayout` decides which bits are frozen and at controls.</param>
-    /// <returns>The step, or null.</returns>
-    internal static SceneSound? Footstep(
-        Footsteps footsteps,
-        int tick,
-        ScenePlayer stepper,
-        StepSurface? ground,
-        Func<string, StepSurface?> named,
-        IReadOnlyDictionary<string, SoundScriptEntry> scripts,
-        DemoTimeline timeline) =>
-        footsteps.Step(tick, stepper, ground, named, scripts, timeline.FlagLayout);
-
-    /// <summary>The sounds this frame's animation events make: `C_BaseAnimating::FireEvent` and TF2's footstep (B172).</summary>
-    /// <remarks>
-    /// `AE_CL_PLAYSOUND` (`c_baseanimating.cpp:3988`) emits its options from attachment 1, or the origin when the model
-    /// has none. 7001 is `C_TFPlayer::FireEvent` (`c_tf_player.cpp:9066`): the surface a hull trace 64 units down finds
-    /// (`C_BasePlayer::GetGroundSurface`), then <see cref="Footsteps"/>. The cube starts 24 up so its bottom is the hull's
-    /// and its footprint is the hull's, which is all a trace straight down can touch. *Interpolated:* `level.Trace`'s own
-    /// mask stands in for `MASK_PLAYERSOLID_BRUSHONLY`.
-    /// </remarks>
-    private void StepAnimationSounds(int tick, Vector3 eye)
-    {
-        // Taken before any early return: an event is crossed once, so one this frame does not sound is dropped, never
-        // sounded later — and this runs on every camera upload, paused or not.
-        _firedEvents.Clear();
-        _models.TakeFiredEvents(_firedEvents);
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _firedEvents.Count == 0)
-        {
-            return;
-        }
-
-        // Filled on the first event that names a player, once per frame.
-        _eventPlayers.Clear();
-
-        foreach (FiredAnimationEvent fired in _firedEvents)
-        {
-            if (_renderLog.IsEnabled(LogLevel.Debug))
-            {
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                _renderLog.LogDebug(
-                    "{Message}",
-                    string.Create(CultureInfo.InvariantCulture, $"animation event tick {tick} entity {fired.EntityIndex}: {fired.Event.Id} {fired.Event.Options} in sequence {fired.Sequence} at cycle {fired.Cycle:0.000}"));
-            }
-
-            switch (fired.Event.Id)
-            {
-                case PlaySoundEvent:
-                    (float X, float Y, float Z) at = _models.AttachmentPoint(fired.EntityIndex, 1) is { } point
-                        ? (point.At.X, point.At.Y, point.At.Z)
-                        : fired.Origin;
-
-                    if (EntitySounds.Emit(tick, fired.EntityIndex, fired.Event.Options, at, scripts.Entries, emitted: true, ClientSoundPhase.Simulate) is { } sound)
-                    {
-                        _sound.Emit(sound);
-                    }
-
-                    break;
-
-                case FootstepEvent:
-                    ScenePlayer? stepper = Stepper(fired.EntityIndex);
-                    StepSurface? ground = stepper is { } p ? GroundSurface(p) : null;
-                    SceneSound? step = stepper is { } q && _timeline is { } shown ? Footstep(_footsteps, tick, q, ground, NamedSurface, scripts.Entries, shown) : null;
-
-                    if (step is { } played)
-                    {
-                        _sound.Emit(played);
-                    }
-
-                    if (_renderLog.IsEnabled(LogLevel.Debug))
-                    {
-                        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                        string who = stepper is { } s
-                            ? string.Create(
-                                CultureInfo.InvariantCulture,
-                                $"speed {s.Speed:0} of max {s.MaxSpeed}, flags {s.Flags}, water {s.WaterLevel}, ground {ground?.Material} {ground?.Right}, {Vector3.Distance(eye, new Vector3(s.X, s.Y, s.Z)):0} from the camera, trace {_lastGround.Fraction:0.000} texinfo {_lastGround.Texinfo} terrain {_lastGround.DisplacementTexdata}")
-                            : "no player at the shown moment";
-
-                        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                        _renderLog.LogDebug(
-                            "{Message}",
-                            string.Create(
-                                CultureInfo.InvariantCulture,
-                                $"footstep tick {tick} entity {fired.EntityIndex}: {who}; {(step is { } h ? h.Name : "silent")}"));
-                    }
-
-                    break;
-
-                default:
-                    break;
-            }
-        }
-    }
-
-    /// <summary>Impacts the corpse pass raised this frame, by tick — from the record or the live replay, whichever posed them.</summary>
-    private readonly Dictionary<int, List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound>> _heardCorpseSounds = [];
-
-    /// <summary>`CPhysicsSystem::m_impactSounds`: this frame's merged list; reused.</summary>
-    private readonly List<Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound> _corpseFrameSounds = [];
-
-    /// <summary>`Friction` reports the corpse pass raised this frame, in order.</summary>
-    private readonly List<(int Tick, CorpseFriction Friction)> _heardCorpseFrictions = [];
-
-    /// <summary>The corpses' scrape loops (`friction_t`).</summary>
-    private readonly PhysicsFrictionSounds _frictionSounds = new();
-
-    /// <summary>`gpGlobals->curtime` for the scrape loops: the demo time the frames have covered.</summary>
-    private double _frictionClock;
-
-    /// <summary>The tick the scrape loops last stepped at; a step back is a seek, which forgets them.</summary>
-    private int _frictionTick = int.MinValue;
-
-    /// <summary>A corpse's physics impacts — `CCollisionEvent::PostCollision` and `PlayImpactSounds`, per tick (B172).</summary>
-    /// <remarks>
-    /// **One source: what <see cref="CorpsePhysics.ImpactHeard"/> raised**, from whichever path posed the corpse. Reading the
-    /// record here as well lost every impact of f12's 26990 death after a seek, where playback crosses from the live replay to the
-    /// record mid-death (2026-09-23). Only the last <see cref="CorpsePhysics.HearingCatchUp"/> ticks play — a rebuild replays
-    /// from the death, and those are older than any frame.
-    /// </remarks>
-    private void StepCorpseSounds(int tick)
-    {
-        if (!_replayingModelDecals && _sound.Scripts is { } scripts)
-        {
-            // **One list for the frame**, as `CPhysicsSystem::PhysicsSimulate` keeps `m_impactSounds` across every tick its
-            // `Simulate( frametime )` crosses and plays it once — merged per tick instead, f12 played 29 impacts to TF2's 12.
-            _corpseFrameSounds.Clear();
-
-            foreach (int at in _heardCorpseSounds.Keys.Order())
-            {
-                if (at <= tick && at > tick - CorpsePhysics.HearingCatchUp)
-                {
-                    foreach (Tf2DemoSalvage.Animation.Animating.PhysicsImpactSound impact in _heardCorpseSounds[at])
-                    {
-                        Tf2DemoSalvage.Animation.Animating.PhysicsImpactSoundList.Add(_corpseFrameSounds, impact);
-                    }
-                }
-            }
-
-            // `PlayImpactSounds` walks the list from the back.
-            for (int index = _corpseFrameSounds.Count - 1; index >= 0; index--)
-            {
-                if (PhysicsImpactSounds.For(tick, _corpseFrameSounds[index], _models.Corpses.Surfaces, scripts.Entries) is { } sound)
-                {
-                    _sound.Emit(sound);
-                }
-            }
-        }
-
-        // Consumed; a seek backwards leaves nothing ahead of it to play.
-        _heardCorpseSounds.Clear();
-        StepCorpseScrapes(tick);
-    }
-
-    /// <summary>The corpses' scrape loops for this frame — `Friction` reports in, stale loops out (<see cref="PhysicsFrictionSounds"/>).</summary>
-    private void StepCorpseScrapes(int tick)
-    {
-        if (tick < _frictionTick)
-        {
-            _frictionSounds.Clear();
-        }
-
-        _frictionTick = tick;
-        _frictionClock += _demoFrameSeconds;
-
-        List<CorpseFriction> frictions = [];
-
-        foreach ((int at, CorpseFriction friction) in _heardCorpseFrictions)
-        {
-            if (at <= tick && at > tick - CorpsePhysics.HearingCatchUp)
-            {
-                frictions.Add(friction);
-            }
-        }
-
-        _heardCorpseFrictions.Clear();
-
-        if (frictions.Count > 0 && _renderLog.IsEnabled(LogLevel.Debug))
-        {
-            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-            _renderLog.LogDebug(
-                "{Message}",
-                string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"corpse friction at {tick} (clock {_frictionClock:0.###}): {string.Join(", ", frictions.Select(static friction => $"{friction.Entity} {friction.Energy:0.#} {friction.SurfaceProps}/{friction.SurfacePropsHit}"))}"));
-        }
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _models.Corpses.Surfaces is not { } surfaces)
-        {
-            return;
-        }
-
-        foreach (SceneSound sound in _frictionSounds.Step(tick, _frictionClock, frictions, CorpseAt, surfaces, scripts.Entries))
-        {
-            if (_renderLog.IsEnabled(LogLevel.Debug))
-            {
-                // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
-                _renderLog.LogDebug(
-                    "{Message}",
-                    string.Create(CultureInfo.InvariantCulture, $"corpse scrape {(sound.IsStop ? "stop" : "start")} at {tick}: {sound.EntityIndex} {sound.Name} volume {sound.Volume:0.###}"));
-            }
-
-            _sound.Emit(sound);
-        }
-    }
-
-    /// <summary>Where a corpse's root body is, for a sound it starts; the origin when it is not simulated.</summary>
-    private (float X, float Y, float Z) CorpseAt(int entity, int tick) =>
-        _models.Corpses.Roots.TryGetValue(entity, out Vector3 root) ? (root.X, root.Y, root.Z) : default;
-
-    /// <summary>The player an event fired on, as drawn at the shown moment.</summary>
-    private ScenePlayer? Stepper(int entity)
-    {
-        if (_eventPlayers.Count == 0 && _moments.Source is { } source)
-        {
-            source.PlayersAt(_shownTick, _eventPlayers, _transport.Playing);
-        }
-
-        foreach (ScenePlayer player in _eventPlayers)
-        {
-            if (player.EntityIndex == entity)
-            {
-                return player;
-            }
-        }
-
-        return null;
-    }
-
-    /// <summary>`C_BasePlayer::GetGroundSurface`: the surface under the player's hull, or null for none within 64.</summary>
-    private StepSurface? GroundSurface(ScenePlayer player)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded is not { Level: { } level, ImpactDecals: { } decals } loaded)
-        {
-            return null;
-        }
-
-        // `MASK_PLAYERSOLID_BRUSHONLY` keeps brush entities — a door underfoot is ground.
-        (float X, float Y, float Z) from = (player.X, player.Y, player.Z + HullHalfWidth);
-        BspTrace trace = level.Trace(from, (from.X, from.Y, from.Z - GroundProbe), HullHalfWidth, loaded.Doors.At(_transport.CurrentTick));
-
-        _lastGround = trace;
-
-        return trace.Fraction >= 1f ? null : SurfaceAt(decals.SurfacePropOfTrace(trace));
-    }
-
-    /// <summary>The landings prediction ran for the first time this frame (B172).</summary>
-    private readonly List<PredictedLanding> _landings = [];
-
-    /// <summary>
-    /// The POV recorder's landing sounds: prediction's <c>CheckFalling</c> → <c>PlayStepSound</c> (B172). Only the recorder —
-    /// no client runs movement for anyone else, and the server sends their landings only beyond the PVS
-    /// (<c>baseplayer_shared.cpp:717-722</c>), which the demo already carries.
-    /// </summary>
-    private void StepLandingSounds(int tick)
-    {
-        _landings.Clear();
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_moments.Source is not TimelineMoments { Prediction: { } prediction })
-        {
-            return;
-        }
-
-        prediction.TakeLandings(_landings);
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_replayingModelDecals || _sound.Scripts is not { } scripts || _timeline?.RecorderEntityIndex is not { } recorder)
-        {
-            return;
-        }
-
-        foreach (PredictedLanding landing in _landings)
-        {
-            StepSurface? surface = landing.Surface is { } s ? new StepSurface(s.GameMaterial, s.Sounds.StepLeft, s.Sounds.StepRight) : null;
-
-            if (_footsteps.Land(tick, recorder, (landing.Origin.X, landing.Origin.Y, landing.Origin.Z), surface, landing.Volume, scripts.Entries) is { } sound)
-            {
-                _sound.Emit(sound);
-            }
-        }
-    }
-
-    private StepSurface? NamedSurface(string name) =>
-        _game?.Surfaces is { } surfaces && surfaces.GetSurfaceIndex(name) is >= 0 and var index ? SurfaceAt(index) : null;
-
-    private StepSurface? SurfaceAt(int index) =>
-        _game?.Surfaces?.GetSurfaceData(index) is { } surface
-            ? new StepSurface(surface.GameMaterial, surface.Sounds.StepLeft, surface.Sounds.StepRight)
-            : null;
-
     /// <summary>Steps this frame's particle effects and hands their quads to the device (B373).</summary>
     /// <param name="viewing">The camera this frame, whose basis the quads face.</param>
     /// <remarks>
@@ -5348,9 +4812,19 @@ internal class MainForm : Form, IFrameSteps
             _sound.Emit(landed);
         }
 
-        StepAnimationSounds(tick, new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z));
-        StepLandingSounds(tick);
-        StepCorpseSounds(tick);
+        _sound.StepClientSounds(
+            new ClientSoundFrame(
+                _timeline,
+                _loaded,
+                _game,
+                tick,
+                new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+                _moments.Source,
+                _shownTick,
+                _transport.Playing,
+                _replayingModelDecals,
+                _demoFrameSeconds),
+            _models);
 
         ImpactFrame impacts = new(
             _timeline, _loaded, tick, BulletSceneNow, viewing, _viewport.ClientSize.Width, _styleScale, _walk);
@@ -5392,8 +4866,11 @@ internal class MainForm : Form, IFrameSteps
                 _sound.Emit(whiz);
             }
 
+            EffectEntityFrame strips = new(
+                _timeline, _loaded, tick, viewing, _moment.Drawn, _viewport.ClientSize.Width, _moment.ViewerVisionFlags);
+
             batches = _frameParticles.Build(
-                particles, _device, (forward, right, up, sees) => BuildEffectEntities(viewing, forward, right, up, sees));
+                particles, _device, (forward, right, up, sees) => _effectEntities.Build(strips, forward, right, up, sees));
         }
 
         batches = _impacts.With(batches, impacts);
@@ -5402,469 +4879,11 @@ internal class MainForm : Form, IFrameSteps
         _device.SetParticles(batches);
     }
 
-    /// <summary>
-    /// The entities whose class overrides <c>DrawModel</c> with a strip rather than a model — <c>CBeam</c> — as batches.
-    /// </summary>
-    /// <param name="viewing">The camera.</param>
-    /// <param name="forward">Its forward axis.</param>
-    /// <param name="right">Its right axis.</param>
-    /// <param name="up">Its up axis.</param>
-    /// <param name="sees">The halo occlusion gate the entity sprites use.</param>
-    /// <returns>The batches; empty when the moment holds none.</returns>
-    /// <remarks>
-    /// **The clock is the demo's, and a frame that does not advance it has a frame time of zero** — which is what
-    /// <c>gpGlobals-&gt;frametime</c> is while a demo is paused, and what makes <c>UpdateBeam</c> re-seed its noise so a
-    /// paused frame repeats itself. A step backwards is a seek, not negative time, and counts as zero too.
-    /// </remarks>
-    private IReadOnlyList<ParticleBatch> BuildEffectEntities(
-        FreeCamera viewing, Vector3 forward, Vector3 right, Vector3 up, Func<GlowQuery, float> sees)
-    {
-        double interval = _timeline?.IntervalPerTick ?? (1d / 66d);
-        double tick = _transport.CurrentTick;
-        float seconds = (float)(tick * interval);
-        float elapsed = (float)Math.Max(0d, (tick - _effectEntitiesTick) * interval);
-        int previousTick = (int)_effectEntitiesTick;
-
-        _effectEntitiesTick = tick;
-
-        _drawnByEntity.Clear();
-
-        foreach (SceneProp prop in _moment.Drawn)
-        {
-            _drawnByEntity[prop.EntityIndex] = prop;
-        }
-
-        BeamView view = new(new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z), forward, right, up);
-
-        _effectViewOrigin = view.Origin;
-
-        IReadOnlyList<ParticleBatch> beams = _beams.Build(
-            _moment.Drawn,
-            view,
-            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
-            AbsolutePose,
-            BeamEnd,
-            sees,
-            seconds,
-            elapsed);
-
-        IReadOnlyList<ParticleBatch> trails = _trails.Build(
-            _moment.Drawn,
-            view.Origin,
-            _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites,
-            TrailOrigin,
-            seconds);
-
-        IReadOnlyDictionary<string, EngineSprite> spriteMaterials = _loaded?.Assets?.SpriteMaterials ?? NoEngineSprites;
-
-        // Before the think, as the client reads them with the packet (B478): each rope's impulse and each ShakeRopes.
-        if (elapsed > 0f)
-        {
-            KickRopes(previousTick + 1, (int)tick);
-        }
-
-        int? holidayStyle = RopeHolidayStyle((int)tick);
-
-        // `CHolidayLightManager::Update`: the lights the last frame dispatched are made or moved now.
-        _ropeLights.Update(seconds, holidayStyle ?? 0);
-
-        IReadOnlyList<ParticleBatch> ropes = _ropes.Build(
-            _moment.Drawn,
-            new RopeView(view.Origin, forward, Math.Max(1, _viewport.ClientSize.Width)),
-            spriteMaterials,
-            RopeEnd,
-            RopeLight,
-            RopeCollide,
-            elapsed,
-            RopeEndDormantWithModel,
-            holidayStyle);
-
-        QueueHolidayLights((int)tick);
-
-        IReadOnlyList<ParticleBatch> holidayLights = _ropeLights.Batches(spriteMaterials, forward, right, up);
-
-        // The values the builders USED, carried rather than recounted (B243), so "none here" and "every one
-        // refused" read differently in the log.
-        if (_renderLog.IsEnabled(LogLevel.Debug) &&
-            (_beams.Drawn + _beams.Skipped + _trails.Drawn + _trails.Skipped + _ropes.Drawn + _ropes.Skipped > 0))
-        {
-            _renderLog.LogDebug(
-                "{Message}",
-                $"beams: {_beams.Drawn} drawn in {beams.Count} batches, {_beams.Skipped} skipped; " +
-                $"trails: {_trails.Drawn} drawn in {trails.Count} batches, {_trails.Skipped} skipped; " +
-                $"ropes: {_ropes.Drawn} drawn in {ropes.Count} batches, {_ropes.Skipped} skipped");
-        }
-
-        // Ropes first: the rope manager draws its cache with the opaque renderables, before anything translucent.
-        return [.. ropes, .. beams, .. trails, .. holidayLights];
-    }
-
-    /// <summary>
-    /// The rope events of the ticks played since the last frame (B478): <c>C_RopeKeyframe::ReceiveMessage</c>'s impulses and
-    /// <c>ShakeRopesCallback</c>'s shakes, in arrival order within each kind.
-    /// </summary>
-    private void KickRopes(int fromTick, int toTick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline || toTick < fromTick)
-        {
-            return;
-        }
-
-        TickWindow.Between(timeline.RopeImpulses.All, static impulse => impulse.Tick, fromTick, toTick, _ropeImpulsesNow);
-
-        foreach ((int _, SceneRopeImpulse impulse) in _ropeImpulsesNow)
-        {
-            _ropes.Impulse(impulse.EntityIndex, new Vector3(impulse.Impulse.X, impulse.Impulse.Y, impulse.Impulse.Z));
-        }
-
-        TickWindow.Between(timeline.Dispatches.All, static dispatch => dispatch.Tick, fromTick, toTick, _ropeShakesNow);
-
-        foreach ((int _, SceneEffectDispatch shake) in _ropeShakesNow)
-        {
-            if (string.Equals(timeline.Dispatches.Names.Name(shake.Name), "ShakeRopes", StringComparison.Ordinal))
-            {
-                _ropes.Shake(new Vector3(shake.Origin.X, shake.Origin.Y, shake.Origin.Z), shake.Radius, shake.Magnitude);
-            }
-        }
-    }
-
-    /// <summary>
-    /// <c>CRopeManager::IsHolidayLightMode</c>'s answer this tick, as a style or null (B478): the game rules' gates, Christmas
-    /// on the watcher's calendar, and the local player's Pyrovision.
-    /// </summary>
-    private int? RopeHolidayStyle(int tick)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_timeline is not { } timeline)
-        {
-            return null;
-        }
-
-        SceneGameRules rules = timeline.RulesAt(tick);
-
-        return _ropeHolidayMode.Style(
-            rules.Present,
-            rules.PowerupMode,
-            rules.RopesHolidayLightsAllowed,
-            () => TfHolidays.IsChristmasActive(timeline.ServerConVars.Value, rules.MapHolidayType, TfHolidays.WatcherClock),
-            (_moment.ViewerVisionFlags & PyroVisionFlag) == PyroVisionFlag);
-    }
-
-    /// <summary>
-    /// <c>CHolidayLightManager::AddHolidayLight</c> for each light the build just dispatched, against the local player's
-    /// origin and the map's <c>sky_camera</c> — the origin <c>m_skybox3d</c> carries.
-    /// </summary>
-    private void QueueHolidayLights(int tick)
-    {
-        if (!ReferenceEquals(_ropeLightsTimeline, _timeline))
-        {
-            // `LevelShutdownPreEntity` and the temp entities' level shutdown.
-            _ropeLights.Clear();
-            _ropeLightsTimeline = _timeline;
-        }
-
-        if (_ropes.HolidayLights.Count == 0)
-        {
-            return;
-        }
-
-        Vector3? player = _timeline?.RecorderEntityIndex is { } local &&
-            _timeline.TrackFor(local, tick)?.At(tick) is { } pose
-                ? new Vector3(pose.X, pose.Y, pose.Z)
-                : null;
-
-        (float X, float Y, float Z) sky = _loaded?.Level is { } level
-            ? BspEntities.SkyCamera(level.Entities)?.Origin ?? default
-            : default;
-
-        foreach (RopeHolidayDispatch dispatch in _ropes.HolidayLights)
-        {
-            _ropeLights.Add(dispatch, player, new Vector3(sky.X, sky.Y, sky.Z));
-        }
-    }
-
-    /// <summary>
-    /// Whether a rope end's <c>EHANDLE</c> names an entity that is dormant and has a model index — <c>DrawModel</c>'s two
-    /// tests of each end (`c_rope.cpp:1462-1467`).
-    /// </summary>
-    private bool RopeEndDormantWithModel(int handle)
-    {
-        const int InvalidHandle = (1 << 21) - 1;
-        const int SlotMask = (1 << 11) - 1;
-
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (handle == InvalidHandle || _timeline is not { } timeline)
-        {
-            return false;
-        }
-
-        int slot = handle & SlotMask;
-        int tick = _transport.CurrentTick;
-
-        return timeline.TrackFor(slot, tick) is { } track &&
-            track.Continues(handle >> 11) &&
-            track.ModelPath.Length > 0 &&
-            timeline.Dormancy.IsDormant(slot, tick);
-    }
-
-    /// <summary><c>TF_VISION_FILTER_PYRO</c> (`shareddefs.h:977`).</summary>
-    private const int PyroVisionFlag = 1;
-
-    /// <summary>The impulses of the ticks played since the last frame.</summary>
-    private readonly List<(int Index, SceneRopeImpulse Impulse)> _ropeImpulsesNow = [];
-
-    /// <summary>The effect dispatches of those ticks, of which the ShakeRopes are taken.</summary>
-    private readonly List<(int Index, SceneEffectDispatch Dispatch)> _ropeShakesNow = [];
-
-    /// <summary><c>s_RopeManager</c>'s holiday state, which lives as long as the client.</summary>
-    private readonly RopeHolidayMode _ropeHolidayMode = new();
-
-    /// <summary>The <c>TF_HolidayLight</c> temp entities.</summary>
-    private readonly RopeHolidayLights _ropeLights = new();
-
-    /// <summary>The demo the lights belong to; another one is another level.</summary>
-    private DemoTimeline? _ropeLightsTimeline;
-
-    /// <summary>
-    /// <c>CalculateEndPointAttachment</c> (`c_rope.cpp:1923-1967`): with <c>ROPE_PLAYER_WPN_ATTACH</c> a player's weapon's
-    /// <c>buff_attach</c>; else an attachment above zero; else the entity's <c>WorldSpaceCenter</c> — a rope keyframe's
-    /// origin, a player's hull centre, anything else's origin.
-    /// </summary>
-    /// <remarks>
-    /// **One answer is approximate, and the corpus does not reach it**: the angles are the entity's own even for an
-    /// attachment, which only a direction lock reads. Every corpus rope ends on another rope keyframe.
-    /// </remarks>
-    private RopeEndPoint? RopeEnd(int handle, int attachment, bool playerWeapon)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
-        {
-            return null;
-        }
-
-        ScenePose placed = AbsolutePose(prop);
-        Vector3 forward = AngleForward(placed.Pitch, placed.Yaw);
-        bool player = string.Equals(track.ClassName, PlayerClassName, StringComparison.Ordinal);
-
-        if (playerWeapon && player)
-        {
-            return _drawnByEntity.Values.FirstOrDefault(weapon => weapon.OwnedBy == prop.EntityIndex && weapon.WeaponState == 2)
-                    is { } weapon && _models.AttachmentPosition(weapon.EntityIndex, "buff_attach") is { } buff
-                ? new RopeEndPoint(new Vector3(buff.X, buff.Y, buff.Z), forward)
-                : null;
-        }
-
-        if (attachment > 0 && _models.AttachmentPosition(prop.EntityIndex, attachment) is { } at)
-        {
-            return new RopeEndPoint(new Vector3(at.X, at.Y, at.Z), forward);
-        }
-
-        // `WorldSpaceCenter()`: a rope keyframe's override is its origin (`c_rope.cpp:1486-1489`); anything else's is its
-        // collision box's centre (`collisionproperty.h:391-396`, B478).
-        if (player)
-        {
-            return new RopeEndPoint(new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags)), forward);
-        }
-
-        return new RopeEndPoint(
-            string.Equals(track.ClassName, RopeImpulseFeed.RopeClassName, StringComparison.Ordinal)
-                ? new Vector3(placed.X, placed.Y, placed.Z)
-                : WorldSpaceCenter.Of(placed, track.CollisionAt(_transport.CurrentTick)),
-            forward);
-    }
-
-    /// <summary>The forward of a pitch and yaw, in degrees — <c>AngleVectors</c>' first output.</summary>
-    private static Vector3 AngleForward(float pitch, float yaw)
-    {
-        (float sinPitch, float cosPitch) = MathF.SinCos(float.DegreesToRadians(pitch));
-        (float sinYaw, float cosYaw) = MathF.SinCos(float.DegreesToRadians(yaw));
-
-        return new Vector3(cosPitch * cosYaw, cosPitch * sinYaw, -sinPitch);
-    }
-
-    /// <summary>
-    /// <c>engine-&gt;ComputeLighting( pos, NULL, true, … )</c> with <c>rope_averagelight</c> 1: the six faces of the light
-    /// cube averaged, each channel clamped to one.
-    /// </summary>
-    private Vector3 RopeLight(Vector3 at)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded?.Lighting is not { } lighting)
-        {
-            return Vector3.One;
-        }
-
-        AmbientCube cube = lighting.ComputeLighting(at.X, at.Y, at.Z);
-        Vector3 sum = Face(cube.PositiveX) + Face(cube.NegativeX) + Face(cube.PositiveY) +
-            Face(cube.NegativeY) + Face(cube.PositiveZ) + Face(cube.NegativeZ);
-
-        return Vector3.Min(sum / 6f, Vector3.One);
-
-        static Vector3 Face((float Red, float Green, float Blue) face) => new(face.Red, face.Green, face.Blue);
-    }
-
-    /// <summary>A rope node's ±2 hull sweep, world brushes only — <c>MASK_SOLID_BRUSHONLY</c>.</summary>
-    private RopeHit RopeCollide(Vector3 from, Vector3 to)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (_loaded?.Level is not { } level)
-        {
-            return new RopeHit(1f, Vector3.Zero, 0f, false);
-        }
-
-        BspTrace trace = level.TraceBrushOnly((from.X, from.Y, from.Z), (to.X, to.Y, to.Z), 2f);
-
-        return new RopeHit(
-            trace.Fraction,
-            new Vector3(trace.Normal.X, trace.Normal.Y, trace.Normal.Z),
-            trace.Distance,
-            trace.AllSolid || trace.StartSolid);
-    }
-
-    /// <summary>
-    /// <c>CSpriteTrail::GetRenderOrigin</c> (`SpriteTrail.cpp:537-553`): the attached entity's attachment — or, for an
-    /// attachment that does not exist, that entity's origin, as <c>C_BaseAnimating::GetAttachment</c> answers
-    /// (`c_baseanimating.cpp:2129-2134`) — and the trail's own place when it is attached to nothing.
-    /// </summary>
-    /// <returns>
-    /// The head, or null when the entity the trail hangs from is not in this moment. Measured on z1800: 34 of its 41
-    /// trails outlive their projectile's track while still naming it (`trails` probe), and the client still holds that
-    /// entity — dormant, or unlinked from its children at its last place — so the head stops there. Placed through the
-    /// missing parent instead, the trail's local zero is the world origin.
-    /// </returns>
-    private Vector3? TrailOrigin(SceneProp prop)
-    {
-        const int InvalidHandle = (1 << 21) - 1;
-
-        if (prop.Pose.SpriteTrail is { AttachedTo: not InvalidHandle } trail)
-        {
-            // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-            if (Dereference(trail.AttachedTo) is not { } attached)
-            {
-                return null;
-            }
-
-            if (_models.AttachmentPosition(attached.EntityIndex, trail.Attachment) is { } at)
-            {
-                return new Vector3(at.X, at.Y, at.Z);
-            }
-
-            ScenePose entity = AbsolutePose(attached);
-
-            return new Vector3(entity.X, entity.Y, entity.Z);
-        }
-
-        if (prop.AttachedTo is { } parent && !_drawnByEntity.ContainsKey(parent))
-        {
-            return null;
-        }
-
-        ScenePose own = AbsolutePose(prop);
-
-        return new Vector3(own.X, own.Y, own.Z);
-    }
-
-    /// <summary>
-    /// The drawn prop an <c>EHANDLE</c> names this tick, or null — <c>CBaseHandle::Get</c>, whose serial must match the
-    /// slot's occupant now (B231).
-    /// </summary>
-    private SceneProp? Dereference(int handle) => Dereference(handle, out _);
-
-    /// <inheritdoc cref="Dereference(int)"/>
-    private SceneProp? Dereference(int handle, out ScenePropTrack? track)
-    {
-        const int InvalidHandle = (1 << 21) - 1;
-        const int SlotMask = (1 << 11) - 1;
-
-        track = null;
-
-        if (handle == InvalidHandle || _timeline is null)
-        {
-            return null;
-        }
-
-        int slot = handle & SlotMask;
-
-        track = _timeline.TrackFor(slot, _transport.CurrentTick);
-
-        return track is not null && track.Continues(handle >> 11) &&
-            _drawnByEntity.TryGetValue(slot, out SceneProp? prop)
-            ? prop
-            : null;
-    }
-
-    /// <summary>A drawn prop's place in the world, through its move parents — <c>GetAbsOrigin()</c>.</summary>
-    private ScenePose AbsolutePose(SceneProp prop) =>
-        ParentChain.Absolute(prop, entity => _drawnByEntity.TryGetValue(entity, out SceneProp? parent) ? parent : null);
-
-    /// <summary><c>ComputeBeamEntPosition</c> for one beam end, the handle dereferenced as the client does (B231).</summary>
-    /// <remarks>
-    /// **The serial decides, as <c>CBaseHandle::Get</c>'s does**: the slot's track AT THIS TICK must carry the handle's
-    /// serial, or the handle names an entity that is gone and the end is "not found". Then the engine's three answers —
-    /// the attachment (or the hitbox point nearest the view), a player's <c>WorldSpaceCenter</c>, anything else's render
-    /// origin.
-    /// </remarks>
-    private Vector3? BeamEnd(int handle, int attachment, bool hitboxes)
-    {
-        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
-        if (Dereference(handle, out ScenePropTrack? track) is not { } prop || track is null)
-        {
-            return null;
-        }
-
-        int slot = prop.EntityIndex;
-
-        if (!hitboxes)
-        {
-            if (_models.AttachmentPosition(slot, attachment) is { } at)
-            {
-                return new Vector3(at.X, at.Y, at.Z);
-            }
-        }
-        else if (_models.HitboxPointNearest(slot, attachment, _effectViewOrigin) is { } nearest)
-        {
-            return nearest;
-        }
-
-        ScenePose placed = AbsolutePose(prop);
-
-        // "Player origins are at their feet": a player answers the middle of its hull.
-        return string.Equals(track.ClassName, PlayerClassName, StringComparison.Ordinal)
-            ? new Vector3(placed.X, placed.Y, placed.Z + PlayerHull.CenterHeight(placed.Flags))
-            : new Vector3(placed.X, placed.Y, placed.Z);
-    }
-
-    /// <summary>The one class <c>IsPlayer()</c> answers true for in TF2.</summary>
-    private const string PlayerClassName = "CTFPlayer";
-
-    /// <summary>The demo tick the last frame's effect entities were built at, for their frame time.</summary>
-    private double _effectEntitiesTick;
-
-    /// <summary>Where the camera was for the last effect-entity build — <c>MainViewOrigin()</c> for a hitbox end.</summary>
-    private Vector3 _effectViewOrigin;
-
-    /// <summary>This frame's drawn props by entity index, for a parent chain or a beam end.</summary>
-    private readonly Dictionary<int, SceneProp> _drawnByEntity = [];
-
-    /// <summary>Every <c>CBeam</c> in the moment, as strips.</summary>
-    private readonly EntityBeams _beams = new();
-
-    /// <summary>Every <c>CSpriteTrail</c>, sampled frame by frame as the client samples it (B475).</summary>
-    private readonly EntityTrails _trails = new();
-
-    /// <summary>Every <c>C_RopeKeyframe</c>, simulated frame by frame as the client simulates it (B477).</summary>
-    private readonly EntityRopes _ropes = new();
-
     /// <summary>The particle batches the last frame drew, for <see cref="Pick"/>.</summary>
     private IReadOnlyList<ParticleBatch> _lastParticles = [];
 
     /// <summary>The effects running for this demo.</summary>
     private readonly ParticleEffects _particles = new();
-
-    /// <summary>What a machine with no TF2 has: no entity sprites either (B390).</summary>
-    private static readonly IReadOnlyDictionary<string, EngineSprite> NoEngineSprites =
-        new Dictionary<string, EngineSprite>(StringComparer.OrdinalIgnoreCase);
 
     // **`ReportSlowFrame` was here until 2026-08-25** (B188, D90). It is `StallReport.Frame`, and
     // its eight timestamp parameters became a `FramePhases` record — the same correction
@@ -6097,7 +5116,8 @@ internal class MainForm : Form, IFrameSteps
             };
         }
 
-        return WithIdTraces(hudState, hudTick);
+        return _idTargets.With(
+            hudState, hudTick, new IdTargetFrame(_timeline, _loaded, _game, _moments.PlayersShownAt(hudTick), _firstPersonEye));
     }
 
     /// <summary>A VGUI material's texture, from the install — `DrawSetTextureFile`.</summary>
@@ -6324,6 +5344,9 @@ internal class MainForm : Form, IFrameSteps
 
     /// <summary>Decides what should be audible at a tick.</summary>
     private readonly SoundPresenter _sound;
+
+    /// <summary>The animation events a skip's frame crossed; reused.</summary>
+    private readonly List<FiredAnimationEvent> _firedEvents = [];
 
     /// <summary>Whether the HUD is handling a seek's replayed events, which <see cref="PlayHudSound"/> keeps silent.</summary>
     private bool _hudReplaying;

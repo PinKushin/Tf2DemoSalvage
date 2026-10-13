@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 657 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 3 of the refactor done, the rest OPEN
+## B540 — the view reaches 392 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 4 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38172,3 +38172,132 @@ runs, so the assertions read the quads.
 **Not tested here:** `LevelLighting.StylesChanged`, which has no reading a test can take; the faces a dynamic light
 reaches, which need a map's nodes (`WorldDynamicLights` has its own suite); the quads `ParticleEffects.Build` makes
 and the `Quads` count of them, which need a system that emits; and `BuildEffectEntities`, still the view's.
+
+**Slice 4, 2026-10-12, in three commits. First: the beams, sprite trails and ropes — 657 to 538, 119 entries gone and
+none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 431 | 373 | 58 |
+| Core | 138 | 91 | 47 |
+| Content | 58 | 44 | 14 |
+| Animation | 15 | 15 | 0 |
+| Audio | 15 | 15 | 0 |
+| total | 657 | 538 | 119 |
+
+`MainForm` uses 382 distinct domain members, from 470, and is 7,386 lines, from 7,837. *Measured*, by the instrument.
+
+*What moved:* `BuildEffectEntities` and the fifteen methods only it called — `KickRopes`, `RopeHolidayStyle`,
+`QueueHolidayLights`, `RopeEndDormantWithModel`, `RopeEnd`, `AngleForward`, `RopeLight`, `RopeCollide`, `TrailOrigin`,
+both `Dereference`, `AbsolutePose`, `BeamEnd` — with their eleven fields, into `Presentation.EffectEntities`. The text
+was moved by line range, asserted at both ends, and then the view's fields were replaced by the frame record's
+(`EffectEntityFrame`: timeline, map, tick, camera, drawn props, viewport width, vision flags). The view constructs it
+and `DrawParticles` hands `FrameParticles.Build` a callback to its `Build`, where it handed one to its own method.
+`IPosedEntities` gained `HitboxPointNearest`, for a beam end on `FBEAM_USE_HITBOXES`.
+
+*Proof nothing changed* (*measured*): a paused frame of `demostf-koth_harvest_event-1491260` at tick 1500 on beam
+entity 513 (the `effect-entities` probe's camera, `-1287 -467 104 0 -158`) is byte-identical before and after, and so
+is the `TF2VIEW_PICK="640 360 200"` line that run logs, which names the beam's sprite and every quad within 200
+pixels.
+
+*Tests the moved code never had* (17, `EffectEntitiesTests`): a beam built from the frame's camera and the map's
+sprites, against the same beam built beside it; `BeamEnd` by serial, by attachment, by nearest hitbox point from where
+the camera was, a player's hull centre, an entity the frame did not draw; `TrailOrigin`'s attachment, its entity's
+origin, its own place and its two refusals; `RopeEnd`'s attachment and forward, a player's hull, a player's active
+weapon's `buff_attach`; `RopeLight`, `RopeCollide` and a rope end that is not dormant. Each seen red in one of four
+rounds and restored by the inverse edit. One test written for it was deleted: "with no sprite materials, no beam" could
+not be reddened by any break short of supplying materials. `SyntheticRocket.DemoOverTicks` gained an overload that
+gives the bystander a model, which was tried for a player's track and does not give one: a player's track comes from
+his player properties, so the player tests use a `SyntheticEffects` demo.
+
+**Not tested here:** the frame time a beam's noise and a rope are stepped by (zero while paused or after a step
+back), `KickRopes`, `RopeHolidayStyle` and `QueueHolidayLights`, which need a rope that simulates and a game rules
+entity; and a rope end that IS dormant, which needs a demo whose entity leaves the PVS.
+
+**Slice 4, second commit: the client's own sounds — 538 to 500, 38 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 373 | 352 | 21 |
+| Core | 91 | 83 | 8 |
+| Content | 44 | 43 | 1 |
+| Animation | 15 | 7 | 8 |
+| Audio | 15 | 15 | 0 |
+| total | 538 | 500 | 38 |
+
+`MainForm` uses 351 distinct domain members, from 382, and is 7,067 lines, from 7,386. *Measured*, by the instrument.
+
+*What moved:* `StepAnimationSounds`, `StepLandingSounds` and `StepCorpseSounds` with `StepCorpseScrapes`, `CorpseAt`,
+`Stepper`, `GroundSurface`, `NamedSurface`, `SurfaceAt`, the static `Footstep` and their state, into the sound
+presenter that already existed — `SoundPresenter` is now `partial`, and the moved text is
+`SoundPresenter.ClientSounds.cs`. In that presenter and not a second one because each ends in `Emit`. The view calls
+`StepClientSounds` once a frame with a `ClientSoundFrame`, gives the corpse pass `CorpseImpactHeard` and
+`CorpseFrictionHeard` where it gave it two lambdas over its own lists, and calls `ForgetCorpseSounds` with a new
+record. The footstep, animation event and corpse lines are still logged to the render log, which the view hands over
+as `ClientSoundLog`. `IPosedEntities` gained `TakeFiredEvents`.
+
+*What the view still holds of it:* the skip's walk of animation events (`ReplaySkip`), which counts and hashes what a
+seek crossed and is the seek's, with its own event list and the presenter's two event ids. **The `BulletLandings`
+callers did not move, and there was nothing to move**: the view asks `DecalEffects.Landings` once at load and hands the
+list to `DemoSystems.AddEffectSounds`, and hands each sound `DecalEffects.Step` returns to `Emit`. Both are the relay
+D92 asks for, neither reaches a domain type, and putting either call inside the sound presenter would have it call a
+sibling.
+
+*Proof nothing changed, and what it is proof of.* Sounds have no picture. **A playing run is no instrument for
+them**: two `--measure 6` runs of ONE binary from f12's tick 26900 differed in 46 of about 130 sound lines, because
+which frame crosses an event is the clock's. A paused seek is repeatable: f12 to tick 27000 with `+developer 1`,
+twice on the old binary, gave the same 47 lines once the skip line's timings are cut — 13 `sound start`, 5
+`animation event` and 5 `footstep` lines, the skip's totals and the wave deck's sequence hash, the loops. The same 47
+lines, byte for byte, after the move. **It holds no corpse line**: a corpse's impacts and scrapes are raised while
+playing, and are held by the tests below and not by this comparison.
+
+*Tests* (16): `FootstepWiringTests` travelled from Viewer3D.Tests with the static it calls (2), and
+`SoundPresenterClientSoundsTests` (14) — a play-sound event from attachment 1 and from the event's origin, a pass
+nobody hears, a footstep in water for the player as shown, on another entity, over no ground, corpse impacts merged
+into one frame's list and consumed, the sixteen-tick catch-up at both ends, a scrape loop at the corpse's root, a step
+back, and a frame with no scripts. Each seen red in one of three rounds and restored by the inverse edit.
+
+**Not tested here:** the recorder's predicted landing, which needs a prediction that has run a fall, and a footstep on
+ground a trace found, which needs a map with a floor and its surface properties.
+
+**Slice 4, third commit: the target ID and the pick — 500 to 392, 108 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 352 | 303 | 49 |
+| Core | 83 | 45 | 38 |
+| Content | 43 | 23 | 20 |
+| Animation | 7 | 6 | 1 |
+| Audio | 15 | 15 | 0 |
+| total | 500 | 392 (125 types, 267 members) | 108 |
+
+`MainForm` uses 263 distinct domain members, from 351, and is 6,860 lines, from 7,067. *Measured*, by the instrument.
+
+*What moved:* `WithIdTraces`, its three constants and its cache of dropped weapon collides, into
+`Presentation.IdTargets`; and `Pick`, into the static `Presentation.PickReport`, which returns the line instead of
+logging it. The view keeps the request (`TF2VIEW_PICK`), the frame it hands over and the log; and for the target ID
+the HUD state, the frame's own sample of the players and the first-person camera, handed over as a delegate so it is
+still asked for last, once every cheaper guard has passed.
+
+*`BulletStrikes` is still in Presentation, and the list is still why.* The view no longer asks it anything — the id
+traces were its last question — but the view still CONSTRUCTS it and clears it with the map, because one instance is
+shared by four presenters (bursts, decals, impacts, target ID) and the view is where they are made. Moved to Scene it
+would add its type, its constructor and `Clear` to the list. It can go down when something other than the view owns
+the four, which is a composition change and was not made for this.
+
+*Proof nothing changed* (*measured*): the `TF2VIEW_PICK="640 360 200"` line of `demostf-koth_harvest_event-1491260` at
+tick 1500 is byte-identical before and after. For the target ID, three first-person frames of
+`tf2-2026-pub-pov-clean` (ticks 6200, 6240, 6300: a living recorder, so the trace runs) are byte-identical against
+the commit before, built in a second worktree. None of the three shows a looked-at target's name, so they hold the
+path and its no-target answer; the name itself is held by the tests.
+
+*Tests the moved code never had* (24): `IdTargetsTests` (11) — the recorder looking at a player, the pickup range, a
+dead player looked through, looking away, the five places nothing is traced and the camera never asked for, no
+camera; `PickReportTests` (13) — the request it cannot read, the header, the ray through an off-centre pixel, the
+world hit, drawn models nearest the ray first and at most eight, a quad's name, centre, size and colour, the pixel
+window and its third number, a quad behind the camera. Each seen red in one of three rounds and restored by the
+inverse edit. One case written for it was deleted: "with no demo, nothing is traced" could not be reddened without a
+timeline to trace against.
+
+**Not tested here:** a building's box and a dropped weapon's collide in the target ID, which need a timeline that
+carries them, and the live bursts a pick names, which need a particle system that has emitted.

@@ -320,6 +320,12 @@ internal static class SyntheticEffects
             ["m_lifeState"] = PropertyValue.FromInt(0),
         };
 
+    /// <summary>A timeline with nothing in it but the flag list its demo was written with, at 66 ticks a second.</summary>
+    /// <param name="layout">Which bits of `m_fFlags` mean what: a nine-bit (2007-2009) list or the current one.</param>
+    /// <returns>The timeline.</returns>
+    public static DemoTimeline TimelineWrittenWith(PlayerFlagLayout layout) =>
+        DemoTimeline.ForRecorder([], layout, [], [], 0.015f);
+
     private static int ClassId(DemoSchema schema, string className) =>
         schema.ServerClasses.First(entry => string.Equals(entry.ClassName, className, StringComparison.Ordinal)).Id;
 

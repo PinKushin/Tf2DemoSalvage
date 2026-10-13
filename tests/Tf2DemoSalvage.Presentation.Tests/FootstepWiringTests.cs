@@ -3,9 +3,9 @@ using System.Collections.Generic;
 
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Core.Scene;
-using Tf2DemoSalvage.Presentation;
+using Tf2DemoSalvage.Core.Tests;
 
-namespace Tf2DemoSalvage.Viewer3D.Tests;
+namespace Tf2DemoSalvage.Presentation.Tests;
 
 /// <summary>
 /// B501's viewer wiring: the footstep event is gated by the LOADED demo's flag list, through the call
@@ -24,15 +24,15 @@ public sealed class FootstepWiringTests
 
     [Test]
     public void Footstep_AClientInANineBitDemo_IsTheRightFoot() =>
-        Step(DemoTimeline.ForRecorder([], PlayerFlagLayout.OrangeBox, [], [], 0.015f)).ShouldNotBeNull()
+        Step(SyntheticEffects.TimelineWrittenWith(PlayerFlagLayout.OrangeBox)).ShouldNotBeNull()
             .Name.ShouldBe("player/footsteps/concrete_right.wav");
 
     [Test]
     public void Footstep_AtControlsInAnElevenBitDemo_IsSilent() =>
-        Step(DemoTimeline.ForRecorder([], PlayerFlagLayout.Current, [], [], 0.015f)).ShouldBeNull();
+        Step(SyntheticEffects.TimelineWrittenWith(PlayerFlagLayout.Current)).ShouldBeNull();
 
     private static SceneSound? Step(DemoTimeline timeline) =>
-        MainForm.Footstep(
+        SoundPresenter.Footstep(
             new Footsteps(),
             100,
             new ScenePlayer(7, 0f, 0f, 0f, Team: 2, Health: 125, PlayerClass: 1, Speed: 350f, Flags: OnGround | Bit7, WaterLevel: 0, MaxSpeed: 400f),

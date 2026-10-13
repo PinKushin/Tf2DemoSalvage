@@ -9809,12 +9809,19 @@ members; `ViewerMenu` 8 and `Program` 2, some of them the same ones.
   interface or the data (`IPosedEntities`, `IDecalUpload`, a record of what the map holds).
 - **A helper two presenters share stays in Presentation while the view still calls it**, though D92 sends it to the
   model layer: moved to Scene with the view still naming it, it would add a line to a list that only shrinks.
-  `BulletStrikes` is the case; it goes down when its last view caller does.
+  `BulletStrikes` is the case; it goes down when its last view caller does. *Slice 4:* the last caller went, and it
+  still cannot move, because NAMING it is enough — the view constructs it and clears it, as the one place the four
+  presenters that share it are made. It goes down when something other than the view owns those four.
 - **What one presenter needs of another, the view hands over as a delegate** (slice 3): the map's light walk
   (`DecalEffects.WorldOf`) to the light styles and the impacts, and a style's value (`LightStyleEffects.Scale`) to the
   impacts. A presenter that called a sibling would be the sideways reach D92 forbids; a delegate of `LoadedMap` or
   `int` adds nothing to the view's list.
 - **A part of a frame that is its own seam stays in the view as a callback** rather than being dragged along:
   `FrameParticles.Build` is handed `BuildEffectEntities` (beams, trails, ropes) and calls it where `DrawParticles`
-  did. It leaves with its own slice.
+  did. It leaves with its own slice — which was slice 4, as `EffectEntities.Build`, behind the same callback.
+- **Behaviour that ends in an existing presenter's own call goes INTO that presenter, as a second file of it**
+  (slice 4): the client's own sounds each end in `SoundPresenter.Emit`, so they are `SoundPresenter.ClientSounds.cs`
+  and the class is `partial`. A second sound presenter would have called the first.
+- **A value the old code asked for last is handed over as a delegate, not a value** (slice 4): the target ID's
+  first-person camera sat behind five cheaper guards, and a record field would have computed it every frame.
 

@@ -11,8 +11,8 @@ namespace Tf2DemoSalvage.Scene;
 /// </summary>
 /// <remarks>
 /// **Narrow on purpose.** <see cref="EntityModelSet"/> answers a hundred questions; the particle effects, the bullet
-/// traces, the decals and the impact effects that left the view ask these eleven, and a test can answer eleven without
-/// loading a model.
+/// traces, the decals, the impact effects and the beams and ropes that left the view and the client's own sounds ask
+/// these thirteen, and a test can answer thirteen without loading a model.
 /// </remarks>
 public interface IPosedEntities
 {
@@ -79,4 +79,15 @@ public interface IPosedEntities
     /// <param name="entityIndex">The entity.</param>
     /// <returns>The offset, or null.</returns>
     public float? DuckJumpOffsetOf(int entityIndex);
+
+    /// <summary>The point of an entity's posed hitboxes nearest a viewer — a beam end on <c>FBEAM_USE_HITBOXES</c>.</summary>
+    /// <param name="entity">The entity.</param>
+    /// <param name="number">The beam's attachment number, which picks the hitbox.</param>
+    /// <param name="viewer">The view origin.</param>
+    /// <returns>The point, or null when the entity is not posed.</returns>
+    public Vector3? HitboxPointNearest(int entity, int number, Vector3 viewer);
+
+    /// <summary>Takes the animation events the last pose crossed: each is handed over once.</summary>
+    /// <param name="into">Where they go.</param>
+    public void TakeFiredEvents(ICollection<FiredAnimationEvent> into);
 }
