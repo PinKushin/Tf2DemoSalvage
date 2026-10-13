@@ -39091,3 +39091,13 @@ view — and restored, the fifteen files compared with copies.
 reached this work through another agent, which is not the owner's own word; they are named in the slice's report
 with the sentence to use. `thin-view-domain-reach.txt` is empty, is still copied beside the test's binaries, and is
 read by nothing; it is left in place for the hook that guards it.
+
+**Slice 8, a defect seen during the proofs and fixed on its own: the `--spectate` warning repeated.** A capture
+with `--spectate N` wrote `--spectate N is not playing at tick 0; following the default` over a hundred times
+before its seek landed. *Read from the code*: `SpectatorView.Target` is a stateless lookup, asked several times a
+frame (`Followed`, `Viewed`, the eye, the chase camera, the field of view, the sound step), and it logged on every
+asking while the named player was absent. The spectator is not being re-resolved when it should not be — a lookup
+per asking is the design, and the answer was right each time; only the saying repeated. So it is a missing latch:
+the view remembers the entity whose absence it has reported, and forgets it when that player is found, so a second
+absence is said again. `Target_WhileTheNamedPlayerIsAbsent_SaysSoOncePerAbsenceAndFollowsTheDefault`, seen red
+first (the count was the number of askings, not 1). The line keeps the first tick it was asked at.
