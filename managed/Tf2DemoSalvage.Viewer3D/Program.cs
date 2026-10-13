@@ -59,12 +59,12 @@ internal static class Program
         //
         // Both take an area and a finished message, so they need no change for this conversion —
         // they were already inverted, and better than they looked.
-        DecodeLog.Sink = (area, message) =>
-            loggers.CreateLogger(area).LogWarning("{Message}", message);
-
+        //
         // Ordinary observations go to the ordinary channel. A count arriving as a warning teaches
         // the reader to skip warnings, which is the opposite of what the log is for.
-        DecodeLog.Notes = loggers.LogTo();
+        ViewerPresenter.AttachDecodeLog(
+            (area, message) => loggers.CreateLogger(area).LogWarning("{Message}", message),
+            loggers.LogTo());
 
         // **Answered before anything is initialised, because the answer is the point.** A viewer
         // that must open a window and read a map before it can list its own options is one nobody

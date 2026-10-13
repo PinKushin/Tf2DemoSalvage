@@ -37902,7 +37902,7 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
-## B540 — the view reaches 49 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
+## B540 — the view reaches 24 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, slices 1 to 8 of the refactor done, the rest OPEN
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
 assemblies, and six weeks of fixes went into `MainForm` because they compiled there. The decision, the owner's words
@@ -38969,3 +38969,40 @@ control is sized, as before.
 *Tests the moved code never had* (5, `PlaylistPresenterTests`), over a folder of empty files — a row is a name and
 no demo is read to list one: a folder with a subfolder, ordered and counted; one demo and none; text already in
 the search box; a filter applied and cleared; a row past either end. Each seen red in one of two rounds.
+
+**Slice 8, third commit: Core's remainder and the frame records — 49 to 24, 25 entries gone and none added.**
+Scene 38 to 20; Core 11 to 4. `MainForm` uses 7 distinct domain members, from 19, and is 4,422 lines.
+
+*What moved, to the composite presenter (`ViewerPresenter.Frame.cs`):*
+
+- **The frame records.** The window says what a window knows — `WindowFrame`: the transport's tick, the tick it
+  showed, playing, the viewport's size, two clocks — and the presenter adds the demo, the map, the install, the
+  camera's answers and the settings (`FrameOf`, which is `ViewFrameNow` moved). The overlay's record and the HUD's
+  (`HudWindowAt`, moved whole) are built there too.
+- **The HUD's wiring.** `AttachWindow( ViewerWindow, gdi )` replaces the window's `AttachHud`: the window's questions
+  are a `ViewerWindow` of delegates, read when the old code read them, and the presenter supplies the install, the
+  map name, the position readout and the first-person camera itself. The rasteriser is a type parameter
+  constrained to `IVguiGdi`, because Fonts is the window's project's alone (D84) and the window must not name the
+  interface.
+- **`ShowMoment`, the pick, the effects' draw and the overlay** as calls on the presenter, which builds the frame
+  record for each; the seek's callback is built there over the window's `ShowOnly`.
+- **Export and compile** (`ExportDemo`, `CompileDemo`: the `DemoAssembly` call and the status line's words), and
+  **the decode log's sink** (`AttachDecodeLog`, which `Program` calls with the two delegates it built).
+- **The demo, as questions**: `HasDemo`, `DemoPath`, `HasTimeline`. The window's `_demo`, `_timeline`, `_game`,
+  `_loaded` and `_settings` properties are gone, with its `Demo` and `Loaded`.
+
+**The view tests' `Demo` and `Loaded`** read `form.Presenter.Demo` and `form.Presenter.Map` now: the window exposes
+the composite presenter (`internal`, a Presentation type), and the tests ask it. Eleven call sites in
+`LoadedDemoTests` and `PlaylistMapLoadTests`; nothing else about them changed.
+
+*Every textual difference:* the frame record's window fields read `window.X` where they read the window's
+controls; `_bindings`, `_clientConVars`, the VGUI clock, `+showscores` and the last frame's seconds are
+`Window.X()`; `_demo is null` is `!HasDemo` (4) and `_timeline is null` is `!HasTimeline` (2) in the window; the
+export's "no demo open" line reads `DemoPath ?? "no demo open"`; the two export and compile messages are built
+with `string.Create( CultureInfo.CurrentCulture, … )`, the culture the interpolation used.
+
+*Tests* (7, in `ViewerPresenterTests`): the demo's three questions across a load and a failed one; an overlay asked
+for before the window is attached says the wiring is missing; a moment shown with no demo asks the window nothing,
+and with one comes back through the window ending on the tick asked; the overlay asks the window for the frame,
+the scoreboard key and the clock; export then compile say how much and rebuild the same bytes; the decode log's
+losses and notes go to their own delegates. Each seen red in one round.

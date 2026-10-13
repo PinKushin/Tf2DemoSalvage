@@ -266,7 +266,8 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>Owns what a load fills and the load itself; this window is its <see cref="ILoadView"/> (D214).</summary>
     private readonly ViewerPresenter _presenter;
 
-    private LoadedDemo? _demo => _presenter.Demo;
+    /// <summary>The composite presenter, for the tests that ask it what a load left (the demo, the map).</summary>
+    internal ViewerPresenter Presenter => _presenter;
 
     // **`_scene` was here until 2026-08-26** (D98) — entity positions already projected to clip
     // space, held that way so the render loop did no per-frame work beyond handing them over. That
@@ -276,12 +277,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // `_mapFill` was here: the map's surfaces projected to clip space for the overhead fallback.
     // Dead by construction — drawn only when there was no textured map, and built from the map — so
     // it could never produce a visible triangle. Deleted with the projection that built it.
-
-    /// <summary>The map the load owner holds, or null when none is open.</summary>
-    private LoadedMap? _loaded => _presenter.Map;
-
-    /// <summary>The map as it was read, for a test to ask what came with it (B393).</summary>
-    internal LoadedMap? Loaded => _loaded;
 
     /// <summary>Where maps come from: the disk first, then the network.</summary>
     /// <remarks>
@@ -309,9 +304,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
     /// <summary>Which member <see cref="Dispose(bool)"/> is releasing, for the crash line (B402).</summary>
     private string _releasing = string.Empty;
-
-    /// <summary>The install the load owner holds, null until a map read or a decode opens it.</summary>
-    private GameContent? _game => _presenter.Game;
 
     // **`_weaponRoles` was here until 2026-08-25** (B188, D90). It is inside the appearance that
     // `DemoAppearance.Ensure` builds, and `_moment.Appearance` is now the only cache — where there
@@ -381,9 +373,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     // `_heightRange` is `_loaded.HeightRange`, recorded during the world build rather than after it
     // — a camera projects height on the very first frame, and taking it afterwards leaves one frame
     // drawn with a pass-through depth.
-
-    /// <summary>The open demo's timeline, which the load owner holds.</summary>
-    private DemoTimeline? _timeline => _presenter.Timeline;
 
     // **`_players` and `_props` were here until 2026-08-26** (B188, D90). They existed only because
     // `ShowMoment` sampled the timeline in the window; `MomentPresenter` owns them now, and reuses
@@ -648,9 +637,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>The settings' owner; this window talks to it in plain values (D214).</summary>
     private readonly SettingsPresenter _settingsOwner;
 
-    /// <summary>The settings as they are, for the two frame records this window still fills.</summary>
-    private ViewerSettings _settings => _settingsOwner.Current;
-
     /// <summary>Controls hidden while full screen, all of them direct children of the form.</summary>
     /// <remarks>
     /// **Direct children, and that is the whole invariant.** Hiding a control does not give its
@@ -738,15 +724,17 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         _listener = () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera();
         _listenerEyes = () => _camera.FirstPerson ? _camera.FollowedEntity() : null;
-        _showOnly = shown =>
-        {
-            ShowOnly(shown);
-
-            return ViewFrameNow;
-        };
-        _clientConVars = ClientConVar;
-        _effects.AttachHud(new HudWindow(
-            _gdi, () => _game, () => _demo?.MapName, HudWindowAt, _camera.ReadPosition, () => _vguiClock.Elapsed.TotalSeconds, _camera.FirstPersonCamera));
+        // What the presenter asks of this window at its own moment, attached once; it gives the HUD the rest (D214).
+        _presenter.AttachWindow(
+            new ViewerWindow(
+                () => WindowFrameNow,
+                ShowOnly,
+                () => _bindings,
+                ClientConVar,
+                () => _vguiClock.Elapsed.TotalSeconds,
+                () => _console.IsHeld(ViewerAction.ShowScores),
+                () => _clock.LastFrameSeconds),
+            _gdi);
 
         _frames = new FrameReporter(ledger, _presenter.Models, new StopwatchTime(), _renderLog);
 
@@ -928,7 +916,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
             // viewer has one path from "which moment" to "who is where" rather than two that can
             // disagree.
-            if (_timeline is null)
+            if (!_presenter.HasTimeline)
             {
                 return;
             }
@@ -1150,9 +1138,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             Location = new Point(at.X, at.Y);
         }
     }
-
-    /// <summary>The demo currently loaded, or <c>null</c> if none is.</summary>
-    public LoadedDemo? Demo => _demo;
 
     /// <summary>Loads a demo by path, on this thread: <see cref="ViewerPresenter.LoadDemo"/>.</summary>
     /// <param name="path">Full path to the demo.</param>
@@ -1476,7 +1461,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     private void ApplyOpeningState()
     {
-        if (_opening.Applied || _timeline is null)
+        if (_opening.Applied || !_presenter.HasTimeline)
         {
             return;
         }
@@ -1655,17 +1640,10 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// </remarks>
     public void ShowMoment(double tick)
     {
-        if (_timeline is null)
-        {
-            return;
-        }
-
-        // What a seek rebuilds on the way is the presenter's (D214); it comes back here to show each tick it needs.
-        _effects.ShowMoment(ViewFrameNow, tick, _device, _showOnly);
+        // Whether there is a timeline, and what a seek rebuilds on the way, are the presenter's (D214); it comes back
+        // here through `ShowOnly` to show each tick it needs.
+        _presenter.ShowMoment(tick, _device);
     }
-
-    /// <summary><see cref="ShowOnly"/> as the one delegate a seek is handed, answering what the window knows afterwards.</summary>
-    private readonly Func<double, ViewFrame> _showOnly;
 
     /// <summary>The camera the ears are at, as the delegate the sound step asks once it has a device.</summary>
     private readonly Func<FreeCamera?> _listener;
@@ -1709,7 +1687,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>`TF2VIEW_PICK="x y"`: logs what lies under that pixel of the shot — <see cref="PickReport"/>.</summary>
     private void Pick()
     {
-        string? report = _effects.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"), ViewFrameNow, _lastViewing);
+        string? report = _presenter.Pick(Environment.GetEnvironmentVariable("TF2VIEW_PICK"), _lastViewing);
 
         if (report is not null)
         {
@@ -1717,26 +1695,16 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         }
     }
 
-    /// <summary>What this window knows of the frame it is drawing, for the presenter that draws it.</summary>
-    private ViewFrame ViewFrameNow =>
+    /// <summary>What this window knows of the frame it is drawing; the presenter adds the demo, the map and the settings.</summary>
+    private WindowFrame WindowFrameNow =>
         new(
-            _timeline,
-            _loaded,
-            _game,
             _transport.CurrentTick,
             _shownTick,
             _transport.Playing,
-            _camera.FirstPerson,
-            _camera.FollowedEntity(),
             _viewport.ClientSize.Width,
             _viewport.ClientSize.Height,
             (float)_clock.LastFrameSeconds,
-            _demoFrameSeconds,
-            _settings.DoPixelVisibility,
-            _settings.DrawViewmodel,
-            _settings.HealTargetMarker,
-            _settings.Decals,
-            _settings.MaxModelDecals);
+            _demoFrameSeconds);
 
     /// <summary>Everything a frame makes around its models: lights, decals, sounds, particles, the target ID (D92, D214).</summary>
     private readonly FramePresenter _effects;
@@ -1915,7 +1883,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         _log.LogInformation("{Message}", $"startup: window shown {elapsed.TotalMilliseconds:F0} ms after the process started");
 
-        if (_presenter.LoadsInFlight == 0 && _demo is null)
+        if (_presenter.LoadsInFlight == 0 && !_presenter.HasDemo)
         {
             _status.Text = $"{_status.Text} {started}";
         }
@@ -2509,7 +2477,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
             // by now - and announcing the graphics device over the top of it threw that away. The
             // user saw "Direct3D ready." for a demo that had loaded fine, which reads like the
             // demo did not load.
-            if (_demo is null)
+            if (!_presenter.HasDemo)
             {
                 _status.Text = "Direct3D ready.";
             }
@@ -2714,9 +2682,6 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// projection of it for the settings screen to display.
     /// </remarks>
     private readonly ConfigConsole _console = ConfigConsole.WithDefaults();
-
-    /// <summary><see cref="ClientConVar"/> as a delegate, made once.</summary>
-    private readonly Func<string, string?> _clientConVars;
 
     /// <summary>
     /// A client ConVar's value: this viewer's settings file or a <c>+name value</c> launch option, which run last as
@@ -2976,7 +2941,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         if (_device is { } drawing)
         {
-            _effects.Draw(ViewFrameNow, viewing, drawing);
+            _presenter.DrawEffects(viewing, drawing);
         }
 
         // **Each piece named, because the `camera` column alone held 102 and 410 ms stalls** on f12
@@ -3053,36 +3018,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     /// <summary>This frame's VGUI: the client's HUD, then the tools panel and `CFPSPanel` on it above.</summary>
     /// <returns>The draw list.</returns>
     /// <remarks>What is built, and in which order, is the presenter's (D214); this is what a window knows of it.</remarks>
-    public VguiDrawList? BuildOverlay() =>
-        _effects.BuildOverlay(
-            new OverlayFrame(
-                _timeline,
-                _loaded,
-                _demo?.MapName,
-                _transport.CurrentTick,
-                _viewport.ClientSize.Width,
-                _viewport.ClientSize.Height,
-                _settings.Crosshair,
-                _settings.ShowFrameRate,
-                _console.IsHeld(ViewerAction.ShowScores),
-                _clock.LastFrameSeconds),
-            _device);
-
-    /// <summary>What this window knows that the HUD reads at a tick, its projection, and the frame — asked for by the HUD.</summary>
-    private (HudView View, float[] WorldToScreen, ViewFrame Frame) HudWindowAt(int hudTick) =>
-        (new HudView(
-            _timeline,
-            hudTick,
-            null,
-            null,
-            _bindings,
-            _clientConVars,
-            (float)_vguiClock.Elapsed.TotalSeconds,
-            _camera.ViewFovNow().World,
-            _camera.EffectiveMode,
-            _camera.Followed(hudTick)),
-         _camera.ViewMatrix(),
-         ViewFrameNow);
+    public VguiDrawList? BuildOverlay() => _presenter.BuildOverlay(_device);
 
     /// <summary>Writes the frame rate to the log once a second.</summary>
     private readonly FrameRateLog _frameRateLog = new();
@@ -3332,7 +3268,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
         // counting those frames spent `--measure 20` — and gate phase 3's whole run — on a demo still decoding. **And not the first
         // frame after**: the render loop is held off while the map is read, so that frame's duration is the whole wait, and counted it
         // was the entire measurement in one sample.
-        bool onScreen = _demo is not null && _presenter.LoadsInFlight == 0;
+        bool onScreen = _presenter.HasDemo && _presenter.LoadsInFlight == 0;
 
         if (onScreen && _wasOnScreen)
         {
@@ -4093,15 +4029,15 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
     private Task<string> ExportDemo()
     {
         // Before anything that can return early, so a press that did nothing is visible.
-        _log.LogInformation("{Message}", $"export: pressed with {(_demo is null ? "no demo open" : _demo.Path)}");
+        _log.LogInformation("{Message}", $"export: pressed with {_presenter.DemoPath ?? "no demo open"}");
 
-        if (_demo is null)
+        // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
+        if (_presenter.DemoPath is not { } demoPath)
         {
             _status.Text = "Open a demo first.";
             return Task.FromResult(_status.Text);
         }
 
-        string demoPath = _demo.Path;
         using SaveFileDialog dialog = new()
         {
             Filter = "Demo assembly (*.txt)|*.txt|All files (*.*)|*.*",
@@ -4111,7 +4047,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         return ShowModal(dialog) == DialogResult.OK
             ? RunFileWork($"Exporting {Path.GetFileName(demoPath)}...", dialog.FileName, output =>
-                $"Exported {DemoAssembly.Export(demoPath, output):N0} commands to {output}")
+                ViewerPresenter.ExportDemo(demoPath, output))
             : FileWork;
     }
 
@@ -4143,10 +4079,7 @@ internal class MainForm : Form, IFrameSteps, ILoadView, ICameraView
 
         return ShowModal(save) == DialogResult.OK
             ? RunFileWork($"Compiling {Path.GetFileName(source)}...", save.FileName, output =>
-            {
-                (int commands, int bytes) = DemoAssembly.Compile(source, output);
-                return $"Compiled {commands:N0} commands to {output} ({bytes:N0} bytes)";
-            })
+                ViewerPresenter.CompileDemo(source, output))
             : FileWork;
     }
 

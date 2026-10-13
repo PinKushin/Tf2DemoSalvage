@@ -51,13 +51,13 @@ public sealed class PlaylistMapLoadTests
 
         using MainForm form = new(Path.GetDirectoryName(DemoPath)!);
 
-        form.Demo.ShouldBeNull("a folder lists its demos and opens none, so no timeline is set yet");
+        form.Presenter.Demo.ShouldBeNull("a folder lists its demos and opens none, so no timeline is set yet");
 
         DemoLoadResult result = await form.LoadDemoAsync(DemoPath).ConfigureAwait(false);
 
         result.Loaded.ShouldBeTrue(result.Message);
 
-        MapAssets assets = form.Loaded.ShouldNotBeNull("the map is installed")
+        MapAssets assets = form.Presenter.Map.ShouldNotBeNull("the map is installed")
             .Assets.ShouldNotBeNull("the install's archives are readable");
 
         assets.SpriteMaterials.Keys.ShouldContain(

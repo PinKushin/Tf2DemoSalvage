@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Tf2DemoSalvage.Audio;
 using Tf2DemoSalvage.Content.Tests.Bsp;
 using Tf2DemoSalvage.Core.Container;
+using Tf2DemoSalvage.Core.Diagnostics;
 using Tf2DemoSalvage.Scene;
 
 namespace Tf2DemoSalvage.Presentation.Tests;
@@ -370,6 +371,187 @@ public sealed class ViewerPresenterTests
 
             loader.WorldProjected();
             loader.WorldNeedsProjecting.ShouldBeFalse();
+        }
+    }
+
+    /// <summary>A window's questions, counted, over a fixed frame.</summary>
+    private sealed class Questions
+    {
+        public List<double> Shown { get; } = [];
+
+        public int Frames { get; private set; }
+
+        public int Scores { get; private set; }
+
+        public int Clock { get; private set; }
+
+        public ViewerWindow Window(ViewerPresenter presenter) =>
+            new(
+                () =>
+                {
+                    Frames++;
+
+                    return new WindowFrame(12, 12d, false, 1280, 720, 0.016f, 0d);
+                },
+                shown =>
+                {
+                    Shown.Add(shown);
+                    presenter.Show(shown, playing: false);
+                },
+                static () => new KeyBindings(),
+                static _ => null,
+                static () => 5d,
+                () =>
+                {
+                    Scores++;
+
+                    return false;
+                },
+                () =>
+                {
+                    Clock++;
+
+                    return 0.016;
+                });
+    }
+
+    [Test]
+    public void HasDemo_BeforeAndAfterALoadAndAfterAFailedOne_FollowsTheLoad()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        string broken = Path.Combine(_folder, "broken.dem");
+        File.WriteAllText(broken, "version https://git-lfs.github.com/spec/v1");
+
+        using (loader)
+        {
+            loader.HasDemo.ShouldBeFalse();
+            loader.DemoPath.ShouldBeNull();
+            loader.HasTimeline.ShouldBeFalse();
+
+            string path = WriteDemo("asked");
+            loader.LoadDemo(path).Loaded.ShouldBeTrue();
+
+            loader.HasDemo.ShouldBeTrue();
+            loader.DemoPath.ShouldBe(path);
+            loader.HasTimeline.ShouldBeTrue();
+
+            loader.LoadDemo(broken);
+
+            loader.HasDemo.ShouldBeFalse();
+            loader.DemoPath.ShouldBeNull();
+        }
+    }
+
+    [Test]
+    public void BuildOverlay_BeforeTheWindowIsAttached_SaysTheWiringIsMissing()
+    {
+        (ViewerPresenter loader, _, _) = Loader();
+
+        using (loader)
+        {
+            Should.Throw<InvalidOperationException>(() => loader.BuildOverlay(device: null))
+                .Message.ShouldContain("the window was not attached");
+        }
+    }
+
+    [Test]
+    public void ShowMoment_WithNoDemoOpen_ShowsNothingAndAsksTheWindowNothing()
+    {
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+
+            loader.ShowMoment(12d, device: null);
+
+            asked.Shown.ShouldBeEmpty();
+            asked.Frames.ShouldBe(0);
+        }
+    }
+
+    [Test]
+    public void ShowMoment_WithADemoOpen_ComesBackThroughTheWindowToShowTheTickAsked()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("shown")).Loaded.ShouldBeTrue();
+
+            loader.ShowMoment(12d, device: null);
+
+            asked.Shown.ShouldNotBeEmpty();
+            asked.Shown[^1].ShouldBe(12d, "the last tick shown is the one asked for; the ones before are the seek's");
+            asked.Frames.ShouldBeGreaterThan(0, "the frame record is built from what the window says now");
+        }
+    }
+
+    [Test]
+    public void BuildOverlay_WithTheWindowAttached_AsksItForTheFrameTheScoreboardKeyAndTheClock()
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader();
+        Questions asked = new();
+
+        using (loader)
+        {
+            loader.AttachWindow(asked.Window(loader), new FpsPanelTests.SolidGdi());
+            loader.LoadDemo(WriteDemo("overlay")).Loaded.ShouldBeTrue();
+            int framesBefore = asked.Frames;
+
+            loader.BuildOverlay(device: null);
+
+            (asked.Frames - framesBefore).ShouldBeGreaterThan(0);
+            asked.Scores.ShouldBe(1);
+            asked.Clock.ShouldBe(1);
+        }
+    }
+
+    [Test]
+    public void ExportDemo_ThenCompileDemo_SayHowMuchAndRebuildTheSameBytes()
+    {
+        string demo = WriteDemo("round");
+        string text = Path.Combine(_folder, "round.txt");
+        string rebuilt = Path.Combine(_folder, "rebuilt.dem");
+
+        string exported = ViewerPresenter.ExportDemo(demo, text);
+        string compiled = ViewerPresenter.CompileDemo(text, rebuilt);
+
+        exported.ShouldStartWith("Exported ");
+        exported.ShouldEndWith(" commands to " + text);
+        compiled.ShouldStartWith("Compiled ");
+        compiled.ShouldEndWith($" commands to {rebuilt} ({new FileInfo(rebuilt).Length:N0} bytes)");
+        File.ReadAllBytes(rebuilt).ShouldBe(File.ReadAllBytes(demo));
+    }
+
+    [Test]
+    public void AttachDecodeLog_ASinkAndANoteTaker_GetCoresLossesAndItsNotesApart()
+    {
+        Action<string, string>? sinkBefore = DecodeLog.Sink;
+        Action<string, string>? notesBefore = DecodeLog.Notes;
+        List<string> lost = [];
+        List<string> noted = [];
+
+        try
+        {
+            ViewerPresenter.AttachDecodeLog((area, message) => lost.Add(area + ": " + message), (area, message) => noted.Add(area + ": " + message));
+
+            DecodeLog.Lost("demo", "a packet");
+            DecodeLog.Note("demo", "a count");
+
+            lost.ShouldBe(["demo: a packet"]);
+            noted.ShouldBe(["demo: a count"]);
+        }
+        finally
+        {
+            DecodeLog.Sink = sinkBefore;
+            DecodeLog.Notes = notesBefore;
         }
     }
 
