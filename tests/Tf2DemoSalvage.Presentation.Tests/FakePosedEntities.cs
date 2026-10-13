@@ -70,6 +70,19 @@ internal sealed class FakePosedEntities : IPosedEntities
     /// <summary>The viewer the last nearest-point question was asked from.</summary>
     public Vector3? LastViewer { get; private set; }
 
+    /// <summary>The animation events the next take hands over.</summary>
+    public List<FiredAnimationEvent> Fired { get; } = [];
+
+    public void TakeFiredEvents(ICollection<FiredAnimationEvent> into)
+    {
+        foreach (FiredAnimationEvent fired in Fired)
+        {
+            into.Add(fired);
+        }
+
+        Fired.Clear();
+    }
+
     public Vector3? HitboxPointNearest(int entity, int number, Vector3 viewer)
     {
         LastViewer = viewer;

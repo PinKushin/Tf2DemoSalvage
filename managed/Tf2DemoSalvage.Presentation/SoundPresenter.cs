@@ -50,7 +50,7 @@ public readonly record struct SoundPhases(
 /// <param name="loops">The looping sounds in flight, shared with the soundscape.</param>
 /// <param name="sample">Opens a sound by name, or answers null.</param>
 /// <param name="audio">Where this reports loops starting and crossing into silence.</param>
-public sealed class SoundPresenter(
+public sealed partial class SoundPresenter(
     SoundscapeSystem soundscape,
     ActiveLoops loops,
     Func<string, SoundSample?> sample,

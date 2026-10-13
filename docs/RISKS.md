@@ -38213,3 +38213,49 @@ his player properties, so the player tests use a `SyntheticEffects` demo.
 **Not tested here:** the frame time a beam's noise and a rope are stepped by (zero while paused or after a step
 back), `KickRopes`, `RopeHolidayStyle` and `QueueHolidayLights`, which need a rope that simulates and a game rules
 entity; and a rope end that IS dormant, which needs a demo whose entity leaves the PVS.
+
+**Slice 4, second commit: the client's own sounds — 538 to 500, 38 entries gone and none added.**
+
+| assembly | before | after | gone |
+|---|---|---|---|
+| Scene | 373 | 352 | 21 |
+| Core | 91 | 83 | 8 |
+| Content | 44 | 43 | 1 |
+| Animation | 15 | 7 | 8 |
+| Audio | 15 | 15 | 0 |
+| total | 538 | 500 | 38 |
+
+`MainForm` uses 351 distinct domain members, from 382, and is 7,067 lines, from 7,386. *Measured*, by the instrument.
+
+*What moved:* `StepAnimationSounds`, `StepLandingSounds` and `StepCorpseSounds` with `StepCorpseScrapes`, `CorpseAt`,
+`Stepper`, `GroundSurface`, `NamedSurface`, `SurfaceAt`, the static `Footstep` and their state, into the sound
+presenter that already existed — `SoundPresenter` is now `partial`, and the moved text is
+`SoundPresenter.ClientSounds.cs`. In that presenter and not a second one because each ends in `Emit`. The view calls
+`StepClientSounds` once a frame with a `ClientSoundFrame`, gives the corpse pass `CorpseImpactHeard` and
+`CorpseFrictionHeard` where it gave it two lambdas over its own lists, and calls `ForgetCorpseSounds` with a new
+record. The footstep, animation event and corpse lines are still logged to the render log, which the view hands over
+as `ClientSoundLog`. `IPosedEntities` gained `TakeFiredEvents`.
+
+*What the view still holds of it:* the skip's walk of animation events (`ReplaySkip`), which counts and hashes what a
+seek crossed and is the seek's, with its own event list and the presenter's two event ids. **The `BulletLandings`
+callers did not move, and there was nothing to move**: the view asks `DecalEffects.Landings` once at load and hands the
+list to `DemoSystems.AddEffectSounds`, and hands each sound `DecalEffects.Step` returns to `Emit`. Both are the relay
+D92 asks for, neither reaches a domain type, and putting either call inside the sound presenter would have it call a
+sibling.
+
+*Proof nothing changed, and what it is proof of.* Sounds have no picture. **A playing run is no instrument for
+them**: two `--measure 6` runs of ONE binary from f12's tick 26900 differed in 46 of about 130 sound lines, because
+which frame crosses an event is the clock's. A paused seek is repeatable: f12 to tick 27000 with `+developer 1`,
+twice on the old binary, gave the same 47 lines once the skip line's timings are cut — 13 `sound start`, 5
+`animation event` and 5 `footstep` lines, the skip's totals and the wave deck's sequence hash, the loops. The same 47
+lines, byte for byte, after the move. **It holds no corpse line**: a corpse's impacts and scrapes are raised while
+playing, and are held by the tests below and not by this comparison.
+
+*Tests* (16): `FootstepWiringTests` travelled from Viewer3D.Tests with the static it calls (2), and
+`SoundPresenterClientSoundsTests` (14) — a play-sound event from attachment 1 and from the event's origin, a pass
+nobody hears, a footstep in water for the player as shown, on another entity, over no ground, corpse impacts merged
+into one frame's list and consumed, the sixteen-tick catch-up at both ends, a scrape loop at the corpse's root, a step
+back, and a frame with no scripts. Each seen red in one of three rounds and restored by the inverse edit.
+
+**Not tested here:** the recorder's predicted landing, which needs a prediction that has run a fall, and a footstep on
+ground a trace found, which needs a map with a floor and its surface properties.
