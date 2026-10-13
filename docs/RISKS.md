@@ -38420,7 +38420,7 @@ of that record now, on every HUD frame, where they were read only on a demo with
 The projection travels beside the record and not in it, because a record that exposes an array is CA1819.
 
 *Proof* (*measured*): a first-person frame of `tf2-2026-pub-pov-clean` at tick 11948, where the recorder looks at a
-teammate 180 units away and **the target ID draws his name, `Befyyy`, under the crosshair**, is byte-identical before
+teammate 180 units away and **the target ID draws that player's name under the crosshair**, is byte-identical before
 and after. The tick came from the data: the new `id-target` probe runs the viewer's own `IdTargets` over hulls from
 the eye the viewer builds, and lists the ticks whose ray passes nearest a player's middle — 11948 at one unit. Its
 first version used the recorded view's origin as the eye and named ticks where the crosshair sat a head above the
@@ -38461,7 +38461,7 @@ projection after the surface began its frame, the position readout when the tool
 during a seek, which can run before the next overlay. Three were made values, each a query of state nothing in
 between changes: the crosshair settings, `cl_showfps`, and whether `+showscores` is held.
 
-*Proof nothing changed* (*measured*): the first-person frame with `Befyyy`'s name on it, both seek frames and their
+*Proof nothing changed* (*measured*): the first-person frame with the looked-at player's name on it, both seek frames and their
 logged lines, the beam frame, its pick line and the 47 sound lines are byte-identical before and after this commit.
 
 *Tests* (3, `FramePresenterHudTests`), over `GameContent.Open( null )` — the machine with no TF2: the HUD is built
