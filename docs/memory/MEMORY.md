@@ -22,6 +22,7 @@
 - [BSP lumps are compressed](bsp-lumps-are-compressed.md); [vrad key arithmetic ≠ the lump](vrad-key-arithmetic-is-not-the-lump.md).
 - [UI tests run every time](ui-tests-run-every-time.md) — foreground ≠ focus; [take the desktop lock](take-the-desktop-lock-dont-defer.md); [announce before launching](announce-before-launching.md).
 - [A UIA-expanded menu eats later keys](a-uia-expanded-menu-eats-later-keys.md) — click buttons for dialogs; CI's file dialog needs typed paths; wait on the log, not the status bar.
+- [UI tests use no real input unless forced](ui-tests-use-no-real-input-unless-forced.md) — patterns, not mouse/keys/foreground.
 - [A test can outlive its design](a-test-can-outlive-its-design.md) — it blamed the app for a deleted demand.
 - [Instrument bugs outnumber decoder bugs](instrument-bugs-outnumber-decoder-bugs.md) — absence needs a control; a walk reads what production reads (B443); [denominator decides loss](the-denominator-decides-what-can-be-lost.md).
 - [Logs are the debugger](logs-are-the-debugger.md) — log BEFORE a step that can crash.
