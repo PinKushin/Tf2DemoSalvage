@@ -1861,7 +1861,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                     FocusKind(),
                     binding => pressed == KeyNames.Resolve(binding),
                     keyData == Keys.Escape,
-                    keyData.ToString()))
+                    $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}"))
             || base.ProcessCmdKey(ref msg, keyData);
     }
 

@@ -149,6 +149,15 @@ public sealed class TransportUiTests
         StartTick().ShouldBe(before, "the start button seeks back to the demo's first tick");
     }
 
+    /// <summary>What holds the keyboard focus on the desktop, for a failure that has to say where a key went.</summary>
+    private static string FocusedNow(AutomationElement any)
+    {
+        AutomationElement focused = any.Automation.FocusedElement();
+
+        return $"{focused.Properties.ControlType.ValueOrDefault} '{focused.Properties.Name.ValueOrDefault}' "
+            + $"id '{focused.Properties.AutomationId.ValueOrDefault}' in process {focused.Properties.ProcessId.ValueOrDefault}";
+    }
+
     [Test]
     public void SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot()
     {
@@ -182,8 +191,9 @@ public sealed class TransportUiTests
         AutomationElement label = _viewer.Find(TransportBar.SpeedLabelId);
         string Readout() => label.Name;
 
-        _viewer.Find(TransportBar.SpeedBarId).Focus();
-        _viewer.PressRealKey(VirtualKeyShort.HOME); // real key: which control hears Home is the subject
+        AutomationElement slider = _viewer.Find(TransportBar.SpeedBarId);
+
+        _viewer.PressRealKey(VirtualKeyShort.HOME, slider); // real key: which control hears Home is the subject
 
         // **The message reports what it SAW, not only what it wanted.** The first version said only
         // "did not reach the fastest reverse speed", so two runs were spent guessing at a cause the
@@ -195,7 +205,8 @@ public sealed class TransportUiTests
             throwOnTimeout: true,
             timeoutMessage:
                 $"Home on the focused speed slider did not reach {TimeScale.From(-TimeScale.Fastest).Label()}; "
-                + $"the readout says '{Readout()}'.");
+                + $"the readout says '{Readout()}'; the slider has the keyboard focus: "
+                + $"{slider.Properties.HasKeyboardFocus.ValueOrDefault}; the focus is on {FocusedNow(slider)}.");
 
         Readout().ShouldBe(
             TimeScale.From(-TimeScale.Fastest).Description(),
@@ -203,7 +214,7 @@ public sealed class TransportUiTests
 
         // **The control, and it is the half that matters.** Without it a readout stuck on "reversed"
         // — or a slider whose halves both mean forward — would pass everything above.
-        _viewer.PressRealKey(VirtualKeyShort.END); // real key: the slider hearing End is the subject
+        _viewer.PressRealKey(VirtualKeyShort.END, slider); // real key: the slider hearing End is the subject
 
         Retry.WhileFalse(
             () => Readout() == TimeScale.From(TimeScale.Fastest).Description(),
@@ -243,8 +254,7 @@ public sealed class TransportUiTests
         // exercised by `SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` above. That test
         // is this one's control: together they say the key reaches the shortcut when no widget wants
         // it, and the widget when one does.
-        _viewer.Find("Viewport").Focus();
-        _viewer.PressRealKey(VirtualKeyShort.HOME); // real key: which control hears Home is the subject
+        _viewer.PressRealKey(VirtualKeyShort.HOME, _viewer.Find("Viewport")); // real key: which control hears Home is the subject
 
         Retry.WhileFalse(
             () => speed.Name == TimeScale.From(1d).Description(),

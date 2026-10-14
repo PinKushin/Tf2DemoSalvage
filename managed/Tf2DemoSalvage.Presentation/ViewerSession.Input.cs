@@ -145,7 +145,20 @@ public sealed partial class ViewerSession
         // modifiers off, so `Ctrl+R` and `r` arrive here spelled identically — and the playlist keeps
         // `r` for type-ahead. Without this the list would swallow `Ctrl+R` and reset-camera would
         // stop working whenever it had focus. `SHIFT` is not a command modifier: it types a capital.
-        if (WidgetKeys.Keeps(key.Focus, key.Name, key.ControlOrAlt))
+        bool kept = WidgetKeys.Keeps(key.Focus, key.Name, key.ControlOrAlt);
+
+        // **Which control was thought to have the keyboard, said for every press** (2026-10-13). A slider that
+        // held the focus did not move on Home, and "the binding took it" and "the slider got it and ignored
+        // it" read the same from outside.
+        if (_renderLog.IsEnabled(LogLevel.Debug))
+        {
+            // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+            _renderLog.LogDebug(
+                "{Message}",
+                string.Create(CultureInfo.InvariantCulture, $"key {key.Described}: focus is {key.Focus}, {(kept ? "left to it" : "offered to the bindings")}"));
+        }
+
+        if (kept)
         {
             return false;
         }
