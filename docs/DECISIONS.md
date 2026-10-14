@@ -9932,7 +9932,7 @@ Real input is kept for what has no other route, goes through three named helpers
 | What | Where | Why no other route |
 |---|---|---|
 | Left click on the viewport | `FirstPersonUiTests`, three tests | a raw Direct3D surface with no pattern; the mouse binding is the subject (B145) |
-| F11, Escape | `ShellUiTests`, `MapFullScreenUiTests` | the key binding is the subject, and full screen hides the menu a pattern would need to leave it. In `MapFullScreenUiTests` the key is not the subject and the View > Full screen item was tried; see "Open" below for why the key is back |
+| F11, Escape | `ShellUiTests`, `MapFullScreenUiTests` | the key binding is the subject, and full screen hides the menu a pattern would need to leave it. `MapFullScreenUiTests` enters through the View > Full screen item (F11 is that item's own shortcut) and keeps only Escape to leave |
 | SPACE | `ViewerSession.PressSwitchCameraMode`, every caller | the binding reaching the window is the subject |
 | Home, End | `TransportUiTests` | which control hears the key is the subject |
 | Enter on a playlist row | `ViewerApplication.LoadFromPlaylist` | a WinForms list row's invoke only focuses it and raises no `ItemActivate` |
@@ -9944,15 +9944,26 @@ B216 stands: a modified shortcut such as Ctrl+R still cannot be driven.
 folder item in `GameFolderUiTests`, the screenshot key in `FirstPerson_TheCapturedFrame_IsAViewRatherThanASurface`
 (the View menu item instead; the key is not that test's subject). `ViewerApplication.Focus`, which fell back to a real click on the window and had no caller, is removed.
 
-**Open: the position readout after full screen was entered through the menu item** (2026-10-13, not diagnosed
-here). With `MapFullScreenUiTests` entering full screen through View > Full screen, `PositionReadoutUiTests` failed
+**Diagnosed inline with the owner, 2026-10-13: two test faults, neither one full screen, and one viewer question
+filed as B541.** (1) The readout: `CFPSPanel` becomes visible in `OnTick`, which `AddTickSignal( panel, 250 )` runs
+every 250 ms and `VguiTools` ports, so the readout can lag the setting by a quarter second. The test captured once;
+the old mouse click took longer than a tick and a UIA invoke does not (185 ms in the failing run). It now captures
+until the white count rises. Full screen was a bystander: which fixtures ran first only moved the timing. (2) Run
+first in a session, the full-screen test acted on "map built", which is seconds before the opening seek lands; the
+shared viewer then sounded no footstep at the opening tick and `PausedSoundUiTests` lost its control, twice. It now
+waits for `opening state applied`. The owner saw it on screen first: *"it went full screen before the map/models
+fully loaded"*. With both fixed the five fixtures pass through the menu item, so F11 left that test again. Two
+relays of the owner's observations by the lead were misread on the way and retracted; diagnosing a UI test is done
+inline for that reason (`docs/memory/steerable-work-is-done-inline.md`). The evidence as first recorded:
+
+With `MapFullScreenUiTests` entering full screen through View > Full screen, `PositionReadoutUiTests` failed
 twice in the full suite (362 == 362 white pixels) and once in a run of the five fixtures from `MapFullScreen` to
 `PositionReadout` (255 == 255); with F11 the full suite passed. What the viewer's own log and captures show for the
 failures: the full-screen teardown did leave full screen (`Escape reached the form`, then `full screen off` at
 984x551); the readout test ran windowed and paused; `cl_showpos 1` was logged; and the two captures either side of
 it were byte-identical, a whole frame with its HUD and no readout. It did not reproduce with only the two fixtures
 (285 -> 820 entered during the load, 255 -> 820 entered after it). A stuck full screen and stranded menu mode are
-both ruled out by that log; nothing else is established. F11 is back in the test until it is.
+both ruled out by that log.
 
 **A fixture that changes the shared window puts it back or fails.** `ShellUiTests` and `MapFullScreenUiTests`
 record the window's bounds at setup and call `ViewerApplication.RestoreWindow` at teardown, which throws when the
