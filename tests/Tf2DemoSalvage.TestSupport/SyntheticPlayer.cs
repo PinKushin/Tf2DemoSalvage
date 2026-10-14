@@ -2419,6 +2419,106 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>
+    /// Several players each carrying `m_audio.soundscapeIndex` in `DT_Local`, sent once on entry and held, over ticks.
+    /// </summary>
+    /// <param name="ticks">The ticks of the snapshots; the first enters everyone.</param>
+    /// <param name="players">Each player's entity index and soundscape index.</param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **The SourceTV shape D217 found**: more than one entity carries `m_audio`, so the timeline's sampler meets a
+    /// different soundscape at every entity it walks within a single tick.
+    /// </remarks>
+    public static byte[] DemoOfSoundscapes(int[] ticks, params (int EntityIndex, int Soundscape)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(players);
+        return DemoOfLocalData(ticks, null, [.. players.Select(player => (player.EntityIndex, player.Soundscape, 0))]);
+    }
+
+    /// <summary>
+    /// Several players each carrying `DT_Local`'s `m_audio.soundscapeIndex` and `m_iHideHUD`, sent on entry and held over
+    /// ticks; optionally every `m_iHideHUD` changes on the last tick.
+    /// </summary>
+    /// <param name="ticks">The ticks of the snapshots; the first enters everyone.</param>
+    /// <param name="hideHudAtLast">The `m_iHideHUD` everyone sends on the last tick, or null to send nothing new.</param>
+    /// <param name="players">Each player's entity index, soundscape index and `m_iHideHUD`.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoOfLocalData(
+        int[] ticks, int? hideHudAtLast, params (int EntityIndex, int Soundscape, int HideHud)[] players)
+    {
+        ArgumentNullException.ThrowIfNull(ticks);
+        ArgumentNullException.ThrowIfNull(players);
+
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Table("localdata", "DT_Local")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_Local", NeedsDecoder: true, [Int("m_audio.soundscapeIndex", bits: 17), Int("m_iHideHUD", bits: 14)]));
+        DemoSchema schema = new(tables, baseline.ServerClasses);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < ticks.Length; index++)
+        {
+            List<DecodedEntity> entities = [];
+
+            foreach ((int entityIndex, int soundscape, int hideHud) in players.OrderBy(player => player.EntityIndex))
+            {
+                Dictionary<string, PropertyValue> values = new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(index, 0f),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                };
+
+                if (index == 0)
+                {
+                    values["m_lifeState"] = PropertyValue.FromInt(0);
+                    values["m_audio.soundscapeIndex"] = PropertyValue.FromInt(soundscape);
+                    values["m_iHideHUD"] = PropertyValue.FromInt(hideHud);
+                }
+                else if (index == ticks.Length - 1 && hideHudAtLast is { } changed)
+                {
+                    values["m_iHideHUD"] = PropertyValue.FromInt(changed);
+                }
+
+                entities.Add(Entity(decoder, PlayerClassId, entityIndex, values) with
+                {
+                    SerialNumber = entityIndex,
+                    UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                });
+            }
+
+            byte[] body = decoder.EncodeEntities(entities, [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                ticks[index],
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? ticks[index - 1] : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>Class id of the ordinary prop entity, when the schema declares one.</summary>
     public const int PropClassId = 2;
 
