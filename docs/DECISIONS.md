@@ -9980,7 +9980,7 @@ every-action-has-a-key rule). What a config can do today, measured on `ConfigCon
 | `bind x cl_showpos` (the bare name) | works: raises the position readout action on each press |
 | `bind x "cl_showpos 1"`, `bind y "cl_showpos 0"` | **gap**: the value lands in the console's ConVar table and no action is raised; the readout reads `ViewerSettings.ShowPosition`, which nothing updates from that table |
 | the owner's own toggle shape — `alias t "ton"`, `alias ton "+showscores; cl_showpos 1; alias t toff"`, `alias toff "-showscores; cl_showpos 0; alias t ton"`, `bind tab t` | the script runs correctly (alias calling alias: yes; an alias redefined from inside a running body: yes; several commands in a body: yes; a bind to a plain alias: yes; the scoreboard goes down and up on alternate presses) and `cl_showpos` reaches the table as `1`, `0`, `1` — **the same gap**: it never reaches the readout |
-| `bind x "toggle cl_showpos"`, `bind x "incrementvar cl_showpos 0 1 1"` | **gap**: neither command is implemented; skipped in silence |
+| `bind x "toggle cl_showpos"`, `bind x "incrementvar cl_showpos 0 1 1"` | **gap**: neither command is implemented; skipped in silence (**closed 2026-10-14**, below) |
 
 The gap is one thing: a client ConVar set by a command at run time is stored and not applied. Not built here.
 
@@ -10002,6 +10002,19 @@ gives by string alone: `Usage: incrementvar varName minValue maxValue delta`, `U
 maxValue factor`, `multvar without a varname`, and `toggle`'s help `Toggles a convar on or off, or cycles through a
 set of values.` (the two usage strings are referenced from `FUN_1801a7fe0` and `FUN_1801a8bc0` in the `tf2engine`
 project). The wrap/clamp rule and the missing-ConVar behaviour need those functions read, which was not done.
+
+**Closed, 2026-10-14** (branch `feat/toggle-incrementvar`). The lead read the three from x64 `engine.dll`
+(`tf2engine`): `incrementvar` FUN_1801a7fe0 (5 tokens exactly; float current + delta; above max wraps to min, below
+min wraps to max, equal keeps; executes `"%s %f"`), `multvar` FUN_1801a8bc0 (same arity; current * factor; above max
+clamps to max, `<=` min clamps to min; `"%s %f"`), `toggle` FUN_180177cd0 with validity FUN_180176f20 (unknown cvar
+refused; bare `toggle name` flips the INT value; with values, an exact byte compare of the STRING value picks the
+next, the first on the last or on no match). `ConfigConsole` turns each into the `name value` it executes and sends
+that through the same `SetConVar`/`ConVarSet` path, so it applies as above. An unset cvar's current value is its
+declared default. **Left over:** a value changed in the settings menu is not seen by the console (the second copy
+kept above), so `toggle cl_showpos` after turning the readout on in the menu first sets `1`. The engine's console
+messages (usage, not found, `%s = %f`) are not reproduced, since the viewer has no console. Held by the
+`ConfigConsoleConformanceTests` `KeyDown_IncrementVar_…`, `…MultVar_…`, `…Toggle…` and `…MalformedOrUnknownCvarCommand…`
+cases; making incrementvar clamp at max reddened two, wrapping at equality to min one, and a numeric toggle compare two.
 
 **Held by** `ViewerApplicationActivateUiTests`: another application is put in front, the cursor position is read,
 a transport button and a menu item are driven, and the cursor must be exactly where it was while the control's

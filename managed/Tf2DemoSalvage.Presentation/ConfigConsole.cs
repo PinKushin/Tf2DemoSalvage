@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
@@ -36,10 +37,10 @@ namespace Tf2DemoSalvage.Presentation;
 /// - `state` carries impulse bits, so a key tapped inside one frame still counts for something;
 /// - reading the state clears those bits, exactly as Valve's <c>key-&gt;state &amp;= 1</c> does.
 ///
-/// Client ConVars are kept, and one set by a key at run time is announced through <see cref="ConVarSet"/> (D215).
+/// Client ConVars are kept, and one set by a key at run time is announced through <see cref="ConVarSet"/> (D215),
+/// including by `toggle`, `incrementvar` and `multvar`.
 ///
-/// **What it deliberately does not implement**: `exec`, `wait`, `toggle`, `incrementvar` (semantics unsettled, D215),
-/// and the several hundred game commands this viewer has no concept of. Those are skipped in
+/// **What it deliberately does not implement**: `exec`, `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
 /// file. <see cref="Applied"/> counts what actually landed so a caller can tell "your config loaded
 /// and bound nothing" from "your config did not load", which otherwise look identical.
@@ -762,6 +763,105 @@ public sealed class ConfigConsole
         return true;
     }
 
+    /// <summary>
+    /// `toggle`, `incrementvar` and `multvar` (D215), as the `name value` command each ends by executing, or null when
+    /// the line is not one of them or the engine would set nothing.
+    /// </summary>
+    /// <remarks>
+    /// Read from x64 `engine.dll` (Ghidra `tf2engine`, 2026-10-14): `incrementvar` FUN_1801a7fe0, `multvar`
+    /// FUN_1801a8bc0, `toggle` FUN_180177cd0. The engine's warnings (usage, `cvar "%s" not found`, `%s = %f`) go to its
+    /// console, which this viewer does not have, so they are not reproduced. A replicated cvar is refused afterwards by
+    /// <see cref="SetConVar"/>, as the engine's executed `name value` would be.
+    /// </remarks>
+    private string[]? CvarCommand(IReadOnlyList<string> tokens)
+    {
+        string verb = tokens[0];
+        bool increment = verb.Equals("incrementvar", StringComparison.OrdinalIgnoreCase);
+
+        if (increment || verb.Equals("multvar", StringComparison.OrdinalIgnoreCase))
+        {
+            // Exactly five tokens, else Usage and nothing else.
+            if (tokens.Count != 5 || CurrentValue(tokens[1]) is not { } current)
+            {
+                return null;
+            }
+
+            float min = Atof(tokens[2]);
+            float max = Atof(tokens[3]);
+            float step = Atof(tokens[4]);
+            float result = increment ? Atof(current) + step : Atof(current) * step;
+
+            if (result > max)
+            {
+                // incrementvar wraps to min; multvar clamps to max.
+                result = increment ? min : max;
+            }
+            else if (increment ? result < min : result <= min)
+            {
+                // incrementvar wraps to max below min (equal keeps it); multvar clamps at `<=`, as the binary compares.
+                result = increment ? max : min;
+            }
+
+            // Executed as `"%s %f"`, so the value is printed with six decimals: `cl_showpos 1.000000`.
+            return [tokens[1], result.ToString("F6", CultureInfo.InvariantCulture)];
+        }
+
+        if (!verb.Equals("toggle", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        // Fewer than two tokens is Usage; an unknown cvar is "%s is not a valid cvar". FUN_180176f20 also refuses
+        // FCVAR_DEVELOPMENTONLY (2) and FCVAR_HIDDEN (0x10), which no cvar `EngineConVars` declares carries, and applies
+        // multiplayer, cheat and replicated server rules that do not arise in demo playback; none of those is ported.
+        if (tokens.Count < 2 || CurrentValue(tokens[1]) is not { } value)
+        {
+            return null;
+        }
+
+        if (tokens.Count == 2)
+        {
+            // The cvar's INT value: zero becomes 1, anything else 0.
+            return [tokens[1], (int)Atof(value) == 0 ? "1" : "0"];
+        }
+
+        // Exact byte compare of the STRING value against each listed value; the one after the match, wrapping, or
+        // the first when nothing matches.
+        for (int i = 2; i < tokens.Count; i++)
+        {
+            if (string.Equals(tokens[i], value, StringComparison.Ordinal))
+            {
+                return [tokens[1], tokens[i + 1 < tokens.Count ? i + 1 : 2]];
+            }
+        }
+
+        return [tokens[1], tokens[2]];
+    }
+
+    /// <summary>A declared cvar's current string value, or null when no cvar has the name.</summary>
+    /// <remarks>
+    /// The console holds only what a config or key set. Unset, the value is the declared default, which is also
+    /// the viewer's own default for the ConVars it applies. A value changed in the viewer's settings menu is not
+    /// seen here: the second copy D215 keeps.
+    /// </remarks>
+    private string? CurrentValue(string name) =>
+        !EngineConVars.TryByName(name, out EngineConVar? declared) ? null
+            : _conVars.GetValueOrDefault(declared.Name) ?? declared.Default;
+
+    /// <summary>C's <c>atof</c>, the engine's parse: the longest numeric prefix, and 0 when there is none.</summary>
+    private static float Atof(string text)
+    {
+        for (int length = text.Length; length > 0; length--)
+        {
+            if (float.TryParse(text.AsSpan(0, length), NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+            {
+                return parsed;
+            }
+        }
+
+        return 0f;
+    }
+
     /// <summary>Runs a command line, expanding aliases, in press or release direction.</summary>
     /// <remarks>
     /// **The key name does not survive into an alias body, and that is the mechanism the whole
@@ -825,6 +925,12 @@ public sealed class ConfigConsole
                 // No key, deliberately — see the remark above.
                 Run(body, key: null, depth + 1);
                 continue;
+            }
+
+            if (CvarCommand(tokens) is { } assignment)
+            {
+                // `toggle`, `incrementvar`, `multvar` end by running `name value`, so they land as one.
+                tokens = assignment;
             }
 
             if (SetConVar(tokens))
