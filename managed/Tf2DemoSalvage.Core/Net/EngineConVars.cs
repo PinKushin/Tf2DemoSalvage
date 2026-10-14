@@ -158,6 +158,12 @@ public static class EngineConVars
         new("cl_drawleaf", "-1", Replicated: false, Cheat: true),
         new("cl_first_person_uses_world_model", "0", Replicated: false, Cheat: false),
 
+        // Declared so a set keeps its string as written, as the engine does (B543): view.cpp:111 (FCVAR_ARCHIVE,
+        // bounds 0.1..179.9), clientmode_tf.cpp:570 and util_shared.cpp:45 (no bounds).
+        new("viewmodel_fov", "54", Replicated: false, Cheat: false),
+        new("viewmodel_fov_demo", "54", Replicated: false, Cheat: false),
+        new("developer", "0", Replicated: false, Cheat: false),
+
         // **What `CDemoPlayer::InterpolateViewpoint` reads** (`0x180072180`, B56). Engine ConVars, absent from the SDK:
         // `ConVar::ConVar` calls at 0x180003bea, 0x180003baa, 0x180003a2a and 0x180003c2a, every one with no flags —
         // the watcher's, never the server's. `DemoViewConVarConformanceTests` holds the registrations and the dump.

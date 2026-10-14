@@ -1237,8 +1237,21 @@ public sealed record ViewerSettings
             return written;
         }
 
+        // A value the cvar's own bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543).
+        if (written is not null &&
+            name == ViewmodelFieldOfViewCommand &&
+            float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten) &&
+            asWritten is < SmallestDemoViewmodelFieldOfView or > LargestDemoViewmodelFieldOfView)
+        {
+            // ClampValue's own two tests (`convar.cpp:891`, `:897`).
+            return EngineFloat(Math.Clamp(asWritten, SmallestDemoViewmodelFieldOfView, LargestDemoViewmodelFieldOfView));
+        }
+
         return written is not null && Set(name, written).Typed(name) == typed ? written : typed;
     }
+
+    /// <summary>A float as `"%f"` prints it: promoted to double, six places — 179.9f is "179.899994".</summary>
+    private static string EngineFloat(float value) => ((double)value).ToString("F6", CultureInfo.InvariantCulture);
 
     /// <summary>Whether this viewer keeps a typed setting for the ConVar, rather than only its string.</summary>
     /// <param name="name">The ConVar's name.</param>
@@ -1253,7 +1266,7 @@ public sealed record ViewerSettings
     private string? Typed(string name)
     {
         static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
-        static string Float(float value) => value.ToString("F6", CultureInfo.InvariantCulture);
+        static string Float(float value) => EngineFloat(value);
         static string Switch(bool on) => on ? "1" : "0";
 
         // By the declared name, as the console passes it (`EngineConVar.Name`).
