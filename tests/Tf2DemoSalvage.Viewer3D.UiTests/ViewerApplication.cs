@@ -755,6 +755,33 @@ internal sealed partial class ViewerApplication : IDisposable
         Settled(key);
     }
 
+    /// <summary>Puts the shared window back where a fixture found it, leaving full screen first, or fails.</summary>
+    /// <param name="found">The window's bounds when the test started.</param>
+    /// <exception cref="InvalidOperationException">The window did not return to those bounds.</exception>
+    /// <remarks>
+    /// **It throws, where the two teardowns it replaces waited ten seconds and carried on** (D215).
+    /// A viewer left full screen, or left a different size, hands every later fixture a window
+    /// they did not ask for, and the failure then lands on one of them; said here it lands on the
+    /// test that left it.
+    /// </remarks>
+    public void RestoreWindow(System.Drawing.Rectangle found)
+    {
+        if (Window.BoundingRectangle == found)
+        {
+            return;
+        }
+
+        Log($"the window is at {Window.BoundingRectangle} and was found at {found}; pressing Escape");
+        PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
+
+        if (!Retry.WhileFalse(() => Window.BoundingRectangle == found, TimeSpan.FromSeconds(10)).Success)
+        {
+            throw new InvalidOperationException(
+                $"The test left the shared window at {Window.BoundingRectangle}; it was found at {found}. "
+                + "Every later fixture would start from that.");
+        }
+    }
+
     /// <summary>Replaces the focused field's text by typing real keys, refusing to type anywhere else.</summary>
     /// <param name="text">The text to leave in the field.</param>
     /// <exception cref="InvalidOperationException">The viewer's process does not hold the foreground.</exception>

@@ -109,29 +109,15 @@ public sealed class MapFullScreenUiTests
             "resizing must not re-decode and re-upload the map's textures");
     }
 
+    private System.Drawing.Rectangle _found;
+
+    [SetUp]
+    public void RememberTheWindow() => _found = _viewer.Window.BoundingRectangle;
+
+    // The same leak the other fixture guards: a test that ends full screen hands the next one
+    // a window already the size of the screen, and the failure lands on the wrong test.
     [TearDown]
-    public void ReturnToWindowed()
-    {
-        // The same leak the other fixture guards: a test that ends full screen hands the next one
-        // a window already the size of the screen, and the failure lands on the wrong test.
-        if (_viewer is null)
-        {
-            return;
-        }
-
-        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-
-        if (_viewer.Window.BoundingRectangle.Width < screen.Width)
-        {
-            return;
-        }
-
-        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
-
-        Retry.WhileTrue(
-            () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
-            TimeSpan.FromSeconds(10));
-    }
+    public void ReturnToWindowed() => _viewer.RestoreWindow(_found);
 
     /// <summary>How many times this run's viewer log contains a line.</summary>
     private static int Count(string line) => _viewer.Count(line);

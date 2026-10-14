@@ -51,25 +51,13 @@ public sealed class ShellUiTests
         //
         // Observed for real: the suite failed once and passed on the next run with no change.
         // Retrying would have buried it.
-        if (_viewer is null)
-        {
-            return;
-        }
-
-        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-
-        if (_viewer.Window.BoundingRectangle.Width < screen.Width)
-        {
-            return;
-        }
-
-        ViewerApplication.Log("still full screen after the test; pressing Escape");
-        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
-
-        Retry.WhileTrue(
-            () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
-            TimeSpan.FromSeconds(10));
+        _viewer.RestoreWindow(_found);
     }
+
+    private System.Drawing.Rectangle _found;
+
+    [SetUp]
+    public void RememberTheWindow() => _found = _viewer.Window.BoundingRectangle;
 
     [Test]
     public void Shell_EveryControl_IsReachableByAutomation()
