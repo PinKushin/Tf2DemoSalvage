@@ -2473,7 +2473,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             // scale in force while the HUD paints is the frame's, as this renderer's panel models assume.
             if (gammaSpace)
             {
-                _particleSprites.SetColourScale(GammaLightScale.From(_world?.LinearLightScale ?? 1f));
+                _particleSprites.SetColourScale(SpriteLightScale.For(gammaSpace: true, _world?.LinearLightScale ?? 1f, overbright));
                 _context.OMSetRenderTargets(1u, _gammaView.GetAddressOf(), _depthView);
                 _particleSprites.Draw(_device, _context, viewProjection);
                 _context.OMSetRenderTargets(1u, _backBufferView.GetAddressOf(), _depthView);
@@ -2483,8 +2483,11 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             {
                 // **SpriteCard's `$overbrightfactor`** (B523): `blended_rgb.rgb *= fOverbrightFactor` before the vertex
                 // colour (spritecard_ps2x.fxc:143-144), which is the vertex colour times it. One for everything else —
-                // the Sprite shader above has no such parameter.
-                _particleSprites.SetColourScale(overbright);
+                // the Sprite shader above has no such parameter. **Times the tone-map scale** (B378): UnlitGeneric,
+                // SpriteCard and Cable end in TONEMAP_SCALE_LINEAR; Refract alone in TONEMAP_SCALE_NONE
+                // (refract_ps2x.fxc:249).
+                _particleSprites.SetColourScale(
+                    SpriteLightScale.For(gammaSpace: false, refract is null ? _world?.LinearLightScale ?? 1f : 1f, overbright));
                 _particleSprites.Draw(_device, _context, viewProjection);
                 _particleSprites.SetColourScale(1f);
             }

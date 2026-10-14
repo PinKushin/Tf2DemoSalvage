@@ -258,6 +258,10 @@ internal sealed unsafe class OffscreenTarget : IDisposable
     /// <summary>The world renderer's tone-map scale as it stands, one before anything has drawn.</summary>
     internal float LinearLightScale => _world?.LinearLightScale ?? 1f;
 
+    /// <summary>Sets the tone-map scale the next draws take, as `Device3D` sets it from its exposure each frame.</summary>
+    /// <param name="scale"><c>LINEAR_LIGHT_SCALE</c>.</param>
+    internal void SetToneMapScale(float scale) => (_world ??= WorldRenderer.Create(_device, _loggers)).LinearLightScale = scale;
+
     /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
     /// <param name="vertices">Triangle corners in world coordinates.</param>
     /// <param name="batches">Material runs.</param>
@@ -437,9 +441,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
 
-        // No tone-map scale in an offscreen picture, so the gamma light scale is one — and what is left is SpriteCard's
-        // `$overbrightfactor`, one for every material that states none (B523).
-        _sprites.SetColourScale(batch.Material.Overbright);
+        // The world's tone-map scale, one until a world pass sets one, through the same rule `Device3D` draws by (B378);
+        // SpriteCard's `$overbrightfactor` is one for every material that states none (B523). Refract takes none.
+        _sprites.SetColourScale(SpriteLightScale.For(
+            batch.Material.GammaSpace,
+            batch.Material.Refract is null ? LinearLightScale : 1f,
+            batch.Material.Overbright));
         _sprites.Upload(_device, _context, batch.Corners);
 
         if (!batch.Material.GammaSpace)

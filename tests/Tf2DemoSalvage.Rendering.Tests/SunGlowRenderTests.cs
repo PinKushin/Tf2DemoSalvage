@@ -58,6 +58,57 @@ public sealed class SunGlowRenderTests
         green.ShouldBeGreaterThan(64, "the instrument: the wall is there");
     }
 
+    /// <remarks>
+    /// **The glow takes the tone-map scale** (B378, golden comparison 2026-10-14): `light_glow02_add_noz` is UnlitGeneric,
+    /// whose output is <c>result.rgb * LINEAR_LIGHT_SCALE</c> (`vertexlit_and_unlit_generic_ps2x.fxc:498`). Drawn alone on
+    /// black at 0.5 and at 1, an unsaturated pixel of the glow carries half the linear light. Before the fix the two
+    /// pictures were identical, and against TF2 at its outdoor 0.70 the sun had six times the white pixels.
+    /// </remarks>
+    [Test]
+    [Category(TestCategories.MutationHeavy)]
+    public void Render_LakesidesSunAtHalfTheToneMapScale_CarriesHalfTheLight()
+    {
+        using OffscreenTarget target = Skip.Unless(OffscreenTarget.TryCreate(Size, Size), "no Direct3D on this machine");
+
+        MapAssets assets = MapCache.Effects();
+        FreeCamera camera = new()
+        {
+            Origin = (0f, 0f, 0f),
+            Angles = (
+                -float.RadiansToDegrees(System.MathF.Asin(Direction.Z)),
+                float.RadiansToDegrees(System.MathF.Atan2(Direction.Y, Direction.X)),
+                0f),
+            FieldOfView = 90f,
+            Aspect = 1f,
+        };
+
+        IReadOnlyList<ParticleBatch> batches = new SunGlow().Build(
+            [Lakeside], Vector3.Zero, Direction, camera.FarZ, assets.SpriteMaterials, _ => 1f);
+
+        double Linear(float scale)
+        {
+            StripPicture.Draw(target, camera.ToMatrix(), assets, [], background: 0f);
+            target.SetToneMapScale(scale);
+
+            foreach (ParticleBatch batch in batches)
+            {
+                target.DrawSprites(batch, camera.ToMatrix());
+            }
+
+            // Part way out from the centre: inside the glow, short of white (measured below, printed).
+            int stored = target.PixelAt(Size / 2, Size * 5 / 16).Blue;
+
+            return System.Math.Pow(stored / 255.0, 2.2);
+        }
+
+        double whole = Linear(1f);
+        double half = Linear(0.5f);
+
+        TestContext.Out.WriteLine($"SUN linear at scale 1: {whole:0.0000}, at 0.5: {half:0.0000}");
+        whole.ShouldBeInRange(0.05, 0.8, "the instrument: an unsaturated pixel of the glow");
+        (half / whole).ShouldBe(0.5, 0.06);
+    }
+
     /// <summary>Three frames of the viewer's order: ask, draw, count; the picture is the last frame's.</summary>
     private static (int Red, int Green, int Blue) Rendered(bool walled, out int drawn)
     {
