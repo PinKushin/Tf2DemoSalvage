@@ -1,6 +1,17 @@
-# Tf2DemoSalvage 0.1.0-beta.42
+# Tf2DemoSalvage 0.1.0-beta.43
 
-## Changes since 0.1.0-beta.41
+## Changes since 0.1.0-beta.42
+
+- **A paused demo no longer plays footsteps or other animation-event sounds.** Before, a demo that opened paused
+  sounded the opening tick's footsteps (or not, depending on when the window changed during the load), and a seek
+  made while paused sounded the steps at the new tick. TF2 fires no animation event on a paused frame, and now the
+  viewer does not either. On the first frame after you press play, each player may sound one catch-up step. That
+  is what TF2 does (B541).
+- **`--spectate` with a name nobody has warns once.** The log line "is not playing at tick ... following the
+  default" was written on every check, over a hundred times before a capture's first seek. It is now written once
+  for each absence (B540).
+
+## Changes in 0.1.0-beta.42
 
 This release closes the gaps found by laying the viewer's picture beside TF2's for one moment of one demo (chase
 and in-eye views of a demoman), and by reading more of your config the way the game reads it. Players, heal beams,
@@ -464,6 +475,10 @@ writes no log file; send its console output.
 
 Each claim below is a measurement, not an expectation.
 
+- **Merge gate (beta.43):** all twelve assemblies passed (core 2481, cli 75, logging 17, fonts 5, animation 5338,
+  scene 2995, audio 295, presentation 988, content 1768, corpus 224, rendering 1128, viewer 135), and the UI suite
+  passed 54 of 54. The paused-frame fix is checked by a conformance test written from the game's published source
+  and by a UI test. **Not checked by ear in a played demo** (B541).
 - **Picture parity (beta.42, B514 to B539):** the viewer was compared against the live game with a golden
   comparison on the f12 demo, and each fix above was made from the game's published source or its engine binary
   and covered by tests and the merge gate. Re-measured after these changes at tick 60000, as linear brightness
@@ -625,6 +640,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   acknowledges it (the game's order within a tick is inferred, not confirmed). Also not ported: the landing view
   punch, landing on moving or descending ground, the grappling hook's safe-fall reset, `sv_footsteps 0` and
   Mann vs. Machine's volume rule.
+- **Gesture and overlay layer animation events are not sounded** (B541).
+- **A config line that sets a client console variable from a bind or an alias is stored but not applied while
+  the viewer runs.** `bind key "cl_showpos 1"` is an example. `toggle` and `incrementvar` are not implemented. The
+  bare `bind key cl_showpos` works (D215).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
 - **Demos recorded in late June 2011 were malformed by the game itself** and may not decode (B144).
