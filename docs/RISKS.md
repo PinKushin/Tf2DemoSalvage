@@ -37926,6 +37926,31 @@ direction and the medic's jump and should be re-measured the same way this was, 
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
 
+**2026-10-14, new TF2 captures of `tf/f12.dem`; NOT FIXED, and the premise is in question.** *Measured*, LDR
+(`mat_hdr_level 0`), director off, played at `demo_timescale 0.05` and paused:
+
+- **Chase on gummo, 63615.** TF2 shows a faint haze on the left wall, pluses spread high on that wall, and *no* glow
+  on gummo. The viewer at 63615 (`--spectate gummo --third-person`, a nearer chase camera, so not the same camera)
+  shows the pluses on the wall, a brighter streak low on the left, and a strong glow on gummo's back. That makes ours
+  stronger than TF2's, not fainter.
+- **In-eye on the medic (Exiou, entity 4, medigun 408), 63612, the same camera on both sides.** TF2 draws no visible
+  beam, no glow on gummo, and no plus near the camera. The viewer draws a glow on gummo, a beam mostly behind the
+  viewmodel, and one plus about 160 pixels across at the lower left. At 63526 TF2 does draw the beam and the glow
+  on gummo.
+- **So reference 24's heavy haze (63617) does not reproduce at 5% playback.** Either the owner's capture ran at
+  another speed, or the effect's look depends on frame time. The second would be the engine's own behaviour:
+  `Movement Basic` scales its carry by `dt / prevDt`, and the path constraint's snaps become velocity. That needs a
+  reference taken at normal speed. The tf2 MCP could not pause one on a chosen tick in four tries, because a seek
+  resets `demo_timescale` and a paused demo stops answering RCON. `demo_pauseatservertick` exists and was not tried.
+- **Seen and not resolved.** The CLI text of `f12.dem` shows medigun 408's `m_hHealingTarget` handles in the order
+  3 (net tick 63283), 6 (63488), 11 (63572), none (63706). The timeline's beams for 408 give gummo (3) from 63460 to
+  63635. The HUD favors the timeline: gummo's health rises 190 to 230 over 63500 to 63615 while cutemobb's falls. A
+  tick mapping or handle reading in one of the two instruments is wrong. Settle that with a control before any
+  beam-timing claim rests on either.
+
+Files at the worktree root of `fix/heal-glow`: `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
+`heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.
+
 ## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, CLOSED 2026-10-13 after slices 1 to 8: the list is empty, the three references are out, three tests hold it
 
 **What it is.** D90 made `Viewer3D` a view. Nothing enforced it but a habit, the project still references the domain
