@@ -630,4 +630,79 @@ public sealed class ConfigConsoleConformanceTests
 
         announced.ShouldBe(0);
     }
+
+    /// <summary>Binds <c>k</c> to <paramref name="command"/>, presses it once per count, and returns what was set.</summary>
+    private static List<string> Press(string setup, string command, int presses = 1)
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Load($"{setup}\nbind k \"{command}\"");
+
+        for (int i = 0; i < presses; i++)
+        {
+            console.KeyDown("k");
+            console.KeyUp("k");
+        }
+
+        return set;
+    }
+
+    // incrementvar, engine.dll FUN_1801a7fe0: exactly 5 tokens; current is the cvar's FLOAT value; new = current +
+    // delta; new > max -> min, new < min -> max, else new; executes "%s %f".
+    [TestCase("cl_showpos 0", "incrementvar cl_showpos 0 2 1", "cl_showpos 1.000000")]
+    [TestCase("cl_showpos 2", "incrementvar cl_showpos 0 2 1", "cl_showpos 0.000000")]
+    [TestCase("cl_showpos 0", "incrementvar cl_showpos 0 2 -1", "cl_showpos 2.000000")]
+    [TestCase("cl_showpos 1", "incrementvar cl_showpos 0 2 1", "cl_showpos 2.000000")]
+    [TestCase("cl_showpos 1", "incrementvar cl_showpos 0 2 -1", "cl_showpos 0.000000")]
+    public void KeyDown_IncrementVar_WrapsAtTheBoundsAndKeepsEquality(string setup, string command, string expected) =>
+        Press(setup, command).ShouldBe([expected]);
+
+    // multvar, engine.dll FUN_1801a8bc0: new = current * factor; new > max -> max; new <= min -> min; else new. Clamps.
+    [TestCase("cl_showpos 2", "multvar cl_showpos 1 3 2", "cl_showpos 3.000000")]
+    [TestCase("cl_showpos 2", "multvar cl_showpos 1 4 0.5", "cl_showpos 1.000000")]
+    [TestCase("cl_showpos 2", "multvar cl_showpos 2 8 1", "cl_showpos 2.000000")]
+    [TestCase("cl_showpos 2", "multvar cl_showpos 1 8 2", "cl_showpos 4.000000")]
+    [TestCase("cl_showpos 2", "multvar cl_showpos 1 4 2", "cl_showpos 4.000000")]
+    public void KeyDown_MultVar_ClampsAtTheBounds(string setup, string command, string expected) =>
+        Press(setup, command).ShouldBe([expected]);
+
+    // Both: exactly 5 tokens else Usage and nothing else; `cvar "%s" not found` sets nothing.
+    [TestCase("incrementvar cl_showpos 0 2")]
+    [TestCase("incrementvar cl_showpos 0 2 1 9")]
+    [TestCase("incrementvar no_such_cvar 0 2 1")]
+    [TestCase("multvar cl_showpos 0 2")]
+    [TestCase("multvar no_such_cvar 0 2 1")]
+    // toggle, engine.dll FUN_180177cd0: fewer than 2 tokens is Usage; FUN_180176f20: "%s is not a valid cvar".
+    [TestCase("toggle")]
+    [TestCase("toggle no_such_cvar")]
+    [TestCase("toggle no_such_cvar 1 2")]
+    public void KeyDown_AMalformedOrUnknownCvarCommand_SetsNothing(string command) =>
+        Press(string.Empty, command).ShouldBeEmpty();
+
+    // toggle name alone: the INT value, (current == 0) ? 1 : 0. Unset, the declared default ("0") is current.
+    [TestCase("", "cl_showpos 1")]
+    [TestCase("cl_showpos 0", "cl_showpos 1")]
+    [TestCase("cl_showpos 2", "cl_showpos 0")]
+    [TestCase("cl_showpos 1.000000", "cl_showpos 0")]
+    public void KeyDown_ToggleWithNoValues_FlipsTheIntValue(string setup, string expected) =>
+        Press(setup, "toggle cl_showpos").ShouldBe([expected]);
+
+    // toggle name v1..vn: exact byte compare of the STRING value; match vi -> v(i+1), last or no match -> v1.
+    [TestCase("cl_showpos 1", "toggle cl_showpos 0 1 2", "cl_showpos 2")]
+    [TestCase("cl_showpos 2", "toggle cl_showpos 0 1 2", "cl_showpos 0")]
+    [TestCase("cl_showpos 7", "toggle cl_showpos 0 1 2", "cl_showpos 0")]
+    [TestCase("cl_showpos 1", "toggle cl_showpos 1.0 3", "cl_showpos 1.0")]
+    [TestCase("cl_showpos 1.0", "toggle cl_showpos 1 3", "cl_showpos 1")]
+    public void KeyDown_ToggleWithValues_CyclesByExactString(string setup, string command, string expected) =>
+        Press(setup, command).ShouldBe([expected]);
+
+    [Test]
+    public void KeyDown_TheOwnersToggleAndIncrementBinds_FlipAndCycle()
+    {
+        // The owner's kind of bind (D215): on and off on alternate presses; 0,1,2,0 from the default.
+        Press(string.Empty, "toggle cl_showpos", presses: 3).ShouldBe(["cl_showpos 1", "cl_showpos 0", "cl_showpos 1"]);
+        Press(string.Empty, "incrementvar cl_showpos 0 2 1", presses: 3)
+            .ShouldBe(["cl_showpos 1.000000", "cl_showpos 2.000000", "cl_showpos 0.000000"]);
+    }
 }

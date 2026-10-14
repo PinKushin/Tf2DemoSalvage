@@ -1,6 +1,14 @@
 # Tf2DemoSalvage 0.1.0-beta.43
 
-## Changes since 0.1.0-beta.42
+## Changes since 0.1.0-beta.43
+
+- **A key that sets a console variable now takes effect immediately.** Binds like `bind x "cl_showpos 1"`, and alias
+  toggles that set a variable, used to change nothing on screen. They now apply live, as a launch option does.
+- **`toggle`, `incrementvar` and `multvar` work in binds**, the same way TF2 runs them: `bind x "toggle cl_showpos"`
+  turns the position readout on and off, and `bind y "incrementvar cl_showpos 0 2 1"` cycles it. Known gap: these
+  start from your config's value, not from a change you made in the Settings menu.
+
+## Changes in 0.1.0-beta.43
 
 - **A paused demo no longer plays footsteps or other animation-event sounds.** Before, a demo that opened paused
   sounded the opening tick's footsteps (or not, depending on when the window changed during the load), and a seek

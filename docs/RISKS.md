@@ -39298,6 +39298,9 @@ helper process of Microsoft's GameInput service (`GameInputServiceWindow`) repea
 the owner's machine with no controller connected. The suite's real keys are refused when the viewer cannot take the
 foreground, so three full runs fell (27, 13 and 14 refusals, each naming the pid), and one hung: the folder-picker
 test's own viewer waited at its dialog with no time limit. Killing the helper gave a clean window each time (49 of
-54 before the fix, 54 of 54 after). Not known: why that window can become foreground. Owed in the harness: a
+54 before the fix, 54 of 54 after). Not known: why that window can become foreground. A Windows Update that also
+replaced the .NET SDK (10.0.303 to 10.0.402) installed the same night. 2026-10-14: the owner stopped `GameInputSvc`
+and set it to Disabled (the redistributable's `GameInputRedistService` already was); undo with
+`Set-Service GameInputSvc -StartupType Manual`. If UI runs stay clean after the reboot, that was the cause. Owed in the harness: a
 stronger foreground fallback and a time limit on the picker wait, so a run fails fast and never hangs.
 
