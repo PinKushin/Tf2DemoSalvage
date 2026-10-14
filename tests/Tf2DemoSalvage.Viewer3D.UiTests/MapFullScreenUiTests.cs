@@ -38,6 +38,9 @@ public sealed class MapFullScreenUiTests
     /// <summary>What it logs on every viewport change, which is now the whole cost of one.</summary>
     private const string CameraLine = "camera set for a";
 
+    /// <summary>What it logs once the opening seek has landed and the session is ready.</summary>
+    private const string OpeningLine = "opening state applied";
+
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication _viewer => ViewerSession.App;
 
@@ -58,6 +61,17 @@ public sealed class MapFullScreenUiTests
         // Three counts, and all three are needed. The camera must be repointed, or nothing happened
         // at all. The world must NOT be rebuilt, which is the fix. The textures must NOT be
         // re-uploaded, which is the older fix underneath it.
+        //
+        // **After the opening seek, not during it.** The map is built seconds before the opening state
+        // is applied, so run first in a session this fixture went full screen mid-load, and the shared
+        // viewer then sounded no footstep at the opening tick - the control `PausedSoundUiTests` needs
+        // (2026-10-13, twice). A fixture establishes its own state rather than inheriting the order.
+        Retry.WhileFalse(
+            () => Count(OpeningLine) > 0,
+            TimeSpan.FromSeconds(60),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewer never applied its opening state.");
+
         int texturesBefore = Count(TextureUploadLine);
         int buildsBefore = Count(WorldBuildLine);
         int camerasBefore = Count(CameraLine);
@@ -78,10 +92,8 @@ public sealed class MapFullScreenUiTests
         // Found once and polled by property: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
         AutomationElement viewport = _viewer.Find("Viewport");
 
-        // Real key, and the View > Full screen item was tried instead (2026-10-13): entered through the
-        // item and left with Escape, the shared viewer then drew no position readout, and
-        // `PositionReadoutUiTests` failed after this fixture at 362 == 362 white pixels. Unexplained (D215).
-        _viewer.PressRealKey(VirtualKeyShort.F11);
+        // F11 is this item's own shortcut key, so the item is the same action without real input.
+        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.FullScreenItemName);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
