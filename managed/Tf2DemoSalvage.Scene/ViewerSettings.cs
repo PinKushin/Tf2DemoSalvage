@@ -1262,55 +1262,73 @@ public sealed record ViewerSettings
 
 
     /// <summary>A typed setting rendered as the engine's <c>SetValue</c> would store it, or null when none is kept.</summary>
-    private string? Typed(string name)
-    {
-        static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
-        static string Float(float value) => EngineFloat(value);
-        static string Switch(bool on) => on ? "1" : "0";
+    private string? Typed(string name) =>
+        TypedRenderings.TryGetValue(name, out Func<ViewerSettings, string>? render) ? render(this) : null;
 
-        // By the declared name, as the console passes it (`EngineConVar.Name`).
-        return name switch
+    /// <summary>
+    /// Every ConVar this viewer keeps a typed setting for, keyed by its <see cref="EngineConVars"/> declaration.
+    /// </summary>
+    /// <remarks>
+    /// **The names come from `EngineConVars.ByName`, which throws for an undeclared one**, so a ConVar added here but
+    /// not declared there fails the type's initialisation and with it every test that touches these settings — the
+    /// declaration (default, bounds) has one home, and nothing here can drift from it.
+    /// </remarks>
+    private static readonly Dictionary<string, Func<ViewerSettings, string>> TypedRenderings = Declared(
+        (FrameRateLimitCommand, s => Int(s.FrameRateLimit)),
+        (NoFocusSleepCommand, s => Int(s.NoFocusSleep)),
+        (VerticalSyncCommand, s => Switch(s.VerticalSync)),
+        (DeveloperCommand, s => Int(s.Developer)),
+        (ShowFrameRateCommand, s => Int(s.ShowFrameRate)),
+        (ShowPositionCommand, s => Int(s.ShowPosition)),
+        (ThreeDimensionalSkyCommand, s => Int(s.ThreeDimensionalSky)),
+        (DetailDistanceCommand, s => EngineFloat(s.DetailDistance)),
+        (DetailFadeCommand, s => EngineFloat(s.DetailFade)),
+        (InterpCommand, s => EngineFloat(s.Interp.Interp)),
+        (InterpRatioCommand, s => EngineFloat(s.Interp.Ratio)),
+        (UpdateRateCommand, s => EngineFloat(s.Interp.UpdateRate)),
+        (ViewmodelFieldOfViewCommand, s => EngineFloat(s.ViewmodelFieldOfView)),
+        (DemoViewmodelFieldOfViewCommand, s => EngineFloat(s.ViewmodelFieldOfView)),
+        (DrawViewmodelCommand, s => Switch(s.DrawViewmodel)),
+        (PhongCommand, s => Switch(s.Phong)),
+        (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
+        (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
+        (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),
+        (HdrLevelCommand, s => Int(s.HdrLevel)),
+        (AutoDirectorCommand, s => Switch(s.AutoDirector)),
+        (DisableBloomCommand, s => Switch(s.DisableBloom)),
+        (ForceToneMapScaleCommand, s => EngineFloat(s.ForceToneMapScale)),
+        (SpecularCommand, s => Switch(s.Specular)),
+        (FullbrightCommand, s => Int(s.Fullbright)),
+        (DoPixelVisibilityCommand, s => Switch(s.DoPixelVisibility)),
+        (DrawHudCommand, s => Switch(s.DrawHud)),
+        (HealTargetMarkerCommand, s => Switch(s.HealTargetMarker)),
+        (DemoFieldOfViewCommand, s => EngineFloat(s.DemoFovOverride)),
+        (DecalsCommand, s => Int(s.Decals)),
+        (MaxModelDecalCommand, s => Int(s.MaxModelDecals)),
+        ("crosshair", s => Int(s.Crosshair.Enabled)),
+        ("cl_observercrosshair", s => Int(s.Crosshair.Observer)),
+        ("cl_crosshair_red", s => Int(s.Crosshair.Red)),
+        ("cl_crosshair_green", s => Int(s.Crosshair.Green)),
+        ("cl_crosshair_blue", s => Int(s.Crosshair.Blue)),
+        ("cl_crosshair_scale", s => EngineFloat(s.Crosshair.Scale)),
+        ("tf_hud_no_crosshair_on_scope_zoom", s => Int(s.Crosshair.NoCrosshairOnScopeZoom)));
+
+    private static Dictionary<string, Func<ViewerSettings, string>> Declared(
+        params (string Name, Func<ViewerSettings, string> Render)[] rows)
+    {
+        Dictionary<string, Func<ViewerSettings, string>> table = new(rows.Length, StringComparer.Ordinal);
+
+        foreach ((string name, Func<ViewerSettings, string> render) in rows)
         {
-            FrameRateLimitCommand => Int(FrameRateLimit),
-            NoFocusSleepCommand => Int(NoFocusSleep),
-            VerticalSyncCommand => Switch(VerticalSync),
-            DeveloperCommand => Int(Developer),
-            ShowFrameRateCommand => Int(ShowFrameRate),
-            ShowPositionCommand => Int(ShowPosition),
-            ThreeDimensionalSkyCommand => Int(ThreeDimensionalSky),
-            DetailDistanceCommand => Float(DetailDistance),
-            DetailFadeCommand => Float(DetailFade),
-            InterpCommand => Float(Interp.Interp),
-            InterpRatioCommand => Float(Interp.Ratio),
-            UpdateRateCommand => Float(Interp.UpdateRate),
-            ViewmodelFieldOfViewCommand or DemoViewmodelFieldOfViewCommand => Float(ViewmodelFieldOfView),
-            DrawViewmodelCommand => Switch(DrawViewmodel),
-            PhongCommand => Switch(Phong),
-            DrawMonitorsCommand => Switch(DrawMonitors),
-            FlipViewModelsCommand => Switch(FlipViewModels),
-            UseMinViewmodelsCommand => Switch(UseMinViewmodels),
-            HdrLevelCommand => Int(HdrLevel),
-            AutoDirectorCommand => Switch(AutoDirector),
-            DisableBloomCommand => Switch(DisableBloom),
-            ForceToneMapScaleCommand => Float(ForceToneMapScale),
-            SpecularCommand => Switch(Specular),
-            FullbrightCommand => Int(Fullbright),
-            DoPixelVisibilityCommand => Switch(DoPixelVisibility),
-            DrawHudCommand => Switch(DrawHud),
-            HealTargetMarkerCommand => Switch(HealTargetMarker),
-            DemoFieldOfViewCommand => Float(DemoFovOverride),
-            DecalsCommand => Int(Decals),
-            MaxModelDecalCommand => Int(MaxModelDecals),
-            "crosshair" => Int(Crosshair.Enabled),
-            "cl_observercrosshair" => Int(Crosshair.Observer),
-            "cl_crosshair_red" => Int(Crosshair.Red),
-            "cl_crosshair_green" => Int(Crosshair.Green),
-            "cl_crosshair_blue" => Int(Crosshair.Blue),
-            "cl_crosshair_scale" => Float(Crosshair.Scale),
-            "tf_hud_no_crosshair_on_scope_zoom" => Int(Crosshair.NoCrosshairOnScopeZoom),
-            _ => null,
-        };
+            table.Add(EngineConVars.ByName(name).Name, render);
+        }
+
+        return table;
     }
+
+    private static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+
+    private static string Switch(bool on) => on ? "1" : "0";
 
     /// <summary>Writes the settings.</summary>
     /// <param name="path">File to write; defaults to <see cref="Path"/>.</param>
