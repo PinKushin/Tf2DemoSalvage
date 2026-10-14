@@ -94,6 +94,23 @@ public sealed class PixelVisibilityConformanceTests
         Near(proxy.First, new Vector3(998f, 5f * 0.707106781f, 5f * 0.707106781f));
     }
 
+    /// <remarks>
+    /// <c>bSizeInScreenspace</c>, set only by <c>CGlowOverlay</c> (`glow_overlay.cpp:168`, `:213`) — the sun:
+    /// <c>pixelsPerUnit2 = ComputePixelDiameterOfSphere( CurrentViewOrigin() + CurrentViewForward()*1.0f, scale*0.5f );
+    /// scale = pixelsPerUnit2 / pixelsPerUnit;</c> and no five-pixel floor. A 0.05 proxy is 25 pixels here at one unit, so
+    /// at 10,000 units, where a unit is a tenth of a pixel, it is 250 units — and still pulled forward by the 0.05 it was
+    /// asked for (`c_pixel_visibility.cpp:58-70`).
+    /// </remarks>
+    [Test]
+    public void Proxy_SizedInScreenSpace_SpansTheSamePixelsAtAnyDistance()
+    {
+        GlowQuery sun = new(-379, new Vector3(10000f, 0f, 0f), 0.05f, 1f, SizeInScreenspace: true);
+
+        (PixelVisibilityProxy proxy, _) = PixelVisibility.Proxy(sun, View()).ShouldNotBeNull();
+
+        Near(proxy.First, new Vector3(9999.95f, 250f * 0.707106781f, 250f * 0.707106781f));
+    }
+
     private static void Near(Vector3 actual, Vector3 expected) =>
         Vector3.Distance(actual, expected).ShouldBeLessThan(1e-3f, $"{actual} against {expected}");
 

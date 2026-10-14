@@ -32478,7 +32478,46 @@ on was a modern POV that is not yet identified — *"idk whos pov it was, maybe 
 *Evidence class: measured, both demos, same instrument. The causal link to B377 is read-from-source plus
 arithmetic; it has NOT been confirmed by watching.*
 
-### B378 DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521 — the fraction is the GPU's and models hide a glow; heading corrected 2026-09-29) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+
+**2026-10-14 — the two residuals are closed** (`fix/b378-sun-glow`; the reverse-engineering account is
+`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`). *Read from published source* throughout.
+
+- **The sun's glow is drawn.** `SunFeed` (Core) decodes `DT_Sun` — NOBASE, `FL_EDICT_ALWAYS`, so a feed and not a
+  track; `SunGlow` (Scene) is `C_Sun::OnDataChanged`'s two `C_SunGlowOverlay`s and `CGlowOverlay::Draw`: the core and a
+  six-times glow faded by the view's dot, a hundred units ahead of the eye, each gated by its own query at
+  `zFar * 0.999` with `bSizeInScreenspace` — now ported in `PixelVisibility.Proxy`. `FrameParticles` asks it after the
+  sprites and beams and before `EndView`, as `ViewDrawScene` does. `DemoModels.Sprites` loads the two materials.
+- **The per-view question was the wrong question.** `DrawOverlays` runs only in `ViewDrawScene`, which only the main view
+  and `DrawOneMonitor` call; reflections and refractions draw no glow overlay, and a monitor's query is created and
+  never issued (`EndCurrentView` only `if ( IsMainView(...) )`), so it answers zero. The main-view-only system is the
+  engine's answer everywhere. Sprites and beams in sub-views remain whatever their own passes do.
+- **Proved.** `SunFeedConformanceTests` (4), `SunGlowConformanceTests` (14), one new `PixelVisibilityConformanceTests`
+  case, `SunGlowRenderTests` (2: lakeside's sun in open sky lights the centre on the shipped material through the real
+  device query; behind a wall the query counts nothing and nothing draws) and `SunCorpusTests` (lakeside's sun reaches
+  the timeline with its materials). Sabotages, each reddening exactly what was predicted: red from the low byte →
+  the two colour tests; the screen-space scale left unnormalized → the screen-space proxy test and the open-sky render;
+  the obstruction forced to one → the wall render, `Build_ASunTheSceneHides` and `Build_HalfSeen`. Removing the
+  `obstruction <= 0` early return alone reddens nothing, and that is correct: a zero obstruction makes the colour zero,
+  which `Draw`'s own "alpha'd out" test skips — the engine's two guards are redundant for this case.
+- **Seen**: `sun-before.png` / `sun-after.png`, koth_lakeside_final from `TF2VIEW_CAMERA="0 -152 600 -35 235"`. Not
+  compared against TF2 — the size and brightness of the glow are the owner's question.
+
+**Not ported, named:** `m_skyObstructionScale` (a second query in the 3D skybox view; 1 here, so 3D-skybox scenery does
+not hide the sun), `$hdrcolorscale` (carried, not applied, as for every sprite), `R_CullSphere`.
+
+**Found on the way, filed and NOT changed:**
+
+- **`EntityState.RenderRgb()` and `RenderAlpha()` appear to read the wrong bytes** — *interpolated* from the sun's
+  table to the base entity's, not yet measured on a base entity. `SendProxy_Color32ToInt` packs
+  `r << 24 | g << 16 | b << 8 | a` and `RecvProxy_IntToColor32` unpacks it the same way; `RenderRgb` takes red from the
+  LOW byte and `RenderAlpha` alpha from the high one. *Measured*: lakeside's sun sends `0xE4CABAFF` for rendercolor
+  228 202 186 at alpha 255. If `DT_BaseEntity.m_clrRender` uses the same proxy (not read), every sprite tint and every render-alpha
+  fade is read byte-reversed — a white opaque entity (`0xFFFFFFFF`) hides it. Needs its own entry and a measurement of
+  what changes on screen.
+- **`TF2VIEW_CAMERA` was ignored on a POV demo.** `CameraPresenter.DemoOpening` forced first person (D153) without the
+  headless exemption the other lock sites honour; the log said the camera was placed and the capture showed the
+  recorder. Fixed here in one condition, because the screenshots needed it; no test was added for it.
 
 **2026-10-11 — the residual is closed: `PixelVisibility_FractionVisible` is ported whole** (`fix/b521-lamp-fixtures`).
 *Read from published source*, `c_pixel_visibility.cpp`. `PixelVisibility` (Scene) is `CPixelVisibilitySystem` without
@@ -32536,7 +32575,7 @@ where the query gives 100 100 / 101 100 98).
 
 Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
-through it.
+through it. *(2026-10-14: the first, second and fourth are closed — see the top of this entry.)*
 
 **2026-10-11, later — why those three are still not modeled, each for the same reason: its only caller does not
 exist here yet.** `bSizeInScreenspace` is set by `CGlowOverlay` alone (`glow_overlay.cpp:168`, `:213`), and the

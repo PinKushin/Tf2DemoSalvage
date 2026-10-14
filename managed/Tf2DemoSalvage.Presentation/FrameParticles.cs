@@ -84,6 +84,9 @@ public sealed class FrameParticles
     /// <summary>How much of each glow the scene lets through — <c>CPixelVisibilitySystem</c> (B378, B521).</summary>
     private readonly PixelVisibility _pixelVisibility = new();
 
+    /// <summary>Every <c>env_sun</c>'s core and glow (B378).</summary>
+    private readonly SunGlow _sun = new();
+
     /// <summary>What the frame's map holds.</summary>
     private ParticleMap? _map;
 
@@ -324,6 +327,21 @@ public sealed class FrameParticles
         // **Beams join the same batches**, for the reason sprites do: a beam is a strip of sprite-material quads.
         IReadOnlyList<ParticleBatch> drawnByClass = effectEntities(
             new Vector3(ahead, across, above), new Vector3(rx, ry, rz), new Vector3(ux, uy, uz), Sees);
+
+        // **`CGlowOverlay::DrawOverlays`, after the world and its entities and before `PixelVisibility_EndCurrentView`**
+        // (`viewrender.cpp:1444-1450`): the sun's core and glow, asking the same gate with screen-space proxies (B378).
+        IReadOnlyList<ParticleBatch> sunGlow = _sun.Build(
+            frame.Timeline?.Suns.At(frame.Tick) ?? [],
+            new Vector3(viewing.Origin.X, viewing.Origin.Y, viewing.Origin.Z),
+            new Vector3(ahead, across, above),
+            viewing.FarZ,
+            map?.SpriteMaterials ?? NoEngineSprites,
+            Sees);
+
+        if (sunGlow.Count > 0)
+        {
+            drawnByClass = [.. drawnByClass, .. sunGlow];
+        }
 
         // `PixelVisibility_EndCurrentView`: the proxies this frame's view counts, read back by the next.
         occluding.SetOcclusionProxies(
