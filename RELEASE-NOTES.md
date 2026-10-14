@@ -10,6 +10,9 @@
 - **`--spectate` with a name nobody has warns once.** The log line "is not playing at tick ... following the
   default" was written on every check, over a hundred times before a capture's first seek. It is now written once
   for each absence (B540).
+- **Keys work again after a menu item is picked by a screen reader.** Picking a menu item through UI Automation
+  left the window in menu mode: Home and End on the speed slider did nothing, and SPACE opened the title bar menu
+  instead of switching the camera, until you clicked somewhere. The viewer now leaves that state by itself (B542).
 
 ## Changes in 0.1.0-beta.42
 

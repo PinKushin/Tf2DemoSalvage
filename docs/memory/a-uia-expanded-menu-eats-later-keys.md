@@ -28,6 +28,16 @@ An `Activated` hook was wrong: activation also follows the UIA Expand and would 
 Regression test: `FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBindingsWorking`.
 A NEW modal (not through `ShowModal`) would bring the bug back.
 
+**Without a dialog too, and with the strip NOT focused (B542, 2026-10-14).** Any UIA Expand/Invoke/Collapse strands
+menu mode; real mouse clicks used to reset it, so D215 exposed it. Signs: `key X sent to MainMenu` in the viewer log
+while another control has focus; SPACE opens the title bar's system menu (`MenuStrip` posts `SC_KEYMENU`).
+`LeaveStrandedMenuMode` cannot fix it (it asks `Focused`); Escape does nothing on an unfocused strip; focusing the
+strip first moves the user's focus. Fix is D216: reflection to `ModalMenuFilter.InMenuMode`/`ExitMenuMode`, asked on
+`Application.Idle`. Remove at .NET 11.
+**When a key does nothing, log its target first** (`key X sent to Y: focus is Z`). Four guesses failed before that
+line was added; it answered in one run. Run a fixture alone and it starts during the load: put a load-waiting
+fixture in front or the result is an artifact.
+
 **How to apply:**
 - Open dialogs with `ViewerApplication.Activate(buttonId)` (D215). It posts `BM_CLICK` to the button:
   no cursor, no foreground, no menu mode. Do not use UIA `Invoke` on the button, because the click

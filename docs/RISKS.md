@@ -39264,3 +39264,40 @@ skip's last frame; that is the engine's own behaviour.
   walked nowhere here. Re-read, not started.
 - A skip frame here is 99 ticks; the engine's depends on its host frame (finding 31), so which step the first
   playing frame catches up cannot be matched to a given TF2 run.
+
+## B542 — a menu item picked through UI Automation left the viewer in menu mode: later keys went to the menu bar and SPACE opened the title bar menu — FIXED 2026-10-14 (D216); one machine question OPEN
+
+**What a user met.** A screen reader (or anything else driving the menu by UI Automation: Expand, Invoke, Collapse)
+picks a menu item. Afterwards Home and End on the speed slider do nothing, and SPACE opens the window's system menu
+(Restore, Move, Size, Close) instead of switching the camera. A mouse click anywhere cured it, which is why the UI
+suite never saw it until D215 took its real clicks away; CI went red on
+`SpeedSlider_AtEachEnd_ReachesSpeedsTheButtonsCannot` (run 38494861958).
+
+**The evidence, in the order it settled things.** Each line is from the viewer's own log or the test's message:
+
+- `the slider has the keyboard focus: True`, viewer in the foreground, readout unchanged: not focus, not foreground.
+- `key Home: focus is Slider, left to it`: the form did not give Home to the `ResetSpeed` binding.
+- The owner, watching: the thumb stayed in the middle. So the slider never received the key.
+- `key Home sent to MainMenu (focused False, visible True, selected item none, open menu False)`: WinForms' menu
+  filter was redirecting keys to the strip, which did not hold the focus. Menu mode, stranded.
+- `the focus is on MenuBar 'Application'` after SPACE: `MenuStrip` answers SPACE in menu mode by posting
+  `SC_KEYMENU`, the system menu. The owner saw the title bar menu open with nobody touching the keyboard.
+
+**Wrong turns, kept.** Four, each reverted or disproved by the next log line: (1) focus set before the foreground
+was taken (the order was wrong and is fixed in `PressRealKey`, but it was not the cause); (2) leaving menu mode with
+the existing `LeaveStrandedMenuMode`, which returns at once because it asks `Focused` and the stranded strip is not;
+(3) the form's `ActiveControl` chain being stale; (4) taking the focus onto the strip so Escape would work, which
+did leave menu mode and then put the focus back on the wrong control. What ended the guessing was logging the key's
+target control; `key X sent to Y: focus is Z` stays in the log for that reason.
+
+**The fix:** D216. Held by the UI suite's own order: the full-screen fixture and the first-person capture both pick
+a menu item, and the transport and camera key tests follow them.
+
+**OPEN, the machine and not the viewer: `GameInputSvc` taking the foreground.** On 2026-10-13 from about 22:50 a
+helper process of Microsoft's GameInput service (`GameInputServiceWindow`) repeatedly held the Windows foreground on
+the owner's machine with no controller connected. The suite's real keys are refused when the viewer cannot take the
+foreground, so three full runs fell (27, 13 and 14 refusals, each naming the pid), and one hung: the folder-picker
+test's own viewer waited at its dialog with no time limit. Killing the helper gave a clean window each time (49 of
+54 before the fix, 54 of 54 after). Not known: why that window can become foreground. Owed in the harness: a
+stronger foreground fallback and a time limit on the picker wait, so a run fails fast and never hangs.
+
