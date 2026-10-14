@@ -39321,6 +39321,20 @@ test reddens alone when the console stops keeping an unimplemented ConVar once a
 `ConVarText` hides unimplemented ConVars, because the console's copy covers it: the unimplemented ConVar is held
 twice (settings `ConVars` and the console's table), which is a D215 one-copy question left open, not a test fault.
 
+**Both follow-ups closed 2026-10-14 (`fix/convar-strings-as-written`).**
+1. *Every implemented ConVar keeps its string as written.* Every one `ViewerSettings.Typed` answers for is now declared in
+   `EngineConVars` — the one place — with their bounds as `Min`/`Max`, and `ConVarText` clamps by the declaration
+   rather than by name. Bounds were read per cvar: the SDK line where there is one, else TF2's own `help` (measured
+   2026-10-14; `convar.cpp:1432-1436` prints `min.`/`max.` when set, controlled by `cl_interp`, whose SDK bounds it
+   printed, and by `viewmodel_fov`, which printed `0.100000` — the clamped string of the owner's stored 0.1). Three
+   are bounded: `viewmodel_fov` 0.1..179.9, `cl_interp` 0..0.5 (`cdll_bounded_cvars.cpp:104`), `mat_vsync` 0..1
+   (engine). `fps_max` declares none in this build. Before: `cl_interp 0.0152` read "0.015200"; now "0.0152".
+   `ViewerSettings.Implements` lost its only caller and is deleted.
+2. *An unimplemented ConVar is held once.* Once attached, the console keeps no copy: a set — run-time, or a config
+   line read after attaching — goes to the settings through `ConVarSet`, and `ConfigConsole.ConVar` reads through
+   them. Sabotage: `ConVarText` returning null for an unimplemented ConVar now reddens the round-trip test alone
+   (before this it stayed green).
+
 Original filing:
 
 `ViewerSettings.ConVarText` (D215, one store) returns the string last written while it still means the current

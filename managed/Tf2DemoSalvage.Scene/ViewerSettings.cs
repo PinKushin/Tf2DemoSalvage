@@ -1237,14 +1237,21 @@ public sealed record ViewerSettings
             return written;
         }
 
-        // A value the cvar's own bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543).
+        // A value the cvar's declared bounds moved is stored as `"%f"` of the clamp (`convar.cpp:794-798`, B543),
+        // by `ClampValue`'s own two tests (`:891`, `:897`); every other value keeps its string as written.
         if (written is not null &&
-            name == ViewmodelFieldOfViewCommand &&
-            float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten) &&
-            asWritten is < SmallestDemoViewmodelFieldOfView or > LargestDemoViewmodelFieldOfView)
+            EngineConVars.TryByName(name, out EngineConVar? declared) &&
+            float.TryParse(written, NumberStyles.Float, CultureInfo.InvariantCulture, out float asWritten))
         {
-            // ClampValue's own two tests (`convar.cpp:891`, `:897`).
-            return EngineFloat(Math.Clamp(asWritten, SmallestDemoViewmodelFieldOfView, LargestDemoViewmodelFieldOfView));
+            if (asWritten < declared.Min)
+            {
+                return EngineFloat(declared.Min.Value);
+            }
+
+            if (asWritten > declared.Max)
+            {
+                return EngineFloat(declared.Max.Value);
+            }
         }
 
         return written is not null && Set(name, written).Typed(name) == typed ? written : typed;
@@ -1253,14 +1260,6 @@ public sealed record ViewerSettings
     /// <summary>A float as `"%f"` prints it: promoted to double, six places — 179.9f is "179.899994".</summary>
     private static string EngineFloat(float value) => ((double)value).ToString("F6", CultureInfo.InvariantCulture);
 
-    /// <summary>Whether this viewer keeps a typed setting for the ConVar, rather than only its string.</summary>
-    /// <param name="name">The ConVar's name.</param>
-    public static bool Implements(string name)
-    {
-        ArgumentNullException.ThrowIfNull(name);
-
-        return Defaults.Typed(name) is not null;
-    }
 
     /// <summary>A typed setting rendered as the engine's <c>SetValue</c> would store it, or null when none is kept.</summary>
     private string? Typed(string name)
