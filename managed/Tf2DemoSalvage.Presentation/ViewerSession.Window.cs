@@ -200,7 +200,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         // interpreter runs the shipped defaults for ever and every test of it exercises code the viewer never reaches.
         LoadUserConfig();
         _console.Triggered += OnConsoleAction;
-        _console.ConVarSet += (_, set) => _settingsOwner.SetConVar(set.Name, set.Value);
+        _settingsOwner.Attach(_console);
 
         _playback.MomentChanged += (_, moment) =>
         {

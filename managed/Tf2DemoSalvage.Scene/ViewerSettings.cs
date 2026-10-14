@@ -1217,6 +1217,89 @@ public sealed record ViewerSettings
     public ViewerSettings Set(string name, string value) =>
         Parse(string.Create(CultureInfo.InvariantCulture, $"{name} \"{value}\""), onto: this);
 
+    /// <summary>A ConVar's current value as the engine would hold its string, or null when these settings have none.</summary>
+    /// <param name="name">The ConVar's name.</param>
+    /// <returns>The value; for a ConVar this viewer implements, always one.</returns>
+    /// <remarks>
+    /// **The one copy (D215).** The console reads this for `toggle`, `incrementvar` and `multvar`, so a value the menu
+    /// set is the value a key sees. The rule for the string: the one last WRITTEN (`Set`, the file, a launch option)
+    /// while it still means the current setting, since the engine keeps a cvar's string as set (`toggle` compares it
+    /// byte for byte); otherwise the setting rendered as the engine's `SetValue` would store it — `%d` for an int,
+    /// `%f` for a float, 1 or 0 for a switch. So the menu's `cl_showpos` on reads "1", as `cl_showpos 1` would.
+    /// </remarks>
+    public string? ConVarText(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        string? written = ConVars.GetValueOrDefault(name);
+
+        if (Typed(name) is not { } typed)
+        {
+            return written;
+        }
+
+        return written is not null && Set(name, written).Typed(name) == typed ? written : typed;
+    }
+
+    /// <summary>Whether this viewer keeps a typed setting for the ConVar, rather than only its string.</summary>
+    /// <param name="name">The ConVar's name.</param>
+    public static bool Implements(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return Defaults.Typed(name) is not null;
+    }
+
+    /// <summary>A typed setting rendered as the engine's <c>SetValue</c> would store it, or null when none is kept.</summary>
+    private string? Typed(string name)
+    {
+        static string Int(int value) => value.ToString(CultureInfo.InvariantCulture);
+        static string Float(float value) => value.ToString("F6", CultureInfo.InvariantCulture);
+        static string Switch(bool on) => on ? "1" : "0";
+
+        // By the declared name, as the console passes it (`EngineConVar.Name`).
+        return name switch
+        {
+            FrameRateLimitCommand => Int(FrameRateLimit),
+            NoFocusSleepCommand => Int(NoFocusSleep),
+            VerticalSyncCommand => Switch(VerticalSync),
+            DeveloperCommand => Int(Developer),
+            ShowFrameRateCommand => Int(ShowFrameRate),
+            ShowPositionCommand => Int(ShowPosition),
+            ThreeDimensionalSkyCommand => Int(ThreeDimensionalSky),
+            DetailDistanceCommand => Float(DetailDistance),
+            DetailFadeCommand => Float(DetailFade),
+            InterpCommand => Float(Interp.Interp),
+            InterpRatioCommand => Float(Interp.Ratio),
+            UpdateRateCommand => Float(Interp.UpdateRate),
+            ViewmodelFieldOfViewCommand or DemoViewmodelFieldOfViewCommand => Float(ViewmodelFieldOfView),
+            DrawViewmodelCommand => Switch(DrawViewmodel),
+            PhongCommand => Switch(Phong),
+            DrawMonitorsCommand => Switch(DrawMonitors),
+            FlipViewModelsCommand => Switch(FlipViewModels),
+            UseMinViewmodelsCommand => Switch(UseMinViewmodels),
+            HdrLevelCommand => Int(HdrLevel),
+            AutoDirectorCommand => Switch(AutoDirector),
+            DisableBloomCommand => Switch(DisableBloom),
+            ForceToneMapScaleCommand => Float(ForceToneMapScale),
+            SpecularCommand => Switch(Specular),
+            FullbrightCommand => Int(Fullbright),
+            DoPixelVisibilityCommand => Switch(DoPixelVisibility),
+            DrawHudCommand => Switch(DrawHud),
+            HealTargetMarkerCommand => Switch(HealTargetMarker),
+            DemoFieldOfViewCommand => Float(DemoFovOverride),
+            DecalsCommand => Int(Decals),
+            MaxModelDecalCommand => Int(MaxModelDecals),
+            "crosshair" => Int(Crosshair.Enabled),
+            "cl_observercrosshair" => Int(Crosshair.Observer),
+            "cl_crosshair_red" => Int(Crosshair.Red),
+            "cl_crosshair_green" => Int(Crosshair.Green),
+            "cl_crosshair_blue" => Int(Crosshair.Blue),
+            "cl_crosshair_scale" => Float(Crosshair.Scale),
+            "tf_hud_no_crosshair_on_scope_zoom" => Int(Crosshair.NoCrosshairOnScopeZoom),
+            _ => null,
+        };
+    }
+
     /// <summary>Writes the settings.</summary>
     /// <param name="path">File to write; defaults to <see cref="Path"/>.</param>
     /// <returns>An error to report, or null on success.</returns>
@@ -1463,11 +1546,10 @@ public sealed record ViewerSettings
         return text.ToString();
     }
 
+    /// <summary>Reads an integer setting as the engine's <c>GetInt</c> would: the float's integer part, so <c>1.000000</c> is 1.</summary>
+    /// <remarks>`incrementvar` and `multvar` set a cvar as <c>"%s %f"</c> (D215); an int-only parse ignored every such set.</remarks>
     private static int? Read(Dictionary<string, string> values, string command) =>
-        values.TryGetValue(command, out string? value) &&
-        int.TryParse(value, CultureInfo.InvariantCulture, out int number)
-            ? number
-            : null;
+        ReadNumber(values, command) is { } number && number is >= int.MinValue and <= int.MaxValue ? (int)number : null;
 
     /// <summary>Reads a fractional setting, for the ones the game states as floats.</summary>
     private static float? ReadNumber(Dictionary<string, string> values, string command) =>
