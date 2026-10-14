@@ -32506,18 +32506,23 @@ arithmetic; it has NOT been confirmed by watching.*
 **Not ported, named:** `m_skyObstructionScale` (a second query in the 3D skybox view; 1 here, so 3D-skybox scenery does
 not hide the sun), `$hdrcolorscale` (carried, not applied, as for every sprite), `R_CullSphere`.
 
-**Found on the way, filed and NOT changed:**
+**Found on the way:**
 
-- **`EntityState.RenderRgb()` and `RenderAlpha()` appear to read the wrong bytes** — *interpolated* from the sun's
-  table to the base entity's, not yet measured on a base entity. `SendProxy_Color32ToInt` packs
-  `r << 24 | g << 16 | b << 8 | a` and `RecvProxy_IntToColor32` unpacks it the same way; `RenderRgb` takes red from the
-  LOW byte and `RenderAlpha` alpha from the high one. *Measured*: lakeside's sun sends `0xE4CABAFF` for rendercolor
-  228 202 186 at alpha 255. If `DT_BaseEntity.m_clrRender` uses the same proxy (not read), every sprite tint and every render-alpha
-  fade is read byte-reversed — a white opaque entity (`0xFFFFFFFF`) hides it. Needs its own entry and a measurement of
-  what changes on screen.
+- **Suspected and REFUTED the same day: `EntityState.RenderRgb()` and `RenderAlpha()` are right.** The suspicion was
+  an interpolation from the sun's table to the base entity's, and the two tables pack the colour differently.
+  *Read from published source*: `DT_Sun` names `SendProxy_Color32ToInt` (`sun.cpp:55`, red to the high byte) and its
+  client `RecvProxy_IntToColor32`; `DT_BaseEntity` is `SendPropInt(SENDINFO(m_clrRender), 32, SPROP_UNSIGNED)` with
+  NO proxy (`baseentity.cpp:279`), so `SendPropInt` takes the default for a four-byte unsigned field,
+  `SendProxy_UInt32ToInt32` — `*((unsigned long*)&pOut->m_Int) = *((unsigned long*)pData)` (`dt_send.cpp:157-160`), a
+  raw copy of the `color32 { r, g, b, a }` struct, which on little-endian x86 puts red in the LOW byte. The client's
+  `RecvPropInt(RECVINFO(m_clrRender))` (`c_baseentity.cpp:457`) copies it straight back. *Measured* on
+  `tf2-2026-pov-koth_lakeside-triggers.dem` against the BSP: 46 `CSprite`s send `2099547391 = 0x7D248CFF` where the map
+  says `rendercolor "255 140 36"`, `renderamt 125` (low byte red 255, then 140, 36, high byte 125), and 9 send
+  `0xFF92D8FE` for `"254 216 146"` at 255. So both decodes are correct and must stay different.
 - **`TF2VIEW_CAMERA` was ignored on a POV demo.** `CameraPresenter.DemoOpening` forced first person (D153) without the
   headless exemption the other lock sites honour; the log said the camera was placed and the capture showed the
-  recorder. Fixed here in one condition, because the screenshots needed it; no test was added for it.
+  recorder. Fixed here in one condition, because the screenshots needed it.
+  `DemoOpening_OfAPointOfViewDemoWithAPlacedCamera_KeepsTheFreeCamera` holds it; removing the condition reddens it alone.
 
 **2026-10-11 — the residual is closed: `PixelVisibility_FractionVisible` is ported whole** (`fix/b521-lamp-fixtures`).
 *Read from published source*, `c_pixel_visibility.cpp`. `PixelVisibility` (Scene) is `CPixelVisibilitySystem` without

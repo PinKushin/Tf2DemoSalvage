@@ -38,7 +38,9 @@ public readonly record struct SceneSun(
 /// **Colours are the engine's packing, red in the HIGH byte.** <c>SendProxy_Color32ToInt</c> writes
 /// <c>r &lt;&lt; 24 | g &lt;&lt; 16 | b &lt;&lt; 8 | a</c> (`sendproxy.cpp:18-22`) and <c>RecvProxy_IntToColor32</c> reads it back
 /// that way (`recvproxy.cpp:15-24`). Measured: koth_lakeside_final's sun sends <c>m_clrRender = 3838491391</c>,
-/// <c>0xE4CABAFF</c>, for the map's <c>rendercolor "228 202 186"</c>.
+/// <c>0xE4CABAFF</c>, for the map's <c>rendercolor "228 202 186"</c>. **Not <see cref="EntityState.RenderRgb"/>'s
+/// packing, and both are right**: <c>DT_BaseEntity</c> names no proxy (`baseentity.cpp:279`), so it is a raw copy of the
+/// struct with red LOW (`dt_send.cpp:157-160`; lakeside's sprites send <c>0x7D248CFF</c> for 255 140 36 at 125).
 /// </remarks>
 public sealed class SunFeed
 {

@@ -26,9 +26,12 @@ otherwise toward its target. `overlaysize -1` becomes the core's size, and a mis
 **The colours put red in the HIGH byte.** `SendProxy_Color32ToInt` is `r << 24 | g << 16 | b << 8 | a`
 (`sendproxy.cpp:21`) and `RecvProxy_IntToColor32` reads it back the same way (`recvproxy.cpp:20-23`). *Measured*:
 lakeside's sun sends `m_clrRender = 3838491391 = 0xE4CABAFF` for the map's `rendercolor "228 202 186"`.
-**`EntityState.RenderRgb()` reads red from the LOW byte** and so does `RenderAlpha()` read alpha from the high one —
-if the same proxy feeds `DT_BaseEntity.m_clrRender` — *interpolated*, not read here — those two are byte-reversed. That is filed, not changed here: it reaches every sprite's tint and
-every entity's fade, and needs its own measurement (filed in `docs/RISKS.md` B378's 2026-10-14 entry).
+**A wrong conclusion, kept.** `EntityState.RenderRgb()` reads red from the LOW byte, and the first reading here was
+that it must be byte-reversed too. It is not: `DT_BaseEntity.m_clrRender` names no proxy (`baseentity.cpp:279`), so it
+gets `SendProxy_UInt32ToInt32`, a raw copy of the `color32` struct (`dt_send.cpp:157-160`) — red low on x86 — and the
+client copies it back (`c_baseentity.cpp:457`). Only tables that name `SendProxy_Color32ToInt`, like the sun's, put red
+high. *Measured*, lakeside's `env_sprite`s: `0x7D248CFF` on the wire for map `rendercolor "255 140 36"`,
+`renderamt 125`. One field name, two packings, chosen per send table.
 
 ## The client
 
