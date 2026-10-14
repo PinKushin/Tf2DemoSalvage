@@ -81,6 +81,7 @@ public sealed class PlaybackUiTests
 
         foreach (string argument in (string[])
         [
+            .. ViewerApplication.Silent,
             ViewerSession.DemoPath,
             "--tick", ViewerSession.OpeningTick.ToString(CultureInfo.InvariantCulture),
             "--autoplay",

@@ -23,13 +23,17 @@ public readonly record struct MenuChoice(string? Key, string Label, bool Chosen)
 /// <param name="ShowPosition">Whether `cl_showpos` is on.</param>
 /// <param name="Phong">Whether `mat_phong` is on.</param>
 /// <param name="Huds">The HUDs the picker offers; empty for no picker.</param>
+/// <param name="Volumes">The `volume` levels, in menu order; the nearest is chosen.</param>
+/// <param name="MuteLoseFocus">Whether `snd_mute_losefocus` is on.</param>
 public sealed record MenuState(
     bool FullScreenExclusive,
     IReadOnlyList<MenuChoice> TextureQualities,
     bool ShowFrameRate,
     bool ShowPosition,
     bool Phong,
-    IReadOnlyList<MenuChoice> Huds);
+    IReadOnlyList<MenuChoice> Huds,
+    IReadOnlyList<MenuChoice> Volumes,
+    bool MuteLoseFocus);
 
 /// <summary>What choosing a game folder came to.</summary>
 /// <param name="Accepted">Whether the folder is a TF2 `tf` folder and is now the setting.</param>
@@ -163,8 +167,24 @@ public sealed class SettingsPresenter
                 option.Path, option.Name, string.Equals(_settings.ChosenHud, option.Path, StringComparison.Ordinal)));
         }
 
+        int nearest = (int)MathF.Round(_settings.Volume * 10f) * 10;
+        List<MenuChoice> volumes = [];
+
+        foreach (int percent in VolumeSteps)
+        {
+            string key = percent.ToString(CultureInfo.InvariantCulture);
+            volumes.Add(new MenuChoice(key, key + "%", percent == nearest));
+        }
+
         return new MenuState(
-            FullScreenExclusive, qualities, _settings.ShowFrameRate != 0, _settings.ShowPosition != 0, _settings.Phong, huds);
+            FullScreenExclusive,
+            qualities,
+            _settings.ShowFrameRate != 0,
+            _settings.ShowPosition != 0,
+            _settings.Phong,
+            huds,
+            volumes,
+            _settings.MuteLoseFocus);
     }
 
     /// <summary>Chooses how full screen is entered, and remembers it.</summary>
@@ -257,6 +277,31 @@ public sealed class SettingsPresenter
         _renderLog.LogInformation(
             "{Message}",
             string.Create(CultureInfo.InvariantCulture, $"cl_showpos {_settings.ShowPosition}"));
+    }
+
+    /// <summary>The gain over the whole mix: `volume`, or silence while unfocused under `snd_mute_losefocus`.</summary>
+    /// <param name="focused">Whether the window has focus.</param>
+    public float MasterGain(bool focused) => _settings.MuteLoseFocus && !focused ? 0f : _settings.Volume;
+
+    /// <summary>The Volume menu's levels, a tenth apart as TF2's Audio slider is read.</summary>
+    private static readonly int[] VolumeSteps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+
+    /// <summary>Sets `volume` from the menu, and remembers it — `volume` is `archive`, so TF2 keeps it too.</summary>
+    /// <param name="key">The level's key, as <see cref="Menu"/> gave it: the percentage.</param>
+    /// <returns>What to say on the status line, or null for nothing.</returns>
+    public string? SetVolume(string key) =>
+        Remember(_settings.Set(ViewerSettings.VolumeCommand, (int.Parse(key, CultureInfo.InvariantCulture) / 100f).ToString(CultureInfo.InvariantCulture)));
+
+    /// <summary>Sets `snd_mute_losefocus` from the menu, and remembers it.</summary>
+    /// <param name="on">Whether to go silent while another window has focus.</param>
+    /// <returns>What to say on the status line, or null for nothing.</returns>
+    public string? SetMuteLoseFocus(bool on) => Remember(_settings with { MuteLoseFocus = on });
+
+    private string? Remember(ViewerSettings settings)
+    {
+        _settings = settings;
+
+        return _settings.Save(_path) is { } failure ? ViewerSettings.SavedForThisSessionOnly(failure) : null;
     }
 
     /// <summary>Applies a ConVar a command set at run time, by the launch option's route; saves nothing (D215).</summary>

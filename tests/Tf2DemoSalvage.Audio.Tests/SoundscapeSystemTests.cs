@@ -270,6 +270,8 @@ public sealed class SoundscapeSystemTests
     /// </remarks>
     private sealed class Sink : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public List<(int Entity, int Channel)> Played { get; } = [];
 
         public List<(int Entity, int Channel)> Silenced { get; } = [];

@@ -195,6 +195,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <summary>Automation id of the texture quality menu.</summary>
     public const string TextureQualityMenuId = "TextureQualityMenu";
 
+    /// <summary>The View menu's Volume submenu.</summary>
+    public const string VolumeMenuId = "VolumeMenu";
+
     /// <summary>The scene's surface. Disposed by <c>base.Dispose</c>, not by us (B402).</summary>
     /// <remarks>
     /// **Every child control here carries this suppression, and the reason is measured.** Each sits
@@ -724,7 +727,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                 Screenshot: _session.CaptureViewportToFile,
                 SetChosenHud: _session.SetChosenHud,
                 // Posted for the same reason as Export: the menu closes before the dialog opens.
-                ChooseGameFolder: () => BeginInvoke(ChooseGameFolder)),
+                ChooseGameFolder: () => BeginInvoke(ChooseGameFolder),
+                SetVolume: _session.SetVolume,
+                SetMuteLoseFocus: _session.SetMuteLoseFocus),
 
             // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
             // imported into the program, not what is in their TF2 install.

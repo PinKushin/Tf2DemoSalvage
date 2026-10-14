@@ -26,6 +26,8 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// <param name="Screenshot">Write a picture of the viewport.</param>
 /// <param name="SetChosenHud">Choose a HUD from the picker — a folder or <c>.vpk</c>, or null for TF2's stock HUD (D193).</param>
 /// <param name="ChooseGameFolder">Pick the TF2 <c>tf</c> folder and save it to the cfg (D210).</param>
+/// <param name="SetVolume">Set `volume`, by the percentage the item carries.</param>
+/// <param name="SetMuteLoseFocus">Set `snd_mute_losefocus`.</param>
 /// <remarks>
 /// **Delegates rather than a reference to the form, and that is the point of the split.** A menu
 /// that holds a <c>MainForm</c> is a menu for that one window; a menu that holds fourteen actions
@@ -57,7 +59,9 @@ internal readonly record struct ViewerMenuActions(
     Action<bool> SetPhong,
     Action Screenshot,
     Action<string?> SetChosenHud,
-    Action ChooseGameFolder);
+    Action ChooseGameFolder,
+    Action<string> SetVolume,
+    Action<bool> SetMuteLoseFocus);
 
 /// <summary>The viewer's main menu: the strip, and the items whose state is read elsewhere.</summary>
 /// <remarks>
@@ -705,6 +709,7 @@ internal sealed class ViewerMenu : IDisposable
         view.DropDownItems.Add(FullScreen);
         view.DropDownItems.Add(fullScreenMode);
         view.DropDownItems.Add(textureQuality);
+        view.DropDownItems.Add(Volume(state, actions));
 
         file.DropDownItems.Add(open);
         file.DropDownItems.Add(export);
@@ -805,6 +810,55 @@ internal sealed class ViewerMenu : IDisposable
         {
             item.ShortcutKeys = KeyNames.Resolve(bindings.KeyFor(action));
         }
+    }
+
+    /// <summary>
+    /// TF2's Audio options as far as this viewer has them: `volume` in tenths, and `snd_mute_losefocus`. Levels and what
+    /// each sets are the settings owner's (`SettingsPresenter.Menu`); a bound key reaches the same store (D215).
+    /// </summary>
+    private static ToolStripMenuItem Volume(MenuState state, ViewerMenuActions actions)
+    {
+        ToolStripMenuItem volume = new("&Volume") { Name = MainForm.VolumeMenuId, AccessibleName = "Volume" };
+        List<ToolStripMenuItem> levels = [];
+
+        foreach (MenuChoice choice in state.Volumes)
+        {
+            string key = choice.Key ?? string.Empty;
+            ToolStripMenuItem item = new(choice.Label)
+            {
+                Name = "Volume" + key,
+                AccessibleName = "Volume " + choice.Label,
+                Checked = choice.Chosen,
+            };
+
+            item.Click += (_, _) =>
+            {
+                foreach (ToolStripMenuItem other in levels)
+                {
+                    other.Checked = false;
+                }
+
+                item.Checked = true;
+                actions.SetVolume(key);
+            };
+
+            levels.Add(item);
+            volume.DropDownItems.Add(item);
+        }
+
+        ToolStripMenuItem mute = new("&Mute when not focused")
+        {
+            Name = "MuteLoseFocus",
+            AccessibleName = "Mute when not focused",
+            CheckOnClick = true,
+            Checked = state.MuteLoseFocus,
+        };
+
+        mute.CheckedChanged += (_, _) => actions.SetMuteLoseFocus(mute.Checked);
+        volume.DropDownItems.Add(new ToolStripSeparator());
+        volume.DropDownItems.Add(mute);
+
+        return volume;
     }
 
     /// <summary>Disposes the strip and every item it built.</summary>

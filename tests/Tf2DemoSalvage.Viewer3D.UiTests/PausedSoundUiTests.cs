@@ -3,6 +3,8 @@ using System.Globalization;
 
 using FlaUI.Core.Tools;
 
+using Tf2DemoSalvage.Scene;
+
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
 
 /// <summary>
@@ -55,7 +57,10 @@ public sealed class PausedSoundUiTests
             ViewerSession.DemoPath,
             "--tick", ViewerSession.OpeningTick.ToString(CultureInfo.InvariantCulture),
             "--autoplay",
-            "+demo_timescale", Speed);
+            "+demo_timescale", Speed,
+
+            // Its subject is sound, so it keeps it: after the suite's `+volume 0`, so this one wins.
+            "+" + ViewerSettings.VolumeCommand, "1");
 
         Retry.WhileFalse(() => viewer.Count("opening state applied") > 0, Loading, ViewerSession.PollInterval, throwOnTimeout: true);
         Retry.WhileFalse(() => viewer.Count(Footstep) > 0, Timeout, ViewerSession.PollInterval)

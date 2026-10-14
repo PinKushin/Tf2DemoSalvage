@@ -39426,3 +39426,16 @@ identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo 
 local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
 before changing it. *Measured; the engine side not read.*
 
+## B545 — `snd_musicvolume` and `voice_scale` are declared and stored, and applied nowhere — OPEN, gap
+
+**Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
+TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
+
+- **`voice_scale`**: this viewer decodes demo voice (`CeltVoiceDecoder` and the others) but plays none of it, so
+  there is nothing for it to scale yet.
+- **`snd_musicvolume`**: which sounds count as music is the closed engine's decision. The SDK has no `IsMusic`, and
+  `soundchars.h`'s prefixes include none for music (`#` is `CHAR_DRYMIX`, "bypasses dsp fx"). Guessing "`#` and a
+  path under `music/`" would be a fallback that looks like an answer
+  (`docs/memory/fallbacks-do-not-make-guesses-safe.md`). **To read:** `snd_musicvolume`'s xrefs in `engine.dll`, then
+  apply it as a per-sound multiplier where the engine does. *Read from the SDK; the engine not read.*
+

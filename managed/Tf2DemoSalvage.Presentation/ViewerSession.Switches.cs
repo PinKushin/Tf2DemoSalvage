@@ -82,6 +82,26 @@ public sealed partial class ViewerSession
         _window.Status = _settingsOwner.SetTextureQuality(quality);
     }
 
+    /// <summary>Sets `volume` from the menu, and remembers it; reaches the mix on the next frame.</summary>
+    /// <param name="percent">The level's key, as the menu's item carries it.</param>
+    public void SetVolume(string percent)
+    {
+        if (_settingsOwner.SetVolume(percent) is { } status)
+        {
+            _window.Status = status;
+        }
+    }
+
+    /// <summary>Sets `snd_mute_losefocus` from the menu, and remembers it.</summary>
+    /// <param name="on">Whether to go silent while another window has focus.</param>
+    public void SetMuteLoseFocus(bool on)
+    {
+        if (_settingsOwner.SetMuteLoseFocus(on) is { } status)
+        {
+            _window.Status = status;
+        }
+    }
+
     /// <summary>Turns the surface-category view on or off.</summary>
     /// <param name="on">Whether to colour surfaces by category.</param>
     /// <remarks>

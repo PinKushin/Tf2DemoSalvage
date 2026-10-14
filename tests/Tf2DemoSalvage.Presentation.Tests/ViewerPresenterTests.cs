@@ -81,7 +81,7 @@ public sealed class ViewerPresenterTests
     private void WriteMap() =>
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
 
-    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null)
+    private (ViewerPresenter Loader, FakeLoadView View, FakePlaybackView Transport) Loader(string? spectateWho = null, ViewerSettings? settings = null)
     {
         FakeLoadView view = new();
         FakePlaybackView transport = new();
@@ -100,7 +100,7 @@ public sealed class ViewerPresenterTests
             () => view.Window,
             () => spectateWho,
             maps,
-            new SettingsPresenter(NullLoggerFactory.Instance, new ViewerSettings()),
+            new SettingsPresenter(NullLoggerFactory.Instance, settings ?? new ViewerSettings()),
             new PlaybackPresenter(transport, new FakeElapsedTime()),
             static _ => null,
             CancellationToken.None);
@@ -290,6 +290,24 @@ public sealed class ViewerPresenterTests
                 tick: 100);
 
             asked.ShouldBe(0, "the camera is the window's to work out, and a silent machine never needs it");
+        }
+    }
+
+    [TestCase(true, 0.4f)]
+    [TestCase(false, 0f)]
+    public void PlaySoundsOver_WithAVolume_SetsTheSinksMasterGain(bool focused, float expected)
+    {
+        WriteMap();
+        (ViewerPresenter loader, _, _) = Loader(settings: ViewerSettings.Parse("volume 0.4"));
+        CountingSink sink = new();
+
+        using (loader)
+        {
+            loader.LoadDemo(WriteDemo("loud")).Loaded.ShouldBeTrue();
+
+            loader.PlaySoundsOver(sink, () => Ears, static () => null, tick: 100, focused);
+
+            sink.MasterGain.ShouldBe(expected, "volume, or silence unfocused under snd_mute_losefocus 1");
         }
     }
 
@@ -608,6 +626,8 @@ public sealed class ViewerPresenterTests
     /// <summary>A sink that counts the sound presenter's steps: each reclaims finished voices exactly once.</summary>
     private sealed class CountingSink : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public int Reclaims { get; private set; }
 
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)

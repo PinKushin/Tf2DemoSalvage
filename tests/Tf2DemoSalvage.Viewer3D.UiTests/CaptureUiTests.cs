@@ -332,6 +332,7 @@ public sealed class CaptureUiTests
 
         foreach (string argument in (string[])
         [
+            .. ViewerApplication.Silent,
             demo,
             "--tick", tick.ToString(CultureInfo.InvariantCulture),
             "--shot", png,

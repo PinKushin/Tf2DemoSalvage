@@ -125,6 +125,8 @@ public sealed class TriggerSoundscapeCorpusTests
 
     private sealed class Silent : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
         }

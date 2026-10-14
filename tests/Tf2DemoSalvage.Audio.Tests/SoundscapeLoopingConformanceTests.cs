@@ -464,6 +464,8 @@ public sealed class SoundscapeLoopingConformanceTests
     /// <summary>A sink that records the rate each sound starts at.</summary>
     private sealed class PitchSink : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public List<float> Pitches { get; } = [];
 
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>

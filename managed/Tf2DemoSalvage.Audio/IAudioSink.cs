@@ -77,4 +77,7 @@ public interface IAudioSink
     /// <param name="channel">Which channel.</param>
     /// <param name="sample">The sound, matched as the engine matches `ch->sfx`: the cached sample for its name.</param>
     public void Silence(int entity, int channel, SoundSample sample);
+
+    /// <summary>The gain over the whole mix — `volume`, or 0 under `snd_mute_losefocus` — applied after every sound's own.</summary>
+    public float MasterGain { get; set; }
 }

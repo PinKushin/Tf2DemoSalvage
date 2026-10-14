@@ -518,6 +518,77 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
     }
 
     /// <inheritdoc/>
+    /// <remarks>
+    /// **The listener's gain, which OpenAL applies to the whole mix** — where Quake's `S_TransferPaintBuffer`, which the
+    /// closed engine descends from, scales the painted buffer by `volume` (interpolated lineage, not read). One call
+    /// covers sounds already playing, as a master volume must. Read back from the device, never from a field.
+    /// </remarks>
+    public float MasterGain
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _al.GetListenerProperty(ListenerFloat.Gain, out float gain);
+
+            return gain;
+        }
+
+        set
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            _al.SetListenerProperty(ListenerFloat.Gain, value < 0f ? 0f : value);
+        }
+    }
+
+    /// <summary>A device that renders into memory rather than a speaker (`ALC_SOFT_loopback`), for a test that reads the mix.</summary>
+    /// <param name="rate">Frames a second.</param>
+    /// <returns>The output, or null when the library has no loopback.</returns>
+    internal static AudioOutput? TryCreateLoopback(int rate)
+    {
+        NativeLibraryResolver.TryLoadOpenAl();
+
+        // OpenAL Soft by name: the loopback is its extension, and a system router need not export it.
+        AL al = AL.GetApi(soft: true);
+        ALContext alc = ALContext.GetApi(soft: true);
+        delegate* unmanaged<byte*, Device*> open = (delegate* unmanaged<byte*, Device*>)alc.Context.GetProcAddress("alcLoopbackOpenDeviceSOFT");
+
+        Device* device = open is null ? null : open(null);
+
+        if (device is null)
+        {
+            return null;
+        }
+
+        // ALC_FORMAT_CHANNELS_SOFT stereo, ALC_FORMAT_TYPE_SOFT float, ALC_FREQUENCY (alext.h).
+        int* attributes = stackalloc int[] { 0x1990, 0x1501, 0x1991, 0x1406, 0x1007, rate, 0 };
+        Context* context = alc.CreateContext(device, attributes);
+
+        if (context is null)
+        {
+            alc.CloseDevice(device);
+            return null;
+        }
+
+        alc.MakeContextCurrent(context);
+
+        return new AudioOutput(al, alc, device, context);
+    }
+
+    /// <summary>Renders the next frames of a loopback device's mix, interleaved stereo (`alcRenderSamplesSOFT`).</summary>
+    internal float[] Render(int frames)
+    {
+        delegate* unmanaged<Device*, void*, int, void> render = (delegate* unmanaged<Device*, void*, int, void>)_alc.Context.GetProcAddress("alcRenderSamplesSOFT");
+        float[] mix = new float[frames * 2];
+
+        fixed (float* into = mix)
+        {
+            render(_device, into, frames);
+        }
+
+        return mix;
+    }
+
+    /// <inheritdoc/>
     void IAudioSink.SilenceAll() => StopAll();
 
     /// <inheritdoc/>

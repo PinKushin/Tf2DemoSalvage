@@ -113,6 +113,8 @@ public sealed class SoundPresenterEmittedTests
     /// <summary>Records what was played and ignores the rest.</summary>
     private sealed class Recording : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public List<(SoundSample Sample, float Gain, int Entity, int Channel)> Played { get; } = [];
 
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel) =>
