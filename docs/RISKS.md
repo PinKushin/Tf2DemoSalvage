@@ -39303,4 +39303,15 @@ replaced the .NET SDK (10.0.303 to 10.0.402) installed the same night. 2026-10-1
 and set it to Disabled (the redistributable's `GameInputRedistService` already was); undo with
 `Set-Service GameInputSvc -StartupType Manual`. If UI runs stay clean after the reboot, that was the cause. Owed in the harness: a
 stronger foreground fallback and a time limit on the picker wait, so a run fails fast and never hangs.
+2026-10-14, after the reboot with the service disabled: two full UI runs, 54 of 54 each, no key refused.
+
+## B543 — a ConVar the viewer clamps reads back as written, where the engine stores the clamped value — OPEN, small
+
+`ViewerSettings.ConVarText` (D215, one store) returns the string last written while it still means the current
+setting, so `viewmodel_fov 500` reads back as `"500"` although the viewer uses its clamped value. The engine's
+`ConVar::SetValue` clamps to the cvar's min/max and stores the CLAMPED value's string, so `toggle viewmodel_fov 54
+90` compares against the clamped text. Only `toggle` with a value list can see the difference. Fix: render through
+the clamp, with a test per clamped ConVar. Also owed from the same branch: two of its five tests
+(`SettingsPresenterTests`, the menu showing a key-set value, and an unimplemented ConVar round-tripping) reddened
+under neither sabotage run and need one of their own.
 

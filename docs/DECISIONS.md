@@ -10010,11 +10010,25 @@ clamps to max, `<=` min clamps to min; `"%s %f"`), `toggle` FUN_180177cd0 with v
 refused; bare `toggle name` flips the INT value; with values, an exact byte compare of the STRING value picks the
 next, the first on the last or on no match). `ConfigConsole` turns each into the `name value` it executes and sends
 that through the same `SetConVar`/`ConVarSet` path, so it applies as above. An unset cvar's current value is its
-declared default. **Left over:** a value changed in the settings menu is not seen by the console (the second copy
-kept above), so `toggle cl_showpos` after turning the readout on in the menu first sets `1`. The engine's console
+declared default. The engine's console
 messages (usage, not found, `%s = %f`) are not reproduced, since the viewer has no console. Held by the
 `ConfigConsoleConformanceTests` `KeyDown_IncrementVar_…`, `…MultVar_…`, `…Toggle…` and `…MalformedOrUnknownCvarCommand…`
 cases; making incrementvar clamp at max reddened two, wrapping at equality to min one, and a numeric toggle compare two.
+
+**The second copy removed, 2026-10-14** (branch `fix/one-convar-store`; owner, after the one dead press was
+explained: *"yes fix it now"*). In Source a ConVar's value IS the setting, read and written by console and UI alike,
+so the console now reads its current value from the viewer's settings: `SettingsPresenter.Attach(console)` hands it
+`ViewerSettings.ConVarText` and subscribes `ConVarSet`, and the console keeps no copy of a ConVar `ViewerSettings`
+implements (`ViewerSettings.Implements`). Its own table remains only for ConVars the viewer does not implement, which
+a TF2 config may still set and a bind read. The rendering rule, in `ConVarText` beside `Set`: the string last
+written while it still means the current setting (the engine keeps a cvar's string as set, and `toggle` compares it
+byte for byte), else the setting as the engine's `SetValue` would store it, `%d`, `%f`, or 1/0 for a switch — so the
+menu's position readout reads `"1"`, as `cl_showpos 1` leaves it. Found on the way: an integer setting ignored every
+`incrementvar`/`multvar` set, because `"1.000000"` failed an int-only parse; it is now read as `GetInt` reads it, the
+float's integer part. Held by `SettingsPresenterTests` `Toggle_AfterTheMenuTurnedThePositionReadoutOn_…`,
+`Toggle_WithValuesAfterTheMenuSetOne_…`, `Menu_AfterAKeyTurnedThePositionReadoutOn_…`, `IncrementVar_FromAMenuSetValue_…`
+and `Toggle_AConVarTheViewerDoesNotImplement_…`; restoring the console's own read reddened the first, second and
+fourth, and restoring the int-only parse the fourth.
 
 **Held by** `ViewerApplicationActivateUiTests`: another application is put in front, the cursor position is read,
 a transport button and a menu item are driven, and the cursor must be exactly where it was while the control's

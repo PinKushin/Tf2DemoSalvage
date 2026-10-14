@@ -38,7 +38,8 @@ namespace Tf2DemoSalvage.Presentation;
 /// - reading the state clears those bits, exactly as Valve's <c>key-&gt;state &amp;= 1</c> does.
 ///
 /// Client ConVars are kept, and one set by a key at run time is announced through <see cref="ConVarSet"/> (D215),
-/// including by `toggle`, `incrementvar` and `multvar`.
+/// including by `toggle`, `incrementvar` and `multvar`. Once <see cref="ReadSettingsFrom"/> attaches the viewer's
+/// settings, a ConVar they implement is read from them and no longer kept here.
 ///
 /// **What it deliberately does not implement**: `exec`, `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
@@ -68,6 +69,9 @@ public sealed class ConfigConsole
     private readonly Dictionary<string, string> _binds = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _conVars = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<ViewerAction, Button> _buttons = [];
+
+    /// <summary>The viewer's settings' value for a ConVar, once attached; see <see cref="ReadSettingsFrom"/>.</summary>
+    private Func<string, string?>? _settingValue;
 
     /// <summary>What this viewer had on each key before any config ran.</summary>
     /// <remarks>
@@ -758,7 +762,11 @@ public sealed class ConfigConsole
             return false;
         }
 
-        _conVars[declared.Name] = tokens[1];
+        // A ConVar the viewer implements is held by its settings alone once they are attached (D215): no second copy.
+        if (_settingValue is null || !ViewerSettings.Implements(declared.Name))
+        {
+            _conVars[declared.Name] = tokens[1];
+        }
 
         return true;
     }
@@ -840,13 +848,16 @@ public sealed class ConfigConsole
 
     /// <summary>A declared cvar's current string value, or null when no cvar has the name.</summary>
     /// <remarks>
-    /// The console holds only what a config or key set. Unset, the value is the declared default, which is also
-    /// the viewer's own default for the ConVars it applies. A value changed in the viewer's settings menu is not
-    /// seen here: the second copy D215 keeps.
+    /// The live settings first (D215), so a value the menu set is the value a key sees; then what a config set for a
+    /// ConVar the viewer does not implement; then the declared default.
     /// </remarks>
     private string? CurrentValue(string name) =>
         !EngineConVars.TryByName(name, out EngineConVar? declared) ? null
-            : _conVars.GetValueOrDefault(declared.Name) ?? declared.Default;
+            : _settingValue?.Invoke(declared.Name) ?? _conVars.GetValueOrDefault(declared.Name) ?? declared.Default;
+
+    /// <summary>Reads ConVar values from the viewer's settings, which then hold every ConVar they implement (D215).</summary>
+    /// <param name="value">A ConVar's current value as the engine holds its string, or null where the settings have none.</param>
+    public void ReadSettingsFrom(Func<string, string?> value) => _settingValue = value;
 
     /// <summary>C's <c>atof</c>, the engine's parse: the longest numeric prefix, and 0 when there is none.</summary>
     private static float Atof(string text)

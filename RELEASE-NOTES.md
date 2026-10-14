@@ -5,8 +5,10 @@
 - **A key that sets a console variable now takes effect immediately.** Binds like `bind x "cl_showpos 1"`, and alias
   toggles that set a variable, used to change nothing on screen. They now apply live, as a launch option does.
 - **`toggle`, `incrementvar` and `multvar` work in binds**, the same way TF2 runs them: `bind x "toggle cl_showpos"`
-  turns the position readout on and off, and `bind y "incrementvar cl_showpos 0 2 1"` cycles it. Known gap: these
-  start from your config's value, not from a change you made in the Settings menu.
+  turns the position readout on and off, and `bind y "incrementvar cl_showpos 0 2 1"` cycles it.
+- **The Settings menu and your key binds now agree.** A bind starts from whatever the menu last set, so turning the
+  position readout on in the menu and then pressing a `toggle cl_showpos` key turns it off on the first press, and a
+  value a key sets shows as checked in the menu.
 
 ## Changes in 0.1.0-beta.43
 

@@ -264,6 +264,15 @@ public sealed class SettingsPresenter
     /// <param name="value">Its value, as the command wrote it.</param>
     public void SetConVar(string name, string value) => _settings = _settings.Set(name, value);
 
+    /// <summary>Makes these settings the console's ConVar values: it reads them, and a key's set lands in them (D215).</summary>
+    /// <param name="console">The console; attach after the watcher's configs load, which keep their own lines.</param>
+    public void Attach(ConfigConsole console)
+    {
+        ArgumentNullException.ThrowIfNull(console);
+        console.ReadSettingsFrom(name => _settings.ConVarText(name));
+        console.ConVarSet += (_, set) => SetConVar(set.Name, set.Value);
+    }
+
     /// <summary>Remembers the HUD the picker chose.</summary>
     /// <param name="hud">The HUD's folder or archive, or null for TF2's stock one.</param>
     /// <returns>What to say on the status line, or null for nothing.</returns>

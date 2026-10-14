@@ -332,6 +332,85 @@ public sealed class SettingsPresenterTests
         File.Exists(File_).ShouldBeFalse("a run-time set, like a launch option, does not rewrite the file");
     }
 
+    /// <summary>A console bound to <paramref name="settings"/> as the session binds it, with <c>k</c> bound to <paramref name="command"/>.</summary>
+    private static ConfigConsole Console(SettingsPresenter settings, string command, string setup = "")
+    {
+        ConfigConsole console = new();
+        settings.Attach(console);
+        console.Load($"{setup}\nbind k \"{command}\"");
+
+        return console;
+    }
+
+    private static void Press(ConfigConsole console)
+    {
+        console.KeyDown("k");
+        console.KeyUp("k");
+    }
+
+    [Test]
+    public void Toggle_AfterTheMenuTurnedThePositionReadoutOn_TurnsItOffOnTheFirstPress()
+    {
+        // The owner's report (D215): the console read its own copy, 0, and the first press set 1 again.
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, "toggle cl_showpos");
+
+        settings.SetPositionReadout(true);
+        Press(console);
+
+        settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void Toggle_WithValuesAfterTheMenuSetOne_ComparesTheStringTheEngineHolds()
+    {
+        // The menu's 1 is held as "1", as `cl_showpos 1` would leave it, so it matches and moves to the next value.
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, "toggle cl_showpos 0 1 2");
+
+        settings.SetPositionReadout(true);
+        Press(console);
+
+        settings.Current.ShowPosition.ShouldBe(2);
+    }
+
+    [Test]
+    public void Menu_AfterAKeyTurnedThePositionReadoutOn_ShowsItChecked()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, "toggle cl_showpos");
+
+        Press(console);
+
+        settings.Menu(customRoot: null).ShowPosition.ShouldBeTrue();
+    }
+
+    [Test]
+    public void IncrementVar_FromAMenuSetValue_StepsFromIt()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, "incrementvar cl_showpos 0 2 1");
+
+        settings.SetPositionReadout(true);
+        Press(console);
+
+        settings.Current.ShowPosition.ShouldBe(2);
+    }
+
+    [Test]
+    public void Toggle_AConVarTheViewerDoesNotImplement_RoundTripsThroughTheConsole()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, "toggle cl_hud_minmode", "cl_hud_minmode 1");
+
+        Press(console);
+        console.ConVar("cl_hud_minmode").ShouldBe("0");
+        Press(console);
+
+        console.ConVar("cl_hud_minmode").ShouldBe("1");
+        settings.ConVar("cl_hud_minmode").ShouldBe("1");
+    }
+
     /// <summary>A factory whose every category is one recording logger.</summary>
     private sealed class OneLogger(RecordingLogger log) : ILoggerFactory
     {
