@@ -37942,11 +37942,13 @@ with gummo standing still under a beam.
   `Movement Basic` scales its carry by `dt / prevDt`, and the path constraint's snaps become velocity. That needs a
   reference taken at normal speed. The tf2 MCP could not pause one on a chosen tick in four tries, because a seek
   resets `demo_timescale` and a paused demo stops answering RCON. `demo_pauseatservertick` exists and was not tried.
-- **Seen and not resolved.** The CLI text of `f12.dem` shows medigun 408's `m_hHealingTarget` handles in the order
-  3 (net tick 63283), 6 (63488), 11 (63572), none (63706). The timeline's beams for 408 give gummo (3) from 63460 to
-  63635. The HUD favors the timeline: gummo's health rises 190 to 230 over 63500 to 63615 while cutemobb's falls. A
-  tick mapping or handle reading in one of the two instruments is wrong. Settle that with a control before any
-  beam-timing claim rests on either.
+- **Wrong turn, kept: "the CLI dump and the timeline disagree on medigun 408's targets."** They agree. The column
+  read as the tick was `net_tick`, the SERVER's tick, at a point 35,700 demo ticks earlier in the file where the server
+  tick happened to read 63xxx. The viewer, the timeline and TF2's `demoui` all count `dem_packet` ticks. Read by
+  `dem_packet` tick, the dump gives 408's targets as 3 from 63460, none at 63635, and 3 from 63773, which is the
+  timeline's list. *Control:* gummo's origin (32.5 875.1) is at `dem_packet` 63600 in the dump and at 63600 in
+  `player-track`; his health in `player-track` (223 at 63600, 228 at 63610-63615) is TF2's HUD at those ticks.
+  `demo_pauseatservertick` takes the server tick, which is the `dem_packet` tick plus 35,712 here.
 
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
 `heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.
