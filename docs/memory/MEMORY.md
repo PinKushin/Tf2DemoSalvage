@@ -81,7 +81,7 @@
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md).
 - [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA + --shot; a still is PAUSED.
 - [Engine reader before implementer](engine-reader-before-implementer.md) — sonnet quotes the SDK to a scratch file; opus ports from it; no bulk Ghidra renames.
-- [Subagent models](one-subagent-and-prefer-cheap-models.md) — opus implements (D196), one at a time; [review subagents deeply](review-subagents-deeply.md); [no interim status replies](no-interim-status-replies.md).
+- [Subagent models](one-subagent-and-prefer-cheap-models.md) — opus implements (D196), one at a time; [review subagents deeply](review-subagents-deeply.md); [read the diff before merging agent work](read-the-diff-before-merging-agent-work.md); [no interim status replies](no-interim-status-replies.md).
 - [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md); [a flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md).
 - [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md).
 - [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md).
