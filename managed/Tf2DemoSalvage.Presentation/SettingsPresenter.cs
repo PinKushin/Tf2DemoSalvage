@@ -259,6 +259,11 @@ public sealed class SettingsPresenter
             string.Create(CultureInfo.InvariantCulture, $"cl_showpos {_settings.ShowPosition}"));
     }
 
+    /// <summary>Applies a ConVar a command set at run time, by the launch option's route; saves nothing (D215).</summary>
+    /// <param name="name">The ConVar's name.</param>
+    /// <param name="value">Its value, as the command wrote it.</param>
+    public void SetConVar(string name, string value) => _settings = _settings.Set(name, value);
+
     /// <summary>Remembers the HUD the picker chose.</summary>
     /// <param name="hud">The HUD's folder or archive, or null for TF2's stock one.</param>
     /// <returns>What to say on the status line, or null for nothing.</returns>

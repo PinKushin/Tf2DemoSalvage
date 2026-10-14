@@ -36,7 +36,9 @@ namespace Tf2DemoSalvage.Presentation;
 /// - `state` carries impulse bits, so a key tapped inside one frame still counts for something;
 /// - reading the state clears those bits, exactly as Valve's <c>key-&gt;state &amp;= 1</c> does.
 ///
-/// **What it deliberately does not implement**: cvars, `exec`, `wait`, `toggle`, `incrementvar`,
+/// Client ConVars are kept, and one set by a key at run time is announced through <see cref="ConVarSet"/> (D215).
+///
+/// **What it deliberately does not implement**: `exec`, `wait`, `toggle`, `incrementvar` (semantics unsettled, D215),
 /// and the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
 /// file. <see cref="Applied"/> counts what actually landed so a caller can tell "your config loaded
@@ -84,6 +86,9 @@ public sealed class ConfigConsole
     /// camera switch `+jump` even though nothing about it is continuous.
     /// </remarks>
     public event EventHandler<ViewerActionEventArgs>? Triggered;
+
+    /// <summary>Raised when a command run by a key sets a client ConVar (D215).</summary>
+    public event EventHandler<ConVarSetEventArgs>? ConVarSet;
 
     /// <summary>How many binds name something this viewer implements.</summary>
     /// <remarks>
@@ -824,6 +829,9 @@ public sealed class ConfigConsole
 
             if (SetConVar(tokens))
             {
+                // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
+                // after startup is announced for the host to apply (D215). A config line at load is not.
+                ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
                 continue;
             }
 
@@ -1057,4 +1065,16 @@ public sealed class ViewerActionEventArgs(ViewerAction action) : EventArgs
 {
     /// <summary>The action.</summary>
     public ViewerAction Action { get; } = action;
+}
+
+/// <summary>A client ConVar a command set.</summary>
+/// <param name="name">The name as typed.</param>
+/// <param name="value">The value as typed.</param>
+public sealed class ConVarSetEventArgs(string name, string value) : EventArgs
+{
+    /// <summary>The name as typed.</summary>
+    public string Name { get; } = name;
+
+    /// <summary>The value as typed.</summary>
+    public string Value { get; } = value;
 }
