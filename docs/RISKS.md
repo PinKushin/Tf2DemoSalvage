@@ -37672,7 +37672,7 @@ values read back, and two captures at reference 14's moment with `mat_fullbright
 and specular on, `mat_picmip −1`. At `+mat_hdr_level 0` (B537) the near wall rises by about a twentieth and the
 ratios stay — table in B537. Still open.
 
-## B537 — `mat_hdr_level` was never read: a config's 0 is the LDR path, and the heal references are that path — BUILT 2026-10-12
+## B537 — `mat_hdr_level` was never read: a config's 0 is the LDR path, and the heal references are that path — BUILT 2026-10-12; level 1 BUILT 2026-10-14; level 3 open
 
 The owner's TF2 config sets `mat_hdr_level 0`, and every heal reference was drawn that way. The viewer took the
 engine's default, 2, whatever a config said (D69).
@@ -37692,8 +37692,8 @@ engine's default, 2, whatever a config said (D69).
 | tone map, auto-exposure, HDR bloom | on | off | already keyed on the HDR type | followed |
 | water's reflect and overbright scales | 4, 4, 0.25 | 1, 1, 1 | already keyed on the HDR type | followed |
 | a material's `hdr?` and `ldr?` keys | `hdr?` holds | `ldr?` holds | `materialsystem.dll` 0x180008d20 | **not built**: no shipped material has either (B524's census) |
-| `mat_hdr_level 1` | — | LDR with bloom | *interpolated* | **not built**: drawn as 0 |
-| `mat_hdr_level 3` | float targets | — | caps computation | **not built**: drawn as 2 |
+| `mat_hdr_level 1` | — | LDR with LDR bloom at 0.3 | `viewpostprocess.cpp:1429-1463`; engine.dll's help string | **ported 2026-10-14** |
+| `mat_hdr_level 3` | float targets, `floattoscreen_combine` | — | caps computation; `:2559-2629` | **not built**: drawn as 2; what reports float support is unread |
 
 **Built:** `mat_hdr_level` is read from the config (`ViewerSettings.HdrLevel`, default 2) and held for the process
 (`BspHdr.MatHdrLevel`), as the engine holds it; the readers ask it when a map loads, so a change takes a reload, as
@@ -37726,6 +37726,21 @@ reference's HDR level as far as the lumps go. What is left is in the LDR path's 
 under *Not looked at* — or outside the lightmap. **Wanted from the owner:** `mat_fullbright 2` and `mat_fullbright 1`
 at reference 14's moment at `mat_hdr_level 0`, and the plain frame once at `mat_hdr_level 2`, which says whether
 TF2's own wall moves with the level.
+
+**Level 1, built 2026-10-14.** `GetBloomAmount` blooms from level 1 on a map with HDR lighting, and multiplies the
+amount by `mat_non_hdr_bloom_scalefactor` 0.3 under no HDR; the passes are the integer path's, which shares the
+`case`. `BspHdr.BloomOn` decides it when a map loads (`MapAssets.Bloom`), and `BloomAmount.Next` applies the factor
+after the walk. Evidence and the full reading: `docs/findings/13-settings-parity.md`, *What `mat_hdr_level` 1 and 3
+select*. **Tests**, written first: `BloomOn_AnHdrMapAtEachHdrLevel_IsOnFromLevel1` (4 cases),
+`BloomOn_AnLdrOnlyMapAtLevel2_IsOff`, `Next_UnderNoHdr_IsScaledByTheNonHdrFactorAndTheStaticIsNot`,
+`Next_UnderIntegerHdr_IsUnscaled`, and on the rendered frame `Capture_AtHdrLevel1AgainstLevel0_IsBrighterByTheBloom`
+(UI suite, `cp_granary` 2008). Sabotage: the threshold at 2 reddened the level-1 case; the factor at 1 reddened the
+scaling test; the old wiring (bloom only under an HDR type) reddened the capture test at 315.33 against 315.33.
+
+**Still open — level 3.** Float HDR is a separate pipeline (`HDRFinal_Float`, `floattoscreen_combine`, the
+histogram's own goal, no colour correction). What `shaderapidx9` asks before reporting float support, and whether
+TF2's `materialsystem` then allocates float targets, are unread: the Ghidra MCP's analysis tools did not register
+in the session that built level 1. Level 3 still draws as 2.
 
 ## B538 — the heal glow: a SpriteCard tint is gamma, an overhealed player's pluses were never built, and a paused frame keeps its particles where playing left them — BUILT 2026-10-12; two things open
 

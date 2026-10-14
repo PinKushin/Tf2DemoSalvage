@@ -333,6 +333,9 @@ internal sealed unsafe partial class WorldRenderer
     /// <summary>The HDR type the map runs under, which the <c>Water</c> shader and the reflection view branch on (B62).</summary>
     public HdrType HdrType { get; set; }
 
+    /// <summary>Whether the map blooms, which <c>mat_hdr_level 1</c> keeps under no HDR (B537).</summary>
+    public bool Bloom { get; set; }
+
     /// <summary>The tone-map scale every shader's output is multiplied by — <c>LINEAR_LIGHT_SCALE</c> (B62).</summary>
     public float LinearLightScale { get; set; } = 1f;
 
@@ -368,6 +371,7 @@ internal sealed unsafe partial class WorldRenderer
         ReleaseWaters();
         _waters = assets.Waters;
         HdrType = assets.Hdr;
+        Bloom = assets.Bloom;
 
         for (int index = 0; index < _waters.Count; index++)
         {

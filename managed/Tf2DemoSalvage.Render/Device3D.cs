@@ -1697,7 +1697,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 UpdateExposure();
 
                 float bloom = _bloomAmount.Next(
-                    _world.HdrType != Content.Bsp.HdrType.None, Tonemap.UseBloom, Tonemap.Bloom);
+                    _world.Bloom, _world.HdrType, Tonemap.UseBloom, Tonemap.Bloom);
 
                 if (bloom > 0f && !DisableBloom)
                 {

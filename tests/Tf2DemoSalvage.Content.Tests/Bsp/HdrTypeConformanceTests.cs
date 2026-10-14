@@ -84,6 +84,22 @@ public sealed class HdrTypeConformanceTests
     public void ForTf2_AnHdrMapAtEachHdrLevel_IsThatLevelsType(int level, HdrType expected) =>
         BspHdr.ForTf2(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr), level).ShouldBe(expected);
 
+    /// <remarks>
+    /// `GetBloomAmount` (`viewpostprocess.cpp:1429-1432`): bloom is on at `mat_hdr_level` 1 or more, and off when
+    /// `engine->MapHasHDRLighting()` is false. **Level 1 is the LDR type with bloom** — TF2's own engine.dll carries the
+    /// cvar's help, "Set to 0 for no HDR, 1 for LDR+bloom on HDR maps, and 2 for full HDR on HDR maps." (B537).
+    /// </remarks>
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    [TestCase(2, true)]
+    [TestCase(3, true)]
+    public void BloomOn_AnHdrMapAtEachHdrLevel_IsOnFromLevel1(int level, bool expected) =>
+        BspHdr.BloomOn(Map(LightingHdr, WorldLightsHdr, LeafAmbientLightingHdr), level).ShouldBe(expected);
+
+    [Test]
+    public void BloomOn_AnLdrOnlyMapAtLevel2_IsOff() =>
+        BspHdr.BloomOn(Map(), 2).ShouldBeFalse();
+
     [Test]
     public void ForTf2_AnLdrOnlyMap_IsNone() =>
         BspHdr.ForTf2(Map()).ShouldBe(HdrType.None);
