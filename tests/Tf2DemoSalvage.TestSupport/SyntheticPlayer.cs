@@ -2128,6 +2128,33 @@ internal static class SyntheticPlayer
             ]);
     }
 
+    /// <summary>A player who enters stating no team and states teams on later ticks (D217's first-stated table).</summary>
+    /// <param name="intervalPerTick">Seconds per tick, as <c>svc_ServerInfo</c> declares it.</param>
+    /// <param name="snapshots">Each snapshot's tick and the team it states, or null for none; the first enters.</param>
+    /// <returns>A demo's bytes.</returns>
+    public static byte[] DemoOfALateTeam(float intervalPerTick, params (int Tick, int? Team)[] snapshots) =>
+        DemoOfSnapshots(
+            Schema(),
+            intervalPerTick,
+            [
+                .. snapshots.Select((snapshot, index) =>
+                {
+                    Dictionary<string, PropertyValue> values = new()
+                    {
+                        ["m_vecOrigin"] = PropertyValue.FromVectorXY(index * 8f, 0f),
+                        ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                    };
+
+                    if (snapshot.Team is { } team)
+                    {
+                        values["m_iTeamNum"] = PropertyValue.FromInt(team);
+                    }
+
+                    return (snapshot.Tick, (IReadOnlyDictionary<string, PropertyValue>)values);
+                }),
+            ],
+            teamOnEnter: false);
+
     /// <summary>
     /// A point-of-view recorder running in a straight line, entering facing one way and looking another (B442).
     /// </summary>
@@ -2283,7 +2310,8 @@ internal static class SyntheticPlayer
     private static byte[] DemoOfSnapshots(
         DemoSchema schema,
         float intervalPerTick,
-        List<(int Tick, IReadOnlyDictionary<string, PropertyValue> Values)> snapshots)
+        List<(int Tick, IReadOnlyDictionary<string, PropertyValue> Values)> snapshots,
+        bool teamOnEnter = true)
     {
         EntityDecoder decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
@@ -2303,7 +2331,11 @@ internal static class SyntheticPlayer
 
             if (index == 0)
             {
-                values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                if (teamOnEnter)
+                {
+                    values["m_iTeamNum"] = PropertyValue.FromInt(SceneTeams.Red);
+                }
+
                 values["m_lifeState"] = PropertyValue.FromInt(0);
             }
 
