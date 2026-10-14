@@ -240,3 +240,10 @@ symptom, opposite truth, and only the writer distinguishes them.
 **Probabilistic framing of a deterministic format.** A rule that is "right 99.7% of the time" is a
 wrong rule with an unexamined remainder. Demo playback is deterministic; there is no noise to
 average away, and a single counterexample is a defect rather than an outlier.
+
+**A fingerprint that "proves nothing changed" proves it only for what it hashes** (D217, 2026-10-14). The
+`timeline-fingerprint` probe was written to show that sharing a player's unchanging half altered no answer, and it
+hashed frames and soundscapes. The next step changed how prop keyframes are stored — which it never read — so it would
+have reported identical hashes whatever that change did. It was extended to hash every track's keyframes BEFORE the
+change and the baseline re-taken; *measured*, identical before and after on three demos. Before trusting an
+equivalence instrument for a change, check the change's data is among what it reads.
