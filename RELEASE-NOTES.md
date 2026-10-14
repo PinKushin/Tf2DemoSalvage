@@ -2,6 +2,11 @@
 
 ## Changes since 0.1.0-beta.43
 
+- **Volume control.** View > Volume sets the sound volume in tenths, and `volume` works as in TF2: in a config,
+  as `+volume 0.5` at launch, and in binds such as `bind m "toggle volume 0 1"` or `incrementvar volume 0 1 0.1`.
+  The menu remembers its choice. **The viewer now goes silent while another window has focus**, as TF2 does by
+  default; untick View > Volume > Mute when not focused, or set `snd_mute_losefocus 0`, to keep the sound
+  (D218). `snd_musicvolume` and `voice_scale` are accepted but change nothing yet (B545).
 - **A key that sets a console variable now takes effect immediately.** Binds like `bind x "cl_showpos 1"`, and alias
   toggles that set a variable, used to change nothing on screen. They now apply live, as a launch option does.
 - **`toggle`, `incrementvar` and `multvar` work in binds**, the same way TF2 runs them: `bind x "toggle cl_showpos"`

@@ -614,6 +614,8 @@ public sealed class ScriptWaveDeckConformanceTests
     /// <summary>Plays nothing; records the wave each named stop silences.</summary>
     private sealed class Silent : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public List<string> Silenced { get; } = [];
 
         public List<(int Entity, string Wave)> Started { get; } = [];

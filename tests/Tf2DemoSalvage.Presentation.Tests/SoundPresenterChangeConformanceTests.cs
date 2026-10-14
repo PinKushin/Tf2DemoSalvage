@@ -99,6 +99,8 @@ public sealed class SoundPresenterChangeConformanceTests
 
     private sealed class Recording(Func<SoundSample, string> nameOf) : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public List<string> Played { get; } = [];
 
         public List<(int Entity, int Channel, float Gain)> Gained { get; } = [];

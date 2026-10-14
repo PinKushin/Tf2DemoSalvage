@@ -142,6 +142,12 @@ public static class EngineConVars
         new("snd_gain", "1", Replicated: false, Cheat: true),
         new("snd_gain_min", "0.01", Replicated: false, Cheat: true),
 
+        // **The watcher's own mix**, all `archive`: TF2's `help name`, 2026-10-14 (MixerConVarConformanceTests).
+        new("volume", "1.0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),
+        new("snd_musicvolume", "1.0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),
+        new("snd_mute_losefocus", "1", Replicated: false, Cheat: false),
+        new("voice_scale", "1", Replicated: false, Cheat: false),
+
         // Replicated, declared, and read by nothing yet — the shape is the point (D106).
         // `sv_downloadurl` is the one with a use waiting: a demo that carries it names where its
         // own map came from, which `MapDownloader` currently substitutes a public mirror for.

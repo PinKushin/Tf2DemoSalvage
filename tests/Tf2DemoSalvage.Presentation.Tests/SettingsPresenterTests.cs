@@ -332,6 +332,81 @@ public sealed class SettingsPresenterTests
         File.Exists(File_).ShouldBeFalse("a run-time set, like a launch option, does not rewrite the file");
     }
 
+    [Test]
+    public void MasterGain_AtTheDefaults_IsOneFocusedAndSilentUnfocused()
+    {
+        (SettingsPresenter settings, _) = Owner();
+
+        settings.MasterGain(focused: true).ShouldBe(1f);
+        settings.MasterGain(focused: false).ShouldBe(0f, "snd_mute_losefocus ships at 1");
+    }
+
+    [Test]
+    public void MasterGain_WithMuteLoseFocusOff_IsTheVolumeEvenUnfocused()
+    {
+        (SettingsPresenter settings, _) = Owner(ViewerSettings.Parse("volume 0.25\nsnd_mute_losefocus 0"));
+
+        settings.MasterGain(focused: false).ShouldBe(0.25f);
+    }
+
+    [TestCase("volume 0.3", 0.3f)]
+    [TestCase("toggle volume 0 1", 0f)]
+    [TestCase("incrementvar volume 0 1 -0.25", 0.75f)]
+    [TestCase("volume 7", 1f)]
+    public void MasterGain_AfterABoundKey_IsWhatTheKeySet(string command, float expected)
+    {
+        (SettingsPresenter settings, _) = Owner();
+        ConfigConsole console = Console(settings, command);
+
+        Press(console);
+
+        settings.MasterGain(focused: true).ShouldBe(expected, 1e-6f);
+    }
+
+    [Test]
+    public void ReadLaunch_TheSuitesSilenceThenATestsOwnVolume_TheLaterWins()
+    {
+        (SettingsPresenter settings, _) = Owner();
+
+        _ = settings.ReadLaunch(["+volume", "0", "+volume", "1"]);
+
+        settings.MasterGain(focused: true).ShouldBe(1f, "a sound test's own +volume follows the suite's +volume 0");
+    }
+
+    [Test]
+    public void MasterGain_AfterAConfigLine_IsTheConfigsVolume()
+    {
+        (SettingsPresenter settings, _) = Owner();
+        _ = Console(settings, "", setup: "volume 0.4");
+
+        settings.MasterGain(focused: true).ShouldBe(0.4f, 1e-6f);
+    }
+
+    [Test]
+    public void SetVolume_FromTheMenu_ReachesTheMixAndIsSavedAndChecked()
+    {
+        (SettingsPresenter settings, _) = Owner();
+
+        settings.SetVolume("30").ShouldBeNull();
+
+        settings.MasterGain(focused: true).ShouldBe(0.3f, 1e-6f);
+        ViewerSettings.Load(File_).Volume.ShouldBe(0.3f, 1e-6f);
+        settings.Menu(null).Volumes.Single(static level => level.Chosen).Key.ShouldBe("30");
+        settings.ConVar("volume").ShouldBe("0.3", "a key's toggle reads the menu's value (D215)");
+    }
+
+    [Test]
+    public void SetMuteLoseFocus_Off_KeepsSoundUnfocusedAndIsSaved()
+    {
+        (SettingsPresenter settings, _) = Owner();
+
+        settings.SetMuteLoseFocus(false);
+
+        settings.MasterGain(focused: false).ShouldBe(1f);
+        settings.Menu(null).MuteLoseFocus.ShouldBeFalse();
+        ViewerSettings.Load(File_).MuteLoseFocus.ShouldBeFalse();
+    }
+
     /// <summary>A console bound to <paramref name="settings"/> as the session binds it, with <c>k</c> bound to <paramref name="command"/>.</summary>
     private static ConfigConsole Console(SettingsPresenter settings, string command, string setup = "")
     {

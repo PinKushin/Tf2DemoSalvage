@@ -1201,3 +1201,20 @@ On the 2009 badlands POV demo that is 4 landings against the server's 7 — the 
 acknowledging packet arrives on the same tick it is read, so no frame predicts it. *Measured; the engine skipping the
 same three is interpolated from D205's order of reads.* The server's own `m_flFallVelocity` was the control, and it
 nearly misled: its zero is networked as 0.03125, so a test for `== 0` counted no landings at all.
+
+## The watcher's own mix: four ConVars the SDK never mentions (D218, B545)
+
+`volume`, `snd_musicvolume`, `snd_mute_losefocus` and `voice_scale` are all engine-side. Not one of them appears in
+source-sdk-2013. TF2's own `help` gave their registrations: `volume` and `snd_musicvolume` default to `"1.0"`, both
+bounded 0 to 1 and `archive`. `snd_mute_losefocus` is `"1"`, `archive notconnected`, with no help text. `voice_scale`
+is `"1"`, `archive`. *Read from the running game.*
+
+**`snd_mute_losefocus` is on by default**, so TF2 goes silent the moment it loses focus, and the viewer now does too.
+Only `volume` carries a description ("Sound volume"). Where the engine applies it is closed. This viewer applies it as
+OpenAL's listener gain, at the end of the mix, following Quake's `S_TransferPaintBuffer`, which scales the painted
+buffer by `volume` just before output. *Interpolated from the engine's lineage.* The instrument is OpenAL Soft's
+loopback device, which renders the mix into memory: halving `volume` on a tone that is already playing halves the
+rendered level, and 0 renders exact zeros (`AudioOutputDeviceTests`).
+
+**Music is the open question.** `soundchars.h` has prefixes for streaming, voice, sentences, dry mix and spatial
+modes, but none for music. So whatever `snd_musicvolume` selects, the selection lives in `engine.dll` (B545).

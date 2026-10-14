@@ -712,6 +712,18 @@ public sealed record ViewerSettings
     /// <summary>Command name for <see cref="DrawMonitors"/>.</summary>
     public const string DrawMonitorsCommand = "cl_drawmonitors";
 
+    /// <summary>`volume`, the master gain over the whole mix, 0 to 1 — clamped to its declaration as `ClampValue` stores it.</summary>
+    public float Volume { get; init; } = EngineConVars.ByName(VolumeCommand).Number;
+
+    /// <summary>Command name for <see cref="Volume"/>.</summary>
+    public const string VolumeCommand = "volume";
+
+    /// <summary>`snd_mute_losefocus`, default 1: silent while the window does not have focus.</summary>
+    public bool MuteLoseFocus { get; init; } = EngineConVars.ByName(MuteLoseFocusCommand).Number != 0f;
+
+    /// <summary>Command name for <see cref="MuteLoseFocus"/>.</summary>
+    public const string MuteLoseFocusCommand = "snd_mute_losefocus";
+
     /// <summary>
     /// The watcher's own <c>cl_flipviewmodels</c>, default 0 (`c_baseviewmodel.cpp:44`), B515. It decides only
     /// when no spectated player's preference applies — a point-of-view recording whose recorder is not observing.
@@ -993,6 +1005,18 @@ public sealed record ViewerSettings
         if (Read(values, DrawMonitorsCommand) is { } monitors)
         {
             settings = settings with { DrawMonitors = monitors != 0 };
+        }
+
+        // Clamped to the declaration, as `ConVar::ClampValue` stores an out-of-range set (convar.cpp:891, :897).
+        if (ReadNumber(values, VolumeCommand) is { } volume)
+        {
+            EngineConVar declared = EngineConVars.ByName(VolumeCommand);
+            settings = settings with { Volume = Math.Clamp(volume, declared.Min!.Value, declared.Max!.Value) };
+        }
+
+        if (Read(values, MuteLoseFocusCommand) is { } mute)
+        {
+            settings = settings with { MuteLoseFocus = mute != 0 };
         }
 
         if (Read(values, FlipViewModelsCommand) is { } flip)
@@ -1291,6 +1315,8 @@ public sealed record ViewerSettings
         (DrawViewmodelCommand, s => Switch(s.DrawViewmodel)),
         (PhongCommand, s => Switch(s.Phong)),
         (DrawMonitorsCommand, s => Switch(s.DrawMonitors)),
+        (VolumeCommand, s => EngineFloat(s.Volume)),
+        (MuteLoseFocusCommand, s => Switch(s.MuteLoseFocus)),
         (FlipViewModelsCommand, s => Switch(s.FlipViewModels)),
         (UseMinViewmodelsCommand, s => Switch(s.UseMinViewmodels)),
         (HdrLevelCommand, s => Int(s.HdrLevel)),
@@ -1480,6 +1506,19 @@ public sealed record ViewerSettings
             NoFocusSleepCommand,
             NoFocusSleep.ToString(CultureInfo.InvariantCulture),
             NoFocusSleep == Defaults.NoFocusSleep);
+        text.AppendLine();
+        text.AppendLine("// Sound volume, 0 to 1, as in TF2's Audio options. snd_mute_losefocus 1");
+        text.AppendLine("// (TF2's default) silences the viewer while another window has focus.");
+        Setting(
+            text,
+            VolumeCommand,
+            Volume.ToString("0.##", CultureInfo.InvariantCulture),
+            Math.Abs(Volume - Defaults.Volume) < 0.005f);
+        Setting(
+            text,
+            MuteLoseFocusCommand,
+            (MuteLoseFocus ? 1 : 0).ToString(CultureInfo.InvariantCulture),
+            MuteLoseFocus == Defaults.MuteLoseFocus);
         text.AppendLine();
         text.AppendLine("// Field of view for the weapon in your hands, in degrees. TF2 allows 54");
         text.AppendLine("// to 70 and defaults to 54; anything outside that is clamped, as in game.");

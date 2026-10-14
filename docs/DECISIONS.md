@@ -10106,3 +10106,25 @@ its by-reference answer. `ScenePose` itself is unchanged, so no reader or constr
   value. The repeat test compares lists by reference and the timeline builds fresh lists, so they are kept. Collapsing
   them would move `AppliedAt`/`HeldUntil` indices, so it waits for the checkpoint work rather than riding on this.
 
+## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
+
+**Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
+have nothing to do with the test"*. Before this the viewer had no volume control: `volume` was not declared, so a
+config line or a bind setting it did nothing.
+
+**What follows from it:**
+
+- `volume`, `snd_musicvolume`, `snd_mute_losefocus` and `voice_scale` are declared in `EngineConVars` with TF2's
+  defaults and bounds, read from a running TF2's `help name` (`MixerConVarConformanceTests`). A config line, a launch
+  option, a bind, `toggle` and `incrementvar` all reach one store (D215).
+- **`volume` is the master gain**: the OpenAL listener gain, which scales the whole mix including sounds already
+  playing. The engine's mixer is closed. That it applies at the end of the mix follows Quake's
+  `S_TransferPaintBuffer`, which the engine descends from. **Interpolated, not read.**
+- **`snd_mute_losefocus` defaults to 1, so the viewer now goes silent when unfocused**, as TF2 does. This is a
+  behaviour change for anyone who watched with the viewer in the background.
+- View > Volume offers tenths and the unfocused mute, and saves both (`volume` is `archive` in TF2).
+- Every UI-test launch puts `+volume 0` FIRST (`ViewerApplication.Silent`), so a test whose subject is sound overrides
+  it later on the line. `PausedSoundUiTests` does that with `+volume 1`. No probe launches the viewer.
+- `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
+  which sounds the engine treats as music needs `engine.dll` read (B545).
+

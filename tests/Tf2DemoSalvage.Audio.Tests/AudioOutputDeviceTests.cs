@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 using Tf2DemoSalvage.Audio;
 
@@ -216,6 +217,43 @@ public sealed class AudioOutputDeviceTests
 
         output.Reclaim().ShouldBe(0, "both are still playing");
         output.Playing.ShouldBe(2, "and both are still held");
+    }
+
+    /// <summary>The mix itself, rendered into memory by `ALC_SOFT_loopback`: the instrument for `volume`.</summary>
+    private static AudioOutput OpenLoopback()
+    {
+        if (AudioOutput.TryCreateLoopback(44100) is not { } output)
+        {
+            Assert.Ignore("this OpenAL has no loopback device");
+            throw new InvalidOperationException("unreachable: Assert.Ignore throws");
+        }
+
+        return output;
+    }
+
+    /// <summary>Mean absolute level of a rendered block, past the first 1024 frames a gain change is smoothed over.</summary>
+    private static double Level(float[] mix) => mix.Skip(2048).Average(static value => Math.Abs(value));
+
+    [Test]
+    public void MasterGain_OnASoundAlreadyPlaying_ScalesTheRenderedMixAndZeroIsSilent()
+    {
+        using AudioOutput output = OpenLoopback();
+
+        output.Play(Tone(frames: 44100 * 4), leftPan: 1f, rightPan: 1f, entity: 1, channel: 1);
+
+        output.MasterGain = 1f;
+        double full = Level(output.Render(8192));
+
+        // The control: at unity there is sound, so a silent half below is the gain and not a dead instrument.
+        full.ShouldBeGreaterThan(0.05);
+
+        output.MasterGain = 0.5f;
+        output.MasterGain.ShouldBe(0.5f, "read back from the device");
+        (Level(output.Render(8192)) / full).ShouldBe(0.5, 0.02, "volume scales what is already playing");
+
+        output.MasterGain = 0f;
+        _ = output.Render(2048);
+        output.Render(8192).Max(static value => Math.Abs(value)).ShouldBe(0f, "volume 0 is silence");
     }
 
     [Test]

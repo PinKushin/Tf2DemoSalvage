@@ -100,6 +100,8 @@ public sealed class CorpusScriptWaveDeckTests
     /// <summary>Plays nothing.</summary>
     private sealed class Mute : IAudioSink
     {
+        public float MasterGain { get; set; } = 1f;
+
         public void Play(SoundSample sample, float leftPan, float rightPan, float gain, float pitch, int entity, int channel)
         {
             // The presenter's sample lookup is the record.

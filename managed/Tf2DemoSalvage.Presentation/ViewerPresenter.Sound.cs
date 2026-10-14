@@ -53,11 +53,13 @@ public sealed partial class ViewerPresenter
 
     /// <summary>Steps the sound for this frame, with the ears wherever the camera is and in whoever's eyes it is (B483).</summary>
     /// <param name="tick">The transport's tick.</param>
-    public void PlaySounds(int tick) =>
+    /// <param name="focused">Whether the window has focus, for `snd_mute_losefocus`.</param>
+    public void PlaySounds(int tick, bool focused) =>
         PlaySounds(
             () => _camera.FirstPerson ? _camera.FirstPersonCamera() : _camera.FreeLookCamera(),
             () => _camera.FirstPerson ? _camera.FollowedEntity() : null,
-            tick);
+            tick,
+            focused);
 
     /// <summary>Starts whatever the recording plays at this tick.</summary>
     /// <remarks>
@@ -69,8 +71,9 @@ public sealed partial class ViewerPresenter
     /// </remarks>
     /// <param name="listener">The camera the ears are at, asked for only when there is a device; null for none.</param>
     /// <param name="listenerEyes">Whose eyes the listener is in, or null outside first person; asked for after the camera.</param>
+    /// <param name="focused">Whether the window has focus, for `snd_mute_losefocus`.</param>
     /// <param name="tick">The transport's tick.</param>
-    internal void PlaySounds(Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
+    internal void PlaySounds(Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick, bool focused = true)
     {
         ArgumentNullException.ThrowIfNull(listener);
         ArgumentNullException.ThrowIfNull(listenerEyes);
@@ -81,12 +84,15 @@ public sealed partial class ViewerPresenter
             return;
         }
 
-        PlaySoundsOver(output, listener, listenerEyes, tick);
+        PlaySoundsOver(output, listener, listenerEyes, tick, focused);
     }
 
-    /// <summary><see cref="PlaySounds(int)"/> over a sink a test can read.</summary>
-    internal void PlaySoundsOver(IAudioSink output, Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick)
+    /// <summary><see cref="PlaySounds(int, bool)"/> over a sink a test can read.</summary>
+    internal void PlaySoundsOver(IAudioSink output, Func<FreeCamera?> listener, Func<int?> listenerEyes, int tick, bool focused = true)
     {
+        // The master gain first, so a change reaches what is already playing and a lost focus silences even a paused frame.
+        output.MasterGain = _settingsOwner.MasterGain(focused);
+
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are
         // wherever the camera is, which is view state and cannot come from anywhere else.

@@ -35,6 +35,13 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// </remarks>
 internal sealed partial class ViewerApplication : IDisposable
 {
+    /// <summary>
+    /// `+volume 0`, first on every launch the suite makes: the owner, 2026-10-14, *"its kinda irritating to have to
+    /// lissten to the tests and probes all the time when they have nothing to do with the test"* (D218). First, so a
+    /// test whose subject is sound overrides it with its own `+volume` later on the line, as a later launch option does.
+    /// </summary>
+    internal static readonly string[] Silent = ["+" + ViewerSettings.VolumeCommand, "0"];
+
     /// <summary>How long to wait for an element before failing the test.</summary>
     private static readonly TimeSpan FindTimeout = TimeSpan.FromSeconds(20);
 
@@ -348,6 +355,7 @@ internal sealed partial class ViewerApplication : IDisposable
         // a different file.
         arguments =
         [
+            .. Silent,
             .. arguments,
             "+" + ViewerSettings.ScreenshotFolderCommand,
             TestCaptureFolder,
