@@ -94,6 +94,46 @@ The middle row is arithmetic rather than authority: at a 60 Hz cap the budget is
 that cost 4 ms leaves 12.67 ms still to wait. Feed the limiter the frame's own duration and it calls
 every frame due early, by however long that frame happened to be cheap.
 
+## `frametime` is zero while a demo is paused, and NOT while it skips (B541)
+
+*Disassembly of engine.dll, 2026-10-13; the client half is published source.*
+
+`CClientState::GetFrameTime` (FUN_1800a2d40) answers `IsPaused() ? 0 : m_flFrameTime` outside a simulation tick, and
+`_Host_RunFrame` (FUN_1801a4570) copies it into the client's `gpGlobals->frametime` before the frame renders.
+`CClientState::IsPaused` (FUN_1800a34c0) is true when `demoplayer->IsPlaybackPaused()` is. And
+`CDemoPlayer::IsPlaybackPaused` (FUN_1800729f0) is
+
+    IsPlayingBack() && !IsSkipping() ? m_bPlaybackPaused : false
+
+so the pause flag does not count for the length of a skip. `SkipToTick` (FUN_180073b10) sets the flag at once when
+`demo_gototick` is given its pause argument, and the skip's frames still have a frametime; the frame the skip lands
+on is the first with none.
+
+**What that decides on the client** is everything gated on `frametime`, and animation events are one:
+`C_BaseAnimating::Simulate` calls `DoAnimationEvents` only `if ( gpGlobals->frametime != 0.0f )`
+(`c_baseanimating.cpp:5162`), once per entity per frame from `SimulateEntities` (`cdll_client_int.cpp:2000-2017`,
+called at `:2207` in `OnRenderStart`). So:
+
+| frame | events walked |
+|---|---|
+| playing | yes |
+| a skip's frame, paused or not | yes — every 99 packets or so (finding 31) |
+| paused, including the frame a paused skip lands on | no |
+
+**A paused frame also moves nothing.** `m_flPrevEventCycle` is written only inside `DoAnimationEvents`, so the first
+frame after a pause walks from where the last frame with a frametime left it — the skip's last rendered frame, after
+a seek. Whether that span crosses a footstep depends on where the engine's skip frames happened to fall, which
+depends on how long its host frames took. The engine has that accident too; it just never sounds while paused.
+
+**The wrong turn:** the viewer walked on every pose, gate-free, and the paused opening frame fired footsteps or not
+by where the skip's 99-packet batches had started — tick 6 in one run and tick 1 in another, because an early frame
+had already shown tick 0. Two runs disagreeing was read as a lost event for a day; the run WITH footsteps was the bug.
+
+**Not read:** `NotifyShouldTransmit( SHOULDTRANSMIT_START )` sets `m_nEventSequence = GetSequence()`
+(`c_baseanimating.cpp:4670-4678`), so whether an entity's FIRST walk restarts at cycle zero depends on whether that
+call comes before or after its first sequence is known — which is the engine's packet-entities code, not yet
+disassembled. `CL_CopyNewEntity` (FUN_180087c40) does not make the call itself.
+
 ## What is NOT here, stated so nobody looks for it
 
 **`fps_max` and the host frame loop are engine code, and `source-sdk-2013` ships no

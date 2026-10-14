@@ -92,17 +92,21 @@ public sealed class FramePresenterSeekTests
         /// <summary>Called inside each HUD frame, for a test that has the HUD ask for a sound.</summary>
         public Action<int>? InHudFrame { get; set; }
 
-        public void Show(double tick, bool hud = true, IDecalUpload? device = null) =>
+        /// <summary>Whether the models were told the frame covers no demo time, each time the window was asked to show a tick.</summary>
+        public List<bool> Paused { get; } = [];
+
+        public void Show(double tick, bool hud = true, IDecalUpload? device = null, double demoFrameSeconds = 0d) =>
             Frames.ShowMomentOver(
-                Frame(tick),
+                Frame(tick, demoFrameSeconds),
                 tick,
                 device,
                 shown =>
                 {
                     Shown.Add(shown);
                     Held.Add((Models.HoldsCorpses, Moment.EntitiesOnly, Models.SimulatesOnly, Moments.PlayersOnly, Models.WalksEvents, Frames.Replaying));
+                    Paused.Add(Models.Paused);
 
-                    return Frame(shown);
+                    return Frame(shown, demoFrameSeconds);
                 },
                 hud
                     ? (_, through) =>
@@ -112,8 +116,48 @@ public sealed class FramePresenterSeekTests
                     }
                     : null);
 
-        private static ViewFrame Frame(double shown) =>
-            new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, 0d, true, true, true, 2048, 50);
+        private static ViewFrame Frame(double shown, double demoFrameSeconds) =>
+            new(Timeline, null, null, (int)shown, shown, false, false, null, 1280, 720, 0.016f, demoFrameSeconds, true, true, true, 2048, 50);
+    }
+
+    /// <remarks>
+    /// `C_BaseAnimating::Simulate` walks events only `if ( gpGlobals->frametime != 0.0f )` (`c_baseanimating.cpp:5162`).
+    /// The client's frametime is zero while `IsPlaybackPaused()`, which answers FALSE for the length of a skip whatever
+    /// the pause flag says and the flag once the skip has landed (engine.dll FUN_1800729f0, FUN_1800a2d40) — so a seek
+    /// made while paused walks its skip frames and not the frame it lands on (B541).
+    /// </remarks>
+    [Test]
+    public void ShowMomentOver_ASeekWhilePaused_WalksEventsOnItsSkipFramesAndNotOnTheMoment()
+    {
+        Seeking seek = new();
+
+        seek.Show(500d);
+
+        seek.Paused.Count.ShouldBeGreaterThan(2, "the control: the seek ran skip frames");
+        seek.Paused.Take(seek.Paused.Count - 1).Distinct().ShouldBe([false], "IsPlaybackPaused is false while skipping");
+        seek.Paused[^1].ShouldBeTrue("the frame the skip lands on is a paused frame: frametime zero");
+    }
+
+    [Test]
+    public void ShowMomentOver_WhilePlaying_WalksEventsOnTheMoment()
+    {
+        Seeking seek = new();
+
+        seek.Show(500d, demoFrameSeconds: 0.015d);
+
+        seek.Paused.Distinct().ShouldBe([false]);
+    }
+
+    /// <remarks>The pose comes after the show, so what the seek leaves set is what the landing frame's pose reads.</remarks>
+    [Test]
+    public void ShowMomentOver_ASeekWhilePaused_LeavesTheModelsPausedForTheMomentsPose()
+    {
+        Seeking seek = new();
+
+        seek.Show(500d, demoFrameSeconds: 0.015d);
+        seek.Show(900d);
+
+        seek.Models.Paused.ShouldBeTrue();
     }
 
     [Test]
