@@ -599,7 +599,12 @@ public sealed class CameraPresenter
         //
         // **A SourceTV recording has no such view** and keeps the free camera, because there the
         // choice is real: eighteen players and no recorder.
-        if (_timeline?.HasRecordedView == true)
+        //
+        // **The headless instrument is exempt here too** (B378): `TF2VIEW_CAMERA` is a placed camera, as at every other
+        // lock site (`RefusedByTheDemo`, `DemoOpened`). Without this a POV capture placed the free camera, logged it, and
+        // photographed the recorder's eyes.
+        if (_timeline?.HasRecordedView == true &&
+            Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable) is not { Length: > 0 })
         {
             _cameraMode = CameraMode.FirstPerson;
         }

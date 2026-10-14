@@ -11,7 +11,12 @@ namespace Tf2DemoSalvage.Scene;
 /// <param name="Position">The glow's origin.</param>
 /// <param name="ProxySize">The proxy's radius, in world units.</param>
 /// <param name="ProxyAspect">Its width over its height.</param>
-public readonly record struct GlowQuery(int Entity, Vector3 Position, float ProxySize, float ProxyAspect);
+/// <param name="SizeInScreenspace">
+/// <c>bSizeInScreenspace</c>: the size is a sphere's at one unit from the eye rather than world units — set by
+/// <c>CGlowOverlay</c> alone, for the sun (`glow_overlay.cpp:168`, `:213`).
+/// </param>
+public readonly record struct GlowQuery(
+    int Entity, Vector3 Position, float ProxySize, float ProxyAspect, bool SizeInScreenspace = false);
 
 /// <summary>One occlusion proxy to count pixels through: a quad, corners in order around it.</summary>
 /// <param name="Key">The entity it answers for.</param>
@@ -27,8 +32,9 @@ public readonly record struct PixelVisibilityProxy(int Key, Vector3 First, Vecto
 /// <param name="Up"><c>CurrentViewUp()</c>.</param>
 /// <param name="Matrix">World to clip, row major, vectors as rows — <see cref="FreeCamera.ToMatrix"/>.</param>
 /// <param name="Screen">The same view as <c>ComputePixelDiameterOfSphere</c> projects through it.</param>
+/// <param name="Forward"><c>CurrentViewForward()</c>, which a screen-space proxy is measured one unit along.</param>
 public sealed record PixelVisibilityView(
-    Vector3 Origin, Vector3 Right, Vector3 Up, IReadOnlyList<float> Matrix, ScreenFadeView Screen)
+    Vector3 Origin, Vector3 Right, Vector3 Up, IReadOnlyList<float> Matrix, ScreenFadeView Screen, Vector3 Forward = default)
 {
     /// <summary>The view a camera draws.</summary>
     /// <param name="camera">The camera.</param>
@@ -39,14 +45,16 @@ public sealed record PixelVisibilityView(
     {
         ArgumentNullException.ThrowIfNull(camera);
 
-        (_, (float X, float Y, float Z) right, (float X, float Y, float Z) up) = camera.Basis();
+        ((float X, float Y, float Z) forward, (float X, float Y, float Z) right, (float X, float Y, float Z) up) =
+            camera.Basis();
 
         return new PixelVisibilityView(
             new Vector3(camera.Origin.X, camera.Origin.Y, camera.Origin.Z),
             new Vector3(right.X, right.Y, right.Z),
             new Vector3(up.X, up.Y, up.Z),
             camera.ToMatrix(),
-            camera.ScreenView(viewportHeight));
+            camera.ScreenView(viewportHeight),
+            new Vector3(forward.X, forward.Y, forward.Z));
     }
 }
 
@@ -62,7 +70,11 @@ public sealed record PixelVisibilityView(
 /// <see cref="BeginFrame"/>.
 ///
 /// **One view.** The engine keeps a query per set per view ID; this viewer asks from the main view only, so a set
-/// is its query.
+/// is its query. That is the engine's answer for the other views too (B378): a water reflection or refraction draws
+/// no glow overlay at all — <c>CGlowOverlay::DrawOverlays</c> runs in <c>ViewDrawScene</c>, which only <c>RenderView</c>
+/// and <c>DrawOneMonitor</c> call — and a monitor's query is created and never issued, because
+/// <c>PixelVisibility_EndCurrentView</c> runs only <c>if ( IsMainView( CurrentViewID() ) )</c> (`viewrender.cpp:1444-1450`),
+/// so the monitor's fraction stays at the never-issued zero.
 ///
 /// **The frame time is the caller's, and the engine's is zero while paused** — a paused TF2 holds every glow where the
 /// pause found it. A viewer whose camera flies while paused passes the frame's real duration instead; D-numbered
@@ -181,8 +193,9 @@ public sealed class PixelVisibility
     /// <exception cref="ArgumentNullException"><paramref name="view"/> is null.</exception>
     /// <remarks>
     /// The engine draws a pyramid whose apex it has just collapsed onto its base — "collapses the pyramid to a plane -
-    /// so this could be a quad instead" — so the quad is the whole of it. <c>bSizeInScreenspace</c> is not modeled:
-    /// neither a sprite nor a beam sets it.
+    /// so this could be a quad instead" — so the quad is the whole of it. <c>bSizeInScreenspace</c> is the sun's
+    /// (<see cref="SunGlow"/>): the size becomes the world size that spans as many pixels as a sphere of that diameter
+    /// one unit from the eye, with no five-pixel floor.
     /// </remarks>
     public static (PixelVisibilityProxy Proxy, float Clip)? Proxy(in GlowQuery query, PixelVisibilityView view)
     {
@@ -197,7 +210,16 @@ public sealed class PixelVisibility
         float pixelsPerUnit = Math.Max(
             view.Screen.PixelWidthOfSphere((origin.X, origin.Y, origin.Z), 1f) * 0.5f, 1e-4f);
 
-        if (scale * pixelsPerUnit < MinimumProxyPixels)
+        if (query.SizeInScreenspace)
+        {
+            // "Force this to be the size of a sphere of diameter "scale" at some reference distance (1.0 unit)".
+            Vector3 reference = view.Origin + view.Forward;
+            float pixelsPerUnit2 =
+                view.Screen.PixelWidthOfSphere((reference.X, reference.Y, reference.Z), scale * 0.5f) * 0.5f;
+
+            scale = pixelsPerUnit2 / pixelsPerUnit;
+        }
+        else if (scale * pixelsPerUnit < MinimumProxyPixels)
         {
             scale = MinimumProxyPixels / pixelsPerUnit;
         }
@@ -290,6 +312,7 @@ public sealed class PixelVisibility
             {
                 ProxySize = query.ProxySize,
                 ProxyAspect = query.ProxyAspect,
+                SizeInScreenspace = query.SizeInScreenspace,
                 FadeTimeInverse = fadeTime > 0f ? 1f / fadeTime : 1f / 0.125f,
             };
 
@@ -346,7 +369,7 @@ public sealed class PixelVisibility
             // `IssueQuery`: a query that failed last frame is not drawn this one, and is then tried again.
             if (!set.Failed)
             {
-                if (Proxy(new GlowQuery(entity, set.Origin, set.ProxySize, set.ProxyAspect), view) is not { } built)
+                if (Proxy(new GlowQuery(entity, set.Origin, set.ProxySize, set.ProxyAspect, set.SizeInScreenspace), view) is not { } built)
                 {
                     // "In this case, the proxy wasn't issued cause it was offscreen".
                     set.Clip = 0f;
@@ -410,6 +433,7 @@ public sealed class PixelVisibility
     {
         public float ProxySize;
         public float ProxyAspect;
+        public bool SizeInScreenspace;
         public float FadeTimeInverse;
         public Vector3 Origin;
         public int Asked;

@@ -151,6 +151,33 @@ public sealed class CameraPresenterTests
         window.Names.ShouldBeEmpty("opening on it is not a change the window is told of; the load shows the demo next");
     }
 
+    /// <remarks>
+    /// **The headless instrument is exempt from the POV lock** (B378), as at `RefusedByTheDemo` and `DemoOpened`: a
+    /// placed `TF2VIEW_CAMERA` is a measurement. Without the exemption here a POV capture logged the placed camera and
+    /// photographed the recorder's eyes. The test above is the control: same demo, no variable, first person.
+    /// </remarks>
+    [Test]
+    [NonParallelizable]
+    public void DemoOpening_OfAPointOfViewDemoWithAPlacedCamera_KeepsTheFreeCamera()
+    {
+        string? before = System.Environment.GetEnvironmentVariable(FreeCameraController.CameraVariable);
+
+        try
+        {
+            System.Environment.SetEnvironmentVariable(FreeCameraController.CameraVariable, "0 -152 600 -35 235");
+
+            (CameraPresenter camera, _, _) = Camera(Pov());
+
+            camera.DemoOpening(spectateWho: null);
+
+            camera.Mode.ShouldBe(CameraMode.Free);
+        }
+        finally
+        {
+            System.Environment.SetEnvironmentVariable(FreeCameraController.CameraVariable, before);
+        }
+    }
+
     [Test]
     public void DemoOpening_OfASourceTvDemo_KeepsTheFreeCamera()
     {

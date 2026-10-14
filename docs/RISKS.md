@@ -32483,7 +32483,72 @@ on was a modern POV that is not yet identified — *"idk whos pov it was, maybe 
 *Evidence class: measured, both demos, same instrument. The causal link to B377 is read-from-source plus
 arithmetic; it has NOT been confirmed by watching.*
 
-### B378 DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521 — the fraction is the GPU's and models hide a glow; heading corrected 2026-09-29) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
+
+**2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
+scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
+30,512 here. Two causes, separated by measurement (`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`):
+
+- **Framing is not ours to fix.** That golden shot was a live client at `fov_desired 75`; the lakeside demo's recorder
+  plays at 90 (`fov` probe: `m_iDefaultFOV 90`), and a demo's free camera takes the recorder's `GetFOV()` as the engine
+  does. Retaken in TF2 at `fov_desired 90`, `mat_hdr_level 2`, `spec_goto 0 -152 600 -35 235`, the framing matches ours
+  pixel for pixel; `+demo_fov_override 75` matches the old shot.
+- **UnlitGeneric, SpriteCard and Cable multiply by `LINEAR_LIGHT_SCALE`** (`FinalOutput( …, TONEMAP_SCALE_LINEAR )`,
+  `vertexlit_and_unlit_generic_ps2x.fxc:498`, `spritecard_ps2x.fxc:192`, `cable_ps2x.fxc:54`; `common_ps_fxc.h:348-350`);
+  Refract takes none (`refract_ps2x.fxc:249`). `Device3D`'s linear sprite path multiplied by `$overbrightfactor` alone,
+  so EVERY UnlitGeneric and SpriteCard sprite and particle drew at a tone-map scale of one — about 1/0.7 too bright
+  outdoors. `SpriteLightScale.For` is now the one rule for both paths, in `Device3D` and `OffscreenTarget`.
+- **Measured, same camera and framing:** TF2 4,984 white pixels; ours 30,512 before, 14,854 after, and **4,999 with
+  `+mat_disable_bloom 1`** — the radial profile within ~8 of 255 out to 340 px. What remains is our bloom, already filed
+  as 1.4-2.1x TF2's (finding 76). Captures in the worktree root: `sunmatch-tf2-fov90-hdr2.png`,
+  `sunmatch-viewer-before.png`, `sunmatch-viewer-after.png`, `sunmatch-viewer-after-nobloom.png`.
+- **Proved:** `SpriteLightScaleConformanceTests` (3) and `Render_LakesidesSunAtHalfTheToneMapScale_CarriesHalfTheLight`
+  (linear 0.1450 at 1, 0.0697 at 0.5). Dropping the scale from the linear rule reddens exactly those two. The
+  `Device3D` call site is held by the golden capture, not by a test. `$hdrcolorscale` was not a factor: lakeside's is 1.
+
+**2026-10-14 — the two residuals are closed** (`fix/b378-sun-glow`; the reverse-engineering account is
+`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`). *Read from published source* throughout.
+
+- **The sun's glow is drawn.** `SunFeed` (Core) decodes `DT_Sun` — NOBASE, `FL_EDICT_ALWAYS`, so a feed and not a
+  track; `SunGlow` (Scene) is `C_Sun::OnDataChanged`'s two `C_SunGlowOverlay`s and `CGlowOverlay::Draw`: the core and a
+  six-times glow faded by the view's dot, a hundred units ahead of the eye, each gated by its own query at
+  `zFar * 0.999` with `bSizeInScreenspace` — now ported in `PixelVisibility.Proxy`. `FrameParticles` asks it after the
+  sprites and beams and before `EndView`, as `ViewDrawScene` does. `DemoModels.Sprites` loads the two materials.
+- **The per-view question was the wrong question.** `DrawOverlays` runs only in `ViewDrawScene`, which only the main view
+  and `DrawOneMonitor` call; reflections and refractions draw no glow overlay, and a monitor's query is created and
+  never issued (`EndCurrentView` only `if ( IsMainView(...) )`), so it answers zero. The main-view-only system is the
+  engine's answer everywhere. Sprites and beams in sub-views remain whatever their own passes do.
+- **Proved.** `SunFeedConformanceTests` (4), `SunGlowConformanceTests` (14), one new `PixelVisibilityConformanceTests`
+  case, `SunGlowRenderTests` (2: lakeside's sun in open sky lights the centre on the shipped material through the real
+  device query; behind a wall the query counts nothing and nothing draws) and `SunCorpusTests` (lakeside's sun reaches
+  the timeline with its materials). Sabotages, each reddening exactly what was predicted: red from the low byte →
+  the two colour tests; the screen-space scale left unnormalized → the screen-space proxy test and the open-sky render;
+  the obstruction forced to one → the wall render, `Build_ASunTheSceneHides` and `Build_HalfSeen`. Removing the
+  `obstruction <= 0` early return alone reddens nothing, and that is correct: a zero obstruction makes the colour zero,
+  which `Draw`'s own "alpha'd out" test skips — the engine's two guards are redundant for this case.
+- **Seen**: `sun-before.png` / `sun-after.png`, koth_lakeside_final from `TF2VIEW_CAMERA="0 -152 600 -35 235"`. Not
+  compared against TF2 — the size and brightness of the glow are the owner's question.
+
+**Not ported, named:** `m_skyObstructionScale` (a second query in the 3D skybox view; 1 here, so 3D-skybox scenery does
+not hide the sun), `$hdrcolorscale` (carried, not applied, as for every sprite), `R_CullSphere`.
+
+**Found on the way:**
+
+- **Suspected and REFUTED the same day: `EntityState.RenderRgb()` and `RenderAlpha()` are right.** The suspicion was
+  an interpolation from the sun's table to the base entity's, and the two tables pack the colour differently.
+  *Read from published source*: `DT_Sun` names `SendProxy_Color32ToInt` (`sun.cpp:55`, red to the high byte) and its
+  client `RecvProxy_IntToColor32`; `DT_BaseEntity` is `SendPropInt(SENDINFO(m_clrRender), 32, SPROP_UNSIGNED)` with
+  NO proxy (`baseentity.cpp:279`), so `SendPropInt` takes the default for a four-byte unsigned field,
+  `SendProxy_UInt32ToInt32` — `*((unsigned long*)&pOut->m_Int) = *((unsigned long*)pData)` (`dt_send.cpp:157-160`), a
+  raw copy of the `color32 { r, g, b, a }` struct, which on little-endian x86 puts red in the LOW byte. The client's
+  `RecvPropInt(RECVINFO(m_clrRender))` (`c_baseentity.cpp:457`) copies it straight back. *Measured* on
+  `tf2-2026-pov-koth_lakeside-triggers.dem` against the BSP: 46 `CSprite`s send `2099547391 = 0x7D248CFF` where the map
+  says `rendercolor "255 140 36"`, `renderamt 125` (low byte red 255, then 140, 36, high byte 125), and 9 send
+  `0xFF92D8FE` for `"254 216 146"` at 255. So both decodes are correct and must stay different.
+- **`TF2VIEW_CAMERA` was ignored on a POV demo.** `CameraPresenter.DemoOpening` forced first person (D153) without the
+  headless exemption the other lock sites honour; the log said the camera was placed and the capture showed the
+  recorder. Fixed here in one condition, because the screenshots needed it.
+  `DemoOpening_OfAPointOfViewDemoWithAPlacedCamera_KeepsTheFreeCamera` holds it; removing the condition reddens it alone.
 
 **2026-10-11 — the residual is closed: `PixelVisibility_FractionVisible` is ported whole** (`fix/b521-lamp-fixtures`).
 *Read from published source*, `c_pixel_visibility.cpp`. `PixelVisibility` (Scene) is `CPixelVisibilitySystem` without
@@ -32541,7 +32606,7 @@ where the query gives 100 100 / 101 100 98).
 
 Not modeled: `bSizeInScreenspace` (nothing here sets it), a query per VIEW (the monitor and water views ask
 nothing), `r_pixelvisibility_partial 0`, and `CGlowOverlay` — the sun's glow asks the same system and is not drawn
-through it.
+through it. *(2026-10-14: the first, second and fourth are closed — see the top of this entry.)*
 
 **2026-10-11, later — why those three are still not modeled, each for the same reason: its only caller does not
 exist here yet.** `bSizeInScreenspace` is set by `CGlowOverlay` alone (`glow_overlay.cpp:168`, `:213`), and the

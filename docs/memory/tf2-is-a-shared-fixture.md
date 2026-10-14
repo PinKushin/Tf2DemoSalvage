@@ -20,4 +20,6 @@ with TF2 is over.
 **It does not hold the desktop lock** (owner, 2026-10-03: *"a backgrounded tf2 which you are not working with, shouldnt
 block the gate… since its a mcp, it probably shouldnt block the gate at all"*): the UI suites never need the
 foreground or real clicks. `TF2MCP_DESKTOP_MUTEX` was removed from the MCP's config after an idle TF2 starved the UI
-gate for 30 min and `run-exclusive` timed out. Do not set it again. Related: [[record-specimens-with-the-tf2-mcp]], [[nunit-shared-fixture-is-the-standard]].
+gate for 30 min and `run-exclusive` timed out. Do not set it again.
+
+**What does load the machine** (owner, 2026-10-14): only the client's first boot (takes the foreground) and a map load. `map`, `playdemo` and connecting to a server all load a map; that is how the client works, not a convention ("loading a map = loading a demo or loading into a server"). A demo has no local server: the demo player feeds the client in its place. In-game or idle, and its screenshots, cost a UI run nothing. Keep launches and loads out of a running UI suite. Related: [[record-specimens-with-the-tf2-mcp]], [[nunit-shared-fixture-is-the-standard]].

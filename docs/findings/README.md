@@ -258,6 +258,10 @@ in any public writeup found:
   cameras, and TF2's own switches isolate exposure and bloom — TF2 sits at 0.70 outdoors and 0.55 indoors where a
   `--shot` is at 1, our bloom adds 1.4-2.1× TF2's, the sky ignores the scale, and our world view is 90° across where
   TF2's is 106° ([76](76-the-golden-comparison.md)).
+- **The sun is two overlays asked at the far plane.** `env_sun` is a NOBASE table with no origin; the client draws a
+  core and a six-times-larger glow a hundred units in front of the eye, each gated by its own occlusion query sized
+  in SCREEN space at `zFar * 0.999`. Only the main view and monitors draw overlays at all, and a monitor's query is
+  never issued, so it sees no sun ([77](77-the-sun-is-two-overlays-at-the-far-plane.md)).
 
 ## Conventions used throughout
 
