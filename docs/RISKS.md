@@ -39334,6 +39334,9 @@ twice (settings `ConVars` and the console's table), which is a D215 one-copy que
    line read after attaching — goes to the settings through `ConVarSet`, and `ConfigConsole.ConVar` reads through
    them. Sabotage: `ConVarText` returning null for an unimplemented ConVar now reddens the round-trip test alone
    (before this it stayed green).
+3. *The declaration cannot drift (`fix/typed-from-engineconvars`).* `Typed` is a table whose keys are resolved
+   through `EngineConVars.ByName`, which throws for an undeclared name. Sabotage: one undeclared row turned the type
+   initialiser into a `KeyNotFoundException` naming the ConVar, and 9 of 3,003 Scene tests red.
 
 Original filing:
 
