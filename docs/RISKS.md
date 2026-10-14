@@ -39305,7 +39305,23 @@ and set it to Disabled (the redistributable's `GameInputRedistService` already w
 stronger foreground fallback and a time limit on the picker wait, so a run fails fast and never hangs.
 2026-10-14, after the reboot with the service disabled: two full UI runs, 54 of 54 each, no key refused.
 
-## B543 — a ConVar the viewer clamps reads back as written, where the engine stores the clamped value — OPEN, small
+## B543 — a ConVar the viewer clamps reads back as written, where the engine stores the clamped value — CLOSED 2026-10-14
+
+**Closed, and the filing was half wrong.** Read from published source: `ConVar::InternalSetValue`
+(`tier1/convar.cpp:794-798`) regenerates the string as `"%f"` of the clamp ONLY when `ClampValue` moved it, else
+keeps it as written; and only `viewmodel_fov` declares bounds (`view.cpp:111`, 0.1..179.9). `viewmodel_fov_demo`
+(`clientmode_tf.cpp:570`) and `developer` (`util_shared.cpp:45`) declare none, so the viewer's clamp on those is
+not the engine's and their string stays as written. Measured before the fix: none of the three was in
+`EngineConVars`, so `ConVarText` never saw a written string and returned the typed rendering ("90.000000" for
+`viewmodel_fov 90`, "2" for `developer 9`) — not "500" as filed. Fix: the three declared (so a set keeps its
+string), and `ConVarText` returns `"%f"` of the clamp (promoted to double: 179.9 reads "179.899994") when
+`viewmodel_fov` is outside its bounds. `ConVarClampConformanceTests` (five), sabotage-verified. The two owed
+`SettingsPresenterTests`: the menu test reddens alone when `Attach` stops forwarding `ConVarSet`; the round-trip
+test reddens alone when the console stops keeping an unimplemented ConVar once attached — but stays green when
+`ConVarText` hides unimplemented ConVars, because the console's copy covers it: the unimplemented ConVar is held
+twice (settings `ConVars` and the console's table), which is a D215 one-copy question left open, not a test fault.
+
+Original filing:
 
 `ViewerSettings.ConVarText` (D215, one store) returns the string last written while it still means the current
 setting, so `viewmodel_fov 500` reads back as `"500"` although the viewer uses its clamped value. The engine's
