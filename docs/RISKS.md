@@ -39165,7 +39165,7 @@ dialog choosing one of two descriptions by whether it is the startup prompt; `Pr
 **Dead in production after the move, left in place:** `FreeFlight.IsFlightKey` — the session asks
 `ConfigConsole.IsHeldKey` by name, so only `FreeFlightTests` calls it (D180). Not deleted here.
 
-## B541 — full screen entered while a demo is still loading loses the opening tick's footstep events — MEASURED 2026-10-13, OPEN, cause not known
+## B541 — a paused frame walked animation events, so the opening tick's footsteps came and went with where the skip's frames fell — MEASURED 2026-10-13, FIXED 2026-10-13 (filed as "full screen during a load loses the opening footsteps")
 
 **What was measured** (two runs of five UI fixtures, the full-screen fixture first, same demo, opening tick 20000):
 
@@ -39210,3 +39210,57 @@ seek to the opening tick does not clear (`docs/memory/a-seek-rebuilds-what-playi
 **The tests no longer depend on it:** `MapFullScreenUiTests` waits for the opening state before it acts (D215).
 `PausedSoundUiTests` still uses the opening footsteps as its control, so whichever way this is resolved that
 control is re-examined with it.
+
+### Outcome, 2026-10-13: the cause, and the fix
+
+**The difference from the engine was one missing test.** `EntityModels.Simulate` walked an entity's events on every
+pose of a new demo time; the engine walks them only when `gpGlobals->frametime != 0`. Everything else the first read
+listed was already ported in `AnimationEventFiring.Fired` (restart at cycle zero with the previous cycle at −0.01,
+the stall, the loop's two passes).
+
+**What a paused frame's frametime is** (disassembly, engine.dll; finding 39): `CClientState::GetFrameTime`
+(FUN_1800a2d40) is zero while `IsPaused()`, which follows `CDemoPlayer::IsPlaybackPaused` (FUN_1800729f0) — and that
+answers false for the length of a skip whatever the pause flag says. So a skip's frames walk, paused or not, and the
+frame a paused skip lands on does not. `SimulateEntities` (`cdll_client_int.cpp:2000-2017`) calls `Simulate` on every
+entity once a frame from `OnRenderStart` (`:2207`); `IsVisible` is `m_hRender != INVALID_CLIENT_RENDER_HANDLE`
+(`c_baseentity.h:691`), which our `fireEvents` already stands for.
+
+**8 lines against 0, from the two logs** (the eight are four events: each writes an `animation event` line and a
+`footstep` line; entities 5, 7, 9, 12). Both runs walked the paused opening frame. What differed is where the walk
+started from, which is the skip's last frame:
+
+| | skip line | frames | last skip frame | span the paused frame walked | entity 7's `event walk` |
+|---|---|---|---|---|---|
+| 8 lines | `skip: to 20000 from the start` (tick 6) | 201 | 6 + 98 + 99·200 = 19904 | 96 ticks | `0.125->0.600` in the skip, then `0.600->1.000: 1 fired` paused |
+| 0 lines | `skip: to 20000 from 0` (tick 1) | 202 | 99·202 = 19998 | 2 ticks | `0.475->0.950: 1 fired` in the skip, nothing after |
+
+The early full screen drew a frame before the opening seek — `skip: to 0 from the start in 0 frames` at 20:40:17.378
+— so the opening skip was a seek FORWARD from tick 0 and read from tick 1, where the other run's read from the demo's
+first tick, 6. Five ticks of phase in 99-packet batches moved the last skip frame from 19904 to 19998. A pyro runs
+0.025 cycles a tick: 96 ticks is 2.4 cycles (0.600 to 1.000, crossing a step), 2 ticks is 0.05 (0.950 to 1.000,
+crossing none). Entity 12 in the second run had already fired both its steps in the skip (`0.000->0.529: 2 fired`).
+Nothing was lost; the footsteps were fired a frame earlier, in a skip frame, where a footstep only reads.
+
+**Fixed:** `EntityModelSet.Paused` is the frametime test; `FramePresenter.ShowMomentOver` sets it from the frame's
+demo seconds and `ReplaySkip` clears it for its own frames. Conformance: `AnimationEventWalkConformanceTests` (Scene),
+three cases in `FramePresenterSeekTests`. `PausedSoundUiTests` now plays its own viewer at 8x, pauses it through the
+transport button, and requires no footstep after — its old control, footsteps at the paused opening tick, was this bug.
+
+**What a user hears differently:** no footsteps at a paused tick — not at the opening, not after a seek made while
+paused. On the first frame after pressing play, each player may sound one catch-up step for the span since the
+skip's last frame; that is the engine's own behaviour.
+
+**Left open, each a divergence that was read and not fixed:**
+
+- The decal replay poses ticks with `WalksEvents` off but still advances `_clientCycles`, so the cycle the first
+  frame after a seek has (integrated from the replay's first tick: 0.982 for entity 5 above) is not the skip's
+  (closed form: 1.000). The engine has no such pass.
+- `NotifyShouldTransmit( SHOULDTRANSMIT_START )` sets `m_nEventSequence = GetSequence()` and takes the parity with
+  no reset (`c_baseanimating.cpp:4670-4678`). Not ported: an entity back in the PVS on a new sequence restarts here
+  and does not there. And `_eventStates` starts an unseen entity at sequence 0, not the constructor's −1 — right for
+  a player if START runs before the animation state picks a sequence, wrong otherwise; which it is needs the
+  engine's packet-entities code (`CL_CopyNewEntity`, FUN_180087c40, does not make the call).
+- `C_BaseAnimatingOverlay::DoAnimationEvents` (`c_baseanimatingoverlay.cpp:428-549`): a gesture layer's events are
+  walked nowhere here. Re-read, not started.
+- A skip frame here is 99 ticks; the engine's depends on its host frame (finding 31), so which step the first
+  playing frame catches up cannot be matched to a given TF2 run.

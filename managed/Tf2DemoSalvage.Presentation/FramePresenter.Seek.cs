@@ -60,6 +60,10 @@ public sealed partial class FramePresenter
         _skipHudFrame = skipHudFrame;
         _seekDevice = device;
 
+        // `gpGlobals->frametime`, which is all `C_BaseAnimating::Simulate` asks before walking events (B541). Set before
+        // the moment is shown because its pose follows, and reads it.
+        _models.Paused = frame.DemoFrameSeconds == 0d;
+
         ShowMomentNow(tick);
     }
 
@@ -171,6 +175,12 @@ public sealed partial class FramePresenter
         _moment.EntitiesOnly = true;
         _models.SimulatesOnly = true;
 
+        // `CDemoPlayer::IsPlaybackPaused` answers false while skipping whatever the pause flag says (engine.dll
+        // FUN_1800729f0), so a skip's frames have a frametime and walk their events; the frame it lands on has the flag's.
+        bool paused = _models.Paused;
+
+        _models.Paused = false;
+
         try
         {
             foreach (int through in throughs)
@@ -233,6 +243,7 @@ public sealed partial class FramePresenter
             _models.HoldsCorpses = false;
             _moment.EntitiesOnly = false;
             _models.SimulatesOnly = false;
+            _models.Paused = paused;
         }
 
         _sound.Skipped(new SoundSkip(from, target, frames));

@@ -1048,6 +1048,16 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     /// </remarks>
     public bool WalksEvents { get; set; } = true;
 
+    /// <summary>Whether this frame covers no demo time — `gpGlobals->frametime == 0`, a paused demo — so no event is walked (B541).</summary>
+    /// <remarks>
+    /// `C_BaseAnimating::Simulate` calls `DoAnimationEvents` only `if ( gpGlobals->frametime != 0.0f )`
+    /// (`c_baseanimating.cpp:5162`), and the client's frametime is zero while `demoplayer->IsPlaybackPaused()`
+    /// (`CClientState::GetFrameTime`, engine.dll FUN_1800a2d40). **Not while it skips**: `IsPlaybackPaused` answers
+    /// false for the length of a skip whatever the pause flag says (FUN_1800729f0), so a skip's frames walk. The walk's
+    /// state is untouched by a paused frame, so the first frame time moves again walks from the last one it did.
+    /// </remarks>
+    public bool Paused { get; set; }
+
     /// <summary>Whether a pose only advances cycles and walks events — a skip's frame, which draws nothing (B504).</summary>
     public bool SimulatesOnly { get; set; }
 
@@ -1070,6 +1080,9 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
     private void Simulate(IReadOnlyList<SceneProp> props, double seconds, bool fireEvents = true)
     {
         _simulatedSeconds = seconds;
+
+        // `if ( gpGlobals->frametime != 0.0f ) DoAnimationEvents(...)` (`c_baseanimating.cpp:5162`) — see `Paused`.
+        bool walks = fireEvents && WalksEvents && !Paused;
 
         // **Indexed first, because a placement follows its parent chain up** and the chain can
         // point anywhere in the list. This is what CalcAbsolutePosition walks (c_baseentity.cpp:4387).
@@ -1221,7 +1234,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // advances the cycle and walks the events, which is all a skip's frame needs.
             if (SimulatesOnly)
             {
-                if (fireEvents && WalksEvents && _walked.Add(prop.EntityIndex))
+                if (walks && _walked.Add(prop.EntityIndex))
                 {
                     AnimationEvents(prop, skinned, sequence, phase);
                 }
@@ -1274,7 +1287,7 @@ public sealed class EntityModelSet : Hud.IMdlCache, IPosedEntities
             // The engine's own call site is the same place: `C_BaseAnimating::FrameAdvance` runs
             // the cycle forward and then dispatches, so an event is noticed on the frame the
             // animation reached it rather than on the packet that mentioned the sequence.
-            if (fireEvents && WalksEvents && _walked.Add(prop.EntityIndex))
+            if (walks && _walked.Add(prop.EntityIndex))
             {
                 AnimationEvents(prop, skinned, sequence, phase);
             }
