@@ -2819,7 +2819,8 @@ is the "wrong condition" failure: the fix is a different input, not a stronger a
 
 ### The residual eight per cent was two separate things, and neither was a gap
 
-**Backfill closed the first.** A player is sighted for a few frames before the resource first
+**Backfill closed the first** (since D217 a read-time table, `FirstStatedRoster`, and recorded as an addition above
+the engine, which does not do this). A player is sighted for a few frames before the resource first
 mentions them. The whole demo is in hand, so the earliest stated team and class are carried
 backwards to that player's first sighting — which a streaming parser cannot do, and which is why
 taking team from `player_spawn` is a worse trade: a demo beginning mid-round has no spawn event to

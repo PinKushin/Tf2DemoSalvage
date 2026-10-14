@@ -10106,3 +10106,22 @@ its by-reference answer. `ScenePose` itself is unchanged, so no reader or constr
   value. The repeat test compares lists by reference and the timeline builds fresh lists, so they are kept. Collapsing
   them would move `AppliedAt`/`HeldUntil` indices, so it waits for the checkpoint work rather than riding on this.
 
+**An ADDITION above the engine, kept: the first-stated team and class (2026-10-14).** `Backfill` gave a player sighted
+before `CTFPlayerResource` mentions them the earliest team and class the demo ever states. The engine has no such thing:
+`C_PlayerResource::GetTeam` (`c_playerresource.cpp:172`) returns `m_iTeam[iIndex]` as received, so TF2 shows that player
+unassigned until the resource says otherwise. Asked whether to drop it for parity, the owner kept it, in his words:
+*"it seems like something smalll we can do a whatbove what tf2 does"*, and *"i dont really mind a divergence if its a
+added feature, we cant drop anything valve does, adding to it to be better is OK, but can come with own problems down
+the road,, because theres probably a reason valve doesnt do it"* (`docs/memory/an-addition-above-valve-is-allowed.md`).
+- **Open question, not answered:** why Valve does not do it. The client plays a demo forward and cannot see a value
+  before it arrives; whether there is a reason beyond that (a team that is genuinely unassigned at first, a class
+  chosen after the first sighting) is unknown.
+- **Shape, so the builder stays resumable:** `Backfill` rewrote finished frames after the pass. Now `FirstStatedRoster`
+  records each player's first statement as each frame becomes final (only the last frame is ever replaced), and
+  `TimelineFrames` fills a frame from it when the frame is READ. No frame is rewritten; the table is cloneable.
+- Output identical: `timeline-fingerprint` hashes unchanged on f12, rgl-pug-2026-08-10-pov and
+  movement-test-pov-cp_process. **But the control says that proves little:** with the table disconnected the three
+  hashes are ALSO unchanged — none of those demos has a player sighted before a stated team or class — so the fill is
+  held by an authored demo instead (`FirstStatedRosterTests`, which reddens when the table is disconnected or fed only
+  the final frame).
+

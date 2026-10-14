@@ -1490,7 +1490,7 @@ public sealed class DemoTimeline
         "DT_TFPlayerScoringDataExclusive.m_iHealth",
     ];
 
-    private readonly List<TimelineFrame> _frames;
+    private readonly TimelineFrames _frames;
 
     private readonly List<ScenePropTrack> _props;
 
@@ -1606,7 +1606,8 @@ public sealed class DemoTimeline
         List<(int Tick, ViewFog Fog)>? fog = null,
         List<SceneSound>? sounds = null,
         List<(int Tick, SceneSoundscape Soundscape)>? soundscapes = null,
-        List<(int Tick, DirectorShot Shot)>? director = null)
+        List<(int Tick, DirectorShot Shot)>? director = null,
+        FirstStatedRoster? firstStated = null)
     {
         _director = director ?? [];
         _soundscapes = soundscapes ?? [];
@@ -1638,7 +1639,7 @@ public sealed class DemoTimeline
         _viewmodelsNameOwners =
             _viewmodels.Exists(recorded => recorded.Weapon.OwnerEntityIndex is not null);
 
-        _frames = frames;
+        _frames = new TimelineFrames(frames, firstStated ?? new FirstStatedRoster());
         _props = props ?? [];
         _playerTracks = playerTracks ?? [];
 
@@ -2223,10 +2224,10 @@ public sealed class DemoTimeline
     public double ClientInterpAmount { get; private init; }
 
     /// <summary>The first tick with positions, or zero when the demo has none.</summary>
-    public int FirstTick => _frames.Count > 0 ? _frames[0].Tick : 0;
+    public int FirstTick => _frames.Count > 0 ? _frames.TickAt(0) : 0;
 
     /// <summary>The last tick with positions, or zero.</summary>
-    public int LastTick => _frames.Count > 0 ? _frames[^1].Tick : 0;
+    public int LastTick => _frames.Count > 0 ? _frames.TickAt(_frames.Count - 1) : 0;
 
     /// <summary>Seconds per tick, as the server that recorded this demo ran.</summary>
     /// <remarks>
@@ -2640,6 +2641,9 @@ public sealed class DemoTimeline
         TonemapFeed tonemap = new();
 
         List<TimelineFrame> frames = [];
+
+        // Each player's first-stated team and class, filled into earlier frames when they are READ (D217).
+        FirstStatedRoster firstStated = new();
 
         float interval = 0f;
 
@@ -3992,10 +3996,19 @@ public sealed class DemoTimeline
                 continue;
             }
 
+            // The frame before is final now — only the last frame is ever replaced — so the roster may read it.
+            if (frames.Count > 0)
+            {
+                firstStated.Observe(frames[^1]);
+            }
+
             frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
         }
 
-        Backfill(frames);
+        if (frames.Count > 0)
+        {
+            firstStated.Observe(frames[^1]);
+        }
 
         // **The signon's sounds are the ambience already playing, and its clock is not the
         // recording's.** Measured on movement-test-pov-cp_process: six )ambient/machine_hum.wav
@@ -4051,7 +4064,7 @@ public sealed class DemoTimeline
 
         return new DemoTimeline(
             frames, props, playerTracks, viewCommands, viewmodels, fogSamples, sounds, soundscapes,
-            director)
+            director, firstStated)
         {
             MaxClients = maxClients,
             ClientInterpAmount = interpAmount,
@@ -5769,82 +5782,6 @@ public sealed class DemoTimeline
         }
     }
 
-    /// <summary>Gives a player their earliest known team and class before it was first stated.</summary>
-    /// <remarks>
-    /// **The whole demo is in hand, so a fact learned late can be applied early.** A player is
-    /// often sighted for a few frames before <c>CTFPlayerResource</c> says anything about them,
-    /// which leaves them greyed at the start of a recording and then correct for the rest of it —
-    /// about eight per cent of sightings on a modern demo.
-    ///
-    /// This is why reading entity state beats taking team from the <c>player_spawn</c> event, as a
-    /// streaming parser must: a demo that begins mid-round carries no spawn event, so that route
-    /// leaves the player on a default team until the next round. The resource states the answer
-    /// continuously, and building offline means the earliest statement can be carried backwards.
-    ///
-    /// **Backwards only to a player's first sighting, and only from their first known value.** A
-    /// team can genuinely change mid-match, so nothing here overwrites a value the demo stated —
-    /// it fills the gap before the first one and stops.
-    /// </remarks>
-    private static void Backfill(List<TimelineFrame> frames)
-    {
-        Dictionary<int, (int? Team, int? PlayerClass)> earliest = [];
-
-        foreach (TimelineFrame frame in frames)
-        {
-            foreach (ScenePlayer player in frame.Players)
-            {
-                if (earliest.ContainsKey(player.EntityIndex))
-                {
-                    continue;
-                }
-
-                if (player.Team is not null || player.PlayerClass is not null)
-                {
-                    earliest[player.EntityIndex] = (player.Team, player.PlayerClass);
-                }
-            }
-        }
-
-        if (earliest.Count == 0)
-        {
-            return;
-        }
-
-        for (int index = 0; index < frames.Count; index++)
-        {
-            TimelineFrame frame = frames[index];
-            List<ScenePlayer>? replaced = null;
-
-            for (int at = 0; at < frame.Players.Count; at++)
-            {
-                ScenePlayer player = frame.Players[at];
-
-                if (player.Team is not null && player.PlayerClass is not null)
-                {
-                    continue;
-                }
-
-                if (!earliest.TryGetValue(player.EntityIndex, out (int? Team, int? PlayerClass) known))
-                {
-                    continue;
-                }
-
-                replaced ??= [.. frame.Players];
-
-                replaced[at] = player with
-                {
-                    Team = player.Team ?? known.Team,
-                    PlayerClass = player.PlayerClass ?? known.PlayerClass,
-                };
-            }
-
-            if (replaced is not null)
-            {
-                frames[index] = frame with { Players = replaced };
-            }
-        }
-    }
-
     /// <summary>Every model that existed at a tick, with the pose it held then.</summary>
     /// <param name="tick">The moment being shown, which may fall between ticks.</param>
     /// <param name="into">Filled with the visible models; cleared first.</param>
@@ -6639,7 +6576,7 @@ public sealed class DemoTimeline
         {
             int middle = low + ((high - low) / 2);
 
-            if (_frames[middle].Tick <= tick)
+            if (_frames.TickAt(middle) <= tick)
             {
                 found = middle;
                 low = middle + 1;
