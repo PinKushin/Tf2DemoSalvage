@@ -855,7 +855,10 @@ public sealed class ScenePropTrack
     /// <see cref="_simulation"/>, <see cref="_animation"/> and <see cref="_poseParameters"/> — one per
     /// registered variable, as the engine keeps them, which is the whole of B382.
     /// </remarks>
-    private readonly List<(int Tick, ScenePose Pose)> _keyframes = [];
+    private readonly PoseKeyframes _keyframes = new();
+
+    /// <summary>The pose last stored, as the caller gave it, for the repeat test in <c>Add</c>.</summary>
+    private ScenePose _lastAdded;
 
     /// <summary>
     /// Origin and angles, stamped with <c>GetSimulationTime()</c> (B382).
@@ -1484,7 +1487,7 @@ public sealed class ScenePropTrack
     /// <param name="tick">The moment being sampled.</param>
     /// <returns>Whether the track answers a pose at that tick.</returns>
     public bool Alive(double tick) =>
-        _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes[0].Tick;
+        _keyframes.Count > 0 && tick < _endTick && tick >= _keyframes.TickAt(0);
 
     /// <summary>The prop this track currently answers, kept between rebuilds; null while absent.</summary>
     /// <remarks>
@@ -1540,12 +1543,12 @@ public sealed class ScenePropTrack
         // interpolation says nothing about any of them — so they are wakes whatever else is true.
         double next = HeldChangesAfter(tick);
 
-        if (_keyframes.Count == 0 || tick < _keyframes[0].Tick || tick >= _endTick)
+        if (_keyframes.Count == 0 || tick < _keyframes.TickAt(0) || tick >= _endTick)
         {
             return (false, next);
         }
 
-        int born = _keyframes[0].Tick;
+        int born = _keyframes.TickAt(0);
         int now = (int)Math.Floor(tick);
         double target = tick - InterpolationDelayTicks;
 
@@ -1650,14 +1653,14 @@ public sealed class ScenePropTrack
             return double.PositiveInfinity;
         }
 
-        if (tick < _keyframes[0].Tick)
+        if (tick < _keyframes.TickAt(0))
         {
-            return _keyframes[0].Tick;
+            return _keyframes.TickAt(0);
         }
 
         int state = IndexAt((int)Math.Floor(tick));
 
-        double next = state + 1 < _keyframes.Count ? _keyframes[state + 1].Tick : double.PositiveInfinity;
+        double next = state + 1 < _keyframes.Count ? _keyframes.TickAt(state + 1) : double.PositiveInfinity;
 
         // **The track's own death, which is an EVENT and not a prediction.** `Alive` stops answering at
         // `_endTick`, so a track still has to be looked at once more to be dropped. Leaving it out kept a
@@ -1696,7 +1699,7 @@ public sealed class ScenePropTrack
     /// twice; this is the number the interpolation used.
     /// </remarks>
     public int AppliedAt(int index) =>
-        _appliedAt.Count > index ? _appliedAt[index] : _keyframes[index].Tick;
+        _appliedAt.Count > index ? _appliedAt[index] : _keyframes.TickAt(index);
 
     /// <summary>The last tick the demo restated a keyframe's pose, which is where movement begins.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1708,7 +1711,7 @@ public sealed class ScenePropTrack
     /// movement from the duration of a hold.
     /// </remarks>
     public int HeldUntil(int index) =>
-        _heldUntil.Count > index ? _heldUntil[index] : _keyframes[index].Tick;
+        _heldUntil.Count > index ? _heldUntil[index] : _keyframes.TickAt(index);
 
     /// <summary>When the ANIMATION in a keyframe applied, which is the engine's other clock.</summary>
     /// <param name="index">Which keyframe, indexed as <see cref="Keyframes"/> is.</param>
@@ -1718,10 +1721,10 @@ public sealed class ScenePropTrack
     /// asserted on real bytes without a test re-deriving it and checking its own arithmetic twice.
     /// </remarks>
     public int AnimationAppliedAt(int index) =>
-        _animationAppliedAt.Count > index ? _animationAppliedAt[index] : _keyframes[index].Tick;
+        _animationAppliedAt.Count > index ? _animationAppliedAt[index] : _keyframes.TickAt(index);
 
     /// <summary>The first tick this entity was seen at.</summary>
-    public int FirstTick => _keyframes.Count > 0 ? _keyframes[0].Tick : int.MaxValue;
+    public int FirstTick => _keyframes.Count > 0 ? _keyframes.TickAt(0) : int.MaxValue;
 
     /// <summary>Works out what a model reference names.</summary>
     /// <param name="modelPath">The reference, as <c>modelprecache</c> carried it.</param>
@@ -1888,7 +1891,9 @@ public sealed class ScenePropTrack
         _lastSimulationTime = appliedAt;
         _lastAnimationTime = animationAppliedAt;
 
-        if (_keyframes.Count > 0 && _keyframes[^1].Pose == pose)
+        // Against the pose the caller last GAVE, not the stored one: a stored keyframe may share a value-equal list
+        // from an earlier keyframe (D217), and this test has always compared lists by reference.
+        if (_keyframes.Count > 0 && _lastAdded == pose)
         {
             // **Dropped from the list but not from the record.** Collapsing a repeat saves the
             // memory it is there to save; forgetting WHEN it was last repeated throws away the only
@@ -1904,7 +1909,8 @@ public sealed class ScenePropTrack
             return;
         }
 
-        _keyframes.Add((tick, pose));
+        _keyframes.Add(tick, pose);
+        _lastAdded = pose;
         _heldUntil.Add(appliedAt);
         _appliedAt.Add(appliedAt);
         _animationAppliedAt.Add(animationAppliedAt);
@@ -2005,7 +2011,7 @@ public sealed class ScenePropTrack
         // The moment being drawn, one interpolation window behind the moment being asked for.
         double target = tick - InterpolationDelayTicks;
 
-        if (target <= _keyframes[0].Tick)
+        if (target <= _keyframes.TickAt(0))
         {
             // Nothing had been received yet, so the first stated pose is all a client would have.
             return _keyframes[0].Pose;
@@ -2569,7 +2575,7 @@ public sealed class ScenePropTrack
             // midpoint is low, the branch assigns low to itself and the loop never ends.
             int middle = low + ((high - low + 1) / 2);
 
-            if (_keyframes[middle].Tick <= tick)
+            if (_keyframes.TickAt(middle) <= tick)
             {
                 low = middle;
             }

@@ -33,7 +33,7 @@ public sealed class TimelineFingerprintProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "hash of every value a timeline's frames and SoundscapeAt answer, to compare decoder builds: timeline-fingerprint <demo>";
+        "hash of every value a timeline's frames, prop keyframes and SoundscapeAt answer, to compare decoder builds: timeline-fingerprint <demo>";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -59,9 +59,26 @@ public sealed class TimelineFingerprintProbe : IProbe
             Append(soundscapes, timeline.SoundscapeAt(frame.Tick), ref values);
         }
 
+        // Every track in the timeline's own order: its identity and each stored keyframe (D217).
+        using IncrementalHash props = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+        foreach (ScenePropTrack track in timeline.Props.Concat(timeline.PlayerTracks).Distinct())
+        {
+            Append(props, track.EntityIndex, ref values);
+            Append(props, track.SerialNumber, ref values);
+            Append(props, track.EndTick, ref values);
+
+            foreach ((int tick, ScenePose pose) in track.Keyframes)
+            {
+                Append(props, tick, ref values);
+                Append(props, pose, ref values);
+            }
+        }
+
         output.WriteLine($"{Path.GetFileName(path)}: {timeline.Frames.Count} frames, {values} values");
         output.WriteLine($"  frames      {Convert.ToHexString(frames.GetHashAndReset())}");
         output.WriteLine($"  soundscapes {Convert.ToHexString(soundscapes.GetHashAndReset())}");
+        output.WriteLine($"  props       {Convert.ToHexString(props.GetHashAndReset())}");
     }
 
     private static void Append(IncrementalHash hash, object? value, ref long values)

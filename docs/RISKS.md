@@ -8540,6 +8540,11 @@ timing, memory and timeline-heap columns excluded); a planted difference is foun
 1,498 → 812 MB), every answer identical by `timeline-fingerprint`. Still ~34x the file; the checkpointed timeline that
 would make it ~1x is filed in D217 with what it needs. The 1.3 GB demo was not attempted.
 
+**2026-10-14 (D217), second step:** prop keyframes keep position and angles inline and share the rest with the
+keyframe before. f12 1,981 → 1,235 MB (keyframes 856 → 108 MB), rgl-pug-2026-08-10-pov 2,422 → 1,401 MB (keyframes
+1,199 → 175 MB); identical `timeline-fingerprint` hashes, which now cover prop keyframes too, on f12, rgl-pug and
+movement-test. Still ~21x and ~27x the file; frames (812 and 823 MB) are now the largest holder.
+
 **Still open, on purpose:** `DemoTimeline` keeps per-tick state at B439's 40–84x and reads the whole file; the census
 reads it only for that stage, after its budget check. Probes keep `File.ReadAllBytes`; each answers a question
 about one tick of one demo, and none was named in B449.

@@ -10088,3 +10088,21 @@ every frame tick: identical before and after on f12, rgl-pug-2026-08-10-pov and 
 **Next, by the same measure:** prop keyframes (`ScenePose`, 336 bytes each) are now the largest holder, then the
 checkpoint design above.
 
+**Owner, 2026-10-14, how this should work.** He asked how video editors seek without holding the raw footage. The
+answer recorded: keyframes plus decode-forward, an index, and a cache near the playhead — our pre-parse becomes the
+encoder that inserts the keyframes. On `BuildTimeline` having to be made resumable for that, in his words: *"it should
+have been, but thats fine we fix it now"*.
+
+**Second step, prop keyframes, with no answer changed.** `prop-churn` (new) counted which `ScenePose` members change
+between a track's consecutive keyframes on f12: X and Y 71%, Z and yaw 43%, pitch 23%, roll 6%, and nothing else above
+1.3%. `PoseKeyframes` now stores position and angles inline and shares the rest with the keyframe before whenever every
+value in it is equal, lists element by element; the track's repeat test compares against the pose last GIVEN, so it keeps
+its by-reference answer. `ScenePose` itself is unchanged, so no reader or constructor moved.
+- f12: 1,981 → 1,235 MB (keyframes 856 → 108). rgl-pug: 2,422 → 1,401 MB (keyframes 1,199 → 175). Frames, 812 and
+  823 MB, are now the largest holder.
+- `timeline-fingerprint` now hashes every track's keyframes too (it did not before, so the first step never proved
+  them); identical before and after on f12, rgl-pug-2026-08-10-pov and movement-test-pov-cp_process.
+- **Found on the way, not changed:** 310,948 of f12's 1,492,310 stored keyframes (21%) equal the one before in every
+  value. The repeat test compares lists by reference and the timeline builds fresh lists, so they are kept. Collapsing
+  them would move `AppliedAt`/`HeldUntil` indices, so it waits for the checkpoint work rather than riding on this.
+
