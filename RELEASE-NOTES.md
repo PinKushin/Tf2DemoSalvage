@@ -9,6 +9,11 @@
 - **The Settings menu and your key binds now agree.** A bind starts from whatever the menu last set, so turning the
   position readout on in the menu and then pressing a `toggle cl_showpos` key turns it off on the first press, and a
   value a key sets shows as checked in the menu.
+- **A console variable reads back the way TF2 stores it.** The value is kept as you typed it. The exception is a
+  variable with limits that your value went past: it then reads back as the limit. Three variables have limits:
+  `viewmodel_fov` (0.1 to 179.9), `cl_interp` (0 to 0.5) and `mat_vsync` (0 to 1). This matters to `toggle` with a
+  list of values, which moves on from the value the variable actually holds. A variable the viewer does not
+  implement is also remembered once, not twice (B543).
 
 ## Changes in 0.1.0-beta.43
 
@@ -654,9 +659,6 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   punch, landing on moving or descending ground, the grappling hook's safe-fall reset, `sv_footsteps 0` and
   Mann vs. Machine's volume rule.
 - **Gesture and overlay layer animation events are not sounded** (B541).
-- **A config line that sets a client console variable from a bind or an alias is stored but not applied while
-  the viewer runs.** `bind key "cl_showpos 1"` is an example. `toggle` and `incrementvar` are not implemented. The
-  bare `bind key cl_showpos` works (D215).
 - **Cosmetics are not drawn in first person** (B186).
 - **Switching demos without restarting the viewer gets slower** (B148).
 - **Demos recorded in late June 2011 were malformed by the game itself** and may not decode (B144).
