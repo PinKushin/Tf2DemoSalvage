@@ -77,12 +77,14 @@ public sealed class ViewerMenuTests
         // **Fourteen since 2026-08-29**: `cl_showpos`, beside `cl_showfps` because Valve's own
         // `CFPSPanel` draws both (D123). Added as an instrument for reading positions off a
         // screenshot, on the owner's direction.
+        //
+        // **Fifteen since 2026-10-14**: Volume, TF2's `volume` and `snd_mute_losefocus` (D218).
         using MainForm form = new();
 
         ToolStripMenuItem view = form.MainMenuStrip!.Items.OfType<ToolStripMenuItem>()
             .Single(item => item.Name == MainForm.ViewMenuId);
 
-        view.DropDownItems.Count.ShouldBe(14);
+        view.DropDownItems.Count.ShouldBe(15);
     }
 
     [Test]
