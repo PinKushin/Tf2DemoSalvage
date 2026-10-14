@@ -14,14 +14,21 @@ namespace Tf2DemoSalvage.Core.Net;
 /// Whether <c>FCVAR_USERINFO</c> is set — the RECORDER's value travels in the <c>userinfo</c> string
 /// table, so a demo carries it even though no server sent it.
 /// </param>
+/// <param name="Min">The declared hard lower bound (`bHasMin, fMin`), or null when there is none.</param>
+/// <param name="Max">The declared hard upper bound (`bHasMax, fMax`), or null when there is none.</param>
 /// <remarks>
+/// **The bounds are what `ConVar::ClampValue` applies** (`tier1/convar.cpp:891`, `:897`): a set outside them stores
+/// `"%f"` of the bound, and every other set keeps its string as written (`:794-806`). The competitive pair is not
+/// carried; it applies only under competitive restrictions. Read from the SDK declaration, or for an engine-side cvar
+/// from TF2's own `help name`, which prints `min.`/`max.` when they are set (`convar.cpp:1432-1436`).
+///
 /// **The default is a string because Valve's is a string.** `ConVar( "sv_maxspeed", "320", … )`
 /// takes a literal, and the engine parses it on demand — so a declaration that stored `320f` would
 /// have made a decision the engine leaves open, and would be unable to carry `sv_downloadurl`.
 /// <see cref="Number"/> is the parse, at the point of use.
 /// </remarks>
 public sealed record EngineConVar(
-    string Name, string Default, bool Replicated, bool Cheat, bool UserInfo = false)
+    string Name, string Default, bool Replicated, bool Cheat, bool UserInfo = false, float? Min = null, float? Max = null)
 {
     /// <summary>The default as a number, for the ones that are numbers.</summary>
     /// <exception cref="FormatException">The default is not numeric, so a caller asked wrongly.</exception>
@@ -117,7 +124,7 @@ public static class EngineConVars
         // not the others gets a plausible number and the wrong one — see
         // InterpolationConVarConformanceTests, which writes the formula down without implementing
         // it. Nothing consumes these yet, deliberately.
-        new("cl_interp", "0.1", Replicated: false, Cheat: false, UserInfo: true),
+        new("cl_interp","0.1", Replicated: false, Cheat: false, UserInfo: true, Min: 0f, Max: 0.5f), // cdll_bounded_cvars.cpp:104
         new("cl_interp_ratio", "2.0", Replicated: false, Cheat: false, UserInfo: true),
         new("cl_updaterate", "20", Replicated: false, Cheat: false, UserInfo: true),
         new("sv_client_min_interp_ratio", "1", Replicated: true, Cheat: false),
@@ -158,11 +165,43 @@ public static class EngineConVars
         new("cl_drawleaf", "-1", Replicated: false, Cheat: true),
         new("cl_first_person_uses_world_model", "0", Replicated: false, Cheat: false),
 
-        // Declared so a set keeps its string as written, as the engine does (B543): view.cpp:111 (FCVAR_ARCHIVE,
-        // bounds 0.1..179.9), clientmode_tf.cpp:570 and util_shared.cpp:45 (no bounds).
-        new("viewmodel_fov", "54", Replicated: false, Cheat: false),
-        new("viewmodel_fov_demo", "54", Replicated: false, Cheat: false),
-        new("developer", "0", Replicated: false, Cheat: false),
+        // **Every other ConVar `ViewerSettings` implements**, declared so a set keeps its string as written, as the
+        // engine does (B543). Defaults and bounds from the SDK line cited; engine-side ones (no SDK line) from TF2's own
+        // `help <name>`, 2026-10-14, which prints `def.` and `min.`/`max.` (convar.cpp:1432-1436).
+        new("viewmodel_fov", "54", Replicated: false, Cheat: false, Min: 0.1f, Max: 179.9f), // view.cpp:111
+        new("viewmodel_fov_demo", "54", Replicated: false, Cheat: false),                    // tf/clientmode_tf.cpp:570
+        new("developer", "0", Replicated: false, Cheat: false),                              // util_shared.cpp:45
+        new("fps_max", "400", Replicated: false, Cheat: false),                              // engine; help
+        new("engine_no_focus_sleep", "50", Replicated: false, Cheat: false),                 // engine; help
+        new("mat_vsync", "0", Replicated: false, Cheat: false, Min: 0f, Max: 1f),            // engine; help
+        new("cl_showfps", "0", Replicated: false, Cheat: false),                             // vgui_fpspanel.cpp:27
+        new("r_3dsky", "1", Replicated: false, Cheat: false),                                // viewrender.cpp:113
+        new("cl_detaildist", "1200", Replicated: false, Cheat: false),                       // detailobjectsystem.cpp:52
+        new("cl_detailfade", "400", Replicated: false, Cheat: false),                        // detailobjectsystem.cpp:53
+        new("r_drawviewmodel", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:116
+        new("mat_phong", "1", Replicated: false, Cheat: false),                              // engine; help
+        new("cl_drawmonitors", "1", Replicated: false, Cheat: false),                        // viewrender.cpp:168
+        new("cl_flipviewmodels", "0", Replicated: false, Cheat: false, UserInfo: true),      // c_baseviewmodel.cpp:44
+        new("tf_use_min_viewmodels", "0", Replicated: false, Cheat: false),                  // tf/tf_viewmodel.cpp:125
+        new("mat_hdr_level", "2", Replicated: false, Cheat: false),                          // viewpostprocess.cpp:41
+        new("spec_autodirector", "1", Replicated: false, Cheat: false),                      // hltvcamera.cpp:25
+        new("mat_disable_bloom", "0", Replicated: false, Cheat: false),                      // viewpostprocess.cpp:57
+        new("mat_force_tonemap_scale", "0.0", Replicated: false, Cheat: true),               // viewpostprocess.cpp:1128
+        new("mat_specular", "1", Replicated: false, Cheat: false),                           // engine; help
+        new("mat_fullbright", "0", Replicated: false, Cheat: true),                          // c_rope.cpp:82
+        new("r_dopixelvisibility", "1", Replicated: false, Cheat: false),                    // c_pixel_visibility.cpp:24
+        new("cl_drawhud", "1", Replicated: false, Cheat: true),                              // clientmode_shared.cpp:81
+        new("hud_medichealtargetmarker", "0", Replicated: false, Cheat: false),              // tf/tf_weapon_medigun.cpp:205
+        new("demo_fov_override", "0", Replicated: false, Cheat: false),                      // c_baseplayer.cpp:120
+        new("r_decals", "2048", Replicated: false, Cheat: false),                            // EffectsClient.cpp:77
+        new("r_maxmodeldecal", "50", Replicated: false, Cheat: false),                       // matsys_controls/mdlpanel.cpp:276
+        new("crosshair", "1", Replicated: false, Cheat: false),                              // hud_crosshair.cpp:32
+        new("cl_observercrosshair", "1", Replicated: false, Cheat: false),                   // hud_crosshair.cpp:33
+        new("cl_crosshair_red", "200", Replicated: false, Cheat: false),                     // tf/tf_hud_crosshair.cpp:23
+        new("cl_crosshair_green", "200", Replicated: false, Cheat: false),                   // tf/tf_hud_crosshair.cpp:24
+        new("cl_crosshair_blue", "200", Replicated: false, Cheat: false),                    // tf/tf_hud_crosshair.cpp:25
+        new("cl_crosshair_scale", "32.0", Replicated: false, Cheat: false),                  // tf/tf_hud_crosshair.cpp:29
+        new("tf_hud_no_crosshair_on_scope_zoom", "0", Replicated: false, Cheat: false),      // tf/clientmode_tf.cpp:599
 
         // **What `CDemoPlayer::InterpolateViewpoint` reads** (`0x180072180`, B56). Engine ConVars, absent from the SDK:
         // `ConVar::ConVar` calls at 0x180003bea, 0x180003baa, 0x180003a2a and 0x180003c2a, every one with no flags —

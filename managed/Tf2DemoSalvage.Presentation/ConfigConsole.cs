@@ -39,7 +39,7 @@ namespace Tf2DemoSalvage.Presentation;
 ///
 /// Client ConVars are kept, and one set by a key at run time is announced through <see cref="ConVarSet"/> (D215),
 /// including by `toggle`, `incrementvar` and `multvar`. Once <see cref="ReadSettingsFrom"/> attaches the viewer's
-/// settings, a ConVar they implement is read from them and no longer kept here.
+/// settings, every client ConVar is read from them and no longer kept here.
 ///
 /// **What it deliberately does not implement**: `exec`, `wait`, and the several hundred game commands this viewer has no concept of. Those are skipped in
 /// silence — a config is mostly commands we ignore, and objecting to them would reject every real
@@ -745,14 +745,18 @@ public sealed class ConfigConsole
             return;
         }
 
-        // Everything else is a cvar, an exec, or a game command; only a cvar is kept.
-        SetConVar(tokens);
+        // Everything else is a cvar, an exec, or a game command; only a cvar is kept. Once the settings are attached
+        // they are its one copy (D215), so a config line read after that reaches them as a run-time set does.
+        if (SetConVar(tokens) && _settingValue is not null)
+        {
+            ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+        }
     }
 
-    /// <summary>A client ConVar's value as the configs last set it, or null when none did.</summary>
+    /// <summary>A client ConVar's value as last set — through the attached settings, else the configs — or null when none did.</summary>
     /// <param name="name">The ConVar's engine name.</param>
     /// <returns>The value, or null.</returns>
-    public string? ConVar(string name) => _conVars.GetValueOrDefault(name);
+    public string? ConVar(string name) => _settingValue?.Invoke(name) ?? _conVars.GetValueOrDefault(name);
 
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
@@ -762,8 +766,8 @@ public sealed class ConfigConsole
             return false;
         }
 
-        // A ConVar the viewer implements is held by its settings alone once they are attached (D215): no second copy.
-        if (_settingValue is null || !ViewerSettings.Implements(declared.Name))
+        // Once the settings are attached they hold every client ConVar, implemented or not (D215): no second copy.
+        if (_settingValue is null)
         {
             _conVars[declared.Name] = tokens[1];
         }
@@ -848,8 +852,8 @@ public sealed class ConfigConsole
 
     /// <summary>A declared cvar's current string value, or null when no cvar has the name.</summary>
     /// <remarks>
-    /// The live settings first (D215), so a value the menu set is the value a key sees; then what a config set for a
-    /// ConVar the viewer does not implement; then the declared default.
+    /// The live settings first (D215), so a value the menu set is the value a key sees; then what a config set before
+    /// they were attached; then the declared default.
     /// </remarks>
     private string? CurrentValue(string name) =>
         !EngineConVars.TryByName(name, out EngineConVar? declared) ? null
