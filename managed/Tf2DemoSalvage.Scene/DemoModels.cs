@@ -354,6 +354,22 @@ public static class DemoModels
             }
         }
 
+        // **A sun names two, its core's and its glow's** (B378) — `m_nMaterial` and `m_nOverlayMaterial`, precached as
+        // models by `CSun::Activate` (`sun.cpp:173-174`). A sun has no track: it comes through its own feed.
+        foreach ((int _, SceneSun[] suns) in demo.Suns.Samples)
+        {
+            foreach (SceneSun sun in suns)
+            {
+                foreach (string? material in (string?[])[sun.Material, sun.OverlayMaterial])
+                {
+                    if (material is { Length: > 0 })
+                    {
+                        paths.Add(material);
+                    }
+                }
+            }
+        }
+
         return paths;
     }
 

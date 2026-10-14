@@ -129,6 +129,9 @@ internal static class MapCache
         RopeHolidayLights.FluffMaterial,
         "effects/repair_claw_trail_blue.vmt",
         "effects/beam001_white.vmt",
+
+        // The default `env_sun` material, core and glow (`sun.cpp:141-160`) — B378.
+        "sprites/light_glow02_add_noz.vmt",
     ];
 
     /// <summary>The default map with <see cref="EffectSprites"/> loaded beside it.</summary>
