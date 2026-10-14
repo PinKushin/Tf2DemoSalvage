@@ -39182,10 +39182,27 @@ owner saw the early full screen on screen before the log was read.
 small (one frame's footsteps at a paused tick), but nothing explains it, and an unexplained difference in which
 animation events fire is not known to stop at footsteps.
 
-**Not established.** Whether the opening frame's footsteps are themselves parity:
-`C_BaseAnimating::DoAnimationEvents` fires an event on the frame the cycle crosses it and resets its previous cycle
-on a reset, so the engine may fire none on the first frame after a seek, and the run WITH footsteps could be the
-one that is wrong. Read that function and its reset path before touching either behaviour.
+**The engine, read 2026-10-13 (published source), and it turns the entry round: the run WITH footsteps is the
+suspect.**
+
+- `C_BaseAnimating::Simulate` calls `DoAnimationEvents` only `if ( gpGlobals->frametime != 0.0f )`
+  (`c_baseanimating.cpp:5162`). A paused demo fires no animation event at all. Both runs were paused at the opening
+  tick, so eight footsteps there is the divergence and none is what the engine does.
+- On an entity's first call, or a new sequence, or a reset parity, `m_nEventSequence != GetSequence()` sets
+  `flEventCycle = 0.0f` and `m_flPrevEventCycle = -0.01` (`:3621-3635`): that frame fires only an event at cycle 0,
+  and the NEXT unpaused frame fires everything in `(0, cycle]`. So the engine does catch up from the start of the
+  sequence, one frame late, and only while time moves.
+- `NotifyShouldTransmit( SHOULDTRANSMIT_START )` sets `m_nEventSequence = GetSequence()` and
+  `m_nPrevResetEventsParity` without touching `m_flPrevEventCycle` (`:4670-4678`): an entity coming back into the PVS
+  takes no reset.
+- `m_flPrevEventCycle` is written in three places only, all inside `DoAnimationEvents` (`:3634`, `:3703`, `:3734`);
+  the constructor sets `m_nEventSequence = -1` and never the cycle. Nothing in a demo skip was found to reset it,
+  and who calls `Simulate` per frame was not read.
+- TF2 players: `C_TFPlayer::Simulate` skips `C_BasePlayer::Simulate` on purpose ("TF doesn't do step sounds based on
+  velocity, instead using anim events", `c_tf_player.cpp:9054`), and event 7001 in `C_TFPlayer::FireEvent` forces
+  `m_flStepSoundTime = 0` and calls `UpdateStepSound` (`:9066-9073`).
+
+Not established: what our pose path does with a zero frame time, and why the early full screen changes it.
 
 **Where to start.** What a frame drawn before the opening seek leaves in the per-entity previous-cycle state that the
 seek to the opening tick does not clear (`docs/memory/a-seek-rebuilds-what-playing-accumulated.md`).
