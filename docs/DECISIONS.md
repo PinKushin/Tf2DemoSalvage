@@ -10058,3 +10058,33 @@ the UI suite's key tests that follow a menu item fail and say where the key went
 (`docs/memory/a-uia-expanded-menu-eats-later-keys.md`; not re-read in Microsoft's source for this entry). Confirm
 that first, then delete the reflection, the pragma and `LeaveStrandedMenuMode`'s Escape pair with it.
 
+## D217 — the timeline is to become checkpoints plus decode-forward; the first step shares what does not change (2026-10-14)
+
+**Owner, in his words:** *"we need to have the whole thing for scrubbing, but not the whole thing as the whole thing
+i guess idk, the reason we preparse was to be able to scrub"*. He accepted full-state checkpoints every few seconds
+plus the demo's own bytes between them — a seek restores the nearest earlier checkpoint and decodes forward — and a
+scrub between checkpoints taking up to ~100–200 ms: *"yea thats fine"*. Goal: memory ~1x the file plus checkpoints.
+A seek must still produce exactly the state playing to that tick produces (B527, B438, B449).
+
+**Measured first** (`timeline-holders`, which releases each field and must sum to the total — it closed within 2 MB):
+f12, 58 MB, timeline 2,948 MB = frames 1,498 (an 800-byte `ScenePlayer` per player per frame), prop keyframes 856,
+soundscapes 281, everything else ~300.
+
+**Why not checkpoints yet.** `DemoTimeline.BuildTimeline` is one forward pass carrying ~60 locals (feeds,
+per-player dictionaries, tracks) beside `NetDecodeState` and the entity table, then post-passes (`Backfill`) that
+rewrite earlier frames; and every consumer reads random-access lists (`Frames`, `Props`' keyframe histories,
+`Sounds`). Checkpointing needs that state snapshot-able and those readers windowed — a larger change than one evening,
+and not one to make without the equivalence harness first. Interpolation by changetime and the post-passes are where
+a resumed decode could silently differ.
+
+**What this step did, with no answer changed** (`timeline-fingerprint` hashes every frame value and `SoundscapeAt` at
+every frame tick: identical before and after on f12, rgl-pug-2026-08-10-pov and movement-test-pov-cp_process):
+- Soundscapes keep one sample per tick, the last — the only one `SoundscapeAt` can return (B544 for whose it is).
+- `ScenePlayer`'s rarely-changing members moved to `ScenePlayerDetail`, a reference the timeline hands the next frame
+  whenever every value is equal (the B433 `SameAsBefore` pattern). `Velocity` and `Movement` stay inline: `player-churn`
+  measured them changing on 75% and 92% of f12's player-frames.
+- f12: 2,948 → 1,981 MB. rgl-pug: 2,422 MB after (keyframes 1,199, frames 824).
+
+**Next, by the same measure:** prop keyframes (`ScenePose`, 336 bytes each) are now the largest holder, then the
+checkpoint design above.
+

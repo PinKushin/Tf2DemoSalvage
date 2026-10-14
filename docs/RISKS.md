@@ -8536,6 +8536,10 @@ container, which ran out of memory under 6 GiB, now peaks under 80 MB with the a
 gcor before and after the change agrees in all 1,000 compared cells (10 demos, 100 of 114 columns — the
 timing, memory and timeline-heap columns excluded); a planted difference is found.
 
+**2026-10-14 (D217), first step only:** f12's timeline 2,948 → 1,981 MB (soundscapes 281 → 0 MB, frames
+1,498 → 812 MB), every answer identical by `timeline-fingerprint`. Still ~34x the file; the checkpointed timeline that
+would make it ~1x is filed in D217 with what it needs. The 1.3 GB demo was not attempted.
+
 **Still open, on purpose:** `DemoTimeline` keeps per-tick state at B439's 40–84x and reads the whole file; the census
 reads it only for that stage, after its budget check. Probes keep `File.ReadAllBytes`; each answers a question
 about one tick of one demo, and none was named in B449.
@@ -39347,4 +39351,14 @@ setting, so `viewmodel_fov 500` reads back as `"500"` although the viewer uses i
 the clamp, with a test per clamped ConVar. Also owed from the same branch: two of its five tests
 (`SettingsPresenterTests`, the menu showing a key-set value, and an unimplemented ConVar round-tripping) reddened
 under neither sabotage run and need one of their own.
+
+## B544 — a SourceTV demo's soundscape is whichever player the entity walk reaches last — OPEN, question
+
+**Found by D217's memory census** (2026-10-14). f12 (`demostf-cp_process_f12-2026-08-08-2207`, SourceTV) held
+1,055,037 soundscape samples for 96,589 frames: several players carry `m_audio` on the wire, contrary to
+`SceneSoundscape`'s remark that a SourceTV demo carries nobody's. The sampler keeps one value per demo, so
+`SoundscapeAt` answers with the last entity `entities.All` walks each tick. D217 stores only that value (886 samples,
+identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo should use. The engine answer is the
+local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
+before changing it. *Measured; the engine side not read.*
 
