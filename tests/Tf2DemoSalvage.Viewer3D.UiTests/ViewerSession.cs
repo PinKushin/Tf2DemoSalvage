@@ -278,7 +278,7 @@ internal sealed partial class ViewerSession
         KeyBindings.Defaults[ViewerAction.SwitchCameraMode].ShouldBe(
             "SPACE", "this presses SPACE below — rebind both together");
 
-        App.PressKey(VirtualKeyShort.SPACE);
+        App.PressRealKey(VirtualKeyShort.SPACE); // real key: the binding reaching the window is what every caller tests
     }
 
 

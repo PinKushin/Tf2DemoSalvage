@@ -404,9 +404,9 @@ public sealed class FirstPersonUiTests
         // does not care — a frame is a view or a wall regardless of what is in the hands.)
 
         // **One capture, taken because `ReportStructure` below needs a frame to count colours in.**
-        // F5 is TF2's screenshot key (B214) — it was F12 until the default moved, which TF2 gives to
-        // replay tips and Steam's overlay claims as well.
-        Viewer.PressKey(VirtualKeyShort.F5);
+        // Through the menu item rather than the screenshot key: the key is not this test's subject,
+        // and the item needs neither the foreground nor a key press (D215).
+        Viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.ScreenshotItemName);
 
         // Waited on so the file exists before it is read. **Not asserted here**: that a screenshot
         // gets written is `ViewportPictureUiTests`'s subject, and duplicating it would mean two
@@ -538,7 +538,8 @@ public sealed class FirstPersonUiTests
 
         int before = Viewer.Count(Spectated);
 
-        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+        // Real click: the viewport is a raw Direct3D surface with no pattern, and the mouse binding is the subject (B145).
+        Viewer.RealClick(MainForm.ViewportId, MouseButton.Left);
 
         Retry.WhileFalse(
             () => Viewer.Count(Spectated) > before,
@@ -571,7 +572,8 @@ public sealed class FirstPersonUiTests
 
         int before = Viewer.Count(Spectated);
 
-        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+        // Real click: the viewport is a raw Direct3D surface with no pattern, and the mouse binding is the subject (B145).
+        Viewer.RealClick(MainForm.ViewportId, MouseButton.Left);
 
         Retry.WhileFalse(
             () => Viewer.Count(Spectated) > before,
@@ -597,7 +599,8 @@ public sealed class FirstPersonUiTests
         int before = Viewer.Count(Spectated);
         int frames = Viewer.Count("viewmodel pass skipped");
 
-        Viewer.Click(MainForm.ViewportId, MouseButton.Left);
+        // Real click: the viewport is a raw Direct3D surface with no pattern, and the mouse binding is the subject (B145).
+        Viewer.RealClick(MainForm.ViewportId, MouseButton.Left);
 
         // **Synchronised on a frame, not on a clock** (2026-08-26). This gave the viewer a flat
         // two-second window and then looked, under a comment claiming there was nothing to wait for:

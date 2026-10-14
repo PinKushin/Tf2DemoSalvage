@@ -183,7 +183,7 @@ public sealed class TransportUiTests
         string Readout() => label.Name;
 
         _viewer.Find(TransportBar.SpeedBarId).Focus();
-        _viewer.PressKey(VirtualKeyShort.HOME);
+        _viewer.PressRealKey(VirtualKeyShort.HOME); // real key: which control hears Home is the subject
 
         // **The message reports what it SAW, not only what it wanted.** The first version said only
         // "did not reach the fastest reverse speed", so two runs were spent guessing at a cause the
@@ -203,7 +203,7 @@ public sealed class TransportUiTests
 
         // **The control, and it is the half that matters.** Without it a readout stuck on "reversed"
         // — or a slider whose halves both mean forward — would pass everything above.
-        _viewer.PressKey(VirtualKeyShort.END);
+        _viewer.PressRealKey(VirtualKeyShort.END); // real key: the slider hearing End is the subject
 
         Retry.WhileFalse(
             () => Readout() == TimeScale.From(TimeScale.Fastest).Description(),
@@ -244,7 +244,7 @@ public sealed class TransportUiTests
         // is this one's control: together they say the key reaches the shortcut when no widget wants
         // it, and the widget when one does.
         _viewer.Find("Viewport").Focus();
-        _viewer.PressKey(VirtualKeyShort.HOME);
+        _viewer.PressRealKey(VirtualKeyShort.HOME); // real key: which control hears Home is the subject
 
         Retry.WhileFalse(
             () => speed.Name == TimeScale.From(1d).Description(),

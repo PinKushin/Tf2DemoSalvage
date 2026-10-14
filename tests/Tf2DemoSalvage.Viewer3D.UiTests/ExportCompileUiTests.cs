@@ -19,13 +19,14 @@ namespace Tf2DemoSalvage.Viewer3D.UiTests;
 /// the stock Win32 common dialogs, reached as modal windows of the viewer, with the path typed into
 /// the name box and Save or Open invoked through UIA.
 ///
-/// **Opened by clicking the action-row buttons, never through the File menu.** Expanding the menu
+/// **Opened from the action-row buttons, never through the File menu.** Expanding the menu
 /// through UI Automation leaves WinForms in keyboard menu mode, which outlives the dialog and eats
 /// every later keystroke whatever control has focus: opening Export from the menu and cancelling,
 /// with no export at all, failed nine key-press and full-screen tests after it on CI (probe run
 /// 37147488078), against none with this test ignored (run 37138141067); moving focus back to the
-/// viewport did not help (run 37155302709). A real click is what a user does and enters no menu
-/// mode. It needs the foreground, which ViewerApplication.Click takes and verifies.
+/// viewport did not help (run 37155302709). A button enters no menu mode, and it is invoked
+/// through its pattern (<see cref="ViewerApplication.Activate(string)"/>), which needs neither the
+/// mouse nor the foreground and does not wait on the dialog it opens (D215).
 /// </remarks>
 [TestFixture]
 public sealed class ExportCompileUiTests
@@ -108,12 +109,12 @@ public sealed class ExportCompileUiTests
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
         int exported = _viewer.Count("] Exported ");
-        _viewer.Click(MainForm.ExportButtonId);
+        _viewer.Activate(MainForm.ExportButtonId);
         FillDialog(text, "z1800.txt");
         WaitForOutcome("Exported", exported).ShouldEndWith(" to " + text, Case.Sensitive, "the export went somewhere else");
 
         int compiled = _viewer.Count("] Compiled ");
-        _viewer.Click(MainForm.CompileButtonId);
+        _viewer.Activate(MainForm.CompileButtonId);
         FillDialog(text, string.Empty);
         FillDialog(rebuilt, "z1800.dem");
         WaitForOutcome("Compiled", compiled).ShouldContain(" to " + rebuilt + " (", Case.Sensitive, "the compile went somewhere else");
@@ -131,27 +132,14 @@ public sealed class ExportCompileUiTests
         Retry.WhileFalse(() => _viewer.Count("opening state applied") > 0, WorkTimeout, throwOnTimeout: true);
 
         // Already up before the click, so it can take the foreground the instant the dialog is asked for.
-        using System.Diagnostics.Process other = System.Diagnostics.Process.Start(
-            "powershell.exe",
-            "-NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
-            + "[System.Windows.Forms.Application]::Run((New-Object System.Windows.Forms.Form))\"");
+        using System.Diagnostics.Process other = ViewerApplication.StartStandInWindow(DialogTimeout);
         try
         {
-            Retry.WhileFalse(
-                    () =>
-                    {
-                        other.Refresh();
-                        return other.MainWindowHandle != IntPtr.Zero;
-                    },
-                    DialogTimeout)
-                .Success.ShouldBeTrue("the stand-in app never showed a window");
-
             int exported = _viewer.Count("] Exported ");
-            _viewer.Click(MainForm.ExportButtonId);
-            // **After the dialog exists, never straight after the click.** Click returns once the input
-            // is queued; stealing the foreground before the viewer handles the button-up deactivates
-            // it mid-press, WinForms cancels the click, and no dialog ever opens (2026-10-04: Export
-            // held focus, the status bar still named the previous compile, 1 run in 6).
+            _viewer.Activate(MainForm.ExportButtonId);
+            // **After the dialog exists**, because the claim is about a foreground lost once it is up.
+            // (When this was a real click it also had to be: a foreground stolen before the button-up
+            // cancelled the click, 1 run in 6 on 2026-10-04. An invoke has no button-up to lose.)
             Retry.WhileNull(Dialog, DialogTimeout, ignoreException: true).Result
                 .ShouldNotBeNull("the Export click opened no dialog before the foreground was taken");
             ViewerApplication.TakeForeground(other.MainWindowHandle);
@@ -309,8 +297,7 @@ public sealed class ExportCompileUiTests
                         == name.Properties.AutomationId.ValueOrDefault,
                 DialogTimeout)
             .Success.ShouldBeTrue("the dialog's name box did not take keyboard focus: " + Focused());
-        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-        Keyboard.Type(path);
+        _viewer.TypeRealText(path); // real keys: the CI runner's dialog ignores a ValuePattern set (comment above)
 
         string typed = Retry.WhileFalse(
                 () => name.Patterns.Value.Pattern.Value.ValueOrDefault == path, DialogTimeout).Success

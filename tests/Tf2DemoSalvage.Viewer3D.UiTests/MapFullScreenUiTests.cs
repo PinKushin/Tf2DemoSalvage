@@ -38,6 +38,9 @@ public sealed class MapFullScreenUiTests
     /// <summary>What it logs on every viewport change, which is now the whole cost of one.</summary>
     private const string CameraLine = "camera set for a";
 
+    /// <summary>What it logs once the opening seek has landed and the session is ready.</summary>
+    private const string OpeningLine = "opening state applied";
+
     /// <summary>The one viewer this assembly runs, with its demo already open.</summary>
     private static ViewerApplication _viewer => ViewerSession.App;
 
@@ -58,6 +61,17 @@ public sealed class MapFullScreenUiTests
         // Three counts, and all three are needed. The camera must be repointed, or nothing happened
         // at all. The world must NOT be rebuilt, which is the fix. The textures must NOT be
         // re-uploaded, which is the older fix underneath it.
+        //
+        // **After the opening seek, not during it.** The map is built seconds before the opening state
+        // is applied, so run first in a session this fixture went full screen mid-load, and the shared
+        // viewer then sounded no footstep at the opening tick - the control `PausedSoundUiTests` needs
+        // (2026-10-13, twice). A fixture establishes its own state rather than inheriting the order.
+        Retry.WhileFalse(
+            () => Count(OpeningLine) > 0,
+            TimeSpan.FromSeconds(60),
+            throwOnTimeout: true,
+            timeoutMessage: "The viewer never applied its opening state.");
+
         int texturesBefore = Count(TextureUploadLine);
         int buildsBefore = Count(WorldBuildLine);
         int camerasBefore = Count(CameraLine);
@@ -78,7 +92,8 @@ public sealed class MapFullScreenUiTests
         // Found once and polled by property: a whole-tree `Find` per poll can outlast UIA's 2 s timeout.
         AutomationElement viewport = _viewer.Find("Viewport");
 
-        _viewer.PressKey(VirtualKeyShort.F11);
+        // F11 is this item's own shortcut key, so the item is the same action without real input.
+        _viewer.InvokeMenuItem(MainForm.ViewMenuName, MainForm.FullScreenItemName);
 
         System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
 
@@ -106,29 +121,15 @@ public sealed class MapFullScreenUiTests
             "resizing must not re-decode and re-upload the map's textures");
     }
 
+    private System.Drawing.Rectangle _found;
+
+    [SetUp]
+    public void RememberTheWindow() => _found = _viewer.Window.BoundingRectangle;
+
+    // The same leak the other fixture guards: a test that ends full screen hands the next one
+    // a window already the size of the screen, and the failure lands on the wrong test.
     [TearDown]
-    public void ReturnToWindowed()
-    {
-        // The same leak the other fixture guards: a test that ends full screen hands the next one
-        // a window already the size of the screen, and the failure lands on the wrong test.
-        if (_viewer is null)
-        {
-            return;
-        }
-
-        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-
-        if (_viewer.Window.BoundingRectangle.Width < screen.Width)
-        {
-            return;
-        }
-
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
-
-        Retry.WhileTrue(
-            () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
-            TimeSpan.FromSeconds(10));
-    }
+    public void ReturnToWindowed() => _viewer.RestoreWindow(_found);
 
     /// <summary>How many times this run's viewer log contains a line.</summary>
     private static int Count(string line) => _viewer.Count(line);

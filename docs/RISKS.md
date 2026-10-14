@@ -39164,3 +39164,32 @@ dialog choosing one of two descriptions by whether it is the startup prompt; `Pr
 
 **Dead in production after the move, left in place:** `FreeFlight.IsFlightKey` — the session asks
 `ConfigConsole.IsHeldKey` by name, so only `FreeFlightTests` calls it (D180). Not deleted here.
+
+## B541 — full screen entered while a demo is still loading loses the opening tick's footstep events — MEASURED 2026-10-13, OPEN, cause not known
+
+**What was measured** (two runs of five UI fixtures, the full-screen fixture first, same demo, opening tick 20000):
+
+| | full screen on / off | `opening state applied` | footstep lines after it |
+|---|---|---|---|
+| full screen after the load (`viewer-20261013-201550-17900.log`) | 20:17:01.9 / 20:17:02.4 | 20:17:00.0 | 8, the first three at 20:17:01.068 for entities 5, 7, 9 |
+| full screen during the load (`viewer-20261013-203917-10400.log`) | 20:40:19.5 / 20:40:20.1 | 20:40:27.4 | 0 in 245,209 lines |
+
+Everything else the sound pass logs around the opening tick is the same in both: the wave deck's skip to 20000, the
+soundscape, the three re-established loops. Only the animation-event footsteps are missing. Reproduced twice; the
+owner saw the early full screen on screen before the log was read.
+
+**Why it is filed and not waved off.** A user can do this: open a demo and press F11 while it loads. What is lost is
+small (one frame's footsteps at a paused tick), but nothing explains it, and an unexplained difference in which
+animation events fire is not known to stop at footsteps.
+
+**Not established.** Whether the opening frame's footsteps are themselves parity:
+`C_BaseAnimating::DoAnimationEvents` fires an event on the frame the cycle crosses it and resets its previous cycle
+on a reset, so the engine may fire none on the first frame after a seek, and the run WITH footsteps could be the
+one that is wrong. Read that function and its reset path before touching either behaviour.
+
+**Where to start.** What a frame drawn before the opening seek leaves in the per-entity previous-cycle state that the
+seek to the opening tick does not clear (`docs/memory/a-seek-rebuilds-what-playing-accumulated.md`).
+
+**The tests no longer depend on it:** `MapFullScreenUiTests` waits for the opening state before it acts (D215).
+`PausedSoundUiTests` still uses the opening footsteps as its control, so whichever way this is resolved that
+control is re-examined with it.

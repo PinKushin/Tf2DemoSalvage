@@ -51,25 +51,13 @@ public sealed class ShellUiTests
         //
         // Observed for real: the suite failed once and passed on the next run with no change.
         // Retrying would have buried it.
-        if (_viewer is null)
-        {
-            return;
-        }
-
-        System.Drawing.Rectangle screen = System.Windows.Forms.Screen.PrimaryScreen!.Bounds;
-
-        if (_viewer.Window.BoundingRectangle.Width < screen.Width)
-        {
-            return;
-        }
-
-        ViewerApplication.Log("still full screen after the test; pressing Escape");
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
-
-        Retry.WhileTrue(
-            () => _viewer.Window.BoundingRectangle.Width >= screen.Width,
-            TimeSpan.FromSeconds(10));
+        _viewer.RestoreWindow(_found);
     }
+
+    private System.Drawing.Rectangle _found;
+
+    [SetUp]
+    public void RememberTheWindow() => _found = _viewer.Window.BoundingRectangle;
 
     [Test]
     public void Shell_EveryControl_IsReachableByAutomation()
@@ -106,12 +94,12 @@ public sealed class ShellUiTests
         AutomationElement viewport = _viewer.Find("Viewport");
         int beforeFullScreen = viewport.BoundingRectangle.Width;
 
-        _viewer.PressKey(VirtualKeyShort.F11);
+        _viewer.PressRealKey(VirtualKeyShort.F11); // real key: the binding reaching the window is the subject
         Retry.WhileFalse(
             () => viewport.BoundingRectangle.Width > beforeFullScreen,
             TimeSpan.FromSeconds(10));
 
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
+        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
         Retry.WhileFalse(
             () => viewport.BoundingRectangle.Width == beforeFullScreen,
             TimeSpan.FromSeconds(10));
@@ -149,7 +137,7 @@ public sealed class ShellUiTests
 
         // Type, not Press: FlaUI's Press holds the key DOWN and never releases it, so a shortcut
         // that fires on the complete keystroke never sees one.
-        _viewer.PressKey(VirtualKeyShort.F11);
+        _viewer.PressRealKey(VirtualKeyShort.F11); // real key: the binding reaching the window is the subject
         Retry.WhileFalse(
             () => viewport.BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
@@ -163,7 +151,7 @@ public sealed class ShellUiTests
 
         // Escape, not F11, so the second binding is covered too - it is the one a user reaches
         // for by habit and the one most likely to be missed by a form-level key handler.
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
+        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
 
         Retry.WhileFalse(
             () => Math.Abs(viewport.BoundingRectangle.Width - windowedWidth) < 2,
@@ -197,7 +185,7 @@ public sealed class ShellUiTests
         AutomationElement viewportElement = _viewer.Find("Viewport");
         int windowedWidth = viewportElement.BoundingRectangle.Width;
 
-        _viewer.PressKey(VirtualKeyShort.F11);
+        _viewer.PressRealKey(VirtualKeyShort.F11); // real key: the binding reaching the window is the subject
         Retry.WhileFalse(
             () => viewportElement.BoundingRectangle.Width > windowedWidth,
             TimeSpan.FromSeconds(10));
@@ -217,7 +205,7 @@ public sealed class ShellUiTests
         viewport.Width.ShouldBe(screen.Width, "something is still docked beside the viewport");
         viewport.Height.ShouldBe(screen.Height, "something is still docked above or below the viewport");
 
-        _viewer.PressKey(VirtualKeyShort.ESCAPE);
+        _viewer.PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
         Retry.WhileFalse(
             () => Math.Abs(viewportElement.BoundingRectangle.Width - windowedWidth) < 2,
             TimeSpan.FromSeconds(10));

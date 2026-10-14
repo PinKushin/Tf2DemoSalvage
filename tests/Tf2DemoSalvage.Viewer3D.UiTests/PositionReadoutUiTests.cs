@@ -48,6 +48,10 @@ public sealed class PositionReadoutUiTests
 
         long before = WhitePixelsTopRight();
 
+        // Counted from here, not from zero: a line left by any earlier switch in the shared viewer
+        // would let the wait pass before this test's own switch had arrived.
+        int switchedOn = Viewer.Count("cl_showpos 1");
+
         SetReadout(on: true);
 
         try
@@ -55,12 +59,27 @@ public sealed class PositionReadoutUiTests
             // The menu reached the form. `SetPositionReadout` logs the convar and its value, in
             // the same shape the frame-rate meter beside it does.
             Retry.WhileFalse(
-                () => Viewer.Count("cl_showpos 1") > 0,
+                () => Viewer.Count("cl_showpos 1") > switchedOn,
                 TimeSpan.FromSeconds(10),
                 throwOnTimeout: true,
                 timeoutMessage: "the Position menu item never reached SetPositionReadout.");
 
-            long after = WhitePixelsTopRight();
+            // **Waited on the picture, not captured once.** `CFPSPanel` becomes visible in `OnTick`,
+            // which `AddTickSignal( panel, 250 )` runs every 250 ms (`VguiTools.TickSeconds`), so the
+            // setting can be on for up to a quarter second before a frame carries the readout. A
+            // single capture taken 185 ms after the switch was byte-identical to the one before it
+            // (2026-10-13): the old mouse click was slow enough to hide that, a UIA invoke is not.
+            long after = before;
+
+            Retry.WhileFalse(
+                () =>
+                {
+                    after = WhitePixelsTopRight();
+
+                    return after > before;
+                },
+                TimeSpan.FromSeconds(10),
+                throwOnTimeout: false);
 
             TestContext.Out.WriteLine($"POSITION white pixels: {before} -> {after}");
 

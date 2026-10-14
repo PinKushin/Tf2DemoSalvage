@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Text;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 
 using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
@@ -462,33 +464,137 @@ internal sealed partial class ViewerApplication : IDisposable
         return new ViewerApplication(application, automation, window);
     }
 
+    /// <summary>Drives a control through UI Automation: no cursor, no keys, no foreground (D215).</summary>
+    /// <param name="automationId">The control's automation id.</param>
+    public void Activate(string automationId) => Activate(Find(automationId), automationId);
+
+    /// <summary>Drives an element already found — a menu or menu item, which UIA reaches by name.</summary>
+    /// <param name="element">The element.</param>
+    /// <param name="what">What it is, for the failure message.</param>
+    /// <exception cref="InvalidOperationException">The element offers no pattern, or the invoke failed.</exception>
     /// <remarks>
-    /// **Synthesized input is the last resort, and full screen is where it is genuinely needed.**
-    /// Everything reachable through UI Automation goes that way instead — no focus, no foreground,
-    /// nothing that can land in another application. But full screen hides the menu strip, so the
-    /// item that would leave it is not in the automation tree while it is there, and expanding a
-    /// menu over a Direct3D full-screen window is its own way to hang. A real F11 or Escape is the
-    /// only route out.
+    /// **A pattern needs neither the foreground nor the mouse**, so it cannot land in somebody
+    /// else's window and a hand on the mouse cannot spoil it — which a click at the element's centre
+    /// could, and did (D215). A menu that opens is expanded; anything else is invoked, selected or
+    /// toggled, in that order. An element with none of those is a raw surface, and
+    /// <see cref="RealClick"/> is the only route to it.
     ///
-    /// **So the press is guarded rather than hoped about.** A synthesized key goes to whichever
-    /// window holds the foreground, which is how earlier runs typed into the tester's browser. This
-    /// takes the foreground first, verifies it arrived, and throws if it did not — the one thing
-    /// that must never happen is pressing a key while some other window would receive it, and a
-    /// test that fails is enormously better than a keystroke delivered into somebody's work.
+    /// **A button with its own window is sent a POSTED <c>BM_CLICK</c>, not the invoke pattern**
+    /// (measured 2026-10-13). A WinForms button's invoke runs its handler inside the automation
+    /// call; when the handler opens a modal dialog that call never returns, and until it does the
+    /// viewer answers no other automation request — off the test thread or not, every later call
+    /// timed out (0x80131505) and eight tests fell with it. A posted message is handled from the
+    /// viewer's own loop, outside any automation call; `ButtonBase` turns it into `PerformClick`,
+    /// which needs the button enabled and nothing else. It returns at once, so the caller waits on
+    /// what the button does.
     ///
-    /// It deliberately does NOT fall back to clicking. A click is synthesized at screen
-    /// coordinates, so if something is covering the viewer the click lands in that instead — the
-    /// fallback would do the very thing the guard exists to prevent.
+    /// **A menu item's invoke still runs off the test thread**, and this returns when it has, or
+    /// when the viewer's window has been disabled by a modal one — asked of Win32 so it cannot
+    /// queue behind the call. An invoke that fails after that is logged when it ends.
     /// </remarks>
-    /// <summary>Presses a button through UI Automation rather than with a synthesized click.</summary>
-    /// <param name="automationId">The button's automation id.</param>
-    /// <remarks>
-    /// **The invoke pattern needs neither the foreground nor the mouse**, so it cannot land in
-    /// somebody else's window and cannot be stolen mid-press. Everything reachable this way goes
-    /// this way; `Click` exists only for the viewport, which is a raw Direct3D surface with no
-    /// automation surface of its own to invoke.
-    /// </remarks>
-    public void ClickButton(string automationId) => Find(automationId).AsButton().Invoke();
+    public void Activate(AutomationElement element, string what)
+    {
+        ArgumentNullException.ThrowIfNull(element);
+
+        IntPtr handle = element.Properties.NativeWindowHandle.ValueOrDefault;
+
+        if (handle != IntPtr.Zero && element.Properties.ControlType.ValueOrDefault == ControlType.Button)
+        {
+            if (!PostMessage(handle, ButtonClickMessage, IntPtr.Zero, IntPtr.Zero))
+            {
+                throw new InvalidOperationException(
+                    $"Posting a click to {what} failed with Win32 error {Marshal.GetLastWin32Error()}.");
+            }
+        }
+        else if (element.Patterns.ExpandCollapse.PatternOrDefault is { } menu
+            && menu.ExpandCollapseState.Value != ExpandCollapseState.LeafNode)
+        {
+            menu.Expand();
+        }
+        else if (element.Patterns.Invoke.PatternOrDefault is { } invoke)
+        {
+            InvokeWithoutWaitingOnAModal(invoke.Invoke, what);
+        }
+        else if (element.Patterns.SelectionItem.PatternOrDefault is { } selection)
+        {
+            selection.Select();
+        }
+        else if (element.Patterns.Toggle.PatternOrDefault is { } toggle)
+        {
+            toggle.Toggle();
+        }
+        else
+        {
+            throw new InvalidOperationException(
+                $"{what} offers no invoke, expand, selection or toggle pattern, so UI Automation cannot drive it.");
+        }
+    }
+
+    private void InvokeWithoutWaitingOnAModal(Action invoke, string what)
+    {
+        IntPtr window = new(Window.Properties.NativeWindowHandle.Value.ToInt64());
+        Task pending = Task.Run(invoke);
+
+        bool settled = Retry.WhileFalse(() => pending.IsCompleted || !IsWindowEnabled(window), FindTimeout).Success;
+
+        if (pending.IsFaulted)
+        {
+            throw new InvalidOperationException($"Invoking {what} failed.", pending.Exception);
+        }
+
+        if (!settled)
+        {
+            throw new InvalidOperationException(
+                $"Invoking {what} neither returned nor opened a modal dialog within {FindTimeout}.");
+        }
+
+        _ = pending.ContinueWith(
+            ended => Log($"WARNING: the invoke of {what} ended in {ended.Exception}"),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowEnabled(IntPtr window);
+
+    /// <summary><c>BM_CLICK</c>.</summary>
+    private const uint ButtonClickMessage = 0x00F5;
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", EntryPoint = "PostMessageW", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+
+    /// <summary>A second application with a window, for tests that need something else in front.</summary>
+    /// <param name="timeout">How long its window may take to appear.</param>
+    /// <returns>The process; the caller kills it.</returns>
+    public static System.Diagnostics.Process StartStandInWindow(TimeSpan timeout)
+    {
+        System.Diagnostics.Process other = System.Diagnostics.Process.Start(
+            "powershell.exe",
+            "-NoProfile -Command \"Add-Type -AssemblyName System.Windows.Forms; "
+            + "[System.Windows.Forms.Application]::Run((New-Object System.Windows.Forms.Form))\"");
+
+        bool shown = Retry.WhileFalse(
+            () =>
+            {
+                other.Refresh();
+                return other.MainWindowHandle != IntPtr.Zero;
+            },
+            timeout).Success;
+
+        if (!shown)
+        {
+            other.Kill();
+            other.Dispose();
+            throw new InvalidOperationException("the stand-in app never showed a window");
+        }
+
+        return other;
+    }
 
     /// <summary>The most recent log line containing some text, or null.</summary>
     /// <param name="line">The text to look for, as the viewer writes it.</param>
@@ -552,11 +658,17 @@ internal sealed partial class ViewerApplication : IDisposable
         rows[0].Select();
 
         // Enter activates, the same as a double-click — `_playlist.ItemActivate` is wired to both.
-        // Through the guarded press, because this is synthesized input like any other.
-        PressKey(VirtualKeyShort.RETURN);
+        // Real input: a WinForms list row's invoke pattern only focuses it and raises no ItemActivate.
+        PressRealKey(VirtualKeyShort.RETURN);
     }
 
-    /// <summary>Clicks in the middle of an element, refusing to click anywhere else.</summary>
+    // ---------------------------------------------------------------------------------------------
+    // REAL INPUT (D215). Everything below this line moves the real cursor or types real keys, and
+    // needs the foreground. It is for what has no automation pattern: the Direct3D viewport, a key
+    // binding reaching the window, and the common dialog's name box. Each call says why at the call.
+    // ---------------------------------------------------------------------------------------------
+
+    /// <summary>Clicks the real mouse in the middle of an element, refusing to click anywhere else.</summary>
     /// <param name="automationId">The element to click in.</param>
     /// <param name="button">Which button.</param>
     /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
@@ -573,16 +685,9 @@ internal sealed partial class ViewerApplication : IDisposable
     /// The point is computed from the element's own bounding rectangle rather than from a stored
     /// position, because the window moves — full-screen tests in this same suite move it.
     /// </remarks>
-    public void Click(string automationId, MouseButton button = MouseButton.Left) =>
-        Click(Find(automationId), automationId, button);
-
-    /// <summary>Clicks an element already found — a menu item, which UIA reaches by name — with the same foreground guard.</summary>
-    /// <param name="element">The element.</param>
-    /// <param name="what">What it is, for the refusal message.</param>
-    /// <param name="button">Which button.</param>
-    public void Click(AutomationElement element, string what, MouseButton button = MouseButton.Left)
+    public void RealClick(string automationId, MouseButton button)
     {
-        ArgumentNullException.ThrowIfNull(element);
+        AutomationElement element = Find(automationId);
         Window.SetForeground();
 
         if (!HasFocus())
@@ -593,7 +698,7 @@ internal sealed partial class ViewerApplication : IDisposable
         if (!Retry.WhileFalse(HasFocus, TimeSpan.FromSeconds(5)).Result)
         {
             throw new InvalidOperationException(
-                $"Refusing to click {what}: the viewer did not come to the foreground, so " +
+                $"Refusing to click {automationId}: the viewer did not come to the foreground, so " +
                 "the click would be delivered into whatever window is in front of it.");
         }
 
@@ -620,16 +725,84 @@ internal sealed partial class ViewerApplication : IDisposable
     // `ShellUiTests` uses `SPACE` for the same question, and the command-modifier flag keeps unit
     // coverage in `WidgetKeysTests`.
 
-    /// <summary>Presses a key at the viewer, refusing to press it anywhere else.</summary>
+    /// <summary>Presses a real key at the viewer, refusing to press it anywhere else.</summary>
     /// <param name="key">The key to type.</param>
     /// <exception cref="InvalidOperationException">The viewer would not come to the foreground.</exception>
-    public void PressKey(VirtualKeyShort key)
+    /// <remarks>
+    /// **Synthesized input is the last resort, and full screen is where it is genuinely needed.**
+    /// Everything reachable through UI Automation goes that way instead — no focus, no foreground,
+    /// nothing that can land in another application. But full screen hides the menu strip, so the
+    /// item that would leave it is not in the automation tree while it is there, and expanding a
+    /// menu over a Direct3D full-screen window is its own way to hang. A real F11 or Escape is the
+    /// only route out.
+    ///
+    /// **So the press is guarded rather than hoped about.** A synthesized key goes to whichever
+    /// window holds the foreground, which is how earlier runs typed into the tester's browser. This
+    /// takes the foreground first, verifies it arrived, and throws if it did not — the one thing
+    /// that must never happen is pressing a key while some other window would receive it, and a
+    /// test that fails is enormously better than a keystroke delivered into somebody's work.
+    ///
+    /// It deliberately does NOT fall back to clicking. A click is synthesized at screen
+    /// coordinates, so if something is covering the viewer the click lands in that instead — the
+    /// fallback would do the very thing the guard exists to prevent.
+    /// </remarks>
+    public void PressRealKey(VirtualKeyShort key)
     {
         Ready(key);
 
         Keyboard.Type(key);
 
         Settled(key);
+    }
+
+    /// <summary>Puts the shared window back where a fixture found it, leaving full screen first, or fails.</summary>
+    /// <param name="found">The window's bounds when the test started.</param>
+    /// <exception cref="InvalidOperationException">The window did not return to those bounds.</exception>
+    /// <remarks>
+    /// **It throws, where the two teardowns it replaces waited ten seconds and carried on** (D215).
+    /// A viewer left full screen, or left a different size, hands every later fixture a window
+    /// they did not ask for, and the failure then lands on one of them; said here it lands on the
+    /// test that left it.
+    /// </remarks>
+    public void RestoreWindow(System.Drawing.Rectangle found)
+    {
+        if (Window.BoundingRectangle == found)
+        {
+            return;
+        }
+
+        Log($"the window is at {Window.BoundingRectangle} and was found at {found}; pressing Escape");
+        PressRealKey(VirtualKeyShort.ESCAPE); // real key: full screen hides the menu, so no pattern can leave it
+
+        if (!Retry.WhileFalse(() => Window.BoundingRectangle == found, TimeSpan.FromSeconds(10)).Success)
+        {
+            throw new InvalidOperationException(
+                $"The test left the shared window at {Window.BoundingRectangle}; it was found at {found}. "
+                + "Every later fixture would start from that.");
+        }
+    }
+
+    /// <summary>Replaces the focused field's text by typing real keys, refusing to type anywhere else.</summary>
+    /// <param name="text">The text to leave in the field.</param>
+    /// <exception cref="InvalidOperationException">The viewer's process does not hold the foreground.</exception>
+    /// <remarks>
+    /// **Only for the Win32 common dialog's name box**, which on the CI runner saves its default
+    /// name when the text was set through the value pattern
+    /// (<c>docs/memory/a-uia-expanded-menu-eats-later-keys.md</c>). The caller has focused the box
+    /// and brought its dialog forward; this does not take the foreground for it, because the window
+    /// to bring forward is the dialog, which only the caller holds.
+    /// </remarks>
+    public void TypeRealText(string text)
+    {
+        if (!HasFocus())
+        {
+            throw new InvalidOperationException(
+                "Refusing to type: the viewer does not hold the foreground, so the text would be "
+                + "delivered to whatever window is in front of it.");
+        }
+
+        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+        Keyboard.Type(text);
     }
 
     /// <summary>Brings the viewer forward, or refuses to press anything.</summary>
@@ -884,42 +1057,6 @@ internal sealed partial class ViewerApplication : IDisposable
             : throw new InvalidOperationException(
                 $"No element with automation id '{automationId}' appeared within {FindTimeout}. " +
                 $"The live tree was:{Environment.NewLine}{DescribeTree()}");
-    }
-
-    /// <summary>Brings the viewer to the foreground so keystrokes reach it.</summary>
-    /// <remarks>
-    /// Synthesized keyboard input goes to whatever window has focus, not to the process that was
-    /// launched - so a test that presses a key without doing this types into whatever happens to
-    /// be in front. That is the same hazard that makes UI tests take the machine-wide lock.
-    ///
-    /// **SetForegroundWindow is not enough, and fails silently.** Windows refuses a foreground
-    /// steal from a process that does not already own the foreground or the input queue, and
-    /// returns without error - measured here as `hasFocus=False` while every key press vanished.
-    /// A real mouse click is granted focus legitimately, because that is a user action, so the
-    /// fallback clicks the window and re-checks rather than trusting the first attempt.
-    /// </remarks>
-    public void Focus()
-    {
-        Window.SetForeground();
-
-        if (!HasFocus())
-        {
-            TakeForeground();
-        }
-
-        if (HasFocus())
-        {
-            return;
-        }
-
-        Log("SetForeground did not take; clicking the title bar to acquire focus");
-
-        // The title bar rather than the client area: a click inside the viewport would land on
-        // whatever control is being tested and could press it.
-        Window.Click();
-
-        Retry.WhileFalse(() => HasFocus(), TimeSpan.FromSeconds(5));
-        Log($"focus acquired: {HasFocus()}");
     }
 
     /// <summary>Whether keyboard input will reach the viewer.</summary>

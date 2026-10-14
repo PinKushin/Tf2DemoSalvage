@@ -29,9 +29,10 @@ Regression test: `FileDialog_OpenedThroughTheFileMenuByAutomation_LeavesTheKeyBi
 A NEW modal (not through `ShowModal`) would bring the bug back.
 
 **How to apply:**
-- Open dialogs with `ViewerApplication.Click(buttonId)`. It is a real click that takes and verifies the
-  foreground, and it enters no menu mode. Do not use UIA `Invoke` on the button, because the click
-  handler calls `ShowDialog` synchronously and the call blocks.
+- Open dialogs with `ViewerApplication.Activate(buttonId)` (D215). It posts `BM_CLICK` to the button:
+  no cursor, no foreground, no menu mode. Do not use UIA `Invoke` on the button, because the click
+  handler calls `ShowDialog` synchronously, the call never returns, and until it does the viewer
+  answers no other UIA call (measured 2026-10-13, eight tests down with 0x80131505).
 - In the common file dialog on the GitHub Windows runner, **type** the path into the focused name box.
   A path set through `ValuePattern.SetValue` reads back correctly right up to Save, yet the dialog
   saves its default name in its default folder (`Documents`). That held for a `D:` path, with one
