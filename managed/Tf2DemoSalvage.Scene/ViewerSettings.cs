@@ -1206,6 +1206,17 @@ public sealed record ViewerSettings
         return settings;
     }
 
+    /// <summary>These settings with one command applied: <c>name value</c>, read exactly as a config line is.</summary>
+    /// <param name="name">The command's name.</param>
+    /// <param name="value">Its value, as typed.</param>
+    /// <returns>The settings with that command applied over them.</returns>
+    /// <remarks>
+    /// **The one route for a value set after the file** — a <c>+name value</c> launch option and a ConVar a bound key
+    /// sets at run time both come here (D215), so a run-time <c>cl_showpos 1</c> means what the launch option does.
+    /// </remarks>
+    public ViewerSettings Set(string name, string value) =>
+        Parse(string.Create(CultureInfo.InvariantCulture, $"{name} \"{value}\""), onto: this);
+
     /// <summary>Writes the settings.</summary>
     /// <param name="path">File to write; defaults to <see cref="Path"/>.</param>
     /// <returns>An error to report, or null on success.</returns>

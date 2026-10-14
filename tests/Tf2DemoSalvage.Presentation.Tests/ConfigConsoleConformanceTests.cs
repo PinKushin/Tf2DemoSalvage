@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 using Tf2DemoSalvage.Presentation;
 
@@ -576,5 +577,57 @@ public sealed class ConfigConsoleConformanceTests
         console.KeyDown("m");
 
         console.ConVar("cl_hud_minmode").ShouldBe("1");
+    }
+
+    [Test]
+    public void KeyDown_TheOwnersSelfRewritingToggle_SetsTheCvarOnThenOffOnAlternatePresses()
+    {
+        // The owner's own shape (D215): an alias that redefines the name the key is bound to. Each run-time set is
+        // announced, because in Source the ConVar's value IS the setting and the viewer has to apply it.
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Load("""
+            alias sboardtoggle    "sboardtoggleon"
+            alias sboardtoggleon  "+showscores; cl_showpos 1; alias sboardtoggle sboardtoggleoff"
+            alias sboardtoggleoff "-showscores; cl_showpos 0; alias sboardtoggle sboardtoggleon"
+            bind tab sboardtoggle
+            """);
+
+        console.KeyDown("tab");
+        console.KeyUp("tab");
+        console.KeyDown("tab");
+
+        set.ShouldBe(["cl_showpos 1", "cl_showpos 0"]);
+        console.ConVar("cl_showpos").ShouldBe("0");
+    }
+
+    [Test]
+    public void KeyDown_TwoKeysBoundToSetAndClear_AnnounceEachValue()
+    {
+        ConfigConsole console = new();
+        List<string> set = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+
+        console.Load("bind x \"cl_showpos 1\"\nbind y \"cl_showpos 0\"");
+        console.KeyDown("x");
+        console.KeyDown("y");
+
+        set.ShouldBe(["cl_showpos 1", "cl_showpos 0"]);
+    }
+
+    [Test]
+    public void Load_ACvarLine_AnnouncesNothing()
+    {
+        // A config's lines are read at startup, under the viewer's own settings file and launch options (ClientConVar's
+        // precedence); only a command run once the viewer is up applies over them.
+        ConfigConsole console = new();
+        int announced = 0;
+        console.ConVarSet += (_, _) => announced++;
+
+        console.Load("cl_showpos 1");
+
+        announced.ShouldBe(0);
     }
 }

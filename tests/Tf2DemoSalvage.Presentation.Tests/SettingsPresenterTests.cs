@@ -318,6 +318,20 @@ public sealed class SettingsPresenterTests
         settings.ConVar("never_set").ShouldBeNull();
     }
 
+    [Test]
+    public void SetConVar_ShowPositionAtRunTime_AppliesAsALaunchOptionDoesAndSavesNothing()
+    {
+        (SettingsPresenter settings, _) = Owner();
+
+        settings.SetConVar("cl_showpos", "1");
+        settings.Current.ShowPosition.ShouldBe(1);
+        settings.ConVar("cl_showpos").ShouldBe("1");
+
+        settings.SetConVar("cl_showpos", "0");
+        settings.Current.ShowPosition.ShouldBe(0);
+        File.Exists(File_).ShouldBeFalse("a run-time set, like a launch option, does not rewrite the file");
+    }
+
     /// <summary>A factory whose every category is one recording logger.</summary>
     private sealed class OneLogger(RecordingLogger log) : ILoggerFactory
     {

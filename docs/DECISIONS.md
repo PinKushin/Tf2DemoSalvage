@@ -9984,6 +9984,25 @@ every-action-has-a-key rule). What a config can do today, measured on `ConfigCon
 
 The gap is one thing: a client ConVar set by a command at run time is stored and not applied. Not built here.
 
+**Closed for `name value`, 2026-10-14** (branch `fix/convar-applies-at-run-time`). A ConVar set by a command a key
+runs is raised as `ConfigConsole.ConVarSet`, and the session hands it to `SettingsPresenter.SetConVar`, which applies
+it through `ViewerSettings.Set` — the same `Parse(…, onto:)` the `+name value` launch option now also calls. So rows
+two and three above now work for every ConVar `ViewerSettings.Parse` reads (`cl_showpos`, `cl_showfps`, `mat_*`,
+the crosshair, the HUD's `ConVars` lookup…), saved to no file, as a launch option is. A config line read at load
+is NOT applied this way: `ClientConVar` keeps the viewer's own settings over the TF2 configs, and that order is
+unchanged. **The second copy is kept, not removed**: removing it means every reader of `ViewerSettings` reading a
+ConVar table instead, a rewrite of the settings record, its writer and its menu, out of this branch's scope.
+Held by `ConfigConsoleConformanceTests.KeyDown_TheOwnersSelfRewritingToggle_…`, `…TwoKeysBoundToSetAndClear_…`,
+`Load_ACvarLine_AnnouncesNothing` and `SettingsPresenterTests.SetConVar_ShowPositionAtRunTime_…`; suppressing the
+event reddened the first two, a no-op `SetConVar` the last. No output-level (UI) assertion yet: it needs a key press
+into the viewer, the input path B542 is about.
+
+**`toggle`, `incrementvar` and `multvar` remain a gap**: engine commands in closed `engine.dll`. What the binary
+gives by string alone: `Usage: incrementvar varName minValue maxValue delta`, `Usage: multvar varName minValue
+maxValue factor`, `multvar without a varname`, and `toggle`'s help `Toggles a convar on or off, or cycles through a
+set of values.` (the two usage strings are referenced from `FUN_1801a7fe0` and `FUN_1801a8bc0` in the `tf2engine`
+project). The wrap/clamp rule and the missing-ConVar behaviour need those functions read, which was not done.
+
 **Held by** `ViewerApplicationActivateUiTests`: another application is put in front, the cursor position is read,
 a transport button and a menu item are driven, and the cursor must be exactly where it was while the control's
 effect has happened (for the button, the other application must still hold the foreground too). Putting the old
