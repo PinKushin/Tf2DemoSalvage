@@ -218,225 +218,235 @@ public readonly record struct ScenePlayer(
     float? MaxSpeed = null)
 {
     /// <summary>What TF's `HandleDucking` and `HandleMoving` ask beyond the flags (B437); the scene adds the model's half.</summary>
-    public TfPosture Posture { get; init; }
+    public TfPosture Posture { get => D.Posture; init => _detail = ScenePlayerDetail.Normal(D with { Posture = value }); }
 
     /// <summary>`GetMaxHealth()` — the player resource's `m_iMaxHealth`, which `C_TFPlayer` reads; null when not sent.</summary>
     /// <remarks>A full heal to it clears the player's model decals (`C_TFPlayer::OnDataChanged`, B415).</remarks>
-    public int? MaxHealth { get; init; }
+    public int? MaxHealth { get => D.MaxHealth; init => _detail = ScenePlayerDetail.Normal(D with { MaxHealth = value }); }
 
     /// <summary>`GetMaxHealthForBuffing()` — the resource's `m_iMaxBuffedHealth`, misnamed ("we can't fix it now because of demos").</summary>
-    public int? MaxHealthForBuffing { get; init; }
+    public int? MaxHealthForBuffing { get => D.MaxHealthForBuffing; init => _detail = ScenePlayerDetail.Normal(D with { MaxHealthForBuffing = value }); }
 
     /// <summary>`GetHealth()` — the player's own `m_iHealth`, which the HUD reads; <see cref="Health"/> prefers the resource's.</summary>
-    public int? EntityHealth { get; init; }
+    public int? EntityHealth { get => D.EntityHealth; init => _detail = ScenePlayerDetail.Normal(D with { EntityHealth = value }); }
 
     /// <summary>`m_Local.m_iHideHUD` — sent to the player it belongs to, so the recorder's alone; an observer's is `HIDEHUD_HEALTH`.</summary>
-    public int? HideHud { get; init; }
+    public int? HideHud { get => D.HideHud; init => _detail = ScenePlayerDetail.Normal(D with { HideHud = value }); }
 
     /// <summary>The active weapon's `m_iClip1` — `DT_LocalWeaponData`, so the recorder's alone; -1 for a weapon with no clip.</summary>
-    public int? WeaponClip1 { get; init; }
+    public int? WeaponClip1 { get => D.WeaponClip1; init => _detail = ScenePlayerDetail.Normal(D with { WeaponClip1 = value }); }
 
     /// <summary>The active weapon's `m_iPrimaryAmmoType` — `DT_LocalWeaponData`; -1 for none.</summary>
-    public int? WeaponPrimaryAmmoType { get; init; }
+    public int? WeaponPrimaryAmmoType { get => D.WeaponPrimaryAmmoType; init => _detail = ScenePlayerDetail.Normal(D with { WeaponPrimaryAmmoType = value }); }
 
     /// <summary>`m_iAmmo` by ammo type, or null when never sent.</summary>
-    public IReadOnlyList<int>? Ammo { get; init; }
+    public IReadOnlyList<int>? Ammo { get => D.Ammo; init => _detail = ScenePlayerDetail.Normal(D with { Ammo = value }); }
 
     /// <summary>What the player carries and wears, with each item's attributes — the recorder's alone; null otherwise.</summary>
-    public IReadOnlyList<SceneItem>? Items { get; init; }
+    public IReadOnlyList<SceneItem>? Items { get => D.Items; init => _detail = ScenePlayerDetail.Normal(D with { Items = value }); }
 
     /// <summary>The player's own `m_AttributeList` — what `CAttributeContainerPlayer` applies first; null when empty.</summary>
-    public IReadOnlyList<EconAttributeValue>? OwnAttributes { get; init; }
+    public IReadOnlyList<EconAttributeValue>? OwnAttributes { get => D.OwnAttributes; init => _detail = ScenePlayerDetail.Normal(D with { OwnAttributes = value }); }
 
     /// <summary>`m_Shared.m_hDisguiseTarget` (tf_player_shared.cpp:581, sent to everyone): whom a spy is disguised as, or null.</summary>
-    public int? DisguiseTarget { get; init; }
+    public int? DisguiseTarget { get => D.DisguiseTarget; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseTarget = value }); }
 
     /// <summary>`m_Shared.m_iDisguiseHealth` (:582): the health a disguise shows.</summary>
-    public int? DisguiseHealth { get; init; }
+    public int? DisguiseHealth { get => D.DisguiseHealth; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseHealth = value }); }
 
     /// <summary>`m_Shared.m_nPlayerState` (tf_player_shared.cpp:543, sent to everyone): `TF_STATE_ACTIVE` 0 … `TF_STATE_DYING` 3.</summary>
-    public int? PlayerState { get; init; }
+    public int? PlayerState { get => D.PlayerState; init => _detail = ScenePlayerDetail.Normal(D with { PlayerState = value }); }
 
     /// <summary>
     /// `m_Shared.m_bCarryingObject` (tf_player_shared.cpp:562, sent to everyone): `IsCarryingObject()`
     /// (tf_player_shared.h:601) — set while a building is on the Engineer's back.
     /// </summary>
-    public bool CarryingObject { get; init; }
+    public bool CarryingObject { get => D.CarryingObject; init => _detail = ScenePlayerDetail.Normal(D with { CarryingObject = value }); }
 
     /// <summary>
     /// `m_iStunFlags` (tf_player_shared.cpp:372, sent to everyone): `TF_STUN_CONTROLS`/`TF_STUN_LOSER_STATE` etc
     /// (tf_shareddefs.h:1333-1342). On the client this is what `GetActiveStunInfo()->iStunFlags` reads
     /// (tf_player_shared.cpp:7462-7463) — the client keeps no separate stun list.
     /// </summary>
-    public int? StunFlags { get; init; }
+    public int? StunFlags { get => D.StunFlags; init => _detail = ScenePlayerDetail.Normal(D with { StunFlags = value }); }
 
     /// <summary>
     /// `m_iStunIndex` (:420, sent to everyone): `GetActiveStunInfo()` on the client is non-null exactly when this is
     /// `&gt;= 0` (:7474-7475).
     /// </summary>
-    public int? StunIndex { get; init; }
+    public int? StunIndex { get => D.StunIndex; init => _detail = ScenePlayerDetail.Normal(D with { StunIndex = value }); }
 
     /// <summary>`m_bIsMiniBoss` (c_tf_player.cpp:3779): what `C_TFPlayer::IsHealthBarVisible` returns outside MvM's regen case.</summary>
-    public bool IsMiniBoss { get; init; }
+    public bool IsMiniBoss { get => D.IsMiniBoss; init => _detail = ScenePlayerDetail.Normal(D with { IsMiniBoss = value }); }
 
     /// <summary>
     /// `m_nActiveWpnClip` (tf_player.cpp:760): the active weapon's clip, sent only to the medics healing this player
     /// (`SendProxy_SendHealersDataTable`, :505) — so a medic's recording carries his heal target's; null otherwise.
     /// </summary>
-    public int? ActiveWeaponClip { get; init; }
+    public int? ActiveWeaponClip { get => D.ActiveWeaponClip; init => _detail = ScenePlayerDetail.Normal(D with { ActiveWeaponClip = value }); }
 
     /// <summary>
     /// `DT_BaseEntity.m_flGravity`, `GetGravity()` — what StartGravity and FinishGravity scale gravity by when nonzero
     /// (gamemovement.cpp:1250, :1689). 0 when unsent: on the wire in a 2026 demo, absent from the 2009, 2013 and ESEA ones
     /// (*measured*, probe `schema`).
     /// </summary>
-    public float Gravity { get; init; }
+    public float Gravity { get => D.Gravity; init => _detail = ScenePlayerDetail.Normal(D with { Gravity = value }); }
 
     /// <summary>`m_Shared.m_nStreaks[ kTFStreak_Kills ]` (:604): the kill streak.</summary>
-    public int? KillStreak { get; init; }
+    public int? KillStreak { get => D.KillStreak; init => _detail = ScenePlayerDetail.Normal(D with { KillStreak = value }); }
 
     /// <summary>
     /// `m_Shared.m_flInvisChangeCompleteTime` (tf_player_shared.cpp:576, `SendPropTime`, sent to everyone): when a cloak or
     /// decloak finishes, on the server's clock — what `InvisibilityThink` (:7977) ramps `GetPercentInvisible` by. Null unsent.
     /// </summary>
-    public float? InvisChangeCompleteTime { get; init; }
+    public float? InvisChangeCompleteTime { get => D.InvisChangeCompleteTime; init => _detail = ScenePlayerDetail.Normal(D with { InvisChangeCompleteTime = value }); }
 
     /// <summary>
     /// The screen overlay the LOCAL player's condition hooks have left in `view-&gt;SetScreenOverlayMaterial`, as
     /// <see cref="ScreenOverlay"/> steps it; null for nobody's, and for every player but the recorder.
     /// </summary>
-    public string? ScreenOverlayMaterial { get; init; }
+    public string? ScreenOverlayMaterial { get => D.ScreenOverlayMaterial; init => _detail = ScenePlayerDetail.Normal(D with { ScreenOverlayMaterial = value }); }
 
     /// <summary>`m_Shared.m_flCloakMeter` (:586): 0..100 — a motion cloak at 0 fades by speed (`InvisibilityThink`, :8019).</summary>
-    public float? CloakMeter { get; init; }
+    public float? CloakMeter { get => D.CloakMeter; init => _detail = ScenePlayerDetail.Normal(D with { CloakMeter = value }); }
 
     /// <summary>`m_Shared.m_hDisguiseWeapon` (:584) as its entity slot, or null for none.</summary>
-    public int? DisguiseWeapon { get; init; }
+    public int? DisguiseWeapon { get => D.DisguiseWeapon; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseWeapon = value }); }
 
     /// <summary>The item <see cref="DisguiseWeapon"/> is, or null for none or unsent.</summary>
-    public SceneItem? DisguiseWeaponItem { get; init; }
+    public SceneItem? DisguiseWeaponItem { get => D.DisguiseWeaponItem; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseWeaponItem = value }); }
 
     /// <summary>`GetSkinOverride()`: `m_iPlayerSkinOverride` (c_tf_player.cpp:3833), 1 for a zombie; null when unsent.</summary>
-    public int? PlayerSkinOverride { get; init; }
+    public int? PlayerSkinOverride { get => D.PlayerSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { PlayerSkinOverride = value }); }
 
     /// <summary>`GetDisguisedSkinOverride()`: `m_Shared.m_nDisguiseSkinOverride` (tf_player_shared.cpp:579).</summary>
-    public int? DisguiseSkinOverride { get; init; }
+    public int? DisguiseSkinOverride { get => D.DisguiseSkinOverride; init => _detail = ScenePlayerDetail.Normal(D with { DisguiseSkinOverride = value }); }
 
     /// <summary>`m_Shared.m_iDecapitations` (tf_player_shared.cpp:558, sent to everyone): the Eyelander's heads, or null.</summary>
-    public int? Decapitations { get; init; }
+    public int? Decapitations { get => D.Decapitations; init => _detail = ScenePlayerDetail.Normal(D with { Decapitations = value }); }
 
     /// <summary>`m_Shared.m_flRageMeter` (tf_player_shared.cpp:517, `DT_TFPlayerSharedLocal`): 0..100, the recorder's alone.</summary>
-    public float? RageMeter { get; init; }
+    public float? RageMeter { get => D.RageMeter; init => _detail = ScenePlayerDetail.Normal(D with { RageMeter = value }); }
 
     /// <summary>`m_Shared.m_bRageDraining` (:518, `DT_TFPlayerSharedLocal`): `IsRageDraining()`.</summary>
-    public bool RageDraining { get; init; }
+    public bool RageDraining { get => D.RageDraining; init => _detail = ScenePlayerDetail.Normal(D with { RageDraining = value }); }
 
     /// <summary>`m_Shared.m_flItemChargeMeter[ slot ]` (:521, `DT_TFPlayerSharedLocal`): per loadout slot through `MISC2`, 0..100.</summary>
-    public IReadOnlyList<float>? ItemChargeMeter { get; init; }
+    public IReadOnlyList<float>? ItemChargeMeter { get => D.ItemChargeMeter; init => _detail = ScenePlayerDetail.Normal(D with { ItemChargeMeter = value }); }
 
     /// <summary>`m_Shared.m_flHypeMeter` (:570): `GetScoutHypeMeter()`, 0..100.</summary>
-    public float? HypeMeter { get; init; }
+    public float? HypeMeter { get => D.HypeMeter; init => _detail = ScenePlayerDetail.Normal(D with { HypeMeter = value }); }
 
     /// <summary>`m_Shared.m_iRevengeCrits` (:559): `GetRevengeCrits()`.</summary>
-    public int? RevengeCrits { get; init; }
+    public int? RevengeCrits { get => D.RevengeCrits; init => _detail = ScenePlayerDetail.Normal(D with { RevengeCrits = value }); }
 
     /// <summary>`m_Shared.m_flRuneCharge` (:607): `GetRuneCharge()`, 0..100 in 8 bits.</summary>
-    public float? RuneCharge { get; init; }
+    public float? RuneCharge { get => D.RuneCharge; init => _detail = ScenePlayerDetail.Normal(D with { RuneCharge = value }); }
 
     /// <summary>`m_flKartNextAvailableBoost` (c_tf_player.cpp:3824): when a kart's boost is ready again, server clock.</summary>
-    public float? KartNextAvailableBoost { get; init; }
+    public float? KartNextAvailableBoost { get => D.KartNextAvailableBoost; init => _detail = ScenePlayerDetail.Normal(D with { KartNextAvailableBoost = value }); }
 
     /// <summary>`m_iKartHealth` (c_tf_player.cpp:3825): `GetKartHealth()`, the kart's damage percent.</summary>
-    public int? KartHealth { get; init; }
+    public int? KartHealth { get => D.KartHealth; init => _detail = ScenePlayerDetail.Normal(D with { KartHealth = value }); }
 
     /// <summary>`m_iSpawnCounter` (tf_player.cpp:817): toggled at each spawn; a change runs `ClientPlayerRespawn` (c_tf_player.cpp:4543).</summary>
-    public int? SpawnCounter { get; init; }
+    public int? SpawnCounter { get => D.SpawnCounter; init => _detail = ScenePlayerDetail.Normal(D with { SpawnCounter = value }); }
 
     /// <summary>
     /// `m_vecVelocity` (player.cpp:8140-8142, `DT_LocalPlayerExclusive`): the recorder's own velocity, which is its
     /// `GetAbsVelocity` on the client; null for anyone else.
     /// </summary>
+    /// <remarks>Inline rather than in the shared half: it changes on 75% of f12's player-frames (D217).</remarks>
     public (float X, float Y, float Z)? Velocity { get; init; }
 
     /// <summary>The movement state prediction restores (D205, B450); null for anyone but the recorder.</summary>
+    /// <remarks>Inline rather than in the shared half: it changes on 92% of f12's player-frames (D217).</remarks>
     public SceneLocalMovement? Movement { get; init; }
 
     /// <summary>The active weapon's `m_iAccountID` (econ_item_view.cpp:187): whose item it is; null with none held or unsent.</summary>
-    public uint? WeaponAccountId { get; init; }
+    public uint? WeaponAccountId { get => D.WeaponAccountId; init => _detail = ScenePlayerDetail.Normal(D with { WeaponAccountId = value }); }
 
     /// <summary>
     /// `GetDeathTime()`: `m_flDeathTime`, `DT_LocalPlayerExclusive` (c_baseplayer.cpp:254) — so 0 for anyone but the recorder,
     /// whose client entity is zeroed when allocated (c_baseentity.cpp:3840) and never receives it.
     /// </summary>
-    public float DeathTime { get; init; }
+    public float DeathTime { get => D.DeathTime; init => _detail = ScenePlayerDetail.Normal(D with { DeathTime = value }); }
 
     /// <summary>The active weapon's `m_iEntityQuality` (econ_item_view.cpp:188).</summary>
-    public int? WeaponQuality { get; init; }
+    public int? WeaponQuality { get => D.WeaponQuality; init => _detail = ScenePlayerDetail.Normal(D with { WeaponQuality = value }); }
 
     /// <summary>
     /// `HasTheFlag()` (tf_player_shared.cpp:11223) with no exceptions: `m_hItem` (tf_player.cpp:798, sent to everyone) names
     /// an item whose `GetItemID()` is `TF_ITEM_CAPTURE_FLAG` — a `CCaptureFlag`, the only `C_TFItem` there is.
     /// </summary>
-    public bool HasTheFlag { get; init; }
+    public bool HasTheFlag { get => D.HasTheFlag; init => _detail = ScenePlayerDetail.Normal(D with { HasTheFlag = value }); }
 
     /// <summary>
     /// The medigun among the weapons that arrived — `Weapon_OwnsThisID( TF_WEAPON_MEDIGUN )` over `m_hMyWeapons` — as its
     /// `m_flChargeLevel`, `m_iEntityQuality` and definition; null when none arrived, which for anyone but the recorder is
     /// every point-of-view demo.
     /// </summary>
-    public (float Charge, int Quality, int? Definition)? Medigun { get; init; }
+    public (float Charge, int Quality, int? Definition)? Medigun { get => D.Medigun; init => _detail = ScenePlayerDetail.Normal(D with { Medigun = value }); }
 
     /// <summary>
     /// The medigun in hand, when the active weapon is one: its `m_hHealingTarget` (`GetHealTarget`, what `MedicGetHealTarget`
     /// returns — tf_player_shared.cpp:13021) and its `m_flChargeLevel`, which `CWeaponMedigun::ClientThink` hands the heal
     /// target's `SetHealer` (tf_weapon_medigun.cpp:2299). Both are sent to everyone, so every medic in view has one.
     /// </summary>
-    public (int? HealTarget, float Charge)? ActiveMedigun { get; init; }
+    public (int? HealTarget, float Charge)? ActiveMedigun { get => D.ActiveMedigun; init => _detail = ScenePlayerDetail.Normal(D with { ActiveMedigun = value }); }
 
     /// <summary>`m_iFOV` (player.cpp:8186, sent to everyone): the zoomed field of view, 0 for none.</summary>
-    public int? Fov { get; init; }
+    public int? Fov { get => D.Fov; init => _detail = ScenePlayerDetail.Normal(D with { Fov = value }); }
 
     /// <summary>`m_iFOVStart` (:8187): where a zoom lerps from.</summary>
-    public int? FovStart { get; init; }
+    public int? FovStart { get => D.FovStart; init => _detail = ScenePlayerDetail.Normal(D with { FovStart = value }); }
 
     /// <summary>`m_flFOVTime` (:8188): when the zoom began.</summary>
-    public float? FovTime { get; init; }
+    public float? FovTime { get => D.FovTime; init => _detail = ScenePlayerDetail.Normal(D with { FovTime = value }); }
 
     /// <summary>`m_Local.m_flFOVRate`: how long the zoom takes — `DT_Local`, so the recorder's alone.</summary>
-    public float? FovRate { get; init; }
+    public float? FovRate { get => D.FovRate; init => _detail = ScenePlayerDetail.Normal(D with { FovRate = value }); }
 
     /// <summary>`m_iDefaultFOV` (:8189): the player's `fov_desired`, clamped to 75..90 by the server (tf_gamerules.cpp:10275).</summary>
-    public int? DefaultFov { get; init; }
+    public int? DefaultFov { get => D.DefaultFov; init => _detail = ScenePlayerDetail.Normal(D with { DefaultFov = value }); }
 
     /// <summary>`m_vecViewOffset[2]` (c_baseplayer.cpp:229, `DT_LocalPlayerExclusive`): the recorder's eye height, `CheckWater`'s eye point.</summary>
-    public float? ViewOffsetZ { get; init; }
+    public float? ViewOffsetZ { get => D.ViewOffsetZ; init => _detail = ScenePlayerDetail.Normal(D with { ViewOffsetZ = value }); }
 
     /// <summary>`m_Shared.m_flMovementStunTime` (tf_player_shared.cpp:368): the active stun's duration.</summary>
-    public float? MovementStunTime { get; init; }
+    public float? MovementStunTime { get => D.MovementStunTime; init => _detail = ScenePlayerDetail.Normal(D with { MovementStunTime = value }); }
 
     /// <summary>`m_Shared.m_iMovementStunAmount` (:369): the active stun's amount, 0..255.</summary>
-    public int? MovementStunAmount { get; init; }
+    public int? MovementStunAmount { get => D.MovementStunAmount; init => _detail = ScenePlayerDetail.Normal(D with { MovementStunAmount = value }); }
 
     /// <summary>`m_Shared.m_iMovementStunParity` (:370): changes with each new stun; the client restarts its stun clock then (:1440).</summary>
-    public int? MovementStunParity { get; init; }
+    public int? MovementStunParity { get => D.MovementStunParity; init => _detail = ScenePlayerDetail.Normal(D with { MovementStunParity = value }); }
 
     /// <summary>`m_bAllowMoveDuringTaunt` (c_tf_player.cpp:3793).</summary>
-    public bool AllowMoveDuringTaunt { get; init; }
+    public bool AllowMoveDuringTaunt { get => D.AllowMoveDuringTaunt; init => _detail = ScenePlayerDetail.Normal(D with { AllowMoveDuringTaunt = value }); }
 
     /// <summary>`m_flCurrentTauntMoveSpeed` (c_tf_player.cpp:3800): a moving taunt's or a kart's current speed.</summary>
-    public float? CurrentTauntMoveSpeed { get; init; }
+    public float? CurrentTauntMoveSpeed { get => D.CurrentTauntMoveSpeed; init => _detail = ScenePlayerDetail.Normal(D with { CurrentTauntMoveSpeed = value }); }
 
     /// <summary>`m_flVehicleReverseTime` (c_tf_player.cpp:3801): when a stopped kart starts reversing.</summary>
-    public float? VehicleReverseTime { get; init; }
+    public float? VehicleReverseTime { get => D.VehicleReverseTime; init => _detail = ScenePlayerDetail.Normal(D with { VehicleReverseTime = value }); }
 
     /// <summary>`m_hGrapplingHookTarget` (c_tf_player.cpp:3827) as its entity slot, or null for none.</summary>
-    public int? GrapplingHookTarget { get; init; }
+    public int? GrapplingHookTarget { get => D.GrapplingHookTarget; init => _detail = ScenePlayerDetail.Normal(D with { GrapplingHookTarget = value }); }
 
     /// <summary>`m_iTauntItemDefIndex` (c_tf_player.cpp:3799): the taunt item when no loadout slot names it.</summary>
-    public int? TauntItemDefIndex { get; init; }
+    public int? TauntItemDefIndex { get => D.TauntItemDefIndex; init => _detail = ScenePlayerDetail.Normal(D with { TauntItemDefIndex = value }); }
 
     /// <summary>`m_nActiveTauntSlot` (c_tf_player.cpp:3798): the taunt's loadout slot, −1 (`LOADOUT_POSITION_INVALID`) for none.</summary>
-    public int? ActiveTauntSlot { get; init; }
+    public int? ActiveTauntSlot { get => D.ActiveTauntSlot; init => _detail = ScenePlayerDetail.Normal(D with { ActiveTauntSlot = value }); }
+
+    /// <summary>The rarely-changing half, shared between frames by reference (D217); null reads as every default.</summary>
+    private readonly ScenePlayerDetail? _detail;
+
+    private ScenePlayerDetail D => _detail ?? ScenePlayerDetail.Empty;
+
+    /// <summary>The detail as a whole: set in one assignment by the timeline, and handed between frames to share it.</summary>
+    internal ScenePlayerDetail Detail { get => _detail ?? ScenePlayerDetail.Empty; init => _detail = ScenePlayerDetail.Normal(value); }
 
     /// <summary>Whether the player is crouched, when the recording says.</summary>
     /// <remarks>
@@ -1390,6 +1400,22 @@ public sealed class DemoTimeline
         }
 
         now.TrimExcess();
+        before[player] = now;
+        return now;
+    }
+
+    /// <summary>The player's previous detail when every value is unchanged, so frames share one copy (D217); otherwise this one.</summary>
+    /// <param name="before">Each player's last stored detail, updated here.</param>
+    /// <param name="player">The player's entity index.</param>
+    /// <param name="now">This frame's detail.</param>
+    /// <returns>The instance to store.</returns>
+    private static ScenePlayerDetail SharedDetail(Dictionary<int, ScenePlayerDetail> before, int player, ScenePlayerDetail now)
+    {
+        if (before.TryGetValue(player, out ScenePlayerDetail? last) && now.SameValues(last))
+        {
+            return last;
+        }
+
         before[player] = now;
         return now;
     }
@@ -2675,6 +2701,7 @@ public sealed class DemoTimeline
         // Each player's last carried-items list, handed out again while nothing in it changes (B433).
         Dictionary<int, List<SceneItem>> carriedBefore = [];
         Dictionary<int, List<SceneGesture>> gesturedBefore = [];
+        Dictionary<int, ScenePlayerDetail> detailBefore = [];
 
         ModelPrecache precache = new();
         LightStyleFeed lightStyles = new();
@@ -3248,6 +3275,15 @@ public sealed class DemoTimeline
                         Positions(entity),
                         entity.SoundscapeEntity() ?? -1);
 
+                    // **One sample per tick: the last.** A SourceTV demo can carry `m_audio` on several players
+                    // (f12: 1,055,037 samples, 281 MB, for 96,589 frames), and alternating between them defeated the
+                    // dedup below, storing every player's every tick. `SoundscapeAt` keeps the last sample at or
+                    // before a tick, so a sample superseded within its own tick could never be returned (D217).
+                    if (soundscapes.Count > 0 && soundscapes[^1].Tick == command.Tick)
+                    {
+                        soundscapes.RemoveAt(soundscapes.Count - 1);
+                    }
+
                     if (soundscapes.Count == 0 || soundscapes[^1].Soundscape != sampled)
                     {
                         soundscapes.Add((command.Tick, sampled));
@@ -3802,6 +3838,11 @@ public sealed class DemoTimeline
                     TorsoScale: player.BoneScales().Torso ?? 1f,
                     HandScale: player.BoneScales().Hand ?? 1f)
                 {
+                    // **Handed the last frame's instance whenever every value is the same** (D217), the way
+                    // `SameAsBefore` shares the item lists: 1,498 MB of f12's 2,948 MB timeline was this half,
+                    // copied unchanged into each of 1,255,344 player-frames.
+                    Detail = SharedDetail(detailBefore, player.EntityIndex, new ScenePlayerDetail
+                    {
                     MaxHealth = resource?.Integer($"m_iMaxHealth.{slot}"),
                     MaxHealthForBuffing = resource?.Integer($"m_iMaxBuffedHealth.{slot}"),
                     EntityHealth = player.Integer("DT_BasePlayer.m_iHealth"),
@@ -3841,12 +3882,6 @@ public sealed class DemoTimeline
                     DeathTime = player.Number("DT_LocalPlayerExclusive.m_flDeathTime") ?? 0f,
                     PlayerSkinOverride = player.Integer("DT_TFPlayer.m_iPlayerSkinOverride"),
                     DisguiseSkinOverride = player.Integer("DT_TFPlayerShared.m_nDisguiseSkinOverride"),
-                    Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
-                        ? (velocityX,
-                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
-                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
-                        : null,
-                    Movement = LocalMovement(player),
                     WeaponAccountId = active?.Integer("DT_ScriptCreatedItem.m_iAccountID") is { } account
                         ? unchecked((uint)account)
                         : null,
@@ -3878,6 +3913,15 @@ public sealed class DemoTimeline
 
                     // TF's HandleDucking and HandleMoving inputs (B437).
                     Posture = posture,
+                    }),
+
+                    // Inline, not in the shared half: on a SourceTV demo they change almost every tick (D217).
+                    Velocity = player.Number("DT_LocalPlayerExclusive.m_vecVelocity[0]") is { } velocityX
+                        ? (velocityX,
+                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[1]") ?? 0f,
+                            player.Number("DT_LocalPlayerExclusive.m_vecVelocity[2]") ?? 0f)
+                        : null,
+                    Movement = LocalMovement(player),
                 });
             }
 
