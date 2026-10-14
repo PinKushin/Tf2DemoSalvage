@@ -1073,6 +1073,9 @@ public sealed class MapAssets
     /// <summary>The HDR type TF2 runs on this map — <c>HDR_TYPE_INTEGER</c> on an HDR map, else none (B62).</summary>
     public Content.Bsp.HdrType Hdr { get; private init; }
 
+    /// <summary>Whether the engine blooms this map: <c>mat_hdr_level</c> 1 or more with HDR lighting, so also at LDR's level 1 (B537).</summary>
+    public bool Bloom { get; private init; }
+
     /// <summary>The map's water volumes and per-leaf distances to them, for <see cref="VisibleFogVolume"/>.</summary>
     public BspWater Water { get; private init; } = new([], []);
 
@@ -1842,6 +1845,7 @@ public sealed class MapAssets
             DetailAnimations = table.DetailAnimations,
             Waters = table.Waters,
             Hdr = hdr,
+            Bloom = Content.Bsp.BspHdr.BloomOn(map.Span, Content.Bsp.BspHdr.MatHdrLevel),
             Water =BspWater.Read(map),
             WaterLod = BspEntities.WaterLod(entities),
             AnimatedDetails = animatedDetails,

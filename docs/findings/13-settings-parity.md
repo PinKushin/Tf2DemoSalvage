@@ -51,7 +51,7 @@ size, the decoded one, which made `texture_quality` shrink sprites. It was estab
 |---|---|---|
 | `mat_bumpmap` | normal maps on or off | not implemented at all — see `12-shader-parity.md` |
 | `mat_specular` | cubemap reflections | not implemented |
-| `mat_hdr_level` | none, bloom, full HDR | LDR only. Reference captures must be set to match — see `24-reference-capture.md` |
+| `mat_hdr_level` | none, bloom, full HDR | 0, 1 and 2 to parity; 3 drawn as 2 — see *What `mat_hdr_level` 1 and 3 select* below (B537) |
 | `mat_monitorgamma` | display gamma | the curve exists in `SourceGamma`, not exposed |
 | `r_shadows`, `r_shadowrendertotexture` | dynamic shadows | no dynamic lights yet |
 | `mat_motion_blur_enabled` | motion blur | nothing |
@@ -111,3 +111,35 @@ someone's own machine, ask rather than infer.
 For this project's purposes the consequence is small and useful: an uncapped game and an uncapped
 viewer are the same condition, so frame rate is not a variable between a reference capture and our
 output.
+
+## What `mat_hdr_level` 1 and 3 select (B537, 2026-10-14)
+
+**Level 1 is the LDR picture with LDR bloom added, at three tenths.** It was filed as *interpolated*; it is now
+read. Three pieces, each with its evidence class:
+
+- **The HDR type is none.** `Map_CheckForHDR` enables HDR only from level 2 (*read in disassembly*, B537's table),
+  so level 1 loads the LDR lumps, LDR `.vhv`, LDR cubemaps, no tone map and no exposure walk — every reader that
+  already followed the type.
+- **Bloom is still on.** `GetBloomAmount` (`viewpostprocess.cpp:1429-1432`, *read from published source*) enables
+  it on `mat_hdr_level >= 1`, then turns it off only when `MapHasHDRLighting()` is false — a question about the
+  map's lumps, not the type. TF2's shipped `engine.dll` carries the cvar's help verbatim, *"Set to 0 for no HDR, 1
+  for LDR+bloom on HDR maps, and 2 for full HDR on HDR maps."* (*the game's own shipped data*), which is the
+  engine's own statement that `MapHasHDRLighting` answers yes on an HDR map at level 1. Not confirmed in
+  disassembly: the Ghidra MCP's analysis tools were not reachable from the session that wrote this.
+- **At 0.3 of the amount.** Under `HDR_TYPE_NONE` the amount is multiplied by `mat_non_hdr_bloom_scalefactor`,
+  ".3" (`:66`, `:1460-1463`), after the walk, so the walking static is unscaled. The passes are the same ones HDR
+  uses: `HDR_TYPE_NONE` and `HDR_TYPE_INTEGER` share one `case` in `DoEnginePostProcessing` (`:2268-2357`), which
+  calls `Generate8BitBloomTexture` either way, and only the tone-map calls on either side are skipped under none.
+  The client ships both the cvar and the `blurfiltery_nohdr` material name (*shipped data*).
+
+**Measured, `cp_granary` STV 2008 at tick 1000:** level 1 over level 0 raises the channel means from
+140.0/103.2/72.1 to 143.1/105.3/73.1. Before the fix the two captures were the same picture.
+
+**Level 3 asks for float HDR, and is not built.** The caps computation sets `HDR_TYPE_FLOAT` at level 3 when the
+device reports float support (*read in disassembly*, `HdrTypeConformanceTests`). The client's `HDR_TYPE_FLOAT` case
+(`:2559-2629`) is a different pipeline outright: no 8-bit bloom, the `dev/floattoscreen_combine` material through
+`HDRFinal_Float`/`HDRFinal_Float_NoBloom` pass lists, the histogram's own goal (`0.18 / avg_lum`, then `0.023 /
+avg_lum`), and no colour correction (`:2332`). TF2 ships the float-to-screen shaders in `hl2_misc` (*shipped data*).
+**Open:** what `shaderapidx9` asks before it reports float support on a current device, and whether TF2's
+`materialsystem` then allocates float frame-buffer targets; both need the disassembly this session could not reach.
+Until then level 3 draws as 2, which is filed rather than claimed.

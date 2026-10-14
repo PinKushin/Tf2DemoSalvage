@@ -251,6 +251,65 @@ public sealed class CaptureUiTests
         }
     }
 
+    /// <summary><c>mat_hdr_level 1</c> must bloom a real frame that <c>mat_hdr_level 0</c> does not (B537).</summary>
+    /// <remarks>
+    /// `GetBloomAmount` (`viewpostprocess.cpp:1429-1463`) blooms at level 1 on an HDR map, at 0.3 of the amount, and not at
+    /// 0. Bloom is ADDED to the frame, so level 1's picture is the brighter. Measured on this capture 2026-10-14: the
+    /// summed channel means rose 6.3 (140.0/103.2/72.1 to 143.1/105.3/73.1); before B537 the two were the same picture.
+    /// Not a pixel-wise "no darker" — 57 of 542,184 pixels were, a capture being not perfectly repeatable.
+    /// </remarks>
+    [Test]
+    public void Capture_AtHdrLevel1AgainstLevel0_IsBrighterByTheBloom()
+    {
+        if (!File.Exists(DemoPath))
+        {
+            Assert.Ignore($"The corpus demo is not present at {DemoPath}.");
+            return;
+        }
+
+        string folder = Path.Combine(Path.GetTempPath(), "tf2ds-shot", Guid.NewGuid().ToString("N"));
+
+        Directory.CreateDirectory(folder);
+
+        try
+        {
+            double ldr = MeanAt(folder, 0);
+            double bloomed = MeanAt(folder, 1);
+
+            TestContext.Out.WriteLine($"HDRLEVEL summed channel means: level 0 {ldr:0.00}, level 1 {bloomed:0.00}");
+
+            (bloomed - ldr).ShouldBeGreaterThan(3.0, "level 1 is LDR with bloom, so it is brighter than level 0");
+        }
+        finally
+        {
+            Clean(folder);
+        }
+    }
+
+    /// <summary>One capture at a <c>mat_hdr_level</c>, read back as the sum of its three channel means.</summary>
+    private static double MeanAt(string folder, int level)
+    {
+        string png = Path.Combine(folder, $"level{level}.png");
+        (int Exit, string Errors) run = Capture(
+            DemoPath, png, LongEnoughToBeAHang, ShotTick, "+mat_hdr_level", level.ToString(CultureInfo.InvariantCulture));
+
+        run.Exit.ShouldBe(0, $"standard error:{Environment.NewLine}{run.Errors}");
+
+        using System.Drawing.Bitmap picture = new(png);
+        long sum = 0;
+
+        for (int y = 0; y < picture.Height; y++)
+        {
+            for (int x = 0; x < picture.Width; x++)
+            {
+                System.Drawing.Color pixel = picture.GetPixel(x, y);
+                sum += pixel.R + pixel.G + pixel.B;
+            }
+        }
+
+        return (double)sum / (picture.Width * picture.Height);
+    }
+
     /// <summary>The eight bytes every PNG starts with.</summary>
     private static readonly byte[] PngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 

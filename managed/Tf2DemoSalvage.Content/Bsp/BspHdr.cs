@@ -90,6 +90,12 @@ public static class BspHdr
     /// <summary>Whether HDR is on at the process's <see cref="MatHdrLevel"/> — `Map_CheckForHDR`'s "at least 2".</summary>
     public static bool Enabled => EnabledAt(MatHdrLevel);
 
+    /// <summary>Whether <c>GetBloomAmount</c> blooms this map at a <c>mat_hdr_level</c> (B537).</summary>
+    /// <param name="map">The map's bytes.</param>
+    /// <param name="matHdrLevel"><c>mat_hdr_level</c>.</param>
+    /// <returns>True from level 1 on a map with HDR lighting (<c>viewpostprocess.cpp:1429-1432</c>): level 1 is LDR with bloom.</returns>
+    public static bool BloomOn(ReadOnlySpan<byte> map, int matHdrLevel) => matHdrLevel >= 1 && MapHasHdr(map);
+
     /// <summary>Whether a <c>mat_hdr_level</c> turns HDR on.</summary>
     /// <param name="matHdrLevel">The level.</param>
     /// <returns>True from 2 up.</returns>
