@@ -746,9 +746,22 @@ internal sealed partial class ViewerApplication : IDisposable
     /// coordinates, so if something is covering the viewer the click lands in that instead — the
     /// fallback would do the very thing the guard exists to prevent.
     /// </remarks>
-    public void PressRealKey(VirtualKeyShort key)
+    public void PressRealKey(VirtualKeyShort key) => PressRealKey(key, null);
+
+    /// <summary>Presses a real key at one control of the viewer: foreground first, then the focus, then the key.</summary>
+    /// <param name="key">The key to type.</param>
+    /// <param name="focused">The control that must hear it, or null for whichever holds the focus.</param>
+    /// <remarks>
+    /// **The focus is set AFTER the foreground is taken, never before.** Focusing first and then pressing let
+    /// `Ready` bring the window forward in between, which moves the focus: on the CI runner, once clicks stopped
+    /// taking the foreground as a side effect, Home meant for the speed slider reached the form instead and the
+    /// readout said `speed 1 times` (run 38494861958, 2026-10-13).
+    /// </remarks>
+    public void PressRealKey(VirtualKeyShort key, AutomationElement? focused)
     {
         Ready(key);
+
+        focused?.Focus();
 
         Keyboard.Type(key);
 

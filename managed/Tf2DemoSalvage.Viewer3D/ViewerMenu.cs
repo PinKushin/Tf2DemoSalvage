@@ -101,22 +101,91 @@ internal sealed class ViewerMenu : IDisposable
         /// <summary>Leaves keyboard menu mode when no menu is open but the strip still holds focus.</summary>
         public void LeaveStrandedMenuMode()
         {
-            if (!Focused)
+            if (!Focused || AnyMenuOpen())
             {
                 return;
-            }
-
-            foreach (ToolStripItem item in Items)
-            {
-                if (item is ToolStripDropDownItem { DropDown.Visible: true })
-                {
-                    return;
-                }
             }
 
             _ = ProcessDialogKey(Keys.Escape);
             _ = ProcessDialogKey(Keys.Escape);
         }
+
+        private bool AnyMenuOpen()
+        {
+            foreach (ToolStripItem item in Items)
+            {
+                if (item is ToolStripDropDownItem { DropDown.Visible: true })
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// **Menu mode is stranded without a dialog too, and with the strip NOT focused.** UI Automation's Expand,
+        /// Invoke and Collapse (a screen reader's route, and the UI suite's) shut the drop-down and leave WinForms
+        /// in menu mode: its filter then sends every key to this strip whatever holds the focus, and SPACE there
+        /// opens the title bar's system menu. Measured 2026-10-13 with the key's target logged: `Home sent to
+        /// MainMenu (focused False, visible True, open menu False)` while the speed slider had the keyboard, and the
+        /// slider never moved (CI run 38494861958). <see cref="LeaveStrandedMenuMode"/> asks `Focused` first, so it
+        /// did nothing there.
+        ///
+        /// **Asked of the state between messages, not inferred from which event shut the menu.** Hooks on the
+        /// drop-downs' `Closed` caught some routes and missed others (12 keys still went to the strip in one run).
+        /// </remarks>
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            Application.Idle += LeaveMenuModeNobodyIsIn;
+        }
+
+        /// <inheritdoc />
+        protected override void Dispose(bool disposing)
+        {
+            Application.Idle -= LeaveMenuModeNobodyIsIn;
+            base.Dispose(disposing);
+        }
+
+        /// <summary>Leaves menu mode when no menu is open and nobody is on the bar.</summary>
+        /// <remarks>
+        /// A keyboard user on the bar has the strip focused and visible, and a menu in use is open; either one is
+        /// menu mode somebody is in, and it is left alone.
+        /// </remarks>
+        private void LeaveMenuModeNobodyIsIn(object? sender, EventArgs e)
+        {
+            if ((Focused && Visible) || AnyMenuOpen())
+            {
+                return;
+            }
+
+            if (InMenuMode?.Invoke() is true)
+            {
+                ExitMenuMode?.Invoke();
+            }
+        }
+
+        // **WinForms' own switch, reached by reflection, on the owner's word** (2026-10-13: "reflection i guess").
+        // No public call leaves menu mode on a strip that does not hold the focus: Escape did nothing there, and
+        // taking the focus to make it work moved it off the control the user was on (Home meant for the speed slider
+        // reached the viewport). `ModalMenuFilter.InMenuMode` and `ExitMenuMode` are the state and the exit themselves;
+        // dotnet/winforms main calls the same exit on `WM_KILLFOCUS`, which 10.0 lacks. If an update renames either,
+        // these are null, nothing is done, and the UI suite's key tests after a menu item fail and say so.
+#pragma warning disable S3011 // deliberate: the only exact exit from stranded menu mode is internal to WinForms 10
+        private static readonly Type? MenuFilter =
+            typeof(ToolStripManager).GetNestedType("ModalMenuFilter", System.Reflection.BindingFlags.NonPublic);
+
+        // Delegates, because this is asked every idle pass and a reflected read would box a bool per frame.
+        private static readonly Func<bool>? InMenuMode = MenuFilter?.GetProperty(
+                "InMenuMode", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
+            ?.GetMethod?.CreateDelegate<Func<bool>>();
+
+        private static readonly Action? ExitMenuMode = MenuFilter?.GetMethod(
+                "ExitMenuMode", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public)
+            ?.CreateDelegate<Action>();
+#pragma warning restore S3011
     }
 
     /// <summary>The strip to dock on the form.</summary>

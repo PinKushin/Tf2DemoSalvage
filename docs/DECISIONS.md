@@ -9989,3 +9989,26 @@ a transport button and a menu item are driven, and the cursor must be exactly wh
 effect has happened (for the button, the other application must still hold the foreground too). Putting the old
 `Mouse.Click` back at the top of `Activate` reddened both on the cursor position.
 
+## D216 — the menu strip leaves stranded menu mode through WinForms' own internal switch, by reflection, until .NET 11 (2026-10-14)
+
+**Owner, in his words**, offered reflection, a longer hunt for a public route, or putting a real mouse click back
+in the tests: *"reflection i guess"*. And on the runtime: *"we willl update to 11 when it comes out io think, unless
+theres a reason not to"*.
+
+**What it is for.** B542: after UI Automation picks a menu item, WinForms 10 stays in keyboard menu mode with the
+strip not focused, so every later key goes to the strip and SPACE opens the title bar's system menu. No public call
+leaves that state (B542 lists what was tried). `ToolStripManager.ModalMenuFilter.InMenuMode` and `ExitMenuMode()`
+are the state and the exit; both are internal.
+
+**The decision.** `ViewerMenu.ViewerMenuStrip` reaches the two by reflection, once, into delegates, and asks between
+messages (`Application.Idle`): menu mode on, no menu open, and nobody on the bar (the strip focused and visible)
+means leave. One `#pragma warning disable S3011` covers the three reflected members and says why. This is the one
+place the project suppresses an analyzer for something that is not a false positive, on the owner's word.
+
+**What it costs.** A WinForms update may rename either member. Then the delegates are null, nothing is done, and
+the UI suite's key tests that follow a menu item fail and say where the key went (`key X sent to MainMenu`).
+
+**When it goes.** At the move to .NET 11, whose WinForms is recorded as leaving menu mode itself on `WM_KILLFOCUS`
+(`docs/memory/a-uia-expanded-menu-eats-later-keys.md`; not re-read in Microsoft's source for this entry). Confirm
+that first, then delete the reflection, the pragma and `LeaveStrandedMenuMode`'s Escape pair with it.
+
