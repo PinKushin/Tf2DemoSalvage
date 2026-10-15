@@ -19,6 +19,22 @@
   `viewmodel_fov` (0.1 to 179.9), `cl_interp` (0 to 0.5) and `mat_vsync` (0 to 1). This matters to `toggle` with a
   list of values, which moves on from the value the variable actually holds. A variable the viewer does not
   implement is also remembered once, not twice (B543).
+- **Keyboard binds:** (pending fix/keyboard-binds)
+- **The viewer sleeps when another application is active, and the menu no longer writes launch options.**
+  Along with the muting above, the viewer now sleeps when it is not the active window (`engine_no_focus_sleep`),
+  as TF2 does, and wakes when you return. Choices made in the menus are remembered as settings only; they are
+  never saved as launch options (D218).
+- **A long match needs much less memory for its timeline.** The timeline now shares what does not change from
+  one moment to the next. On the f12 demo it fell from 2,948 MB to 1,235 MB, with the picture and every answer
+  unchanged (D217).
+- **TF2's spectator panel on SourceTV and spectator-view demos.** With `cl_use_tournament_specgui 1` in your
+  config you get the tournament player cards (name, health, respawn time, charge, portrait, team border);
+  otherwise you get TF2's stock bars, as the game does (B516).
+- **`mat_hdr_level 1` draws as TF2 does:** low dynamic range with bloom, no longer the same as level 0 (B537).
+- **The sun's glow is drawn.** Sprites and particles also take the right brightness scale under the tone map,
+  so tinted sprites are no longer too pale (B378).
+- **A medic's heal beam, seen from the medic's own eyes, starts at the weapon's muzzle** instead of at the
+  camera (B539).
 
 ## Changes in 0.1.0-beta.43
 
@@ -610,13 +626,13 @@ Each claim below is a measurement, not an expectation.
 
 Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the repository.
 
-- **The sun's own glow is not drawn**, and a glow seen through a water reflection or a monitor is not tested
-  separately for being covered (B378).
-- **The spectator HUD of a SourceTV demo viewed in-eye differs from the game's** (B516): TF2 draws the
-  tournament spectator HUD with both teams' panels, and the viewer draws a timer bar and a name plate.
-- **The heal glow cloud beside a running patient is fainter than the game's** (B538, B539): the game draws a wider
-  haze with about twenty-five pluses along the beam, and the viewer draws a thinner streak with a few.
-- **`mat_hdr_level 1` is drawn as 0** (the game is thought to add bloom at level 1), and 3 is drawn as 2 (B537).
+- **A sun glow seen through a water reflection or a monitor** is not tested separately for being covered (B378).
+- **The spectator HUD is not complete** (B546): the control-point lock row, the target ID's health number and the
+  overheal color of a player card's health still differ from the game's.
+- **The heal glow beside a running patient is partly fixed** (B538, B539): the beam's arc toward the aim still
+  differs from the game's, and the haze is fainter, with fewer pluses along the beam.
+- **`mat_hdr_level 3` is drawn as 2** (B537).
+- **`snd_musicvolume` and `voice_scale` are accepted but not applied yet** (B545).
 - **Some outdoor details still differ in brightness from the game** (B514 is open): a band of ground changes
   brightness at some moments of the f12 demo. Players and weapons were compared with the game at one moment of
   one demo (a demoman, near tick 63600), and every difference found there was fixed except the heal glow cloud
@@ -626,9 +642,10 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 
 - **Very large demos cannot be opened in the viewer.** A demo left recording on an idle server for
   hours (the 1.3 GB and 2 GB specimens found so far) works in the command-line tool, but the
-  viewer's timeline needs 40 to 84 times the file's size in memory (B449, B439).
-- **The viewer needs a lot of memory.** A typical modern match uses about 4 GB once loaded (B433,
-  B407); see *Requirements*.
+  viewer's timeline still needs too much memory to open them (B449, B439). A typical match now needs
+  much less than before (D217: the f12 timeline is 21 times the file, down from 34).
+- **The viewer needs a lot of memory.** A typical modern match used about 4 GB once loaded (B433,
+  B407) before the D217 savings; no new whole-viewer figure has been measured yet. See *Requirements*.
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
