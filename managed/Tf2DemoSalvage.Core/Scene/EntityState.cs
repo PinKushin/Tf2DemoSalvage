@@ -438,13 +438,13 @@ public sealed partial class EntityState
     private const string EyeAnglesPitch = "m_angEyeAngles[0]";
     private const string EyeAnglesYaw = "m_angEyeAngles[1]";
 
-    private readonly Dictionary<string, long> _lastSet = [];
     private long _sequence;
 
     // EconAttributes per list (Local, NetworkedForDemos), null until read or after a write under one.
     private readonly IReadOnlyList<EconAttributeValue>?[] _econ = new IReadOnlyList<EconAttributeValue>?[2];
 
-    private readonly Dictionary<string, PropertyValue> _properties = new(StringComparer.Ordinal);
+    // Values and the sequence of each one's last write, in one bag a checkpoint can share most of (D217 step 3).
+    private readonly PropertyBag _properties = new();
 
     // The path-shaped key `m_hMyWearables`' size arrived under, once seen.
     private string? _wearableLengthKey;
@@ -2941,8 +2941,7 @@ public sealed partial class EntityState
 
     internal void Set(string key, PropertyValue value)
     {
-        _properties[key] = value;
-        _lastSet[key] = ++_sequence;
+        _properties.Set(key, value, ++_sequence);
 
         // Both lists' keys, and their length props, run through this component.
         if (key.Contains(".m_Attributes.", StringComparison.Ordinal))
@@ -2971,7 +2970,6 @@ public sealed partial class EntityState
     internal void Forget()
     {
         _properties.Clear();
-        _lastSet.Clear();
         _econ[0] = _econ[1] = null;
     }
 
@@ -2988,5 +2986,5 @@ public sealed partial class EntityState
     /// every player on a SourceTV demo — a regression the owner saw in the viewer before the suite
     /// was re-run.
     /// </remarks>
-    private long Sequence(string key) => _lastSet.TryGetValue(key, out long at) ? at : -1;
+    private long Sequence(string key) => _properties.Sequence(key);
 }

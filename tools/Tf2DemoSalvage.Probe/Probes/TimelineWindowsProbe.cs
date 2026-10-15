@@ -93,12 +93,14 @@ public sealed class TimelineWindowsProbe : IProbe
         long values = 0;
         Dictionary<string, int> byQuestion = [];
         Stopwatch windows = new();
+        (double Copy, double Decode, double Finish) phases = default;
 
         foreach (double tick in order)
         {
             windows.Start();
             DemoTimeline window = checkpoints.Window((int)tick, (int)tick + 1);
             windows.Stop();
+            phases = (phases.Copy + checkpoints.LastWindow.Copy, phases.Decode + checkpoints.LastWindow.Decode, phases.Finish + checkpoints.LastWindow.Finish);
             List<(string Question, object? Answer)> expected = TimelineAnswers.At(whole, tick);
             List<(string Question, object? Answer)> actual = TimelineAnswers.At(window, tick);
             bool differs = false;
@@ -130,7 +132,8 @@ public sealed class TimelineWindowsProbe : IProbe
             differing += differs ? 1 : 0;
         }
 
-        output.WriteLine($"  {at.Count * 2} seeks, {values} values compared; {differing} ticks differ; window build mean {windows.Elapsed.TotalMilliseconds / (at.Count * 2):0} ms");
+        output.WriteLine($"  {at.Count * 2} seeks, {values} values compared; {differing} ticks differ; window build mean {windows.Elapsed.TotalMilliseconds / (at.Count * 2):0} ms " +
+            $"(copy {phases.Copy / (at.Count * 2):0}, decode {phases.Decode / (at.Count * 2):0}, finish {phases.Finish / (at.Count * 2):0})");
 
         foreach ((string question, int count) in byQuestion.OrderByDescending(entry => entry.Value))
         {

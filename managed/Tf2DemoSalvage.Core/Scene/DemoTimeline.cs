@@ -2767,7 +2767,9 @@ public sealed class DemoTimeline
             int at = _checkpoints.FindLastIndex(checkpoint => checkpoint.Tick <= tick);
             (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
 
+            long from = Stopwatch.GetTimestamp();
             Builder resumed = Builder.FromCheckpoint(state);
+            long copied = Stopwatch.GetTimestamp();
             int end = command;
 
             // Through every command of the next tick too, so the last frame asked for is final rather than mid-tick.
@@ -2777,8 +2779,17 @@ public sealed class DemoTimeline
             }
 
             resumed.Run(_commands.Skip(command).Take(end - command));
-            return resumed.Finish(_whole);
+            long ran = Stopwatch.GetTimestamp();
+            DemoTimeline window = resumed.Finish(_whole);
+            LastWindow = (
+                Stopwatch.GetElapsedTime(from, copied).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(copied, ran).TotalMilliseconds,
+                Stopwatch.GetElapsedTime(ran).TotalMilliseconds);
+            return window;
         }
+
+        /// <summary>Where the last <see cref="Window"/> spent its time: copying the checkpoint, decoding forward, finishing.</summary>
+        public (double Copy, double Decode, double Finish) LastWindow { get; private set; }
 
         /// <summary>What the checkpoints allocate in all, measured by copying each once.</summary>
         /// <returns>Bytes, and the largest single checkpoint.</returns>
