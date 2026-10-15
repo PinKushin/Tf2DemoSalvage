@@ -12,4 +12,6 @@ After measuring, delete every capture: viewer --shot PNGs, TF2 TGAs an agent mad
 
 **Why:** owner, 2026-10-14, on a 20-30 frame-per-side heal beam sample: "thats a massive amount of images, we need to be deleting these after we use them if they are no longer useful or used for a test".
 
+**Exception — goldens:** owner, 2026-10-14: *"real goldens are used for tests, real UI or integration tests"*. A TF2 reference a test compares against is kept and committed (screenshots only may be committed: *"yes, screenshots only"*; game files never). Few, compressed PNG, not LFS.
+
 **How to apply:** every capture brief says so; a report lists what was deleted. Never delete the owner's own screenshots. Related: [[take-the-golden-shot-dont-ask]].
