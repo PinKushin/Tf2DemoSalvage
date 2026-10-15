@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
@@ -63,5 +64,41 @@ public sealed class PoseKeyframesTests
         track.Add(12, second);
 
         track.KeyframeCount.ShouldBe(2);
+    }
+
+    private static ScenePropTrack Trimmed()
+    {
+        ScenePropTrack track = new(1, "models/a.mdl");
+
+        track.Add(10, Pose(1f, 4));
+        track.Add(11, Pose(2f, 4));
+        track.Add(12, Pose(3f, 4));
+        track.Add(13, Pose(4f, 4));
+        track.TrimBefore(13);
+
+        return track;
+    }
+
+    /// <remarks>
+    /// **Indices stay absolute after a trim** (D217 step 3): of four keyframes, a cut at 13 drops the first two; index 2 is
+    /// still tick 12, and an index below the drop throws rather than answering another keyframe.
+    /// </remarks>
+    [Test]
+    public void Keyframes_IndexBelowTheDropped_Throws()
+    {
+        ScenePropTrack track = Trimmed();
+
+        track.HeldKeyframeCount.ShouldBe(2, "the control: the trim dropped two");
+        track.Keyframes[2].Tick.ShouldBe(12);
+        Should.Throw<ArgumentOutOfRangeException>(() => track.Keyframes[1]);
+    }
+
+    /// <remarks>**The birth survives a trim**: the first keyframe's tick and pose, which `Alive` and a projectile's age read.</remarks>
+    [Test]
+    public void TrimBefore_FirstTwoDropped_KeepsTheFirstTickAndPose()
+    {
+        ScenePropTrack track = Trimmed();
+
+        (track.FirstTick, track.FirstPose.X).ShouldBe((10, 1f));
     }
 }

@@ -1731,6 +1731,10 @@ public sealed class ScenePropTrack
     /// <summary>The first tick this entity was seen at.</summary>
     public int FirstTick => _keyframes.Count > 0 ? _keyframes.FirstTick : int.MaxValue;
 
+    /// <summary>The pose this entity was first seen in, kept when a trim drops its keyframe (D217 step 3).</summary>
+    /// <remarks>Read this, not <c>Keyframes[0]</c>, which throws on a trimmed track.</remarks>
+    public ScenePose FirstPose => _keyframes.FirstPose;
+
     /// <summary>Works out what a model reference names.</summary>
     /// <param name="modelPath">The reference, as <c>modelprecache</c> carried it.</param>
     /// <returns>The kind, or <see cref="SceneModelKind.Unknown"/> for anything unrecognised.</returns>

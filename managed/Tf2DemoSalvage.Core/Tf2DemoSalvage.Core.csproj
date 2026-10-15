@@ -38,6 +38,10 @@
          because assembling one by hand is a test affordance rather than an API. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
 
+    <!-- A window's tracks are TRIMMED (D217 step 3), and `ScenePropTrack.TrimBefore` is internal: the projectile replay
+         in `FrameParticles` read a dropped first keyframe and threw, which only a trimmed track can show. -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Presentation.Tests" />
+
     <!-- The `timeline-resume` probe runs `DemoTimeline.BuildThroughSnapshot`, the snapshot-and-resume harness, on real
          demos: the synthetic test proves the mechanism, and only a real match has every feed and track at once (D217). -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
