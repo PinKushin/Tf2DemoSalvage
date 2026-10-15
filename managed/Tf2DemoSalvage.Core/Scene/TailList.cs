@@ -11,29 +11,16 @@ namespace Tf2DemoSalvage.Core.Scene;
 /// list's count and last element instead of copying it, which is sound only while nothing earlier in the list is ever
 /// written again. That was first a remark, and `choreography` broke it for a whole review round — a run's stop written
 /// behind later runs. Any edit away from the tail now throws where it is made.
+///
+/// **Stored as a <see cref="ChunkedList{T}"/>** (D217 step 3), so checkpoints share every full chunk.
 /// </remarks>
 /// <typeparam name="T">The element type.</typeparam>
-/// <remarks>
-/// **Stored in fixed chunks** (D217 step 3): a checkpoint copies the builder with <c>StateCopy</c>, which shares any object
-/// still equal to its earlier copy. One growing array would differ at every checkpoint and be copied whole each time —
-/// quadratic in a demo's length, and measured as most of f12's checkpoint memory for <c>sounds</c> alone. In chunks, every
-/// full chunk is unchanged and shared; only the last is copied again.
-/// </remarks>
 internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
 {
-    private const int ChunkBits = 10;
-
-    private const int ChunkSize = 1 << ChunkBits;
-
-    private readonly List<T[]> _chunks = [];
-
-    /// <summary>Where element 0 sits in the first chunk, after a front trim.</summary>
-    private int _start;
-
-    private int _count;
+    private readonly ChunkedList<T> _items = [];
 
     /// <inheritdoc cref="IReadOnlyCollection{T}.Count"/>
-    public int Count => _count;
+    public int Count => _items.Count;
 
     /// <summary>An element; only the last may be replaced.</summary>
     /// <param name="index">Which.</param>
@@ -41,113 +28,30 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
     /// <exception cref="InvalidOperationException">A write to any element but the last.</exception>
     public T this[int index]
     {
-        get => Slot(index);
+        get => _items[index];
         set
         {
             Tail(index, "replace");
-            Slot(index) = value;
+            _items[index] = value;
         }
-    }
-
-    private ref T Slot(int index)
-    {
-        if ((uint)index >= (uint)_count)
-        {
-            throw new ArgumentOutOfRangeException(nameof(index), index, $"A tail list of {_count} elements.");
-        }
-
-        int at = _start + index;
-        return ref _chunks[at >> ChunkBits][at & (ChunkSize - 1)];
     }
 
     /// <summary>Appends.</summary>
     /// <param name="item">The element.</param>
-    public void Add(T item)
-    {
-        int at = _start + _count;
-
-        if ((at >> ChunkBits) == _chunks.Count)
-        {
-            _chunks.Add(new T[ChunkSize]);
-        }
-
-        _chunks[at >> ChunkBits][at & (ChunkSize - 1)] = item;
-        _count++;
-    }
+    public void Add(T item) => _items.Add(item);
 
     /// <summary>Removes the last element; any other index throws.</summary>
     /// <param name="index">Must be the last.</param>
     public void RemoveAt(int index)
     {
         Tail(index, "remove");
-        RemoveLast();
-    }
-
-    private void RemoveLast()
-    {
-        Slot(_count - 1) = default!;
-        _count--;
-        int used = (_start + _count + ChunkSize - 1) >> ChunkBits;
-
-        if (_count == 0)
-        {
-            _chunks.Clear();
-            _start = 0;
-        }
-        else if (_chunks.Count > used)
-        {
-            _chunks.RemoveAt(_chunks.Count - 1);
-        }
+        _items.RemoveLast();
     }
 
     /// <summary>The elements as a list for the timeline that is handed out; the tail list is left empty.</summary>
     /// <returns>The list, which no builder may write once it is out (the builder's lease).</returns>
     /// <remarks>Moved chunk by chunk, so a whole build's frames are never held twice.</remarks>
-    public List<T> HandOut()
-    {
-        List<T> items = new(_count);
-
-        for (int chunk = 0; chunk < _chunks.Count; chunk++)
-        {
-            int from = chunk == 0 ? _start : 0;
-            int to = Math.Min(ChunkSize, _start + _count - (chunk << ChunkBits));
-            items.AddRange(new ArraySegment<T>(_chunks[chunk], from, to - from));
-            _chunks[chunk] = [];
-        }
-
-        _chunks.Clear();
-        _start = 0;
-        _count = 0;
-        return items;
-    }
-
-    /// <summary>Drops the first <paramref name="count"/> elements, whole chunks freed and the rest cleared.</summary>
-    private void DropFront(int count)
-    {
-        for (int index = 0; index < count; index++)
-        {
-            Slot(index) = default!;
-        }
-
-        _start += count;
-        _count -= count;
-        int whole = _start >> ChunkBits;
-        _chunks.RemoveRange(0, whole);
-        _start -= whole << ChunkBits;
-    }
-
-    private int FindLastIndex(Predicate<T> match)
-    {
-        for (int index = _count - 1; index >= 0; index--)
-        {
-            if (match(Slot(index)))
-            {
-                return index;
-            }
-        }
-
-        return -1;
-    }
+    public List<T> HandOut() => _items.MoveOut();
 
     /// <summary>
     /// As <see cref="DropBefore(Func{T, int}, int)"/>, but for a list that interleaves several streams written only on
@@ -163,13 +67,13 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
         List<T> kept = [];
 
         // Walked backwards from the cut: the first of each stream met is its last before the cut.
-        int before = FindLastIndex(item => tickOf(item) < cut);
+        int before = _items.FindLastIndex(item => tickOf(item) < cut);
 
         for (int index = before; index >= 0; index--)
         {
-            if (seen.Add(streamOf(Slot(index))))
+            if (seen.Add(streamOf(_items[index])))
             {
-                kept.Add(Slot(index));
+                kept.Add(_items[index]);
             }
         }
 
@@ -179,15 +83,13 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
         }
 
         // Rebuilt rather than spliced: the kept records go in front of what follows the cut, in their order.
-        List<T> after = [.. this.Skip(before + 1)];
+        List<T> after = [.. _items.Skip(before + 1)];
         kept.Reverse();
-        _chunks.Clear();
-        _start = 0;
-        _count = 0;
+        _items.Clear();
 
         foreach (T item in kept.Concat(after))
         {
-            Add(item);
+            _items.Add(item);
         }
     }
 
@@ -199,37 +101,31 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
     /// <param name="cut">The earliest tick still to be answered.</param>
     public void DropBefore(Func<T, int> tickOf, int cut)
     {
-        int inForce = FindLastIndex(item => tickOf(item) < cut);
+        int inForce = _items.FindLastIndex(item => tickOf(item) < cut);
 
         if (inForce > 0)
         {
-            DropFront(Math.Min(inForce, _count - 1));
+            _items.DropFront(Math.Min(inForce, _items.Count - 1));
         }
     }
 
     /// <inheritdoc/>
-    public IEnumerator<T> GetEnumerator()
-    {
-        for (int index = 0; index < _count; index++)
-        {
-            yield return Slot(index);
-        }
-    }
+    public IEnumerator<T> GetEnumerator() => _items.GetEnumerator();
 
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 
-    object? ITailList.Last => _count > 0 ? Slot(_count - 1) : null;
+    object? ITailList.Last => _items.Count > 0 ? _items[^1] : null;
 
-    void ITailList.RemoveLast() => RemoveLast();
+    void ITailList.RemoveLast() => _items.RemoveLast();
 
-    void ITailList.AddBoxed(object? item) => Add((T)item!);
+    void ITailList.AddBoxed(object? item) => _items.Add((T)item!);
 
     private void Tail(int index, string what)
     {
-        if (index != _count - 1)
+        if (index != _items.Count - 1)
         {
             throw new InvalidOperationException(
-                $"A tail list may only {what} its last element ({_count - 1}), not {index} (D217).");
+                $"A tail list may only {what} its last element ({_items.Count - 1}), not {index} (D217).");
         }
     }
 }

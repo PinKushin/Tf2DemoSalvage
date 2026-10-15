@@ -40,7 +40,7 @@ public readonly record struct SceneSpark(
 /// </remarks>
 public sealed class SparkFeed
 {
-    private readonly List<SceneSpark> _sparks = [];
+    private readonly ChunkedList<SceneSpark> _sparks = [];
 
     /// <summary>Every spark, in fire order.</summary>
     public IReadOnlyList<SceneSpark> All => _sparks;

@@ -2926,7 +2926,7 @@ public sealed class DemoTimeline
         private readonly SoundNames soundNames;
         private readonly TailList<SceneSound> sounds;
         private readonly ScenePrecache scenePrecache;
-        private readonly List<SceneChoreography> choreography;
+        private readonly ChunkedList<SceneChoreography> choreography;
         private readonly Dictionary<int, int> playingScenes;
         private readonly TailList<(int Tick, SceneSoundscape Soundscape)> soundscapes;
         private readonly TailList<(int Tick, DirectorShot Shot)> director;

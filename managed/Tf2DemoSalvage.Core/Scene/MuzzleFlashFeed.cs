@@ -33,7 +33,7 @@ public sealed class MuzzleFlashFeed
     public const string ParityKey = "DT_BaseAnimating.m_nMuzzleFlashParity";
 
     private readonly Dictionary<int, int> _old = [];
-    private readonly List<SceneMuzzleFlash> _flashes = [];
+    private readonly ChunkedList<SceneMuzzleFlash> _flashes = [];
 
     /// <summary>Every flash, in tick order.</summary>
     public IReadOnlyList<SceneMuzzleFlash> All => _flashes;
