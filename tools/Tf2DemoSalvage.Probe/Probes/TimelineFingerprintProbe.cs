@@ -48,5 +48,6 @@ public sealed class TimelineFingerprintProbe : IProbe
         output.WriteLine($"  frames      {fingerprint.Frames}");
         output.WriteLine($"  soundscapes {fingerprint.Soundscapes}");
         output.WriteLine($"  props       {fingerprint.Props}");
+        output.WriteLine($"  collections {fingerprint.Collections}");
     }
 }

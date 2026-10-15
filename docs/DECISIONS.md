@@ -10152,6 +10152,39 @@ asked for every helper only the pass calls to move inside the class; they are wr
 - **Cost, not yet paid down:** a snapshot deep-copies every track and its keyframes, so it is as large as the
   timeline's track half; checkpoints every few seconds need the tracks windowed first (step 3).
 
+**Review of 3d3f5457, and what it found wrong (2026-10-15).** Three reviewers and the coordinator, every point checked:
+- **`choreography` was marked as tail-only and is not**: a run's stop is written at `FindLastIndex` by entity, behind
+  later runs. A resume stopped part-way inherited the live run's later stop — a scene reported stopping in the future.
+  The full-replay test could not see it, because replaying to the end rewrites the same value. It is now deep-copied.
+  The test resumes at EVERY cut and stops at EVERY later command against a straight build stopped there, on a new
+  authored demo (`DemoOfScenes`: two scene slots, a stop behind the last run, two packets on one tick contending
+  soundscapes); it reddened on the old marking before the fix.
+- **The invariant is enforced, not commented**: the marked lists are `TailList<T>`, which throws on any write that is
+  not an append or a replacement/removal of the last element.
+- **`Finish` re-timed and re-sorted `sounds` in place**: it now works on a copy. And the marked lists are handed to the
+  returned timeline, so **a resume after `Finish` is refused** (a lease shared by a builder, its snapshots and their
+  resumes), as is a second `Finish`.
+- **Back, then forward, was silently wrong.** Resuming an earlier snapshot cuts the shared lists; marks can cut but not
+  restore, so resuming a later snapshot afterwards left a gap (S1 at 100 frames, S2 at 500 gave 101). Resume now refuses
+  when the lists no longer reach the snapshot; forward-then-back is exact, and back-then-forward works once the run has
+  walked past the later snapshot again. **This is the checkpoint seek pattern, so step 4 cannot be built on marks**: a
+  checkpoint must own its output since the one before, or the output must be produced per window — step 3.
+- **The fingerprint was narrower than claimed** (frames, `SoundscapeAt`, keyframes only). It now hashes every other
+  public collection of the timeline by name — events, director shots, scenes, ConVar history, fog, viewmodels, sounds,
+  corpses, effects — and refuses a span-typed member rather than skip it.
+- **`StateCopy`** throws on a multi-dimensional array of references instead of a silent shallow copy; shares a
+  `ReadOnlyMemory<T>` and what it views; and shares everything reachable from the schema plus the decoder's
+  schema-derived caches. Identity-sensitive objects reachable from both a shared list and copied state were checked:
+  `SceneRagdoll` and `SceneViewmodel` are value types, and nothing compares them by reference.
+- **Per-snapshot cost, measured** (`timeline-resume <demo> 0.5 cost`, at half way): the schema share took
+  movement-test from 112.6 to 103.6 MB, rgl-pug from 1,265.2 to 1,243.6 MB and f12 from 798.8 to 780.4 MB (the schema alone is 4.2 MB; the rest was
+  definitions reached through structs). Following or sharing the demo's bytes made no difference (103.7/103.6,
+  780.4/780.4) — the state holds no slice of the file at that point, so that rule guards rather than saves. By field on
+  f12, each copied alone: tracks 532 MB, player tracks 451, props 203, entities 114, decoder 35. **A checkpoint every
+  few seconds is not affordable this way**; the tracks must be windowed first.
+- **Equivalence on real demos, now over every collection**: `timeline-resume` at half way, with every fix above in,
+  identical on movement-test, rgl-pug and f12 (9.2 M, 1.23 G and 1.22 G values).
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they

@@ -39,6 +39,79 @@ internal static class StateCopy
         return (T)Copy(source, share, copies)!;
     }
 
+    /// <summary>Every object reachable from a root, the root included — what a copy may share when the root is immutable.</summary>
+    /// <param name="root">The root, such as the demo's schema.</param>
+    /// <returns>The objects, compared by identity.</returns>
+    /// <remarks>
+    /// **For the schema, which never changes once parsed**: a decoded property carries its <c>SendProperty</c> by value
+    /// inside a struct, so sharing the schema's ROOT left every property definition an entity referred to copied again
+    /// per snapshot (measured 4.2 MB on movement-test). Sharing everything under it stops that.
+    /// </remarks>
+    public static HashSet<object> Reachable(object root)
+    {
+        ArgumentNullException.ThrowIfNull(root);
+
+        HashSet<object> seen = new(ReferenceEqualityComparer.Instance);
+        Stack<object> pending = new([root]);
+
+        while (pending.TryPop(out object? next))
+        {
+            if (!seen.Add(next))
+            {
+                continue;
+            }
+
+            if (next is Array array)
+            {
+                if (HasReferences(array.GetType().GetElementType()!))
+                {
+                    foreach (object? item in array)
+                    {
+                        Visit(item, pending);
+                    }
+                }
+
+                continue;
+            }
+
+            for (Type? type = next.GetType(); type is not null; type = type.BaseType)
+            {
+                foreach (FieldInfo field in Fields(type))
+                {
+                    Visit(field.GetValue(next), pending);
+                }
+            }
+        }
+
+        return seen;
+    }
+
+    private static void Visit(object? value, Stack<object> pending)
+    {
+        if (value is null || Immutable(value.GetType()))
+        {
+            return;
+        }
+
+        if (!value.GetType().IsValueType)
+        {
+            pending.Push(value);
+            return;
+        }
+
+        if (HasReferences(value.GetType()))
+        {
+            // A struct's references are followed in place; the boxed struct itself is not an object to share.
+            for (Type? type = value.GetType(); type is not null && type.IsValueType; type = type.BaseType)
+            {
+                foreach (FieldInfo field in Fields(type))
+                {
+                    Visit(field.GetValue(value), pending);
+                }
+            }
+        }
+    }
+
     private static object? Copy(object? value, IReadOnlySet<object> share, Dictionary<object, object> copies)
     {
         if (value is null)
@@ -69,7 +142,13 @@ internal static class StateCopy
             Array copy = Array.CreateInstance(type.GetElementType()!, LengthsOf(array));
             copies[value] = copy;
 
-            if (HasReferences(type.GetElementType()!) && array.Rank == 1)
+            if (HasReferences(type.GetElementType()!) && array.Rank > 1)
+            {
+                // Copied element by element only in one dimension; a shallow copy here would share what looks copied.
+                throw new NotSupportedException($"{type} has more than one dimension and holds references; StateCopy cannot copy it.");
+            }
+
+            if (HasReferences(type.GetElementType()!))
             {
                 for (int index = 0; index < array.Length; index++)
                 {
@@ -137,9 +216,17 @@ internal static class StateCopy
     /// <remarks>
     /// **Only the ones that cannot change at all.** A record is NOT here: `init` stops reassignment of its members but
     /// a member can be a list someone appends to.
+    ///
+    /// **A <see cref="ReadOnlyMemory{T}"/> is here, and that is a decision about the input, not about the type.**
+    /// `DemoCommandReader` slices the demo's own bytes, and nothing writes through a read-only view; following one would
+    /// copy the backing array — the whole FILE if it is a slice of it — and would clone a `MemoryManager`'s handle (a
+    /// mapped view). So the view and what it views are shared. *Measured* (`timeline-resume … cost`, 2026-10-15): the
+    /// builder's state reaches no slice of the file at the half-way snapshot — following or sharing gave the same bytes
+    /// on movement-test (103.6 vs 103.7 MB) and f12 (780.4 both) — so this guards a later field, not a present cost.
     /// </remarks>
     internal static bool Immutable(Type type) =>
         type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal)
         || typeof(Delegate).IsAssignableFrom(type) || typeof(MemberInfo).IsAssignableFrom(type)
-        || type.IsPointer;
+        || type.IsPointer
+        || (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(ReadOnlyMemory<>));
 }

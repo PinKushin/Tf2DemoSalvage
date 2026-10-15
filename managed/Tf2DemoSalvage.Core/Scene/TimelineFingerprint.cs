@@ -9,8 +9,8 @@ using System.Text;
 namespace Tf2DemoSalvage.Core.Scene;
 
 /// <summary>
-/// Hashes of every value a timeline's frames, prop keyframes and soundscape lookups answer, to prove two timelines
-/// equal (D217).
+/// Hashes of every value a timeline's frames, prop keyframes, soundscape lookups and other public collections answer,
+/// to prove two timelines equal (D217).
 /// </summary>
 /// <param name="Frames">Every public value of every frame and player, lists element by element.</param>
 /// <param name="Soundscapes">`SoundscapeAt` asked at every frame's tick.</param>
@@ -55,12 +55,33 @@ public sealed record TimelineFingerprint(string Frames, string Soundscapes, stri
             }
         }
 
+        // Every other public collection the timeline answers with — sounds, events, director shots, scenes, ConVar
+        // history, fog, viewmodels, corpses, effects and the rest — by name, so a list added later is covered too.
+        using IncrementalHash collections = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+
+        foreach (PropertyInfo property in typeof(DemoTimeline).GetProperties(BindingFlags.Instance | BindingFlags.Public)
+                     .Where(property => property.GetIndexParameters().Length == 0
+                         && property.PropertyType != typeof(string)
+                         && typeof(IEnumerable).IsAssignableFrom(property.PropertyType)
+                         && property.Name is not (nameof(DemoTimeline.Frames) or nameof(DemoTimeline.Props) or nameof(DemoTimeline.PlayerTracks)))
+                     .OrderBy(property => property.Name, StringComparer.Ordinal))
+        {
+            Write(collections, property.Name, ref values);
+            Append(collections, property.GetValue(timeline), ref values);
+        }
+
         return new TimelineFingerprint(
             Convert.ToHexString(frames.GetHashAndReset()),
             Convert.ToHexString(soundscapes.GetHashAndReset()),
             Convert.ToHexString(props.GetHashAndReset()),
-            values);
+            values)
+        {
+            Collections = Convert.ToHexString(collections.GetHashAndReset()),
+        };
     }
+
+    /// <summary>Every other public collection of the timeline, each under its property name.</summary>
+    public string Collections { get; init; } = string.Empty;
 
     private static void Append(IncrementalHash hash, object? value, ref long values)
     {
@@ -74,6 +95,11 @@ public sealed record TimelineFingerprint(string Frames, string Soundscapes, stri
                 return;
             case IFormattable formattable when value.GetType().IsPrimitive || value is Enum:
                 Write(hash, formattable.ToString(null, CultureInfo.InvariantCulture), ref values);
+                return;
+
+            // A message body or a payload: its bytes, since its `Span` cannot be read by reflection.
+            case ReadOnlyMemory<byte> bytes:
+                Write(hash, Convert.ToHexString(bytes.Span), ref values);
                 return;
             case IEnumerable sequence:
                 Write(hash, "[", ref values);
@@ -103,6 +129,14 @@ public sealed record TimelineFingerprint(string Frames, string Soundscapes, stri
                      .OrderBy(property => property.Name, StringComparer.Ordinal))
         {
             Write(hash, property.Name, ref values);
+
+            // A span cannot be boxed; the memory it views is hashed through its owner instead (above), so a type that
+            // offers ONLY a span is refused loudly rather than skipped, lest a value go unhashed.
+            if (property.PropertyType.IsByRefLike)
+            {
+                throw new NotSupportedException($"{type.Name}.{property.Name} is a {property.PropertyType.Name}, which cannot be read by reflection.");
+            }
+
             Append(hash, property.GetValue(value), ref values);
         }
     }

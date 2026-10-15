@@ -141,6 +141,14 @@ public sealed class EntityDecoder : IEntityBaselines
     private readonly int _classBits;
     private readonly Dictionary<int, int> _entityClasses = [];
     private readonly Dictionary<int, IReadOnlyList<FlatProperty>> _flattened = [];
+
+    /// <summary>What this decoder derives from the schema alone: caches that are a pure function of it (D217).</summary>
+    /// <returns>The class map, the flattened-property cache and each flattened list.</returns>
+    /// <remarks>
+    /// **For the timeline builder's snapshot, which shares these instead of copying them.** A cache entry is computed
+    /// the same way whichever builder adds it, so a live builder and a resumed one can share the dictionaries.
+    /// </remarks>
+    internal IEnumerable<object> SchemaDerived() => [_flattened, _classesById, .. _flattened.Values];
     private readonly Dictionary<int, ServerClass> _classesById = [];
     private readonly List<int> _removed = [];
 

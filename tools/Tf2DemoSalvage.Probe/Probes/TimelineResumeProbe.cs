@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -26,7 +27,7 @@ public sealed class TimelineResumeProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "snapshot the timeline build part-way, resume, and compare with a straight build: timeline-resume <demo> [fraction, default 0.5]";
+        "snapshot the timeline build part-way, resume, compare with a straight build, and say what a snapshot costs: timeline-resume <demo> [fraction, default 0.5] [cost]";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -45,14 +46,31 @@ public sealed class TimelineResumeProbe : IProbe
         int commands = DemoTimeline.CommandCount(demo);
         int at = (int)(commands * fraction);
 
-        TimelineFingerprint straight = TimelineFingerprint.Of(DemoTimeline.Build(demo));
-        TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(demo, at));
+        // "cost" as a third argument measures one snapshot and skips the two full builds.
+        if (arguments.Count < 3 || arguments[2] != "cost")
+        {
+            TimelineFingerprint straight = TimelineFingerprint.Of(DemoTimeline.Build(demo));
+            TimelineFingerprint resumed = TimelineFingerprint.Of(DemoTimeline.BuildThroughSnapshot(demo, at));
 
-        output.WriteLine($"{Path.GetFileName(path)}: snapshot after {at} of {commands} commands; {straight.Values} values straight, {resumed.Values} resumed");
-        output.WriteLine($"  frames      {Same(straight.Frames, resumed.Frames)}");
-        output.WriteLine($"  soundscapes {Same(straight.Soundscapes, resumed.Soundscapes)}");
-        output.WriteLine($"  props       {Same(straight.Props, resumed.Props)}");
-        output.WriteLine(straight == resumed ? "  IDENTICAL" : "  DIFFERENT");
+            output.WriteLine($"{Path.GetFileName(path)}: snapshot after {at} of {commands} commands; {straight.Values} values straight, {resumed.Values} resumed");
+            output.WriteLine($"  frames      {Same(straight.Frames, resumed.Frames)}");
+            output.WriteLine($"  soundscapes {Same(straight.Soundscapes, resumed.Soundscapes)}");
+            output.WriteLine($"  props       {Same(straight.Props, resumed.Props)}");
+            output.WriteLine($"  collections {Same(straight.Collections, resumed.Collections)}");
+            output.WriteLine(straight == resumed ? "  IDENTICAL" : "  DIFFERENT");
+        }
+        else
+        {
+            output.WriteLine($"{Path.GetFileName(path)}: snapshot after {at} of {commands} commands ({demo.Length / 1048576d:0.0} MB file)");
+        }
+
+        (long total, IReadOnlyList<(string Field, long Bytes)> fields) = DemoTimeline.MeasureSnapshot(demo, at);
+        output.WriteLine($"  one snapshot allocates {total / 1048576d:0.0} MB; by field, each copied alone:");
+
+        foreach ((string field, long bytes) in fields.Take(12))
+        {
+            output.WriteLine($"    {field,-32} {bytes / 1048576d,8:0.0} MB");
+        }
     }
 
     private static string Same(string straight, string resumed) =>

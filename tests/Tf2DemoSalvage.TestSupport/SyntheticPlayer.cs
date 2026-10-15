@@ -2551,6 +2551,114 @@ internal static class SyntheticPlayer
         return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
     }
 
+    /// <summary>
+    /// Two players whose soundscapes contend within every tick, and two <c>CSceneEntity</c> slots (40 and 41) starting
+    /// and stopping scenes over the ticks given (D217's resume test).
+    /// </summary>
+    /// <param name="snapshots">
+    /// Each packet's tick (two packets may share one), the scene string index each scene slot plays then or null for
+    /// stopped, and the second player's soundscape (the first player's is always 3).
+    /// </param>
+    /// <returns>A demo's bytes.</returns>
+    /// <remarks>
+    /// **What it is for**: the timeline's choreography list has a run's stop written into it when the scene ends —
+    /// at whatever index that run sits — and the soundscape sampler drops its last sample when another arrives in the
+    /// same tick, including from a second packet on that tick. Those are the rewrites a resumed build must not inherit
+    /// from a run that went on.
+    /// </remarks>
+    public static byte[] DemoOfScenes(params (int Tick, int? First, int? Second, int Soundscape)[] snapshots)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+
+        const int SceneClassId = 1;
+        DemoSchema baseline = Schema(OriginTable.NonLocal);
+        List<SendTable> tables = [];
+
+        foreach (SendTable table in baseline.Tables)
+        {
+            tables.Add(
+                table.Name == "DT_BasePlayer"
+                    ? table with { Properties = [.. table.Properties, Table("localdata", "DT_Local")] }
+                    : table);
+        }
+
+        tables.Add(new SendTable("DT_Local", NeedsDecoder: true, [Int("m_audio.soundscapeIndex", bits: 17)]));
+        tables.Add(new SendTable("DT_SceneEntity", NeedsDecoder: true,
+            [Int("m_nSceneStringIndex", bits: 12), Int("m_bIsPlayingBack", bits: 1)]));
+
+        DemoSchema schema = new(tables, [.. baseline.ServerClasses, new ServerClass(SceneClassId, "CSceneEntity", "DT_SceneEntity")]);
+        EntityDecoder decoder = new(schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
+
+        List<DemoCommand> commands =
+        [
+            SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, 0, ServerInfo()),
+            SyntheticDemo.DataTables(schema),
+        ];
+
+        for (int index = 0; index < snapshots.Length; index++)
+        {
+            (int tick, int? first, int? second, int heard) = snapshots[index];
+            List<DecodedEntity> entities = [];
+
+            foreach ((int entityIndex, int soundscape) in new[] { (1, 3), (2, heard) })
+            {
+                Dictionary<string, PropertyValue> values = new()
+                {
+                    ["m_vecOrigin"] = PropertyValue.FromVectorXY(index, entityIndex),
+                    ["m_vecOrigin[2]"] = PropertyValue.FromFloat(0f),
+                };
+
+                if (index == 0)
+                {
+                    values["m_lifeState"] = PropertyValue.FromInt(0);
+                }
+
+                if (index == 0 || soundscape != (entityIndex == 1 ? 3 : snapshots[index - 1].Soundscape))
+                {
+                    values["m_audio.soundscapeIndex"] = PropertyValue.FromInt(soundscape);
+                }
+
+                entities.Add(Entity(decoder, PlayerClassId, entityIndex, values) with
+                {
+                    SerialNumber = entityIndex,
+                    UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                });
+            }
+
+            foreach ((int entityIndex, int? scene) in new[] { (40, first), (41, second) })
+            {
+                Dictionary<string, PropertyValue> values = new()
+                {
+                    ["m_nSceneStringIndex"] = PropertyValue.FromInt(scene ?? 0),
+                    ["m_bIsPlayingBack"] = PropertyValue.FromInt(scene is null ? 0 : 1),
+                };
+
+                entities.Add(Entity(decoder, SceneClassId, entityIndex, values) with
+                {
+                    SerialNumber = entityIndex,
+                    UpdateType = index == 0 ? EntityUpdateType.Enter : EntityUpdateType.Delta,
+                });
+            }
+
+            byte[] body = decoder.EncodeEntities(entities, [], isDelta: index > 0, 0, out int bits);
+
+            commands.Add(SyntheticDemo.Packet(
+                SyntheticDemo.DefaultProtocol,
+                tick,
+                new PacketEntitiesMessage(
+                    MaxEntries: 64,
+                    IsDelta: index > 0,
+                    DeltaFromTick: index > 0 ? snapshots[index - 1].Tick : null,
+                    BaselineIndex: false,
+                    UpdatedEntries: entities.Count,
+                    LengthBits: bits,
+                    UpdateBaseline: false,
+                    Body: body)));
+        }
+
+        return SyntheticDemo.From(SyntheticDemo.DefaultProtocol, [.. commands]);
+    }
+
     /// <summary>Class id of the ordinary prop entity, when the schema declares one.</summary>
     public const int PropClassId = 2;
 

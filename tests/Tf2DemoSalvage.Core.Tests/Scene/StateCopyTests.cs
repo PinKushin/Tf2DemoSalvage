@@ -49,6 +49,52 @@ public sealed class StateCopyTests
         copy.First.ShouldNotBeSameAs(shared);
     }
 
+    private sealed class Viewer
+    {
+        public ReadOnlyMemory<byte> Slice { get; set; }
+
+        public Array? Grid { get; set; }
+    }
+
+    /// <remarks>
+    /// **The demo's bytes are input, not state**: a read-only slice is shared with what it views, so a snapshot does not
+    /// copy the whole file the decoder's slices point into.
+    /// </remarks>
+    [Test]
+    public void Of_ReadOnlyMemorySlice_SharesItsBackingArray()
+    {
+        byte[] file = [1, 2, 3, 4];
+        Viewer copy = StateCopy.Of(new Viewer { Slice = file.AsMemory(1, 2) }, new HashSet<object>());
+
+        System.Runtime.InteropServices.MemoryMarshal.TryGetArray(copy.Slice, out ArraySegment<byte> segment).ShouldBeTrue();
+        segment.Array.ShouldBeSameAs(file);
+    }
+
+    /// <remarks>**No silent shallow copy**: a multi-dimensional array of references is refused rather than shared.</remarks>
+    [Test]
+    public void Of_TwoDimensionalArrayOfReferences_Throws()
+    {
+        Should.Throw<NotSupportedException>(() =>
+            StateCopy.Of(new Viewer { Grid = Array.CreateInstance(typeof(object), 1, 1) }, new HashSet<object>()));
+    }
+
+    /// <remarks>
+    /// **An immutable graph shared whole**: everything under a root the caller names as unchanging — the schema — is
+    /// shared, including what is reached only through a struct, as a decoded property reaches its definition.
+    /// </remarks>
+    [Test]
+    public void Of_ShareEverythingReachable_SharesObjectsUnderTheRoot()
+    {
+        List<int> inner = [5];
+        Holder schema = new() { Pair = (1, inner) };
+        Holder state = new() { Pair = (2, inner) };
+
+        Holder copy = StateCopy.Of(state, StateCopy.Reachable(schema));
+
+        copy.Pair.Tail.ShouldBeSameAs(inner);
+        copy.First.ShouldNotBeSameAs(state.First);
+    }
+
     /// <remarks>**Sharing on request**: what the caller names is handed over, not copied — the builder's output lists.</remarks>
     [Test]
     public void Of_ListNamedAsShared_IsTheSameInstance()

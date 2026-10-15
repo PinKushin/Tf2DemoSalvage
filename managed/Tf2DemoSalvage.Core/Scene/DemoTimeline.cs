@@ -2525,12 +2525,13 @@ public sealed class DemoTimeline
     /// </summary>
     /// <param name="file">The whole demo file.</param>
     /// <param name="snapshotAfter">How many commands to walk before the snapshot.</param>
+    /// <param name="stopAfter">How many commands the RESUMED builder walks in all before finishing; the end by default.</param>
     /// <returns>The timeline the resumed builder produces, which must equal a straight build's.</returns>
     /// <remarks>
     /// **The live builder runs past the snapshot before it is abandoned** so the resume is tested against output lists
     /// that have grown and changed since — which is what a seek does after playing on.
     /// </remarks>
-    internal static DemoTimeline BuildThroughSnapshot(ReadOnlyMemory<byte> file, int snapshotAfter)
+    internal static DemoTimeline BuildThroughSnapshot(ReadOnlyMemory<byte> file, int snapshotAfter, int stopAfter = int.MaxValue)
     {
         if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
         {
@@ -2538,14 +2539,101 @@ public sealed class DemoTimeline
         }
 
         int at = Math.Clamp(snapshotAfter, 0, commands.Count);
+        int stop = Math.Clamp(stopAfter, at, commands.Count);
 
         builder.Run(commands.Take(at));
         BuilderSnapshot snapshot = builder.Snapshot();
         builder.Run(commands.Skip(at));
 
+        // **Stopped short of the end, as a seek is**: whatever the live run did after `stop` must not show.
         Builder resumed = Builder.Resume(snapshot);
-        resumed.Run(commands.Skip(at));
+        resumed.Run(commands.Take(stop).Skip(at));
         return resumed.Finish();
+    }
+
+    /// <summary>
+    /// Snapshots twice during one run (after <paramref name="earlier"/> and <paramref name="later"/> commands), runs on
+    /// to the end, then resumes the FIRST snapshot named, walks <paramref name="walk"/> commands from it, resumes the
+    /// SECOND named and finishes at <paramref name="stopAfter"/> — a seek, then another (D217).
+    /// </summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="earlier">The earlier snapshot's command.</param>
+    /// <param name="later">The later snapshot's command.</param>
+    /// <param name="backFirst">True to resume the earlier one first and then the later (back, then forward).</param>
+    /// <param name="walk">Commands walked after the first resume before the second.</param>
+    /// <param name="stopAfter">Where the second resume stops.</param>
+    /// <returns>The timeline the second resume finishes.</returns>
+    internal static DemoTimeline BuildResumingTwice(
+        ReadOnlyMemory<byte> file, int earlier, int later, bool backFirst, int walk, int stopAfter)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        builder.Run(commands.Take(earlier));
+        BuilderSnapshot first = builder.Snapshot();
+        builder.Run(commands.Take(later).Skip(earlier));
+        BuilderSnapshot second = builder.Snapshot();
+        builder.Run(commands.Skip(later));
+
+        (BuilderSnapshot one, int oneAt, BuilderSnapshot two, int twoAt) =
+            backFirst ? (first, earlier, second, later) : (second, later, first, earlier);
+
+        Builder.Resume(one).Run(commands.Skip(oneAt).Take(walk));
+
+        Builder resumed = Builder.Resume(two);
+        resumed.Run(commands.Take(stopAfter).Skip(twoAt));
+        return resumed.Finish();
+    }
+
+    /// <summary>Walks <paramref name="at"/> commands and measures what a snapshot there allocates (D217).</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="at">Where the snapshot is taken.</param>
+    /// <returns>The whole snapshot's bytes and each field's.</returns>
+    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(ReadOnlyMemory<byte> file, int at)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return (0, []);
+        }
+
+        builder.Run(commands.Take(at));
+        return builder.SnapshotCost();
+    }
+
+    /// <summary>Snapshots after <paramref name="at"/> commands, finishes the live builder, then resumes the snapshot.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="at">Where the snapshot is taken.</param>
+    /// <remarks>The resume must refuse, because Finish handed the shared lists out (D217).</remarks>
+    internal static void ResumeAfterFinish(ReadOnlyMemory<byte> file, int at)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return;
+        }
+
+        builder.Run(commands.Take(at));
+        BuilderSnapshot snapshot = builder.Snapshot();
+        builder.Run(commands.Skip(at));
+        builder.Finish();
+
+        Builder.Resume(snapshot);
+    }
+
+    /// <summary>Builds as <see cref="Build"/> does but only through the first <paramref name="stopAfter"/> commands.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="stopAfter">How many commands to walk.</param>
+    /// <returns>The timeline of that prefix — what a resumed build stopped at the same command must equal.</returns>
+    internal static DemoTimeline BuildThrough(ReadOnlyMemory<byte> file, int stopAfter)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        builder.Run(commands.Take(Math.Clamp(stopAfter, 0, commands.Count)));
+        return builder.Finish();
     }
 
     /// <summary>How many commands a demo holds after its header — the range <see cref="BuildThroughSnapshot"/> cuts in.</summary>
@@ -2616,7 +2704,7 @@ public sealed class DemoTimeline
         private readonly int[] clockGap;
         private readonly Dictionary<string, int[]> lagByClass;
         private readonly Dictionary<int, SceneRagdoll> corpses;
-        private readonly List<SceneRagdoll> replaced;
+        private readonly TailList<SceneRagdoll> replaced;
         private long entityTicks;
         private long samplingTicks;
         private long frameTicks;
@@ -2641,7 +2729,7 @@ public sealed class DemoTimeline
         private readonly PointCameraFeed pointCameras;
         private readonly TonemapFeed tonemap;
         private readonly SunFeed suns;
-        private readonly List<TimelineFrame> frames;
+        private readonly TailList<TimelineFrame> frames;
         private readonly FirstStatedRoster firstStated;
         private float interval;
         private readonly Dictionary<int, int> lastHeld;
@@ -2659,33 +2747,33 @@ public sealed class DemoTimeline
         private readonly LightStyleFeed lightStyles;
         private readonly int protocol;
         private readonly SoundNames soundNames;
-        private readonly List<SceneSound> sounds;
+        private readonly TailList<SceneSound> sounds;
         private readonly ScenePrecache scenePrecache;
         private readonly List<SceneChoreography> choreography;
         private readonly Dictionary<int, int> playingScenes;
-        private readonly List<(int Tick, SceneSoundscape Soundscape)> soundscapes;
-        private readonly List<(int Tick, DirectorShot Shot)> director;
+        private readonly TailList<(int Tick, SceneSoundscape Soundscape)> soundscapes;
+        private readonly TailList<(int Tick, DirectorShot Shot)> director;
         private readonly Dictionary<int, ScenePropTrack> tracks;
         private readonly List<ScenePropTrack> props;
         private readonly List<ScenePropTrack> playerTracks;
-        private readonly List<DemoViewCommand> viewCommands;
-        private readonly List<RecordedUserCommand> userCommands;
-        private readonly List<(int Tick, int Acknowledged)> packetAcknowledgements;
+        private readonly TailList<DemoViewCommand> viewCommands;
+        private readonly TailList<RecordedUserCommand> userCommands;
+        private readonly TailList<(int Tick, int Acknowledged)> packetAcknowledgements;
         private int? recorderSlot;
         private int maxClients;
         private uint? mapCrc;
         private IReadOnlyList<byte>? mapHash;
         private readonly ServerConVars serverConVars;
-        private readonly List<(int Tick, ServerConVars ConVars)> conVarHistory;
-        private readonly List<(int Tick, SceneViewmodel Weapon)> viewmodels;
-        private readonly List<(int Tick, ViewFog Fog)> fogSamples;
+        private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
+        private readonly TailList<(int Tick, SceneViewmodel Weapon)> viewmodels;
+        private readonly TailList<(int Tick, ViewFog Fog)> fogSamples;
         private int fogControllersSeen;
         private int fogProperties;
         private readonly Dictionary<int, SceneViewmodel> lastViewmodel;
         private readonly Dictionary<int, PlayerInfo> bySlot;
         private readonly Dictionary<int, PlayerInfo> everyone;
-        private readonly List<SceneGameEvent> gameEvents;
-        private readonly List<SceneUserMessage> userMessages;
+        private readonly TailList<SceneGameEvent> gameEvents;
+        private readonly TailList<SceneUserMessage> userMessages;
         private IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent;
         private int walked;
         private readonly int reportEvery;
@@ -4200,14 +4288,20 @@ public sealed class DemoTimeline
         /// <summary>The lists the pass only appends to, or replaces the LAST element of — its output so far.</summary>
         /// <remarks>
         /// **Marked by length rather than copied** (D217): a snapshot keeps each one's count and last element, and a
-        /// restore cuts the live list back to them. Everything before the last element is never touched again, which
-        /// is what makes the mark enough: `frames[^1]` is replaced within a tick and `soundscapes` drops its last sample
-        /// when a later one arrives on the same tick, and nothing else is ever rewritten.
+        /// restore cuts the live list back to them. In these lists everything before the last element is never touched
+        /// again, which is what makes the mark enough: `frames[^1]` is replaced within a tick and `soundscapes` drops its
+        /// last sample when a later one arrives on the same tick.
+        ///
+        /// **`choreography` is NOT one of them**: a run's stop is written into it at whatever index the run sits
+        /// (`FindLastIndex` by entity), behind later runs, so it is deep-copied with the rest of the state. It was
+        /// listed here at first, and a resume stopped part-way then reported a scene stopping in the future — caught by
+        /// the partial-resume case of `TimelineBuilderSnapshotTests`. A list joins this set only when every write to it
+        /// is an append or touches the last element.
         /// </remarks>
-        private System.Collections.IList[] Outputs() =>
+        private ITailList[] Outputs() =>
         [
             frames, sounds, soundscapes, director, viewCommands, userCommands, packetAcknowledgements, conVarHistory,
-            viewmodels, fogSamples, gameEvents, userMessages, choreography, replaced,
+            viewmodels, fogSamples, gameEvents, userMessages, replaced,
         ];
 
         /// <summary>A copy of the pass as it stands between two commands, from which it can be resumed.</summary>
@@ -4218,13 +4312,13 @@ public sealed class DemoTimeline
         /// </remarks>
         public BuilderSnapshot Snapshot()
         {
-            System.Collections.IList[] outputs = Outputs();
+            lease.Refuse("snapshot");
+            ITailList[] outputs = Outputs();
             (int Count, object? Last)[] marks = new (int, object?)[outputs.Length];
 
             for (int index = 0; index < outputs.Length; index++)
             {
-                int count = outputs[index].Count;
-                marks[index] = (count, count > 0 ? outputs[index][count - 1] : null);
+                marks[index] = (outputs[index].Count, outputs[index].Last);
             }
 
             return new BuilderSnapshot(StateCopy.Of(this, Shared(outputs)), marks);
@@ -4233,46 +4327,110 @@ public sealed class DemoTimeline
         /// <summary>A builder at the snapshot's moment, its output lists cut back to the snapshot's marks.</summary>
         /// <param name="snapshot">Where to resume from; it can be resumed again later.</param>
         /// <returns>The builder, ready for the commands after the snapshot.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The output lists no longer reach the snapshot — an EARLIER snapshot was resumed since and cut them — or they were
+        /// handed out by <see cref="Finish"/>.
+        /// </exception>
+        /// <remarks>
+        /// **Marks can only cut, never restore what was cut.** Resuming an earlier snapshot shortens the shared lists;
+        /// a later snapshot's marks then point past their end, and resuming it would silently leave a gap (S1 at 100
+        /// frames then S2 at 500 gave 101 frames). A back-then-forward seek therefore needs the later snapshot to own what
+        /// lies between — per-window output, D217's step 3 — and until then it is refused here.
+        /// </remarks>
         public static Builder Resume(BuilderSnapshot snapshot)
         {
             ArgumentNullException.ThrowIfNull(snapshot);
+            snapshot.Builder.lease.Refuse("resume");
 
-            System.Collections.IList[] outputs = snapshot.Builder.Outputs();
+            ITailList[] outputs = snapshot.Builder.Outputs();
+
+            for (int index = 0; index < outputs.Length; index++)
+            {
+                if (outputs[index].Count < snapshot.Marks[index].Count - 1)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot resume: an earlier snapshot was resumed since, and the output lists no longer reach this one (D217).");
+                }
+            }
+
             Builder resumed = StateCopy.Of(snapshot.Builder, snapshot.Builder.Shared(outputs));
 
             for (int index = 0; index < outputs.Length; index++)
             {
                 (int count, object? last) = snapshot.Marks[index];
-                System.Collections.IList list = outputs[index];
+                ITailList list = outputs[index];
 
                 // Only the last element can have changed since, so keep everything before it and put it back. Restoring
                 // it is the exact state; a replay would also overwrite it with the same value, which is why no test can
                 // tell the two apart — replay is deterministic.
                 while (list.Count > Math.Max(0, count - 1))
                 {
-                    list.RemoveAt(list.Count - 1);
+                    list.RemoveLast();
                 }
 
                 if (count > 0)
                 {
-                    list.Add(last);
+                    list.AddBoxed(last);
                 }
             }
 
             return resumed;
         }
 
-        /// <summary>What a copy of this builder shares with it instead of copying: the inputs and the outputs.</summary>
-        private HashSet<object> Shared(System.Collections.IList[] outputs)
+        /// <summary>What one snapshot allocates, in all and by field (each field copied alone, so shared parts count twice).</summary>
+        /// <returns>The whole snapshot's bytes, then each field's, largest first.</returns>
+        /// <remarks>The `timeline-resume` probe's instrument for D217's question of what a checkpoint costs.</remarks>
+        public (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) SnapshotCost()
         {
-            HashSet<object> shared = new(ReferenceEqualityComparer.Instance) { commands, schema };
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            BuilderSnapshot snapshot = Snapshot();
+            long total = GC.GetAllocatedBytesForCurrentThread() - before;
+            GC.KeepAlive(snapshot);
+
+            HashSet<object> shared = Shared(Outputs());
+            List<(string Field, long Bytes)> fields = [];
+
+            // Reaching private fields is the instrument: it copies each one as the snapshot does.
+#pragma warning disable S3011
+            foreach (System.Reflection.FieldInfo field in typeof(Builder).GetFields(
+                         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic))
+#pragma warning restore S3011
+            {
+                if (field.GetValue(this) is not { } value || value.GetType().IsValueType || shared.Contains(value))
+                {
+                    continue;
+                }
+
+                long from = GC.GetAllocatedBytesForCurrentThread();
+                object copy = StateCopy.Of(value, shared);
+                fields.Add((field.Name, GC.GetAllocatedBytesForCurrentThread() - from));
+                GC.KeepAlive(copy);
+            }
+
+            // The schema is shared by identity; what copying it WOULD cost, for the question of whether to share it.
+            long schemaFrom = GC.GetAllocatedBytesForCurrentThread();
+            object schemaCopy = StateCopy.Of(schema, new HashSet<object>());
+            fields.Add(("schema, if it were copied", GC.GetAllocatedBytesForCurrentThread() - schemaFrom));
+            GC.KeepAlive(schemaCopy);
+
+            return (total, [.. fields.OrderByDescending(field => field.Bytes)]);
+        }
+
+        /// <summary>What a copy of this builder shares with it instead of copying: the inputs and the outputs.</summary>
+        private HashSet<object> Shared(ITailList[] outputs)
+        {
+            // The schema and everything under it never change once parsed; walked once, then shared by every snapshot.
+            schemaGraph ??= StateCopy.Reachable(schema);
+
+            HashSet<object> shared = new(schemaGraph, ReferenceEqualityComparer.Instance) { commands, lease, schemaGraph };
+            shared.UnionWith(decoder.SchemaDerived());
 
             if (classes is not null)
             {
                 shared.Add(classes);
             }
 
-            foreach (System.Collections.IList output in outputs)
+            foreach (ITailList output in outputs)
             {
                 shared.Add(output);
             }
@@ -4280,10 +4438,44 @@ public sealed class DemoTimeline
             return shared;
         }
 
-        /// <summary>Runs the post-passes and hands over the timeline; the builder is spent afterwards.</summary>
+        /// <summary>Whether the output lists this builder shares with its snapshots have been handed out in a timeline.</summary>
+        /// <remarks>
+        /// **One per family**: the live builder, every snapshot of it and every builder resumed from one share it, because
+        /// they share the output lists. Once <see cref="Finish"/> has put those lists in a timeline — and re-timed and
+        /// re-sorted `sounds` in place — a resume would cut lists a caller already holds, and resume from a sorted
+        /// `sounds`. So both are refused, rather than either being allowed to do something silently wrong.
+        /// </remarks>
+        private sealed class OutputLease
+        {
+            private bool handedOut;
+
+            public void HandOut()
+            {
+                Refuse("finish");
+                handedOut = true;
+            }
+
+            public void Refuse(string what)
+            {
+                if (handedOut)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot {what}: this builder's output lists were already handed out by Finish (D217).");
+                }
+            }
+        }
+
+        private readonly OutputLease lease = new();
+
+        /// <summary>Every object under the schema, shared by snapshots rather than copied; built at the first one.</summary>
+        private HashSet<object>? schemaGraph;
+
+        /// <summary>Runs the post-passes and hands over the timeline; the builder, its snapshots and their resumes are spent afterwards.</summary>
         /// <returns>The timeline.</returns>
         public DemoTimeline Finish()
         {
+        lease.HandOut();
+
         if (frames.Count > 0)
         {
             firstStated.Observe(frames[^1]);
@@ -4300,11 +4492,16 @@ public sealed class DemoTimeline
         // hearing the map — not to zero, since a demo's ticks do not start at zero
         // (docs/memory/demo-ticks-do-not-start-at-zero.md) and zero would sort before a recording
         // that opens at 30 and leave a gap nothing fills.
-        if (sounds.Count > 0)
+        //
+        // **On a copy**: the builder's own list is a tail list its snapshots share, and re-timing or re-sorting it in
+        // place would hand a later resume a sorted list (D217).
+        List<SceneSound> heard = [.. sounds];
+
+        if (heard.Count > 0)
         {
             int firstPacketTick = int.MaxValue;
 
-            foreach (SceneSound sound in sounds)
+            foreach (SceneSound sound in heard)
             {
                 if (!sound.FromSignon && sound.Tick < firstPacketTick)
                 {
@@ -4314,11 +4511,11 @@ public sealed class DemoTimeline
 
             if (firstPacketTick < int.MaxValue)
             {
-                for (int index = 0; index < sounds.Count; index++)
+                for (int index = 0; index < heard.Count; index++)
                 {
-                    if (sounds[index].FromSignon)
+                    if (heard[index].FromSignon)
                     {
-                        sounds[index] = sounds[index] with { Tick = firstPacketTick };
+                        heard[index] = heard[index] with { Tick = firstPacketTick };
                     }
                 }
             }
@@ -4326,10 +4523,7 @@ public sealed class DemoTimeline
             // **A stable sort, so sounds sent in one message keep the order the server wrote them
             // in.** Within a tick that order is the engine's own, and several sounds on one channel
             // replace each other — reordering them would change which one survives.
-            List<SceneSound> ordered = [.. sounds.OrderBy(sound => sound.Tick)];
-
-            sounds.Clear();
-            sounds.AddRange(ordered);
+            heard = [.. heard.OrderBy(sound => sound.Tick)];
         }
 
         // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
@@ -4342,8 +4536,8 @@ public sealed class DemoTimeline
         }
 
         return new DemoTimeline(
-            frames, props, playerTracks, viewCommands, viewmodels, fogSamples, sounds, soundscapes,
-            director, firstStated)
+            frames.HandOut(), props, playerTracks, viewCommands.HandOut(), viewmodels.HandOut(), fogSamples.HandOut(), heard,
+            soundscapes.HandOut(), director.HandOut(), firstStated)
         {
             MaxClients = maxClients,
             ClientInterpAmount = interpAmount,
@@ -4351,8 +4545,8 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             Roster = everyone,
-            GameEvents = gameEvents,
-            UserMessages = userMessages,
+            GameEvents = gameEvents.HandOut(),
+            UserMessages = userMessages.HandOut(),
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
@@ -4372,9 +4566,9 @@ public sealed class DemoTimeline
             Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
-            ConVarChanges = conVarHistory,
-            UserCommands = userCommands,
-            PacketAcknowledgements = packetAcknowledgements,
+            ConVarChanges = conVarHistory.HandOut(),
+            UserCommands = userCommands.HandOut(),
+            PacketAcknowledgements = packetAcknowledgements.HandOut(),
             MapCrc = mapCrc,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
@@ -4820,7 +5014,7 @@ public sealed class DemoTimeline
         int protocol,
         int tick,
         Dictionary<int, SceneViewmodel> last,
-        List<(int Tick, SceneViewmodel Weapon)> into,
+        TailList<(int Tick, SceneViewmodel Weapon)> into,
         List<int> candidates,
         HashSet<int> touched,
         Dictionary<int, int> weaponOf)
@@ -5219,7 +5413,7 @@ public sealed class DemoTimeline
         int[] clockGap,
         Dictionary<string, int[]> lagByClass,
         Dictionary<int, SceneRagdoll> corpses,
-        List<SceneRagdoll> replaced,
+        TailList<SceneRagdoll> replaced,
         Dictionary<int, int> lastHeld)
     {
         // **A corpse is captured here and never becomes a prop track**, because it has no model
