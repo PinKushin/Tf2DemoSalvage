@@ -50,7 +50,8 @@ public sealed partial class ViewerSession
             // from whether the next frame is due — putting it in `WaitForTheNextFrame` would mean an
             // unfocused window still rendered at full rate whenever a frame WAS due, which is every
             // frame at any reachable limit.
-            int idle = FramePacer.NoFocusSleep(_window.HasFocus, _settingsOwner.NoFocusSleep);
+            // On activation, not focus: CEngine::Frame (engine.dll FUN_18020cbd0) sleeps when `!IsActiveApp()`.
+            int idle = FramePacer.NoFocusSleep(_window.IsActiveApp, _settingsOwner.NoFocusSleep);
 
             if (idle > 0)
             {
