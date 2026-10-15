@@ -43,6 +43,15 @@ Measured 2026-10-11 (B378 pause-glow):
 - **Enable `wait` in an EARLIER call and read it back**: in the same line it is not yet in effect. Without it
   `demo_pause; ...; demo_resume` lands in one frame and leaves the demo PAUSED, RCON dead; only ending the
   process recovers (2026-10-12, an instance this session launched).
+- **Every `playdemo` resets it** (2026-10-14, `f12.dem`): `sv_allow_wait_command 1` from an earlier session read back
+  as 0 after the next `playdemo`, so a chained `demo_pauseatservertick …; wait …; demo_resume` ran in one frame. The
+  pause fired later and wedged the owner's client twice. Set it to 1 again after every `playdemo` and read it back.
+  `demo_pauseatservertick` takes the SERVER tick (`net_tick`), not the `demoui` tick (+35,712 on `f12.dem`). A hook
+  now refuses it.
+- **A seek resets `demo_timescale` unless it is set in the seek's own chained line** after a `wait`. Even then it did
+  not hold every time: a 0.25 set after a seek played at 100%. Read `demoui`'s percentage in the picture.
+- `devshots_screenshot` chained with `wait 10` between writes about one file in eight; a burst does not give a shot per
+  step.
 - `wait N` counts FRAMES: an unfocused TF2 runs ~37 fps, so 900 is ~24 s, not 3.
 - `spec_player <dead player>` is refused silently; the HUD target id is not proof of the camera's target.
   Check the reference's subject (class, weapon, health) before blaming our camera.

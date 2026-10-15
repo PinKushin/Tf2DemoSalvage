@@ -38015,7 +38015,18 @@ with gummo standing still under a beam.
   `player-track`; his health in `player-track` (223 at 63600, 228 at 63610-63615) is TF2's HUD at those ticks.
   `demo_pauseatservertick` takes the server tick, which is the `dem_packet` tick plus 35,712 here.
 
-Files at the worktree root of `fix/heal-glow`: `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
+- **Full speed, `mat_hdr_level 2`, in-eye on the medic, tick 63622, playing (`demoui` reads 100%).** TF2 shows no
+  beam and no glow on gummo; he is mid-frame, health 231 and rising, and the timeline has 408's beam on him until
+  63635. The viewer at 63622 (same eye, `--first-person`, after merging the B378 tone-map fix) draws a bright beam
+  from the bottom of the frame to gummo and a glow on his body. **So the difference runs opposite to the report:
+  TF2 draws less, at both speeds.** Read and ruled out: `ClientThink` re-creating the effect every frame for an
+  in-eye target (`tf_weapon_medigun.cpp:2338`). For a non-local player, `GetRenderedWeaponModel` is the active weapon
+  (`c_baseplayer.cpp:1861-1872`), the same entity `UpdateEffects` attaches to. Not yet explained: why TF2's beam is
+  visible in-eye at 63526 and not at 63612 or 63622. The frame-time test (0.25 against 0.05) was not taken, because
+  the 0.25 did not hold.
+
+Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
+`heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
 `heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.
 
 ## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, CLOSED 2026-10-13 after slices 1 to 8: the list is empty, the three references are out, three tests hold it
