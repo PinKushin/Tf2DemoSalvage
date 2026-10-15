@@ -98,7 +98,7 @@
 - [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md).
 - [A picked option is not a voiced decision](a-picked-option-is-not-a-voiced-decision.md) — D183; [thinking aloud ≠ decision](thinking-aloud-is-not-a-decision.md); [ask what the request is for](ask-what-the-request-is-for.md).
 - [American English for new text](american-english-for-new-text.md) — D158.
-- [One run at a time](one-run-at-a-time.md); [parallel agents lock the gate too](parallel-agents-lock-the-gate-too.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md); [my own processes are mine](my-own-processes-are-mine.md).
+- [One run at a time](one-run-at-a-time.md); [parallel agents lock the gate too](parallel-agents-lock-the-gate-too.md); [a lock holder must time itself out](a-lock-holder-must-time-itself-out.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md); [my own processes are mine](my-own-processes-are-mine.md).
 - [Check at the owner's moment](check-at-the-owners-moment.md).
 - [No task cards](no-task-cards.md) — D169/D171.
 - [Spend fewer tokens](spend-fewer-tokens.md) — essay remarks and whole-log reads cost; [push when work piles up](push-when-work-piles-up.md); [verify origin/main after a push](verify-origin-main-after-push.md).

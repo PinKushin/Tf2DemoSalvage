@@ -19,7 +19,10 @@
   `viewmodel_fov` (0.1 to 179.9), `cl_interp` (0 to 0.5) and `mat_vsync` (0 to 1). This matters to `toggle` with a
   list of values, which moves on from the value the variable actually holds. A variable the viewer does not
   implement is also remembered once, not twice (B543).
-- **Keyboard binds:** (pending fix/keyboard-binds)
+- **Keyboard binds from your config now work.** Before, only mouse buttons and the free camera's movement keys reached
+  your binds, so a keyboard key bound to `toggle`, a ConVar or an alias (such as a scoreboard toggle) did nothing, or ran
+  the viewer's own shortcut for that key instead. Every key now goes to its bind, as in TF2; where your config binds a
+  key the viewer also uses, your bind wins. Escape always leaves full screen (B547).
 - **The viewer sleeps when another application is active, and the menu no longer writes launch options.**
   Along with the muting above, the viewer now sleeps when it is not the active window (`engine_no_focus_sleep`),
   as TF2 does, and wakes when you return. Choices made in the menus are remembered as settings only; they are
