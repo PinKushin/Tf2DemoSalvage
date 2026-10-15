@@ -1,6 +1,6 @@
 ---
 name: play-fast-to-find-lifecycle-bugs
-description: A playback test at 8x on a real match finds create/remove bugs that 1x and era specimens never reach
+description: A playback test at 8x on a real match finds create/remove bugs that 1x and era specimens never reach (B418)
 metadata: 
   node_type: memory
   type: feedback

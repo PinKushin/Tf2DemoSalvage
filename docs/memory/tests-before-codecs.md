@@ -1,6 +1,6 @@
 ---
 name: tests-before-codecs
-description: "Write unit tests before each decoder, not after — mutation testing has now caught the same lapse three times, and corpus tests cannot substitute"
+description: "Write unit tests before each decoder, not after — mutation testing has now caught the same lapse three times, and corpus tests cannot substitute; a test written first is red by compile failure"
 metadata: 
   node_type: memory
   type: feedback

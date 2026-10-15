@@ -1,6 +1,6 @@
 ---
 name: clangd-on-the-sdk
-description: The clangd MCP indexes source-sdk-2013 fully, but only after a file is opened; query a method if a class name misses
+description: The clangd MCP indexes source-sdk-2013 fully, but only after a file is opened; query a method if a class name misses; never grep the SDK
 metadata:
   type: reference
 ---

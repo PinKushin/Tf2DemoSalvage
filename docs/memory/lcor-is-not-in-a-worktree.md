@@ -1,6 +1,6 @@
 ---
 name: lcor-is-not-in-a-worktree
-description: "tools/corpus/local is git-ignored, so a worktree has none; pass lcor demos by the main checkout's absolute path"
+description: "tools/corpus/local is git-ignored, so a worktree has none; pass lcor demos by the main checkout's absolute path, or junction it for a superset"
 metadata:
   node_type: memory
   type: feedback

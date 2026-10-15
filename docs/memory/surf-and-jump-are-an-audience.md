@@ -1,6 +1,6 @@
 ---
 name: surf-and-jump-are-an-audience
-description: "The parser is partly for surf and jump communities documenting old runs, which sets what must decode exactly."
+description: "The parser is partly for surf and jump communities documenting old runs, which sets what must decode exactly: ticks, angles, inputs."
 metadata: 
   node_type: memory
   type: project

@@ -1,6 +1,6 @@
 ---
 name: material-variables-split-three-ways
-description: "Source declares material variables in three unrelated places, and SdkCoverageTests has accused correct code twice for knowing only two"
+description: "Source declares material variables in three unrelated places, and SdkCoverageTests has accused correct code twice for knowing only two; proxies set them per draw"
 metadata: 
   node_type: memory
   type: project

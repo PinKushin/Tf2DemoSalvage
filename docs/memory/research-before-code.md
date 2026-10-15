@@ -1,6 +1,6 @@
 ---
 name: research-before-code
-description: "Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine."
+description: "Check Valve's source before writing or changing anything, and let it outrank every other authority including the owner's recollection and mine. Valve's bitbuf is published."
 metadata: 
   node_type: memory
   type: feedback

@@ -1,6 +1,6 @@
 ---
 name: determinism-does-not-require-flattening-a-draw
-description: "Before replacing a random draw with a midpoint for reproducibility, read how the engine seeds its own — Source's draws are already pure functions of the thing being drawn for."
+description: "Before replacing a random draw with a midpoint for reproducibility, read how the engine seeds its own — Source's draws are already pure functions of the thing being drawn for (seed by particle id)."
 metadata: 
   node_type: memory
   type: project

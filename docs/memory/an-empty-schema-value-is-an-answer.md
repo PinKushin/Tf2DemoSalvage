@@ -1,6 +1,6 @@
 ---
 name: an-empty-schema-value-is-an-answer
-description: items_game.txt's prefab merge writes an item's own "" over its prefab's value; ItemSchema's prefab search skips empties unless a reader opts in.
+description: items_game.txt's prefab merge writes an item's own "" over its prefab's value; ItemSchema's prefab search skips empties unless a reader opts in (B105).
 metadata:
   type: project
 ---

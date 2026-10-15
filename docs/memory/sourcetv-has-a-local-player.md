@@ -1,6 +1,6 @@
 ---
 name: sourcetv-has-a-local-player
-description: "A SourceTV demo's local player is the SourceTV client's own CTFPlayer (spectator); pLocalPlayer guards do NOT fall through on STV"
+description: "A SourceTV demo's local player is the SourceTV client's own CTFPlayer (spectator); pLocalPlayer guards do NOT fall through on STV; STV lacks a recorded VIEW"
 metadata: 
   node_type: memory
   type: project

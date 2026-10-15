@@ -1,6 +1,6 @@
 ---
 name: record-both-points-of-view
-description: "Record every era specimen as a POV and SourceTV pair of the same session — the pairing is what turns \"looks like a parser bug\" into a proven writer bug"
+description: "Record every era specimen as a POV and SourceTV pair of the same session — the pairing is what turns \"looks like a parser bug\" into a proven writer bug; POV vs STV is the control"
 metadata: 
   node_type: memory
   type: project
