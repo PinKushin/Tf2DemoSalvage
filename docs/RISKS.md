@@ -38041,6 +38041,13 @@ with gummo standing still under a beam.
   medic's eye pitch is 6-10 degrees down (`player-track`), so the bulge (`length · 1.3 · (1 − |dir · forward|)`
   along forward) stays small. Next step: the hands model's posed `muzzle` axes against TF2's, or a reading of what else
   writes control point 0's orientation.
+- **Ruled out: `FormatViewModelAttachment`.** It is already ported (`EntityModels.AttachmentsOf`,
+  `ViewmodelAttachment.Correct`). *Read from published source*, it moves only the POSITION:
+  `C_ViewmodelAttachmentModel::FormatViewModelAttachment` takes the matrix's translation, calls
+  `::FormatViewModelAttachment( origin, false )` and writes it back with `PositionMatrix` (`econ_entity.cpp:903-909`;
+  `c_baseviewmodel.cpp:49-93`). The rotation the bone gave stays, so it cannot turn the bulge. Still unread: the hands
+  model's lag and sway (`CalcViewModelLag`) and its bob. *Arithmetic* against them: the medic turns left 30 degrees over
+  63605-63617, which lag would point the gun RIGHT of the view, not up and left.
 
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
 `heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
