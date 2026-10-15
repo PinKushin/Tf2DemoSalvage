@@ -146,7 +146,9 @@ drawing none. The first reading was "STV in tournament mode draws the tournament
   GUI out on the skipped frames of a seek too, as TF2's drawn fast-forward does. *Measured on the golden pair.*
 
 Golden pair, f12 (`tf/f12.dem`), TF2 tick 60003, gummo in-eye, Garm3n in both: names, health, respawn seconds, charge,
-portrait and team border agree on all twelve cards. What does not is B546.
+portrait and team border agree on all twelve cards. `golden-compare --rect 236,595,1045,720` (the card strip, the world
+between the two columns included): mean error **38.846 → 23.590** /255, bad pixels 56.2% → 27.6%, from the grey-card shot
+to the fixed one against the same TF2 capture. What does not agree is B546.
 
 ## Custom HUDs are ordinary `.res` files
 
