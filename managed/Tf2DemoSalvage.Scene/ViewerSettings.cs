@@ -1512,7 +1512,7 @@ public sealed record ViewerSettings
         Setting(
             text,
             VolumeCommand,
-            Volume.ToString("0.##", CultureInfo.InvariantCulture),
+            ConVarText(VolumeCommand)!,
             Math.Abs(Volume - Defaults.Volume) < 0.005f);
         Setting(
             text,

@@ -587,7 +587,7 @@ public sealed class ViewerSessionTests
     public void Idle_WithoutFocusAndANoFocusSleepSet_SleepsThatLongBeforeEachFrame()
     {
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, NoFocusSleep = 50 });
-        rig.Window.HasFocus = false;
+        rig.Window.IsActiveApp = false;
         FakeIdleHost host = new();
         host.Queue.Enqueue(null);
         host.Queue.Enqueue(0x0200);
@@ -595,6 +595,34 @@ public sealed class ViewerSessionTests
         rig.Session.Idle(host);
 
         host.Sleeps.ShouldBe([50, 50]);
+    }
+
+    [Test]
+    public void SetPhong_FromTheMenu_IsWhatTheMenuReadsBack()
+    {
+        // The menu re-reads its checks on opening (D215); a Phong the menu set must be what it reads, or opening
+        // View would put the check back.
+        using Rig rig = Build(new ViewerSettings { Phong = true });
+
+        rig.Session.SetPhong(false);
+
+        rig.Session.Menu.Phong.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Idle_WhileTheApplicationIsActive_DoesNotSleep()
+    {
+        // CEngine::Frame (engine.dll FUN_18020cbd0) sleeps on `!IsActiveApp()` alone: one of our own dialogs holding
+        // the keyboard is still the active application, so the window's focus is not consulted at all.
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, NoFocusSleep = 50 });
+        rig.Window.IsActiveApp = true;
+        FakeIdleHost host = new();
+        host.Queue.Enqueue(null);
+        host.Queue.Enqueue(0x0200);
+
+        rig.Session.Idle(host);
+
+        host.Sleeps.ShouldBeEmpty();
     }
 
     [Test]

@@ -212,8 +212,12 @@ public sealed partial class ViewerSession
     /// weapon" had no instrument: this viewer had `mat_specular` for cubemap reflections and
     /// nothing at all for phong, so the one manipulation that would settle it could not be made.
     /// </remarks>
-    public void SetPhong(bool on) =>
+    public void SetPhong(bool on)
+    {
+        // Recorded for this run, as a bind's `mat_phong` is, so the menu's check re-reads what the menu set (D215).
+        _settingsOwner.SetConVar("mat_phong", on ? "1" : "0");
         SetRenderToggle("mat_phong", on, static (device, value) => device.Phong = value);
+    }
 
     /// <summary>Turns one of Valve's per-surface debug views on or off.</summary>
     /// <param name="apply">Which flag the menu item sets, supplied by the item itself.</param>

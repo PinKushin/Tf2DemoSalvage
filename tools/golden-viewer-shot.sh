@@ -20,7 +20,7 @@
 # `+mat_hdr_level 0`. Nothing about interpolation is pinned: the engine takes the lerp from the watcher's own
 # cl_interp, cl_interp_ratio and cl_updaterate under the recording's bounds, with no SourceTV case, and the capture
 # client runs the installed config this viewer reads (B539).
-# An argument after it still wins. Recipe and pinned cvars:
+# +volume 0 because a picture has nothing to hear (D218), as every UI-test launch does. An argument after it still wins. Recipe and pinned cvars:
 # docs/findings/76-the-golden-comparison.md.
 #
 # A path with a SPACE in it does not survive: run-exclusive.ps1 starts a GUI program with
@@ -41,6 +41,6 @@ rm -f -- "$out"
 MSBUILDDISABLENODEREUSE=1 dotnet build "$root/managed/Tf2DemoSalvage.Viewer3D" -v q -nologo | grep -E "Warn|Err"
 TF2VIEW_WINDOW_SIZE="1576x889" pwsh C:/Users/pinku/source/repos/PinKushin/run-exclusive.ps1 \
   "$root/managed/Tf2DemoSalvage.Viewer3D/bin/Debug/net10.0-windows/tf2demoview.exe" "$demo" \
-  --tick "$tick" --shot "$out" +cl_showfps 0 +viewmodel_fov_demo 54 +hud_saytext_time 0 \
+  --tick "$tick" --shot "$out" +volume 0 +cl_showfps 0 +viewmodel_fov_demo 54 +hud_saytext_time 0 \
   +mat_force_tonemap_scale 1 +mat_disable_bloom 1 +mat_hdr_level 2 "$@"
 test -f "$out" || { echo "no shot written: read the newest viewer-*.log in %LOCALAPPDATA%/Tf2DemoSalvage" >&2; exit 1; }
