@@ -10125,6 +10125,33 @@ the road,, because theres probably a reason valve doesnt do it"* (`docs/memory/a
   held by an authored demo instead (`FirstStatedRosterTests`, which reddens when the table is disconnected or fed only
   the final frame).
 
+**The builder is resumable (2026-10-14).** `BuildTimeline` is now `DemoTimeline.Builder`: what were its ~90 locals are
+fields under the same names, `Run(commands)` is the old loop body unchanged, `Finish()` the post-passes. The body keeps
+its old indentation so the diff shows only the move; a whitespace-only reindent is a separate pass. Sonar's S3398 then
+asked for every helper only the pass calls to move inside the class; they are wrapped in place as `partial` pieces of
+`Builder` rather than moved, for the same reason.
+- **Snapshot and resume.** `Builder.Snapshot()` copies the pass between two commands; `Builder.Resume(snapshot)`
+  continues from it. The output lists (frames, sounds, soundscapes, director shots, view and user commands, acks,
+  ConVar history, viewmodels, fog, game events, user messages, choreography, finished corpses) are not copied: each is
+  only appended to or has its LAST element replaced, so a snapshot keeps its count and last element and a resume cuts
+  the live list back to them. Everything else — the entity table, the decoder's baselines, the feeds, every
+  `ScenePropTrack` — is deep-copied by `StateCopy`, one reflection copier that keeps the graph's shape (a track in both
+  the slot map and the track list stays one track) rather than a hand-written `Clone` on twenty types, each of which
+  would have had to agree on that sharing and would silently miss a field added later. **This departs from the plan of
+  a clone and a test per type**: the copier has its own tests, and the snapshot-then-resume equivalence holds the rest.
+- **Equivalence, synthetic (D38):** `TimelineBuilderSnapshotTests` snapshots after EVERY command of three authored
+  demos, lets the live builder run on, resumes, and requires the straight build's `TimelineFingerprint`. It reddens
+  when the snapshot shares instead of copying, when the marks are not restored, and when the copier loses identity or
+  copies shallowly. Restoring the last element's VALUE cannot be told from replaying it — replay is deterministic — and
+  is kept because it is the exact state.
+- **Equivalence, real demos:** the `timeline-resume` probe cuts at half way and compares fingerprints, identical on all
+  three: movement-test-pov-cp_process (after 7,032 of 14,064 commands), rgl-pug-2026-08-10-pov (150,770 of 301,541)
+  and f12 (48,298 of 96,596), each over the full value count (8.9 M, 1.22 G, 1.21 G).
+- `TimelineFingerprint` moved into Core so the probe and the test share one hasher.
+- The refactor alone: `timeline-fingerprint` identical on f12, rgl-pug and movement-test.
+- **Cost, not yet paid down:** a snapshot deep-copies every track and its keyframes, so it is as large as the
+  timeline's track half; checkpoints every few seconds need the tracks windowed first (step 3).
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they

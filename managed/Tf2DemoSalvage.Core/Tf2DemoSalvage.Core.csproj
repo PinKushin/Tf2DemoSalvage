@@ -37,6 +37,10 @@
          that hop needs a timeline built from tracks, and `DemoTimeline.ForTracks` is internal
          because assembling one by hand is a test affordance rather than an API. -->
     <InternalsVisibleTo Include="Tf2DemoSalvage.Scene.Tests" />
+
+    <!-- The `timeline-resume` probe runs `DemoTimeline.BuildThroughSnapshot`, the snapshot-and-resume harness, on real
+         demos: the synthetic test proves the mechanism, and only a real match has every feed and track at once (D217). -->
+    <InternalsVisibleTo Include="Tf2DemoSalvage.Probe" />
   </ItemGroup>
 
   <ItemGroup>
