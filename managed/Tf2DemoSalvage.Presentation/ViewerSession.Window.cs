@@ -202,9 +202,6 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
-        // A key's set said in the log, as the menu's is (`SetRenderToggle`): which route set a ConVar was unanswerable (B547).
-        _console.ConVarSet += (_, set) => _renderLog.LogInformation("{Message}", $"{set.Name} {set.Value}");
-
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the

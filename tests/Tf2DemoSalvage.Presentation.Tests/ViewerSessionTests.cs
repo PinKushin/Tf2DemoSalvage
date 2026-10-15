@@ -469,7 +469,7 @@ public sealed class ViewerSessionTests
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue("a key whose bind ran is the bind's");
         rig.Session.KeyUp("F7").ShouldBeTrue("the bind took the press, so the release is the bind's too");
         rig.Settings.Current.ShowPosition.ShouldBe(1);
-        rig.Log.Count("[render] cl_showpos 1").ShouldBe(1);
+        rig.Log.Count("cl_showpos 1 (set at run time)").ShouldBe(1);
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
         rig.Settings.Current.ShowPosition.ShouldBe(0);

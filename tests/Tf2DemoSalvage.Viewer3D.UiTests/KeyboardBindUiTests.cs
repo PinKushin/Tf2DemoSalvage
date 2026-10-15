@@ -76,28 +76,34 @@ public sealed class KeyboardBindUiTests
 
         // A plain bind: `toggle` on a keyboard key.
         viewer.PressRealKey(VirtualKeyShort.F7);
-        WaitFor(viewer, "cl_showpos 1", 1, "F7's `toggle cl_showpos` never ran");
+        WaitFor(viewer, On,1, "F7's `toggle cl_showpos` never ran");
 
         // An alias that redefines itself: off on this press, on again on the next.
         viewer.PressRealKey(VirtualKeyShort.F6);
-        WaitFor(viewer, "cl_showpos 1", 2, "F6's alias chain never ran its first half");
+        WaitFor(viewer, On,2, "F6's alias chain never ran its first half");
         viewer.PressRealKey(VirtualKeyShort.F6);
-        WaitFor(viewer, "cl_showpos 0", 1, "F6's alias did not redefine itself");
+        WaitFor(viewer, Off,1, "F6's alias did not redefine itself");
 
         // F8 is the viewer's frame-rate default; the config bound it, so the config's bind runs instead (D101).
         viewer.PressRealKey(VirtualKeyShort.F8);
-        WaitFor(viewer, "cl_showpos 1", 3, "F8's config bind never ran");
+        WaitFor(viewer, On,3, "F8's config bind never ran");
 
         // A lone ALT bound: its bind runs, and its release must not leave the menu strip in menu mode (B542), which
         // would eat the F7 after it.
         viewer.PressRealKey(VirtualKeyShort.ALT);
-        WaitFor(viewer, "cl_showpos 0", 2, "ALT's bind never ran");
+        WaitFor(viewer, Off,2, "ALT's bind never ran");
         viewer.PressRealKey(VirtualKeyShort.F7);
-        WaitFor(viewer, "cl_showpos 1", 4, "F7 after ALT never ran: the release left the menu in menu mode");
+        WaitFor(viewer, On,4, "F7 after ALT never ran: the release left the menu in menu mode");
 
         // The View menu follows a key's set (the D218 menu sync on open).
         viewer.IsMenuItemChecked(MainForm.ViewMenuName, PositionItemName).ShouldBeTrue("the menu must show the key's set");
     }
+
+    /// <summary>`SettingsPresenter.SetConVar`'s line for a run-time set - the one log route, shared with MenuSyncUiTests.</summary>
+    private const string On = "cl_showpos 1 (set at run time)";
+
+    /// <summary>The same line for the readout going off.</summary>
+    private const string Off = "cl_showpos 0 (set at run time)";
 
     /// <summary>The View menu's position item, by its accessible name.</summary>
     private const string PositionItemName = "Position";

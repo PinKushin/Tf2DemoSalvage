@@ -39578,8 +39578,9 @@ no-op, so `bind HOME "toggle cl_showpos"` ran `resetspeed`.
 Fix: every key not kept by a focused widget is pressed into the console, except an auto-repeat (runs nothing, stays
 the bind's) and a CTRL/ALT chord (Source's `bind` has no modifiers). `ConfigConsole.KeyDown` reports whether the bind
 did something of its own (ConVar set, alias, button); if so the key is taken, so a viewer shortcut on it does not also
-fire (D101). A ConVar-setting or alias bind is no longer a no-op for the fallback. A key's ConVar set is now logged
-(`[render] cl_showpos 1`), as the menu's is. Tests: seven `ConfigConsoleConformanceTests` cases (what a bind did; HOME
+fire (D101). A ConVar-setting or alias bind is no longer a no-op for the fallback. A key's ConVar set is logged by
+main's one route, `SettingsPresenter.SetConVar` (`cl_showpos 1 (set at run time)`); a second route this branch first
+added logged every set twice after the merge and is gone. Tests: seven `ConfigConsoleConformanceTests` cases (what a bind did; HOME
 rebound to `toggle`; a self-redefining scoreboard alias), four `ViewerSessionTests` (keyboard `toggle`; one
 auto-repeat; CTRL held; a viewer default rebound), `KeyboardBindUiTests` (real F7/F6/F8 under a temp autoexec).
 Sabotage: no console press reddened the four session tests that need it; the fallback reverted reddened the HOME
