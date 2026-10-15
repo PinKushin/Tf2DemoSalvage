@@ -1,6 +1,6 @@
 ---
 name: ui-tests-run-every-time
-description: "The UI suite runs on every change, not just UI ones, and any UI addition gets a UI test."
+description: "The UI suite runs on every change, not just UI ones, and any UI addition gets a UI test. Foreground is not focus."
 metadata: 
   node_type: memory
   type: feedback

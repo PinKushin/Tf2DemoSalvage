@@ -1,6 +1,6 @@
 ---
 name: one-place-or-it-drifts
-description: A fix belongs in exactly one place; anything copied or kept in step between files goes out of sync.
+description: A fix belongs in exactly one place; anything copied or kept in step between files goes out of sync; fix where the data is produced.
 metadata: 
   node_type: memory
   type: feedback

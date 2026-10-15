@@ -1,6 +1,6 @@
 ---
 name: a-filed-design-choice-may-not-be-one
-description: "B131 offered two shapes for a fix; Valve's source picked one and the codebase already had it, so the \"choice\" was four lines of plumbing."
+description: "B131 offered two shapes for a fix; Valve's source picked one and the codebase already had it, so the \"choice\" was four lines of plumbing; a dilemma means unread source."
 metadata: 
   node_type: memory
   type: project

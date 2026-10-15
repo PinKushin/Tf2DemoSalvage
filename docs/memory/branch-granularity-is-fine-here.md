@@ -1,6 +1,6 @@
 ---
 name: branch-granularity-is-fine-here
-description: "This repo wants many small branches and sub-branches - the features decompose, so a branch per coherent piece is the default, not per feature"
+description: "This repo wants many small branches and sub-branches - the features decompose, so a branch per coherent piece is the default, not per feature; a branch name that keeps drifting means it is too big"
 metadata: 
   node_type: memory
   type: feedback

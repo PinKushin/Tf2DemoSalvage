@@ -1,6 +1,6 @@
 ---
 name: ci-is-the-machine-without-tf2
-description: CI is the only environment that exercises the no-TF2-install path; local UI tests are structurally blind to it.
+description: CI is the only environment that exercises the no-TF2-install path; local UI tests are structurally blind to it; read CI before pushing.
 metadata:
   type: project
 ---

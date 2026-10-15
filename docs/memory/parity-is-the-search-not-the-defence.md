@@ -1,6 +1,6 @@
 ---
 name: parity-is-the-search-not-the-defence
-description: "The owner's \"check for parity\" means SEARCH Valve's code for the mechanism, not justify what we built; a rule written in our own comments is not an enforced rule; and reading the SDK for how a feature is declared rather than how it works, citing the wrong branch or the wrong sibling mechanism, decoding a field without honouring every consumer, and stopping a divergence search too early are the ways that search keeps failing."
+description: "The owner's \"check for parity\" means SEARCH Valve's code for the mechanism, not justify what we built; a rule written in our own comments is not an enforced rule; and reading the SDK for how a feature is declared rather than how it works, citing the wrong branch or the wrong sibling mechanism, decoding a field without honouring every consumer, and stopping a divergence search too early are the ways that search keeps failing; read every branch."
 metadata: 
   node_type: memory
   type: feedback

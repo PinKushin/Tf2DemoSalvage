@@ -1,6 +1,6 @@
 ---
 name: name-the-trade-before-fixing-valve
-description: An apparent defect in expert code is usually a trade whose other side is invisible at the site; name it before changing anything of Valve's.
+description: An apparent defect in expert code is usually a trade whose other side is invisible at the site; name it before changing anything of Valve's; arbitrary AND precise means a trick.
 metadata:
   type: feedback
 ---

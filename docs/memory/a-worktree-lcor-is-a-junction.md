@@ -1,6 +1,6 @@
 ---
 name: a-worktree-lcor-is-a-junction
-description: "A worktree's tools/corpus/local may be a junction to the main checkout's lcor; deleting \"my copy\" there deletes the real demo."
+description: "A worktree's tools/corpus/local may be a junction to the main checkout's lcor; deleting \"my copy\" there deletes the real demo (f12 08-07 was lost this way)."
 metadata:
   node_type: memory
   type: feedback

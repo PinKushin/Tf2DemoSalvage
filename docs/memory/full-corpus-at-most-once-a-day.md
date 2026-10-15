@@ -1,6 +1,6 @@
 ---
 name: full-corpus-at-most-once-a-day
-description: "The full lcor superset gate runs at most once a day; a failure in it is rerun as that one test, never as the whole corpus."
+description: "The full lcor superset gate runs at most once a day; a failure in it is rerun as that one test, never as the whole corpus; recheck with --filter, never a rerun."
 metadata:
   type: feedback
 ---

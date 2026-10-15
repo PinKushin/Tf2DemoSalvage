@@ -1,6 +1,6 @@
 ---
 name: a-corpus-selection-outlives-its-corpus
-description: lcor grows, so a demo picked by fragment, prefix or a closed list silently changes subject; name demos in full, select by the property meant, and know that a per-demo assertion loop hides every bad demo after the first.
+description: lcor grows, so a demo picked by fragment, prefix or a closed list silently changes subject; name demos in full, select by the property meant, and know that a per-demo assertion loop hides every bad demo after the first (B440).
 metadata:
   type: project
 ---

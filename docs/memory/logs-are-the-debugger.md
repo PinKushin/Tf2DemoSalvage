@@ -1,6 +1,6 @@
 ---
 name: logs-are-the-debugger
-description: No debugger here, so logs must report state and decisions — what a log must say, what a wrong log costs, and why only the running app can prove one still exists; plus an optional dependency's null-object default silencing a forgotten wiring, a background launch's "completed" notification describing the wrapper rather than the app, and when to close a viewer you booted yourself.
+description: No debugger here, so logs must report state and decisions — what a log must say, what a wrong log costs, and why only the running app can prove one still exists; plus an optional dependency's null-object default silencing a forgotten wiring, a background launch's "completed" notification describing the wrapper rather than the app, and when to close a viewer you booted yourself; log BEFORE a step that can crash.
 metadata:
   type: feedback
 ---

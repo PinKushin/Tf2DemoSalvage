@@ -1,6 +1,6 @@
 ---
 name: an-unanalysed-ghidra-program-shows-no-xrefs
-description: An imported but unanalysed Ghidra program returns no strings and no cross-references — run analysis before concluding a string, a field or a caller is absent
+description: An imported but unanalysed Ghidra program returns no strings and no cross-references — run analysis before concluding a string, a field or a caller is absent (B62)
 metadata:
   type: feedback
 ---
