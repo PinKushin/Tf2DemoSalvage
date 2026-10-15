@@ -34,9 +34,174 @@ internal static class StateCopy
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(share);
 
-        Dictionary<object, object> copies = new(ReferenceEqualityComparer.Instance);
+        return Of(source, share, prior: null, out _);
+    }
 
-        return (T)Copy(source, share, copies)!;
+    /// <summary>
+    /// Copies a graph, reusing any object of an EARLIER copy whose original has not changed since (D217 step 3).
+    /// </summary>
+    /// <typeparam name="T">The root's type.</typeparam>
+    /// <param name="source">The root.</param>
+    /// <param name="share">Instances handed over as they are rather than copied.</param>
+    /// <param name="prior">The earlier copy's map from original to copy, or null for a full copy.</param>
+    /// <param name="copies">This copy's map, to pass as <paramref name="prior"/> next time.</param>
+    /// <returns>The copy.</returns>
+    /// <remarks>
+    /// **What makes checkpoints affordable**: consecutive checkpoints of one pass differ in a small part of their state —
+    /// the decoder's baselines and string tables barely move — so each shares everything unchanged with the one before.
+    /// An earlier copy is reused only when its original is still equal to it, field for field, floats bit for bit, and
+    /// every reference in it still names the copy of the same original — so the shape of the graph is kept too. Copies
+    /// are never written after they are made (a resume copies its checkpoint again), which is what makes sharing them
+    /// between checkpoints safe.
+    /// </remarks>
+    public static T Of<T>(T source, IReadOnlySet<object> share, Dictionary<object, object>? prior, out Dictionary<object, object> copies)
+        where T : class
+    {
+        ArgumentNullException.ThrowIfNull(source);
+        ArgumentNullException.ThrowIfNull(share);
+
+        copies = new(ReferenceEqualityComparer.Instance);
+        Reuse reuse = new(share, prior);
+
+        T copy = (T)Copy(source, share, copies, reuse)!;
+        reuse.MapReused(copies);
+        return copy;
+    }
+
+    /// <summary>Whether an original still equals its earlier copy, memoised over one copy.</summary>
+    private sealed class Reuse(IReadOnlySet<object> share, Dictionary<object, object>? prior)
+    {
+        private readonly Dictionary<object, bool> _same = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>The earlier copy of <paramref name="original"/>, when it can stand for a copy made now.</summary>
+        public object? Unchanged(object original) =>
+            prior is not null && prior.TryGetValue(original, out object? earlier) && Same(original, earlier) ? earlier : null;
+
+        /// <summary>
+        /// Adds every original found unchanged to this copy's map — the descendants of a reused object were never visited
+        /// by the copy, and without them the NEXT copy could not recognise them and would copy them again.
+        /// </summary>
+        public void MapReused(Dictionary<object, object> copies)
+        {
+            foreach ((object original, bool same) in _same)
+            {
+                if (same && !copies.ContainsKey(original))
+                {
+                    copies[original] = prior![original];
+                }
+            }
+        }
+
+        private bool Same(object original, object earlier)
+        {
+            if (_same.TryGetValue(original, out bool known))
+            {
+                return known;
+            }
+
+            // Assumed equal while it is being compared, so a cycle back to it does not recurse for ever.
+            _same.Add(original, true);
+            bool same = Compare(original, earlier);
+
+            if (!same)
+            {
+                _same[original] = false;
+            }
+
+            return same;
+        }
+
+        private bool Compare(object original, object earlier)
+        {
+            Type type = original.GetType();
+
+            if (type != earlier.GetType())
+            {
+                return false;
+            }
+
+            if (original is Array array)
+            {
+                Array other = (Array)earlier;
+
+                if (array.Length != other.Length || array.Rank != 1)
+                {
+                    return false;
+                }
+
+                for (int index = 0; index < array.Length; index++)
+                {
+                    if (!Value(array.GetValue(index), other.GetValue(index)))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
+            return SameFields(original, earlier, type);
+        }
+
+        private bool SameFields(object original, object earlier, Type type)
+        {
+            for (Type? level = type; level is not null; level = level.BaseType)
+            {
+                foreach (FieldInfo field in StateCopy.Fields(level))
+                {
+                    if (!Value(field.GetValue(original), field.GetValue(earlier)))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private bool Value(object? original, object? earlier)
+        {
+            if (original is null || earlier is null)
+            {
+                return original is null && earlier is null;
+            }
+
+            Type type = original.GetType();
+
+            if (type != earlier.GetType())
+            {
+                return false;
+            }
+
+            // Bit for bit: `0f.Equals(-0f)` is true and the engine's comparisons can tell them apart.
+            if (original is float single)
+            {
+                return BitConverter.SingleToInt32Bits(single) == BitConverter.SingleToInt32Bits((float)earlier);
+            }
+
+            if (original is double number)
+            {
+                return BitConverter.DoubleToInt64Bits(number) == BitConverter.DoubleToInt64Bits((double)earlier);
+            }
+
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal))
+            {
+                return original.Equals(earlier);
+            }
+
+            if (Immutable(type) || share.Contains(original))
+            {
+                return ReferenceEquals(original, earlier) || (type.IsValueType && original.Equals(earlier));
+            }
+
+            if (type.IsValueType)
+            {
+                return SameFields(original, earlier, type);
+            }
+
+            // A reference must still name the copy of the same original, and that original must be unchanged too.
+            return prior!.TryGetValue(original, out object? copied) && ReferenceEquals(copied, earlier) && Same(original, earlier);
+        }
     }
 
     /// <summary>Every object reachable from a root, the root included — what a copy may share when the root is immutable.</summary>
@@ -112,7 +277,7 @@ internal static class StateCopy
         }
     }
 
-    private static object? Copy(object? value, IReadOnlySet<object> share, Dictionary<object, object> copies)
+    private static object? Copy(object? value, IReadOnlySet<object> share, Dictionary<object, object> copies, Reuse reuse)
     {
         if (value is null)
         {
@@ -129,12 +294,19 @@ internal static class StateCopy
         if (type.IsValueType)
         {
             // A struct is copied by value already; only references inside it need following.
-            return HasReferences(type) ? CopyFields(value, RuntimeHelpers.GetUninitializedObject(type), share, copies) : value;
+            return HasReferences(type) ? CopyFields(value, RuntimeHelpers.GetUninitializedObject(type), share, copies, reuse) : value;
         }
 
         if (copies.TryGetValue(value, out object? done))
         {
             return done;
+        }
+
+        if (reuse.Unchanged(value) is { } earlier)
+        {
+            // Its children are the earlier copy's too; mapping them keeps a second reference to one of them on the same copy.
+            copies[value] = earlier;
+            return earlier;
         }
 
         if (value is Array array)
@@ -152,7 +324,7 @@ internal static class StateCopy
             {
                 for (int index = 0; index < array.Length; index++)
                 {
-                    copy.SetValue(Copy(array.GetValue(index), share, copies), index);
+                    copy.SetValue(Copy(array.GetValue(index), share, copies, reuse), index);
                 }
             }
             else
@@ -166,17 +338,17 @@ internal static class StateCopy
         object instance = RuntimeHelpers.GetUninitializedObject(type);
         copies[value] = instance;
 
-        return CopyFields(value, instance, share, copies);
+        return CopyFields(value, instance, share, copies, reuse);
     }
 
-    private static object CopyFields(object from, object into, IReadOnlySet<object> share, Dictionary<object, object> copies)
+    private static object CopyFields(object from, object into, IReadOnlySet<object> share, Dictionary<object, object> copies, Reuse reuse)
     {
         for (Type? type = from.GetType(); type is not null; type = type.BaseType)
         {
             foreach (FieldInfo field in Fields(type))
             {
                 object? value = field.GetValue(from);
-                field.SetValue(into, field.FieldType.IsValueType && !HasReferences(field.FieldType) ? value : Copy(value, share, copies));
+                field.SetValue(into, field.FieldType.IsValueType && !HasReferences(field.FieldType) ? value : Copy(value, share, copies, reuse));
             }
         }
 

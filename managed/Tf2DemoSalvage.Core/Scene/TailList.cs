@@ -49,6 +49,22 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
     /// <returns>The backing list, which no builder may write once it is out (the builder's lease).</returns>
     public List<T> HandOut() => _items;
 
+    /// <summary>
+    /// Drops the front of the list up to the last element stamped before <paramref name="cut"/>, which is kept as the
+    /// value in force there (D217 step 3). The last element is never dropped.
+    /// </summary>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="cut">The earliest tick still to be answered.</param>
+    public void DropBefore(Func<T, int> tickOf, int cut)
+    {
+        int inForce = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        if (inForce > 0)
+        {
+            _items.RemoveRange(0, Math.Min(inForce, _items.Count - 1));
+        }
+    }
+
     /// <inheritdoc/>
     public IEnumerator<T> GetEnumerator() => _items.GetEnumerator();
 

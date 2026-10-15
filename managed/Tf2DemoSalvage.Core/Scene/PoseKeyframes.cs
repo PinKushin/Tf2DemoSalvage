@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,28 +20,62 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
 {
     private readonly List<Stored> _stored = [];
 
+    /// <summary>How many keyframes from the front have been dropped by <see cref="DropBefore"/> (D217 step 3).</summary>
+    /// <remarks>
+    /// **Indices stay absolute**: keyframe <c>n</c> is the same keyframe whether or not earlier ones were dropped, so
+    /// <c>AppliedAt(n)</c> and an index a sampler holds mean the same thing in a whole timeline and in a window. An index
+    /// below this one throws rather than answering something else.
+    /// </remarks>
+    public int Dropped { get; private set; }
+
+    /// <summary>The first keyframe's tick ever, kept when it is dropped: a track's birth (<c>Alive</c>, <c>Motion</c>).</summary>
+    public int FirstTick => _first.Tick;
+
+    /// <summary>The first keyframe's pose ever, kept when it is dropped: what <c>At</c> answers before any history.</summary>
+    public ScenePose FirstPose => Materialise(_first);
+
+    private Stored _first;
+
     /// <inheritdoc/>
-    public int Count => _stored.Count;
+    public int Count => Dropped + _stored.Count;
+
+    /// <summary>Drops every keyframe before an absolute index; indices and <see cref="FirstTick"/> are unchanged.</summary>
+    /// <param name="index">The first keyframe to keep; clamped so the last one is always kept.</param>
+    public void DropBefore(int index)
+    {
+        int drop = Math.Min(index - Dropped, _stored.Count - 1);
+
+        if (drop <= 0)
+        {
+            return;
+        }
+
+        _stored.RemoveRange(0, drop);
+        Dropped += drop;
+    }
 
     /// <inheritdoc/>
     public (int Tick, ScenePose Pose) this[int index]
     {
         get
         {
-            Stored stored = _stored[index];
+            Stored stored = _stored[index - Dropped];
 
-            return (stored.Tick, stored.Rest.Pose with
-            {
-                X = stored.X, Y = stored.Y, Z = stored.Z,
-                Pitch = stored.Pitch, Yaw = stored.Yaw, Roll = stored.Roll,
-            });
+            return (stored.Tick, Materialise(stored));
         }
     }
+
+    private static ScenePose Materialise(Stored stored) =>
+        stored.Rest.Pose with
+        {
+            X = stored.X, Y = stored.Y, Z = stored.Z,
+            Pitch = stored.Pitch, Yaw = stored.Yaw, Roll = stored.Roll,
+        };
 
     /// <summary>The tick of one keyframe, without rebuilding its pose.</summary>
     /// <param name="index">Which keyframe.</param>
     /// <returns>Its tick.</returns>
-    public int TickAt(int index) => _stored[index].Tick;
+    public int TickAt(int index) => _stored[index - Dropped].Tick;
 
     /// <summary>Appends a keyframe, sharing the unmoving half with the one before when its values are all equal.</summary>
     /// <param name="tick">The keyframe's tick.</param>
@@ -53,7 +88,14 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
             ? _stored[^1].Rest
             : new Shared(rest);
 
-        _stored.Add(new Stored(tick, pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, shared));
+        Stored stored = new(tick, pose.X, pose.Y, pose.Z, pose.Pitch, pose.Yaw, pose.Roll, shared);
+
+        if (Count == 0)
+        {
+            _first = stored;
+        }
+
+        _stored.Add(stored);
     }
 
     /// <summary>Whether two poses hold the same values, comparing their lists element by element.</summary>
@@ -78,7 +120,7 @@ internal sealed class PoseKeyframes : IReadOnlyList<(int Tick, ScenePose Pose)>
     /// <inheritdoc/>
     public IEnumerator<(int Tick, ScenePose Pose)> GetEnumerator()
     {
-        for (int index = 0; index < _stored.Count; index++)
+        for (int index = Dropped; index < Count; index++)
         {
             yield return this[index];
         }

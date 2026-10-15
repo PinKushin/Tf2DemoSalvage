@@ -106,4 +106,61 @@ public sealed class StateCopyTests
         copy.First.ShouldBeSameAs(original.First);
         copy.Second.ShouldNotBeSameAs(original.Second);
     }
+
+    /// <remarks>
+    /// **Checkpoints share what did not change** (D217 step 3): of two lists, the one left alone is the earlier copy's own
+    /// object, the one changed is a new copy holding the new values.
+    /// </remarks>
+    [Test]
+    public void Of_WithPrior_SharesTheUnchangedListAndCopiesTheChangedOne()
+    {
+        Holder original = new() { First = [1], Second = [2] };
+        Holder earlier = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        original.Second.Add(3);
+        Holder later = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        later.First.ShouldBeSameAs(earlier.First);
+        later.Second.ShouldNotBeSameAs(earlier.Second);
+        later.Second.ShouldBe([2, 3]);
+        earlier.Second.ShouldBe([2]);
+    }
+
+    private sealed class Signed
+    {
+        public List<float> Values { get; } = [0f];
+    }
+
+    /// <remarks>**Bit for bit**: +0 and −0 compare equal as floats, and an earlier copy holding the other is not the same state.</remarks>
+    [Test]
+    public void Of_WithPriorAndAZeroThatChangedSign_CopiesAgain()
+    {
+        Signed original = new();
+        Signed earlier = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        original.Values[0] = -0f;
+        Signed later = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        later.Values.ShouldNotBeSameAs(earlier.Values);
+        BitConverter.SingleToInt32Bits(later.Values[0]).ShouldBe(BitConverter.SingleToInt32Bits(-0f));
+    }
+
+    /// <remarks>
+    /// **Three copies, not two**: an object inside a reused one was never visited by the second copy, so it has to be put
+    /// in that copy's map — or the third copy cannot recognise it, and copies the whole unchanged list again.
+    /// </remarks>
+    [Test]
+    public void Of_ThirdCopyOfAnUnchangedNestedList_StillSharesIt()
+    {
+        Holder original = new();
+        original.BySlot[1] = [4];
+        Holder first = StateCopy.Of(original, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        StateCopy.Of(original, new HashSet<object>(), map, out map);
+
+        original.First.Add(9);
+        Holder third = StateCopy.Of(original, new HashSet<object>(), map, out _);
+
+        third.BySlot.ShouldBeSameAs(first.BySlot);
+        third.First.ShouldNotBeSameAs(first.First);
+    }
 }
