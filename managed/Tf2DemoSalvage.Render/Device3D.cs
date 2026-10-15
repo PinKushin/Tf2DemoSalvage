@@ -2353,7 +2353,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <summary>Each batch with corners and a sheet, its sheet uploaded once, into <paramref name="into"/>.</summary>
     private void Drawable(
         IReadOnlyList<ParticleBatch> batches,
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright)> into)
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> into)
     {
         foreach (ParticleBatch batch in batches)
         {
@@ -2374,7 +2374,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                 sheets[sheet] = view;
             }
 
-            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma, batch.Material.Overbright));
+            into.Add((view, batch.Material.Blend, batch.Material.Depth, batch.Corners, batch.Material.Refract, batch.Material.CableBump, gamma, batch.Material.Overbright, batch.Material.ScalesByToneMap));
         }
     }
 
@@ -2396,7 +2396,7 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
     /// <param name="viewProjection">The camera.</param>
     /// <param name="frame">The frame a <c>Refract</c> batch copies and warps; null where there is none, which skips it.</param>
     private void DrawParticleBatches(
-        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright)> batches,
+        List<(ComPtr<ID3D11ShaderResourceView> Sheet, SpriteBlend Blend, SpriteDepth Depth, IReadOnlyList<DetailSpriteVertex> Corners, RefractMaterial? Refract, MapTexture? CableBump, bool GammaSpace, float Overbright, bool ToneMapped)> batches,
         float[] viewProjection,
         WaterFrameTarget? frame = null)
     {
@@ -2414,7 +2414,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
                   RefractMaterial? refract,
                   MapTexture? cableBump,
                   bool gammaSpace,
-                  float overbright) in batches)
+                  float overbright,
+                  bool toneMapped) in batches)
         {
             // A `Cable` material's normal map, raw like the refract one (B478); none for everything else.
             ComPtr<ID3D11ShaderResourceView> bump = default;
@@ -2483,11 +2484,10 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
             {
                 // **SpriteCard's `$overbrightfactor`** (B523): `blended_rgb.rgb *= fOverbrightFactor` before the vertex
                 // colour (spritecard_ps2x.fxc:143-144), which is the vertex colour times it. One for everything else —
-                // the Sprite shader above has no such parameter. **Times the tone-map scale** (B378): UnlitGeneric,
-                // SpriteCard and Cable end in TONEMAP_SCALE_LINEAR; Refract alone in TONEMAP_SCALE_NONE
-                // (refract_ps2x.fxc:249).
+                // the Sprite shader above has no such parameter. **Times the tone-map scale where the material's shader
+                // ends in TONEMAP_SCALE_LINEAR** (B378): `ParticleMaterial.ScalesByToneMap` carries each shader's citation.
                 _particleSprites.SetColourScale(
-                    SpriteLightScale.For(gammaSpace: false, refract is null ? _world?.LinearLightScale ?? 1f : 1f, overbright));
+                    SpriteLightScale.For(gammaSpace: false, toneMapped ? _world?.LinearLightScale ?? 1f : 1f, overbright));
                 _particleSprites.Draw(_device, _context, viewProjection);
                 _particleSprites.SetColourScale(1f);
             }
@@ -2508,7 +2508,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         RefractMaterial? Refract,
         MapTexture? CableBump,
         bool GammaSpace,
-        float Overbright)> _panelParticles = [];
+        float Overbright,
+        bool ToneMapped)> _panelParticles = [];
 
     /// <summary>This frame's batches, reused so a frame costs no allocation.</summary>
     private readonly List<(
@@ -2519,7 +2520,8 @@ public sealed unsafe class Device3D : IDisposable, IModelUpload, IWorldUpload, I
         RefractMaterial? Refract,
         MapTexture? CableBump,
         bool GammaSpace,
-        float Overbright)> _particleBatches = [];
+        float Overbright,
+        bool ToneMapped)> _particleBatches = [];
 
     /// <summary>
     /// A gamma-space material's texture, uploaded WITHOUT the sRGB curve — <c>EnableSRGBRead( false )</c> (B521) — and

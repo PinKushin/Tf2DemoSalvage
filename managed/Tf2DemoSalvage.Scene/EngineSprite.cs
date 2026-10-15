@@ -106,6 +106,7 @@ public readonly record struct EngineSprite(
             new ParticleMaterial(texture, sequences, blend)
             {
                 GammaSpace = noSrgb && string.Equals(shader, SpriteShader, System.StringComparison.OrdinalIgnoreCase),
+                Shader = shader,
             },
             texture.MappingWidth,
             texture.MappingHeight,

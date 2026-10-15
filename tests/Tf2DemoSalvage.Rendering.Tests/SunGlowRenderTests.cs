@@ -88,7 +88,7 @@ public sealed class SunGlowRenderTests
         double Linear(float scale)
         {
             StripPicture.Draw(target, camera.ToMatrix(), assets, [], background: 0f);
-            target.SetToneMapScale(scale);
+            target.ToneMapScale = scale;
 
             foreach (ParticleBatch batch in batches)
             {

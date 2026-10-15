@@ -94,6 +94,31 @@ public readonly record struct ParticleMaterial(
             ? factor
             : 1f;
 
+    /// <summary>The material's shader name, or null when its VMT did not resolve.</summary>
+    public string? Shader { get; init; }
+
+    /// <summary>Whether the material's linear path ends in <c>TONEMAP_SCALE_LINEAR</c> (B378), from its shader.</summary>
+    /// <remarks>
+    /// Each shader's <c>FinalOutput</c>, read in published source:
+    /// <code>
+    /// SpriteCard     spritecard_ps2x.fxc:192                     TONEMAP_SCALE_LINEAR
+    /// UnlitGeneric   vertexlit_and_unlit_generic_ps2x.fxc:498,504 TONEMAP_SCALE_LINEAR
+    /// Cable          cable_ps2x.fxc:54                           TONEMAP_SCALE_LINEAR
+    /// Sprite         sprite_ps2x.fxc:49 (SRGB; :51 is the gamma path, GammaSpace)  TONEMAP_SCALE_LINEAR
+    /// UnlitTwoTexture unlittwotexture_ps2x.fxc:73                TONEMAP_SCALE_LINEAR
+    /// Refract        refract_ps2x.fxc:207,249                    TONEMAP_SCALE_NONE
+    /// </code>
+    /// A shader not in the table, or none, keeps the linear scale: that was every sprite's behaviour before this was
+    /// keyed, and the table holds every shader this pass is known to draw through.
+    /// </remarks>
+    public bool ScalesByToneMap => ScalesByToneMapOf(Shader) && Refract is null;
+
+    /// <summary>The same question of a shader name alone.</summary>
+    /// <param name="shader">The shader, or null.</param>
+    /// <returns>False for <c>Refract</c> alone.</returns>
+    public static bool ScalesByToneMapOf(string? shader) =>
+        !string.Equals(shader, "Refract", System.StringComparison.OrdinalIgnoreCase);
+
     /// <summary>A material that did not resolve, which draws nothing.</summary>
     public static ParticleMaterial None => new(null, [], SpriteBlend.Translucent);
 }
