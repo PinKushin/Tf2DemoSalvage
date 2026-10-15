@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Net;
 
@@ -144,6 +145,24 @@ public static class SoundGain
         // itself and not the shape of the taper. Flagged rather than invented: the alternative is a
         // number that looks authoritative, which is what the previous curve was.
         return gain < MinimumGain ? 0f : gain;
+    }
+
+    /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else (B545).</summary>
+    /// <param name="name">The wave as played, sound characters included.</param>
+    /// <param name="soundLevel">Its <c>SNDLVL</c>.</param>
+    /// <param name="musicVolume">`snd_musicvolume`.</param>
+    /// <returns>The multiplier.</returns>
+    /// <remarks>
+    /// engine.dll: a channel is music when its sfx name leads with <c>'#'</c> among its sound characters
+    /// (FUN_18002d5c0 sets bit 4 at +0x13c) and its distance multiplier is zero, which is <c>SNDLVL_NONE</c>
+    /// (FUN_1800292f0 at 1800293ba); that gain is then multiplied by <c>snd_musicvolume</c> (180029f14).
+    /// Citation and the duck left out: <c>SoundMusicVolumeConformanceTests</c>.
+    /// </remarks>
+    public static float Music(string name, int soundLevel, float musicVolume)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return soundLevel <= 0 && SoundName.Parse(name).Characters.Contains('#') ? musicVolume : 1f;
     }
 
     /// <summary>How a sound at a bearing splits across a stereo pair.</summary>

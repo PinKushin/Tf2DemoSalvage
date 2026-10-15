@@ -88,8 +88,14 @@ public sealed class ActiveLoops
         float dy = loop.Y - listener.Y;
         float dz = loop.Z - listener.Z;
 
-        return loop.Volume * SoundGain.AtDistance(loop.SoundLevel, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
+        return GainOf(loop, MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz)));
     }
+
+    /// <summary>`snd_musicvolume`, which scales a music loop's gain (<see cref="SoundGain.Music"/>, B545).</summary>
+    public float MusicVolume { get; set; } = 1f;
+
+    private float GainOf(Loop loop, float distance) =>
+        loop.Volume * SoundGain.AtDistance(loop.SoundLevel, distance) * SoundGain.Music(loop.Name, loop.SoundLevel, MusicVolume);
 
     /// <summary>Stops following whatever was on a channel.</summary>
     /// <param name="entity">The entity.</param>
@@ -140,7 +146,7 @@ public sealed class ActiveLoops
 
             float distance = MathF.Sqrt((dx * dx) + (dy * dy) + (dz * dz));
 
-            yield return (entity, channel, loop.Volume * SoundGain.AtDistance(loop.SoundLevel, distance));
+            yield return (entity, channel, GainOf(loop, distance));
         }
     }
 }

@@ -626,7 +626,8 @@ public sealed partial class SoundPresenter(
         //
         // The general lesson is D80's, one layer up: a special case that makes something audible is
         // indistinguishable from a working feature until somebody listens.
-        float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance);
+        float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance) *
+            SoundGain.Music(sound.Name, sound.SoundLevel, loops.MusicVolume);
 
         // **A loop is started even when it is currently inaudible, and a one-shot is not.** Silence
         // now is permanent for a one-shot, so skipping it saves a buffer nobody hears. A loop that

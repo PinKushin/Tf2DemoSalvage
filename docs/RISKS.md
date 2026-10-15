@@ -39545,13 +39545,15 @@ before changing it. *Measured; the engine side not read.*
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
 
-- **`voice_scale`**: this viewer decodes demo voice (`CeltVoiceDecoder` and the others) but plays none of it, so
-  there is nothing for it to scale yet.
-- **`snd_musicvolume`**: which sounds count as music is the closed engine's decision. The SDK has no `IsMusic`, and
-  `soundchars.h`'s prefixes include none for music (`#` is `CHAR_DRYMIX`, "bypasses dsp fx"). Guessing "`#` and a
-  path under `music/`" would be a fallback that looks like an answer
-  (`docs/memory/fallbacks-do-not-make-guesses-safe.md`). **To read:** `snd_musicvolume`'s xrefs in `engine.dll`, then
-  apply it as a per-sound multiplier where the engine does. *Read from the SDK; the engine not read.*
+- **`voice_scale`**: STILL OPEN. The voice decoders (`CeltVoiceDecoder` and the others) are constructed only by
+  probes, corpus tests and the fuzzer, never by the viewer, so no voice plays and there is nothing to scale.
+  Voice is in scope (D218's correction).
+- **`snd_musicvolume`**: APPLIED 2026-10-15 (`fix/music-voice-volume`). Read from `engine.dll` (x64): FUN_18002d5c0
+  sets the channel's dry bit (0x4 at +0x13c) when the wave's leading sound characters include `#`; FUN_1800292f0
+  multiplies the gain by `snd_musicvolume` (and a duck scale) when that bit is set and the distance multiplier is 0,
+  which is `SNDLVL_NONE`. No path, soundscript flag or mixer group decides it. `SoundGain.Music`, applied to
+  one-shots and tracked loops; `SoundMusicVolumeConformanceTests`. *Read from the binary.* Not ported: the duck
+  (`DAT_1804600e8`), and soundscape loops (`SoundscapeSystem.GainOf` does not take it yet).
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
 

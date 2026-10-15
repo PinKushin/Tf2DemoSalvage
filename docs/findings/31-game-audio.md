@@ -1216,5 +1216,14 @@ buffer by `volume` just before output. *Interpolated from the engine's lineage.*
 loopback device, which renders the mix into memory: halving `volume` on a tone that is already playing halves the
 rendered level, and 0 renders exact zeros (`AudioOutputDeviceTests`).
 
-**Music is the open question.** `soundchars.h` has prefixes for streaming, voice, sentences, dry mix and spatial
+**Music was the open question.** `soundchars.h` has prefixes for streaming, voice, sentences, dry mix and spatial
 modes, but none for music. So whatever `snd_musicvolume` selects, the selection lives in `engine.dll` (B545).
+
+**Answered from the binary, 2026-10-15: music is a dry sound with no attenuation.** `snd_musicvolume`'s one reader is
+the channel-gain routine, FUN_1800292f0. When the channel's bit 0x4 at +0x13c is set and its distance multiplier is
+zero, the routine multiplies `snd_gain` by `snd_musicvolume` and by a duck scale. FUN_18002d5c0 sets that bit on
+every sound start, and only when the wave's leading sound characters include `#` (`CHAR_DRYMIX`). A zero distance
+multiplier is `SNDLVL_NONE`. No path, no soundscript flag and no mixer group take part, so the guess "`#` and a path
+under `music/`" would have been half right, which is the reason it was not built. A `#` sound that attenuates is
+not music. *Read from the binary.* The duck scale (`DAT_1804600e8`, eased in FUN_18002fbe0) is 1 except while the
+engine ducks music under speech, and it is not ported.
