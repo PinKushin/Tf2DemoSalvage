@@ -38048,6 +38048,16 @@ with gummo standing still under a beam.
   `c_baseviewmodel.cpp:49-93`). The rotation the bone gave stays, so it cannot turn the bulge. Still unread: the hands
   model's lag and sway (`CalcViewModelLag`) and its bob. *Arithmetic* against them: the medic turns left 30 degrees over
   63605-63617, which lag would point the gun RIGHT of the view, not up and left.
+- **Ruled out next, and the search stops here (2026-10-14).** *Read from published source:*
+  - The only writer of control point 0's orientation for this effect is `UpdateControlPoint`'s
+    `SetControlPointOrientation` from the attachment matrix (`particle_property.cpp:599-623, 662`).
+  - None of the beam's 21 shipped functions writes a control point. They only read one (`Movement Lock to Control
+    Point`, the path constraint), so no operator derives orientation from the point's movement.
+  - `CBaseViewModel::CalcViewModelLag` (`baseviewmodel_shared.cpp:463-519`) moves the viewmodel's ORIGIN by the facing
+    drift and by pitch. It leaves its angles unless the maximum lag is 0, so lag cannot turn the bulge either.
+
+  **Left for a later pass:** the hands model's posed `muzzle` axes at 63611 against TF2's. That needs an attachment probe
+  on our side and a console readout on TF2's.
 
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
 `heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
