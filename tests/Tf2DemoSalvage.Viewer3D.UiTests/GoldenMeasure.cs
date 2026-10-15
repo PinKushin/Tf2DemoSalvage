@@ -12,17 +12,25 @@ namespace Tf2DemoSalvage.Viewer3D.GoldenTests;
 /// **Every measure is resolution-free**: positions and radii are fractions of the image WIDTH, counts are
 /// fractions of the pixel total, so a viewer frame and a TF2 screenshot of different sizes but the same
 /// aspect and field of view compare directly. Luma is Rec. 601 on 0..255, which is what the eye reads as
-/// brightness and is all any of these questions ask.
+/// brightness; <see cref="RegionChannelMeans"/> carries the hue that luma alone cannot see.
 /// </remarks>
 internal sealed class GoldenMeasure
 {
+    private readonly int[] _pixels;
+
     private readonly float[] _luma;
 
-    private GoldenMeasure(float[] luma, int width, int height)
+    private GoldenMeasure(int[] pixels, int width, int height)
     {
-        _luma = luma;
+        _pixels = pixels;
+        _luma = new float[pixels.Length];
         Width = width;
         Height = height;
+
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            _luma[i] = (0.299f * Channel(pixels[i], 0)) + (0.587f * Channel(pixels[i], 1)) + (0.114f * Channel(pixels[i], 2));
+        }
     }
 
     public int Width { get; }
@@ -36,10 +44,17 @@ internal sealed class GoldenMeasure
     /// </remarks>
     public const int MeasuredWidth = 640;
 
-    /// <summary>Reads an image file into luma, resampled to <see cref="MeasuredWidth"/>.</summary>
+    /// <summary>Reads an image file, resampled to <see cref="MeasuredWidth"/>.</summary>
     public static GoldenMeasure Load(string path)
     {
         using Bitmap rgb = Resampled(path);
+
+        return Of(rgb);
+    }
+
+    /// <summary>Measures a bitmap as it is, without resampling — how a synthetic image with a known answer is read.</summary>
+    public static GoldenMeasure Of(Bitmap rgb)
+    {
         Rectangle all = new(0, 0, rgb.Width, rgb.Height);
         BitmapData data = rgb.LockBits(all, ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
 
@@ -52,15 +67,7 @@ internal sealed class GoldenMeasure
                 Marshal.Copy(data.Scan0 + (y * data.Stride), pixels, y * rgb.Width, rgb.Width);
             }
 
-            float[] luma = new float[pixels.Length];
-
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                int p = pixels[i];
-                luma[i] = (0.299f * ((p >> 16) & 0xFF)) + (0.587f * ((p >> 8) & 0xFF)) + (0.114f * (p & 0xFF));
-            }
-
-            return new GoldenMeasure(luma, rgb.Width, rgb.Height);
+            return new GoldenMeasure(pixels, rgb.Width, rgb.Height);
         }
         finally
         {
@@ -157,9 +164,19 @@ internal sealed class GoldenMeasure
     }
 
     /// <summary>Mean luma of each cell of a <paramref name="columns"/> by <paramref name="rows"/> grid, row-major.</summary>
-    public double[] RegionMeans(int columns, int rows)
+    public double[] RegionMeans(int columns, int rows) => Regions(columns, rows, 1, (i, _) => _luma[i]);
+
+    /// <summary>
+    /// Mean red, green and blue of each cell of a <paramref name="columns"/> by <paramref name="rows"/> grid: cell-major,
+    /// three values a cell, on 0..255.
+    /// </summary>
+    /// <remarks>**A hue shift keeps luma and moves these**, which is why a golden test reads both.</remarks>
+    public double[] RegionChannelMeans(int columns, int rows) =>
+        Regions(columns, rows, 3, (i, channel) => Channel(_pixels[i], channel));
+
+    private double[] Regions(int columns, int rows, int perCell, Func<int, int, float> value)
     {
-        double[] sum = new double[columns * rows];
+        double[] sum = new double[columns * rows * perCell];
         int[] count = new int[columns * rows];
 
         for (int y = 0; y < Height; y++)
@@ -168,16 +185,23 @@ internal sealed class GoldenMeasure
             {
                 int cell = (y * rows / Height * columns) + (x * columns / Width);
 
-                sum[cell] += _luma[(y * Width) + x];
+                for (int c = 0; c < perCell; c++)
+                {
+                    sum[(cell * perCell) + c] += value((y * Width) + x, c);
+                }
+
                 count[cell]++;
             }
         }
 
         for (int i = 0; i < sum.Length; i++)
         {
-            sum[i] /= count[i];
+            sum[i] /= count[i / perCell];
         }
 
         return sum;
     }
+
+    /// <summary>Red (0), green (1) or blue (2) of a 32bpp ARGB pixel.</summary>
+    private static int Channel(int argb, int channel) => (argb >> (16 - (8 * channel))) & 0xFF;
 }

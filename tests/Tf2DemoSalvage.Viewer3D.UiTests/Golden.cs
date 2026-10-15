@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 
@@ -24,7 +25,11 @@ internal sealed record Golden(
         ["+demo_fov_override", "90", "+cl_drawhud", "0", "+cl_showfps", "0"];
 
     /// <summary>cp_granary's BLU-side yard: containers, silos, a lit wall, sky. No particles; the spinning CP hologram is one small sprite.</summary>
-    public static Golden Granary(int hdrLevel) => new(
+    public static Golden Granary(int hdrLevel) => hdrLevel is not (0 or 2)
+        ? throw new ArgumentOutOfRangeException(
+            nameof(hdrLevel), hdrLevel,
+            $"there is no cp_granary golden at mat_hdr_level {hdrLevel}: only levels 0 and 2 were captured (D219).")
+        : new(
         $"cp_granary_yard_hdr{hdrLevel}.png",
         "cp_granary",
         "golden_cp_granary2.dem",
