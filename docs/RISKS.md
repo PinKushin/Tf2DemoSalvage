@@ -32486,6 +32486,27 @@ arithmetic; it has NOT been confirmed by watching.*
 
 ### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
 
+**2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
+scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
+30,512 here. Two causes, separated by measurement (`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`):
+
+- **Framing is not ours to fix.** That golden shot was a live client at `fov_desired 75`; the lakeside demo's recorder
+  plays at 90 (`fov` probe: `m_iDefaultFOV 90`), and a demo's free camera takes the recorder's `GetFOV()` as the engine
+  does. Retaken in TF2 at `fov_desired 90`, `mat_hdr_level 2`, `spec_goto 0 -152 600 -35 235`, the framing matches ours
+  pixel for pixel; `+demo_fov_override 75` matches the old shot.
+- **UnlitGeneric, SpriteCard and Cable multiply by `LINEAR_LIGHT_SCALE`** (`FinalOutput( …, TONEMAP_SCALE_LINEAR )`,
+  `vertexlit_and_unlit_generic_ps2x.fxc:498`, `spritecard_ps2x.fxc:192`, `cable_ps2x.fxc:54`; `common_ps_fxc.h:348-350`);
+  Refract takes none (`refract_ps2x.fxc:249`). `Device3D`'s linear sprite path multiplied by `$overbrightfactor` alone,
+  so EVERY UnlitGeneric and SpriteCard sprite and particle drew at a tone-map scale of one — about 1/0.7 too bright
+  outdoors. `SpriteLightScale.For` is now the one rule for both paths, in `Device3D` and `OffscreenTarget`.
+- **Measured, same camera and framing:** TF2 4,984 white pixels; ours 30,512 before, 14,854 after, and **4,999 with
+  `+mat_disable_bloom 1`** — the radial profile within ~8 of 255 out to 340 px. What remains is our bloom, already filed
+  as 1.4-2.1x TF2's (finding 76). Captures in the worktree root: `sunmatch-tf2-fov90-hdr2.png`,
+  `sunmatch-viewer-before.png`, `sunmatch-viewer-after.png`, `sunmatch-viewer-after-nobloom.png`.
+- **Proved:** `SpriteLightScaleConformanceTests` (3) and `Render_LakesidesSunAtHalfTheToneMapScale_CarriesHalfTheLight`
+  (linear 0.1450 at 1, 0.0697 at 0.5). Dropping the scale from the linear rule reddens exactly those two. The
+  `Device3D` call site is held by the golden capture, not by a test. `$hdrcolorscale` was not a factor: lakeside's is 1.
+
 **2026-10-14 — the two residuals are closed** (`fix/b378-sun-glow`; the reverse-engineering account is
 `docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`). *Read from published source* throughout.
 
