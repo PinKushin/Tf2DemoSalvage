@@ -10220,7 +10220,9 @@ output kept, and any tick answered by a window — the nearest earlier checkpoin
   tick cut dropped a quiet player's record in force (f12: 50 of 80 seeks); it is trimmed per (owner, hand).
   `DemoTimeline.Viewmodel` also walks the list from the start on every question, linear in the demo.
 - **The straight build is unchanged**: `timeline-fingerprint` at the branch's head identical to origin/main (e10fd9e1)
-  on movement-test (9.3 M values), rgl-pug (1.24 G) and f12 (1.23 G), every section.
+  on movement-test (9.3 M values), rgl-pug (1.24 G) and f12 (1.23 G), every section. **Frame time too**: `--measure 20`
+  on f12 at tick 60000, first person, two alternating rounds each: settled 33–37 fps and a 12.7–13.2 ms moment cost on
+  both origin/main and the branch.
 
 **Cost** (a checkpoint every 5 s; "a window" is the mean over the 80 seeks, split into copying the checkpoint, decoding
 forward and finishing):
