@@ -17,13 +17,13 @@ namespace Tf2DemoSalvage.Viewer3D.Tests;
 [NonParallelizable]
 public sealed class ViewerMenuSyncTests
 {
-    private static MenuState State(bool showPosition, string volume, bool mute) => new(
+    private static MenuState State(bool showPosition, string volume, bool mute, bool phong = true, string quality = "Full", string? hud = null) => new(
         FullScreenExclusive: false,
-        TextureQualities: [],
+        TextureQualities: new[] { "Full", "Low" }.Select(key => new MenuChoice(key, key, key == quality)).ToList(),
         ShowFrameRate: false,
         ShowPosition: showPosition,
-        Phong: true,
-        Huds: [],
+        Phong: phong,
+        Huds: new[] { (string?)null, "C:/custom/somehud" }.Select(path => new MenuChoice(path, path ?? "TF2 default", path == hud)).ToList(),
         Volumes: new[] { "0", "50", "100" }.Select(key => new MenuChoice(key, key + "%", key == volume)).ToList(),
         MuteLoseFocus: mute);
 
@@ -42,6 +42,20 @@ public sealed class ViewerMenuSyncTests
             .ShouldBe(["Volume50"]);
         volume.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == "MuteLoseFocus").Checked.ShouldBeFalse();
         called.ShouldBeEmpty("a check that follows the settings writes none back, and saves none");
+    }
+
+    [Test]
+    public void Sync_AfterABindChangedPhongTextureQualityAndHud_ShowsThemAndCallsNothing()
+    {
+        List<string> called = [];
+        using ViewerMenu menu = new(Actions(called), State(false, "100", true), new KeyBindings());
+
+        menu.Sync(State(false, "100", true, phong: false, quality: "Low", hud: "C:/custom/somehud"));
+
+        menu.Phong.Checked.ShouldBeFalse();
+        menu.TextureQualityItems.Where(pair => pair.Value.Checked).Select(pair => pair.Key).ShouldBe(["Low"]);
+        menu.HudItems.Where(pair => pair.Value.Checked).Select(pair => pair.Key).ShouldBe(["C:/custom/somehud"]);
+        called.ShouldBeEmpty();
     }
 
     private static ViewerMenuActions Actions(List<string> called) => new(

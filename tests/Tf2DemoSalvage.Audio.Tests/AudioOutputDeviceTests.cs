@@ -274,6 +274,19 @@ public sealed class AudioOutputDeviceTests
     }
 
     [Test]
+    public void TryCreateLoopback_DisposedOutOfOrder_LeavesTheNewerContextCurrent()
+    {
+        AudioOutput first = OpenLoopback();
+        using AudioOutput second = OpenLoopback();
+        second.MasterGain = 0.25f;
+
+        // The first goes while the second holds the thread: it must not put its own predecessor back over it.
+        first.Dispose();
+
+        second.MasterGain.ShouldBe(0.25f, "the thread's context was the second's, not the first's, so it stays");
+    }
+
+    [Test]
     public void Play_AfterDispose_ThrowsRatherThanUsingAFreedDevice()
     {
         // Every public method opens with `ObjectDisposedException.ThrowIf`. Calling into a closed

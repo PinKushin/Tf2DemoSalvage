@@ -57,7 +57,8 @@ internal static partial class ForegroundProbe
 
     /// <summary>
     /// Whether this application is the active one: the foreground window is any of ours, a dialog included. This is
-    /// what `WM_ACTIVATEAPP` reports, the engine's notion of an active app (interpolated: `engine.dll` not read).
+    /// what `WM_ACTIVATEAPP` reports, the engine's `IsActiveApp` that FUN_180040cc0 (`snd_mute_losefocus`) and
+    /// FUN_18020cbd0 (`engine_no_focus_sleep`) in engine.dll ask.
     /// </summary>
     public static bool IsActiveApp()
     {

@@ -32,12 +32,10 @@ public interface IViewerWindow
     /// <summary>The viewport's client size, in pixels.</summary>
     public (int Width, int Height) Viewport { get; }
 
-    /// <summary>Whether keyboard focus is inside the window.</summary>
-    public bool HasFocus { get; }
-
     /// <summary>
-    /// Whether this application is the active one — any of its windows, a dialog included, in the foreground. What
-    /// `snd_mute_losefocus` asks; keyboard focus is not, since a dialog or a full-screen switch takes it from the window.
+    /// Whether this application is the active one — any of its windows, a dialog included, in the foreground: the
+    /// engine's `IsActiveApp`, which both `snd_mute_losefocus` (engine.dll FUN_180040cc0) and `engine_no_focus_sleep`
+    /// (FUN_18020cbd0) ask. Keyboard focus is not it: a dialog or the full-screen switch takes that from the window.
     /// </summary>
     public bool IsActiveApp { get; }
 

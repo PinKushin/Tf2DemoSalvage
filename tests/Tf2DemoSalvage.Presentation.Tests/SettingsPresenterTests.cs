@@ -443,6 +443,16 @@ public sealed class SettingsPresenterTests
         settings.MasterGain(focused: true).ShouldBe(0f, "a NaN master gain reaches the mix as silence, never as NaN");
     }
 
+    [Test]
+    public void Menu_AVolumeThatIsNotANumber_ChecksNoLevel()
+    {
+        // NaN is no level: the cast after rounding saturates it to 0, which would check "0%" for a volume nobody set.
+        (SettingsPresenter settings, _) = Owner();
+        settings.SetConVar("volume", "nan");
+
+        settings.Menu(null).Volumes.ShouldAllBe(static level => !level.Chosen);
+    }
+
     [TestCase(0.45f, "50")]
     [TestCase(0.25f, "30")]
     [TestCase(0.05f, "10")]

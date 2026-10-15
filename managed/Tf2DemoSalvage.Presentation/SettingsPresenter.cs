@@ -171,7 +171,10 @@ public sealed class SettingsPresenter
                 option.Path, option.Name, string.Equals(_settings.ChosenHud, option.Path, StringComparison.Ordinal)));
         }
 
-        int nearest = (int)MathF.Round(_settings.Volume * 10f, MidpointRounding.AwayFromZero) * 10;
+        // NaN is no level; cast after rounding it would saturate to 0 and check "0%".
+        int? nearest = float.IsNaN(_settings.Volume)
+            ? null
+            : (int)MathF.Round(_settings.Volume * 10f, MidpointRounding.AwayFromZero) * 10;
         List<MenuChoice> volumes = [];
 
         foreach (int percent in VolumeSteps)
@@ -282,6 +285,11 @@ public sealed class SettingsPresenter
     /// <summary>The gain over the whole mix: `volume`, or silence while unfocused under `snd_mute_losefocus`.</summary>
     /// <param name="focused">Whether the window has focus.</param>
     /// <remarks>
+    /// **The unfocused mute, read from engine.dll** (2026-10-15): FUN_180040cc0, per channel, zeroes every gain when
+    /// `snd_mute_losefocus` is nonzero, `IsActiveApp()` is false, and the channel's bit 0x40 at +0x13d is clear. Both
+    /// sound-start paths clear that bit (18002e59b in FUN_18002dd10, 18002f04d in FUN_18002e990) and no instruction in
+    /// engine.dll sets it, so no channel is exempt and one gain over the whole mix is the same result.
+    ///
     /// `volume nan` is stored as NaN, as the engine stores it (`ConVar::ClampValue`'s two comparisons are both false for
     /// NaN, convar.cpp). What the closed mixer then does with it is not read; a NaN gain is silence here.
     /// </remarks>
@@ -322,7 +330,13 @@ public sealed class SettingsPresenter
     /// <summary>Applies a ConVar a command set at run time, by the launch option's route; saves nothing (D215).</summary>
     /// <param name="name">The ConVar's name.</param>
     /// <param name="value">Its value, as the command wrote it.</param>
-    public void SetConVar(string name, string value) => _settings = _settings.Set(name, value);
+    public void SetConVar(string name, string value)
+    {
+        _settings = _settings.Set(name, value);
+
+        // Stryker disable once all : a mutated interpolated string cannot bind to its handler (CS1620) and Safe Mode drops the method - B410
+        _log.LogInformation("{Message}", $"{name} {value} (set at run time)");
+    }
 
     /// <summary>Makes these settings the console's ConVar values: it reads them, and a key's set lands in them (D215).</summary>
     /// <param name="console">The console; attach after the watcher's configs load, which keep their own lines.</param>

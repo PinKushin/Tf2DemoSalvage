@@ -743,7 +743,11 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         MenuStrip menu = _menu.Strip;
 
         // A bind, `toggle` or `incrementvar` changes settings without the menu (D215): its checks are read on opening.
-        _menu.View.DropDownOpening += (_, _) => _menu.Sync(_session.Menu);
+        // Every top-level menu, since the HUD picker is its own.
+        foreach (ToolStripMenuItem top in menu.Items.OfType<ToolStripMenuItem>())
+        {
+            top.DropDownOpening += (_, _) => _menu.Sync(_session.Menu);
+        }
 
 
         // Added in reverse z-order: WinForms docks the LAST control added first, so Fill must go
@@ -1126,9 +1130,6 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
     /// <inheritdoc/>
     (int Width, int Height) IViewerWindow.Viewport => (_viewport.ClientSize.Width, _viewport.ClientSize.Height);
-
-    /// <inheritdoc/>
-    bool IViewerWindow.HasFocus => ContainsFocus;
 
     /// <inheritdoc/>
     bool IViewerWindow.IsActiveApp => ForegroundProbe.IsActiveApp();

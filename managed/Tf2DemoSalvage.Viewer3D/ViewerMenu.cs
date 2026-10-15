@@ -532,7 +532,13 @@ internal sealed class ViewerMenu : IDisposable
                 "a highlight is washing out a model.",
         };
 
-        Phong.CheckedChanged += (_, _) => actions.SetPhong(Phong.Checked);
+        Phong.CheckedChanged += (_, _) =>
+        {
+            if (!_syncing)
+            {
+                actions.SetPhong(Phong.Checked);
+            }
+        };
 
         // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
         // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
@@ -906,6 +912,23 @@ internal sealed class ViewerMenu : IDisposable
         {
             FrameRate.Checked = state.ShowFrameRate;
             PositionReadout.Checked = state.ShowPosition;
+            Phong.Checked = state.Phong;
+
+            foreach (MenuChoice choice in state.TextureQualities)
+            {
+                if (TextureQualityItems.TryGetValue(choice.Key ?? string.Empty, out ToolStripMenuItem? item))
+                {
+                    item.Checked = choice.Chosen;
+                }
+            }
+
+            foreach (MenuChoice choice in state.Huds)
+            {
+                if (HudItems.TryGetValue(choice.Key ?? StockHudKey, out ToolStripMenuItem? item))
+                {
+                    item.Checked = choice.Chosen;
+                }
+            }
 
             for (int at = 0; at < _volumeLevels.Count && at < state.Volumes.Count; at++)
             {

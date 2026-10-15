@@ -602,6 +602,7 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
             {
                 _render = render,
                 _setThreadContext = setThreadContext,
+                _getThreadContext = getThreadContext,
                 _previous = previous,
             };
         }
@@ -625,6 +626,9 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
     /// <summary>`alcSetThreadContext` when a loopback took its thread's context with it; null otherwise.</summary>
     private delegate* unmanaged<Context*, byte> _setThreadContext;
+
+    /// <summary>`alcGetThreadContext`, beside <see cref="_setThreadContext"/>.</summary>
+    private delegate* unmanaged<Context*> _getThreadContext;
 
     /// <summary>The context (the thread's, or the process's without the extension) before this one took it, put back on dispose.</summary>
     private Context* _previous;
@@ -663,12 +667,17 @@ public sealed unsafe class AudioOutput : IAudioSink, IDisposable
 
         StopAll();
 
+        // Put back what was found only while this one is still current: a newer output that took the context since
+        // keeps it. **Per thread**: a loopback disposed on a thread other than the one that opened it leaves that
+        // thread's context alone, since `alcSetThreadContext` only reaches the calling thread.
         if (_setThreadContext is not null)
         {
-            _ = _setThreadContext(_previous);
+            if (_getThreadContext() == _context)
+            {
+                _ = _setThreadContext(_previous);
+            }
         }
-
-        else
+        else if (_alc.GetCurrentContext() == _context)
         {
             _alc.MakeContextCurrent(_previous);
         }
