@@ -5849,9 +5849,10 @@ public sealed class DemoTimeline
             break;
         }
 
-        // Kept current for the same reason the item is: a disguise's gear is created when the
-        // disguise goes up, and the flag arrives with it.
-        track.OfDisguise = state.OfDisguise() || track.OfDisguise;
+        // **The flag as the entity holds it, not sticky** (B548). `m_bDisguiseWearable` is a plain networked bool
+        // (`tf_item_wearable.h:45`, `SetDisguiseWearable( bool )`), so the client holds what was last received; the
+        // accumulated state already keeps it across updates that do not mention it, which is all the old `||` bought.
+        track.OfDisguise = state.OfDisguise();
 
         // Kept current for the same reason: a brush entity states its team on creation and an
         // update that does not mention it must not erase it.
@@ -6681,11 +6682,32 @@ public sealed class DemoTimeline
 
         // Allocated only for an entity that HAS children, which on `cp_granary` is 66 of 297 brush
         // entities and none of the props.
-        Queue<int> pending = new(children);
+        Queue<(int Child, int Parent)> pending = new(children.Select(child => (child, asked.EntityIndex)));
         HashSet<int> walked = [asked.EntityIndex];
 
-        while (pending.TryDequeue(out int child))
+        while (pending.TryDequeue(out (int Child, int Parent) next))
         {
+            int child = next.Child;
+
+            // The child's own last stated pose, asked of the child's track — the clause calls
+            // `ShouldInterpolate` on the CHILD, so the child's render mode decides, not the parent's.
+            ScenePropTrack? hanging = OccupantAt(child, tick);
+
+            if (hanging is not null)
+            {
+                // **The answer holds only until this child's own can change** (B438), which is the
+                // parent's to hear about: a wake at the child's keyframe re-derives the child alone.
+                // Taken before the parent test, since a change of parent is one of those changes (B548).
+                revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
+
+                // **A child of this parent only while it hangs from it** (B548): the map holds every parent
+                // the child ever had, and `FirstMoveChild` holds the one it has now.
+                if (hanging.FactsAt(tick).AttachedTo != next.Parent)
+                {
+                    continue;
+                }
+            }
+
             if (!walked.Add(child))
             {
                 continue;
@@ -6696,25 +6718,16 @@ public sealed class DemoTimeline
                 return true;
             }
 
-            // The child's own last stated pose, asked of the child's track — the clause calls
-            // `ShouldInterpolate` on the CHILD, so the child's render mode decides, not the parent's.
-            if (_trackByEntity.TryGetValue(child, out ScenePropTrack? hanging))
+            if (hanging is not null && Visible(hanging, hanging.Held(tick), tick))
             {
-                // **The answer holds only until this child's own can change** (B438), which is the
-                // parent's to hear about: a wake at the child's keyframe re-derives the child alone.
-                revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
-
-                if (Visible(hanging, hanging.Held(tick), tick))
-                {
-                    return true;
-                }
+                return true;
             }
 
             if (_moveChildren.TryGetValue(child, out List<int>? theirs))
             {
                 foreach (int grandchild in theirs)
                 {
-                    pending.Enqueue(grandchild);
+                    pending.Enqueue((grandchild, child));
                 }
             }
         }
@@ -6764,28 +6777,55 @@ public sealed class DemoTimeline
     {
         Dictionary<int, List<int>> children = [];
 
+        // **Every parent the child EVER had, not its last** (B548): the walk keeps only the child whose parent
+        // at the asked tick is the one it came from, so a wearable that changed hands is visited under each.
         foreach (ScenePropTrack track in _props)
         {
-            // Stryker disable once : a mutant that empties the guard body leaves 'parent'
-            // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
-            if (track.AttachedTo is not { } parent || parent == track.EntityIndex)
+            foreach ((int _, ScenePropFacts facts) in track.FactsHistory)
             {
-                continue;
-            }
+                // Stryker disable once : a mutant that empties the guard body leaves 'parent'
+                // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
+                if (facts.AttachedTo is not { } parent || parent == track.EntityIndex)
+                {
+                    continue;
+                }
 
-            if (!children.TryGetValue(parent, out List<int>? hanging))
-            {
-                children[parent] = hanging = [];
-            }
+                if (!children.TryGetValue(parent, out List<int>? hanging))
+                {
+                    children[parent] = hanging = [];
+                }
 
-            if (!hanging.Contains(track.EntityIndex))
-            {
-                hanging.Add(track.EntityIndex);
+                if (!hanging.Contains(track.EntityIndex))
+                {
+                    hanging.Add(track.EntityIndex);
+                }
             }
         }
 
         return children;
     }
+
+    /// <summary>The occupant of a slot alive at a tick, else the slot's last — the walk's old answer (B548).</summary>
+    /// <remarks>
+    /// The child's parent is now asked AT the tick, so the track asked must be the one alive then: the slot's last
+    /// occupant answers for a different entity whenever the slot was reused.
+    /// </remarks>
+    private ScenePropTrack? OccupantAt(int entity, double tick)
+    {
+        _occupants ??= _props.Concat(_playerTracks)
+            .GroupBy(track => track.EntityIndex)
+            .ToDictionary(group => group.Key, group => group.ToList());
+
+        if (!_occupants.TryGetValue(entity, out List<ScenePropTrack>? occupants))
+        {
+            return null;
+        }
+
+        return occupants.Find(track => track.Alive(tick)) ?? _trackByEntity.GetValueOrDefault(entity);
+    }
+
+    /// <summary>Every track by slot, or null before the first walk built it.</summary>
+    private Dictionary<int, List<ScenePropTrack>>? _occupants;
 
     /// <summary>Movement children by parent, or null before the first sampling built it.</summary>
     private Dictionary<int, List<int>>? _moveChildren;
@@ -6816,7 +6856,7 @@ public sealed class DemoTimeline
             facts.OfDisguise,
             OfRecordersTeam: recorderTeam is { } mine && facts.TeamNumber == mine,
             Econ: facts.Econ,
-            ClientSideAnimated: track.ClientSideAnimated);
+            ClientSideAnimated: facts.ClientSideAnimated);
 
     private sealed partial class Builder
     {

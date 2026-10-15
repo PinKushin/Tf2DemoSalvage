@@ -147,6 +147,16 @@ public sealed class ModelIndexFollowsUpdatesConformanceTests
         DrawnModel(stepped ? timeline : DemoTimeline.Build(demo), 20).ShouldBe(SecondPath);
     }
 
+    [Test]
+    public void PropsAt_ASeekBackAcrossAModelChange_DrawsTheEarlierModel()
+    {
+        // Read after the swap first, so the cached sample holds the later model when the seek goes back.
+        DemoTimeline timeline = DemoTimeline.Build(Demo((0, FirstModel), (10, SecondModel)));
+
+        DrawnModel(timeline, 20).ShouldBe(SecondPath);
+        DrawnModel(timeline, 5).ShouldBe(FirstPath, "a seek back answers what the entity held then");
+    }
+
     /// <summary>The model the prop in the fixture's slot is drawn with at a tick.</summary>
     private static string DrawnModel(DemoTimeline timeline, int tick)
     {

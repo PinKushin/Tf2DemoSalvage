@@ -175,6 +175,40 @@ public sealed class InterpolationListTests
     }
 
     /// <remarks>
+    /// **The child is asked about the parent it has AT the tick** (B548). It hangs on 9 until tick 20 and on the
+    /// invisible mover 3 from then — the demo's end — so at tick 14 it forces nothing on 3. Keyed by the last parent,
+    /// the walk visited it under 3 at every tick.
+    /// </remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentAChildJoinsOnlyLater_HoldsItsLastStatedPose()
+    {
+        ScenePropTrack child = new(entityIndex: 4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 9 };
+
+        child.Add(0, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+        child.Stamp(0);
+        child.Add(20, new ScenePose { X = 0f, Y = -1f, Z = 6f });
+        child.AttachedTo = 3;
+        child.Stamp(20);
+
+        DrawnX(3, [Invisible(3), child]).ShouldBe(200f);
+    }
+
+    /// <remarks>The counterpart: on 3 until tick 20, then elsewhere — at tick 14 it still forces 3 onto the list.</remarks>
+    [Test]
+    public void PropsAt_ForAnInvisibleParentAChildLeavesOnlyLater_InterpolatesTheParent()
+    {
+        ScenePropTrack child = new(entityIndex: 4, "models/props_gameplay/door_slide_door.mdl") { AttachedTo = 3 };
+
+        child.Add(0, new ScenePose { X = 0f, Y = -1f, Z = 5f });
+        child.Stamp(0);
+        child.Add(20, new ScenePose { X = 0f, Y = -1f, Z = 6f });
+        child.AttachedTo = 9;
+        child.Stamp(20);
+
+        DrawnX(3, [Invisible(3), child]).ShouldBe(85.71429f);
+    }
+
+    /// <remarks>
     /// **Clause one, <c>render-&gt;GetViewEntity() == index</c>** (`c_baseentity.cpp:3031`). It is
     /// tested BEFORE the model and the render mode, so it outranks every reason not to interpolate —
     /// the entity the view is attached to is interpolated even while it is invisible, which is what a

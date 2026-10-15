@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -25,23 +26,43 @@ internal sealed class HeldValues<T>
     /// <summary>Records the value received at a tick; a repeat of the last is not kept.</summary>
     /// <param name="tick">When it was received; never before the last.</param>
     /// <param name="value">The value.</param>
+    /// <exception cref="ArgumentOutOfRangeException">The tick is before the last one set.</exception>
     public void Set(int tick, T value)
     {
-        if (_values.Count > 0 && EqualityComparer<T>.Default.Equals(_values[^1], value))
+        if (_ticks.Count > 0 && tick < _ticks[^1])
         {
-            return;
+            throw new ArgumentOutOfRangeException(
+                nameof(tick), tick, $"values arrive in tick order; the last was at {_ticks[^1]}");
         }
 
         if (_ticks.Count > 0 && _ticks[^1] == tick)
         {
-            _values[^1] = value;
+            // A second update at one tick replaces the first — and one that reverts to the value before it
+            // leaves no change at all, so the entry goes rather than restating its predecessor.
+            if (_values.Count > 1 && EqualityComparer<T>.Default.Equals(_values[^2], value))
+            {
+                _ticks.RemoveAt(_ticks.Count - 1);
+                _values.RemoveAt(_values.Count - 1);
+            }
+            else
+            {
+                _values[^1] = value;
+            }
 
+            return;
+        }
+
+        if (_values.Count > 0 && EqualityComparer<T>.Default.Equals(_values[^1], value))
+        {
             return;
         }
 
         _ticks.Add(tick);
         _values.Add(value);
     }
+
+    /// <summary>The tick each value in <see cref="Values"/> was set at.</summary>
+    public IReadOnlyList<int> Ticks => _ticks;
 
     /// <summary>The index of the value held at a tick, or -1 before the first.</summary>
     private int IndexAt(double tick)

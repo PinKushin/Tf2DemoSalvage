@@ -7,11 +7,14 @@ using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Probe.Probes;
 
-/// <summary>Every prop that changed model while staying itself, with the tick it changed at (B548).</summary>
+/// <summary>Every track that changed model while staying itself, with the tick it changed at (B548).</summary>
 /// <remarks>
-/// **Read through <see cref="ScenePropTrack.FactsAt"/>, the call `PropsAt` makes**, at every keyframe tick — so a change
-/// is reported at the first keyframe that shows it, which is where the drawn answer moves. **The control is the count of
-/// tracks walked**: zero changes beside zero tracks measures nothing.
+/// **Walks the identity history itself (`FactsHistory`), the record `PropsAt` reads through `FactsAt`** — so a change is
+/// reported at the tick it took effect, whether or not a keyframe marks it. Props and player tracks both.
+///
+/// **Two controls, because an empty answer measures nothing on its own.** The count of tracks walked says the walk
+/// reached something; the identity entries counted say the history is populated (one per track at least — a history
+/// the builder never stamped would still answer one, so the total counts entries BEYOND the first as well).
 /// </remarks>
 public sealed class ModelChangesProbe : IProbe
 {
@@ -19,7 +22,7 @@ public sealed class ModelChangesProbe : IProbe
     public string Name => "model-changes";
 
     /// <inheritdoc/>
-    public string Summary => "props whose model changed mid-life, and the tick: model-changes <demo>";
+    public string Summary => "tracks whose model changed mid-life, and the tick: model-changes <demo>";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -34,26 +37,28 @@ public sealed class ModelChangesProbe : IProbe
         }
 
         DemoTimeline timeline = DemoTimeline.Build(File.ReadAllBytes(path));
+        List<ScenePropTrack> tracks = [.. timeline.Props, .. timeline.PlayerTracks];
         int changed = 0;
+        int entries = 0;
 
-        foreach (ScenePropTrack track in timeline.Props)
+        foreach (ScenePropTrack track in tracks)
         {
             string? before = null;
 
-            foreach (int tick in track.Keyframes.Select(keyframe => keyframe.Tick))
+            foreach ((int tick, ScenePropFacts facts) in track.FactsHistory)
             {
-                string now = track.FactsAt(tick).ModelPath;
+                entries++;
 
-                if (before is not null && now != before)
+                if (before is not null && facts.ModelPath != before)
                 {
                     changed++;
-                    output.WriteLine($"  entity {track.EntityIndex} serial {track.SerialNumber} tick {tick} ({track.FirstTick}..{track.EndTick}): '{before}' -> '{now}'");
+                    output.WriteLine($"  entity {track.EntityIndex} serial {track.SerialNumber} tick {tick} ({track.FirstTick}..{track.EndTick}): '{before}' -> '{facts.ModelPath}'");
                 }
 
-                before = now;
+                before = facts.ModelPath;
             }
         }
 
-        output.WriteLine($"{timeline.Props.Count} prop tracks walked, {changed} model changes");
+        output.WriteLine($"{timeline.Props.Count} prop and {timeline.PlayerTracks.Count} player tracks walked, {entries} identity entries (control: more than {tracks.Count} means the builder stamped changes), {changed} model changes");
     }
 }

@@ -39633,3 +39633,16 @@ lists compare by reference), so the conformance test cannot see that wake. **Ope
 read the scalars, correctly, because they run while building at the death tick; `SolidBrushEntities`/`BrushTracks`
 classify a brush by its last model. Findings: `19-model-indices.md`.
 
+**Review, 2026-10-15.** (1) The move-children map used each child's LAST parent, so the fourth `ShouldInterpolate`
+clause visited a wearable under its final parent at every tick; it now holds every parent a child ever had, and the walk
+keeps a child only while `FactsAt(tick).AttachedTo` is the parent it came from, asking the slot's occupant alive at the
+tick (`OccupantAt`). Two `InterpolationListTests` (joins later / leaves later); sabotaging the parent test reddened the
+first, collapsing the map to the last parent the second. (2) Sprite and (3) worn preloads walk the history, worn gated
+per entry on that entry's parent (`WornModelsTests`; gating on the latest parent reddened it). (4) The track's doc
+block had attached itself to `ScenePropFacts`. (5) `HeldValues.Set` drops a same-tick revert and refuses an earlier
+tick (`HeldValuesTests`; disabling the drop reddened the revert test). (6) `ClassName` stays a scalar, argued on the
+property: one `EntityState` and class id per serial. `OfDisguise` was sticky (`||`); `m_bDisguiseWearable` is a plain
+networked bool (`tf_item_wearable.h:45`), so it is now the state's value — *not* covered by a builder-level test.
+`ClientSideAnimated` (`m_bClientSideAnimation`, networked per update) joined the facts; per-field `FactsAt` tests cover
+ten of the eleven fields, all but `ClassName` (dropping one from the snapshot reddened its case).
+

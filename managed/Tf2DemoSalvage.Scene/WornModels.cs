@@ -59,17 +59,15 @@ public static class WornModels
             // wire never carried is attached, is Studio — every `model_player` is a `.mdl` — and
             // has an empty path until the Scene layer resolves its item. `heldWeapons` below is the
             // list that names those, resolved through the same item schema the engine uses.
-            if (track.AttachedTo is null)
+            // Every model the item named WHILE attached, per stamp: one attached early and dropped by the demo's
+            // end still drew merged then (B548).
+            foreach ((int _, ScenePropFacts facts) in track.FactsHistory)
             {
-                continue;
-            }
-
-            // Every model the item named in its life, since a tick before a swap draws the earlier one (B548).
-            foreach (string path in track.ModelPaths)
-            {
-                if (path.Length > 0 && ScenePropTrack.Classify(path) == SceneModelKind.Studio)
+                if (facts.AttachedTo is not null &&
+                    facts.ModelPath.Length > 0 &&
+                    ScenePropTrack.Classify(facts.ModelPath) == SceneModelKind.Studio)
                 {
-                    paths.Add(path);
+                    paths.Add(facts.ModelPath);
                 }
             }
         }

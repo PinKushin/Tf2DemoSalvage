@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 namespace Tf2DemoSalvage.Core.Scene;
@@ -824,6 +825,35 @@ public sealed record SceneProp(
     // True only on `ViewmodelScene`'s props; the bones are mirrored in view space and the cull reversed.
     bool FlipViewModel = false);
 
+/// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
+/// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
+/// <param name="ItemDefinitionIndex">The econ item, when it is one.</param>
+/// <param name="ClassName">The networked class.</param>
+/// <param name="OfDisguise">Whether it belongs to its owner's disguise.</param>
+/// <param name="TeamNumber">Its team, or null.</param>
+/// <param name="AttachedTo">Its move parent, or null.</param>
+/// <param name="BoneMerged">Whether it rides the parent's skeleton.</param>
+/// <param name="OwnedBy">Its owner, or null.</param>
+/// <param name="AttachmentPoint">The wearer's attachment it hangs from, or null.</param>
+/// <param name="Econ">The wire's attribute inputs, or null.</param>
+/// <param name="ClientSideAnimated"><c>m_bClientSideAnimation</c>, networked per update (<c>c_baseanimating.cpp:190</c>).</param>
+public readonly record struct ScenePropFacts(
+    string ModelPath,
+    int? ItemDefinitionIndex,
+    string ClassName,
+    bool OfDisguise,
+    int? TeamNumber,
+    int? AttachedTo,
+    bool BoneMerged,
+    int? OwnedBy,
+    int? AttachmentPoint,
+    EconAttributeWire? Econ,
+    bool ClientSideAnimated = false)
+{
+    /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
+    public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
+}
+
 /// <summary>
 /// One entity's pose over the whole demo, stored as the moments it changed.
 /// </summary>
@@ -838,33 +868,6 @@ public sealed record SceneProp(
 /// opened at tick 900 was shut at 899, and inventing a position halfway would be this project
 /// making up data it was not given.
 /// </remarks>
-/// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
-/// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
-/// <param name="ItemDefinitionIndex">The econ item, when it is one.</param>
-/// <param name="ClassName">The networked class.</param>
-/// <param name="OfDisguise">Whether it belongs to its owner's disguise.</param>
-/// <param name="TeamNumber">Its team, or null.</param>
-/// <param name="AttachedTo">Its move parent, or null.</param>
-/// <param name="BoneMerged">Whether it rides the parent's skeleton.</param>
-/// <param name="OwnedBy">Its owner, or null.</param>
-/// <param name="AttachmentPoint">The wearer's attachment it hangs from, or null.</param>
-/// <param name="Econ">The wire's attribute inputs, or null.</param>
-public readonly record struct ScenePropFacts(
-    string ModelPath,
-    int? ItemDefinitionIndex,
-    string ClassName,
-    bool OfDisguise,
-    int? TeamNumber,
-    int? AttachedTo,
-    bool BoneMerged,
-    int? OwnedBy,
-    int? AttachmentPoint,
-    EconAttributeWire? Econ)
-{
-    /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
-    public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
-}
-
 public sealed class ScenePropTrack
 {
     /// <summary>
@@ -1217,6 +1220,13 @@ public sealed class ScenePropTrack
     /// rocket launcher for every reskin in the game — and falls back to the class only when the
     /// item names no model. A decorated weapon whose definition inherits its model through a
     /// prefab is the case that needs it.
+    ///
+    /// **Safe to read without a tick, unlike its siblings (B548).** A track is one serial, and
+    /// `EntityStateTable.Apply` keeps one `EntityState` — one class id — per serial: an enter with the same serial
+    /// merges into the existing state whatever class it names. A class id's NAME is fixed by the class table at
+    /// signon (`SetClassName`). So the only change a track's class can make is unnamed to named, which
+    /// `state.ClassName ?? track.ClassName` makes once, early. Readers that hold no tick (`MovementWorld`,
+    /// `EffectEntities`) rely on this.
     /// </remarks>
     public string ClassName { get; internal set; } = string.Empty;
 
@@ -1270,7 +1280,7 @@ public sealed class ScenePropTrack
     /// <summary>The identity fields as they stand now.</summary>
     private ScenePropFacts Current() => new(
         ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
-        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ);
+        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ, ClientSideAnimated);
 
 
     /// <summary>The identity fields as the entity held them at a tick (B548).</summary>
@@ -1286,31 +1296,29 @@ public sealed class ScenePropTrack
         return _facts.Count > 0 ? _facts.Values[0] : Current();
     }
 
-    /// <summary>Every model this entity named in its life, for precaching (B548).</summary>
-    public IEnumerable<string> ModelPaths
+    /// <summary>Every identity this entity held, with the tick it took effect (B548).</summary>
+    /// <remarks>A track never stamped answers its current fields once, at its first tick.</remarks>
+    public IEnumerable<(int Tick, ScenePropFacts Facts)> FactsHistory
     {
         get
         {
             if (_facts.Count == 0)
             {
-                yield return ModelPath;
+                yield return (FirstTick, Current());
 
                 yield break;
             }
 
-            string? last = null;
-
-            foreach (ScenePropFacts facts in _facts.Values)
+            for (int index = 0; index < _facts.Count; index++)
             {
-                if (facts.ModelPath != last)
-                {
-                    last = facts.ModelPath;
-
-                    yield return last;
-                }
+                yield return (_facts.Ticks[index], _facts.Values[index]);
             }
         }
     }
+
+    /// <summary>Every model this entity named in its life, for precaching (B548).</summary>
+    public IEnumerable<string> ModelPaths =>
+        FactsHistory.Select(entry => entry.Facts.ModelPath).Distinct(StringComparer.Ordinal);
 
     /// <summary>The parity counter last seen, so a change can be noticed.</summary>
     /// <remarks>

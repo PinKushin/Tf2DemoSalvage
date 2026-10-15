@@ -328,12 +328,16 @@ public static class DemoModels
 
         foreach (ScenePropTrack track in demo.Props)
         {
-            if (track.Kind != SceneModelKind.Sprite || track.ModelPath.Length == 0)
+            // Every sprite the entity named in its life, since a tick before a swap draws the earlier one (B548).
+            List<string> sprites = [.. track.ModelPaths.Where(
+                path => path.Length > 0 && ScenePropTrack.Classify(path) == SceneModelKind.Sprite)];
+
+            if (sprites.Count == 0)
             {
                 continue;
             }
 
-            paths.Add(track.ModelPath);
+            paths.UnionWith(sprites);
 
             // **A beam names a second sprite, its halo** — `m_nHaloIndex`, drawn by `BeamDrawHalo` beside the shaft.
             // Every corpus spotlight's is `sprites/light_glow03.vmt`, which an `env_sprite` on the same map usually
@@ -348,7 +352,7 @@ public static class DemoModels
                 // **And a rope names its translucent anti-aliasing material**, `<material>_back` (`c_rope.cpp:1323`).
                 if (pose.Rope is not null)
                 {
-                    paths.Add(EntityRopes.BackMaterialPath(track.ModelPath));
+                    paths.UnionWith(sprites.Select(EntityRopes.BackMaterialPath));
 
                     // And, for the holiday lights, Pyrovision's solid material and the two light sprites (B478).
                     paths.Add(EntityRopes.PureWhiteMaterial);
