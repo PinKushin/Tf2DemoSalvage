@@ -10147,3 +10147,34 @@ config line or a bind setting it did nothing.
 - `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
   which sounds the engine treats as music needs `engine.dll` read (B545).
 
+## D219 — golden images: real TF2 screenshots, compared by measure in real UI tests (2026-10-14)
+
+**Owner, in his words:** *"real goldens are used for tests, real UI or integration tests"*. Asked whether TF2
+screenshots may be committed to this public repo: *"tf2s screenshots are not vallve content, they are SSs"* and *"yes,
+screenshots only"*. On building them at all: *"build the golden tests if we can get them to work"*. If they cannot be
+made reliable, that is reported instead of shipping flaky ones.
+
+**What follows from it:**
+
+- **Screenshots may be committed, but game files never are.** VPKs, maps, models, textures and sounds stay out of the
+  repo as before. Valve's content-use policy allows non-commercial use of screenshots. That is the lead's reading,
+  recorded as such, and is not legal advice.
+- **Few goldens, only what a test reads.** They are ordinary PNGs, resampled to 640 wide, in
+  `tests/Tf2DemoSalvage.Viewer3D.UiTests/Goldens/`, not Git LFS. `Golden.cs` records each one beside it: map, the demo
+  the viewer plays, camera, field of view, ConVars, and what the image shows.
+- **The comparison is a measure, never pixel equality** (`GoldenMeasure`): grid region means, the bright-pixel
+  fraction, and a radial luma profile. Every tolerance states its numbers in the test.
+- **TF2 captures a map it loaded itself, never one reached by playing an old demo.** The viewer plays a demo recorded
+  in the same TF2 session on the same map, with `TF2VIEW_CAMERA` and `demo_fov_override 90`. The goldens were taken
+  with the tf2 MCP's screenshot tool, which writes nothing to Steam's library, after setting
+  `cl_savescreenshotstosteam 0`. It was found at 1 (default 0), which is how earlier agent captures reached the library.
+- **The tests skip, with a reason, without the game or the lcor demo.** CI has neither
+  (`docs/memory/ci-is-the-machine-without-tf2.md`).
+- **The tests are reliable.** Two viewer captures of every case measured the same to the printed digit. Two TF2
+  captures differed by at most 0.2 luma per region.
+- **Unresolved: `mat_hdr_level 1`.** Switching from level 2 to level 1 on a loaded map left TF2's frame unchanged
+  (every region equal to 0.1), while the viewer's level 1 is darker than its level 2. There is no level-1 golden, and
+  no level-1-minus-level-0 bloom delta, until a capture is taken after a map load at level 1.
+- **The lakeside sun golden is red on main.** It is `[Explicit]` and serves as the acceptance check for
+  `fix/bloom-strength`; the numbers are in its remarks.
+

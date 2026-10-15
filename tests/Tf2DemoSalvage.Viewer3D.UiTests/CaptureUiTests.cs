@@ -321,7 +321,20 @@ public sealed class CaptureUiTests
     /// <param name="extra">More arguments — console commands such as <c>+cl_drawmonitors 0</c>.</param>
     /// <returns>The process's exit code and everything it wrote to standard error.</returns>
     internal static (int Exit, string Errors) Capture(
-        string demo, string png, TimeSpan hang, int tick = ShotTick, params string[] extra)
+        string demo, string png, TimeSpan hang, int tick = ShotTick, params string[] extra) =>
+        Capture(null, demo, png, hang, tick, extra);
+
+    /// <summary>Runs one headless capture to completion, with variables set for the viewer only.</summary>
+    /// <param name="environment">Such as <c>TF2VIEW_CAMERA</c>; null for none.</param>
+    /// <param name="demo">The file named on the command line.</param>
+    /// <param name="png">Where the capture is asked to go.</param>
+    /// <param name="hang">How long before the run is called hung and killed.</param>
+    /// <param name="tick">The tick to capture.</param>
+    /// <param name="extra">More arguments.</param>
+    /// <returns>The process's exit code and everything it wrote to standard error.</returns>
+    internal static (int Exit, string Errors) Capture(
+        System.Collections.Generic.IReadOnlyDictionary<string, string>? environment,
+        string demo, string png, TimeSpan hang, int tick, params string[] extra)
     {
         ProcessStartInfo start = new(ViewerApplication.ExecutablePath)
         {
@@ -329,6 +342,11 @@ public sealed class CaptureUiTests
             RedirectStandardError = true,
             RedirectStandardOutput = true,
         };
+
+        foreach ((string name, string value) in environment ?? new System.Collections.Generic.Dictionary<string, string>())
+        {
+            start.Environment[name] = value;
+        }
 
         foreach (string argument in (string[])
         [
