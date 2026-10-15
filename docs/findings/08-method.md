@@ -247,3 +247,17 @@ hashed frames and soundscapes. The next step changed how prop keyframes are stor
 have reported identical hashes whatever that change did. It was extended to hash every track's keyframes BEFORE the
 change and the baseline re-taken; *measured*, identical before and after on three demos. Before trusting an
 equivalence instrument for a change, check the change's data is among what it reads.
+
+**Comparing a part with the whole finds where the whole cheated** (D217 step 3, 2026-10-15). Windows of the timeline —
+a checkpoint decoded forward to just past the tick asked — were compared with the whole timeline at 80 seeks on f12
+and rgl-pug. After two real window faults were fixed, what still differed was the WHOLE timeline's answer, not the
+window's: a track's `Econ` and `ModelPath` are written last-write-wins, so the whole timeline answered every tick with
+the value the demo ended on, and only a builder that had not yet seen the end could disagree. *Measured*: 16 of 80
+seeks on f12, 6 of 80 on rgl-pug, every one in those two fields. An equivalence harness assumes its reference is
+right; a reference built with knowledge the engine never has can be the one that is wrong, and the harness is what
+exposed it.
+
+**A comparison that cannot see the change proves nothing, and the first control said so.** The synthetic
+equivalence passed with no lookback at all — the authored demos were shorter than the history a checkpoint keeps,
+so nothing was trimmed. The test now walks a demo longer than that tail and asserts the window holds fewer
+keyframes before comparing; zeroing the tail then reddens it.

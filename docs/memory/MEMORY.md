@@ -153,4 +153,5 @@
 - [Game handles are not personal information](game-handles-are-not-personal-information.md) — fine in committed docs; no history scrub.
 - [A paused frame is two moments](a-paused-frame-is-two-moments.md) — entities at the tick, particles a lerp behind; added light is an effect, ask `mat_fullbright 2`; SpriteCard tint is gamma (B538).
 - [A paused frame walks no animation event](a-paused-frame-walks-no-animation-event.md) — `frametime != 0` gate; a skip's frames walk, the paused landing frame does not; compare `skip: to N from …` when two runs differ (B541).
+- [A whole timeline can leak the future](a-whole-timeline-can-leak-the-future.md) — last-write-wins track scalars (Econ, ModelPath) answer every tick with the END value; a window that differs there is right (D217 step 3).
 - [Log findings to the measurement box log](log-findings-to-the-measurement-box-log.md) — failed/cancelled run, score drop, crash input go in `PinKushin/MEASUREMENT-BOX-LOG.md` so working agents can act.
