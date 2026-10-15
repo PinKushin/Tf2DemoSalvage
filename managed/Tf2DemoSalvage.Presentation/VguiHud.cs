@@ -58,6 +58,9 @@ public sealed class VguiHud
         // `CHud::Think`'s per-element `ShouldDraw`, which is why it is not parented alongside the elements above and
         // starts hidden here rather than defaulting to `VguiPanel.Visible`'s true.
         Scoreboard = new TfClientScoreBoardDialog(Viewport) { Visible = false };
+
+        // `CBaseViewport::CreateDefaultPanels` (baseviewport.cpp:236): the scoreboard, the info panel, then `specgui`.
+        SpectatorGui = new TfSpectatorGui(Viewport);
         ItemEffectMeters = new TfItemEffectMeterManager(Viewport);
     }
 
@@ -110,6 +113,9 @@ public sealed class VguiHud
 
     /// <summary>`CTFClientScoreBoardDialog`, shown only while <see cref="Frame"/>'s <c>showScoreboard</c> is held.</summary>
     public TfClientScoreBoardDialog Scoreboard { get; }
+
+    /// <summary>`CTFSpectatorGUI`, the `specgui` viewport panel a SourceTV demo shows (B516).</summary>
+    public TfSpectatorGui SpectatorGui { get; }
 
     /// <summary>`CTFHudWeaponAmmo`.</summary>
     public TfHudWeaponAmmo WeaponAmmo { get; }
@@ -196,6 +202,7 @@ public sealed class VguiHud
             // scheme reload does not. The scoreboard starts hidden, so without this its `.res` and score font would
             // never load until the first time TAB is held, which is also the first frame it needs to paint correctly.
             Scoreboard.ApplySchemeSettings(_context);
+            SpectatorGui.ApplySchemeSettings(_context);
         }
 
         if (reset)
@@ -306,6 +313,9 @@ public sealed class VguiHud
             Scoreboard.UpdateTeamInfo(state);
             Scoreboard.UpdatePlayerList(state.ScoreboardPlayers, state.Names, state.LocalIndex);
         }
+
+        // `CBaseViewport::OnThink`'s `Update()` of each panel that `NeedsUpdate` — the spectator GUI while it is shown.
+        SpectatorGui.Update(state);
 
         if (!paint)
         {

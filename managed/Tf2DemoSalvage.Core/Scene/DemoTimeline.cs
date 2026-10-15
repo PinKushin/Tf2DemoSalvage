@@ -1301,6 +1301,10 @@ public sealed class DemoTimeline
                 Ping = resource.Integer($"m_iPing.{slot}") ?? 0,
                 PlayerClass = resource.Integer($"m_iPlayerClass.{slot}"),
                 ActiveDominations = resource.Integer($"m_iActiveDominations.{slot}") ?? 0,
+                Health = resource.Integer($"m_iHealth.{slot}") ?? 0,
+                MaxHealth = resource.Integer($"m_iMaxHealth.{slot}") ?? 0,
+                NextRespawnTime = resource.Number($"m_flNextRespawnTime.{slot}") ?? 0f,
+                ChargeLevel = resource.Integer($"m_iChargeLevel.{slot}") ?? 0,
             });
         }
 

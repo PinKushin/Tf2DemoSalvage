@@ -52,4 +52,16 @@ public readonly record struct SceneScoreboardPlayer(int EntityIndex)
 
     /// <summary>`GetActiveDominations` — `m_iActiveDominations` (`:30`), raw (see remarks).</summary>
     public int ActiveDominations { get; init; }
+
+    /// <summary>`C_PlayerResource::GetHealth` — the resource's `m_iHealth`, which the tournament player panel reads.</summary>
+    public int Health { get; init; }
+
+    /// <summary>`C_TFPlayerResource::GetMaxHealth` — `m_iMaxHealth`.</summary>
+    public int MaxHealth { get; init; }
+
+    /// <summary>`C_TFPlayerResource::GetNextRespawnTime` — `m_flNextRespawnTime`, server time; 0 unsent.</summary>
+    public float NextRespawnTime { get; init; }
+
+    /// <summary>`C_TFPlayerResource::GetChargeLevel` — `m_iChargeLevel`, a medic's percent.</summary>
+    public int ChargeLevel { get; init; }
 }
