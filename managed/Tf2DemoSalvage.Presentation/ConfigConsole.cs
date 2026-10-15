@@ -272,7 +272,8 @@ public sealed class ConfigConsole
     /// </remarks>
     private string? CommandFor(string key)
     {
-        if (_binds.TryGetValue(key, out string? command) && Expand(command, depth: 0).Count > 0)
+        if (_binds.TryGetValue(key, out string? command) &&
+            (Expand(command, depth: 0).Count > 0 || SetsState(command)))
         {
             return command;
         }
@@ -293,6 +294,41 @@ public sealed class ConfigConsole
         }
 
         return fallback;
+    }
+
+    /// <summary>Whether a command line defines an alias or sets a declared ConVar, through its aliases.</summary>
+    /// <remarks>
+    /// **A `toggle` is not a no-op because it names no action** (B547). The fallback above was written for binds that
+    /// mean nothing here; `bind HOME "toggle cl_showpos"` means something, and fell back to `resetspeed`.
+    /// </remarks>
+    private bool SetsState(string commandLine)
+    {
+        foreach (string clause in SourceConfig.Clauses(commandLine))
+        {
+            IReadOnlyList<string> tokens = SourceConfig.Tokens(clause);
+
+            if (tokens.Count == 0)
+            {
+                continue;
+            }
+
+            string verb = tokens[0];
+            bool cvarCommand = verb.Equals("toggle", StringComparison.OrdinalIgnoreCase)
+                || verb.Equals("incrementvar", StringComparison.OrdinalIgnoreCase)
+                || verb.Equals("multvar", StringComparison.OrdinalIgnoreCase);
+
+            // The same tests `Run` acts on: any alias, and a ConVar `SetConVar` would accept - which is how the console
+            // treats a typed line; a name the game does not declare is no ConVar in the engine either.
+            if (verb.Equals("alias", StringComparison.OrdinalIgnoreCase)
+                || _aliases.ContainsKey(verb)
+                || (cvarCommand && tokens.Count >= 2 && IsClientConVar(tokens[1]))
+                || (tokens.Count >= 2 && IsClientConVar(verb)))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Actions the loaded config binds a key to, ignoring this viewer's own defaults.</summary>
@@ -373,18 +409,23 @@ public sealed class ConfigConsole
 
     /// <summary>Presses a key, running whatever it is bound to.</summary>
     /// <param name="key">The key's Source name, such as <c>w</c> or <c>MOUSE1</c>.</param>
-    public void KeyDown(string key)
+    /// <returns>
+    /// Whether the bind did something of the console's own - set a ConVar, ran an alias, moved a button - so the key is
+    /// the bind's (B547). False for nothing bound, a command this viewer does not implement, and the viewer's own
+    /// one-shots, which the host routes by their key and must still be given.
+    /// </returns>
+    public bool KeyDown(string key)
     {
         // Stryker disable once : a mutant that empties the guard body leaves 'command'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (CommandFor(key ?? string.Empty) is not { } command)
         {
-            return;
+            return false;
         }
 
         // The key travels with the command because a button tracks WHICH keys hold it — see
         // `KeyDown( kbutton_t *b, const char *c )`, where `c` is the key number.
-        Run(command, key!, depth: 0);
+        return Run(command, key!, depth: 0);
     }
 
     /// <summary>Releases a key, running the <c>-</c> half of whatever it is bound to.</summary>
@@ -426,7 +467,7 @@ public sealed class ConfigConsole
 
         // Stryker restore all
 
-        Run(string.Concat("-", command.AsSpan(1)), key!, depth: 0);
+        _ = Run(string.Concat("-", command.AsSpan(1)), key!, depth: 0);
     }
 
     /// <summary>Lets go of every button, leaving the binds and aliases in place.</summary>
@@ -758,10 +799,14 @@ public sealed class ConfigConsole
     /// <returns>The value, or null.</returns>
     public string? ConVar(string name) => _settingValue?.Invoke(name) ?? _conVars.GetValueOrDefault(name);
 
+    /// <summary>Whether a name is a client ConVar this console sets: declared, and not the server's (FCVAR_REPLICATED).</summary>
+    private static bool IsClientConVar(string name) =>
+        EngineConVars.TryByName(name, out EngineConVar? declared) && !declared.Replicated;
+
     /// <summary>`name value`: sets a declared client ConVar; a replicated one is the server's (iconvar.h, FCVAR_REPLICATED).</summary>
     private bool SetConVar(IReadOnlyList<string> tokens)
     {
-        if (tokens.Count < 2 || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared) || declared.Replicated)
+        if (tokens.Count < 2 || !IsClientConVar(tokens[0]) || !EngineConVars.TryByName(tokens[0], out EngineConVar? declared))
         {
             return false;
         }
@@ -908,11 +953,14 @@ public sealed class ConfigConsole
     /// *press* forward rather than release it. Carrying a direction flag down the recursion was the
     /// second bug in this class, and it failed the same test.
     /// </remarks>
-    private void Run(string commandLine, string? key, int depth)
+    /// <returns>Whether it did something of the console's own: an alias, a ConVar set, a button (B547).</returns>
+    private bool Run(string commandLine, string? key, int depth)
     {
+        bool acted = false;
+
         if (depth >= MaximumExpansion)
         {
-            return;
+            return acted;
         }
 
         foreach (string clause in SourceConfig.Clauses(commandLine))
@@ -932,13 +980,15 @@ public sealed class ConfigConsole
             if (command.Equals("alias", StringComparison.OrdinalIgnoreCase))
             {
                 Define(clause);
+                acted = true;
                 continue;
             }
 
             if (_aliases.TryGetValue(command, out string? body))
             {
                 // No key, deliberately — see the remark above.
-                Run(body, key: null, depth + 1);
+                _ = Run(body, key: null, depth + 1);
+                acted = true;
                 continue;
             }
 
@@ -953,41 +1003,41 @@ public sealed class ConfigConsole
                 // In Source the ConVar's value IS the setting; here the viewer's settings hold it, so a set made
                 // after startup is announced for the host to apply (D215). A config line at load is not.
                 ConVarSet?.Invoke(this, new ConVarSetEventArgs(tokens[0], tokens[1]));
+                acted = true;
                 continue;
             }
 
-            Perform(command, key);
+            acted |= Perform(command, key);
         }
+
+        return acted;
     }
 
     /// <summary>Applies one fully-expanded command.</summary>
-    private void Perform(string command, string? key)
+    /// <returns>Whether it moved a button; a one-shot is the host's to route, so it is not counted.</returns>
+    private bool Perform(string command, string? key)
     {
         if (command.StartsWith('-'))
         {
-            if (KeyBindings.ActionOf(string.Concat("+", command.AsSpan(1))) is { } releasing)
-            {
-                Release(releasing, key);
-            }
-
-            return;
+            return KeyBindings.ActionOf(string.Concat("+", command.AsSpan(1))) is { } releasing && Release(releasing, key);
         }
 
         // Stryker disable once : a mutant that empties the guard body leaves 'action'
         // unassigned (CS0165), and Safe Mode then drops every mutation in this method — B410.
         if (KeyBindings.ActionOf(command) is not { } action)
         {
-            return;
+            return false;
         }
 
         if (!HeldActions.Contains(action))
         {
             // One-shot: fired on the press, and the release half above has nothing to undo.
             Triggered?.Invoke(this, new ViewerActionEventArgs(action));
-            return;
+            return false;
         }
 
         Press(action, key ?? AliasIssued);
+        return true;
     }
 
     /// <summary>Presses a button, tracking which key did it.</summary>
@@ -1002,12 +1052,16 @@ public sealed class ConfigConsole
     }
 
     /// <summary>Releases a button on behalf of one key, or unconditionally when none is named.</summary>
-    private void Release(ViewerAction action, string? key)
+    /// <returns>Whether there was a button to release.</returns>
+    private bool Release(ViewerAction action, string? key)
     {
-        if (_buttons.TryGetValue(action, out Button? button))
+        if (!_buttons.TryGetValue(action, out Button? button))
         {
-            button.Release(key);
+            return false;
         }
+
+        button.Release(key);
+        return true;
     }
 
     /// <summary>Every action a command reaches by expansion.</summary>
