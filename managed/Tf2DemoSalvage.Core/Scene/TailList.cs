@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Tf2DemoSalvage.Core.Scene;
 
@@ -82,15 +81,16 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
             return;
         }
 
-        // Rebuilt rather than spliced: the kept records go in front of what follows the cut, in their order.
-        List<T> after = [.. _items.Skip(before + 1)];
-        kept.Reverse();
-        _items.Clear();
+        // Spliced in place: the kept records, in their order, go in the slots just before what follows the cut, and the
+        // front is dropped up to them — so every chunk after the cut is untouched and a checkpoint still shares it.
+        int start = before + 1 - kept.Count;
 
-        foreach (T item in kept.Concat(after))
+        for (int index = 0; index < kept.Count; index++)
         {
-            _items.Add(item);
+            _items[start + index] = kept[kept.Count - 1 - index];
         }
+
+        _items.DropFront(start);
     }
 
     /// <summary>

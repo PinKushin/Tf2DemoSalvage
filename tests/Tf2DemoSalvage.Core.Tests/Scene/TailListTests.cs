@@ -71,6 +71,30 @@ public sealed class TailListTests
     }
 
     /// <remarks>
+    /// **A stream cut shares the chunks after the cut** with the copy before it: 3,000 records of two streams, a cut at 100
+    /// that keeps one per stream, and the next copy creates only the front chunk the kept records were written into.
+    /// </remarks>
+    [Test]
+    public void DropBefore_ByStream_LeavesLaterChunksShared()
+    {
+        TailList<(int Tick, int Stream)> list = [];
+
+        for (int tick = 0; tick < 3000; tick++)
+        {
+            list.Add((tick, tick % 2));
+        }
+
+        StateCopy.Of(list, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        list.DropBefore(entry => entry.Tick, entry => entry.Stream, 100);
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+        TailList<(int Tick, int Stream)> later = StateCopy.Of(list, new HashSet<object>(), map, out _, created);
+
+        later.Take(3).ShouldBe([(98, 0), (99, 1), (100, 0)]);
+        later.Count.ShouldBe(2902);
+        created[typeof((int, int)[])].ShouldBe((1, 1024));
+    }
+
+    /// <remarks>
     /// **Across chunk boundaries** (chunks of 1,024): 3,000 elements, a cut dropping 1,500 of them and the last removed,
     /// read back in order with the right count.
     /// </remarks>
