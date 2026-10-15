@@ -69,6 +69,27 @@ the missing half was never a per-view query, it was the sun.
 - `R_CullSphere` is not run; it only saves a draw the rasteriser clips.
 - The depth state is `$ignorez` for every sun because every shipped sun uses `light_glow02_add_noz`.
 
+## Against TF2: the glow was right and the light scale was missing
+
+The first golden comparison had TF2 at 6,747 pixels of white about the sun and ours at 30,512, with our wall drawn
+larger. Taken apart one variable at a time, at one camera, counting white pixels and reading a radial profile:
+
+| capture | white px |
+|---|---|
+| TF2, live client, `fov_desired 75` (the first golden) | 6,747 |
+| TF2, `fov_desired 90` — the recorder's fov — retaken here | 4,984 |
+| ours, recorder fov 90, before | 30,512 |
+| ours, bloom off, before | 14,750 |
+| ours, after the tone-map fix | 14,854 |
+| ours, after, bloom off | **4,999** |
+
+**The framing was the reference's, not ours**: the demo's free camera takes the recorder's `GetFOV()` (90), the first
+golden shot was a live client at 75. **The brightness was ours**: UnlitGeneric (the sun's material), SpriteCard and
+Cable end in `TONEMAP_SCALE_LINEAR` — `result.rgb * LINEAR_LIGHT_SCALE` — and this project's linear sprite path never
+multiplied by it, so every such sprite drew at a tone-map scale of one, ~1.4x too bright at TF2's outdoor 0.70. A glow
+whose texture falls off gently turns a gain error into a radius error: the white disc was twice as wide. With the scale
+applied and bloom off, the sun matches TF2 to the pixel count. The rest is bloom, filed in finding 76.
+
 ## An instrument that lied
 
 The first two screenshots of lakeside were byte-for-byte the recorder's view, from two different `TF2VIEW_CAMERA`

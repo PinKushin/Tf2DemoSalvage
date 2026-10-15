@@ -18,3 +18,20 @@ public static class GammaLightScale
     /// <returns><c>pow( linearScale, 1 / 2.2 )</c>.</returns>
     public static float From(float linearScale) => (float)Math.Pow(linearScale, 0.454545454545454545);
 }
+
+/// <summary>What a sprite's pixel shader multiplies its colour by — <c>FinalOutput</c>'s tone-map scale (B378).</summary>
+/// <remarks>
+/// <c>UnlitGeneric</c> and <c>SpriteCard</c> end in <c>TONEMAP_SCALE_LINEAR</c>, <c>vShaderColor.rgb * LINEAR_LIGHT_SCALE</c>
+/// (`vertexlit_and_unlit_generic_ps2x.fxc:498`, `spritecard_ps2x.fxc:192`, `common_ps_fxc.h:348-350`); the Sprite
+/// shader's gamma path ends in <c>TONEMAP_SCALE_GAMMA</c> (`sprite_ps2x.fxc:51`).
+/// </remarks>
+public static class SpriteLightScale
+{
+    /// <summary>The colour scale a sprite batch draws with.</summary>
+    /// <param name="gammaSpace">Whether the material takes the Sprite shader's gamma path.</param>
+    /// <param name="linearScale"><c>LINEAR_LIGHT_SCALE</c>, the tone-map scale.</param>
+    /// <param name="overbright">SpriteCard's <c>$overbrightfactor</c>, one for every other material (B523).</param>
+    /// <returns>The gamma light scale, or the overbright factor times the tone-map scale.</returns>
+    public static float For(bool gammaSpace, float linearScale, float overbright) =>
+        gammaSpace ? GammaLightScale.From(linearScale) : overbright * linearScale;
+}

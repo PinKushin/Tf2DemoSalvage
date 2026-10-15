@@ -255,8 +255,15 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         return true;
     }
 
-    /// <summary>The world renderer's tone-map scale as it stands, one before anything has drawn.</summary>
-    internal float LinearLightScale => _world?.LinearLightScale ?? 1f;
+    /// <summary><c>LINEAR_LIGHT_SCALE</c> for the sprites this target draws, one until a caller sets it.</summary>
+    /// <remarks>
+    /// A plain value: this target is the test and debugging harness, and no production view draws through it
+    /// (monitors render through <c>Device3D</c>). A caller that wants the main view's exposure passes it here.
+    /// </remarks>
+    internal float ToneMapScale { get; set; } = 1f;
+
+    /// <summary>The world renderer's own tone-map scale as it stands (water views push and pop it), one before any draw.</summary>
+    internal float WorldLinearLightScale => _world?.LinearLightScale ?? 1f;
 
     /// <summary>Draws the world through its water views first, as <c>DrawWorldAndEntities</c> does (B62).</summary>
     /// <param name="vertices">Triangle corners in world coordinates.</param>
@@ -437,9 +444,12 @@ internal sealed unsafe class OffscreenTarget : IDisposable
         _sprites.SetBlend(batch.Material.Blend);
         _sprites.SetDepth(batch.Material.Depth);
 
-        // No tone-map scale in an offscreen picture, so the gamma light scale is one — and what is left is SpriteCard's
-        // `$overbrightfactor`, one for every material that states none (B523).
-        _sprites.SetColourScale(batch.Material.Overbright);
+        // The world's tone-map scale, one until a world pass sets one, through the same rule `Device3D` draws by (B378);
+        // SpriteCard's `$overbrightfactor` is one for every material that states none (B523). Refract takes none.
+        _sprites.SetColourScale(SpriteLightScale.For(
+            batch.Material.GammaSpace,
+            batch.Material.ScalesByToneMap ? ToneMapScale : 1f,
+            batch.Material.Overbright));
         _sprites.Upload(_device, _context, batch.Corners);
 
         if (!batch.Material.GammaSpace)

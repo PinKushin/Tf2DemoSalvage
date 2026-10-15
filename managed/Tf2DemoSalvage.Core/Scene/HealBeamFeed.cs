@@ -36,6 +36,9 @@ public sealed class HealBeamFeed
     private readonly Dictionary<int, (int? Target, bool ChargeRelease, int Beam)> _state = [];
     private readonly List<SceneHealBeam> _beams = [];
 
+    /// <summary>The medigun's server class.</summary>
+    public const string MedigunClassName = "CWeaponMedigun";
+
     /// <summary>The property the target travels in.</summary>
     public const string TargetKey = "DT_WeaponMedigun.m_hHealingTarget";
 

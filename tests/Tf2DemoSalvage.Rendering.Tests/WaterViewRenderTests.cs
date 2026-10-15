@@ -227,12 +227,12 @@ public sealed class WaterViewRenderTests
             assets,
             new WaterDraw(
                 WaterViews.Plan(info, new WaterFrame(false, false, 0f, false), ViewClears.Depth), water, 0f, [], [], null, null,
-                view => seen.Add((view.Kind, target.LinearLightScale))),
+                view => seen.Add((view.Kind, target.WorldLinearLightScale))),
             HdrType.IntegerHdr);
 
         seen.ShouldContain((WaterViewKind.Reflection, 0.25f));
         seen.ShouldContain((WaterViewKind.Refraction, 1f));
-        target.LinearLightScale.ShouldBe(1f, "PopView restores the main view's scale");
+        target.WorldLinearLightScale.ShouldBe(1f, "PopView restores the main view's scale");
     }
 
     [Test]

@@ -2024,7 +2024,7 @@ public sealed class DemoTimeline
     public SunFeed Suns { get; private init; } = new();
 
     /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
-    private const string MedigunClass = "CWeaponMedigun";
+    private const string MedigunClass = HealBeamFeed.MedigunClassName;
 
     /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
     public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();

@@ -32486,6 +32486,27 @@ arithmetic; it has NOT been confirmed by watching.*
 
 ### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
 
+**2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
+scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
+30,512 here. Two causes, separated by measurement (`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`):
+
+- **Framing is not ours to fix.** That golden shot was a live client at `fov_desired 75`; the lakeside demo's recorder
+  plays at 90 (`fov` probe: `m_iDefaultFOV 90`), and a demo's free camera takes the recorder's `GetFOV()` as the engine
+  does. Retaken in TF2 at `fov_desired 90`, `mat_hdr_level 2`, `spec_goto 0 -152 600 -35 235`, the framing matches ours
+  pixel for pixel; `+demo_fov_override 75` matches the old shot.
+- **UnlitGeneric, SpriteCard and Cable multiply by `LINEAR_LIGHT_SCALE`** (`FinalOutput( …, TONEMAP_SCALE_LINEAR )`,
+  `vertexlit_and_unlit_generic_ps2x.fxc:498`, `spritecard_ps2x.fxc:192`, `cable_ps2x.fxc:54`; `common_ps_fxc.h:348-350`);
+  Refract takes none (`refract_ps2x.fxc:249`). `Device3D`'s linear sprite path multiplied by `$overbrightfactor` alone,
+  so EVERY UnlitGeneric and SpriteCard sprite and particle drew at a tone-map scale of one — about 1/0.7 too bright
+  outdoors. `SpriteLightScale.For` is now the one rule for both paths, in `Device3D` and `OffscreenTarget`.
+- **Measured, same camera and framing:** TF2 4,984 white pixels; ours 30,512 before, 14,854 after, and **4,999 with
+  `+mat_disable_bloom 1`** — the radial profile within ~8 of 255 out to 340 px. What remains is our bloom, already filed
+  as 1.4-2.1x TF2's (finding 76). Captures in the worktree root: `sunmatch-tf2-fov90-hdr2.png`,
+  `sunmatch-viewer-before.png`, `sunmatch-viewer-after.png`, `sunmatch-viewer-after-nobloom.png`.
+- **Proved:** `SpriteLightScaleConformanceTests` (3) and `Render_LakesidesSunAtHalfTheToneMapScale_CarriesHalfTheLight`
+  (linear 0.1450 at 1, 0.0697 at 0.5). Dropping the scale from the linear rule reddens exactly those two. The
+  `Device3D` call site is held by the golden capture, not by a test. `$hdrcolorscale` was not a factor: lakeside's is 1.
+
 **2026-10-14 — the two residuals are closed** (`fix/b378-sun-glow`; the reverse-engineering account is
 `docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`). *Read from published source* throughout.
 
@@ -37970,6 +37991,78 @@ pluses a runner sheds reach further than ours; B527's "ten ticks" for the PLAYIN
 direction and the medic's jump and should be re-measured the same way this was, by the patient's glow. **A capture
 that would separate them:** the same paused frame from a free camera looking across the beam (`spec_mode 6`), or
 with gummo standing still under a beam.
+
+**2026-10-14, new TF2 captures of `tf/f12.dem`; NOT FIXED, and the premise is in question.** *Measured*, LDR
+(`mat_hdr_level 0`), director off, played at `demo_timescale 0.05` and paused:
+
+- **Chase on gummo, 63615.** TF2 shows a faint haze on the left wall, pluses spread high on that wall, and *no* glow
+  on gummo. The viewer at 63615 (`--spectate gummo --third-person`, a nearer chase camera, so not the same camera)
+  shows the pluses on the wall, a brighter streak low on the left, and a strong glow on gummo's back. That makes ours
+  stronger than TF2's, not fainter.
+- **In-eye on the medic (Exiou, entity 4, medigun 408), 63612, the same camera on both sides.** TF2 draws no visible
+  beam, no glow on gummo, and no plus near the camera. The viewer draws a glow on gummo, a beam mostly behind the
+  viewmodel, and one plus about 160 pixels across at the lower left. At 63526 TF2 does draw the beam and the glow
+  on gummo.
+- **So reference 24's heavy haze (63617) does not reproduce at 5% playback.** Either the owner's capture ran at
+  another speed, or the effect's look depends on frame time. The second would be the engine's own behaviour:
+  `Movement Basic` scales its carry by `dt / prevDt`, and the path constraint's snaps become velocity. That needs a
+  reference taken at normal speed. The tf2 MCP could not pause one on a chosen tick in four tries, because a seek
+  resets `demo_timescale` and a paused demo stops answering RCON. `demo_pauseatservertick` exists and was not tried.
+- **Wrong turn, kept: "the CLI dump and the timeline disagree on medigun 408's targets."** They agree. The column
+  read as the tick was `net_tick`, the SERVER's tick, at a point 35,700 demo ticks earlier in the file where the server
+  tick happened to read 63xxx. The viewer, the timeline and TF2's `demoui` all count `dem_packet` ticks. Read by
+  `dem_packet` tick, the dump gives 408's targets as 3 from 63460, none at 63635, and 3 from 63773, which is the
+  timeline's list. *Control:* gummo's origin (32.5 875.1) is at `dem_packet` 63600 in the dump and at 63600 in
+  `player-track`; his health in `player-track` (223 at 63600, 228 at 63610-63615) is TF2's HUD at those ticks.
+  `demo_pauseatservertick` takes the server tick, which is the `dem_packet` tick plus 35,712 here.
+
+- **Full speed, `mat_hdr_level 2`, in-eye on the medic, tick 63622, playing (`demoui` reads 100%).** TF2 shows no
+  beam and no glow on gummo; he is mid-frame, health 231 and rising, and the timeline has 408's beam on him until
+  63635. The viewer at 63622 (same eye, `--first-person`, after merging the B378 tone-map fix) draws a bright beam
+  from the bottom of the frame to gummo and a glow on his body. **So the difference runs opposite to the report:
+  TF2 draws less, at both speeds.** Read and ruled out: `ClientThink` re-creating the effect every frame for an
+  in-eye target (`tf_weapon_medigun.cpp:2338`). For a non-local player, `GetRenderedWeaponModel` is the active weapon
+  (`c_baseplayer.cpp:1861-1872`), the same entity `UpdateEffects` attaches to. Not yet explained: why TF2's beam is
+  visible in-eye at 63526 and not at 63612 or 63622. The frame-time test (0.25 against 0.05) was not taken, because
+  the 0.25 did not hold.
+
+- **Superseded by a slow pass, 2026-10-14.** 30 TF2 frames in the medic's eyes, 63499 to 63621, at `demo_timescale`
+  0.03 with `mat_hdr_level 2`. The beam IS there in TF2. It swings out from the first-person gun, and from about 63606 it
+  arcs high toward the top left before it comes down to gummo. The 63622 frame was washed gray by smoke from an
+  explosion beside the medic at about 63600, a separate effect not yet checked.
+- **Ported: in the medic's own eyes, control point 0 is the HANDS' muzzle.** *Read from published source:*
+  `CEconEntity::UpdateAttachmentModels` gives a hands-attached (c_model) item a `C_ViewmodelAttachmentModel` on the
+  owner's viewmodel while `!ShouldDrawThisPlayer()` (`econ_entity.cpp:1135-1178`). `CEconEntity::GetAttachment`
+  answers from that model (`:1978-1984`), and `PATTACH_POINT_FOLLOW` reads through that virtual, falling back to the
+  weapon's own `C_BaseAnimating::GetAttachment` (`particle_property.cpp:599-623`). `BurstEffects.MedigunMuzzle` now does
+  the same. *Measured* at 63611: in the medic's eyes control point 0 is (-19 999 560), forward (0.38 -0.92 0.05). The
+  world muzzle from the other camera is (-22 1024 565), forward (0.26 -0.95 -0.17). Tests: three in
+  `BurstEffectsTests`, red first as a compile failure, and an inverted owner check reddened two of them.
+- **Still open: the high arc at 63606-63615 is NOT reproduced.** The hands' muzzle forward is nearly level and the
+  medic's eye pitch is 6-10 degrees down (`player-track`), so the bulge (`length · 1.3 · (1 − |dir · forward|)`
+  along forward) stays small. Next step: the hands model's posed `muzzle` axes against TF2's, or a reading of what else
+  writes control point 0's orientation.
+- **Ruled out: `FormatViewModelAttachment`.** It is already ported (`EntityModels.AttachmentsOf`,
+  `ViewmodelAttachment.Correct`). *Read from published source*, it moves only the POSITION:
+  `C_ViewmodelAttachmentModel::FormatViewModelAttachment` takes the matrix's translation, calls
+  `::FormatViewModelAttachment( origin, false )` and writes it back with `PositionMatrix` (`econ_entity.cpp:903-909`;
+  `c_baseviewmodel.cpp:49-93`). The rotation the bone gave stays, so it cannot turn the bulge. Still unread: the hands
+  model's lag and sway (`CalcViewModelLag`) and its bob. *Arithmetic* against them: the medic turns left 30 degrees over
+  63605-63617, which lag would point the gun RIGHT of the view, not up and left.
+- **Ruled out next, and the search stops here (2026-10-14).** *Read from published source:*
+  - The only writer of control point 0's orientation for this effect is `UpdateControlPoint`'s
+    `SetControlPointOrientation` from the attachment matrix (`particle_property.cpp:599-623, 662`).
+  - None of the beam's 21 shipped functions writes a control point. They only read one (`Movement Lock to Control
+    Point`, the path constraint), so no operator derives orientation from the point's movement.
+  - `CBaseViewModel::CalcViewModelLag` (`baseviewmodel_shared.cpp:463-519`) moves the viewmodel's ORIGIN by the facing
+    drift and by pitch. It leaves its angles unless the maximum lag is 0, so lag cannot turn the bulge either.
+
+  **Left for a later pass:** the hands model's posed `muzzle` axes at 63611 against TF2's. That needs an attachment probe
+  on our side and a console readout on TF2's.
+
+Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
+`heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
+`heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.
 
 ## B540 — the view reaches 0 domain types and members, down from 1,025; D90 regressed with nothing holding it — MEASURED and GUARDED 2026-10-12, CLOSED 2026-10-13 after slices 1 to 8: the list is empty, the three references are out, three tests hold it
 
