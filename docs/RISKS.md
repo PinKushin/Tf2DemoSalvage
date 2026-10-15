@@ -39540,7 +39540,7 @@ identical answers by fingerprint); it did NOT decide whose ears a SourceTV demo 
 local player's (the SourceTV client) or the spectated player's — to be read (`C_SoundscapeSystem`, `soundscape.cpp`)
 before changing it. *Measured; the engine side not read.*
 
-## B545 — `snd_musicvolume` and `voice_scale` are declared and stored, and applied nowhere — OPEN, gap
+## B545 — `voice_scale` is applied nowhere, and `snd_musicvolume` has no music duck — OPEN, gap
 
 **Found implementing D218** (2026-10-14). `volume` and `snd_mute_losefocus` reach the mix. These two are declared with
 TF2's defaults and bounds, so a config, a bind or `toggle` sets them without complaint, but nothing reads them:
@@ -39551,9 +39551,11 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
 - **`snd_musicvolume`**: APPLIED 2026-10-15 (`fix/music-voice-volume`). Read from `engine.dll` (x64): FUN_18002d5c0
   sets the channel's dry bit (0x4 at +0x13c) when the wave's leading sound characters include `#`; FUN_1800292f0
   multiplies the gain by `snd_musicvolume` (and a duck scale) when that bit is set and the distance multiplier is 0,
-  which is `SNDLVL_NONE`. No path, soundscript flag or mixer group decides it. `SoundGain.Music`, applied to
-  one-shots and tracked loops; `SoundMusicVolumeConformanceTests`. *Read from the binary.* Not ported: the duck
-  (`DAT_1804600e8`), and soundscape loops (`SoundscapeSystem.GainOf` does not take it yet).
+  which both start paths write only for soundlevel exactly 0. No path, soundscript flag or mixer group decides it.
+  `SoundGain.IsMusic` and `SoundGain.Music` apply it to one-shots, tracked loops and soundscape loops, and every pass
+  re-gains what is playing, as the engine's per-mix channel gain does (`SoundMusicVolumeConformanceTests`,
+  `SoundPresenterMusicVolumeTests`). *Read from the binary.* **Still open: the duck** (`DAT_1804600e8`, eased in
+  FUN_18002fbe0), which is 1 here.
 
 ## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
 

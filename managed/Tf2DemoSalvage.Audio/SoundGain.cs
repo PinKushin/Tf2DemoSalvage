@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 
 using Tf2DemoSalvage.Core.Net;
 
@@ -147,22 +146,54 @@ public static class SoundGain
         return gain < MinimumGain ? 0f : gain;
     }
 
-    /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else (B545).</summary>
+    /// <summary>Whether the engine mixes a sound as music, the channels <c>snd_musicvolume</c> scales (B545).</summary>
     /// <param name="name">The wave as played, sound characters included.</param>
-    /// <param name="soundLevel">Its <c>SNDLVL</c>.</param>
-    /// <param name="musicVolume">`snd_musicvolume`.</param>
-    /// <returns>The multiplier.</returns>
+    /// <param name="soundLevel">Its <c>SNDLVL</c> as sent.</param>
+    /// <returns>True for a <c>'#'</c> among the leading sound characters at soundlevel exactly 0.</returns>
     /// <remarks>
-    /// engine.dll: a channel is music when its sfx name leads with <c>'#'</c> among its sound characters
-    /// (FUN_18002d5c0 sets bit 4 at +0x13c) and its distance multiplier is zero, which is <c>SNDLVL_NONE</c>
-    /// (FUN_1800292f0 at 1800293ba); that gain is then multiplied by <c>snd_musicvolume</c> (180029f14).
-    /// Citation and the duck left out: <c>SoundMusicVolumeConformanceTests</c>.
+    /// engine.dll: FUN_18002d5c0 walks the name's leading sound characters with no length cap and sets bit 4 at
+    /// +0x13c on reaching <c>'#'</c>; any other character ends the walk. FUN_1800292f0 (1800293ba) scales by
+    /// <c>snd_musicvolume</c> when that bit is set and the distance multiplier is 0, which both start paths
+    /// (18002e0b5, 18002eef2) write only for soundlevel 0; 256 and up takes the other gain branch. Citation:
+    /// <c>SoundMusicVolumeConformanceTests</c>. Allocation-free because soundscape loops ask every frame.
     /// </remarks>
-    public static float Music(string name, int soundLevel, float musicVolume)
+    public static bool IsMusic(string name, int soundLevel)
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return soundLevel <= 0 && SoundName.Parse(name).Characters.Contains('#') ? musicVolume : 1f;
+        if (soundLevel != 0)
+        {
+            return false;
+        }
+
+        foreach (char character in name)
+        {
+            if (character == '#')
+            {
+                return true;
+            }
+
+            if (!SoundName.IsSoundChar(character))
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>`snd_musicvolume`'s share of a sound's gain: the setting for music, 1 for everything else.</summary>
+    /// <param name="isMusic">What <see cref="IsMusic"/> answered.</param>
+    /// <param name="musicVolume">`snd_musicvolume`; NaN is silence, as a NaN `volume` is.</param>
+    /// <returns>The multiplier.</returns>
+    public static float Music(bool isMusic, float musicVolume)
+    {
+        if (!isMusic)
+        {
+            return 1f;
+        }
+
+        return float.IsNaN(musicVolume) ? 0f : musicVolume;
     }
 
     /// <summary>How a sound at a bearing splits across a stereo pair.</summary>

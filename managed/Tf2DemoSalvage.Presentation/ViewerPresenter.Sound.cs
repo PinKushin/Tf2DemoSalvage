@@ -92,7 +92,6 @@ public sealed partial class ViewerPresenter
     {
         // The master gain first, so a change reaches what is already playing and a lost focus silences even a paused frame.
         output.MasterGain = _settingsOwner.MasterGain(focused);
-        _loops.MusicVolume = _settingsOwner.MusicVolume;
 
         // **What is left here is the LISTENER and nothing else** (B188). Deciding what should be
         // audible moved to SoundPresenter; a window's remaining business is that the ears are

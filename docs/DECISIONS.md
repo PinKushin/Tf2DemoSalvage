@@ -10211,7 +10211,7 @@ config line or a bind setting it did nothing.
   to hear it, and pub demos wiill have voice a lot of the time"*. Voice has always been in scope. What is true is
   narrower: the four voice decoders exist, but only probes, corpus tests and the fuzzer construct them, so nothing
   plays voice yet and `voice_scale` has nothing to scale (B545). `snd_musicvolume` is now applied, from
-  `engine.dll`: a `#` sound at `SNDLVL_NONE` (`SoundMusicVolumeConformanceTests`).
+  `engine.dll`: a `#` sound at soundlevel 0 (`SoundMusicVolumeConformanceTests`).
 
 **Review fixes, 2026-10-14** (branch `fix/volume-review`):
 

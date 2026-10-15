@@ -1222,8 +1222,11 @@ modes, but none for music. So whatever `snd_musicvolume` selects, the selection 
 **Answered from the binary, 2026-10-15: music is a dry sound with no attenuation.** `snd_musicvolume`'s one reader is
 the channel-gain routine, FUN_1800292f0. When the channel's bit 0x4 at +0x13c is set and its distance multiplier is
 zero, the routine multiplies `snd_gain` by `snd_musicvolume` and by a duck scale. FUN_18002d5c0 sets that bit on
-every sound start, and only when the wave's leading sound characters include `#` (`CHAR_DRYMIX`). A zero distance
-multiplier is `SNDLVL_NONE`. No path, no soundscript flag and no mixer group take part, so the guess "`#` and a path
-under `music/`" would have been half right, which is the reason it was not built. A `#` sound that attenuates is
-not music. *Read from the binary.* The duck scale (`DAT_1804600e8`, eased in FUN_18002fbe0) is 1 except while the
+every sound start, and only when the wave's leading sound characters include `#` (`CHAR_DRYMIX`). The walk skips
+exactly `soundchars.h`'s other nine characters, has no length cap, and stops at any other byte. Both start paths
+(FUN_18002dd10, FUN_18002e990) write a zero distance multiplier only for soundlevel exactly 0. Any other soundlevel,
+negative ones included, gives `10^((snd_refdb - sndlvl)/20) / snd_refdist`, which is positive. A soundlevel of 256 or
+more takes a different gain branch that never reads the music volume. No path, no soundscript flag and no mixer group
+take part. The guess "`#` and a path under `music/`" would have made the path a condition, and the engine never
+checks it. A `#` sound at a nonzero soundlevel is not music either. *Read from the binary.* The duck scale (`DAT_1804600e8`, eased in FUN_18002fbe0) is 1 except while the
 engine ducks music under speech, and it is not ported.

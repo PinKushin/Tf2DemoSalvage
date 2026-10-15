@@ -1529,6 +1529,11 @@ public sealed record ViewerSettings
             Math.Abs(Volume - Defaults.Volume) < 0.005f);
         Setting(
             text,
+            MusicVolumeCommand,
+            ConVarText(MusicVolumeCommand)!,
+            Math.Abs(MusicVolume - Defaults.MusicVolume) < 0.005f);
+        Setting(
+            text,
             MuteLoseFocusCommand,
             (MuteLoseFocus ? 1 : 0).ToString(CultureInfo.InvariantCulture),
             MuteLoseFocus == Defaults.MuteLoseFocus);

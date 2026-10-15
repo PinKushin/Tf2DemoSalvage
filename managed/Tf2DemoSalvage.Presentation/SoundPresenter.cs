@@ -56,6 +56,17 @@ public sealed partial class SoundPresenter(
     Func<string, SoundSample?> sample,
     ILogger audio) : IGameSystem
 {
+    /// <summary>`snd_musicvolume`, asked every pass: the engine recomputes each channel's gain every mix (FUN_1800292f0, B545).</summary>
+    public Func<float> MusicVolume { get; init; } = static () => 1f;
+
+    /// <summary>The music one-shots started, by channel, with their own volume — re-gained every pass as loops are.</summary>
+    /// <remarks>
+    /// Music is `SNDLVL_NONE`, so its gain is volume × `snd_musicvolume` with no distance term. A channel whose
+    /// voice has finished answers `SetGain` false and is dropped. ponytail: one volume per channel, so two music
+    /// one-shots overlapping on one CHAN_AUTO key share the later one's volume.
+    /// </remarks>
+    private readonly Dictionary<(int Entity, int Channel), float> _music = [];
+
     /// <summary>How many sounds actually reached the output.</summary>
     private int _submitted;
 
@@ -260,6 +271,7 @@ public sealed partial class SoundPresenter(
         {
             output.SilenceAll();
             loops.Clear();
+            _music.Clear();
 
             // **The soundscape has to be forgotten too, and leaving it out was a silent bug.**
             // Silencing everything deletes the soundscape's sources as well, but its voice keys
@@ -516,8 +528,18 @@ public sealed partial class SoundPresenter(
     /// <summary>Re-attenuates every tracked loop to where the listener now stands.</summary>
     private void Attenuate(IAudioSink output, (float X, float Y, float Z) listener)
     {
+        float musicVolume = MusicVolume();
+
+        foreach (((int entity, int channel), float volume) in _music.ToArray())
+        {
+            if (!output.SetGain(entity, channel, volume * SoundGain.Music(isMusic: true, musicVolume)))
+            {
+                _music.Remove((entity, channel));
+            }
+        }
+
         foreach ((int entity, int channel, float gain) in
-            loops.GainsAt(listener.X, listener.Y, listener.Z))
+            loops.GainsAt(listener.X, listener.Y, listener.Z, musicVolume))
         {
             output.SetGain(entity, channel, gain);
 
@@ -562,7 +584,7 @@ public sealed partial class SoundPresenter(
         // Started afresh, a server's scrape or door loop restarted from its first sample on every volume update.
         if (!sound.IsStop && (sound.ChangesVolume || sound.ChangesPitch) && loops.Alter(sound))
         {
-            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener) is { } altered)
+            if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } altered)
             {
                 output.SetGain(sound.EntityIndex, sound.Channel, altered);
             }
@@ -626,15 +648,18 @@ public sealed partial class SoundPresenter(
         //
         // The general lesson is D80's, one layer up: a special case that makes something audible is
         // indistinguishable from a working feature until somebody listens.
+        bool music = SoundGain.IsMusic(sound.Name, sound.SoundLevel);
         float gain = sound.Volume * SoundGain.AtDistance(sound.SoundLevel, distance) *
-            SoundGain.Music(sound.Name, sound.SoundLevel, loops.MusicVolume);
+            SoundGain.Music(music, MusicVolume());
 
         // **A loop is started even when it is currently inaudible, and a one-shot is not.** Silence
         // now is permanent for a one-shot, so skipping it saves a buffer nobody hears. A loop that
         // is out of range at the moment it starts is the ordinary case — the map's ambience begins
         // on the first tick, wherever the camera happens to be — and refusing it would mean the
         // sound never exists to be turned up when the listener walks over.
-        if (gain <= 0f && !opened.Loops)
+        // Music is not dropped for being silent: `snd_musicvolume 0` mutes a playing channel, and raising it again
+        // brings that channel back (B545).
+        if (gain <= 0f && !opened.Loops && !music)
         {
             // **The audio subsystem had no output-level instrument at all**, which is why "we lost
             // sound at some point in the past 2 days" could not be placed. Every audio line in a run
@@ -699,6 +724,11 @@ public sealed partial class SoundPresenter(
 
         if (!opened.Loops)
         {
+            if (music)
+            {
+                _music[(sound.EntityIndex, sound.Channel)] = sound.Volume;
+            }
+
             return;
         }
 
