@@ -3,8 +3,10 @@
 `celt.dll`, `speex.dll` and `silk.dll` are not committed. They are built from upstream source by
 `build.ps1` in this directory, run once per working tree (and in CI), and placed where
 `Tf2DemoSalvage.Audio`'s native resolver looks for them. **Per working tree, not per machine:**
-they live in this directory, so a new `git worktree` starts without them and the audio suite fails
-its CELT tests with `DllNotFoundException` until `build.ps1` runs there (measured 2026-09-10).
+they live in this directory, so a new `git worktree` starts without them. Building
+`Tf2DemoSalvage.Audio` (or anything referencing it) now runs `ensure.ps1` when one is missing: it
+copies them from the main checkout, else runs `build.ps1`, else fails the build with a message.
+Audio's csproj is the one place they are copied to output folders.
 
 ## Why these versions specifically
 
