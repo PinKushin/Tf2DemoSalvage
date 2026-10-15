@@ -130,31 +130,41 @@ public sealed class HudProbe : IProbe
             Describe(output, child, depth + 1);
         }
     }
+}
 
-    /// <summary>A GDI with no fonts: every handle stays empty, so no text is drawn.</summary>
-    private sealed class NoFonts : IVguiGdi
+/// <summary>A GDI with no fonts: every handle stays empty, so no text is drawn — the `hud` probe's, and B516's corpus test's.</summary>
+public sealed class NoFonts : IVguiGdi
+{
+    /// <inheritdoc/>
+    public bool AddFontResource(string path) => false;
+
+    /// <inheritdoc/>
+    public bool FamilyExists(string family) => false;
+
+    /// <inheritdoc/>
+    public VguiGdiFont? CreateFont(string face, int tall, int weight, bool italic, bool underline, bool strikeout, int charset, int quality) => null;
+
+    /// <inheritdoc/>
+    public void CreateBitmap(VguiGdiFont font, int wide, int tall)
     {
-        public bool AddFontResource(string path) => false;
-
-        public bool FamilyExists(string family) => false;
-
-        public VguiGdiFont? CreateFont(string face, int tall, int weight, bool italic, bool underline, bool strikeout, int charset, int quality) => null;
-
-        public void CreateBitmap(VguiGdiFont font, int wide, int tall)
-        {
-        }
-
-        // Nothing was made, so nothing is given back.
-        public void DeleteFont(VguiGdiFont font)
-        {
-        }
-
-        public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => null;
-
-        public int? GetTextExtent(VguiGdiFont font, char character) => null;
-
-        public VguiGrayGlyph? GetGlyphOutlineGray8(VguiGdiFont font, int character) => null;
-
-        public byte[] DrawGlyph(VguiGdiFont font, char character, int penX, int clearWide, int clearTall) => [];
+        // No font is ever made, so there is nothing to draw into.
     }
+
+    /// <inheritdoc/>
+    public void DeleteFont(VguiGdiFont font)
+    {
+        // Nothing was made, so nothing is given back.
+    }
+
+    /// <inheritdoc/>
+    public (int A, int B, int C)? GetCharAbcWidths(VguiGdiFont font, char character) => null;
+
+    /// <inheritdoc/>
+    public int? GetTextExtent(VguiGdiFont font, char character) => null;
+
+    /// <inheritdoc/>
+    public VguiGrayGlyph? GetGlyphOutlineGray8(VguiGdiFont font, int character) => null;
+
+    /// <inheritdoc/>
+    public byte[] DrawGlyph(VguiGdiFont font, char character, int penX, int clearWide, int clearTall) => [];
 }

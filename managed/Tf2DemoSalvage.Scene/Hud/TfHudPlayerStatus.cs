@@ -462,14 +462,14 @@ public class TfHudPlayerHealth : VguiEditablePanel
 /// <summary>`CTFSpectatorGUIHealth` (vgui/tf_spectatorgui.h:28): the health panel as the target ID holds it — its own `.res`, and no think.</summary>
 /// <param name="parent">The parent.</param>
 /// <param name="name">The name.</param>
-public sealed class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHudPlayerHealth(parent, name)
+public class TfSpectatorGuiHealth(VguiPanel? parent, string? name) : TfHudPlayerHealth(parent, name)
 {
     /// <inheritdoc/>
     protected override string ResFilename => "resource/UI/SpectatorGUIHealth.res";
 
     /// <inheritdoc/>
     /// <remarks>"Do nothing. We're just preventing the base health panel from updating."</remarks>
-    protected override void OnThink()
+    protected sealed override void OnThink()
     {
         // The target ID sets this panel's health itself; the local player's must not overwrite it.
     }

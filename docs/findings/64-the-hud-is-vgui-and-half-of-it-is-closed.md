@@ -120,6 +120,43 @@ divergences, each settled by the published source and fixed the same day (B466-B
 - **The competitive countdown hides the crosshair**: a `restart_timer_time` of 1 to 10 seconds hides it until that many seconds later, in ladder and casual
   matches but not MvM — `IsCompetitiveMode()` counts casual (B500). *Read from published source.*
 
+## The spectator GUI: the tournament cards are a watcher's setting, not the demo's (B516)
+
+The golden comparison (findings 76) showed TF2 drawing both teams' player cards over a SourceTV demo, and the viewer
+drawing none. The first reading was "STV in tournament mode draws the tournament HUD". **That is half right.**
+
+- **Two routes open the panel.** `specgui` is a viewport panel, not a `CHudElement`: `CBaseViewport` shows it at
+  `game_newmap` when `engine->IsHLTV()` (baseviewport.cpp:706) — the demo's ServerInfo `is_hltv`, carried as read, not
+  inferred from the absence of a recorded view — and for a player the server sends `ShowViewPortPanel( "specgui", ... )`
+  as a `VGUIMenu`: on `StartObserverMode` (player.cpp:2294, closed on death and freeze cams by TF's
+  `ModeWantsSpectatorGUI`), after the freeze cam (tf_player.cpp:13992), and closed on `StopObserverMode` (:2260). A POV
+  demo carries those messages. `CSpectatorGUI::OnThink` hides it under the match summary. *Read from published source;
+  the POV messages measured on rgl-pug-2026-08-10-pov.*
+- **Which layout is the watcher's choice.** `GetResFile` (tf_spectatorgui.cpp:1037) loads `SpectatorTournament.res` only
+  when `InTournamentGUI` (:1060): `mp_tournament`, NOT `IsCompetitiveMode()` (a matchmaking match), and
+  `cl_use_tournament_specgui` or MvM. That ConVar is `FCVAR_ARCHIVE` with a default of **0**; the owner's `config.cfg` sets
+  it to 1. A stock client draws `Spectator.res`'s black bars over the same demo. *Read from published source; the
+  owner's value read from the running client.*
+- **The cards come from the player resource**, not the players: `m_iHealth`, `m_iMaxHealth`, `m_flNextRespawnTime`
+  (server time) and `m_iChargeLevel`, ordered by `g_ClassDefinesRemap` — the class menu's order, scout first — and placed
+  down two columns by the `.res`'s `team1_player_*` / `team2_player_*`. A spectator's team1 is BLU.
+- **A card filled for a player already dead is not greyed.** `Reset` sets `m_bPrevAlive = false`, and only a CHANGE of
+  alive sets the portrait's draw colour (tf_playerpanel.cpp:168), so the grey appears only after the player has lived and
+  died while the card watched. The conformance test first predicted grey; the source said otherwise, and the source is
+  what is kept. *Read from published source.*
+- **A paused frame never fills a new card.** Cards are made by one `Update`, take their scheme on that frame's layout, and
+  are filled by a later `Update` throttled to `curtime + 0.1`. A `--shot` is a paused frame whose curtime never passes the
+  throttle, so the first viewer shot drew grey cards with the `.res`'s placeholder portrait. A card made since the last
+  paint is now filled once, after the layout that gives it its scheme, on the frame it is first painted. *Measured on the
+  golden pair; the fill on that frame is interpolated — TF2 makes it on its next update, a tenth of a second later.*
+  The first version laid the GUI out on every skipped frame of a seek instead, which paid a layout per skipped frame to
+  reach the same picture; review moved it to the one frame that needs it.
+
+Golden pair, f12 (`tf/f12.dem`), TF2 tick 60003, gummo in-eye, Garm3n in both: names, health, respawn seconds, charge,
+portrait and team border agree on all twelve cards. `golden-compare --rect 236,595,1045,720` (the card strip, the world
+between the two columns included): mean error **38.846 → 23.590** /255, bad pixels 56.2% → 27.6%, from the grey-card shot
+to the fixed one against the same TF2 capture. What does not agree is B546.
+
 ## Custom HUDs are ordinary `.res` files
 
 The owner's custom HUD draws its crosshair as a `CExLabel` created from `ControlName` in `hudlayout.res`, with a font
