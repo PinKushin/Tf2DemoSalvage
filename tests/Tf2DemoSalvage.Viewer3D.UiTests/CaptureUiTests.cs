@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace Tf2DemoSalvage.Viewer3D.UiTests;
@@ -342,6 +343,14 @@ public sealed class CaptureUiTests
             RedirectStandardError = true,
             RedirectStandardOutput = true,
         };
+
+        // **Nothing of the test runner's own `TF2VIEW_*` reaches the capture** (D219): a `TF2VIEW_CAMERA` or
+        // `TF2VIEW_WINDOW_SIZE` left in the shell would move every golden's frame, so only what is passed here is set.
+        foreach (string inherited in start.Environment.Keys
+            .Where(name => name.StartsWith("TF2VIEW_", StringComparison.OrdinalIgnoreCase)).ToList())
+        {
+            start.Environment.Remove(inherited);
+        }
 
         foreach ((string name, string value) in environment ?? new System.Collections.Generic.Dictionary<string, string>())
         {
