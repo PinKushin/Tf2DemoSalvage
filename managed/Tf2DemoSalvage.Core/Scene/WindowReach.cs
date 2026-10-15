@@ -1,0 +1,71 @@
+using System;
+
+using Tf2DemoSalvage.Core.Net;
+
+namespace Tf2DemoSalvage.Core.Scene;
+
+/// <summary>The viewer's settings that bound how far back a window's readers look (D219).</summary>
+/// <param name="Client">The viewer's interpolation ConVars (<c>cl_interp</c>, <c>cl_interp_ratio</c>, <c>cl_updaterate</c>).</param>
+/// <param name="DeathNoticeSeconds"><c>hud_deathnotice_time</c>, default 6 (tf/hud_basedeathnotice.cpp:31).</param>
+/// <param name="SayTextSeconds"><c>hud_saytext_time</c>, default 12 (hud_basechat.cpp:37).</param>
+public sealed record WindowSettings(ClientInterp? Client = null, double DeathNoticeSeconds = 6d, double SayTextSeconds = 12d)
+{
+    /// <summary>The interpolation settings, defaulted.</summary>
+    public ClientInterp Interp => Client ?? new ClientInterp();
+}
+
+/// <summary>
+/// How far back before a checkpoint its output must reach, in ticks: ONE function of the current settings over every
+/// reader a window serves (D219), never a fixed number of seconds.
+/// </summary>
+/// <param name="TrackTicks">What track histories and keyframes must keep: the interpolation delay.</param>
+/// <param name="OutputTicks">What the tick-ordered output lists must keep: the longest HUD feed that looks back.</param>
+/// <remarks>
+/// **Each reader, and what bounds it.** A window answers through <see cref="TimelineAnswers"/>' questions plus the HUD
+/// feeds that read its lists:
+///
+/// - **Track pose** (<c>At</c>, <c>Held</c>): samples at <c>tick − delay</c>, the delay from <c>GetClientInterpAmount</c>
+///   (cdll_bounded_cvars.cpp:126) under the server's ratio bounds — so <c>cl_interp</c>, <c>cl_interp_ratio</c>,
+///   <c>cl_updaterate</c>, <c>sv_client_min/max_interp_ratio</c>. The spline's older samples are a COUNT of entries,
+///   which <c>ScenePropTrack.TrimBefore</c> keeps beyond the cut whatever the reach.
+/// - **Kill feed** (<c>TfHudDeathNotice</c>, over <c>GameEvents</c>): <c>hud_deathnotice_time</c>.
+/// - **Chat** (<c>TfHudChat</c>, over <c>UserMessages</c>): <c>hud_saytext_time</c>.
+/// - **Fixed, reach 0**: frames and every at-or-before list (soundscape, fog, director, recorded view, ConVar history,
+///   viewmodels by stream) — the trim keeps the element in force at the cut, which is all an at-or-before reader reads.
+/// - **Unbounded, carried in the checkpoint**: sounds, kept whole (a loop started long ago still plays,
+///   `docs/memory/a-loop-is-state-not-an-event.md`); and a track's birth tick and pose, kept through any trim.
+///
+/// **Corpses are not a reader of the window.** <c>C_TFRagdoll::ClientThink</c> re-arms the fade at
+/// <c>cl_ragdoll_fade_time × 0.33</c> on every think the corpse is visible (c_tf_player.cpp:1532-1546), so a corpse in
+/// view never fades — no setting bounds it — and its state belongs in a checkpoint, not a reach. The ragdoll ENTITY is a
+/// track, kept while live with its birth; the simulated corpse is the viewer's (<c>RagdollFade</c>) and is a follow-up.
+/// </remarks>
+public sealed record WindowReach(int TrackTicks, int OutputTicks)
+{
+    /// <summary>The reach the readers need under these settings and these server bounds.</summary>
+    /// <param name="settings">The viewer's settings.</param>
+    /// <param name="server">The server's ConVars, which bound the interpolation.</param>
+    /// <param name="intervalPerTick">Seconds per tick.</param>
+    /// <returns>The reach.</returns>
+    public static WindowReach For(WindowSettings settings, ServerConVars server, double intervalPerTick)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(server);
+
+        double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
+        double feed = Math.Max(settings.DeathNoticeSeconds, settings.SayTextSeconds);
+
+        return new WindowReach(
+            ScenePropTrack.DelayTicksFor(interval, settings.Interp.Amount(server)),
+            (int)Math.Ceiling(feed / interval));
+    }
+
+    /// <summary>Whether this reach keeps at least everything <paramref name="other"/> needs.</summary>
+    /// <param name="other">The reach asked about.</param>
+    /// <returns>True when nothing need be walked again.</returns>
+    public bool Covers(WindowReach other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return TrackTicks >= other.TrackTicks && OutputTicks >= other.OutputTicks;
+    }
+}

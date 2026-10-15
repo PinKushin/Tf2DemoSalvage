@@ -2696,17 +2696,52 @@ public sealed class DemoTimeline
             _end = end;
         }
 
-        /// <summary>How far before a checkpoint its trimmed output still reaches — the readers' lookback.</summary>
-        public int LookbackTicks { get; private init; }
+        /// <summary>The least reach any checkpoint kept: what every window can answer for.</summary>
+        public WindowReach Reach { get; private init; } = new(0, 0);
+
+        /// <summary>The interpolation settings the walk was decoded under, which every window finishes with.</summary>
+        public ClientInterp Client { get; private init; } = new();
+
+        /// <summary>The demo's seconds per tick.</summary>
+        public double IntervalPerTick { get; private init; }
 
         /// <summary>The ticks the checkpoints were taken at, in order.</summary>
         public IEnumerable<int> Ticks => _checkpoints.Select(checkpoint => checkpoint.Tick);
 
-        /// <summary>Walks the demo once, trimming as it goes, and checkpoints every <paramref name="everyTicks"/>.</summary>
+        /// <summary>
+        /// Walks the demo with the reach <paramref name="settings"/> give every reader (D219), and walks again if the
+        /// demo's FINAL server bounds, which every window's interpolation uses, need further than a checkpoint kept.
+        /// </summary>
         /// <param name="file">The whole demo file.</param>
         /// <param name="everyTicks">The spacing between checkpoints.</param>
-        /// <param name="lookbackTicks">How much output before a checkpoint it keeps for readers that look back.</param>
-        /// <param name="trackLookbackTicks">How much track history before a checkpoint it keeps: past any interpolation delay.</param>
+        /// <param name="settings">The viewer's settings; when they change, ask <see cref="Covers"/> and walk again if not.</param>
+        /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
+        /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
+        public static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            WindowSettings settings,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+
+            if (Walk(file, everyTicks, settings.Interp, builder => builder.ReachFor(settings), created) is not { } walked)
+            {
+                return null;
+            }
+
+            WindowReach needed = WindowReach.For(settings, walked._end.ServerConVars, walked.IntervalPerTick);
+
+            return walked.Reach.Covers(needed)
+                ? walked
+                : Walk(file, everyTicks, settings.Interp, _ => needed, created);
+        }
+
+        /// <summary>Walks with a FIXED reach, for a test or probe that needs the trim to bite at a chosen depth.</summary>
+        /// <param name="file">The whole demo file.</param>
+        /// <param name="everyTicks">The spacing between checkpoints.</param>
+        /// <param name="lookbackTicks">How much output before a checkpoint it keeps.</param>
+        /// <param name="trackLookbackTicks">How much track history before a checkpoint it keeps.</param>
         /// <param name="client">The viewer's interpolation settings.</param>
         /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
@@ -2718,10 +2753,35 @@ public sealed class DemoTimeline
             ClientInterp? client = null,
             Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
-            if (Start(file, null, client ?? new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+            WindowReach reach = new(Math.Min(lookbackTicks, trackLookbackTicks), lookbackTicks);
+            return Walk(file, everyTicks, client ?? new ClientInterp(), _ => reach, created);
+        }
+
+        /// <summary>Whether windows of this walk answer for <paramref name="settings"/>, or the demo must be walked again.</summary>
+        /// <param name="settings">The viewer's settings now.</param>
+        /// <returns>
+        /// True when the interpolation settings are the ones walked with — they are decoded into every checkpoint — and
+        /// every reader's reach under them is no further than what was kept.
+        /// </returns>
+        public bool Covers(WindowSettings settings)
+        {
+            ArgumentNullException.ThrowIfNull(settings);
+            return settings.Interp == Client && Reach.Covers(WindowReach.For(settings, _end.ServerConVars, IntervalPerTick));
+        }
+
+        private static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            ClientInterp client,
+            Func<Builder, WindowReach> reachAt,
+            Dictionary<Type, (long Objects, long Elements)>? created)
+        {
+            if (Start(file, null, client, null, out List<DemoCommand> commands) is not { } builder)
             {
                 return null;
             }
+
+            WindowReach least = new(int.MaxValue, int.MaxValue);
 
             // Every class flattened now, so no window ever writes the flattening cache all checkpoints share.
             builder.FlattenEveryClass();
@@ -2750,7 +2810,10 @@ public sealed class DemoTimeline
                 {
                     builder.Run(commands.Skip(from).Take(index - from));
                     from = index;
-                    builder.Trim(tick - lookbackTicks, tick - Math.Min(lookbackTicks, trackLookbackTicks));
+                    // The reach under the settings and the server's bounds as they stand at this checkpoint.
+                    WindowReach reach = reachAt(builder);
+                    least = new WindowReach(Math.Min(least.TrackTicks, reach.TrackTicks), Math.Min(least.OutputTicks, reach.OutputTicks));
+                    builder.Trim(Cut(tick, reach.OutputTicks), Cut(tick, reach.TrackTicks));
                     checkpoints.Add((index, tick, builder.Checkpoint(prior, out prior, created)));
                     next = tick + everyTicks;
                 }
@@ -2759,8 +2822,16 @@ public sealed class DemoTimeline
             builder.Run(commands.Skip(from));
 
             // Only the end-of-demo facts are kept from the walk itself; the rest of it is garbage once this returns.
-            return new Checkpoints(commands, checkpoints, builder.End()) { LookbackTicks = lookbackTicks };
+            return new Checkpoints(commands, checkpoints, builder.End())
+            {
+                Reach = least.TrackTicks == int.MaxValue ? reachAt(builder) : least,
+                Client = client,
+                IntervalPerTick = builder.IntervalPerTick,
+            };
         }
+
+        /// <summary>A tick less a reach, saturating rather than wrapping for an unbounded one.</summary>
+        private static int Cut(int tick, int reach) => (int)Math.Max(int.MinValue, (long)tick - reach);
 
         /// <summary>The timeline from the checkpoint at or before <paramref name="tick"/> through <paramref name="through"/>.</summary>
         /// <param name="tick">The first tick the window must answer.</param>
@@ -2768,7 +2839,7 @@ public sealed class DemoTimeline
         /// <returns>A timeline whose answers in that range equal a whole build's.</returns>
         /// <remarks>
         /// **Safe to call from several threads at once**: it writes nothing it shares. Each window copies its checkpoint;
-        /// the schema, its flattening cache (filled in <see cref="Walk"/>) and the end facts are only read.
+        /// the schema, its flattening cache (filled by the walk) and the end facts are only read.
         /// </remarks>
         public DemoTimeline Window(int tick, int through) => Window(tick, through, out _);
 
@@ -4698,6 +4769,14 @@ public sealed class DemoTimeline
 
             return new EndFacts(serverConVars, firstStated, everyone);
         }
+
+        /// <summary>Seconds per tick as the demo's server info stated it, or 0 before it has.</summary>
+        public double IntervalPerTick => interval;
+
+        /// <summary>Every reader's reach under <paramref name="settings"/> and the server's bounds as they stand now (D219).</summary>
+        /// <param name="settings">The viewer's settings.</param>
+        /// <returns>The reach.</returns>
+        public WindowReach ReachFor(WindowSettings settings) => WindowReach.For(settings, serverConVars, interval);
 
         /// <summary>Fills the decoder's flattening cache for every class, so no resume of a checkpoint writes it.</summary>
         public void FlattenEveryClass() => decoder.FlattenEveryClass();

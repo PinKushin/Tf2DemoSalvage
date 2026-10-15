@@ -16,8 +16,8 @@ namespace Tf2DemoSalvage.Probe.Probes;
 /// **Seeks in a scrubber's order**: the sample ticks are visited latest-first, then earliest-first, so every window after
 /// the first is a seek back or a seek forward past one already made — the back-then-forward case marks refused.
 ///
-/// **Its controls**: the value count beside each comparison (a hash of nothing matches anything), and a run with a
-/// lookback of 0 — it must differ somewhere, or the comparison cannot see a trim at all.
+/// **Its controls**: the value count beside each comparison (a hash of nothing matches anything). The reach is the
+/// default settings' (<c>WindowReach</c>, D219), never a number chosen here.
 ///
 /// It asserts nothing — a measurement is not a test (D38).
 /// </remarks>
@@ -28,7 +28,7 @@ public sealed class TimelineWindowsProbe : IProbe
 
     /// <inheritdoc/>
     public string Summary =>
-        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [lookback s=4] [samples=60] [cost]";
+        "checkpoint a demo, answer sample ticks through windows, compare with a whole build, and say what checkpoints cost: timeline-windows <demo> [every s=5] [samples=60] [cost]; the reach is the default settings' (D219)";
 
     /// <inheritdoc/>
     public void Run(TextWriter output, IReadOnlyList<string> arguments)
@@ -38,27 +38,27 @@ public sealed class TimelineWindowsProbe : IProbe
 
         if (arguments.Count == 0 || DemoCorpus.Find(arguments[0], output) is not { } path)
         {
-            output.WriteLine("timeline-windows <demo> [every seconds] [lookback seconds] [samples] [cost]");
+            output.WriteLine("timeline-windows <demo> [every seconds] [samples] [cost]");
             return;
         }
 
         double every = arguments.Count > 1 ? double.Parse(arguments[1], CultureInfo.InvariantCulture) : 5;
-        double lookback = arguments.Count > 2 ? double.Parse(arguments[2], CultureInfo.InvariantCulture) : 4;
-        int samples = arguments.Count > 3 ? int.Parse(arguments[3], CultureInfo.InvariantCulture) : 60;
-        bool costOnly = arguments.Count > 4 && arguments[4] == "cost";
+        int samples = arguments.Count > 2 ? int.Parse(arguments[2], CultureInfo.InvariantCulture) : 60;
+        bool costOnly = arguments.Count > 3 && arguments[3] == "cost";
         byte[] demo = File.ReadAllBytes(path);
         const double Interval = 0.015;
         int everyTicks = (int)(every / Interval);
-        int lookbackTicks = (int)(lookback / Interval);
-
-        output.WriteLine($"{Path.GetFileName(path)} ({demo.Length / 1048576d:0.0} MB): a checkpoint every {everyTicks} ticks, lookback {lookbackTicks}, tracks {TrackLookbackTicks}");
 
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();
         Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, lookbackTicks, TrackLookbackTicks, created: created)!;
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, new WindowSettings(), created)!;
         walk.Stop();
         long heapAfter = Live();
+
+        // The reach the walk KEPT, carried from it rather than recomputed here.
+        output.WriteLine($"{Path.GetFileName(path)} ({demo.Length / 1048576d:0.0} MB): a checkpoint every {everyTicks} ticks, " +
+            $"reach: tracks {checkpoints.Reach.TrackTicks}, output {checkpoints.Reach.OutputTicks}");
 
         // What checkpoints after the first CREATE rather than share — the source of the retained heap — by type.
         foreach ((Type type, (long objects, long elements)) in (created ?? []).OrderByDescending(entry => entry.Value.Elements).Take(15))
@@ -142,9 +142,6 @@ public sealed class TimelineWindowsProbe : IProbe
 
         output.WriteLine(differing == 0 ? "  IDENTICAL" : "  DIFFERENT");
     }
-
-    /// <summary>One second of track history: past `cl_interp`'s ceiling, plus the spline's older samples.</summary>
-    private const int TrackLookbackTicks = 67;
 
     private static string FirstDifference(object? answer, object? other)
     {

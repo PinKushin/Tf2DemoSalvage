@@ -10313,3 +10313,31 @@ config line or a bind setting it did nothing.
   found, only while its own is still current (per thread: disposed on another thread, it leaves the opener's alone); `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
 - `tools/golden-viewer-shot.sh` launches with `+volume 0`.
 
+## D219 — a window's lookback is computed from the current settings over every reader; unbounded state is carried (2026-10-15)
+
+**The question.** D217 step 3 trims each checkpoint to a lookback, and the first cut chose numbers: 4 s for the output
+lists and 67 ticks (1 s) for track histories. A review asked whether the 1 s frame cut was enough for a 4 s lookback.
+
+**The owner, in his own words:** *"the longer before we look the better the sim will be, but we obviously cant hold the
+whole demo like i thought wwe could originally"*; *"corpses fade, but the fade can be changed"*; *"a lot of the stuff
+we might need to reach backk for might be in settings and cvars but im not sure"*. Asked whether that was a decision or
+brainstorming: *"no thats a fine decision"*.
+
+**What followed:**
+
+- **The reach is ONE function of the current settings over every reader** — `WindowReach.For(WindowSettings,
+  ServerConVars, interval)`, never a fixed number of seconds. Each reader, with what bounds it, is listed in its
+  remarks: track pose by the interpolation set (`cl_interp`, `cl_interp_ratio`, `cl_updaterate` under
+  `sv_client_min/max_interp_ratio`, cdll_bounded_cvars.cpp:126); the kill feed by `hud_deathnotice_time`; chat by
+  `hud_saytext_time`; frames and every at-or-before list need no reach, because the trim keeps the value in force.
+- **A settings change re-windows**: `Checkpoints.Covers(settings)` is false when the interpolation set differs (it is
+  decoded into every checkpoint) or any reader would reach further than was kept, and the caller walks again.
+- **Anything no setting bounds is carried in the checkpoint**, not reached for: sounds (a loop is state), a track's
+  birth tick and pose. A corpse is the case the owner named, and reading the engine made it unbounded rather than a
+  setting: `C_TFRagdoll::ClientThink` re-arms the fade at `cl_ragdoll_fade_time × 0.33` on every think the corpse is
+  visible (c_tf_player.cpp:1532-1546), so a corpse in view never fades. Its live simulated state belongs in the
+  checkpoint — the ragdoll entity already is (a live track keeps its birth), the viewer's simulated corpse
+  (`RagdollFade`) is not yet, and is filed as follow-up work rather than given a reach.
+- **The final server bounds govern**: a window finishes with the demo's END ConVars, so a walk whose checkpoints kept
+  less than those need walks again at the needed reach.
+
