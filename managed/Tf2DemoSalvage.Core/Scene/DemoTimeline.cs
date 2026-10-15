@@ -1807,19 +1807,15 @@ public sealed class DemoTimeline
     {
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (ScenePropTrack track in _props)
+        // Every model each entity named in its life, not only its last (B548).
+        foreach (ScenePropTrack track in _props.Concat(_playerTracks))
         {
-            if (track.ModelPath is { Length: > 0 } && seen.Add(track.ModelPath))
+            foreach (string path in track.ModelPaths)
             {
-                yield return track.ModelPath;
-            }
-        }
-
-        foreach (ScenePropTrack track in _playerTracks)
-        {
-            if (track.ModelPath is { Length: > 0 } && seen.Add(track.ModelPath))
-            {
-                yield return track.ModelPath;
+                if (path.Length > 0 && seen.Add(path))
+                {
+                    yield return path;
+                }
             }
         }
 
@@ -6027,6 +6023,9 @@ public sealed class DemoTimeline
         // model, and a track fixed at the first answer would leave the item wherever it started.
         track.AttachmentPoint = state.ParentAttachment();
 
+        // **Every identity field set above, dated** (B548): read at a tick, the scalars answer the demo's end.
+        track.Stamp(tick);
+
         (float pitch, float yaw, float roll) = state.Angles() ?? (0f, 0f, 0f);
 
         // **A player faces where its EYES point, not where m_angRotation says.** A player's
@@ -6537,7 +6536,7 @@ public sealed class DemoTimeline
             // changing under blended sampling. Hidden is re-read because it is a field of the
             // pose, discrete at the keyframe the lerp is walking away from.
             track.Live = track.At(tick) is { Hidden: false } pose
-                ? BuildProp(track, pose, recorderTeam)
+                ? BuildProp(track, tick, pose, recorderTeam)
                 : null;
         }
     }
@@ -6588,7 +6587,7 @@ public sealed class DemoTimeline
 
         // A hidden entity is not drawn but is still tracked: it is coming back.
         track.Live = sampled is { Hidden: false } pose
-            ? BuildProp(track, pose, recorderTeam)
+            ? BuildProp(track, tick, pose, recorderTeam)
             : null;
 
         if (changing != track.Lerping)
@@ -6668,7 +6667,7 @@ public sealed class DemoTimeline
             return true;
         }
 
-        if (Visible(asked, stated))
+        if (Visible(asked, stated, tick))
         {
             return true;
         }
@@ -6705,7 +6704,7 @@ public sealed class DemoTimeline
                 // parent's to hear about: a wake at the child's keyframe re-derives the child alone.
                 revisit = Math.Min(revisit, hanging.HeldChangesAfter(tick));
 
-                if (Visible(hanging, hanging.Held(tick)))
+                if (Visible(hanging, hanging.Held(tick), tick))
                 {
                     return true;
                 }
@@ -6726,6 +6725,7 @@ public sealed class DemoTimeline
     /// <summary><c>IsVisible()</c> — whether an entity holds a client render handle.</summary>
     /// <param name="track">The entity, for its model and its index.</param>
     /// <param name="stated">Its last stated pose, or null when the track states none here.</param>
+    /// <param name="tick">The moment, for the model the entity held then (B548).</param>
     /// <returns>Whether <c>UpdateVisibility</c> would have it in the leaf system.</returns>
     /// <remarks>
     /// **<c>ShouldDraw()</c> in the engine's own order** (`c_baseentity.cpp:1435`) — the render mode
@@ -6739,9 +6739,9 @@ public sealed class DemoTimeline
     /// limitation, not the engine's, and refusing to interpolate one would hold a pose the engine
     /// blends.
     /// </remarks>
-    private static bool Visible(ScenePropTrack track, ScenePose? stated) =>
+    private static bool Visible(ScenePropTrack track, ScenePose? stated, double tick) =>
         stated is { Hidden: false, RenderMode: not RenderModes.None }
-        && track.ModelPath.Length > 0
+        && track.FactsAt(tick).ModelPath.Length > 0
         && track.EntityIndex != 0;
 
     /// <summary>Movement children by parent, which is <c>FirstMoveChild</c>/<c>NextMovePeer</c>.</summary>
@@ -6791,7 +6791,11 @@ public sealed class DemoTimeline
     private Dictionary<int, List<int>>? _moveChildren;
 
     /// <summary>Builds the prop a track serves until something changes it.</summary>
-    private static SceneProp BuildProp(ScenePropTrack track, in ScenePose pose, int? recorderTeam) =>
+    private static SceneProp BuildProp(ScenePropTrack track, double tick, in ScenePose pose, int? recorderTeam) =>
+        BuildProp(track, track.FactsAt(tick), pose, recorderTeam);
+
+    /// <summary>Builds the prop from the identity the entity held at the moment drawn (B548).</summary>
+    private static SceneProp BuildProp(ScenePropTrack track, in ScenePropFacts facts, in ScenePose pose, int? recorderTeam) =>
         new(
             // **The pose as sampled, with no player-animation inputs derived from it** (B258).
             // `Moving` was called here for every prop, and it computes `move_x`, `move_y` and
@@ -6801,18 +6805,17 @@ public sealed class DemoTimeline
             // for one: a resupply locker does not have legs. And it never ran for a player here
             // anyway — player tracks live in `_playerTracks`, and `PlayerProps` carries the values
             // `PlayersAt` computes onto the player's own `SceneProp`.
-            track.EntityIndex, track.ModelPath, track.Kind, pose,
+            track.EntityIndex, facts.ModelPath, facts.Kind, pose,
 
             // **From the POSE, because the weapon state is the one of these that changes while an
-            // entity lives** (B244). The rest — the parent, the owner, the item, the class — are
-            // fixed for a track's lifetime, so reading them off the track is right; reading
-            // `m_iState` off it answered with the demo's final tick, and a medic whose medigun was
-            // holstered at the end never drew it at all.
-            track.AttachedTo, track.AttachmentPoint, track.OwnedBy, pose.WeaponState,
-            track.BoneMerged, track.ItemDefinitionIndex, track.ClassName,
-            track.OfDisguise,
-            OfRecordersTeam: recorderTeam is { } mine && track.TeamNumber == mine,
-            Econ: track.Econ,
+            // entity lives** (B244). The rest — the parent, the owner, the item, the model — come from
+            // `facts`, as the entity held them at the drawn tick (B548): read off the track they were
+            // the demo's END values, the same defect B244 fixed for `m_iState`.
+            facts.AttachedTo, facts.AttachmentPoint, facts.OwnedBy, pose.WeaponState,
+            facts.BoneMerged, facts.ItemDefinitionIndex, facts.ClassName,
+            facts.OfDisguise,
+            OfRecordersTeam: recorderTeam is { } mine && facts.TeamNumber == mine,
+            Econ: facts.Econ,
             ClientSideAnimated: track.ClientSideAnimated);
 
     private sealed partial class Builder

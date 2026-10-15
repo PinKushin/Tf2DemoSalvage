@@ -171,9 +171,13 @@ public static class DemoModels
             // load. The models themselves are not lost: `game.Weapons.AllIn` below walks what every
             // player holds and resolves each through the same item schema, so `c_medigun.mdl` is
             // loaded by the route that knows its name.
-            if (track.Kind == SceneModelKind.Studio && track.ModelPath.Length > 0)
+            // Every model the entity named in its life, since a tick before a swap draws the earlier one (B548).
+            foreach (string path in track.ModelPaths)
             {
-                paths.Add(track.ModelPath);
+                if (path.Length > 0 && ScenePropTrack.Classify(path) == SceneModelKind.Studio)
+                {
+                    paths.Add(path);
+                }
             }
         }
 

@@ -838,6 +838,33 @@ public sealed record SceneProp(
 /// opened at tick 900 was shut at 899, and inventing a position halfway would be this project
 /// making up data it was not given.
 /// </remarks>
+/// <summary>What a prop track's entity was at one moment — the fields an update can change while it stays itself (B548).</summary>
+/// <param name="ModelPath">What <c>m_nModelIndex</c> named.</param>
+/// <param name="ItemDefinitionIndex">The econ item, when it is one.</param>
+/// <param name="ClassName">The networked class.</param>
+/// <param name="OfDisguise">Whether it belongs to its owner's disguise.</param>
+/// <param name="TeamNumber">Its team, or null.</param>
+/// <param name="AttachedTo">Its move parent, or null.</param>
+/// <param name="BoneMerged">Whether it rides the parent's skeleton.</param>
+/// <param name="OwnedBy">Its owner, or null.</param>
+/// <param name="AttachmentPoint">The wearer's attachment it hangs from, or null.</param>
+/// <param name="Econ">The wire's attribute inputs, or null.</param>
+public readonly record struct ScenePropFacts(
+    string ModelPath,
+    int? ItemDefinitionIndex,
+    string ClassName,
+    bool OfDisguise,
+    int? TeamNumber,
+    int? AttachedTo,
+    bool BoneMerged,
+    int? OwnedBy,
+    int? AttachmentPoint,
+    EconAttributeWire? Econ)
+{
+    /// <summary>Which of Valve's model types the path names — <see cref="ScenePropTrack.Kind"/>'s rule.</summary>
+    public SceneModelKind Kind => ScenePropTrack.KindOf(ModelPath, ItemDefinitionIndex);
+}
+
 public sealed class ScenePropTrack
 {
     /// <summary>
@@ -1212,37 +1239,77 @@ public sealed class ScenePropTrack
     /// </remarks>
     public int? TeamNumber { get; internal set; }
 
-    private readonly List<(int Tick, SceneCollision Collision)> _collisions = [];
+    private readonly HeldValues<SceneCollision> _collisions = new();
 
     /// <summary>Records the solidity the entity states at a tick; only a change is kept.</summary>
     /// <param name="tick">The tick it was received.</param>
     /// <param name="collision">Its solidity then.</param>
-    internal void Collide(int tick, SceneCollision collision)
-    {
-        if (_collisions.Count == 0 || _collisions[^1].Collision != collision)
-        {
-            _collisions.Add((tick, collision));
-        }
-    }
+    internal void Collide(int tick, SceneCollision collision) => _collisions.Set(tick, collision);
 
     /// <summary>The solidity last stated at or before a tick, or null before the first.</summary>
     /// <param name="tick">The tick.</param>
     /// <returns>The solidity.</returns>
-    public SceneCollision? CollisionAt(int tick)
+    public SceneCollision? CollisionAt(int tick) =>
+        _collisions.TryAt(tick, out SceneCollision collision) ? collision : null;
+
+    /// <summary>The identity fields as each update left them (B548).</summary>
+    /// <remarks>
+    /// **The scalars below are the BUILDER's working state, and reading them at a tick answered with the
+    /// demo's end.** Each is a plain networked member the engine assigns on receipt — `ValidateModelIndex`
+    /// re-applies `m_nModelIndex` every `PostDataUpdate` (<c>c_baseentity.cpp:2531</c>), and
+    /// `CEconEntity::OnDataChanged` hands every update to the attribute container
+    /// (<c>econ_entity.cpp:1032</c>) — so the client holds the value as of the latest update, never a
+    /// later one. <see cref="Stamp"/> snapshots them once per update; <see cref="FactsAt"/> reads them back.
+    /// </remarks>
+    private readonly HeldValues<ScenePropFacts> _facts = new();
+
+    /// <summary>Records the identity fields as this update left them; only a change is kept.</summary>
+    /// <param name="tick">The tick the update was received.</param>
+    internal void Stamp(int tick) => _facts.Set(tick, Current());
+
+    /// <summary>The identity fields as they stand now.</summary>
+    private ScenePropFacts Current() => new(
+        ModelPath, ItemDefinitionIndex, ClassName, OfDisguise, TeamNumber,
+        AttachedTo, BoneMerged, OwnedBy, AttachmentPoint, Econ);
+
+
+    /// <summary>The identity fields as the entity held them at a tick (B548).</summary>
+    /// <param name="tick">The moment.</param>
+    /// <returns>The latest stamp at or before it; the first before the first, and the current when never stamped.</returns>
+    public ScenePropFacts FactsAt(double tick)
     {
-        SceneCollision? found = null;
-
-        foreach ((int at, SceneCollision collision) in _collisions)
+        if (_facts.TryAt(tick, out ScenePropFacts facts))
         {
-            if (at > tick)
-            {
-                break;
-            }
-
-            found = collision;
+            return facts;
         }
 
-        return found;
+        return _facts.Count > 0 ? _facts.Values[0] : Current();
+    }
+
+    /// <summary>Every model this entity named in its life, for precaching (B548).</summary>
+    public IEnumerable<string> ModelPaths
+    {
+        get
+        {
+            if (_facts.Count == 0)
+            {
+                yield return ModelPath;
+
+                yield break;
+            }
+
+            string? last = null;
+
+            foreach (ScenePropFacts facts in _facts.Values)
+            {
+                if (facts.ModelPath != last)
+                {
+                    last = facts.ModelPath;
+
+                    yield return last;
+                }
+            }
+        }
     }
 
     /// <summary>The parity counter last seen, so a change can be noticed.</summary>
@@ -1450,10 +1517,13 @@ public sealed class ScenePropTrack
     /// this project's layering — Core decodes and must not read game content — and answering
     /// `Unknown` here would export that layering as a fact about the entity. It is not one.
     /// </remarks>
-    public SceneModelKind Kind =>
-        ModelPath.Length == 0 && ItemDefinitionIndex is not null
+    public SceneModelKind Kind => KindOf(ModelPath, ItemDefinitionIndex);
+
+    /// <summary>The rule <see cref="Kind"/> states, for a path and item at any moment.</summary>
+    internal static SceneModelKind KindOf(string modelPath, int? itemDefinitionIndex) =>
+        modelPath.Length == 0 && itemDefinitionIndex is not null
             ? SceneModelKind.Studio
-            : Classify(ModelPath);
+            : Classify(modelPath);
 
     /// <summary>How many moments the entity actually changed at.</summary>
     public int KeyframeCount => _keyframes.Count;
@@ -1661,6 +1731,9 @@ public sealed class ScenePropTrack
         int state = IndexAt((int)Math.Floor(tick));
 
         double next = state + 1 < _keyframes.Count ? _keyframes.TickAt(state + 1) : double.PositiveInfinity;
+
+        // **An identity change is a state boundary too** (B548): a model swap with an unchanged pose adds no keyframe.
+        next = Math.Min(next, _facts.ChangesAfter(tick));
 
         // **The track's own death, which is an EVENT and not a prediction.** `Alive` stops answering at
         // `_endTick`, so a track still has to be looked at once more to be dropped. Leaving it out kept a
