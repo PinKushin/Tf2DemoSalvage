@@ -102,10 +102,30 @@ profile in linear luminance ×1000 per 40 px ring about the sun:
 
 TF2's bloom-off rings fall between ours at 0.7 and at 1, closest to 0.9, the map's `SetAutoExposureMax`; a sky patch
 reads 334.6 against ours 244.0 at 0.7 and 348.6 at 1. So TF2 was not at the 0.7 its `mat_hdr_tonemapscale` printed.
-The sprite fix stands on its shader citation, not on the count. **And bloom is genuinely stronger in ours**: both sides
-run bloom amount 0.1 (lakeside's `SetBloomScale .1`; ours logs 0.1002), yet over a DARKER base ours adds 2.6x TF2's
-near the sun and 1.7x far out, at a brighter one 3.6x. A ratio near 1/0.3 points at `mat_non_hdr_bloom_scalefactor`
-(`viewpostprocess.cpp:1459-1463`), which applies only under `HDR_TYPE_NONE` — *interpolated*, not yet tested in TF2.
+The sprite fix stands on its shader citation, not on the count.
+
+**Second wrong turn, killed the same evening: "bloom is stronger in ours".** Comparing an unforced TF2 frame with ours
+forced to 0.7 put two exposures in one ratio. Retaken in TF2 with `mat_force_tonemap_scale 0.7` at the same camera,
+both sides at bloom amount 0.1 (lakeside's `SetBloomScale .1`; ours logs 0.1002):
+
+| ring about the sun, px | TF2 off | ours off | TF2 bloom add | ours bloom add |
+|---|---|---|---|---|
+| 40-80 | 791.2 | 913.6 | +114.4 | +75.1 |
+| 80-120 | 628.3 | 731.2 | +93.5 | +117.2 |
+| 120-160 | 533.8 | 604.0 | +70.4 | +89.6 |
+| 200-240 | 398.4 | 425.9 | +42.4 | +48.0 |
+| 400-440 | 239.6 | 231.1 | +17.7 | +17.1 |
+
+The sky patch away from the sun reads 244.5 in TF2 and 244.0 in ours: **at a matched exposure the frames agree, and
+the bloom's add agrees to within a few percent far out**. Near the sun ours is spread outward a little (less at 40-80,
+more at 80-160), which is what a brighter, wider glow feeding the same blur would do. Setting TF2's
+`mat_non_hdr_bloom_scalefactor` from .3 to 1 changed nothing to the digit, so `mat_hdr_level 2` runs integer HDR and
+the 0.3 factor does not apply, as `BloomAmount` already has it. White pixels at forced 0.7: TF2 1,408 off and 3,683 on;
+ours 4,956 and 14,725. **What is left is the sun's own glow, 1.06-1.17x TF2's in linear light between 40 and 240 px
+with bloom off**, and the white count, a threshold just under the glow's brightness, turns that small gain into a
+three-fold count. That divergence belongs to the glow overlay (this finding), not to bloom (finding 76).
+Separately, the unforced TF2 frames sit near 0.9 while `mat_hdr_tonemapscale` printed 0.7. The cvar is the GOAL
+(finding 76), so the current scale lags it; how slowly it walks down is the auto-exposure's question, not bloom's.
 
 ## An instrument that lied
 

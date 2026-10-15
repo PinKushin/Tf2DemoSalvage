@@ -32492,7 +32492,10 @@ Settled TF2 frames at the same camera (fov 90, `mat_hdr_level 2`) count 12,213 w
 with it on; ours at a forced 0.7 count 4,956 and 14,725. Linear luminance of the bloom-off frames says TF2 sits near
 0.9 (the map's `SetAutoExposureMax`), not the 0.7 its `mat_hdr_tonemapscale` read: sky patch 334.6 against ours 244.0
 at 0.7 and 348.6 at 1; wall 149.3 against 99.4 / 141.9. **The sprite tone-map scale fix stands on its shader citation
-(below), not on that number.** The bloom itself is still ~3x TF2's after exposure is accounted for (finding 77).
+(below), not on that number.** With TF2 pinned by `mat_force_tonemap_scale 0.7`, the frames agree (sky 244.5 against
+244.0) and so does bloom's add far from the sun (+17.7 against +17.1 at 400 px). `mat_non_hdr_bloom_scalefactor` does not
+apply at level 2 (setting it to 1 changed nothing). **What remains is the sun glow itself, 1.06-1.17x TF2's with bloom
+off**, which the white-pixel threshold turns into 4,956 against 1,408. Open, for the glow overlay, not bloom (finding 77).
 
 **2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
 scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
