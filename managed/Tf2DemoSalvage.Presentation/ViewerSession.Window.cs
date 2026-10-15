@@ -581,13 +581,6 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
     /// <param name="forward">Whether it turned away from the user.</param>
     public void Wheel(bool forward) => _camera.Wheel(forward);
 
-    /// <summary>A key came up, wherever the focus is.</summary>
-    /// <param name="key">Its Source name.</param>
-    public void KeyUp(string key)
-    {
-        _boundKeysDown.Remove(key);
-        _console.KeyUp(key);
-    }
 
     /// <summary>Shutdown's first step: tells background work to stop, and releases the corpse pass's source.</summary>
     /// <remarks>

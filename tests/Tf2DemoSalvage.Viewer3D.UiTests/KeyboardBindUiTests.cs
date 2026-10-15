@@ -30,6 +30,7 @@ public sealed class KeyboardBindUiTests
         alias sp_tog sp_on
         bind "F6" "sp_tog"
         bind "F8" "toggle cl_showpos"
+        bind "ALT" "toggle cl_showpos"
         """;
 
     private string _root = string.Empty;
@@ -86,8 +87,20 @@ public sealed class KeyboardBindUiTests
         // F8 is the viewer's frame-rate default; the config bound it, so the config's bind runs instead (D101).
         viewer.PressRealKey(VirtualKeyShort.F8);
         WaitFor(viewer, "cl_showpos 1", 3, "F8's config bind never ran");
-        viewer.Count("cl_showpos 0").ShouldBe(1, "one off, from F6's second press, and nothing else");
+
+        // A lone ALT bound: its bind runs, and its release must not leave the menu strip in menu mode (B542), which
+        // would eat the F7 after it.
+        viewer.PressRealKey(VirtualKeyShort.ALT);
+        WaitFor(viewer, "cl_showpos 0", 2, "ALT's bind never ran");
+        viewer.PressRealKey(VirtualKeyShort.F7);
+        WaitFor(viewer, "cl_showpos 1", 4, "F7 after ALT never ran: the release left the menu in menu mode");
+
+        // The View menu follows a key's set (the D218 menu sync on open).
+        viewer.IsMenuItemChecked(MainForm.ViewMenuName, PositionItemName).ShouldBeTrue("the menu must show the key's set");
     }
+
+    /// <summary>The View menu's position item, by its accessible name.</summary>
+    private const string PositionItemName = "Position";
 
     private static void WaitFor(ViewerApplication viewer, string line, int count, string message)
     {

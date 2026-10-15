@@ -428,6 +428,7 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key(reset)).ShouldBeTrue();
 
+        // ONCE (B547): the key also goes to the console, which raises the one-shot; `OnConsoleAction` must ignore it.
         rig.Transport.Speeds.ShouldBe([1d]);
     }
 
@@ -466,7 +467,7 @@ public sealed class ViewerSessionTests
         using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
 
         rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue("a key whose bind ran is the bind's");
-        rig.Session.KeyUp("F7");
+        rig.Session.KeyUp("F7").ShouldBeTrue("the bind took the press, so the release is the bind's too");
         rig.Settings.Current.ShowPosition.ShouldBe(1);
         rig.Log.Count("[render] cl_showpos 1").ShouldBe(1);
 
@@ -509,6 +510,71 @@ public sealed class ViewerSessionTests
 
         rig.Settings.Current.ShowPosition.ShouldBe(1);
         rig.Transport.Speeds.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void KeyUp_AKeyAFocusedControlKept_RunsNoReleaseHalf()
+    {
+        // The engine releases only what it pressed (its keys keep their own down state): typing `x` in the search box
+        // must not run `-x`.
+        using Rig rig = BuildWithAutoexec("alias +x \"\"\nalias -x \"cl_showpos 1\"\nbind \"x\" \"+x\"\n");
+
+        rig.Session.KeyPressed(Key("x", focus: FocusedWidget.Text)).ShouldBeFalse();
+        rig.Session.KeyUp("x").ShouldBeFalse();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyUp_AKeyTheConsolePressed_RunsItsReleaseHalf()
+    {
+        // The control on the test above: the same bind, pressed with nothing focused.
+        using Rig rig = BuildWithAutoexec("alias +x \"\"\nalias -x \"cl_showpos 1\"\nbind \"x\" \"+x\"\n");
+
+        rig.Session.KeyPressed(Key("x")).ShouldBeTrue();
+        rig.Session.KeyUp("x").ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
+    }
+
+    [Test]
+    public void KeyPressed_EscapeBoundByTheConfigInFullScreen_StillLeavesAndRunsNoBind()
+    {
+        // Escape is the game UI's, ahead of the bindings, and here it is the way out of full screen.
+        using Rig rig = BuildWithAutoexec("bind \"ESCAPE\" \"toggle cl_showpos\"\n");
+        rig.Window.IsFullScreen = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", static _ => false, escape: true)).ShouldBeTrue();
+
+        rig.Window.Told.ShouldContain("LeaveFullScreen");
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyPressed_ARepeatOfABoundKeyWithControlTapped_IsStillTheBinds()
+    {
+        // Hold F7, tap CTRL: the repeats arrive as CTRL+F7, and must not become the viewer's CTRL chord.
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        bool shortcutAsked = false;
+
+        rig.Session.KeyPressed(Key("F7", _ => shortcutAsked = true, controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        shortcutAsked.ShouldBeFalse("no viewer shortcut may even be considered for the bind's repeat");
+    }
+
+    [Test]
+    public void KeyPressed_ALoneAltBoundByTheConfig_IsTakenAndItsReleaseIsTheBindsToo()
+    {
+        // Its release is what the toolkit turns into menu mode (B542); the window consumes it when this says so.
+        using Rig rig = BuildWithAutoexec("bind \"ALT\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("ALT", static _ => false, controlOrAlt: true)).ShouldBeTrue();
+        rig.Session.KeyUp("ALT").ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
     }
 
     [Test]

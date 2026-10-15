@@ -39587,3 +39587,15 @@ tests; repeats re-run and chords not excluded each reddened their own test. **Op
 follow a key's set (built once from settings); and camera mode and reset still compare keys rather than arrive
 through the console (B145's remaining half), so an alias cannot reach them. Findings: `13-settings-parity.md`.
 
+**Review, 2026-10-15.** (1) A release ran the `-` half for keys whose press a focused control kept or a chord
+excluded; now only a key whose press went to the console is released (the engine keeps per-key down state). (2)
+ESCAPE is kept out of the console, so a config cannot strand full screen (the engine keeps it for the game UI ahead of
+the bindings; *interpolated* from Quake's `menubound[K_ESCAPE]`). (3) One-shots: `OnConsoleAction` handles only the
+CycleTarget pair, which no key-compare route handles, so nothing runs twice; held by the reset-speed test's `[1d]`. A
+camera-mode test was tried and dropped: the synthetic demo refuses every mode change, so it could not move. (4) A lone
+ALT that was the bind's is consumed on WM_SYSKEYUP, so it cannot leave menu mode (B542). (5) A repeat of a bound key is
+the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own test (declared, not replicated): that IS
+how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
+dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
+sync on open), and the open item above about the menu is closed by it.
+

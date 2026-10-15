@@ -1552,7 +1552,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// direction then cancelled it to a standstill instead of reversing.
     ///
     /// A message filter runs before dispatch for every message on the thread, so focus stops
-    /// mattering. It never consumes anything: returning false leaves the key to its normal handling.
+    /// mattering. It consumes one release only, a lone ALT that was a bind's (B547); every other returns false and goes to its normal handling.
     /// </remarks>
     private sealed class KeyReleaseFilter(ViewerSession session) : IMessageFilter
     {
@@ -1565,14 +1565,18 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
         /// <inheritdoc />
         public bool PreFilterMessage(ref Message m)
         {
-            if (m.Msg is WmKeyUp or WmSysKeyUp)
+            if (m.Msg is not (WmKeyUp or WmSysKeyUp))
             {
-                // The console decides what a release MEANS — for a scripted bind that is a whole
-                // command line, not the removal of one key from a set.
-                session.KeyUp(KeyNames.NameOf((Keys)(int)m.WParam));
+                return false;
             }
 
-            return false;
+            // The console decides what a release MEANS — for a scripted bind that is a whole
+            // command line, not the removal of one key from a set.
+            string name = KeyNames.NameOf((Keys)(int)m.WParam);
+
+            // **A lone ALT that was the bind's is consumed** (B547): its release is what activates the menu strip,
+            // the stranded menu mode of B542/D216. Every other release goes on to its normal handling.
+            return session.KeyUp(name) && name == "ALT";
         }
     }
 
