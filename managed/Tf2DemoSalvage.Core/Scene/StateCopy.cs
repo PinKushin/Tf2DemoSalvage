@@ -80,6 +80,15 @@ internal static class StateCopy
     {
         private readonly Dictionary<object, bool> _same = new(ReferenceEqualityComparer.Instance);
 
+        /// <summary>The originals being compared now, each with its depth in the comparison.</summary>
+        private readonly Dictionary<object, int> _comparing = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Originals found equal only while an assumption above them is still open.</summary>
+        private readonly List<object> _pending = [];
+
+        /// <summary>The shallowest open assumption the comparison in progress has leaned on.</summary>
+        private int _leanedOn = int.MaxValue;
+
         /// <summary>Counts a NEW object (an array counts its elements), when the caller asked what a copy creates.</summary>
         public void Created(Type type, long elements)
         {
@@ -109,22 +118,58 @@ internal static class StateCopy
             }
         }
 
+        /// <remarks>
+        /// **A cycle is judged as one** (Tarjan's lowlink, applied to equality). An object being compared is assumed equal
+        /// when a cycle leads back to it, so the recursion ends — but an object judged equal only BECAUSE of that
+        /// assumption is not known equal until the assumption is settled: if the object the cycle leads back to turns out
+        /// changed, reusing the other's earlier copy would close the copy's cycle on its stale copy. So such a judgement is
+        /// held pending, and memoised only when the outermost assumption it leaned on holds; a "changed" is always final,
+        /// since an assumption only ever adds equality. An acyclic graph leans on nothing and is memoised as it goes.
+        /// </remarks>
         private bool Same(object original, object earlier)
         {
+            if (_comparing.TryGetValue(original, out int at))
+            {
+                _leanedOn = Math.Min(_leanedOn, at);
+                return true;
+            }
+
             if (_same.TryGetValue(original, out bool known))
             {
                 return known;
             }
 
-            // Assumed equal while it is being compared, so a cycle back to it does not recurse for ever.
-            _same.Add(original, true);
+            int depth = _comparing.Count;
+            int pendingFrom = _pending.Count;
+            int outer = _leanedOn;
+            _comparing.Add(original, depth);
+            _leanedOn = int.MaxValue;
             bool same = Compare(original, earlier);
+            _comparing.Remove(original);
+            int leanedOn = _leanedOn;
+            _leanedOn = Math.Min(outer, leanedOn >= depth ? int.MaxValue : leanedOn);
 
             if (!same)
             {
                 _same[original] = false;
             }
+            else if (leanedOn < depth)
+            {
+                _pending.Add(original);
+                return true;
+            }
+            else
+            {
+                _same[original] = true;
+            }
 
+            // Settled here: what was pending on this one holds with it, or is unknown again without it.
+            for (int index = pendingFrom; same && index < _pending.Count; index++)
+            {
+                _same[_pending[index]] = true;
+            }
+
+            _pending.RemoveRange(pendingFrom, _pending.Count - pendingFrom);
             return same;
         }
 

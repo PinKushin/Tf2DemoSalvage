@@ -163,4 +163,32 @@ public sealed class StateCopyTests
         third.BySlot.ShouldBeSameAs(first.BySlot);
         third.First.ShouldNotBeSameAs(first.First);
     }
+
+    /// <summary>A node of a cycle: the reference is declared first, so a comparison follows it before reading the value.</summary>
+    private sealed class Node
+    {
+        public Node? Other { get; set; }
+
+        public int Value { get; set; }
+    }
+
+    /// <remarks>
+    /// **A cycle must not reuse what was judged against an assumption that failed**: A and B name each other; A's value
+    /// changes. Comparing A assumes it equal while it follows the cycle, so B is judged unchanged — and once A is found
+    /// changed, the earlier B, which names the earlier A, must not be reused, or the copy's cycle closes on stale A.
+    /// </remarks>
+    [Test]
+    public void Of_WithPriorACycleWhoseOtherEndChanged_ClosesTheCycleOnTheNewCopy()
+    {
+        Node a = new() { Value = 1 };
+        Node b = new() { Other = a, Value = 2 };
+        a.Other = b;
+        StateCopy.Of(a, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+
+        a.Value = 10;
+        Node copy = StateCopy.Of(a, new HashSet<object>(), map, out _);
+
+        copy.Value.ShouldBe(10);
+        copy.Other!.Other.ShouldBeSameAs(copy);
+    }
 }
