@@ -35,6 +35,12 @@ public interface IViewerWindow
     /// <summary>Whether keyboard focus is inside the window.</summary>
     public bool HasFocus { get; }
 
+    /// <summary>
+    /// Whether this application is the active one — any of its windows, a dialog included, in the foreground. What
+    /// `snd_mute_losefocus` asks; keyboard focus is not, since a dialog or a full-screen switch takes it from the window.
+    /// </summary>
+    public bool IsActiveApp { get; }
+
     /// <summary>Whether the window is full screen.</summary>
     public bool IsFullScreen { get; }
 

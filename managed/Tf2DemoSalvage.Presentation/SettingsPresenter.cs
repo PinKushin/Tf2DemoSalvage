@@ -57,6 +57,9 @@ public sealed class SettingsPresenter
     /// <summary>Preferences remembered between runs.</summary>
     private ViewerSettings _settings;
 
+    /// <summary>What the settings file holds: the record as read, with only the watcher's menu choices since (D215).</summary>
+    private ViewerSettings _saved;
+
     /// <summary>Where a changed setting is saved; null is the settings file, wherever `TF2VIEW_SETTINGS` puts it.</summary>
     private readonly string? _path;
 
@@ -76,6 +79,7 @@ public sealed class SettingsPresenter
         ArgumentNullException.ThrowIfNull(settings);
 
         _settings = settings;
+        _saved = settings;
         _path = path;
         ArgumentNullException.ThrowIfNull(loggers);
 
@@ -167,7 +171,7 @@ public sealed class SettingsPresenter
                 option.Path, option.Name, string.Equals(_settings.ChosenHud, option.Path, StringComparison.Ordinal)));
         }
 
-        int nearest = (int)MathF.Round(_settings.Volume * 10f) * 10;
+        int nearest = (int)MathF.Round(_settings.Volume * 10f, MidpointRounding.AwayFromZero) * 10;
         List<MenuChoice> volumes = [];
 
         foreach (int percent in VolumeSteps)
@@ -196,7 +200,7 @@ public sealed class SettingsPresenter
     /// <returns>What to say on the status line, or null for nothing.</returns>
     public string? SetFullScreenExclusive(bool exclusive, Func<bool, bool>? switchDevice)
     {
-        _settings = _settings with { FullScreenMode = exclusive ? FullScreenMode.Exclusive : FullScreenMode.Borderless };
+        string? failure = Choose(s => s with { FullScreenMode = exclusive ? FullScreenMode.Exclusive : FullScreenMode.Borderless });
 
         string? status = null;
 
@@ -209,8 +213,6 @@ public sealed class SettingsPresenter
                 status = ViewerSettings.ExclusiveFullScreenRefused;
             }
         }
-
-        string? failure = _settings.Save(_path);
 
         if (failure is not null)
         {
@@ -234,9 +236,7 @@ public sealed class SettingsPresenter
     {
         TextureQuality quality = Enum.Parse<TextureQuality>(key);
 
-        _settings = _settings with { TextureQuality = quality };
-
-        string? failure = _settings.Save(_path);
+        string? failure = Choose(s => s with { TextureQuality = quality });
 
         return failure is null
             ? "Texture quality: " + quality + ". Applies to the next map opened."
@@ -281,7 +281,12 @@ public sealed class SettingsPresenter
 
     /// <summary>The gain over the whole mix: `volume`, or silence while unfocused under `snd_mute_losefocus`.</summary>
     /// <param name="focused">Whether the window has focus.</param>
-    public float MasterGain(bool focused) => _settings.MuteLoseFocus && !focused ? 0f : _settings.Volume;
+    /// <remarks>
+    /// `volume nan` is stored as NaN, as the engine stores it (`ConVar::ClampValue`'s two comparisons are both false for
+    /// NaN, convar.cpp). What the closed mixer then does with it is not read; a NaN gain is silence here.
+    /// </remarks>
+    public float MasterGain(bool focused) =>
+        (_settings.MuteLoseFocus && !focused) || float.IsNaN(_settings.Volume) ? 0f : _settings.Volume;
 
     /// <summary>The Volume menu's levels, a tenth apart as TF2's Audio slider is read.</summary>
     private static readonly int[] VolumeSteps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
@@ -290,18 +295,28 @@ public sealed class SettingsPresenter
     /// <param name="key">The level's key, as <see cref="Menu"/> gave it: the percentage.</param>
     /// <returns>What to say on the status line, or null for nothing.</returns>
     public string? SetVolume(string key) =>
-        Remember(_settings.Set(ViewerSettings.VolumeCommand, (int.Parse(key, CultureInfo.InvariantCulture) / 100f).ToString(CultureInfo.InvariantCulture)));
+        Remember(s => s.Set(ViewerSettings.VolumeCommand, (int.Parse(key, CultureInfo.InvariantCulture) / 100f).ToString(CultureInfo.InvariantCulture)));
 
     /// <summary>Sets `snd_mute_losefocus` from the menu, and remembers it.</summary>
     /// <param name="on">Whether to go silent while another window has focus.</param>
     /// <returns>What to say on the status line, or null for nothing.</returns>
-    public string? SetMuteLoseFocus(bool on) => Remember(_settings with { MuteLoseFocus = on });
+    public string? SetMuteLoseFocus(bool on) => Remember(s => s with { MuteLoseFocus = on });
 
-    private string? Remember(ViewerSettings settings)
+    private string? Remember(Func<ViewerSettings, ViewerSettings> choice) =>
+        Choose(choice) is { } failure ? ViewerSettings.SavedForThisSessionOnly(failure) : null;
+
+    /// <summary>Applies a choice the watcher made to this run AND to what is saved, and saves; returns the failure or null.</summary>
+    /// <remarks>
+    /// **The file gets the saved record with the choice, never the run's record.** The run's carries `+name value` from
+    /// the launch line and every set a bound key made, which apply to this run only (D215); saving the run's record
+    /// persisted the suite's `+volume 0` the first time any menu item saved.
+    /// </remarks>
+    private string? Choose(Func<ViewerSettings, ViewerSettings> choice)
     {
-        _settings = settings;
+        _settings = choice(_settings);
+        _saved = choice(_saved);
 
-        return _settings.Save(_path) is { } failure ? ViewerSettings.SavedForThisSessionOnly(failure) : null;
+        return _saved.Save(_path);
     }
 
     /// <summary>Applies a ConVar a command set at run time, by the launch option's route; saves nothing (D215).</summary>
@@ -323,11 +338,7 @@ public sealed class SettingsPresenter
     /// <returns>What to say on the status line, or null for nothing.</returns>
     public string? SetChosenHud(string? hud)
     {
-        _settings = _settings with { ChosenHud = hud };
-
-        string? failure = _settings.Save(_path);
-
-        return failure is not null ? ViewerSettings.SavedForThisSessionOnly(failure) : null;
+        return Remember(s => s with { ChosenHud = hud });
     }
 
     /// <summary>Whether a missing install is worth a dialog: not when one was found, declined before, or nobody is there.</summary>
@@ -339,9 +350,7 @@ public sealed class SettingsPresenter
     /// <returns>What to say on the status line.</returns>
     public string DeclineGameFolder()
     {
-        _settings = _settings with { AskForGameFolder = false };
-
-        return _settings.Save(_path) is { } declineFailure
+        return Choose(s => s with { AskForGameFolder = false }) is { } declineFailure
             ? ViewerSettings.SavedForThisSessionOnly(declineFailure)
             : "No TF2 folder chosen. File > TF2 folder sets it any time.";
     }
@@ -362,13 +371,13 @@ public sealed class SettingsPresenter
             return new GameFolderChoice(false, refused);
         }
 
-        _settings = _settings with { GameFolder = game };
+        string? failure = Choose(s => s with { GameFolder = game });
 
         string outcome = !installOpen
             ? $"{GameFolderSet}{game}."
             : $"{GameFolderSet}{game}. It takes effect the next time the viewer starts.";
 
-        if (_settings.Save(_path) is { } failure)
+        if (failure is not null)
         {
             outcome = $"TF2 folder could not be saved: {failure}";
         }

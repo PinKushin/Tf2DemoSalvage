@@ -10147,3 +10147,20 @@ config line or a bind setting it did nothing.
 - `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
   which sounds the engine treats as music needs `engine.dll` read (B545).
 
+**Review fixes, 2026-10-14** (branch `fix/volume-review`):
+
+- `snd_mute_losefocus` keys on the APPLICATION being active (`IViewerWindow.IsActiveApp`: the foreground window is
+  ours), not on keyboard focus, which an Export or folder dialog and the full-screen switch take from the window.
+  **Interpolated**: what the closed engine checks was not read (Quake lineage and `WM_ACTIVATEAPP`); the SDK has no
+  `snd_mute_losefocus`. `engine_no_focus_sleep` still keys on `HasFocus`, unchanged until `engine.dll` says otherwise.
+- The View menu re-reads its checks each time it opens (`ViewerMenu.Sync`), so a bind, `toggle` or `incrementvar`
+  is shown; a moved check calls no action. Covers `cl_showfps`, `cl_showpos`, Volume and the unfocused mute.
+- A menu choice is saved onto the record as READ (`SettingsPresenter.Choose`), never the run's record, which carries
+  `+name value` and every bound key's set. Every saving setter shared the bug (HUD, texture quality, full-screen mode,
+  TF2 folder, and both volume items); fixed once.
+- `volume nan` is stored as NaN, as `ConVar::ClampValue` leaves it (both comparisons false, `convar.cpp`); the mix
+  takes NaN as silence. The menu rounds a level half away from zero; the cfg writes `volume` as `ConVarText` holds it.
+- The loopback test device takes its THREAD's context (`ALC_EXT_thread_local_context`) and puts back the one it
+  found; `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
+- `tools/golden-viewer-shot.sh` launches with `+volume 0`.
+

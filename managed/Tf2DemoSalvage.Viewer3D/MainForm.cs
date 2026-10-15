@@ -733,7 +733,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
             // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
             // imported into the program, not what is in their TF2 install.
-            _session.Menu,
+            () => _session.Menu,
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
             // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
@@ -1126,6 +1126,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
     /// <inheritdoc/>
     bool IViewerWindow.HasFocus => ContainsFocus;
+
+    /// <inheritdoc/>
+    bool IViewerWindow.IsActiveApp => ForegroundProbe.IsActiveApp();
 
     /// <inheritdoc/>
     void IViewerWindow.Redraw() => _viewport.Invalidate();

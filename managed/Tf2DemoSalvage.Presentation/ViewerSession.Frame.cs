@@ -310,7 +310,7 @@ public sealed partial class ViewerSession
     /// **What is left here is the LISTENER and nothing else** (B188, D214): which camera the ears are at and whose eyes
     /// it is, asked for by <see cref="ViewerPresenter.PlaySounds(int, bool)"/> only once it knows there is a device to play through.
     /// </remarks>
-    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick, _window.HasFocus);
+    private void PlaySounds() => _presenter.PlaySounds(_transport.CurrentTick, _window.IsActiveApp);
 
     /// <returns>Whether a frame was actually drawn.</returns>
     /// <remarks>

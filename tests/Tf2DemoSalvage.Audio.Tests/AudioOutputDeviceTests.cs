@@ -257,6 +257,23 @@ public sealed class AudioOutputDeviceTests
     }
 
     [Test]
+    public void TryCreateLoopback_OpenedAndDisposed_LeavesTheContextItFoundCurrent()
+    {
+        // Two loopbacks, because both are OpenAL Soft by name: a speaker from TryCreate is the system router on
+        // Windows, a separate library whose context a loopback could never take, so it would make no control.
+        using AudioOutput first = OpenLoopback();
+        first.MasterGain = 0.5f;
+
+        using (AudioOutput second = OpenLoopback())
+        {
+            second.MasterGain = 0.25f;
+            first.MasterGain.ShouldBe(0.25f, "the control: while the second is open, the shared context IS the second's");
+        }
+
+        first.MasterGain.ShouldBe(0.5f, "a disposed loopback puts back the context it found");
+    }
+
+    [Test]
     public void Play_AfterDispose_ThrowsRatherThanUsingAFreedDevice()
     {
         // Every public method opens with `ObjectDisposedException.ThrowIf`. Calling into a closed

@@ -38,6 +38,9 @@ internal sealed class FakeViewerWindow : IViewerWindow
     public bool HasFocus { get; set; } = true;
 
     /// <inheritdoc/>
+    public bool IsActiveApp { get; set; } = true;
+
+    /// <inheritdoc/>
     public bool IsFullScreen { get; set; }
 
     /// <summary>What ticking the surface-colours item does: a real menu reports the change back to the session.</summary>

@@ -20,7 +20,7 @@ namespace Tf2DemoSalvage.Viewer3D;
 /// THERE", and those are different investigations. See
 /// <c>docs/memory/nothing-is-closed.md#measure-every-hop-before-blaming-one</c>.
 ///
-/// Diagnostic only: nothing branches on what this returns.
+/// <see cref="Describe"/> is diagnostic only; <see cref="IsActiveApp"/> decides `snd_mute_losefocus` (D218).
 /// </remarks>
 internal static partial class ForegroundProbe
 {
@@ -54,6 +54,21 @@ internal static partial class ForegroundProbe
             $"foreground: {foreground:x} pid {process} ({owner}); " +
             $"this window {ours:x}, {(foreground == ours ? "has it" : "does NOT have it")}");
     }
+
+    /// <summary>
+    /// Whether this application is the active one: the foreground window is any of ours, a dialog included. This is
+    /// what `WM_ACTIVATEAPP` reports, the engine's notion of an active app (interpolated: `engine.dll` not read).
+    /// </summary>
+    public static bool IsActiveApp()
+    {
+        IntPtr foreground = GetForegroundWindow();
+
+        return foreground != IntPtr.Zero && GetWindowThreadProcessId(foreground, out uint process) != 0 && IsOurs(process);
+    }
+
+    /// <summary>Whether a foreground window's process is this one.</summary>
+    /// <param name="process">The foreground window's process id, or 0 for none.</param>
+    internal static bool IsOurs(uint process) => process != 0 && process == (uint)Environment.ProcessId;
 
     /// <summary>The name of a process, or its id when it cannot be read.</summary>
     private static string ProcessName(uint id)

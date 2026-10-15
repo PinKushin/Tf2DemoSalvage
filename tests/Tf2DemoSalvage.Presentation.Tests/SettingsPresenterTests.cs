@@ -407,6 +407,62 @@ public sealed class SettingsPresenterTests
         ViewerSettings.Load(File_).MuteLoseFocus.ShouldBeFalse();
     }
 
+    [TestCase("hud")]
+    [TestCase("mute")]
+    [TestCase("quality")]
+    public void MenuSave_AfterALaunchOptionAndABind_SavesNeitherOnlyTheMenusChoice(string item)
+    {
+        (SettingsPresenter settings, _) = Owner(new ViewerSettings { Volume = 0.7f });
+        _ = settings.ReadLaunch(["+volume", "0"]);
+        ConfigConsole console = Console(settings, "cl_showpos 1");
+        Press(console);
+
+        _ = item switch
+        {
+            "hud" => settings.SetChosenHud("somehud"),
+            "mute" => settings.SetMuteLoseFocus(false),
+            _ => settings.SetTextureQuality("Low"),
+        };
+
+        ViewerSettings saved = ViewerSettings.Load(File_);
+        saved.Volume.ShouldBe(0.7f, 1e-6f, "+volume 0 applies to this run and is not saved");
+        saved.ShowPosition.ShouldBe(0, "a bound key's set is not saved either");
+        settings.MasterGain(focused: true).ShouldBe(0f, "the launch value still holds for the run");
+    }
+
+    [TestCase("nan")]
+    [TestCase("NaN")]
+    public void SetConVar_VolumeNotANumber_StoresWhatTheEnginesClampLeaves(string value)
+    {
+        // ConVar::ClampValue (convar.cpp): `if ( m_bHasMin && ( value < m_fMinVal ) )` and the max twin are both false
+        // for NaN, so the engine stores NaN. A NaN gain is not a level OpenAL accepts; see the presenter's mix.
+        (SettingsPresenter settings, _) = Owner();
+
+        settings.SetConVar("volume", value);
+
+        settings.MasterGain(focused: true).ShouldBe(0f, "a NaN master gain reaches the mix as silence, never as NaN");
+    }
+
+    [TestCase(0.45f, "50")]
+    [TestCase(0.25f, "30")]
+    [TestCase(0.05f, "10")]
+    public void Menu_AVolumeHalfwayBetweenTwoLevels_ChecksTheOneAwayFromZero(float volume, string expected)
+    {
+        (SettingsPresenter settings, _) = Owner(new ViewerSettings { Volume = volume });
+
+        settings.Menu(null).Volumes.Single(static level => level.Chosen).Key.ShouldBe(expected);
+    }
+
+    [Test]
+    public void Save_AVolumeWrittenWithThreePlaces_KeepsTheStringAsWritten()
+    {
+        (SettingsPresenter settings, _) = Owner(new ViewerSettings().Set("volume", "0.333"));
+
+        settings.SetMuteLoseFocus(false);
+
+        File.ReadAllLines(File_).ShouldContain("volume 0.333", "the cfg holds the string ConVarText holds, not \"0.33\"");
+    }
+
     /// <summary>A console bound to <paramref name="settings"/> as the session binds it, with <c>k</c> bound to <paramref name="command"/>.</summary>
     private static ConfigConsole Console(SettingsPresenter settings, string command, string setup = "")
     {
