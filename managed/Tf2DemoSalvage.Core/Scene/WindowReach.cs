@@ -28,6 +28,9 @@ public sealed record WindowSettings(ClientInterp? Client = null, double DeathNot
 ///   (cdll_bounded_cvars.cpp:126) under the server's ratio bounds — so <c>cl_interp</c>, <c>cl_interp_ratio</c>,
 ///   <c>cl_updaterate</c>, <c>sv_client_min/max_interp_ratio</c>. The spline's older samples are a COUNT of entries,
 ///   which <c>ScenePropTrack.TrimBefore</c> keeps beyond the cut whatever the reach.
+/// - **A player's speed and heading** (<c>SpeedAt</c>, <c>HeadingAt</c>): the track pose a further
+///   <see cref="DemoTimeline.MotionWindowSeconds"/> back — fixed, this project's own differencing window. Missed in the
+///   first version and found by the windows probe on rgl-pug (<c>Speed</c> differed at 2 of 120 seeks).
 /// - **Kill feed** (<c>TfHudDeathNotice</c>, over <c>GameEvents</c>): <c>hud_deathnotice_time</c>.
 /// - **Chat** (<c>TfHudChat</c>, over <c>UserMessages</c>): <c>hud_saytext_time</c>.
 /// - **Fixed, reach 0**: frames and every at-or-before list (soundscape, fog, director, recorded view, ConVar history,
@@ -55,8 +58,11 @@ public sealed record WindowReach(int TrackTicks, int OutputTicks)
         double interval = intervalPerTick > 0d ? intervalPerTick : ScenePropTrack.Tf2TickInterval;
         double feed = Math.Max(settings.DeathNoticeSeconds, settings.SayTextSeconds);
 
+        // SpeedAt and HeadingAt sample the track a fixed 0.1 s before the tick, converted at 0.015 s per tick as they
+        // convert it, whatever the demo's own interval.
         return new WindowReach(
-            ScenePropTrack.DelayTicksFor(interval, settings.Interp.Amount(server)),
+            ScenePropTrack.DelayTicksFor(interval, settings.Interp.Amount(server))
+                + (int)Math.Ceiling(DemoTimeline.MotionWindowSeconds / 0.015d),
             (int)Math.Ceiling(feed / interval));
     }
 

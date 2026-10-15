@@ -13,19 +13,20 @@ public sealed class WindowReachTests
 
     /// <remarks>
     /// **At TF2's defaults**: tracks reach back the interpolation delay — `cl_interp` 0.1 s, (int)(0.5 + 0.1/0.015) + 1 = 8
-    /// ticks — and the output lists the longest HUD feed, `hud_saytext_time` 12 s = 800 ticks.
+    /// ticks — plus the 0.1 s a player's speed and heading are differenced over, 6.67 rounded up to 7: 15. The output lists
+    /// reach the longest HUD feed, `hud_saytext_time` 12 s = 800 ticks.
     /// </remarks>
     [Test]
-    public void For_TheDefaults_IsTheInterpDelayAndTheChatFeed()
+    public void For_TheDefaults_IsTheInterpDelayAndMotionAndTheChatFeed()
     {
         WindowReach reach = WindowReach.For(new WindowSettings(), new ServerConVars(), Interval);
 
-        (reach.TrackTicks, reach.OutputTicks).ShouldBe((8, 800));
+        (reach.TrackTicks, reach.OutputTicks).ShouldBe((15, 800));
     }
 
     /// <remarks>
-    /// **Each setting moves its own reader's reach**: `cl_interp` 0.5 s is (int)(0.5 + 33.3) + 1 = 34 track ticks, and a
-    /// kill feed of 20 s outlasts the chat's 12, so 1,334 output ticks (20 / 0.015 = 1,333.3, rounded up).
+    /// **Each setting moves its own reader's reach**: `cl_interp` 0.5 s is (int)(0.5 + 33.3) + 1 = 34 ticks of delay, 41
+    /// with the motion window, and a kill feed of 20 s outlasts the chat's 12, so 1,334 output ticks (1,333.3 rounded up).
     /// </remarks>
     [Test]
     public void For_LongerInterpAndKillFeed_ReachesFurther()
@@ -34,7 +35,7 @@ public sealed class WindowReachTests
 
         WindowReach reach = WindowReach.For(settings, new ServerConVars(), Interval);
 
-        (reach.TrackTicks, reach.OutputTicks).ShouldBe((34, 1334));
+        (reach.TrackTicks, reach.OutputTicks).ShouldBe((41, 1334));
     }
 
     /// <remarks>

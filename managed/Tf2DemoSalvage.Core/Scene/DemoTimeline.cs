@@ -7563,9 +7563,15 @@ public sealed class DemoTimeline
     /// Vertical motion is left out, which is what <c>GetOuterXYSpeed</c> does — a falling player is
     /// not running.
     /// </remarks>
+    /// <summary>
+    /// The seconds a player's speed and heading are differenced over — this project's choice, not an engine setting, and
+    /// a reader of the track that far before the tick, which a window's reach must cover (D219).
+    /// </summary>
+    internal const double MotionWindowSeconds = 0.1d;
+
     private static float SpeedAt(ScenePropTrack track, double tick)
     {
-        const double window = 0.1d;
+        const double window = MotionWindowSeconds;
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 
@@ -7594,7 +7600,7 @@ public sealed class DemoTimeline
     /// </remarks>
     private static float? HeadingAt(ScenePropTrack track, double tick)
     {
-        const double window = 0.1d;
+        const double window = MotionWindowSeconds;
 
         double ticks = window / Math.Max(0.001f, 0.015f);
 
