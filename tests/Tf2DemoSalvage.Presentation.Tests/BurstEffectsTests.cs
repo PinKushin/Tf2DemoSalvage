@@ -159,9 +159,25 @@ public sealed class BurstEffectsTests
 
         models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = HandsMuzzle;
         bursts.AddHealBeams(
-            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems, inEyesOf: Medic);
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems,
+            inEyesOf: Medic, handsHold: static _ => true);
 
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(HandsMuzzle);
+    }
+
+    // The attachment model belongs to THAT econ entity (econ_entity.cpp:1157, SetOuter( this )): hands holding another
+    // weapon carry that weapon's model, whose muzzle is not the medigun's.
+    [Test]
+    public void AddHealBeams_InTheMedicsEyesHoldingAnotherWeapon_StartsAtTheWorldMuzzle()
+    {
+        (BurstEffects bursts, FakePosedEntities models) = Drawn(150);
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = HandsMuzzle;
+        bursts.AddHealBeams(
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems,
+            inEyesOf: Medic, handsHold: static _ => false);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Muzzle);
     }
 
     // particle_property.cpp:608-611: a failed GetAttachment falls back to C_BaseAnimating's own, the world medigun's.
@@ -184,7 +200,8 @@ public sealed class BurstEffectsTests
 
         models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = HandsMuzzle;
         bursts.AddHealBeams(
-            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems, inEyesOf: Patient);
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems,
+            inEyesOf: Patient, handsHold: static _ => true);
 
         bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Muzzle);
     }

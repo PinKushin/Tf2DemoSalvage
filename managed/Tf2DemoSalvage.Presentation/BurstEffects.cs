@@ -676,7 +676,11 @@ public sealed class BurstEffects
             _frame.HealTargetMarker,
             tick,
             systems,
-            _frame.FirstPerson ? _frame.Followed : null);
+            _frame.FirstPerson ? _frame.Followed : null,
+            beam => beam.Owner is { } owner &&
+                    timeline.ViewmodelAt(tick, owner) is { } held &&
+                    string.Equals(held.WeaponClassName, HealBeamFeed.MedigunClassName, StringComparison.Ordinal) &&
+                    held.WeaponItem == beam.Item);
     }
 
     /// <summary>The same over the demo's beams as data, which a test can supply (D214).</summary>
@@ -689,6 +693,7 @@ public sealed class BurstEffects
     /// <param name="tick">The tick being shown.</param>
     /// <param name="systems">The loaded particle systems by name.</param>
     /// <param name="inEyesOf">The player whose eyes the view is in, or null for any other camera.</param>
+    /// <param name="handsHold">Whether the beam's medic holds THIS medigun in his hands; null for never.</param>
     internal void AddHealBeams(
         IReadOnlyList<SceneHealBeam> beams,
         int? recorder,
@@ -698,7 +703,8 @@ public sealed class BurstEffects
         bool healTargetMarker,
         int tick,
         IReadOnlyDictionary<string, ParticleSystem> systems,
-        int? inEyesOf = null)
+        int? inEyesOf = null,
+        Func<SceneHealBeam, bool>? handsHold = null)
     {
         if (tick < _healBeamTick)
         {
@@ -728,7 +734,7 @@ public sealed class BurstEffects
 
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
-                MedigunMuzzle(beam, inEyesOf) is not { } muzzle)
+                MedigunMuzzle(beam, inEyesOf, handsHold) is not { } muzzle)
             {
                 continue;
             }
@@ -781,9 +787,18 @@ public sealed class BurstEffects
     /// </code>
     /// So in the medic's own eyes the beam starts at the hands' muzzle, on the hands' axes, which the path's bulge
     /// (bulge control 1, the start point's forward) follows: TF2's beam swings out along the first-person gun.
+    ///
+    /// The hands' model is the one `SetOuter( this )` tied to THIS medigun (`:1157`), so it is used only while the hands
+    /// hold it; holding anything else, the hands model here is that weapon's and the world muzzle stands.
+    /// `r_drawviewmodel` is not consulted: `UpdateAttachmentModels` creates the model on `!ShouldDrawThisPlayer()` alone,
+    /// and `GetAttachment` poses it whether or not it is drawn. `FlashPoint` differs on purpose:
+    /// `CreateMuzzleFlashEffects` itself returns under `r_drawviewmodel 0`. A medigun that IS its own viewmodel (not
+    /// attached to hands) gets no attachment model (`:1135` tests `ShouldAttachToHands`), so `GetAttachment` is the
+    /// world weapon's — where `FlashPoint` takes the arms' muzzle because `GetAppropriateWorldOrViewModel` returns
+    /// the viewmodel itself. The two differ because the engine's two calls do.
     /// </remarks>
-    private ParticleControlPoint? MedigunMuzzle(SceneHealBeam beam, int? inEyesOf) =>
-        (inEyesOf is { } eyes && beam.Owner == eyes
+    private ParticleControlPoint? MedigunMuzzle(SceneHealBeam beam, int? inEyesOf, Func<SceneHealBeam, bool>? handsHold) =>
+        (inEyesOf is { } eyes && beam.Owner == eyes && handsHold is not null && handsHold(beam)
             ? _models.AttachmentPoint(ViewmodelScene.WeaponEntityIndex, "muzzle")
             : null) ??
         _models.AttachmentPoint(beam.Medigun, "muzzle");
