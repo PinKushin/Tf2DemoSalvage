@@ -28,17 +28,13 @@ public sealed class ViewerMenuSyncTests
         MuteLoseFocus: mute);
 
     [Test]
-    public void ViewMenu_OpenedAfterABindChangedTheSettings_ShowsTheSettingsAndCallsNothing()
+    public void Sync_AfterABindChangedTheSettings_ShowsTheSettingsAndCallsNothing()
     {
-        MenuState current = State(showPosition: false, volume: "100", mute: true);
         List<string> called = [];
-        using ViewerMenu menu = new(Actions(called), () => current, new KeyBindings());
+        using ViewerMenu menu = new(Actions(called), State(showPosition: false, volume: "100", mute: true), new KeyBindings());
 
-        current = State(showPosition: true, volume: "50", mute: false);
-        ToolStripMenuItem view = menu.Strip.Items.OfType<ToolStripMenuItem>().Single(item => item.Name == MainForm.ViewMenuId);
-        typeof(ToolStripDropDownItem)
-            .GetMethod("OnDropDownShow", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(view, [EventArgs.Empty]);
+        menu.Sync(State(showPosition: true, volume: "50", mute: false));
+        ToolStripMenuItem view = menu.View;
 
         ToolStripMenuItem volume = view.DropDownItems.OfType<ToolStripMenuItem>().Single(item => item.Name == MainForm.VolumeMenuId);
         menu.PositionReadout.Checked.ShouldBeTrue();

@@ -237,6 +237,9 @@ internal sealed class ViewerMenu : IDisposable
     /// <summary>The texture-quality items, by level, so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<string, ToolStripMenuItem> TextureQualityItems { get; }
 
+    /// <summary>The View menu, whose opening the window answers with <see cref="Sync"/>.</summary>
+    public ToolStripMenuItem View { get; }
+
     /// <summary>The HUD picker's items, by path (<see cref="StockHudKey"/> for TF2's stock HUD), so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<string, ToolStripMenuItem> HudItems { get; }
 
@@ -245,7 +248,7 @@ internal sealed class ViewerMenu : IDisposable
 
     /// <summary>Builds the whole menu.</summary>
     /// <param name="actions">What each item asks the viewer to do.</param>
-    /// <param name="current">What the settings say now, in plain values: read to build, and again each time View opens.</param>
+    /// <param name="state">What the saved settings say, in plain values, for the items that open already checked.</param>
     /// <param name="bindings">Which key performs which action, so no shortcut is written in here.</param>
     /// <remarks>
     /// **Initial checked state comes from settings, not from the form**, so the menu can be built
@@ -255,12 +258,11 @@ internal sealed class ViewerMenu : IDisposable
     /// </remarks>
     public ViewerMenu(
         ViewerMenuActions actions,
-        Func<MenuState> current,
+        MenuState state,
         KeyBindings bindings)
     {
-        ArgumentNullException.ThrowIfNull(current);
+        ArgumentNullException.ThrowIfNull(state);
         ArgumentNullException.ThrowIfNull(bindings);
-        MenuState state = current();
 
         Dictionary<string, ToolStripMenuItem> textureQualityItems = new(StringComparer.Ordinal);
 
@@ -382,8 +384,7 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = MainForm.ViewMenuName,
         };
 
-        // A bind, `toggle` or `incrementvar` sets these without the menu (D215), so they are read again on opening.
-        view.DropDownOpening += (_, _) => Sync(current());
+        View = view;
 
         // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
         // and what kind of thing is it", which a textured picture cannot - and which cost hours
@@ -895,8 +896,10 @@ internal sealed class ViewerMenu : IDisposable
 
     /// <summary>Moves the checks a ConVar set without the menu can stale to what the settings say now (D215).</summary>
     /// <param name="state">The settings, as `SettingsPresenter.Menu` gives them.</param>
-    private void Sync(MenuState state)
+    /// <remarks>A bind, `toggle` or `incrementvar` sets these without the menu, so the window calls this as View opens.</remarks>
+    public void Sync(MenuState state)
     {
+        ArgumentNullException.ThrowIfNull(state);
         _syncing = true;
 
         try

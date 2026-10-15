@@ -733,7 +733,7 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
 
             // **Our OWN custom/ folder, never `tf/custom`** (D193) — the picker lists what a player
             // imported into the program, not what is in their TF2 install.
-            () => _session.Menu,
+            _session.Menu,
 
             // **The menu's shortcuts come from the same table the flight keys do** (B214, D101).
             // Fourteen `ShortcutKeys = Keys.<something>` literals lived in `ViewerMenu` until now,
@@ -741,6 +741,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
             _session.Bindings);
 
         MenuStrip menu = _menu.Strip;
+
+        // A bind, `toggle` or `incrementvar` changes settings without the menu (D215): its checks are read on opening.
+        _menu.View.DropDownOpening += (_, _) => _menu.Sync(_session.Menu);
 
 
         // Added in reverse z-order: WinForms docks the LAST control added first, so Fill must go
