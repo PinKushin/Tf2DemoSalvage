@@ -63,4 +63,38 @@ public sealed class ChunkedListTests
         Should.Throw<ArgumentOutOfRangeException>(() => list[6]);
         list[0].ShouldBe(4);
     }
+
+    /// <remarks>
+    /// **A chunk freed by RemoveLast is made again by the next Add**: 1,025 elements fill one chunk and start a second; the
+    /// last removed frees it, and two more added land after element 1,023.
+    /// </remarks>
+    [Test]
+    public void Add_AfterRemoveLastAtAChunkBoundary_ContinuesInOrder()
+    {
+        ChunkedList<int> list = Upto(1025);
+
+        list.RemoveLast();
+        list.Add(-1);
+        list.Add(-2);
+
+        list.Count.ShouldBe(1026);
+        (list[1023], list[1024], list[1025]).ShouldBe((1023, -1, -2));
+    }
+
+    /// <remarks>
+    /// **Dropping every element leaves a usable empty list**, at a chunk boundary and inside a chunk: Count 0, and an Add
+    /// after it is element 0.
+    /// </remarks>
+    [TestCase(1024)]
+    [TestCase(1500)]
+    public void DropFront_ExactlyCount_LeavesAnEmptyListThatAdds(int count)
+    {
+        ChunkedList<int> list = Upto(count);
+
+        list.DropFront(count);
+
+        list.Count.ShouldBe(0);
+        list.Add(7);
+        list.ShouldBe([7]);
+    }
 }
