@@ -705,4 +705,67 @@ public sealed class ConfigConsoleConformanceTests
         Press(string.Empty, "incrementvar cl_showpos 0 2 1", presses: 3)
             .ShouldBe(["cl_showpos 1.000000", "cl_showpos 2.000000", "cl_showpos 0.000000"]);
     }
+
+    // ---- a key's bind runs, whatever it is (B547) ----
+    //
+    // The engine hands every key to the binding system: `Key_Event` looks up the key's binding and queues it through
+    // the command buffer, `+` binds getting the key number and their `-` half on release (the closed engine's
+    // keys.cpp; the shape is Quake's `Key_Event` in keys.c, which it descends from - interpolated, the binary was not
+    // read for this). Nothing there tells a keyboard key from a mouse button, so nothing here may.
+    [TestCase("toggle cl_showpos", true)]
+    [TestCase("cl_showpos 1", true)]
+    [TestCase("+forward", true)]
+    [TestCase("resetspeed", false)]
+    [TestCase("+strafe", false)]
+    public void KeyDown_WhatTheBindDid_IsReportedSoTheHostCanTakeTheKey(string command, bool expected)
+    {
+        // `resetspeed` is one of the viewer's own one-shots, whose key the host routes itself; `+strafe` is TF2's and
+        // means nothing here. Neither did anything of the console's, so neither may take the key from the window.
+        ConfigConsole console = new();
+        console.Load($"bind k \"{command}\"");
+
+        console.KeyDown("k").ShouldBe(expected);
+    }
+
+    [Test]
+    public void KeyDown_AKeyWithAViewerDefaultReboundToToggle_RunsTheToggleNotTheDefault()
+    {
+        // The default fallback (B214) is for a bind that means nothing here; a `toggle` means something, so the
+        // user's config wins (D101). It fell back to `resetspeed`, and the key did not toggle.
+        ConfigConsole console = ConfigConsole.WithDefaults();
+        string home = KeyBindings.Defaults[ViewerAction.ResetSpeed];
+        List<string> set = [];
+        List<ViewerAction> fired = [];
+        console.ConVarSet += (_, e) => set.Add($"{e.Name} {e.Value}");
+        console.Triggered += (_, e) => fired.Add(e.Action);
+        console.Load($"bind \"{home}\" \"toggle cl_showpos\"");
+
+        console.KeyDown(home).ShouldBeTrue();
+
+        set.ShouldBe(["cl_showpos 1"]);
+        fired.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void KeyDown_TheScoreboardToggleAlias_HoldsOnOnePressAndReleasesOnTheNext()
+    {
+        // A toggle script of the owner's kind (a-config-is-a-program.md): the alias redefines itself as it runs, so
+        // one key means `+showscores` on one press and `-showscores` on the next.
+        ConfigConsole console = new();
+        console.Load(
+            """
+            alias +sb "+showscores; alias tog_sb -sb"
+            alias -sb "-showscores; alias tog_sb +sb"
+            alias tog_sb +sb
+            bind TAB tog_sb
+            """);
+
+        console.KeyDown("TAB").ShouldBeTrue();
+        console.KeyUp("TAB");
+        console.IsHeld(ViewerAction.ShowScores).ShouldBeTrue("the first press holds the scoreboard up");
+
+        console.KeyDown("TAB").ShouldBeTrue();
+        console.KeyUp("TAB");
+        console.IsHeld(ViewerAction.ShowScores).ShouldBeFalse("the second press takes it down");
+    }
 }

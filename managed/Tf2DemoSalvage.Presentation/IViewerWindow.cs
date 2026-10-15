@@ -134,10 +134,12 @@ public sealed record ViewerHost(
 /// <param name="IsChord">Whether a binding's key string names exactly this press, modifiers included.</param>
 /// <param name="IsEscape">Whether it is Escape alone.</param>
 /// <param name="Described">The press as the toolkit prints it, for the log.</param>
+/// <param name="IsRepeat">Whether it is the toolkit's auto-repeat of a key already down, which runs no bind.</param>
 public readonly record struct KeyPress(
     string Name,
     bool ControlOrAlt,
     FocusedWidget Focus,
     Func<string?, bool> IsChord,
     bool IsEscape,
-    string Described);
+    string Described,
+    bool IsRepeat = false);

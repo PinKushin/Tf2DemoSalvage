@@ -202,6 +202,9 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
         _console.Triggered += OnConsoleAction;
         _settingsOwner.Attach(_console);
 
+        // A key's set said in the log, as the menu's is (`SetRenderToggle`): which route set a ConVar was unanswerable (B547).
+        _console.ConVarSet += (_, set) => _renderLog.LogInformation("{Message}", $"{set.Name} {set.Value}");
+
         _playback.MomentChanged += (_, moment) =>
         {
             // **The tick drives the picture.** Scrubbing and playing both arrive here, so the
@@ -548,7 +551,7 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
             _dragFrom = (x, y);
         }
 
-        _console.KeyDown(button);
+        _ = _console.KeyDown(button);
     }
 
     /// <summary>The pointer moved over the viewport: turns the camera by how far, while a drag is on.</summary>
@@ -580,7 +583,11 @@ public sealed partial class ViewerSession : IFrameSteps, ILoadView, ICameraView,
 
     /// <summary>A key came up, wherever the focus is.</summary>
     /// <param name="key">Its Source name.</param>
-    public void KeyUp(string key) => _console.KeyUp(key);
+    public void KeyUp(string key)
+    {
+        _boundKeysDown.Remove(key);
+        _console.KeyUp(key);
+    }
 
     /// <summary>Shutdown's first step: tells background work to stop, and releases the corpse pass's source.</summary>
     /// <remarks>

@@ -1848,6 +1848,9 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
     /// <returns>Whether the key was handled.</returns>
     protected bool ProcessKey(ref Message msg, Keys keyData) => ProcessCmdKey(ref msg, keyData);
 
+    /// <summary>WM_KEYDOWN's lParam bit 30: the key was already down, so this is auto-repeat.</summary>
+    private const long PreviousKeyState = 1L << 30;
+
     /// <inheritdoc />
     /// <remarks>
     /// **What a key does is the session's** (`ViewerSession.KeyPressed`): which bound action it is, whether the focused
@@ -1866,7 +1869,8 @@ internal class MainForm : Form, IViewerWindow, IIdleHost
                     FocusKind(),
                     binding => pressed == KeyNames.Resolve(binding),
                     keyData == Keys.Escape,
-                    $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}"))
+                    $"{keyData} sent to {FromHandle(msg.HWnd)?.Name ?? "no control"}",
+                    ((long)msg.LParam & PreviousKeyState) != 0))
             || base.ProcessCmdKey(ref msg, keyData);
     }
 

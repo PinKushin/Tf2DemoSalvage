@@ -39556,3 +39556,23 @@ Garm3n). The player cards match; these do not:
   white box; the viewer draws every number white. That is `CTFHudPlayerHealth`'s bonus and dying animations
   (`HudHealthBonusPulse`), which a `--shot` — a paused frame — may simply not have run. *Measured; interpolated cause.*
 
+## B547 — a keyboard key's bind never ran: only mouse buttons and the free camera's flight keys reached the console — FIXED 2026-10-15 (`fix/keyboard-binds`)
+
+Found testing D218: `bind MOUSE3 "toggle cl_showpos"` worked, a keyboard key bound the same did nothing, and so did
+the owner's scoreboard toggle alias (D69 broken). Cause, *read*: `ViewerSession.KeyPressed` pressed a key into the
+console only when `FreeLook && ConfigConsole.IsHeldKey`; `PointerDown` always did. Not the menu, `WidgetKeys` or
+`ProcessCmdKey`. A second half: `CommandFor`'s default fallback (B214) treated a bind naming no `ViewerAction` as a
+no-op, so `bind HOME "toggle cl_showpos"` ran `resetspeed`.
+
+Fix: every key not kept by a focused widget is pressed into the console, except an auto-repeat (runs nothing, stays
+the bind's) and a CTRL/ALT chord (Source's `bind` has no modifiers). `ConfigConsole.KeyDown` reports whether the bind
+did something of its own (ConVar set, alias, button); if so the key is taken, so a viewer shortcut on it does not also
+fire (D101). A ConVar-setting or alias bind is no longer a no-op for the fallback. A key's ConVar set is now logged
+(`[render] cl_showpos 1`), as the menu's is. Tests: seven `ConfigConsoleConformanceTests` cases (what a bind did; HOME
+rebound to `toggle`; a self-redefining scoreboard alias), four `ViewerSessionTests` (keyboard `toggle`; one
+auto-repeat; CTRL held; a viewer default rebound), `KeyboardBindUiTests` (real F7/F6/F8 under a temp autoexec).
+Sabotage: no console press reddened the four session tests that need it; the fallback reverted reddened the HOME
+tests; repeats re-run and chords not excluded each reddened their own test. **Open:** the menu's check state does not
+follow a key's set (built once from settings); and camera mode and reset still compare keys rather than arrive
+through the console (B145's remaining half), so an alias cannot reach them. Findings: `13-settings-parity.md`.
+
