@@ -75,6 +75,38 @@ public sealed class SpectatorGuiCorpusTests
         offHost.List.Quads.Count.ShouldNotBe(onHost.List.Quads.Count);
     }
 
+    /// <summary>`engine->IsHLTV()` is the ServerInfo's `is_hltv`, carried — a POV and an STV recording of ONE session differ in it.</summary>
+    [Test]
+    public void IsSourceTv_PovAndStvOfOneSession_IsTheServerInfosFlag()
+    {
+        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-stv-koth_viaduct")).IsSourceTv.ShouldBeTrue();
+        TimelineCache.For(Corpus.Demo("tf2-2011-build4604-pov-koth_viaduct")).IsSourceTv.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// A POV match recording: the recorder dies, and after the freeze cam the server opens `specgui` for him
+    /// (tf_player.cpp:13992) — a `VGUIMenu` the demo carries. The panel shows from then until the server closes it on spawn.
+    /// </summary>
+    [Test]
+    public void SpectatorGuiShownAt_APovMatchRecorderWhoDies_FollowsTheServersVguiMenus()
+    {
+        DemoTimeline timeline = TimelineCache.For(Corpus.Demo("rgl-pug-2026-08-10-pov"));
+
+        timeline.IsSourceTv.ShouldBeFalse();
+        timeline.SpectatorGuiChanges.ShouldContain(change => change.Show, "a recorder in a real match dies at least once");
+        timeline.SpectatorGuiChanges.ShouldContain(change => !change.Show, "and spawns again");
+
+        (int opened, _) = timeline.SpectatorGuiChanges.First(change => change.Show);
+        HudState state = HudStates.For(timeline, opened);
+
+        state.SpectatorGuiShown.ShouldBeTrue();
+        TfSpectatorGui.IsShown(state).ShouldBeTrue();
+
+        // The control: the tick before it opened, from a closed panel or none at all.
+        TfSpectatorGui.IsShown(HudStates.For(timeline, opened - 1)).ShouldBe(timeline.SpectatorGuiShownAt(opened - 1));
+        timeline.SpectatorGuiShownAt(timeline.FirstTick - 1).ShouldBeFalse();
+    }
+
     private static int Inside(VguiSurfaceHost host, VguiPanel panel) => host.List.Quads.Count(quad =>
         quad.X0 >= panel.AbsX && quad.X1 <= panel.AbsX + panel.Wide && quad.Y0 >= panel.AbsY && quad.Y1 <= panel.AbsY + panel.Tall);
 

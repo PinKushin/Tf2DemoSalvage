@@ -59,6 +59,17 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     private bool _prevTournamentMode;
     private float _nextPlayerPanelUpdate;
     private string? _loadedRes;
+    private bool _newPlayerPanels;
+
+    /// <summary>Whether a card was made since the last call, which clears it — for the host to fill it once laid out.</summary>
+    /// <returns>Whether any card is new.</returns>
+    public bool TakeNewPlayerPanels()
+    {
+        bool taken = _newPlayerPanels;
+
+        _newPlayerPanels = false;
+        return taken;
+    }
 
     /// <summary>`CTFSpectatorGUI( pViewPort )`: the base's bars and label, then TF's labels, then the layout variables.</summary>
     /// <param name="parent">The viewport.</param>
@@ -140,7 +151,16 @@ public sealed class TfSpectatorGui : VguiEditablePanel
     /// </summary>
     /// <param name="state">The game state.</param>
     /// <returns>Whether it is visible.</returns>
-    public static bool IsShown(HudState state) => state.InGame && state.IsHltv && !state.Rules.ShowMatchSummary;
+    public static bool IsShown(HudState state) =>
+        state.InGame && (state.IsHltv || state.SpectatorGuiShown) && !state.Rules.ShowMatchSummary;
+
+    /// <summary>
+    /// `C_BasePlayer::GetLocalPlayer()->GetTeamNumber()`. On SourceTV the local player is the SourceTV client itself, a
+    /// spectator (team 1) — so a recording whose ServerInfo names no slot the timeline found still has one, on team 1.
+    /// </summary>
+    /// <param name="state">The game state.</param>
+    /// <returns>The local team.</returns>
+    public static int LocalTeam(HudState state) => state.IsHltv && !state.HasLocalPlayer ? TeamSpectator : state.Team;
 
     /// <inheritdoc/>
     /// <remarks>`CTFSpectatorGUI::ApplySettings` (:244): `playerpanels_kv` kept for every player panel made later.</remarks>
@@ -284,7 +304,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
             return;
         }
 
-        int localTeam = state.Team;
+        int localTeam = LocalTeam(state);
         bool mannVsMachine = state.Rules.MannVsMachine;
         int index = 0;
         List<SceneScoreboardPlayer> slots = [.. state.ScoreboardPlayers ?? []];
@@ -319,6 +339,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
                     }
 
                     _playerPanels.Add(panel);
+                    _newPlayerPanels = true;
                 }
 
                 _playerPanels[index].SetPlayerIndex(player.EntityIndex, state);
@@ -353,7 +374,7 @@ public sealed class TfSpectatorGui : VguiEditablePanel
         // "Try and always put the local player's team on team1, if he's in a team".
         int team1 = TeamBlue;
         int team2 = TeamRed;
-        int localTeam = TfPlayerPanel.ResourceTeam(state, state.LocalIndex);
+        int localTeam = state.LocalIndex > 0 ? TfPlayerPanel.ResourceTeam(state, state.LocalIndex) : LocalTeam(state);
 
         if (localTeam is TeamRed or TeamBlue)
         {
@@ -587,7 +608,10 @@ public sealed class TfPlayerPanel : VguiEditablePanel
                 health = player.Health;
             }
 
-            // "Calc respawn time remaining": the resource's time is the server's clock.
+            // "Calc respawn time remaining": `flRespawnAt - gpGlobals->curtime` (:150). The client's curtime in playback runs
+            // on its tick count, kept on the server's `net_Tick` — the clock `HudState.ServerTime` carries, and the one the
+            // target ID's respawn subtracts too (TfTargetId). `cl_interp` delays where entities are drawn, not `curtime`, so
+            // no lerp belongs here. **Interpolated:** the tick sync is in the closed engine and was not read for this.
             if (playerClass != 0 && !alive)
             {
                 respawnWait = (int)(player.NextRespawnTime - state.ServerTime);
@@ -661,6 +685,8 @@ public sealed class TfPlayerPanel : VguiEditablePanel
 
             if (respawnWait < 0)
             {
+                // No `bChanged` on the clear (tf_playerpanel.cpp:234-237): only setting a time asks for a layout. A clear
+                // comes with a respawn, whose change of alive (:168) asks for it anyway.
                 SetDialogVariable("respawntime", string.Empty);
             }
             else

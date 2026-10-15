@@ -36713,7 +36713,8 @@ passes `ShouldFlipViewModel` as false (RISKS line ~21659, "implements no left-ha
 **Closed by porting `CTFSpectatorGUI` and `CTFPlayerPanel`** (`TfSpectatorGui`, `TfPlayerPanel`; findings 64, "The
 spectator GUI"). The tournament cards are not the stock look: `InTournamentGUI` needs `mp_tournament`, not a matchmaking
 match, and `cl_use_tournament_specgui` — archived, default **0** — which the owner's `config.cfg` sets to 1. A stock
-client draws `Spectator.res`'s plain bars over the same demo. *Golden pair*, f12 (TF2's `tf/f12.dem`) at TF2's tick
+client draws `Spectator.res`'s plain bars over the same demo. The panel shows on SourceTV (ServerInfo `is_hltv`, carried
+as `DemoTimeline.IsSourceTv`) and on a POV demo while the server's last `VGUIMenu` for `specgui` has it open. *Golden pair*, f12 (TF2's `tf/f12.dem`) at TF2's tick
 60003, gummo in-eye, Garm3n in both (`--hud`): every card's name, health, respawn seconds, charge, portrait and team
 border matches. **Left over, filed as B546:** the control-point lock row, the target ID's health number, and the
 overheal colour of a card's health. Held by `TfSpectatorGuiConformanceTests` and `SpectatorGuiCorpusTests`.

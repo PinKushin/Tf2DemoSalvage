@@ -70,7 +70,8 @@ public static class HudStates
             Buildings = timeline.BuildingsAt(tick),
             IdEntities = timeline.IdEntitiesAt(tick),
             ScoreboardPlayers = timeline.ScoreboardPlayersAt(tick),
-            IsHltv = !timeline.HasRecordedView,
+            IsHltv = timeline.IsSourceTv,
+            SpectatorGuiShown = timeline.SpectatorGuiShownAt(tick),
 
             // Replicated cvars: what the server sent, or Valve's declared default (FCVAR_REPLICATED, iconvar.h).
             ConVars = new HudConVars(timeline.ServerConVars.Value),

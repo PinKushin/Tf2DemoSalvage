@@ -47,6 +47,45 @@ public sealed class TfSpectatorGuiConformanceTests
         TfSpectatorGui.IsShown(state).ShouldBe(expected);
     }
 
+    [TestCase(false, true, false, true)]
+    [TestCase(false, false, false, false)]
+    [TestCase(false, true, true, false)]
+    public void IsShown_APovRecorderTheServerOpenedItFor_ShowsUntilTheMatchSummary(bool hltv, bool opened, bool summary, bool expected)
+    {
+        // `ShowViewPortPanel( "specgui", ... )` (player.cpp:2294, tf_player.cpp:13992) reaches a POV recorder as a VGUIMenu.
+        HudState state = State(true, true) with
+        {
+            IsHltv = hltv,
+            SpectatorGuiShown = opened,
+            Rules = new SceneGameRules(false, 0, false) { ShowMatchSummary = summary },
+        };
+
+        TfSpectatorGui.IsShown(state).ShouldBe(expected);
+    }
+
+    [Test]
+    public void RecalculatePlayerPanels_AnStvDemoWithNoLocalSlotFound_StillListsBothTeams()
+    {
+        // The local player on SourceTV is the SourceTV client, team 1 — even where the timeline found no slot for it, which
+        // leaves `HudState.Team` 0 and would otherwise fail `iTeam != iLocalTeam && iLocalTeam != TEAM_SPECTATOR`.
+        (TfSpectatorGui gui, HudState state) = Built();
+
+        Frame(gui, state with { HasLocalPlayer = false, Team = 0, LocalIndex = 0 });
+
+        gui.PlayerPanels.Count(panel => panel.Visible).ShouldBe(3);
+    }
+
+    [Test]
+    public void TakeNewPlayerPanels_AfterCardsAreMade_IsTrueOnceThenFalse()
+    {
+        (TfSpectatorGui gui, HudState state) = Built();
+
+        gui.Update(state);
+
+        gui.TakeNewPlayerPanels().ShouldBeTrue();
+        gui.TakeNewPlayerPanels().ShouldBeFalse();
+    }
+
     [Test]
     public void RecalculatePlayerPanels_ForAnStvSpectator_OrdersByClassMenuAndPlacesBluAsTeam1()
     {

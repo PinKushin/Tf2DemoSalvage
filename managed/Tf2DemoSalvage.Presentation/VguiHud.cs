@@ -319,16 +319,21 @@ public sealed class VguiHud
 
         if (!paint)
         {
-            // **The spectator GUI is still laid out on a skipped frame.** Its player cards are made by one update, take
-            // their scheme (and find their `classimage`) on that frame's layout, and are filled only by a later update —
-            // throttled to `curtime + 0.1` (tf_spectatorgui.cpp:332). TF2 draws the frames of a `demo_gototick`, so by the
-            // landing the cards are filled; a `--shot` is a PAUSED frame whose curtime never passes the throttle, so cards
-            // made while skipping without a layout stayed blank — grey, with the `.res`'s placeholder portrait (B516).
-            VguiLayout.SolveTraverse(SpectatorGui, _context);
             return;
         }
 
         VguiLayout.SolveTraverse(Viewport, _context);
+
+        // **A player card made this frame is filled before it is painted.** Cards are made by an update, take their scheme
+        // (and find their `classimage`) on the layout just run, and are filled only by a later update throttled to
+        // `curtime + 0.1` (tf_spectatorgui.cpp:332). TF2 shows a new card unfilled for that tenth of a second; a `--shot` is
+        // a PAUSED frame whose curtime never passes the throttle, so it painted cards grey with the `.res`'s placeholder
+        // portrait for ever (B516). **Interpolated:** the fill TF2 makes on its next update is made here on this frame.
+        if (SpectatorGui.TakeNewPlayerPanels())
+        {
+            SpectatorGui.UpdatePlayerPanels(state);
+            VguiLayout.SolveTraverse(Viewport, _context);
+        }
 
         // A seek lands where the game, skipping forward through every packet, would have had the last
         // `teamplay_update_timer`; the feed replays only a short window, so the panels it sets are brought up to date here.

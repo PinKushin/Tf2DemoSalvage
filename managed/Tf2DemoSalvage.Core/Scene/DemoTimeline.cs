@@ -2316,6 +2316,35 @@ public sealed class DemoTimeline
     /// </remarks>
     public uint? MapCrc { get; private init; }
 
+    /// <summary>`engine->IsHLTV()`: the demo's `svc_ServerInfo` `is_hltv`, as written — false with no ServerInfo.</summary>
+    public bool IsSourceTv { get; private init; }
+
+    /// <summary>The user message the server opens a viewport panel with — `CBasePlayer::ShowViewPortPanel`.</summary>
+    private const string SpectatorGuiMenu = "VGUIMenu";
+
+    /// <summary>Every `VGUIMenu` for `specgui` the recorder was sent, in tick order: whether it opened or closed the panel.</summary>
+    public IReadOnlyList<(int Tick, bool Show)> SpectatorGuiChanges { get; private init; } = [];
+
+    /// <summary>Whether the server had the spectator GUI open at a tick: the last `specgui` `VGUIMenu` at or before it.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>Its show flag, or false before the first.</returns>
+    public bool SpectatorGuiShownAt(int tick)
+    {
+        bool shown = false;
+
+        foreach ((int at, bool show) in SpectatorGuiChanges)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            shown = show;
+        }
+
+        return shown;
+    }
+
     /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
     /// <remarks>
     /// **What selects an old demo's content era** (B380, D160). A networked sequence number indexes the
@@ -2754,6 +2783,7 @@ public sealed class DemoTimeline
         int? recorderSlot = null;
         int maxClients = 0;
         uint? mapCrc = null;
+        bool isSourceTv = false;
         IReadOnlyList<byte>? mapHash = null;
 
         // **What the server had its replicated ConVars set to** (D106). Built here rather than by
@@ -2778,6 +2808,7 @@ public sealed class DemoTimeline
         // The game events, each sharing one copy of the roster until the roster next changes.
         List<SceneGameEvent> gameEvents = [];
         List<SceneUserMessage> userMessages = [];
+        List<(int Tick, bool Show)> spectatorGuiChanges = [];
         IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent = null;
 
         int walked = 0;
@@ -2875,6 +2906,7 @@ public sealed class DemoTimeline
                         // D113, which cost an evening of chasing rendering defects that were a
                         // mismatched map (finding 41).
                         mapCrc = server.MapCrc;
+                        isSourceTv = server.IsSourceTv;
                         mapHash = server.MapHash;
 
                         // **Which entity the recording was made from**, named by the demo rather
@@ -2921,6 +2953,14 @@ public sealed class DemoTimeline
 
                     case UserMessage { UserMessageType: SceneUserMessage.SayText or SceneUserMessage.SayText2 or SceneUserMessage.TextMsg } user:
                         userMessages.Add(new SceneUserMessage(command.Tick, user.UserMessageType, user.Body));
+                        continue;
+
+                    // **`ShowViewPortPanel( "specgui", ... )`** — the server opening or closing the spectator GUI for the
+                    // recorder (player.cpp:2260, :2294; tf_player.cpp:13992 after the freeze cam), as `__MsgFunc_VGUIMenu`
+                    // reads it (B516). SourceTV is never sent one; it shows the panel itself at `game_newmap`.
+                    case UserMessage { Name: SpectatorGuiMenu, Fields: { } menu }
+                        when menu.Any(field => field is { Key: "panel", Value: "specgui" }):
+                        spectatorGuiChanges.Add((command.Tick, menu.Any(field => field is { Key: "show", Value: true })));
                         continue;
 
                     case UserMessage { Name: SceneUserMessage.PlayerPickupWeapon } pickup:
@@ -4087,6 +4127,7 @@ public sealed class DemoTimeline
             Roster = everyone,
             GameEvents = gameEvents,
             UserMessages = userMessages,
+            SpectatorGuiChanges = spectatorGuiChanges,
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
@@ -4110,6 +4151,7 @@ public sealed class DemoTimeline
             UserCommands = userCommands,
             PacketAcknowledgements = packetAcknowledgements,
             MapCrc = mapCrc,
+            IsSourceTv = isSourceTv,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
             FlagLayout = PlayerFlagLayout.For(schema),
