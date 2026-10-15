@@ -90,6 +90,23 @@ multiplied by it, so every such sprite drew at a tone-map scale of one, ~1.4x to
 whose texture falls off gently turns a gain error into a radius error: the white disc was twice as wide. With the scale
 applied and bloom off, the sun matches TF2 to the pixel count. The rest is bloom, filed in finding 76.
 
+**Wrong, and kept: the pixel-count match was a coincidence** (*measured*, `fix/bloom-strength`). TF2's 4,984 was taken
+right after a map change, with auto-exposure still climbing. Settled TF2 frames at the same camera, with the radial
+profile in linear luminance ×1000 per 40 px ring about the sun:
+
+| capture | white px, bloom off / on | ring 120-160: off, bloom's add | ring 400-440: off, add |
+|---|---|---|---|
+| TF2, settled | 12,213 / 18,629 | 742.8, +34.3 | 339.0, +9.8 |
+| ours, forced 0.7 | 4,956 / 14,725 | 604.0, +89.6 | 231.1, +17.1 |
+| ours, forced 1 | — / 75,891 | 841.9, +68.5 | 328.3, +35.5 |
+
+TF2's bloom-off rings fall between ours at 0.7 and at 1, closest to 0.9, the map's `SetAutoExposureMax`; a sky patch
+reads 334.6 against ours 244.0 at 0.7 and 348.6 at 1. So TF2 was not at the 0.7 its `mat_hdr_tonemapscale` printed.
+The sprite fix stands on its shader citation, not on the count. **And bloom is genuinely stronger in ours**: both sides
+run bloom amount 0.1 (lakeside's `SetBloomScale .1`; ours logs 0.1002), yet over a DARKER base ours adds 2.6x TF2's
+near the sun and 1.7x far out, at a brighter one 3.6x. A ratio near 1/0.3 points at `mat_non_hdr_bloom_scalefactor`
+(`viewpostprocess.cpp:1459-1463`), which applies only under `HDR_TYPE_NONE` — *interpolated*, not yet tested in TF2.
+
 ## An instrument that lied
 
 The first two screenshots of lakeside were byte-for-byte the recorder's view, from two different `TF2VIEW_CAMERA`

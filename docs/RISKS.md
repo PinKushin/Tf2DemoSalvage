@@ -32486,6 +32486,14 @@ arithmetic; it has NOT been confirmed by watching.*
 
 ### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
 
+**2026-10-14, correction (`fix/bloom-strength`) — the 4,984 reference was an UNSETTLED TF2 frame, so "4,999 with
+bloom off matches" was a coincidence.** It was captured right after a map change, before auto-exposure settled.
+Settled TF2 frames at the same camera (fov 90, `mat_hdr_level 2`) count 12,213 white pixels with bloom off and 18,629
+with it on; ours at a forced 0.7 count 4,956 and 14,725. Linear luminance of the bloom-off frames says TF2 sits near
+0.9 (the map's `SetAutoExposureMax`), not the 0.7 its `mat_hdr_tonemapscale` read: sky patch 334.6 against ours 244.0
+at 0.7 and 348.6 at 1; wall 149.3 against 99.4 / 141.9. **The sprite tone-map scale fix stands on its shader citation
+(below), not on that number.** The bloom itself is still ~3x TF2's after exposure is accounted for (finding 77).
+
 **2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
 scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
 30,512 here. Two causes, separated by measurement (`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`):
