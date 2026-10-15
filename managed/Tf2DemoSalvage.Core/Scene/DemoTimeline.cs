@@ -2707,8 +2707,14 @@ public sealed class DemoTimeline
         /// <param name="everyTicks">The spacing between checkpoints.</param>
         /// <param name="lookbackTicks">How much output before a checkpoint it keeps for readers that look back.</param>
         /// <param name="client">The viewer's interpolation settings.</param>
+        /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
-        public static Checkpoints? Walk(ReadOnlyMemory<byte> file, int everyTicks, int lookbackTicks, ClientInterp? client = null)
+        public static Checkpoints? Walk(
+            ReadOnlyMemory<byte> file,
+            int everyTicks,
+            int lookbackTicks,
+            ClientInterp? client = null,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
             if (Start(file, null, client ?? new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
             {
@@ -2741,7 +2747,7 @@ public sealed class DemoTimeline
                     builder.Run(commands.Skip(from).Take(index - from));
                     from = index;
                     builder.Trim(tick - lookbackTicks);
-                    checkpoints.Add((index, tick, builder.Checkpoint(prior, out prior)));
+                    checkpoints.Add((index, tick, builder.Checkpoint(prior, out prior, created)));
                     next = tick + everyTicks;
                 }
             }
@@ -4618,7 +4624,9 @@ public sealed class DemoTimeline
             userCommands.DropBefore(command => command.Tick, cut);
             packetAcknowledgements.DropBefore(ack => ack.Tick, cut);
             conVarHistory.DropBefore(change => change.Tick, cut);
-            viewmodels.DropBefore(sample => sample.Tick, cut);
+            // By stream: `viewmodels` interleaves every player's two hands, each written only on CHANGE, so the record in
+            // force for one can sit far behind the cut — a plain tick cut lost it (f12: 50 of 80 seeks differed).
+            viewmodels.DropBefore(sample => sample.Tick, sample => (sample.Weapon.OwnerEntityIndex, sample.Weapon.IsMainHand), cut);
             fogSamples.DropBefore(sample => sample.Tick, cut);
             gameEvents.DropBefore(fired => fired.Tick, cut);
             userMessages.DropBefore(message => message.Tick, cut);
@@ -4632,10 +4640,14 @@ public sealed class DemoTimeline
         /// </remarks>
         /// <param name="prior">The previous checkpoint's copy map, whose unchanged objects this one shares; null for none.</param>
         /// <param name="copies">This checkpoint's copy map, for the next.</param>
-        public Builder Checkpoint(Dictionary<object, object>? prior, out Dictionary<object, object> copies)
+        /// <param name="created">When given, counts what the checkpoint creates rather than shares, by type.</param>
+        public Builder Checkpoint(
+            Dictionary<object, object>? prior,
+            out Dictionary<object, object> copies,
+            Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
             lease.Refuse("checkpoint");
-            return StateCopy.Of(this, SharedInputs(), prior, out copies);
+            return StateCopy.Of(this, SharedInputs(), prior, out copies, created);
         }
 
         /// <summary>A builder resumed from a checkpoint, which stays untouched for the next resume.</summary>

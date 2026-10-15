@@ -50,6 +50,40 @@ internal sealed class TailList<T> : IReadOnlyList<T>, ITailList
     public List<T> HandOut() => _items;
 
     /// <summary>
+    /// As <see cref="DropBefore(Func{T, int}, int)"/>, but for a list that interleaves several streams written only on
+    /// change: before the cut, each stream's LAST element is kept, since it is what is in force at the cut.
+    /// </summary>
+    /// <typeparam name="TKey">What names a stream.</typeparam>
+    /// <param name="tickOf">An element's tick; the list is in tick order.</param>
+    /// <param name="streamOf">An element's stream.</param>
+    /// <param name="cut">The earliest tick still to be answered.</param>
+    public void DropBefore<TKey>(Func<T, int> tickOf, Func<T, TKey> streamOf, int cut)
+    {
+        HashSet<TKey> seen = [];
+        List<T> kept = [];
+
+        // Walked backwards from the cut: the first of each stream met is its last before the cut.
+        int before = _items.FindLastIndex(item => tickOf(item) < cut);
+
+        for (int index = before; index >= 0; index--)
+        {
+            if (seen.Add(streamOf(_items[index])))
+            {
+                kept.Add(_items[index]);
+            }
+        }
+
+        if (before < 0 || kept.Count == before + 1)
+        {
+            return;
+        }
+
+        kept.Reverse();
+        _items.RemoveRange(0, before + 1);
+        _items.InsertRange(0, kept);
+    }
+
+    /// <summary>
     /// Drops the front of the list up to the last element stamped before <paramref name="cut"/>, which is kept as the
     /// value in force there (D217 step 3). The last element is never dropped.
     /// </summary>

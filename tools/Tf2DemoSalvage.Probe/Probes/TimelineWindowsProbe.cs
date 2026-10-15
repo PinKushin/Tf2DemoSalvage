@@ -55,9 +55,16 @@ public sealed class TimelineWindowsProbe : IProbe
 
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, lookbackTicks)!;
+        Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, lookbackTicks, created: created)!;
         walk.Stop();
         long heapAfter = Live();
+
+        // What checkpoints after the first CREATE rather than share — the source of the retained heap — by type.
+        foreach ((Type type, (long objects, long elements)) in (created ?? []).OrderByDescending(entry => entry.Value.Elements).Take(15))
+        {
+            output.WriteLine($"    created {objects,12:N0} objects {elements,14:N0} elements  {type}");
+        }
         int[] ticks = [.. checkpoints.Ticks];
         (long total, long largest) = checkpoints.Cost();
 
@@ -103,15 +110,20 @@ public sealed class TimelineWindowsProbe : IProbe
 
                 if (hash != TimelineFingerprint.OfAnswer(actual[index].Answer).Hash)
                 {
-                    if (!byQuestion.ContainsKey(expected[index].Question))
+                    if (!byQuestion.Keys.Any(key => key.StartsWith(expected[index].Question + " ", StringComparison.Ordinal)))
                     {
                         // The first difference per question, as values: what to look at, not a count.
                         output.WriteLine($"    first {expected[index].Question} at {tick:0.00} (window {window.FirstTick}..{window.LastTick}): " +
-                            $"whole {Describe(expected[index].Answer)} / window {Describe(actual[index].Answer)}");
+                            $"whole {FirstDifference(expected[index].Answer, actual[index].Answer)} / window {FirstDifference(actual[index].Answer, expected[index].Answer)}");
                     }
 
                     differs = true;
-                    byQuestion[expected[index].Question] = byQuestion.GetValueOrDefault(expected[index].Question) + 1;
+
+                    // Keyed by the first differing FIELD too, so a single cause is told from several.
+                    string field = System.Text.RegularExpressions.Regex.Match(
+                        FirstDifference(expected[index].Answer, actual[index].Answer), @": (\w+)(=|\.\{)", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1)).Groups[1].Value;
+                    string key = $"{expected[index].Question} {field}";
+                    byQuestion[key] = byQuestion.GetValueOrDefault(key) + 1;
                 }
             }
 
@@ -122,16 +134,60 @@ public sealed class TimelineWindowsProbe : IProbe
 
         foreach ((string question, int count) in byQuestion.OrderByDescending(entry => entry.Value))
         {
-            output.WriteLine($"    {question,-16} differs at {count}");
+            output.WriteLine($"    {question,-30} differs at {count}");
         }
 
         output.WriteLine(differing == 0 ? "  IDENTICAL" : "  DIFFERENT");
     }
 
+    private static string FirstDifference(object? answer, object? other)
+    {
+        // Two lists: the first element that differs, which is what to look at.
+        if (answer is System.Collections.IList items && other is System.Collections.IList others)
+        {
+            for (int index = 0; index < Math.Min(items.Count, others.Count); index++)
+            {
+                if (TimelineFingerprint.OfAnswer(items[index]).Hash != TimelineFingerprint.OfAnswer(others[index]).Hash)
+                {
+                    return $"[{index}] of {items.Count}: {Fields(items[index], others[index])}";
+                }
+            }
+        }
+
+        return Describe(answer);
+    }
+
+    // The public properties, nested one level, whose hashes differ — named, with this side's value.
+    private static string Fields(object? item, object? other)
+    {
+        if (item is null || other is null || item.GetType() != other.GetType())
+        {
+            return Describe(item);
+        }
+
+        List<string> differing = [];
+
+        foreach (System.Reflection.PropertyInfo property in item.GetType().GetProperties()
+                     .Where(property => property.GetIndexParameters().Length == 0 && !property.PropertyType.IsByRefLike))
+        {
+            object? mine = property.GetValue(item);
+            object? theirs = property.GetValue(other);
+
+            if (TimelineFingerprint.OfAnswer(mine).Hash != TimelineFingerprint.OfAnswer(theirs).Hash)
+            {
+                differing.Add(mine is not null && !mine.GetType().IsPrimitive && !mine.GetType().IsEnum && mine is not string && mine is not System.Collections.IEnumerable
+                    ? $"{property.Name}.{{{Fields(mine, theirs)}}}"
+                    : $"{property.Name}={Describe(mine)}");
+            }
+        }
+
+        return $"entity {item.GetType().GetProperty("EntityIndex")?.GetValue(item)}: {string.Join("; ", differing)}";
+    }
+
     private static string Describe(object? answer)
     {
         string text = answer is System.Collections.ICollection items ? $"{items.Count} items" : $"{answer}";
-        return text.Length > 160 ? text[..160] : text;
+        return text.Length > 700 ? text[..700] : text;
     }
 
     // As `timeline-holders` measures: the heap after a full compacting collection.

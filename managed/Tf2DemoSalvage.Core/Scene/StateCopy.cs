@@ -54,14 +54,21 @@ internal static class StateCopy
     /// are never written after they are made (a resume copies its checkpoint again), which is what makes sharing them
     /// between checkpoints safe.
     /// </remarks>
-    public static T Of<T>(T source, IReadOnlySet<object> share, Dictionary<object, object>? prior, out Dictionary<object, object> copies)
+    /// <param name="created">When given, filled with what the copy CREATED rather than reused, by type — the diagnostic for
+    /// what a checkpoint costs beyond the one before.</param>
+    public static T Of<T>(
+        T source,
+        IReadOnlySet<object> share,
+        Dictionary<object, object>? prior,
+        out Dictionary<object, object> copies,
+        Dictionary<Type, (long Objects, long Elements)>? created = null)
         where T : class
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(share);
 
         copies = new(ReferenceEqualityComparer.Instance);
-        Reuse reuse = new(share, prior);
+        Reuse reuse = new(share, prior, created);
 
         T copy = (T)Copy(source, share, copies, reuse)!;
         reuse.MapReused(copies);
@@ -69,9 +76,19 @@ internal static class StateCopy
     }
 
     /// <summary>Whether an original still equals its earlier copy, memoised over one copy.</summary>
-    private sealed class Reuse(IReadOnlySet<object> share, Dictionary<object, object>? prior)
+    private sealed class Reuse(IReadOnlySet<object> share, Dictionary<object, object>? prior, Dictionary<Type, (long Objects, long Elements)>? created)
     {
         private readonly Dictionary<object, bool> _same = new(ReferenceEqualityComparer.Instance);
+
+        /// <summary>Counts a NEW object (an array counts its elements), when the caller asked what a copy creates.</summary>
+        public void Created(Type type, long elements)
+        {
+            if (created is not null)
+            {
+                (long objects, long count) = created.GetValueOrDefault(type);
+                created[type] = (objects + 1, count + elements);
+            }
+        }
 
         /// <summary>The earlier copy of <paramref name="original"/>, when it can stand for a copy made now.</summary>
         public object? Unchanged(object original) =>
@@ -312,6 +329,7 @@ internal static class StateCopy
         if (value is Array array)
         {
             Array copy = Array.CreateInstance(type.GetElementType()!, LengthsOf(array));
+            reuse.Created(type, array.Length);
             copies[value] = copy;
 
             if (HasReferences(type.GetElementType()!) && array.Rank > 1)
@@ -336,6 +354,7 @@ internal static class StateCopy
         }
 
         object instance = RuntimeHelpers.GetUninitializedObject(type);
+        reuse.Created(type, 1);
         copies[value] = instance;
 
         return CopyFields(value, instance, share, copies, reuse);
