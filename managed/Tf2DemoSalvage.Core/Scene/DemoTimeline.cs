@@ -2706,6 +2706,7 @@ public sealed class DemoTimeline
         /// <param name="file">The whole demo file.</param>
         /// <param name="everyTicks">The spacing between checkpoints.</param>
         /// <param name="lookbackTicks">How much output before a checkpoint it keeps for readers that look back.</param>
+        /// <param name="trackLookbackTicks">How much track history before a checkpoint it keeps: past any interpolation delay.</param>
         /// <param name="client">The viewer's interpolation settings.</param>
         /// <param name="created">When given, counts what every checkpoint after the first creates rather than shares, by type.</param>
         /// <returns>The checkpoints, or null for a demo with no data tables.</returns>
@@ -2713,6 +2714,7 @@ public sealed class DemoTimeline
             ReadOnlyMemory<byte> file,
             int everyTicks,
             int lookbackTicks,
+            int trackLookbackTicks = int.MaxValue,
             ClientInterp? client = null,
             Dictionary<Type, (long Objects, long Elements)>? created = null)
         {
@@ -2746,7 +2748,7 @@ public sealed class DemoTimeline
                 {
                     builder.Run(commands.Skip(from).Take(index - from));
                     from = index;
-                    builder.Trim(tick - lookbackTicks);
+                    builder.Trim(tick - lookbackTicks, tick - Math.Min(lookbackTicks, trackLookbackTicks));
                     checkpoints.Add((index, tick, builder.Checkpoint(prior, out prior, created)));
                     next = tick + everyTicks;
                 }
@@ -4605,19 +4607,26 @@ public sealed class DemoTimeline
         /// baselines, string tables, feeds in flight) plus each output's tail. Sounds are kept whole, because a loop
         /// started long ago is still playing (`docs/memory/a-loop-is-state-not-an-event.md`); they are small.
         /// </remarks>
-        public void Trim(int cut)
+        /// <param name="trackCut">
+        /// The same for track histories, which need far less: only what the interpolation reaches back over (one delay and
+        /// the spline's older samples). Measured on f12, histories kept for a 4 s lookback were most of what every
+        /// checkpoint copied afresh, because every moving track's histories change between two checkpoints.
+        /// </param>
+        public void Trim(int cut, int trackCut)
         {
             lease.Refuse("trim");
 
             foreach (ScenePropTrack track in props.Concat(playerTracks))
             {
-                track.TrimBefore(cut);
+                track.TrimBefore(trackCut);
             }
 
-            props.RemoveAll(track => track.EndTick <= cut);
-            playerTracks.RemoveAll(track => track.EndTick <= cut);
+            props.RemoveAll(track => track.EndTick <= trackCut);
+            playerTracks.RemoveAll(track => track.EndTick <= trackCut);
 
-            frames.DropBefore(frame => frame.Tick, cut);
+            // Frames at the TRACK cut: a frame answers its own tick, and every frame between the two cuts was copied afresh
+            // at every checkpoint (f12: their players and scoreboards were 77,403 new arrays a walk).
+            frames.DropBefore(frame => frame.Tick, trackCut);
             soundscapes.DropBefore(sample => sample.Tick, cut);
             director.DropBefore(shot => shot.Tick, cut);
             viewCommands.DropBefore(command => command.Tick, cut);

@@ -51,12 +51,12 @@ public sealed class TimelineWindowsProbe : IProbe
         int everyTicks = (int)(every / Interval);
         int lookbackTicks = (int)(lookback / Interval);
 
-        output.WriteLine($"{Path.GetFileName(path)} ({demo.Length / 1048576d:0.0} MB): a checkpoint every {everyTicks} ticks, lookback {lookbackTicks}");
+        output.WriteLine($"{Path.GetFileName(path)} ({demo.Length / 1048576d:0.0} MB): a checkpoint every {everyTicks} ticks, lookback {lookbackTicks}, tracks {TrackLookbackTicks}");
 
         long heapBefore = Live();
         Stopwatch walk = Stopwatch.StartNew();
         Dictionary<Type, (long Objects, long Elements)>? created = costOnly ? [] : null;
-        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, lookbackTicks, created: created)!;
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, everyTicks, lookbackTicks, TrackLookbackTicks, created: created)!;
         walk.Stop();
         long heapAfter = Live();
 
@@ -139,6 +139,9 @@ public sealed class TimelineWindowsProbe : IProbe
 
         output.WriteLine(differing == 0 ? "  IDENTICAL" : "  DIFFERENT");
     }
+
+    /// <summary>One second of track history: past `cl_interp`'s ceiling, plus the spline's older samples.</summary>
+    private const int TrackLookbackTicks = 67;
 
     private static string FirstDifference(object? answer, object? other)
     {

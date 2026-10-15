@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 using Tf2DemoSalvage.Core.Scene;
 
@@ -66,6 +68,49 @@ public sealed class TailListTests
         list.DropBefore(entry => entry.Tick, entry => entry.Stream, 25);
 
         list.ShouldBe([(10, 'A'), (20, 'B'), (30, 'A')]);
+    }
+
+    /// <remarks>
+    /// **Across chunk boundaries** (chunks of 1,024): 3,000 elements, a cut dropping 1,500 of them and the last removed,
+    /// read back in order with the right count.
+    /// </remarks>
+    [Test]
+    public void DropBefore_AcrossChunks_KeepsOrderAndCount()
+    {
+        TailList<int> list = [];
+
+        for (int value = 0; value < 3000; value++)
+        {
+            list.Add(value);
+        }
+
+        list.DropBefore(tick => tick, 1501);
+        list.RemoveAt(list.Count - 1);
+
+        list.ShouldBe(Enumerable.Range(1500, 1499));
+    }
+
+    /// <remarks>
+    /// **What the chunks are for**: a second checkpoint of a grown list shares every full chunk with the first (D217 step 3),
+    /// so copying a long append-only list again costs one chunk, not the list.
+    /// </remarks>
+    [Test]
+    public void StateCopy_TwoCopiesOfAGrownList_ShareTheFullChunks()
+    {
+        TailList<int> list = [];
+
+        for (int value = 0; value < 2500; value++)
+        {
+            list.Add(value);
+        }
+
+        StateCopy.Of(list, new HashSet<object>(), prior: null, out Dictionary<object, object> map);
+        list.Add(2500);
+        Dictionary<Type, (long Objects, long Elements)> created = [];
+        TailList<int> later = StateCopy.Of(list, new HashSet<object>(), map, out _, created);
+
+        created[typeof(int[])].ShouldBe((1, 1024));
+        later.ShouldBe(Enumerable.Range(0, 2501));
     }
 
     /// <remarks>**The last element is never dropped**: the builder may still replace it, whatever its tick.</remarks>
