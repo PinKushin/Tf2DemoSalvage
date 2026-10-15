@@ -1,6 +1,6 @@
-# Tf2DemoSalvage 0.1.0-beta.43
+# Tf2DemoSalvage 0.1.0-beta.44
 
-## Changes since 0.1.0-beta.43
+## Changes in 0.1.0-beta.44
 
 - **Volume control.** View > Volume sets the sound volume in tenths, and `volume` works as in TF2: in a config,
   as `+volume 0.5` at launch, and in binds such as `bind m "toggle volume 0 1"` or `incrementvar volume 0 1 0.1`.
@@ -647,8 +647,9 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
   hours (the 1.3 GB and 2 GB specimens found so far) works in the command-line tool, but the
   viewer's timeline still needs too much memory to open them (B449, B439). A typical match now needs
   much less than before (D217: the f12 timeline is 21 times the file, down from 34).
-- **The viewer needs a lot of memory.** A typical modern match used about 4 GB once loaded (B433,
-  B407) before the D217 savings; no new whole-viewer figure has been measured yet. See *Requirements*.
+- **The viewer needs a lot of memory.** Measured 2026-10-15 on a 58 MB six-versus-six match: about 9 GB at the
+  peak while it loads (10.4 GB in 0.1.0-beta.43) and about 6.4 GB once playing. The "about 4 GB" these notes gave
+  before was wrong. See *Requirements* (B433, B407, B449).
 - **A truncated 2007 SourceTV schema is only completed for the one build known to truncate it**
   (build 3258). Another launch-era SourceTV demo with a cut schema would be refused with a message
   saying so (B24).
@@ -693,7 +694,8 @@ Things a user is likely to notice. Each has an entry in `docs/RISKS.md` in the r
 ## Requirements
 
 - **Windows 10 or 11, x64**, with a Direct3D 11 GPU.
-- **8 GB of RAM minimum, 16 GB recommended.** The viewer holds about 4 GB with a full match loaded (B433).
+- **16 GB of RAM.** A full match peaks at about 9 GB while it loads and holds about 6.4 GB while playing (measured
+  2026-10-15, B433). With 8 GB the system pages heavily or the viewer runs out of memory.
 - **Nothing else to install.** Both programs carry their own copy of .NET, so no runtime download is
   needed; unzip and run.
 - **Your own Team Fortress 2 install**, for the viewer. Nothing from the game is included — no maps,
