@@ -79,9 +79,9 @@
 - [Ask whether it still follows the pattern](ask-whether-it-still-follows-the-pattern.md); [ask about the entity you are drawing](ask-about-the-entity-you-are-drawing.md).
 - [Measure the route before building on it](measure-the-route-before-building-on-it.md); [prove the equivalence before building it](prove-the-equivalence-before-building-it.md).
 - [One look can be two mechanisms](one-look-can-be-two-mechanisms.md).
-- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA + --shot; a still is PAUSED. [Take the golden shot, don't ask](take-the-golden-shot-dont-ask.md).
+- [Take your own screenshot](take-your-own-screenshot.md) — TF2VIEW_CAMERA + --shot; a still is PAUSED. [Take the golden shot, don't ask](take-the-golden-shot-dont-ask.md); [delete captures after measuring](delete-captures-after-measuring.md).
 - [Engine reader before implementer](engine-reader-before-implementer.md) — sonnet quotes the SDK to a scratch file; opus ports from it; no bulk Ghidra renames.
-- [Subagent models](one-subagent-and-prefer-cheap-models.md) — opus implements (D196), one at a time; [review subagents deeply](review-subagents-deeply.md); [read the diff before merging agent work](read-the-diff-before-merging-agent-work.md); [no interim status replies](no-interim-status-replies.md).
+- [Subagent models](one-subagent-and-prefer-cheap-models.md) — opus implements (D196), one at a time; [review subagents deeply](review-subagents-deeply.md); [read the diff before merging agent work](read-the-diff-before-merging-agent-work.md); [review for recall](review-for-recall.md); [no interim status replies](no-interim-status-replies.md).
 - [A dropped field falls to a computed default](a-dropped-field-falls-to-a-computed-default.md); [a flag with no field is set by the loop](a-flag-with-no-field-is-set-by-the-loop.md).
 - [The player send table excludes the animation](the-player-send-table-excludes-the-animation.md).
 - [Filing a divergence is not fixing it](filing-a-divergence-is-not-fixing-it.md).
@@ -98,7 +98,7 @@
 - [Port the engine's bottom layer first](port-the-engines-bottom-layer-first.md).
 - [A picked option is not a voiced decision](a-picked-option-is-not-a-voiced-decision.md) — D183; [thinking aloud ≠ decision](thinking-aloud-is-not-a-decision.md); [ask what the request is for](ask-what-the-request-is-for.md).
 - [American English for new text](american-english-for-new-text.md) — D158.
-- [One run at a time](one-run-at-a-time.md); [parallel agents lock the gate too](parallel-agents-lock-the-gate-too.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md); [my own processes are mine](my-own-processes-are-mine.md).
+- [One run at a time](one-run-at-a-time.md); [parallel agents lock the gate too](parallel-agents-lock-the-gate-too.md); [a lock holder must time itself out](a-lock-holder-must-time-itself-out.md); [a GUI exe ≠ the lock](a-gui-exe-does-not-hold-the-lock.md); [my own processes are mine](my-own-processes-are-mine.md).
 - [Check at the owner's moment](check-at-the-owners-moment.md).
 - [No task cards](no-task-cards.md) — D169/D171.
 - [Spend fewer tokens](spend-fewer-tokens.md) — essay remarks and whole-log reads cost; [push when work piles up](push-when-work-piles-up.md); [verify origin/main after a push](verify-origin-main-after-push.md).

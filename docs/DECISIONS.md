@@ -10125,6 +10125,66 @@ the road,, because theres probably a reason valve doesnt do it"* (`docs/memory/a
   held by an authored demo instead (`FirstStatedRosterTests`, which reddens when the table is disconnected or fed only
   the final frame).
 
+**The builder is resumable (2026-10-14).** `BuildTimeline` is now `DemoTimeline.Builder`: what were its ~90 locals are
+fields under the same names, `Run(commands)` is the old loop body unchanged, `Finish()` the post-passes. The body keeps
+its old indentation so the diff shows only the move; a whitespace-only reindent is a separate pass. Sonar's S3398 then
+asked for every helper only the pass calls to move inside the class; they are wrapped in place as `partial` pieces of
+`Builder` rather than moved, for the same reason.
+- **Snapshot and resume.** `Builder.Snapshot()` copies the pass between two commands; `Builder.Resume(snapshot)`
+  continues from it. The output lists (frames, sounds, soundscapes, director shots, view and user commands, acks,
+  ConVar history, viewmodels, fog, game events, user messages, choreography, finished corpses) are not copied: each is
+  only appended to or has its LAST element replaced, so a snapshot keeps its count and last element and a resume cuts
+  the live list back to them. Everything else — the entity table, the decoder's baselines, the feeds, every
+  `ScenePropTrack` — is deep-copied by `StateCopy`, one reflection copier that keeps the graph's shape (a track in both
+  the slot map and the track list stays one track) rather than a hand-written `Clone` on twenty types, each of which
+  would have had to agree on that sharing and would silently miss a field added later. **This departs from the plan of
+  a clone and a test per type**: the copier has its own tests, and the snapshot-then-resume equivalence holds the rest.
+- **Equivalence, synthetic (D38):** `TimelineBuilderSnapshotTests` snapshots after EVERY command of three authored
+  demos, lets the live builder run on, resumes, and requires the straight build's `TimelineFingerprint`. It reddens
+  when the snapshot shares instead of copying, when the marks are not restored, and when the copier loses identity or
+  copies shallowly. Restoring the last element's VALUE cannot be told from replaying it — replay is deterministic — and
+  is kept because it is the exact state.
+- **Equivalence, real demos:** the `timeline-resume` probe cuts at half way and compares fingerprints, identical on all
+  three: movement-test-pov-cp_process (after 7,032 of 14,064 commands), rgl-pug-2026-08-10-pov (150,770 of 301,541)
+  and f12 (48,298 of 96,596), each over the full value count (8.9 M, 1.22 G, 1.21 G).
+- `TimelineFingerprint` moved into Core so the probe and the test share one hasher.
+- The refactor alone: `timeline-fingerprint` identical on f12, rgl-pug and movement-test.
+- **Cost, not yet paid down:** a snapshot deep-copies every track and its keyframes, so it is as large as the
+  timeline's track half; checkpoints every few seconds need the tracks windowed first (step 3).
+
+**Review of 3d3f5457, and what it found wrong (2026-10-15).** Three reviewers and the coordinator, every point checked:
+- **`choreography` was marked as tail-only and is not**: a run's stop is written at `FindLastIndex` by entity, behind
+  later runs. A resume stopped part-way inherited the live run's later stop — a scene reported stopping in the future.
+  The full-replay test could not see it, because replaying to the end rewrites the same value. It is now deep-copied.
+  The test resumes at EVERY cut and stops at EVERY later command against a straight build stopped there, on a new
+  authored demo (`DemoOfScenes`: two scene slots, a stop behind the last run, two packets on one tick contending
+  soundscapes); it reddened on the old marking before the fix.
+- **The invariant is enforced, not commented**: the marked lists are `TailList<T>`, which throws on any write that is
+  not an append or a replacement/removal of the last element.
+- **`Finish` re-timed and re-sorted `sounds` in place**: it now works on a copy. And the marked lists are handed to the
+  returned timeline, so **a resume after `Finish` is refused** (a lease shared by a builder, its snapshots and their
+  resumes), as is a second `Finish`.
+- **Back, then forward, was silently wrong.** Resuming an earlier snapshot cuts the shared lists; marks can cut but not
+  restore, so resuming a later snapshot afterwards left a gap (S1 at 100 frames, S2 at 500 gave 101). Resume now refuses
+  when the lists no longer reach the snapshot; forward-then-back is exact, and back-then-forward works once the run has
+  walked past the later snapshot again. **This is the checkpoint seek pattern, so step 4 cannot be built on marks**: a
+  checkpoint must own its output since the one before, or the output must be produced per window — step 3.
+- **The fingerprint was narrower than claimed** (frames, `SoundscapeAt`, keyframes only). It now hashes every other
+  public collection of the timeline by name — events, director shots, scenes, ConVar history, fog, viewmodels, sounds,
+  corpses, effects — and refuses a span-typed member rather than skip it.
+- **`StateCopy`** throws on a multi-dimensional array of references instead of a silent shallow copy; shares a
+  `ReadOnlyMemory<T>` and what it views; and shares everything reachable from the schema plus the decoder's
+  schema-derived caches. Identity-sensitive objects reachable from both a shared list and copied state were checked:
+  `SceneRagdoll` and `SceneViewmodel` are value types, and nothing compares them by reference.
+- **Per-snapshot cost, measured** (`timeline-resume <demo> 0.5 cost`, at half way): the schema share took
+  movement-test from 112.6 to 103.6 MB, rgl-pug from 1,265.2 to 1,243.6 MB and f12 from 798.8 to 780.4 MB (the schema alone is 4.2 MB; the rest was
+  definitions reached through structs). Following or sharing the demo's bytes made no difference (103.7/103.6,
+  780.4/780.4) — the state holds no slice of the file at that point, so that rule guards rather than saves. By field on
+  f12, each copied alone: tracks 532 MB, player tracks 451, props 203, entities 114, decoder 35. **A checkpoint every
+  few seconds is not affordable this way**; the tracks must be windowed first.
+- **Equivalence on real demos, now over every collection**: `timeline-resume` at half way, with every fix above in,
+  identical on movement-test, rgl-pug and f12 (9.2 M, 1.23 G and 1.22 G values).
+
 ## D218 — TF2's volume ConVars, and the test suite launches the viewer silent (2026-10-14)
 
 **Owner, in his words:** *"its kinda irritating to have to lissten to the tests and probes all the time when they
@@ -10146,6 +10206,34 @@ config line or a bind setting it did nothing.
   it later on the line. `PausedSoundUiTests` does that with `+volume 1`. No probe launches the viewer.
 - `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
   which sounds the engine treats as music needs `engine.dll` read (B545).
+
+**Review fixes, 2026-10-14** (branch `fix/volume-review`):
+
+- `snd_mute_losefocus` and `engine_no_focus_sleep` both key on the APPLICATION being active
+  (`IViewerWindow.IsActiveApp`: the foreground window is ours), not on keyboard focus, which an Export or folder
+  dialog and the full-screen switch take from the window. **Read from x64 engine.dll** (2026-10-15, the lead and this
+  branch): FUN_180040cc0 zeroes a channel's gains when `snd_mute_losefocus` is nonzero, `IsActiveApp()` is false and
+  the channel's bit 0x40 at +0x13d is clear; both sound-start paths clear that bit (18002e59b in FUN_18002dd10,
+  18002f04d in FUN_18002e990) and nothing in engine.dll sets it, so no channel is exempt and one master gain matches.
+  FUN_18020cbd0 (`CEngine::Frame`) sleeps `engine_no_focus_sleep` ms on `!IsActiveApp()`. `HasFocus` had no reader
+  left and is removed.
+- `cl_showfps` and `cl_showpos` are not archived in TF2 (`vgui_fpspanel.cpp:27-28`: `FCVAR_ALLOWED_IN_COMPETITIVE`
+  and no flags), so they do not persist here either; before this branch they persisted only as a side effect of an
+  unrelated menu save.
+- A menu item's re-read now covers Phong, texture quality and the HUD picker too, on every top-level menu's opening;
+  the menu's Phong writes `mat_phong` for the run so the re-read keeps it. **A KEYBOARD key bound to a console
+  command still never reaches the console** (only mouse buttons and the held flight keys do: B542), so the UI test
+  binds MOUSE3. A run-time ConVar set is now logged (`name value (set at run time)`).
+- The View menu re-reads its checks each time it opens (`ViewerMenu.Sync`), so a bind, `toggle` or `incrementvar`
+  is shown; a moved check calls no action. Covers `cl_showfps`, `cl_showpos`, Volume and the unfocused mute.
+- A menu choice is saved onto the record as READ (`SettingsPresenter.Choose`), never the run's record, which carries
+  `+name value` and every bound key's set. Every saving setter shared the bug (HUD, texture quality, full-screen mode,
+  TF2 folder, and both volume items); fixed once.
+- `volume nan` is stored as NaN, as `ConVar::ClampValue` leaves it (both comparisons false, `convar.cpp`); the mix
+  takes NaN as silence and the menu checks no level. The menu rounds a level half away from zero; the cfg writes `volume` as `ConVarText` holds it.
+- The loopback test device takes its THREAD's context (`ALC_EXT_thread_local_context`) and puts back the one it
+  found, only while its own is still current (per thread: disposed on another thread, it leaves the opener's alone); `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
+- `tools/golden-viewer-shot.sh` launches with `+volume 0`.
 
 ## D219 — golden images: real TF2 screenshots, compared by measure in real UI tests (2026-10-14)
 

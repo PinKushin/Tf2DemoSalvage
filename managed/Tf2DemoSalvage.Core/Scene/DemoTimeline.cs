@@ -1066,6 +1066,9 @@ public sealed class DemoTimeline
     /// <summary>A team entity — `DT_TFTeam`, which inherits `DT_Team` (`tf_team.cpp:43`, `team.cpp:40`).</summary>
     private const string TeamClass = "CTFTeam";
 
+    // The pass's own helpers, read only by it: part of the builder, left where they stood (D217).
+    private sealed partial class Builder
+    {
     /// <summary>Every round timer, as the time panel reads it; null when there is none, which costs no allocation.</summary>
     private static List<SceneRoundTimer>? RoundTimers(EntityStateTable entities)
     {
@@ -1301,10 +1304,15 @@ public sealed class DemoTimeline
                 Ping = resource.Integer($"m_iPing.{slot}") ?? 0,
                 PlayerClass = resource.Integer($"m_iPlayerClass.{slot}"),
                 ActiveDominations = resource.Integer($"m_iActiveDominations.{slot}") ?? 0,
+                Health = resource.Integer($"m_iHealth.{slot}") ?? 0,
+                MaxHealth = resource.Integer($"m_iMaxHealth.{slot}") ?? 0,
+                NextRespawnTime = resource.Number($"m_flNextRespawnTime.{slot}") ?? 0f,
+                ChargeLevel = resource.Integer($"m_iChargeLevel.{slot}") ?? 0,
             });
         }
 
         return players;
+    }
     }
 
     private static readonly string[] TeamProperties =
@@ -1329,6 +1337,8 @@ public sealed class DemoTimeline
             high is { } h && low is { } l && !(h == uint.MaxValue && l == uint.MaxValue));
     }
 
+    private sealed partial class Builder
+    {
     /// <summary>`MedicGetChargeLevel`'s medigun (tf_player_shared.cpp:13038): the first `CWeaponMedigun` in `m_hMyWeapons`.</summary>
     /// <remarks>
     /// The charge is sent twice — `DT_LocalTFWeaponMedigunData` to the owner, the 12-bit `DT_TFWeaponMedigunDataNonLocal` to
@@ -1419,6 +1429,7 @@ public sealed class DemoTimeline
         before[player] = now;
         return now;
     }
+    }
 
     /// <summary>One item entity as a <see cref="SceneItem"/>, with its quality and `m_bDisguiseWearable` (tf_item_wearable.cpp:33).</summary>
     private static SceneItem ItemOf(int slot, EntityState item, bool isWeapon) =>
@@ -1442,6 +1453,8 @@ public sealed class DemoTimeline
             FlameThrowerState = item.Integer("DT_WeaponFlameThrower.m_iWeaponState") ?? 0,
         };
 
+    private sealed partial class Builder
+    {
     /// <summary>`m_Shared.GetDisguiseWeapon()`'s item (tf_hud_playerstatus.cpp:457), or null.</summary>
     private static SceneItem? DisguiseWeaponItem(EntityState player, EntityStateTable entities) =>
         EntityState.Slot(player.Integer("DT_TFPlayerShared.m_hDisguiseWeapon")) is { } slot && entities.TryGet(slot, out EntityState? weapon)
@@ -1482,6 +1495,7 @@ public sealed class DemoTimeline
         }
 
         return counts;
+    }
     }
 
     private static readonly string[] HealthProperties =
@@ -2024,7 +2038,7 @@ public sealed class DemoTimeline
     public SunFeed Suns { get; private init; } = new();
 
     /// <summary>The medigun's server class — every medigun item is one, the Kritzkrieg and Quick-Fix included.</summary>
-    private const string MedigunClass = "CWeaponMedigun";
+    private const string MedigunClass = HealBeamFeed.MedigunClassName;
 
     /// <summary>Every `CTETFParticleEffect`, as its `"ParticleEffect"` dispatch, in fire order (B415).</summary>
     public TfParticleEffectFeed TfParticleEffects { get; private init; } = new();
@@ -2312,6 +2326,35 @@ public sealed class DemoTimeline
     /// </remarks>
     public uint? MapCrc { get; private init; }
 
+    /// <summary>`engine->IsHLTV()`: the demo's `svc_ServerInfo` `is_hltv`, as written — false with no ServerInfo.</summary>
+    public bool IsSourceTv { get; private init; }
+
+    /// <summary>The user message the server opens a viewport panel with — `CBasePlayer::ShowViewPortPanel`.</summary>
+    private const string SpectatorGuiMenu = "VGUIMenu";
+
+    /// <summary>Every `VGUIMenu` for `specgui` the recorder was sent, in tick order: whether it opened or closed the panel.</summary>
+    public IReadOnlyList<(int Tick, bool Show)> SpectatorGuiChanges { get; private init; } = [];
+
+    /// <summary>Whether the server had the spectator GUI open at a tick: the last `specgui` `VGUIMenu` at or before it.</summary>
+    /// <param name="tick">The tick.</param>
+    /// <returns>Its show flag, or false before the first.</returns>
+    public bool SpectatorGuiShownAt(int tick)
+    {
+        bool shown = false;
+
+        foreach ((int at, bool show) in SpectatorGuiChanges)
+        {
+            if (at > tick)
+            {
+                break;
+            }
+
+            shown = show;
+        }
+
+        return shown;
+    }
+
     /// <summary>The network protocol the demo's header declares, or 0 for a timeline built from nothing.</summary>
     /// <remarks>
     /// **What selects an old demo's content era** (B380, D160). A networked sequence number indexes the
@@ -2500,47 +2543,155 @@ public sealed class DemoTimeline
     private static DemoTimeline BuildTimeline(
         ReadOnlyMemory<byte> file, Action<double>? progress, ClientInterp client, IClassAnimationScripts? classes)
     {
+        if (Start(file, progress, client, classes, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        builder.Run(commands);
+        return builder.Finish();
+    }
+
+    /// <summary>
+    /// Builds as <see cref="Build"/> does, but stops after <paramref name="snapshotAfter"/> commands, snapshots, runs on
+    /// to the end, then RESUMES from the snapshot and finishes from there (D217).
+    /// </summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="snapshotAfter">How many commands to walk before the snapshot.</param>
+    /// <param name="stopAfter">How many commands the RESUMED builder walks in all before finishing; the end by default.</param>
+    /// <returns>The timeline the resumed builder produces, which must equal a straight build's.</returns>
+    /// <remarks>
+    /// **The live builder runs past the snapshot before it is abandoned** so the resume is tested against output lists
+    /// that have grown and changed since — which is what a seek does after playing on.
+    /// </remarks>
+    internal static DemoTimeline BuildThroughSnapshot(ReadOnlyMemory<byte> file, int snapshotAfter, int stopAfter = int.MaxValue)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        int at = Math.Clamp(snapshotAfter, 0, commands.Count);
+        int stop = Math.Clamp(stopAfter, at, commands.Count);
+
+        builder.Run(commands.Take(at));
+        BuilderSnapshot snapshot = builder.Snapshot();
+        builder.Run(commands.Skip(at));
+
+        // **Stopped short of the end, as a seek is**: whatever the live run did after `stop` must not show.
+        Builder resumed = Builder.Resume(snapshot);
+        resumed.Run(commands.Take(stop).Skip(at));
+        return resumed.Finish();
+    }
+
+    /// <summary>
+    /// Snapshots twice during one run (after <paramref name="earlier"/> and <paramref name="later"/> commands), runs on
+    /// to the end, then resumes the FIRST snapshot named, walks <paramref name="walk"/> commands from it, resumes the
+    /// SECOND named and finishes at <paramref name="stopAfter"/> — a seek, then another (D217).
+    /// </summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="earlier">The earlier snapshot's command.</param>
+    /// <param name="later">The later snapshot's command.</param>
+    /// <param name="backFirst">True to resume the earlier one first and then the later (back, then forward).</param>
+    /// <param name="walk">Commands walked after the first resume before the second.</param>
+    /// <param name="stopAfter">Where the second resume stops.</param>
+    /// <returns>The timeline the second resume finishes.</returns>
+    internal static DemoTimeline BuildResumingTwice(
+        ReadOnlyMemory<byte> file, int earlier, int later, bool backFirst, int walk, int stopAfter)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        builder.Run(commands.Take(earlier));
+        BuilderSnapshot first = builder.Snapshot();
+        builder.Run(commands.Take(later).Skip(earlier));
+        BuilderSnapshot second = builder.Snapshot();
+        builder.Run(commands.Skip(later));
+
+        (BuilderSnapshot one, int oneAt, BuilderSnapshot two, int twoAt) =
+            backFirst ? (first, earlier, second, later) : (second, later, first, earlier);
+
+        Builder.Resume(one).Run(commands.Skip(oneAt).Take(walk));
+
+        Builder resumed = Builder.Resume(two);
+        resumed.Run(commands.Take(stopAfter).Skip(twoAt));
+        return resumed.Finish();
+    }
+
+    /// <summary>Walks <paramref name="at"/> commands and measures what a snapshot there allocates (D217).</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="at">Where the snapshot is taken.</param>
+    /// <returns>The whole snapshot's bytes and each field's.</returns>
+    internal static (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) MeasureSnapshot(ReadOnlyMemory<byte> file, int at)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return (0, []);
+        }
+
+        builder.Run(commands.Take(at));
+        return builder.SnapshotCost();
+    }
+
+    /// <summary>Snapshots after <paramref name="at"/> commands, finishes the live builder, then resumes the snapshot.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="at">Where the snapshot is taken.</param>
+    /// <remarks>The resume must refuse, because Finish handed the shared lists out (D217).</remarks>
+    internal static void ResumeAfterFinish(ReadOnlyMemory<byte> file, int at)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return;
+        }
+
+        builder.Run(commands.Take(at));
+        BuilderSnapshot snapshot = builder.Snapshot();
+        builder.Run(commands.Skip(at));
+        builder.Finish();
+
+        Builder.Resume(snapshot);
+    }
+
+    /// <summary>Builds as <see cref="Build"/> does but only through the first <paramref name="stopAfter"/> commands.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <param name="stopAfter">How many commands to walk.</param>
+    /// <returns>The timeline of that prefix — what a resumed build stopped at the same command must equal.</returns>
+    internal static DemoTimeline BuildThrough(ReadOnlyMemory<byte> file, int stopAfter)
+    {
+        if (Start(file, null, new ClientInterp(), null, out List<DemoCommand> commands) is not { } builder)
+        {
+            return new DemoTimeline([]);
+        }
+
+        builder.Run(commands.Take(Math.Clamp(stopAfter, 0, commands.Count)));
+        return builder.Finish();
+    }
+
+    /// <summary>How many commands a demo holds after its header — the range <see cref="BuildThroughSnapshot"/> cuts in.</summary>
+    /// <param name="file">The whole demo file.</param>
+    /// <returns>The count.</returns>
+    internal static int CommandCount(ReadOnlyMemory<byte> file) => DemoCommandReader.Read(file[DemoHeader.SizeBytes..]).Count();
+
+    /// <summary>A builder's state between two commands, and its output lists' marks (D217).</summary>
+    private sealed record BuilderSnapshot(Builder Builder, (int Count, object? Last)[] Marks);
+
+    private static Builder? Start(
+        ReadOnlyMemory<byte> file,
+        Action<double>? progress,
+        ClientInterp client,
+        IClassAnimationScripts? classes,
+        out List<DemoCommand> commands)
+    {
         long buildFrom = Stopwatch.GetTimestamp();
-        long commandTicks;
-        long schemaTicks;
-        long messageTicks = 0;
-
-        // Seventeen buckets for −8 to +8 ticks, and one past them for updates that said nothing —
-        // the control that tells a real distribution from a partial one (B273).
-        int[] simulationLag = new int[LagBuckets + 1];
-        int[] animationLag = new int[LagBuckets + 1];
-        int[] clockGap = new int[LagBuckets + 1];
-        Dictionary<string, int[]> lagByClass = [];
-
-        // Keyed by entity so a corpse updated across several packets is one corpse, and so the
-        // last update — the one carrying its resting place — is the one kept.
-        Dictionary<int, SceneRagdoll> corpses = [];
-
-        // Corpses whose SLOT has since been taken by another. They are complete and cannot be
-        // updated again, so they leave the live map rather than being overwritten by their successor.
-        List<SceneRagdoll> replaced = [];
-        long entityTicks = 0;
-        long samplingTicks = 0;
-        long frameTicks = 0;
-        long viewmodelTicks = 0;
-
-        // Entity indices seen carrying a viewmodel model index, kept ascending (B265).
-        List<int> viewmodelEntities = [];
-
-        // Which entities THIS packet updated, and which weapon each viewmodel last named — the two
-        // things the viewmodel sampler needs to know whether it can skip re-deriving a sample.
-        HashSet<int> touchedEntities = [];
-        Dictionary<int, int> viewmodelWeapon = [];
-
         DemoHeader header = DemoHeader.Parse(file.Span);
-        NetDecodeState state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
-
         long phaseFrom = Stopwatch.GetTimestamp();
 
-        List<DemoCommand> commands =
+        commands =
             [.. DemoCommandReader.Read(file[DemoHeader.SizeBytes..])];
 
-        commandTicks = Stopwatch.GetTimestamp() - phaseFrom;
+        long commandTicks = Stopwatch.GetTimestamp() - phaseFrom;
 
         // **`DemoCommand` is a readonly record STRUCT, so FirstOrDefault yields default(T) rather
         // than null and a `is not { }` guard on it can never fire.** This block used to read
@@ -2557,25 +2708,176 @@ public sealed class DemoTimeline
         DemoCommand dataTables = commands.FirstOrDefault(
             command => command.Type == DemoCommandType.DataTables);
 
-        if (dataTables.Type != DemoCommandType.DataTables)
+        return dataTables.Type != DemoCommandType.DataTables
+            ? null
+            : new Builder(header, commands, dataTables, progress, client, classes, buildFrom, commandTicks);
+    }
+
+    /// <summary>
+    /// <see cref="BuildTimeline"/>'s single forward pass, as an object: what were its locals are these fields, under the
+    /// same names, so the pass can be stopped between commands, copied and resumed (D217).
+    /// </summary>
+    /// <remarks>
+    /// **The body is indented as it was when it was a method**, one level shallower than a nested class would put it, so
+    /// this commit's diff shows only what changed. A whitespace-only reindent is a separate pass.
+    /// </remarks>
+    private sealed partial class Builder
+    {
+        private readonly Action<double>? progress;
+        private readonly ClientInterp client;
+        private readonly IClassAnimationScripts? classes;
+        private readonly DemoHeader header;
+        private readonly List<DemoCommand> commands;
+        private readonly long buildFrom;
+        private readonly long commandTicks;
+        private readonly long schemaTicks;
+        private long messageTicks;
+        private readonly int[] simulationLag;
+        private readonly int[] animationLag;
+        private readonly int[] clockGap;
+        private readonly Dictionary<string, int[]> lagByClass;
+        private readonly Dictionary<int, SceneRagdoll> corpses;
+        private readonly TailList<SceneRagdoll> replaced;
+        private long entityTicks;
+        private long samplingTicks;
+        private long frameTicks;
+        private long viewmodelTicks;
+        private readonly List<int> viewmodelEntities;
+        private readonly HashSet<int> touchedEntities;
+        private readonly Dictionary<int, int> viewmodelWeapon;
+        private readonly NetDecodeState state;
+        private readonly DemoSchema schema;
+        private readonly EntityDecoder decoder;
+        private readonly EntityStateTable entities;
+        private readonly HashSet<int> mergesItself;
+        private readonly HashSet<int> combatWeapons;
+        private readonly Dictionary<int, string> effectClassNames;
+        private readonly PlayerGestureFeed gestures;
+        private readonly List<(int Fires, DecodedTempEntity Effect)> queuedGestures;
+        private readonly EffectFeeds feeds;
+        private readonly MuzzleFlashFeed muzzleFlashes;
+        private readonly HealBeamFeed healBeams;
+        private readonly RopeImpulseFeed ropeImpulses;
+        private readonly EntityDormancy dormancy;
+        private readonly PointCameraFeed pointCameras;
+        private readonly TonemapFeed tonemap;
+        private readonly SunFeed suns;
+        private readonly TailList<TimelineFrame> frames;
+        private readonly FirstStatedRoster firstStated;
+        private float interval;
+        private readonly Dictionary<int, int> lastHeld;
+        private readonly Dictionary<int, int> burningSince;
+        private PlayerConditions overlayConditions;
+        private string? screenOverlay;
+        private readonly Dictionary<int, int> jumpParity;
+        private readonly Dictionary<int, int> jumpedAt;
+        private readonly Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight;
+        private readonly Dictionary<int, FeetYaw> feet;
+        private readonly Dictionary<int, List<SceneItem>> carriedBefore;
+        private readonly Dictionary<int, List<SceneGesture>> gesturedBefore;
+        private readonly Dictionary<int, ScenePlayerDetail> detailBefore;
+        private readonly ModelPrecache precache;
+        private readonly LightStyleFeed lightStyles;
+        private readonly int protocol;
+        private readonly SoundNames soundNames;
+        private readonly TailList<SceneSound> sounds;
+        private readonly ScenePrecache scenePrecache;
+        private readonly List<SceneChoreography> choreography;
+        private readonly Dictionary<int, int> playingScenes;
+        private readonly TailList<(int Tick, SceneSoundscape Soundscape)> soundscapes;
+        private readonly TailList<(int Tick, DirectorShot Shot)> director;
+        private readonly Dictionary<int, ScenePropTrack> tracks;
+        private readonly List<ScenePropTrack> props;
+        private readonly List<ScenePropTrack> playerTracks;
+        private readonly TailList<DemoViewCommand> viewCommands;
+        private readonly TailList<RecordedUserCommand> userCommands;
+        private readonly TailList<(int Tick, int Acknowledged)> packetAcknowledgements;
+        private int? recorderSlot;
+        private int maxClients;
+        private uint? mapCrc;
+        private bool isSourceTv;
+        private IReadOnlyList<byte>? mapHash;
+        private readonly ServerConVars serverConVars;
+        private readonly TailList<(int Tick, ServerConVars ConVars)> conVarHistory;
+        private readonly TailList<(int Tick, SceneViewmodel Weapon)> viewmodels;
+        private readonly TailList<(int Tick, ViewFog Fog)> fogSamples;
+        private int fogControllersSeen;
+        private int fogProperties;
+        private readonly Dictionary<int, SceneViewmodel> lastViewmodel;
+        private readonly Dictionary<int, PlayerInfo> bySlot;
+        private readonly Dictionary<int, PlayerInfo> everyone;
+        private readonly TailList<SceneGameEvent> gameEvents;
+        private readonly TailList<SceneUserMessage> userMessages;
+
+        // Deep-copied with the builder rather than marked: small, and a plain list (D217).
+        private readonly List<(int Tick, bool Show)> spectatorGuiChanges;
+        private IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent;
+        private int walked;
+        private readonly int reportEvery;
+
+        /// <summary>Sets up the pass as <see cref="BuildTimeline"/> did before its first command.</summary>
+        public Builder(
+            DemoHeader header,
+            List<DemoCommand> commands,
+            DemoCommand dataTables,
+            Action<double>? progress,
+            ClientInterp client,
+            IClassAnimationScripts? classes,
+            long buildFrom,
+            long commandTicks)
         {
-            return new DemoTimeline([]);
-        }
+        this.header = header;
+        this.commands = commands;
+        this.progress = progress;
+        this.client = client;
+        this.classes = classes;
+        this.buildFrom = buildFrom;
+        this.commandTicks = commandTicks;
+        messageTicks = 0;
 
-        phaseFrom = Stopwatch.GetTimestamp();
+        // Seventeen buckets for −8 to +8 ticks, and one past them for updates that said nothing —
+        // the control that tells a real distribution from a partial one (B273).
+        simulationLag = new int[LagBuckets + 1];
+        animationLag = new int[LagBuckets + 1];
+        clockGap = new int[LagBuckets + 1];
+        lagByClass = [];
 
-        DemoSchema schema = SendTableParser.Parse(
+        // Keyed by entity so a corpse updated across several packets is one corpse, and so the
+        // last update — the one carrying its resting place — is the one kept.
+        corpses = [];
+
+        // Corpses whose SLOT has since been taken by another. They are complete and cannot be
+        // updated again, so they leave the live map rather than being overwritten by their successor.
+        replaced = [];
+        entityTicks = 0;
+        samplingTicks = 0;
+        frameTicks = 0;
+        viewmodelTicks = 0;
+
+        // Entity indices seen carrying a viewmodel model index, kept ascending (B265).
+        viewmodelEntities = [];
+
+        // Which entities THIS packet updated, and which weapon each viewmodel last named — the two
+        // things the viewmodel sampler needs to know whether it can skip re-deriving a sample.
+        touchedEntities = [];
+        viewmodelWeapon = [];
+
+        state = new() { NetworkProtocol = (ushort)header.NetworkProtocol };
+
+        long phaseFrom = Stopwatch.GetTimestamp();
+
+        schema = SendTableParser.Parse(
             dataTables.Payload.Span, (ushort)header.NetworkProtocol);
 
         schemaTicks = Stopwatch.GetTimestamp() - phaseFrom;
 
-        EntityDecoder decoder = new(
+        decoder = new(
             schema, EntityDecoder.ClassIdBits(schema.ServerClasses.Count));
 
         // **Given the decoder, because an entering entity is a delta against its class baseline.**
         // Without it every entity whose whole state equals its baseline accumulates as an empty
         // one - see IEntityBaselines, and B132, which is what that cost.
-        EntityStateTable entities = new(decoder);
+        entities = new(decoder);
 
         // **Class names come from dem_datatables, not from svc_ClassInfo.** TF2 sets the
         // "create on client" flag and sends no names, so a reader waiting for that message names
@@ -2589,7 +2891,7 @@ public sealed class DemoTimeline
         //
         // Per class rather than per entity because the answer cannot vary between two instances of
         // one class, and the walk is over send tables rather than over anything cheap.
-        HashSet<int> mergesItself = [];
+        mergesItself = [];
 
         // **Which classes ARE combat weapons, so an absent `m_iState` can mean its default rather
         // than "not a weapon"** (B245). The two readings of absence want opposite answers: a
@@ -2602,13 +2904,13 @@ public sealed class DemoTimeline
         //
         // Per class for the same reason `mergesItself` is: the answer cannot vary between two
         // instances, and the walk is over send tables rather than over anything cheap.
-        HashSet<int> combatWeapons = [];
+        combatWeapons = [];
 
         // **Names for temp entities, which carry a class id and nothing else** (B282). A player's
         // animation layers are excluded from the wire entirely (`tf_player.cpp:774`), so a reload,
         // a flinch or an attack gesture reaches a demo only as a `CTEPlayerAnimEvent` effect — and
         // an effect names its class by id.
-        Dictionary<int, string> effectClassNames = [];
+        effectClassNames = [];
 
         foreach (ServerClass serverClass in schema.ServerClasses)
         {
@@ -2630,26 +2932,26 @@ public sealed class DemoTimeline
         // frame: a gesture is an EVENT with a start, and the slot it lands in holds until something
         // replaces it or its sequence runs out — which only the scene can decide, because only the
         // scene has the model that says how long the sequence is.
-        PlayerGestureFeed gestures = new();
-        List<(int Fires, DecodedTempEntity Effect)> queuedGestures = [];
+        gestures = new();
+        queuedGestures = [];
 
         // **Every explosion, from the same stream** (B415). A one-shot at a tick rather than a state at every
         // tick, so it is a list in fire order and not a per-frame sample — see `ExplosionFeed`.
-        EffectFeeds feeds = new();
-        MuzzleFlashFeed muzzleFlashes = new();
-        HealBeamFeed healBeams = new();
-        RopeImpulseFeed ropeImpulses = new();
-        EntityDormancy dormancy = new();
-        PointCameraFeed pointCameras = new();
-        TonemapFeed tonemap = new();
-        SunFeed suns = new();
+        feeds = new();
+        muzzleFlashes = new();
+        healBeams = new();
+        ropeImpulses = new();
+        dormancy = new();
+        pointCameras = new();
+        tonemap = new();
+        suns = new();
 
-        List<TimelineFrame> frames = [];
+        frames = [];
 
         // Each player's first-stated team and class, filled into earlier frames when they are READ (D217).
-        FirstStatedRoster firstStated = new();
+        firstStated = new();
 
-        float interval = 0f;
+        interval = 0f;
 
         // **The jump clock is not here**: it was FL_ONGROUND clearing, on the claim that a demo carries no jump event.
         // It does — PLAYERANIMEVENT_JUMP in `CTEPlayerAnimEvent` — and `PlayerGestureFeed.Jumping` keeps it.
@@ -2661,7 +2963,7 @@ public sealed class DemoTimeline
         // never the problem and the value simply is not on the wire at the moment of death; a
         // dying player is not holding anything. The engine has the same information from the tick
         // before, because its client copies `m_nBody` off a player it has been tracking all along.
-        Dictionary<int, int> lastHeld = [];
+        lastHeld = [];
 
         // **When each player caught fire** (B336), and the reasoning is the same as the line above.
         // `CProxyBurnLevel` ramps `$detailblendfactor` from `m_flBurnEffectStartTime`, which is set
@@ -2670,13 +2972,13 @@ public sealed class DemoTimeline
         // (`:6884`). Nothing networks it. The client has no more information than a demo does — the
         // moment the bit turns on — so watching the transition reproduces the client rather than
         // inventing a time for it.
-        Dictionary<int, int> burningSince = [];
+        burningSince = [];
 
         // **The local player's screen overlay, stepped by the condition hooks as they fire** (`ScreenOverlay`): one
         // slot, written by each `OnAdd*` and cleared by an `OnRemove*` only when it holds that hook's own material, so
         // it is history and only this in-order loop can keep it.
-        PlayerConditions overlayConditions = default;
-        string? screenOverlay = null;
+        overlayConditions = default;
+        screenOverlay = null;
 
         // **When each player last JUMPED — a teleport or a respawn** (B346). The wire carries
         // `m_ubInterpolationFrame`, a parity whose value means nothing and whose CHANGE means a
@@ -2687,99 +2989,106 @@ public sealed class DemoTimeline
         // reason this exists. Measured on `tf2-2026-pub-pov-cheater`: of 332 sends that change the
         // field on a live entity, ALL 332 are `CTFPlayer` — so the prop-track path stamped zero
         // across 570 tracks while every unit test passed. A player is not a prop track.
-        Dictionary<int, int> jumpParity = [];
+        jumpParity = [];
 
         // The stamp itself, in ticks, carried onto the player the same way the two above are.
-        Dictionary<int, int> jumpedAt = [];
+        jumpedAt = [];
 
         // Where each player was last tick, so a vertical speed can be differenced. The client does
         // the same: GetOuterAbsVelocity calls EstimateAbsVelocity on the client, which estimates
         // from position history rather than reading a networked velocity.
-        Dictionary<int, (int Tick, float X, float Y, float Z)> lastHeight = [];
+        lastHeight = [];
 
         // **Where each player's feet point**, which is where their body is drawn. The engine runs
         // this per client frame; a demo gives ticks, so it runs per tick. Stateful by nature — the
         // feet lag the eyes and catch up over several of them.
-        Dictionary<int, FeetYaw> feet = [];
+        feet = [];
 
         // **No air-walk latch here: the gesture feed keeps `m_bInAirWalk`** (B112). This set was a second latch for the
         // body alone — set on a fast rise even while ducked, cleared only by the ground — and the reload read nothing,
         // so the two could not have agreed. The engine has one, read by both; so does the feed.
 
         // Each player's last carried-items list, handed out again while nothing in it changes (B433).
-        Dictionary<int, List<SceneItem>> carriedBefore = [];
-        Dictionary<int, List<SceneGesture>> gesturedBefore = [];
-        Dictionary<int, ScenePlayerDetail> detailBefore = [];
+        carriedBefore = [];
+        gesturedBefore = [];
+        detailBefore = [];
 
-        ModelPrecache precache = new();
-        LightStyleFeed lightStyles = new();
-        int protocol = header.NetworkProtocol;
+        precache = new();
+        lightStyles = new();
+        protocol = header.NetworkProtocol;
 
         // **The sounds the recording plays, and the table that names them.** Both are needed
         // together: svc_Sounds carries a NUMBER, and the number is an index into this demo's own
         // soundprecache, so a decoder without the table produces sounds nobody can open (B168).
-        SoundNames soundNames = new();
-        List<SceneSound> sounds = [];
+        soundNames = new();
+        sounds = [];
 
         // **The taunts, and the table that names them** — the same arrangement, for the same reason:
         // `m_nSceneStringIndex` is a number and only this demo's own `Scenes` table says which
         // compiled scene it is (B351). `_playing` remembers which scene entities were already
         // running, because the engine acts on the TRANSITION rather than the value
         // (`c_sceneentity.cpp:327`) and a taunt sitting at true for a thousand ticks began once.
-        ScenePrecache scenePrecache = new();
-        List<SceneChoreography> choreography = [];
-        Dictionary<int, int> playingScenes = [];
+        scenePrecache = new();
+        choreography = [];
+        playingScenes = [];
 
         // Sampled on change like fog, and present only in a point-of-view recording — see
         // SceneSoundscape for why a SourceTV demo carries nobody's (B173).
-        List<(int Tick, SceneSoundscape Soundscape)> soundscapes = [];
+        soundscapes = [];
 
         // Every shot the director called, so the chase camera can be framed as the recording asks
         // rather than always from C_HLTVCamera::Reset's defaults.
-        List<(int Tick, DirectorShot Shot)> director = [];
+        director = [];
 
         // Live tracks by slot, plus every track ever started. A slot is reused when its occupant
         // is destroyed, so the two are not the same list - keeping only the live ones would lose
         // every rocket the moment the next one took its index.
-        Dictionary<int, ScenePropTrack> tracks = [];
-        List<ScenePropTrack> props = [];
-        List<ScenePropTrack> playerTracks = [];
-        List<DemoViewCommand> viewCommands = [];
-        List<RecordedUserCommand> userCommands = [];
-        List<(int Tick, int Acknowledged)> packetAcknowledgements = [];
-        int? recorderSlot = null;
-        int maxClients = 0;
-        uint? mapCrc = null;
-        IReadOnlyList<byte>? mapHash = null;
+        tracks = [];
+        props = [];
+        playerTracks = [];
+        viewCommands = [];
+        userCommands = [];
+        packetAcknowledgements = [];
+        recorderSlot = null;
+        maxClients = 0;
+        mapCrc = null;
+        isSourceTv = false;
+        mapHash = null;
 
         // **What the server had its replicated ConVars set to** (D106). Built here rather than by
         // a caller because the values arrive as messages in this stream and nowhere else, and the
         // engine applies them the same way: at signon, and again whenever one changes mid-match.
-        ServerConVars serverConVars = new();
-        List<(int Tick, ServerConVars ConVars)> conVarHistory = [];
-        List<(int Tick, SceneViewmodel Weapon)> viewmodels = [];
-        List<(int Tick, ViewFog Fog)> fogSamples = [];
-        int fogControllersSeen = 0;
-        int fogProperties = 0;
+        serverConVars = new();
+        conVarHistory = [];
+        viewmodels = [];
+        fogSamples = [];
+        fogControllersSeen = 0;
+        fogProperties = 0;
 
         // What each viewmodel entity last said, so an unchanged one is not recorded again. Keyed
         // by entity because a player carries two and they interleave.
-        Dictionary<int, SceneViewmodel> lastViewmodel = [];
+        lastViewmodel = [];
 
         // Who is in which slot now, and everybody who ever played. Two maps because a slot reused
         // by a later joiner overwrites the first occupant — see `RosterBuilder`.
-        Dictionary<int, PlayerInfo> bySlot = [];
-        Dictionary<int, PlayerInfo> everyone = [];
+        bySlot = [];
+        everyone = [];
 
         // The game events, each sharing one copy of the roster until the roster next changes.
-        List<SceneGameEvent> gameEvents = [];
-        List<SceneUserMessage> userMessages = [];
-        IReadOnlyDictionary<int, PlayerInfo>? rosterAtEvent = null;
+        gameEvents = [];
+        userMessages = [];
+        spectatorGuiChanges = [];
+        rosterAtEvent = null;
 
-        int walked = 0;
-        int reportEvery = Math.Max(1, commands.Count / ProgressReports);
+        walked = 0;
+        reportEvery = Math.Max(1, commands.Count / ProgressReports);
+        }
 
-        foreach (DemoCommand command in commands)
+        /// <summary>Walks commands, continuing from wherever the pass stands.</summary>
+        /// <param name="batch">The next commands of the demo, in order.</param>
+        public void Run(IEnumerable<DemoCommand> batch)
+        {
+        foreach (DemoCommand command in batch)
         {
             if (progress is not null && walked++ % reportEvery == 0)
             {
@@ -2871,6 +3180,7 @@ public sealed class DemoTimeline
                         // D113, which cost an evening of chasing rendering defects that were a
                         // mismatched map (finding 41).
                         mapCrc = server.MapCrc;
+                        isSourceTv = server.IsSourceTv;
                         mapHash = server.MapHash;
 
                         // **Which entity the recording was made from**, named by the demo rather
@@ -2917,6 +3227,14 @@ public sealed class DemoTimeline
 
                     case UserMessage { UserMessageType: SceneUserMessage.SayText or SceneUserMessage.SayText2 or SceneUserMessage.TextMsg } user:
                         userMessages.Add(new SceneUserMessage(command.Tick, user.UserMessageType, user.Body));
+                        continue;
+
+                    // **`ShowViewPortPanel( "specgui", ... )`** — the server opening or closing the spectator GUI for the
+                    // recorder (player.cpp:2260, :2294; tf_player.cpp:13992 after the freeze cam), as `__MsgFunc_VGUIMenu`
+                    // reads it (B516). SourceTV is never sent one; it shows the panel itself at `game_newmap`.
+                    case UserMessage { Name: SpectatorGuiMenu, Fields: { } menu }
+                        when menu.Any(field => field is { Key: "panel", Value: "specgui" }):
+                        spectatorGuiChanges.Add((command.Tick, menu.Any(field => field is { Key: "show", Value: true })));
                         continue;
 
                     case UserMessage { Name: SceneUserMessage.PlayerPickupWeapon } pickup:
@@ -4013,6 +4331,198 @@ public sealed class DemoTimeline
 
             frames.Add(new TimelineFrame(command.Tick, players, recorderTeam, roundState, rules, serverTick, roundTimers, buildings, teams, scoreboardPlayers, idEntities));
         }
+        }
+
+        /// <summary>The lists the pass only appends to, or replaces the LAST element of — its output so far.</summary>
+        /// <remarks>
+        /// **Marked by length rather than copied** (D217): a snapshot keeps each one's count and last element, and a
+        /// restore cuts the live list back to them. In these lists everything before the last element is never touched
+        /// again, which is what makes the mark enough: `frames[^1]` is replaced within a tick and `soundscapes` drops its
+        /// last sample when a later one arrives on the same tick.
+        ///
+        /// **`choreography` is NOT one of them**: a run's stop is written into it at whatever index the run sits
+        /// (`FindLastIndex` by entity), behind later runs, so it is deep-copied with the rest of the state. It was
+        /// listed here at first, and a resume stopped part-way then reported a scene stopping in the future — caught by
+        /// the partial-resume case of `TimelineBuilderSnapshotTests`. A list joins this set only when every write to it
+        /// is an append or touches the last element.
+        /// </remarks>
+        private ITailList[] Outputs() =>
+        [
+            frames, sounds, soundscapes, director, viewCommands, userCommands, packetAcknowledgements, conVarHistory,
+            viewmodels, fogSamples, gameEvents, userMessages, replaced,
+        ];
+
+        /// <summary>A copy of the pass as it stands between two commands, from which it can be resumed.</summary>
+        /// <returns>The snapshot.</returns>
+        /// <remarks>
+        /// **Resuming is restore-and-continue**: the output lists are shared with the live builder rather than copied,
+        /// so a snapshot is resumed by a builder that replaces this one (<see cref="Resume"/>), not beside it.
+        /// </remarks>
+        public BuilderSnapshot Snapshot()
+        {
+            lease.Refuse("snapshot");
+            ITailList[] outputs = Outputs();
+            (int Count, object? Last)[] marks = new (int, object?)[outputs.Length];
+
+            for (int index = 0; index < outputs.Length; index++)
+            {
+                marks[index] = (outputs[index].Count, outputs[index].Last);
+            }
+
+            return new BuilderSnapshot(StateCopy.Of(this, Shared(outputs)), marks);
+        }
+
+        /// <summary>A builder at the snapshot's moment, its output lists cut back to the snapshot's marks.</summary>
+        /// <param name="snapshot">Where to resume from; it can be resumed again later.</param>
+        /// <returns>The builder, ready for the commands after the snapshot.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The output lists no longer reach the snapshot — an EARLIER snapshot was resumed since and cut them — or they were
+        /// handed out by <see cref="Finish"/>.
+        /// </exception>
+        /// <remarks>
+        /// **Marks can only cut, never restore what was cut.** Resuming an earlier snapshot shortens the shared lists;
+        /// a later snapshot's marks then point past their end, and resuming it would silently leave a gap (S1 at 100
+        /// frames then S2 at 500 gave 101 frames). A back-then-forward seek therefore needs the later snapshot to own what
+        /// lies between — per-window output, D217's step 3 — and until then it is refused here.
+        /// </remarks>
+        public static Builder Resume(BuilderSnapshot snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(snapshot);
+            snapshot.Builder.lease.Refuse("resume");
+
+            ITailList[] outputs = snapshot.Builder.Outputs();
+
+            for (int index = 0; index < outputs.Length; index++)
+            {
+                if (outputs[index].Count < snapshot.Marks[index].Count - 1)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot resume: an earlier snapshot was resumed since, and the output lists no longer reach this one (D217).");
+                }
+            }
+
+            Builder resumed = StateCopy.Of(snapshot.Builder, snapshot.Builder.Shared(outputs));
+
+            for (int index = 0; index < outputs.Length; index++)
+            {
+                (int count, object? last) = snapshot.Marks[index];
+                ITailList list = outputs[index];
+
+                // Only the last element can have changed since, so keep everything before it and put it back. Restoring
+                // it is the exact state; a replay would also overwrite it with the same value, which is why no test can
+                // tell the two apart — replay is deterministic.
+                while (list.Count > Math.Max(0, count - 1))
+                {
+                    list.RemoveLast();
+                }
+
+                if (count > 0)
+                {
+                    list.AddBoxed(last);
+                }
+            }
+
+            return resumed;
+        }
+
+        /// <summary>What one snapshot allocates, in all and by field (each field copied alone, so shared parts count twice).</summary>
+        /// <returns>The whole snapshot's bytes, then each field's, largest first.</returns>
+        /// <remarks>The `timeline-resume` probe's instrument for D217's question of what a checkpoint costs.</remarks>
+        public (long Total, IReadOnlyList<(string Field, long Bytes)> Fields) SnapshotCost()
+        {
+            long before = GC.GetAllocatedBytesForCurrentThread();
+            BuilderSnapshot snapshot = Snapshot();
+            long total = GC.GetAllocatedBytesForCurrentThread() - before;
+            GC.KeepAlive(snapshot);
+
+            HashSet<object> shared = Shared(Outputs());
+            List<(string Field, long Bytes)> fields = [];
+
+            // Reaching private fields is the instrument: it copies each one as the snapshot does.
+#pragma warning disable S3011
+            foreach (System.Reflection.FieldInfo field in typeof(Builder).GetFields(
+                         System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic))
+#pragma warning restore S3011
+            {
+                if (field.GetValue(this) is not { } value || value.GetType().IsValueType || shared.Contains(value))
+                {
+                    continue;
+                }
+
+                long from = GC.GetAllocatedBytesForCurrentThread();
+                object copy = StateCopy.Of(value, shared);
+                fields.Add((field.Name, GC.GetAllocatedBytesForCurrentThread() - from));
+                GC.KeepAlive(copy);
+            }
+
+            // The schema is shared by identity; what copying it WOULD cost, for the question of whether to share it.
+            long schemaFrom = GC.GetAllocatedBytesForCurrentThread();
+            object schemaCopy = StateCopy.Of(schema, new HashSet<object>());
+            fields.Add(("schema, if it were copied", GC.GetAllocatedBytesForCurrentThread() - schemaFrom));
+            GC.KeepAlive(schemaCopy);
+
+            return (total, [.. fields.OrderByDescending(field => field.Bytes)]);
+        }
+
+        /// <summary>What a copy of this builder shares with it instead of copying: the inputs and the outputs.</summary>
+        private HashSet<object> Shared(ITailList[] outputs)
+        {
+            // The schema and everything under it never change once parsed; walked once, then shared by every snapshot.
+            schemaGraph ??= StateCopy.Reachable(schema);
+
+            HashSet<object> shared = new(schemaGraph, ReferenceEqualityComparer.Instance) { commands, lease, schemaGraph };
+            shared.UnionWith(decoder.SchemaDerived());
+
+            if (classes is not null)
+            {
+                shared.Add(classes);
+            }
+
+            foreach (ITailList output in outputs)
+            {
+                shared.Add(output);
+            }
+
+            return shared;
+        }
+
+        /// <summary>Whether the output lists this builder shares with its snapshots have been handed out in a timeline.</summary>
+        /// <remarks>
+        /// **One per family**: the live builder, every snapshot of it and every builder resumed from one share it, because
+        /// they share the output lists. Once <see cref="Finish"/> has put those lists in a timeline — and re-timed and
+        /// re-sorted `sounds` in place — a resume would cut lists a caller already holds, and resume from a sorted
+        /// `sounds`. So both are refused, rather than either being allowed to do something silently wrong.
+        /// </remarks>
+        private sealed class OutputLease
+        {
+            private bool handedOut;
+
+            public void HandOut()
+            {
+                Refuse("finish");
+                handedOut = true;
+            }
+
+            public void Refuse(string what)
+            {
+                if (handedOut)
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot {what}: this builder's output lists were already handed out by Finish (D217).");
+                }
+            }
+        }
+
+        private readonly OutputLease lease = new();
+
+        /// <summary>Every object under the schema, shared by snapshots rather than copied; built at the first one.</summary>
+        private HashSet<object>? schemaGraph;
+
+        /// <summary>Runs the post-passes and hands over the timeline; the builder, its snapshots and their resumes are spent afterwards.</summary>
+        /// <returns>The timeline.</returns>
+        public DemoTimeline Finish()
+        {
+        lease.HandOut();
 
         if (frames.Count > 0)
         {
@@ -4030,11 +4540,16 @@ public sealed class DemoTimeline
         // hearing the map — not to zero, since a demo's ticks do not start at zero
         // (docs/memory/demo-ticks-do-not-start-at-zero.md) and zero would sort before a recording
         // that opens at 30 and leave a gap nothing fills.
-        if (sounds.Count > 0)
+        //
+        // **On a copy**: the builder's own list is a tail list its snapshots share, and re-timing or re-sorting it in
+        // place would hand a later resume a sorted list (D217).
+        List<SceneSound> heard = [.. sounds];
+
+        if (heard.Count > 0)
         {
             int firstPacketTick = int.MaxValue;
 
-            foreach (SceneSound sound in sounds)
+            foreach (SceneSound sound in heard)
             {
                 if (!sound.FromSignon && sound.Tick < firstPacketTick)
                 {
@@ -4044,11 +4559,11 @@ public sealed class DemoTimeline
 
             if (firstPacketTick < int.MaxValue)
             {
-                for (int index = 0; index < sounds.Count; index++)
+                for (int index = 0; index < heard.Count; index++)
                 {
-                    if (sounds[index].FromSignon)
+                    if (heard[index].FromSignon)
                     {
-                        sounds[index] = sounds[index] with { Tick = firstPacketTick };
+                        heard[index] = heard[index] with { Tick = firstPacketTick };
                     }
                 }
             }
@@ -4056,10 +4571,7 @@ public sealed class DemoTimeline
             // **A stable sort, so sounds sent in one message keep the order the server wrote them
             // in.** Within a tick that order is the engine's own, and several sounds on one channel
             // replace each other — reordering them would change which one survives.
-            List<SceneSound> ordered = [.. sounds.OrderBy(sound => sound.Tick)];
-
-            sounds.Clear();
-            sounds.AddRange(ordered);
+            heard = [.. heard.OrderBy(sound => sound.Tick)];
         }
 
         // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
@@ -4072,8 +4584,8 @@ public sealed class DemoTimeline
         }
 
         return new DemoTimeline(
-            frames, props, playerTracks, viewCommands, viewmodels, fogSamples, sounds, soundscapes,
-            director, firstStated)
+            frames.HandOut(), props, playerTracks, viewCommands.HandOut(), viewmodels.HandOut(), fogSamples.HandOut(), heard,
+            soundscapes.HandOut(), director.HandOut(), firstStated)
         {
             MaxClients = maxClients,
             ClientInterpAmount = interpAmount,
@@ -4081,8 +4593,9 @@ public sealed class DemoTimeline
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
             Roster = everyone,
-            GameEvents = gameEvents,
-            UserMessages = userMessages,
+            GameEvents = gameEvents.HandOut(),
+            UserMessages = userMessages.HandOut(),
+            SpectatorGuiChanges = [.. spectatorGuiChanges],
             RecorderEntityIndex = recorderSlot is { } recorded ? recorded + 1 : null,
             Corpses = [.. replaced, .. corpses.Values],
             Explosions = feeds.Explosions,
@@ -4102,10 +4615,11 @@ public sealed class DemoTimeline
             Sparks = feeds.Sparks,
             Scenes = choreography,
             ServerConVars = serverConVars,
-            ConVarChanges = conVarHistory,
-            UserCommands = userCommands,
-            PacketAcknowledgements = packetAcknowledgements,
+            ConVarChanges = conVarHistory.HandOut(),
+            UserCommands = userCommands.HandOut(),
+            PacketAcknowledgements = packetAcknowledgements.HandOut(),
             MapCrc = mapCrc,
+            IsSourceTv = isSourceTv,
             MapHash = mapHash,
             NetworkProtocol = header.NetworkProtocol,
             FlagLayout = PlayerFlagLayout.For(schema),
@@ -4125,7 +4639,7 @@ public sealed class DemoTimeline
                 Milliseconds(frameTicks),
                 Milliseconds(Stopwatch.GetTimestamp() - buildFrom)),
         };
-    }
+        }
 
     private static double Milliseconds(long ticks) => ticks * 1000d / Stopwatch.Frequency;
 
@@ -4302,6 +4816,7 @@ public sealed class DemoTimeline
 
         queued.RemoveRange(kept, queued.Count - kept);
     }
+    }
 
     /// <summary>The tick a temp entity FIRES on — `CL_QueueEvent`, read out of `engine.dll` (`0x1801f9bc0`, B415).</summary>
     /// <param name="arrival">The tick its message arrived on.</param>
@@ -4332,6 +4847,8 @@ public sealed class DemoTimeline
         return arrival + (int)Math.Floor(((delay + interpolation) / seconds) + 1e-6d);
     }
 
+    private sealed partial class Builder
+    {
     /// <summary>`C_BaseEntity::Instance( hEntity )->IsPlayer()` — the entity at an index exists and is a player.</summary>
     /// <remarks>
     /// Existence in the table and not visibility: the client's list keeps a dormant entity, and so does this.
@@ -4426,6 +4943,7 @@ public sealed class DemoTimeline
             IsSniperZoomed: IsSniperRifleOrBow(weapon) &&
                 state.Conditions().Has(PlayerConditions.Zoomed));
     }
+    }
 
     /// <summary>`m_Shared.IsLoser()` of one player against the game rules, by <see cref="LoserState.IsLoser"/>.</summary>
     /// <param name="state">The player.</param>
@@ -4478,6 +4996,8 @@ public sealed class DemoTimeline
             player.PlayerClass(), table, weapon?.ClassName, weapon?.ItemDefinitionIndex(), First(player, TeamProperties) ?? 0);
     }
 
+    private sealed partial class Builder
+    {
     /// <summary>`CTFPlayerShared::IsAiming` (`tf_player_shared.cpp:11429-11441`).</summary>
     /// <param name="player">The player.</param>
     /// <param name="weaponClass">The active weapon's server class, or null.</param>
@@ -4492,6 +5012,7 @@ public sealed class DemoTimeline
         }
 
         return conditions.Has(PlayerConditions.Aiming) && player.PlayerClass() != SoldierClass;
+    }
     }
 
     /// <summary>`TF_CLASS_SNIPER`.</summary>
@@ -4515,6 +5036,8 @@ public sealed class DemoTimeline
     /// <summary>The server class of the weapon <c>bIsMinigun</c> tests for.</summary>
     private const string MinigunClass = "CTFMinigun";
 
+    private sealed partial class Builder
+    {
     /// <summary>Whether a weapon class is one <c>WeaponID_IsSniperRifleOrBow</c> accepts.</summary>
     /// <param name="weaponClass">The weapon entity's server class, or null.</param>
     /// <returns>Whether it is a sniper rifle or the bow.</returns>
@@ -4528,17 +5051,20 @@ public sealed class DemoTimeline
             or "CTFSniperRifleDecap"
             or "CTFSniperRifleClassic"
             or "CTFCompoundBow";
+    }
 
     /// <summary>`DT_TFPlayer.m_bFlipViewModels`, the player's `cl_flipviewmodels` as the server copied it (B515).</summary>
     private const string FlipViewModelsProperty = "DT_TFPlayer.m_bFlipViewModels";
 
+    private sealed partial class Builder
+    {
     private static void RecordViewmodels(
         EntityStateTable entities,
         ModelPrecache precache,
         int protocol,
         int tick,
         Dictionary<int, SceneViewmodel> last,
-        List<(int Tick, SceneViewmodel Weapon)> into,
+        TailList<(int Tick, SceneViewmodel Weapon)> into,
         List<int> candidates,
         HashSet<int> touched,
         Dictionary<int, int> weaponOf)
@@ -4767,6 +5293,7 @@ public sealed class DemoTimeline
 
         return slots;
     }
+    }
 
     /// <summary>Everything the player had equipped at death, for the corpse's body (B395).</summary>
     /// <param name="tracks">Every track, to find the player's bone-merged children.</param>
@@ -4775,7 +5302,7 @@ public sealed class DemoTimeline
     /// <param name="activeWeapon">The entity he was holding, or null if it cannot be read.</param>
     /// <returns>Each equipped item with its kind and whether it was deployed, or null.</returns>
     /// <remarks>
-    /// **The same walk as <see cref="WornAtDeath"/> and deliberately NOT the same filter.** That
+    /// **The same walk as <see cref="Builder.WornAtDeath"/> and deliberately NOT the same filter.** That
     /// one answers "what hangs off the corpse", which the engine takes from the econ wearable list
     /// (`c_tf_player.cpp:10178`), so it drops weapons. This answers "what was the player's body",
     /// which `RecalculatePlayerBodygroups` builds from weapons AND wearables
@@ -4835,6 +5362,8 @@ public sealed class DemoTimeline
         return carried;
     }
 
+    private sealed partial class Builder
+    {
     /// <summary>What a player was wearing, for the corpse being made of them.</summary>
     /// <param name="tracks">Every prop track so far.</param>
     /// <param name="player">The dying player's entity index, or null when it is unknown.</param>
@@ -4934,7 +5463,7 @@ public sealed class DemoTimeline
         int[] clockGap,
         Dictionary<string, int[]> lagByClass,
         Dictionary<int, SceneRagdoll> corpses,
-        List<SceneRagdoll> replaced,
+        TailList<SceneRagdoll> replaced,
         Dictionary<int, int> lastHeld)
     {
         // **A corpse is captured here and never becomes a prop track**, because it has no model
@@ -5791,6 +6320,7 @@ public sealed class DemoTimeline
             track.SequenceRestarted(tick);
         }
     }
+    }
 
     /// <summary>Every model that existed at a tick, with the pose it held then.</summary>
     /// <param name="tick">The moment being shown, which may fall between ticks.</param>
@@ -6285,6 +6815,8 @@ public sealed class DemoTimeline
             Econ: track.Econ,
             ClientSideAnimated: track.ClientSideAnimated);
 
+    private sealed partial class Builder
+    {
     /// <summary>Whether a player is on the opposite team from the recorder.</summary>
     /// <param name="recorderTeam">The recording player's team, or null when it is not known.</param>
     /// <param name="team">The player being asked about.</param>
@@ -6332,6 +6864,7 @@ public sealed class DemoTimeline
             (SceneTeams.Blu, SceneTeams.Red) => true,
             _ => false,
         };
+    }
 
     /// <summary>The STUDENT's team when the recorder is coaching, else null.</summary>
     /// <param name="entities">The entity table, for looking the student up by index.</param>

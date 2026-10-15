@@ -237,6 +237,9 @@ internal sealed class ViewerMenu : IDisposable
     /// <summary>The texture-quality items, by level, so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<string, ToolStripMenuItem> TextureQualityItems { get; }
 
+    /// <summary>The View menu, whose opening the window answers with <see cref="Sync"/>.</summary>
+    public ToolStripMenuItem View { get; }
+
     /// <summary>The HUD picker's items, by path (<see cref="StockHudKey"/> for TF2's stock HUD), so one can be checked and the rest cleared.</summary>
     public IReadOnlyDictionary<string, ToolStripMenuItem> HudItems { get; }
 
@@ -381,6 +384,8 @@ internal sealed class ViewerMenu : IDisposable
             AccessibleName = MainForm.ViewMenuName,
         };
 
+        View = view;
+
         // **A diagnostic view, kept in the product deliberately.** It answers "is anything here,
         // and what kind of thing is it", which a textured picture cannot - and which cost hours
         // this session when terrain, a material and a prop each went missing while the map still
@@ -421,7 +426,13 @@ internal sealed class ViewerMenu : IDisposable
         };
 
         Bind(FrameRate, ViewerAction.FrameRate, bindings);
-        FrameRate.CheckedChanged +=(_, _) => actions.SetFrameRateMeter(FrameRate.Checked);
+        FrameRate.CheckedChanged +=(_, _) =>
+        {
+            if (!_syncing)
+            {
+                actions.SetFrameRateMeter(FrameRate.Checked);
+            }
+        };
 
         // **Valve's `cl_showpos`, drawn by the same panel and therefore next to it in the menu.**
         // Added on the owner's direction as an INSTRUMENT rather than as a feature (D123): *"we
@@ -445,7 +456,12 @@ internal sealed class ViewerMenu : IDisposable
 
         Bind(PositionReadout, ViewerAction.PositionReadout, bindings);
         PositionReadout.CheckedChanged +=(_, _) =>
-            actions.SetPositionReadout(PositionReadout.Checked);
+        {
+            if (!_syncing)
+            {
+                actions.SetPositionReadout(PositionReadout.Checked);
+            }
+        };
 
         // **Valve's `mat_wireframe`, replacing the brush outline that used to sit on F10.** The
         // outline drew precomputed BSP edge segments as an overlay — 60,764 of them, built for the
@@ -516,7 +532,13 @@ internal sealed class ViewerMenu : IDisposable
                 "a highlight is washing out a model.",
         };
 
-        Phong.CheckedChanged += (_, _) => actions.SetPhong(Phong.Checked);
+        Phong.CheckedChanged += (_, _) =>
+        {
+            if (!_syncing)
+            {
+                actions.SetPhong(Phong.Checked);
+            }
+        };
 
         // **A submenu of three, because `mat_fullbright` has three states.** Offering it as a
         // checkbox would be the same mistake as reading the cvar's name and assuming a boolean —
@@ -816,10 +838,10 @@ internal sealed class ViewerMenu : IDisposable
     /// TF2's Audio options as far as this viewer has them: `volume` in tenths, and `snd_mute_losefocus`. Levels and what
     /// each sets are the settings owner's (`SettingsPresenter.Menu`); a bound key reaches the same store (D215).
     /// </summary>
-    private static ToolStripMenuItem Volume(MenuState state, ViewerMenuActions actions)
+    private ToolStripMenuItem Volume(MenuState state, ViewerMenuActions actions)
     {
         ToolStripMenuItem volume = new("&Volume") { Name = MainForm.VolumeMenuId, AccessibleName = "Volume" };
-        List<ToolStripMenuItem> levels = [];
+        List<ToolStripMenuItem> levels = _volumeLevels;
 
         foreach (MenuChoice choice in state.Volumes)
         {
@@ -854,11 +876,71 @@ internal sealed class ViewerMenu : IDisposable
             Checked = state.MuteLoseFocus,
         };
 
-        mute.CheckedChanged += (_, _) => actions.SetMuteLoseFocus(mute.Checked);
+        mute.CheckedChanged += (_, _) =>
+        {
+            if (!_syncing)
+            {
+                actions.SetMuteLoseFocus(mute.Checked);
+            }
+        };
+
+        _muteLoseFocus = mute;
         volume.DropDownItems.Add(new ToolStripSeparator());
         volume.DropDownItems.Add(mute);
 
         return volume;
+    }
+
+    /// <summary>The Volume menu's levels, in menu order.</summary>
+    private readonly List<ToolStripMenuItem> _volumeLevels = [];
+
+    /// <summary>The Volume menu's `snd_mute_losefocus` item.</summary>
+    private ToolStripMenuItem? _muteLoseFocus;
+
+    /// <summary>Set while <see cref="Sync"/> moves checks to the settings, so a moved check calls no action and saves nothing.</summary>
+    private bool _syncing;
+
+    /// <summary>Moves the checks a ConVar set without the menu can stale to what the settings say now (D215).</summary>
+    /// <param name="state">The settings, as `SettingsPresenter.Menu` gives them.</param>
+    /// <remarks>A bind, `toggle` or `incrementvar` sets these without the menu, so the window calls this as View opens.</remarks>
+    public void Sync(MenuState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        _syncing = true;
+
+        try
+        {
+            FrameRate.Checked = state.ShowFrameRate;
+            PositionReadout.Checked = state.ShowPosition;
+            Phong.Checked = state.Phong;
+
+            foreach (MenuChoice choice in state.TextureQualities)
+            {
+                if (TextureQualityItems.TryGetValue(choice.Key ?? string.Empty, out ToolStripMenuItem? item))
+                {
+                    item.Checked = choice.Chosen;
+                }
+            }
+
+            foreach (MenuChoice choice in state.Huds)
+            {
+                if (HudItems.TryGetValue(choice.Key ?? StockHudKey, out ToolStripMenuItem? item))
+                {
+                    item.Checked = choice.Chosen;
+                }
+            }
+
+            for (int at = 0; at < _volumeLevels.Count && at < state.Volumes.Count; at++)
+            {
+                _volumeLevels[at].Checked = state.Volumes[at].Chosen;
+            }
+
+            _muteLoseFocus?.Checked = state.MuteLoseFocus;
+        }
+        finally
+        {
+            _syncing = false;
+        }
     }
 
     /// <summary>Disposes the strip and every item it built.</summary>
@@ -902,6 +984,12 @@ internal sealed class ViewerMenu : IDisposable
             item.Dispose();
         }
 
+        foreach (ToolStripMenuItem item in _volumeLevels)
+        {
+            item.Dispose();
+        }
+
+        _muteLoseFocus?.Dispose();
         Strip.Dispose();
     }
 }

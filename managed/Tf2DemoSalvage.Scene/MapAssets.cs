@@ -1463,6 +1463,7 @@ public sealed class MapAssets
                 Overbright = OverbrightOf(vmt),
                 Size = SizeOf(vmt),
                 TintIsGamma = ParticleMaterial.TintIsGammaOf(vmt?.Shader),
+                Shader = vmt?.Shader,
             };
         }
 
@@ -2415,6 +2416,7 @@ public sealed class MapAssets
                 Overbright = OverbrightOf(stated),
                 Size = SizeOf(stated),
                 TintIsGamma = ParticleMaterial.TintIsGammaOf(stated?.Shader),
+                Shader = stated?.Shader,
             };
         }
 

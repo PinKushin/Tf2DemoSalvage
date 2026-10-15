@@ -60,6 +60,8 @@ namespace Tf2DemoSalvage.Scene.Hud;
 /// <param name="EyePosition">The local player's `EyePosition()`, or null where no first-person eye is known.</param>
 /// <param name="Flags">The local player's `GetFlags()`: `m_fFlags`, 0 where unsent.</param>
 /// <param name="FrozenFlag">`FL_FROZEN` in the demo's own flag layout — <see cref="Core.Scene.PlayerFlags.Frozen"/>.</param>
+/// <param name="IsHltv">`engine->IsHLTV()`: the demo's `svc_ServerInfo` `is_hltv`.</param>
+/// <param name="SpectatorGuiShown">Whether the server last opened `specgui` for the recorder with a `VGUIMenu`.</param>
 public readonly record struct HudState(
     bool InGame,
     bool HasLocalPlayer,
@@ -98,7 +100,9 @@ public readonly record struct HudState(
     int? WeaponPickupTraceHit = null,
     (float X, float Y, float Z)? EyePosition = null,
     int Flags = 0,
-    int FrozenFlag = Core.Scene.PlayerFlags.FrozenCurrent)
+    int FrozenFlag = Core.Scene.PlayerFlags.FrozenCurrent,
+    bool IsHltv = false,
+    bool SpectatorGuiShown = false)
 {
     /// <summary>`cl_entitylist->GetEnt` for a dropped weapon or revive marker: the one at that index, or null.</summary>
     /// <param name="index">The entity index.</param>

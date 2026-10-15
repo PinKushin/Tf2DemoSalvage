@@ -35,7 +35,7 @@ internal sealed class FakeViewerWindow : IViewerWindow
     public (int Width, int Height) Viewport { get; set; } = (1280, 720);
 
     /// <inheritdoc/>
-    public bool HasFocus { get; set; } = true;
+    public bool IsActiveApp { get; set; } = true;
 
     /// <inheritdoc/>
     public bool IsFullScreen { get; set; }

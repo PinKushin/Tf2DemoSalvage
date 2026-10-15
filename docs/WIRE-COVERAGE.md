@@ -14,7 +14,7 @@ ignorance rather than proof of use — a name can be mentioned and still not hon
 which is its own recurring bug here. A property this report calls read may still be
 decoded and dropped.
 
-**323 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
+**325 of 1122** declared table/property pairs are mentioned at all, across 173 tables.
 
 ## Tables an entity this viewer draws composes
 
@@ -151,9 +151,9 @@ Not declared in this SDK.
 | `DT_HL2Local` | 19 | 19 |
 | `DT_SmokeStack` | 18 | 18 |
 | `DT_TFPlayerScoringDataExclusive` | 18 | 20 |
-| `DT_TFPlayerResource` | 17 | 26 |
 | `DT_BaseHumanoid` | 16 | 16 |
 | `DT_ScriptIntro` | 15 | 17 |
+| `DT_TFPlayerResource` | 15 | 26 |
 | `DT_EnvProjectedTexture` | 14 | 14 |
 | `DT_RocketTrail` | 14 | 15 |
 | `DT_SmokeTrail` | 14 | 15 |

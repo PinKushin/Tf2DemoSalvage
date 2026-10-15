@@ -82,7 +82,53 @@ public sealed partial class ViewerSession
     /// anywhere. So the buttons are released one by one, which is what the engine's own
     /// empty-argument `KeyUp` path does.
     /// </remarks>
-    public void ReleaseHeldKeys() => _console.ReleaseEverything();
+    public void ReleaseHeldKeys()
+    {
+        _console.ReleaseEverything();
+        _boundKeysDown.Clear();
+        _consoleKeysDown.Clear();
+    }
+
+    /// <summary>Keys whose press a bind took, until they come up: their auto-repeats are the bind's too (B547).</summary>
+    private readonly HashSet<string> _boundKeysDown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Keys whose press went to the console, until they come up: only these get a release (B547). The engine releases
+    /// what it pressed - its keys keep their own down state - so a key a focused control kept, or a chord, runs no `-`.
+    /// </summary>
+    private readonly HashSet<string> _consoleKeysDown = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Presses a key into the console, remembering that it did and whether the bind took the key.</summary>
+    private bool PressIntoConsole(string name)
+    {
+        _consoleKeysDown.Add(name);
+
+        if (!_console.KeyDown(name))
+        {
+            return false;
+        }
+
+        _boundKeysDown.Add(name);
+        return true;
+    }
+
+    /// <summary>A key came up, wherever the focus is: its release runs only if its press went to the console.</summary>
+    /// <param name="key">Its Source name.</param>
+    /// <returns>
+    /// Whether the key was the bind's, so the toolkit must not act on its release either - a lone ALT's release would
+    /// otherwise put the menu strip in menu mode (B542, D216).
+    /// </returns>
+    public bool KeyUp(string key)
+    {
+        bool bound = _boundKeysDown.Remove(key);
+
+        if (_consoleKeysDown.Remove(key))
+        {
+            _console.KeyUp(key);
+        }
+
+        return bound;
+    }
 
     /// <summary>Performs an action a bound key or button asked for.</summary>
     /// <remarks>
@@ -91,10 +137,9 @@ public sealed partial class ViewerSession
     /// <see cref="ConfigConsole.HeldActions"/> rather than by the command's spelling, because TF2
     /// writes the camera switch as `+jump` even though nothing about it is continuous.
     ///
-    /// **Camera mode and reset are still handled in `ProcessCmdKey` by comparing key codes**, and
-    /// that inconsistency is known rather than overlooked: moving them here means pressing every
-    /// bound key into the console, which changes what `ProcessCmdKey` swallows and is a bigger
-    /// change than this one. Filed as the remaining half of B145.
+    /// **Camera mode and reset are still handled in <see cref="KeyPressed"/> by comparing keys.** Every key is pressed
+    /// into the console since B547, so these one-shots arrive here too and are ignored; moving their handling here is
+    /// the remaining half of B145, and would let an alias reach them.
     /// </remarks>
     private void OnConsoleAction(object? sender, ViewerActionEventArgs e)
     {
@@ -201,9 +246,31 @@ public sealed partial class ViewerSession
         // message meant Windows' auto-repeat set the speed: nothing for the repeat delay, then fixed
         // jumps at the repeat rate, and never two directions at once because auto-repeat reports
         // only the last key held. See FreeFlight.
-        if (_camera.FreeLook && ConfigConsole.IsHeldKey(key.Name, _bindings))
+        // **Every key goes to its bind, as the engine's `Key_Event` sends it** (B547). Only flight keys in the free camera
+        // did, so a keyboard `toggle cl_showpos` or a scoreboard alias did nothing while the same bind on MOUSE3 worked
+        // (`PointerDown` always pressed). Three refinements, each the engine's or Windows':
+        // - an auto-repeat runs nothing, since Source binds the press; but the key stays the bind's while it is held;
+        // - CTRL or ALT with a key is not that key, because Source's `bind` has no modifier syntax - the viewer's own
+        //   chords live there; the modifier keys themselves are plain keys (`bind CTRL +duck`);
+        // - a bind that did something of the console's own takes the key, so a menu shortcut on the same key does not
+        //   also fire: the user's config wins a collision (D101). A one-shot of the viewer's own does not, and goes on
+        //   to its route below.
+        // A repeat is asked about first: a bound key held while CTRL is tapped repeats as a chord, and must not turn into
+        // the viewer's CTRL shortcut on every repeat (hold W, tap CTRL: CTRL+W would toggle wireframe each time).
+        if (key.IsRepeat && _boundKeysDown.Contains(key.Name))
         {
-            _console.KeyDown(key.Name);
+            return true;
+        }
+
+        // **Escape never reaches a bind.** The engine keeps it for the game UI ahead of the bindings (Quake's
+        // `menubound[K_ESCAPE]`, which Source's keys.cpp descends from - interpolated), and here it is the way out of
+        // full screen below (D101's one literal): a config that bound it would strand the user.
+        bool chorded = key.ControlOrAlt && key.Name is not ("CTRL" or "ALT");
+
+        // The free camera's flight keys used to be pressed here alone, behind `ConfigConsole.IsHeldKey`; a held press is
+        // one of the things that takes the key, so they need nothing of their own.
+        if (!chorded && !key.IsRepeat && !key.IsEscape && PressIntoConsole(key.Name))
+        {
             return true;
         }
 

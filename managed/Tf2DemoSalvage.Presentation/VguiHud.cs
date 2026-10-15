@@ -58,6 +58,9 @@ public sealed class VguiHud
         // `CHud::Think`'s per-element `ShouldDraw`, which is why it is not parented alongside the elements above and
         // starts hidden here rather than defaulting to `VguiPanel.Visible`'s true.
         Scoreboard = new TfClientScoreBoardDialog(Viewport) { Visible = false };
+
+        // `CBaseViewport::CreateDefaultPanels` (baseviewport.cpp:236): the scoreboard, the info panel, then `specgui`.
+        SpectatorGui = new TfSpectatorGui(Viewport);
         ItemEffectMeters = new TfItemEffectMeterManager(Viewport);
     }
 
@@ -110,6 +113,9 @@ public sealed class VguiHud
 
     /// <summary>`CTFClientScoreBoardDialog`, shown only while <see cref="Frame"/>'s <c>showScoreboard</c> is held.</summary>
     public TfClientScoreBoardDialog Scoreboard { get; }
+
+    /// <summary>`CTFSpectatorGUI`, the `specgui` viewport panel a SourceTV demo shows (B516).</summary>
+    public TfSpectatorGui SpectatorGui { get; }
 
     /// <summary>`CTFHudWeaponAmmo`.</summary>
     public TfHudWeaponAmmo WeaponAmmo { get; }
@@ -196,6 +202,7 @@ public sealed class VguiHud
             // scheme reload does not. The scoreboard starts hidden, so without this its `.res` and score font would
             // never load until the first time TAB is held, which is also the first frame it needs to paint correctly.
             Scoreboard.ApplySchemeSettings(_context);
+            SpectatorGui.ApplySchemeSettings(_context);
         }
 
         if (reset)
@@ -307,12 +314,26 @@ public sealed class VguiHud
             Scoreboard.UpdatePlayerList(state.ScoreboardPlayers, state.Names, state.LocalIndex);
         }
 
+        // `CBaseViewport::OnThink`'s `Update()` of each panel that `NeedsUpdate` — the spectator GUI while it is shown.
+        SpectatorGui.Update(state);
+
         if (!paint)
         {
             return;
         }
 
         VguiLayout.SolveTraverse(Viewport, _context);
+
+        // **A player card made this frame is filled before it is painted.** Cards are made by an update, take their scheme
+        // (and find their `classimage`) on the layout just run, and are filled only by a later update throttled to
+        // `curtime + 0.1` (tf_spectatorgui.cpp:332). TF2 shows a new card unfilled for that tenth of a second; a `--shot` is
+        // a PAUSED frame whose curtime never passes the throttle, so it painted cards grey with the `.res`'s placeholder
+        // portrait for ever (B516). **Interpolated:** the fill TF2 makes on its next update is made here on this frame.
+        if (SpectatorGui.TakeNewPlayerPanels())
+        {
+            SpectatorGui.UpdatePlayerPanels(state);
+            VguiLayout.SolveTraverse(Viewport, _context);
+        }
 
         // A seek lands where the game, skipping forward through every packet, would have had the last
         // `teamplay_update_timer`; the feed replays only a short window, so the panels it sets are brought up to date here.

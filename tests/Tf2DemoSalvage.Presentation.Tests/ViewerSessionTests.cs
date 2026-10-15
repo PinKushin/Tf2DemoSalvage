@@ -32,6 +32,7 @@ public sealed class ViewerSessionTests
     public void CreateFolder()
     {
         _folder = Path.Combine(Path.GetTempPath(), "tf2salvage-tests", Path.GetRandomFileName());
+        _gameFolder = null;
         Directory.CreateDirectory(Path.Combine(_folder, "maps"));
         File.WriteAllBytes(Path.Combine(_folder, "maps", Map + ".bsp"), SyntheticBsp.Build(new Dictionary<int, byte[]>()));
     }
@@ -87,6 +88,8 @@ public sealed class ViewerSessionTests
 
         public required StringWriter Error { get; init; }
 
+        public required SettingsPresenter Settings { get; init; }
+
         public List<int> ExitCodes { get; } = [];
 
         public Dictionary<string, string> Environment { get; } = new(StringComparer.Ordinal);
@@ -126,8 +129,9 @@ public sealed class ViewerSessionTests
             Path.Combine(_folder, "no-steam-library.vdf"),
             Path.Combine(_folder, "maps"),
             static () => throw new InvalidOperationException("no test here downloads a map"),
-            gameFolder: static () => null);
+            gameFolder: () => _gameFolder);
 #pragma warning restore CA2000
+        SettingsPresenter owner = new(log, settings, Path.Combine(_folder, "settings.cfg"));
 
         ViewerSession session = new(
             window,
@@ -137,11 +141,14 @@ public sealed class ViewerSessionTests
             new FpsPanelTests.SolidGdi(),
             new ViewerHost(output, error, exits.Add, name => environment.GetValueOrDefault(name), () => new FixedTime(frameSeconds)),
             maps,
-            new SettingsPresenter(log, settings, Path.Combine(_folder, "settings.cfg")));
+            owner);
 
         window.SurfaceColoursTicked = session.SetSurfaceColours;
 
-        Rig rig = new() { Session = session, Window = window, Transport = transport, Log = log, Out = output, Error = error };
+        Rig rig = new()
+        {
+            Session = session, Window = window, Transport = transport, Log = log, Out = output, Error = error, Settings = owner,
+        };
 
         // The rig's lists are the ones the host writes to, so they are shared rather than copied.
         exits.Clear();
@@ -153,10 +160,36 @@ public sealed class ViewerSessionTests
 
     private List<int> _exits = [];
 
+    /// <summary>The TF2 folder the session's configs are read from; null is no install.</summary>
+    private string? _gameFolder;
+
+    /// <summary>A session whose TF2 install carries this autoexec.cfg.</summary>
+    private Rig BuildWithAutoexec(string autoexec)
+    {
+        _gameFolder = Path.Combine(_folder, "tf");
+        Directory.CreateDirectory(Path.Combine(_gameFolder, "cfg"));
+        File.WriteAllText(Path.Combine(_gameFolder, "cfg", "autoexec.cfg"), autoexec);
+
+        return Build();
+    }
+
     private Dictionary<string, string> _environment = [];
 
-    private static KeyPress Key(string name, Func<string?, bool>? chord = null, FocusedWidget focus = FocusedWidget.None, bool escape = false) =>
-        new(name, ControlOrAlt: false, focus, chord ?? (binding => string.Equals(binding, name, StringComparison.OrdinalIgnoreCase)), escape, name);
+    private static KeyPress Key(
+        string name,
+        Func<string?, bool>? chord = null,
+        FocusedWidget focus = FocusedWidget.None,
+        bool escape = false,
+        bool controlOrAlt = false,
+        bool repeat = false) =>
+        new(
+            name,
+            controlOrAlt,
+            focus,
+            chord ?? (binding => string.Equals(binding, name, StringComparison.OrdinalIgnoreCase)),
+            escape,
+            name,
+            repeat);
 
     // ---- the render switches ----
 
@@ -395,6 +428,7 @@ public sealed class ViewerSessionTests
 
         rig.Session.KeyPressed(Key(reset)).ShouldBeTrue();
 
+        // ONCE (B547): the key also goes to the console, which raises the one-shot; `OnConsoleAction` must ignore it.
         rig.Transport.Speeds.ShouldBe([1d]);
     }
 
@@ -423,6 +457,124 @@ public sealed class ViewerSessionTests
 
         rig.Device.Captured.ShouldBeEmpty();
         rig.Transport.Speeds.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void KeyPressed_AKeyboardKeyBoundToToggle_RunsItAndTakesTheKey()
+    {
+        // B547: a keyboard key reached the console only in the free camera, and only for flight; a mouse button
+        // always did. The engine's `Key_Event` gives every key to its binding.
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue("a key whose bind ran is the bind's");
+        rig.Session.KeyUp("F7").ShouldBeTrue("the bind took the press, so the release is the bind's too");
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
+        rig.Log.Count("cl_showpos 1 (set at run time)").ShouldBe(1);
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyPressed_AnAutoRepeat_RunsNothingButIsStillTaken()
+    {
+        // The engine binds a key's press, not Windows' repeat; a held toggle key would otherwise flicker. The repeat is
+        // still the bind's, so a viewer shortcut on the same key cannot fire on it either.
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+        // ONE repeat: an even number of extra toggles would land back on 1 and hide a repeat that ran.
+        rig.Session.KeyPressed(Key("F7", static _ => false, repeat: true)).ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
+    }
+
+    [Test]
+    public void KeyPressed_WithControlHeld_IsNotTheBareKeysBind()
+    {
+        // Source's `bind` has no modifier syntax, so CTRL+F7 is not F7: the viewer's own CTRL chords live there.
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false, controlOrAlt: true)).ShouldBeFalse();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyPressed_AViewerDefaultKeyReboundByTheConfig_RunsTheConfigsBindInstead()
+    {
+        // D101: the user's config wins a collision. HOME is the viewer's reset-speed default.
+        using Rig rig = BuildWithAutoexec("bind \"HOME\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("HOME")).ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
+        rig.Transport.Speeds.ShouldBeEmpty();
+    }
+
+    [Test]
+    public void KeyUp_AKeyAFocusedControlKept_RunsNoReleaseHalf()
+    {
+        // The engine releases only what it pressed (its keys keep their own down state): typing `x` in the search box
+        // must not run `-x`.
+        using Rig rig = BuildWithAutoexec("alias +x \"\"\nalias -x \"cl_showpos 1\"\nbind \"x\" \"+x\"\n");
+
+        rig.Session.KeyPressed(Key("x", focus: FocusedWidget.Text)).ShouldBeFalse();
+        rig.Session.KeyUp("x").ShouldBeFalse();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyUp_AKeyTheConsolePressed_RunsItsReleaseHalf()
+    {
+        // The control on the test above: the same bind, pressed with nothing focused.
+        using Rig rig = BuildWithAutoexec("alias +x \"\"\nalias -x \"cl_showpos 1\"\nbind \"x\" \"+x\"\n");
+
+        rig.Session.KeyPressed(Key("x")).ShouldBeTrue();
+        rig.Session.KeyUp("x").ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
+    }
+
+    [Test]
+    public void KeyPressed_EscapeBoundByTheConfigInFullScreen_StillLeavesAndRunsNoBind()
+    {
+        // Escape is the game UI's, ahead of the bindings, and here it is the way out of full screen.
+        using Rig rig = BuildWithAutoexec("bind \"ESCAPE\" \"toggle cl_showpos\"\n");
+        rig.Window.IsFullScreen = true;
+
+        rig.Session.KeyPressed(Key("ESCAPE", static _ => false, escape: true)).ShouldBeTrue();
+
+        rig.Window.Told.ShouldContain("LeaveFullScreen");
+        rig.Settings.Current.ShowPosition.ShouldBe(0);
+    }
+
+    [Test]
+    public void KeyPressed_ARepeatOfABoundKeyWithControlTapped_IsStillTheBinds()
+    {
+        // Hold F7, tap CTRL: the repeats arrive as CTRL+F7, and must not become the viewer's CTRL chord.
+        using Rig rig = BuildWithAutoexec("bind \"F7\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("F7", static _ => false)).ShouldBeTrue();
+
+        bool shortcutAsked = false;
+
+        rig.Session.KeyPressed(Key("F7", _ => shortcutAsked = true, controlOrAlt: true, repeat: true)).ShouldBeTrue();
+
+        shortcutAsked.ShouldBeFalse("no viewer shortcut may even be considered for the bind's repeat");
+    }
+
+    [Test]
+    public void KeyPressed_ALoneAltBoundByTheConfig_IsTakenAndItsReleaseIsTheBindsToo()
+    {
+        // Its release is what the toolkit turns into menu mode (B542); the window consumes it when this says so.
+        using Rig rig = BuildWithAutoexec("bind \"ALT\" \"toggle cl_showpos\"\n");
+
+        rig.Session.KeyPressed(Key("ALT", static _ => false, controlOrAlt: true)).ShouldBeTrue();
+        rig.Session.KeyUp("ALT").ShouldBeTrue();
+
+        rig.Settings.Current.ShowPosition.ShouldBe(1);
     }
 
     [Test]
@@ -501,7 +653,7 @@ public sealed class ViewerSessionTests
     public void Idle_WithoutFocusAndANoFocusSleepSet_SleepsThatLongBeforeEachFrame()
     {
         using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, NoFocusSleep = 50 });
-        rig.Window.HasFocus = false;
+        rig.Window.IsActiveApp = false;
         FakeIdleHost host = new();
         host.Queue.Enqueue(null);
         host.Queue.Enqueue(0x0200);
@@ -509,6 +661,34 @@ public sealed class ViewerSessionTests
         rig.Session.Idle(host);
 
         host.Sleeps.ShouldBe([50, 50]);
+    }
+
+    [Test]
+    public void SetPhong_FromTheMenu_IsWhatTheMenuReadsBack()
+    {
+        // The menu re-reads its checks on opening (D215); a Phong the menu set must be what it reads, or opening
+        // View would put the check back.
+        using Rig rig = Build(new ViewerSettings { Phong = true });
+
+        rig.Session.SetPhong(false);
+
+        rig.Session.Menu.Phong.ShouldBeFalse();
+    }
+
+    [Test]
+    public void Idle_WhileTheApplicationIsActive_DoesNotSleep()
+    {
+        // CEngine::Frame (engine.dll FUN_18020cbd0) sleeps on `!IsActiveApp()` alone: one of our own dialogs holding
+        // the keyboard is still the active application, so the window's focus is not consulted at all.
+        using Rig rig = Build(new ViewerSettings { FrameRateLimit = 0, NoFocusSleep = 50 });
+        rig.Window.IsActiveApp = true;
+        FakeIdleHost host = new();
+        host.Queue.Enqueue(null);
+        host.Queue.Enqueue(0x0200);
+
+        rig.Session.Idle(host);
+
+        host.Sleeps.ShouldBeEmpty();
     }
 
     [Test]
