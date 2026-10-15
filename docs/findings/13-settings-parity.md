@@ -143,3 +143,28 @@ avg_lum`), and no colour correction (`:2332`). TF2 ships the float-to-screen sha
 **Open:** what `shaderapidx9` asks before it reports float support on a current device, and whether TF2's
 `materialsystem` then allocates float frame-buffer targets; both need the disassembly this session could not reach.
 Until then level 3 draws as 2, which is filed rather than claimed.
+
+## A keyboard key's bind never ran (B547, 2026-10-15)
+
+**Found by the owner while testing D218:** `bind MOUSE3 "toggle cl_showpos"` worked and the same bind on a keyboard
+key did nothing, which took his scoreboard toggle alias with it. The console (`ConfigConsole`, D69/D215) ran either
+bind correctly when pressed; the fault was upstream, in who pressed. `PointerDown` handed every mouse button to the
+console, while `ViewerSession.KeyPressed` handed a keyboard key over only when the free camera was on AND the key
+drove a held flight action. Everything else went to the viewer's own key comparisons or the menu's shortcuts.
+
+**The first suspects were wrong.** Menu `ShortcutKeys`, `WidgetKeys.Keeps` and `ProcessCmdKey` consuming the key
+were all named in the filing; none was the cause. `ProcessCmdKey` calls the session first, and the session simply
+never pressed the key.
+
+**The engine gives every key to its binding** (`Key_Event`, then the bind through the command buffer; the closed
+engine's keys.cpp, *interpolated* from its Quake lineage - the binary was not read for this). Matched with three
+refinements: an auto-repeat runs nothing (Source binds the press; `WM_KEYDOWN` bit 30 marks a repeat); CTRL or ALT
+with a key is not that key, since `bind` has no modifier syntax and the viewer's own defaults live on CTRL chords;
+and a bind that did something of the console's own (set a ConVar, ran an alias, moved a button) takes the key, so a
+viewer shortcut on the same key does not also fire (D101). A viewer one-shot (`resetspeed`, `+jump`) does not take
+it, and goes on to its own route.
+
+**A second, hidden half.** `CommandFor` falls back to the viewer's default when a key's bind expands to no
+`ViewerAction` - a rule written for binds that mean nothing here (B214). `toggle cl_showpos` names no action, so
+`bind HOME "toggle cl_showpos"` ran `resetspeed`. A bind that sets a declared ConVar or defines an alias now counts as
+meaning something.

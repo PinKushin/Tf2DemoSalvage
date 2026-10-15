@@ -74,26 +74,26 @@
     <ProjectReference Include="..\Tf2DemoSalvage.GameSystems\Tf2DemoSalvage.GameSystems.csproj" />
   </ItemGroup>
 
-  <!-- celt.dll and speex.dll are not committed (tools/native-audio/README.md) - built once by
-       tools/native-audio/build.ps1 from upstream Xiph source and copied flat into the output
-       directory here, the same place NativeLibraryResolver looks for them. Condition="Exists"
-       means a build without them present simply omits the Content item rather than failing;
-       CeltVoiceDecoder/SpeexVoiceDecoder throw a message pointing at build.ps1 if actually used
-       without it having been run. -->
-  <ItemGroup>
-    <Content Include="..\..\tools\native-audio\celt.dll" Condition="Exists('..\..\tools\native-audio\celt.dll')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>celt.dll</Link>
-    </Content>
-    <Content Include="..\..\tools\native-audio\speex.dll" Condition="Exists('..\..\tools\native-audio\speex.dll')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>speex.dll</Link>
-    </Content>
-    <Content Include="..\..\tools\native-audio\silk.dll" Condition="Exists('..\..\tools\native-audio\silk.dll')">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <Link>silk.dll</Link>
-    </Content>
-  </ItemGroup>
+  <!-- celt.dll, speex.dll and silk.dll are not committed (tools/native-audio/README.md). This is
+       the ONE place they are copied to an output directory: Content flows to every project that
+       references Audio (tests, viewer, Probe). They are items inside a target because a fresh
+       git worktree has none, and evaluation-time Exists() would have seen that before
+       ensure.ps1 ran. ensure.ps1 runs only when one is missing: it copies from the main checkout,
+       else runs build.ps1, else fails the build saying so. -->
+  <PropertyGroup>
+    <NativeAudioDir>$(MSBuildThisFileDirectory)..\..\tools\native-audio\</NativeAudioDir>
+  </PropertyGroup>
+
+  <Target Name="EnsureNativeAudio" BeforeTargets="AssignTargetPaths" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Exec Condition="!Exists('$(NativeAudioDir)celt.dll') Or !Exists('$(NativeAudioDir)speex.dll') Or !Exists('$(NativeAudioDir)silk.dll')"
+          Command="pwsh -NoProfile -File &quot;$(NativeAudioDir)ensure.ps1&quot;" />
+    <ItemGroup>
+      <!-- Literal Link per item: %(Filename) in a target batches over EVERY Content item. -->
+      <Content Include="$(NativeAudioDir)celt.dll" CopyToOutputDirectory="PreserveNewest" Link="celt.dll" />
+      <Content Include="$(NativeAudioDir)speex.dll" CopyToOutputDirectory="PreserveNewest" Link="speex.dll" />
+      <Content Include="$(NativeAudioDir)silk.dll" CopyToOutputDirectory="PreserveNewest" Link="silk.dll" />
+    </ItemGroup>
+  </Target>
 
   <!-- The same two libraries under their ELF names, built by tools/native-audio/build.sh. They are
        separate items rather than a platform condition on the ones above because BOTH may exist in a

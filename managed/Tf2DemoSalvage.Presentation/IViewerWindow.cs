@@ -32,8 +32,12 @@ public interface IViewerWindow
     /// <summary>The viewport's client size, in pixels.</summary>
     public (int Width, int Height) Viewport { get; }
 
-    /// <summary>Whether keyboard focus is inside the window.</summary>
-    public bool HasFocus { get; }
+    /// <summary>
+    /// Whether this application is the active one — any of its windows, a dialog included, in the foreground: the
+    /// engine's `IsActiveApp`, which both `snd_mute_losefocus` (engine.dll FUN_180040cc0) and `engine_no_focus_sleep`
+    /// (FUN_18020cbd0) ask. Keyboard focus is not it: a dialog or the full-screen switch takes that from the window.
+    /// </summary>
+    public bool IsActiveApp { get; }
 
     /// <summary>Whether the window is full screen.</summary>
     public bool IsFullScreen { get; }
@@ -134,10 +138,12 @@ public sealed record ViewerHost(
 /// <param name="IsChord">Whether a binding's key string names exactly this press, modifiers included.</param>
 /// <param name="IsEscape">Whether it is Escape alone.</param>
 /// <param name="Described">The press as the toolkit prints it, for the log.</param>
+/// <param name="IsRepeat">Whether it is the toolkit's auto-repeat of a key already down, which runs no bind.</param>
 public readonly record struct KeyPress(
     string Name,
     bool ControlOrAlt,
     FocusedWidget Focus,
     Func<string?, bool> IsChord,
     bool IsEscape,
-    string Described);
+    string Described,
+    bool IsRepeat = false);

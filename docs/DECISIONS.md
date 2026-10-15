@@ -10285,3 +10285,31 @@ config line or a bind setting it did nothing.
 - `snd_musicvolume` and `voice_scale` are declared and stored but applied nowhere: this viewer plays no voice, and
   which sounds the engine treats as music needs `engine.dll` read (B545).
 
+**Review fixes, 2026-10-14** (branch `fix/volume-review`):
+
+- `snd_mute_losefocus` and `engine_no_focus_sleep` both key on the APPLICATION being active
+  (`IViewerWindow.IsActiveApp`: the foreground window is ours), not on keyboard focus, which an Export or folder
+  dialog and the full-screen switch take from the window. **Read from x64 engine.dll** (2026-10-15, the lead and this
+  branch): FUN_180040cc0 zeroes a channel's gains when `snd_mute_losefocus` is nonzero, `IsActiveApp()` is false and
+  the channel's bit 0x40 at +0x13d is clear; both sound-start paths clear that bit (18002e59b in FUN_18002dd10,
+  18002f04d in FUN_18002e990) and nothing in engine.dll sets it, so no channel is exempt and one master gain matches.
+  FUN_18020cbd0 (`CEngine::Frame`) sleeps `engine_no_focus_sleep` ms on `!IsActiveApp()`. `HasFocus` had no reader
+  left and is removed.
+- `cl_showfps` and `cl_showpos` are not archived in TF2 (`vgui_fpspanel.cpp:27-28`: `FCVAR_ALLOWED_IN_COMPETITIVE`
+  and no flags), so they do not persist here either; before this branch they persisted only as a side effect of an
+  unrelated menu save.
+- A menu item's re-read now covers Phong, texture quality and the HUD picker too, on every top-level menu's opening;
+  the menu's Phong writes `mat_phong` for the run so the re-read keeps it. **A KEYBOARD key bound to a console
+  command still never reaches the console** (only mouse buttons and the held flight keys do: B542), so the UI test
+  binds MOUSE3. A run-time ConVar set is now logged (`name value (set at run time)`).
+- The View menu re-reads its checks each time it opens (`ViewerMenu.Sync`), so a bind, `toggle` or `incrementvar`
+  is shown; a moved check calls no action. Covers `cl_showfps`, `cl_showpos`, Volume and the unfocused mute.
+- A menu choice is saved onto the record as READ (`SettingsPresenter.Choose`), never the run's record, which carries
+  `+name value` and every bound key's set. Every saving setter shared the bug (HUD, texture quality, full-screen mode,
+  TF2 folder, and both volume items); fixed once.
+- `volume nan` is stored as NaN, as `ConVar::ClampValue` leaves it (both comparisons false, `convar.cpp`); the mix
+  takes NaN as silence and the menu checks no level. The menu rounds a level half away from zero; the cfg writes `volume` as `ConVarText` holds it.
+- The loopback test device takes its THREAD's context (`ALC_EXT_thread_local_context`) and puts back the one it
+  found, only while its own is still current (per thread: disposed on another thread, it leaves the opener's alone); `alcRenderSamplesSOFT` is resolved once; a missing library ignores the test rather than erroring.
+- `tools/golden-viewer-shot.sh` launches with `+volume 0`.
+

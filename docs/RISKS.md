@@ -32493,6 +32493,17 @@ arithmetic; it has NOT been confirmed by watching.*
 
 ### B378 CLOSED 2026-10-14 (the sun's glow drawn; the per-view question answered — no other view draws a glow) — DRAWN (185c1199, fa04d312; the occlusion query PORTED 2026-10-11, B521) — was OPEN 2026-09-09: an entity sprite is classified and then drawn by nothing
 
+**2026-10-14, correction (`fix/bloom-strength`) — the 4,984 reference was an UNSETTLED TF2 frame, so "4,999 with
+bloom off matches" was a coincidence.** It was captured right after a map change, before auto-exposure settled.
+Settled TF2 frames at the same camera (fov 90, `mat_hdr_level 2`) count 12,213 white pixels with bloom off and 18,629
+with it on; ours at a forced 0.7 count 4,956 and 14,725. Linear luminance of the bloom-off frames says TF2 sits near
+0.9 (the map's `SetAutoExposureMax`), not the 0.7 its `mat_hdr_tonemapscale` read: sky patch 334.6 against ours 244.0
+at 0.7 and 348.6 at 1; wall 149.3 against 99.4 / 141.9. **The sprite tone-map scale fix stands on its shader citation
+(below), not on that number.** With TF2 pinned by `mat_force_tonemap_scale 0.7`, the frames agree (sky 244.5 against
+244.0) and so does bloom's add far from the sun (+17.7 against +17.1 at 400 px). `mat_non_hdr_bloom_scalefactor` does not
+apply at level 2 (setting it to 1 changed nothing). **What remains is the sun glow itself, 1.06-1.17x TF2's with bloom
+off**, which the white-pixel threshold turns into 4,956 against 1,408. Open, for the glow overlay, not bloom (finding 77).
+
 **2026-10-14, later — against TF2, the sun drew six times too much white; the linear sprite path skipped the tone-map
 scale** (`fix/b378-sun-match`). The golden comparison (`golden/tf2-sun.png`) found 6,747 white pixels in TF2 against
 30,512 here. Two causes, separated by measurement (`docs/findings/77-the-sun-is-two-overlays-at-the-far-plane.md`):
@@ -39562,4 +39573,37 @@ Garm3n). The player cards match; these do not:
 - **A card's health colour**: TF2 draws an overhealed card's number blue (SILVER 234, TOMI67 178) and one card's on a
   white box; the viewer draws every number white. That is `CTFHudPlayerHealth`'s bonus and dying animations
   (`HudHealthBonusPulse`), which a `--shot` — a paused frame — may simply not have run. *Measured; interpolated cause.*
+
+## B547 — a keyboard key's bind never ran: only mouse buttons and the free camera's flight keys reached the console — FIXED 2026-10-15 (`fix/keyboard-binds`)
+
+Found testing D218: `bind MOUSE3 "toggle cl_showpos"` worked, a keyboard key bound the same did nothing, and so did
+the owner's scoreboard toggle alias (D69 broken). Cause, *read*: `ViewerSession.KeyPressed` pressed a key into the
+console only when `FreeLook && ConfigConsole.IsHeldKey`; `PointerDown` always did. Not the menu, `WidgetKeys` or
+`ProcessCmdKey`. A second half: `CommandFor`'s default fallback (B214) treated a bind naming no `ViewerAction` as a
+no-op, so `bind HOME "toggle cl_showpos"` ran `resetspeed`.
+
+Fix: every key not kept by a focused widget is pressed into the console, except an auto-repeat (runs nothing, stays
+the bind's) and a CTRL/ALT chord (Source's `bind` has no modifiers). `ConfigConsole.KeyDown` reports whether the bind
+did something of its own (ConVar set, alias, button); if so the key is taken, so a viewer shortcut on it does not also
+fire (D101). A ConVar-setting or alias bind is no longer a no-op for the fallback. A key's ConVar set is logged by
+main's one route, `SettingsPresenter.SetConVar` (`cl_showpos 1 (set at run time)`); a second route this branch first
+added logged every set twice after the merge and is gone. Tests: seven `ConfigConsoleConformanceTests` cases (what a bind did; HOME
+rebound to `toggle`; a self-redefining scoreboard alias), four `ViewerSessionTests` (keyboard `toggle`; one
+auto-repeat; CTRL held; a viewer default rebound), `KeyboardBindUiTests` (real F7/F6/F8 under a temp autoexec).
+Sabotage: no console press reddened the four session tests that need it; the fallback reverted reddened the HOME
+tests; repeats re-run and chords not excluded each reddened their own test. **Open:** the menu's check state does not
+follow a key's set (built once from settings); and camera mode and reset still compare keys rather than arrive
+through the console (B145's remaining half), so an alias cannot reach them. Findings: `13-settings-parity.md`.
+
+**Review, 2026-10-15.** (1) A release ran the `-` half for keys whose press a focused control kept or a chord
+excluded; now only a key whose press went to the console is released (the engine keeps per-key down state). (2)
+ESCAPE is kept out of the console, so a config cannot strand full screen (the engine keeps it for the game UI ahead of
+the bindings; *interpolated* from Quake's `menubound[K_ESCAPE]`). (3) One-shots: `OnConsoleAction` handles only the
+CycleTarget pair, which no key-compare route handles, so nothing runs twice; held by the reset-speed test's `[1d]`. A
+camera-mode test was tried and dropped: the synthetic demo refuses every mode change, so it could not move. (4) A lone
+ALT that was the bind's is consumed on WM_SYSKEYUP, so it cannot leave menu mode (B542). (5) A repeat of a bound key is
+the bind's before the chord test. (6) `SetsState` now uses `SetConVar`'s own test (declared, not replicated): that IS
+how the console treats a typed line, and an undeclared name is no ConVar in the engine either, so that part was
+dropped. (7) `Run` returns whether it acted; the shared counter is gone. The menu check is back in the UI test (D218's
+sync on open), and the open item above about the menu is closed by it.
 
