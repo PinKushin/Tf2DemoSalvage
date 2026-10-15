@@ -661,7 +661,7 @@ public sealed class BurstEffects
     /// (`PATTACH_ABSORIGIN_FOLLOW`, offset `( 0, 0, 50 )`), both read every frame. A stopped beam fades.
     /// **A seek into a beam replays at most two seconds of it**, from where it was first met: the beam's own particles
     /// live well under that, so the picture is the same as replaying from its start. *Not built:* the revive marker's
-    /// `healbeam` (MvM), and a beam on a medigun not posed here (a first-person medic's is on the viewmodel).
+    /// `healbeam` (MvM). In the medic's own eyes control point 0 is the hands' muzzle (<see cref="MedigunMuzzle"/>, B539).
     /// </remarks>
     private void AddHealBeams(DemoTimeline timeline, int tick, IReadOnlyDictionary<string, ParticleSystem> systems)
     {
@@ -675,7 +675,8 @@ public sealed class BurstEffects
             !_frame.Playing,
             _frame.HealTargetMarker,
             tick,
-            systems);
+            systems,
+            _frame.FirstPerson ? _frame.Followed : null);
     }
 
     /// <summary>The same over the demo's beams as data, which a test can supply (D214).</summary>
@@ -687,6 +688,7 @@ public sealed class BurstEffects
     /// <param name="healTargetMarker">`hud_medichealtargetmarker`.</param>
     /// <param name="tick">The tick being shown.</param>
     /// <param name="systems">The loaded particle systems by name.</param>
+    /// <param name="inEyesOf">The player whose eyes the view is in, or null for any other camera.</param>
     internal void AddHealBeams(
         IReadOnlyList<SceneHealBeam> beams,
         int? recorder,
@@ -695,7 +697,8 @@ public sealed class BurstEffects
         bool paused,
         bool healTargetMarker,
         int tick,
-        IReadOnlyDictionary<string, ParticleSystem> systems)
+        IReadOnlyDictionary<string, ParticleSystem> systems,
+        int? inEyesOf = null)
     {
         if (tick < _healBeamTick)
         {
@@ -725,7 +728,7 @@ public sealed class BurstEffects
 
             // Stryker disable once all : a mutated guard leaves its pattern variables unassigned (CS0165) and Safe Mode drops the method - B410
             if (!systems.TryGetValue(name, out ParticleSystem? definition) ||
-                _models.AttachmentPoint(beam.Medigun, "muzzle") is not { } muzzle)
+                MedigunMuzzle(beam, inEyesOf) is not { } muzzle)
             {
                 continue;
             }
@@ -768,6 +771,22 @@ public sealed class BurstEffects
             }
         }
     }
+
+    /// <summary>Control point 0 of a beam — the medigun's `muzzle` as `CEconEntity::GetAttachment` answers it (B539).</summary>
+    /// <remarks>
+    /// <code>
+    /// // econ_entity.cpp:1135-1178 — a c_model whose owner is not drawn (the view in his eyes) gets a
+    /// // C_ViewmodelAttachmentModel on his viewmodel; :1978-1984 — GetAttachment answers from it when it exists.
+    /// // particle_property.cpp:608-611 — a failed GetAttachment falls back to the weapon's own C_BaseAnimating one.
+    /// </code>
+    /// So in the medic's own eyes the beam starts at the hands' muzzle, on the hands' axes, which the path's bulge
+    /// (bulge control 1, the start point's forward) follows: TF2's beam swings out along the first-person gun.
+    /// </remarks>
+    private ParticleControlPoint? MedigunMuzzle(SceneHealBeam beam, int? inEyesOf) =>
+        (inEyesOf is { } eyes && beam.Owner == eyes
+            ? _models.AttachmentPoint(ViewmodelScene.WeaponEntityIndex, "muzzle")
+            : null) ??
+        _models.AttachmentPoint(beam.Medigun, "muzzle");
 
     /// <summary>
     /// Where a beam's two ends were drawn by a playing frame at a tick — <see cref="FollowedPoint"/>, the muzzle carried

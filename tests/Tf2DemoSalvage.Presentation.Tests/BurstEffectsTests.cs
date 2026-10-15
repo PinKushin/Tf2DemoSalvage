@@ -143,6 +143,52 @@ public sealed class BurstEffectsTests
         bursts.Bursts.ShouldBeEmpty();
     }
 
+    /// <summary>The first-person hands' copy of the medigun, `C_ViewmodelAttachmentModel`, and its own muzzle.</summary>
+    private static readonly ParticleControlPoint HandsMuzzle =
+        new(new Vector3(1f, 2f, 64f), new Vector3(0f, 0f, 1f), new Vector3(0f, -1f, 0f), new Vector3(1f, 0f, 0f));
+
+    // Conformance (B539): a c_model weapon whose owner is not drawn (`!ShouldDrawThisPlayer()`, the view in his eyes) gets a
+    // C_ViewmodelAttachmentModel parented to his viewmodel (econ_entity.cpp:1135-1178), and CEconEntity::GetAttachment answers
+    // from it (econ_entity.cpp:1978-1984). The beam's control point 0 is `PATTACH_POINT_FOLLOW` on "muzzle", read through that
+    // virtual (particle_property.cpp:599-623), so in the medic's eyes the beam starts at the hands' muzzle, on ITS axes, which
+    // the path's bulge then follows.
+    [Test]
+    public void AddHealBeams_InTheMedicsEyes_StartsAtTheHandsMuzzleOnItsAxes()
+    {
+        (BurstEffects bursts, FakePosedEntities models) = Drawn(150);
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = HandsMuzzle;
+        bursts.AddHealBeams(
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems, inEyesOf: Medic);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(HandsMuzzle);
+    }
+
+    // particle_property.cpp:608-611: a failed GetAttachment falls back to C_BaseAnimating's own, the world medigun's.
+    [Test]
+    public void AddHealBeams_InTheMedicsEyesWithNoHandsModelPosed_FallsBackToTheWorldMuzzle()
+    {
+        (BurstEffects bursts, _) = Drawn(150);
+
+        bursts.AddHealBeams(
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems, inEyesOf: Medic);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Muzzle);
+    }
+
+    // The attachment model exists only while its owner is not drawn: in anyone else's eyes the world model's muzzle stands.
+    [Test]
+    public void AddHealBeams_InAnotherPlayersEyes_StartsAtTheWorldMuzzle()
+    {
+        (BurstEffects bursts, FakePosedEntities models) = Drawn(150);
+
+        models.Named[(ViewmodelScene.WeaponEntityIndex, "muzzle")] = HandsMuzzle;
+        bursts.AddHealBeams(
+            [Healing()], null, NobodyPlayed, NoCustom, paused: false, healTargetMarker: false, 150, Systems, inEyesOf: Patient);
+
+        bursts.Bursts.ShouldHaveSingleItem().At.ShouldBe(Muzzle);
+    }
+
     [Test]
     public void AddHealBeams_APatientTheFrameDidNotDraw_OffersNoBeam()
     {

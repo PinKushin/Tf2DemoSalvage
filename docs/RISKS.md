@@ -38025,6 +38025,23 @@ with gummo standing still under a beam.
   visible in-eye at 63526 and not at 63612 or 63622. The frame-time test (0.25 against 0.05) was not taken, because
   the 0.25 did not hold.
 
+- **Superseded by a slow pass, 2026-10-14.** 30 TF2 frames in the medic's eyes, 63499 to 63621, at `demo_timescale`
+  0.03 with `mat_hdr_level 2`. The beam IS there in TF2. It swings out from the first-person gun, and from about 63606 it
+  arcs high toward the top left before it comes down to gummo. The 63622 frame was washed gray by smoke from an
+  explosion beside the medic at about 63600, a separate effect not yet checked.
+- **Ported: in the medic's own eyes, control point 0 is the HANDS' muzzle.** *Read from published source:*
+  `CEconEntity::UpdateAttachmentModels` gives a hands-attached (c_model) item a `C_ViewmodelAttachmentModel` on the
+  owner's viewmodel while `!ShouldDrawThisPlayer()` (`econ_entity.cpp:1135-1178`). `CEconEntity::GetAttachment`
+  answers from that model (`:1978-1984`), and `PATTACH_POINT_FOLLOW` reads through that virtual, falling back to the
+  weapon's own `C_BaseAnimating::GetAttachment` (`particle_property.cpp:599-623`). `BurstEffects.MedigunMuzzle` now does
+  the same. *Measured* at 63611: in the medic's eyes control point 0 is (-19 999 560), forward (0.38 -0.92 0.05). The
+  world muzzle from the other camera is (-22 1024 565), forward (0.26 -0.95 -0.17). Tests: three in
+  `BurstEffectsTests`, red first as a compile failure, and an inverted owner check reddened two of them.
+- **Still open: the high arc at 63606-63615 is NOT reproduced.** The hands' muzzle forward is nearly level and the
+  medic's eye pitch is 6-10 degrees down (`player-track`), so the bulge (`length · 1.3 · (1 − |dir · forward|)`
+  along forward) stays small. Next step: the hands model's posed `muzzle` axes against TF2's, or a reading of what else
+  writes control point 0's orientation.
+
 Files at the worktree root of `fix/heal-glow`: `heal-tf2-medic-eye-63622-fullspeed.png`,
 `heal-viewer-medic-eye-63622.png`, `heal-tf2-chase.png`, `heal-viewer-before-chase.png`,
 `heal-tf2-medic-eye.png`, `heal-viewer-before-medic-eye.png`.
