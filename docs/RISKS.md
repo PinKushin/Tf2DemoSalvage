@@ -36708,7 +36708,15 @@ into `m_bFlipViewModels` (`tf_gamerules.cpp:10281`), which is on the wire (`docs
 passes `ShouldFlipViewModel` as false (RISKS line ~21659, "implements no left-handed viewmodel"). Crop:
 `docs/findings/76-golden/b515-45000-viewmodel.png`.
 
-## B516 — the STV in-eye spectator HUD is a different HUD — OPEN 2026-10-09
+## B516 — the STV in-eye spectator HUD is a different HUD — CLOSED 2026-10-14
+
+**Closed by porting `CTFSpectatorGUI` and `CTFPlayerPanel`** (`TfSpectatorGui`, `TfPlayerPanel`; findings 64, "The
+spectator GUI"). The tournament cards are not the stock look: `InTournamentGUI` needs `mp_tournament`, not a matchmaking
+match, and `cl_use_tournament_specgui` — archived, default **0** — which the owner's `config.cfg` sets to 1. A stock
+client draws `Spectator.res`'s plain bars over the same demo. *Golden pair*, f12 (TF2's `tf/f12.dem`) at TF2's tick
+60003, gummo in-eye, Garm3n in both (`--hud`): every card's name, health, respawn seconds, charge, portrait and team
+border matches. **Left over, filed as B546:** the control-point lock row, the target ID's health number, and the
+overheal colour of a card's health. Held by `TfSpectatorGuiConformanceTests` and `SpectatorGuiCorpusTests`.
 
 *Measured by the golden comparison.* Spectating a player in-eye in an STV demo, TF2 draws the tournament spectator
 HUD: both teams' player panels with health and respawn timers, the control-point lock row, and a target ID with a
@@ -39439,4 +39447,18 @@ TF2's defaults and bounds, so a config, a bind or `toggle` sets them without com
   path under `music/`" would be a fallback that looks like an answer
   (`docs/memory/fallbacks-do-not-make-guesses-safe.md`). **To read:** `snd_musicvolume`'s xrefs in `engine.dll`, then
   apply it as a per-sound multiplier where the engine does. *Read from the SDK; the engine not read.*
+
+## B546 — the STV spectator GUI's other three parts: the control-point row, the target ID's health, overheal colour — OPEN, gap
+
+**Found closing B516** (2026-10-14), by the golden pair f12 tick 60003 (TF2 `tf2-60003.png` against the viewer's, both in
+Garm3n). The player cards match; these do not:
+
+- **The control-point lock row** at the bottom centre. `CTFSpectatorGUI::ShowPanel` reparents `CTFHudObjectiveStatus` into
+  itself (`pStatus->SetParent( this )`); the viewer has no objective-status element at all, so nothing is drawn there.
+  *Read from published source; measured on the golden pair.*
+- **The target ID's health number**: TF2 draws "150 : GUMMO", the viewer ": GUMMO". The spectator target ID's
+  `SpectatorGUIHealth` draws no number in the viewer under Garm3n. *Measured; cause not read.*
+- **A card's health colour**: TF2 draws an overhealed card's number blue (SILVER 234, TOMI67 178) and one card's on a
+  white box; the viewer draws every number white. That is `CTFHudPlayerHealth`'s bonus and dying animations
+  (`HudHealthBonusPulse`), which a `--shot` — a paused frame — may simply not have run. *Measured; interpolated cause.*
 
