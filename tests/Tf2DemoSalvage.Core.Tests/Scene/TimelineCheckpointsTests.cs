@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
+using Tf2DemoSalvage.Core.Net;
 using Tf2DemoSalvage.Core.Scene;
 
 namespace Tf2DemoSalvage.Core.Tests.Scene;
@@ -83,4 +84,58 @@ public sealed class TimelineCheckpointsTests
                 .ShouldBe(TimelineFingerprint.OfAnswer(TimelineAnswers.At(whole, tick)).Hash, $"at {tick}");
         }
     }
+
+    /// <remarks>
+    /// **A team stated only in the demo's FINAL frame** fills every earlier frame (the first-stated roster), and a window
+    /// long before it must fill it too — the final frame is observed only when the walk is finished.
+    /// </remarks>
+    [Test]
+    public void Window_ATeamFirstStatedInTheFinalFrame_FillsAnEarlyFrame()
+    {
+        byte[] demo = SyntheticPlayer.DemoOfALateTeam(
+            0.015f, [.. Enumerable.Range(0, 10).Select(step => (10 + (step * 2), step == 9 ? SceneTeams.Blu : (int?)null))]);
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, Lookback)!;
+
+        DemoTimeline.Build(demo).PlayersAt(12).ShouldHaveSingleItem().Team.ShouldBe(SceneTeams.Blu, "the control: a whole build fills it");
+        checkpoints.Window(12, 13).PlayersAt(12).ShouldHaveSingleItem().Team.ShouldBe(SceneTeams.Blu);
+    }
+
+    /// <remarks>
+    /// **The demo's end-of-demo facts reach a window before them**: a ConVar set again and a player who joins, both at
+    /// tick 30, are what a window at tick 4 reports, as the whole build does.
+    /// </remarks>
+    [Test]
+    public void Window_FactsStatedAfterIt_ReportsTheDemosFinalOnes()
+    {
+        byte[] demo = SyntheticDemo.From(
+            SyntheticDemo.DefaultProtocol,
+            [
+                SyntheticDemo.DataTables(new Core.Schema.DemoSchema([], [])),
+                SyntheticDemo.Packet(
+                    SyntheticDemo.DefaultProtocol,
+                    1,
+                    SyntheticDemo.StringTable("userinfo", [("0", SceneGameEventTests.Record("Alice", 7))]),
+                    Gravity("800")),
+                .. Enumerable.Range(2, 28).Select(tick => SyntheticDemo.Packet(SyntheticDemo.DefaultProtocol, tick)),
+                SyntheticDemo.Packet(
+                    SyntheticDemo.DefaultProtocol,
+                    30,
+                    // Entry 0 again (an update's entries are numbered from 0): Bob takes Alice's slot, and both played.
+                    SyntheticDemo.UpdateTable(0, [("0", SceneGameEventTests.Record("Bob", 9))]),
+                    Gravity("600")),
+            ]);
+        DemoTimeline.Checkpoints checkpoints = DemoTimeline.Checkpoints.Walk(demo, Every, Lookback)!;
+        checkpoints.Ticks.Count().ShouldBeGreaterThan(2, "the control: the window resumes from a checkpoint, not the whole walk");
+
+        DemoTimeline whole = DemoTimeline.Build(demo);
+        whole.ServerConVars.Value("sv_gravity").ShouldBe("600", "the control: a whole build");
+        whole.Roster.Keys.Order().ToArray().ShouldBe([7, 9], "the control: a whole build");
+
+        DemoTimeline window = checkpoints.Window(4, 5);
+
+        window.ServerConVars.Value("sv_gravity").ShouldBe("600");
+        window.Roster.Keys.Order().ShouldBe([7, 9]);
+    }
+
+    private static SetConVarMessage Gravity(string value) => new([new KeyValuePair<string, string>("sv_gravity", value)]);
 }

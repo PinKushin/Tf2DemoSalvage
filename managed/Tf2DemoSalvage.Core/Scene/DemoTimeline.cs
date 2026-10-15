@@ -2687,13 +2687,13 @@ public sealed class DemoTimeline
     {
         private readonly List<DemoCommand> _commands;
         private readonly List<(int Command, int Tick, Builder State)> _checkpoints;
-        private readonly Builder _whole;
+        private readonly Builder.EndFacts _end;
 
-        private Checkpoints(List<DemoCommand> commands, List<(int, int, Builder)> checkpoints, Builder whole)
+        private Checkpoints(List<DemoCommand> commands, List<(int, int, Builder)> checkpoints, Builder.EndFacts end)
         {
             _commands = commands;
             _checkpoints = checkpoints;
-            _whole = whole;
+            _end = end;
         }
 
         /// <summary>How far before a checkpoint its trimmed output still reaches — the readers' lookback.</summary>
@@ -2723,6 +2723,8 @@ public sealed class DemoTimeline
                 return null;
             }
 
+            // Every class flattened now, so no window ever writes the flattening cache all checkpoints share.
+            builder.FlattenEveryClass();
             List<(int, int, Builder)> checkpoints = [(0, int.MinValue, builder.Checkpoint(null, out Dictionary<object, object> prior))];
             int next = int.MinValue;
             int from = 0;
@@ -2755,14 +2757,26 @@ public sealed class DemoTimeline
             }
 
             builder.Run(commands.Skip(from));
-            return new Checkpoints(commands, checkpoints, builder) { LookbackTicks = lookbackTicks };
+
+            // Only the end-of-demo facts are kept from the walk itself; the rest of it is garbage once this returns.
+            return new Checkpoints(commands, checkpoints, builder.End()) { LookbackTicks = lookbackTicks };
         }
 
         /// <summary>The timeline from the checkpoint at or before <paramref name="tick"/> through <paramref name="through"/>.</summary>
         /// <param name="tick">The first tick the window must answer.</param>
         /// <param name="through">The last tick it must answer.</param>
         /// <returns>A timeline whose answers in that range equal a whole build's.</returns>
-        public DemoTimeline Window(int tick, int through)
+        /// <remarks>
+        /// **Safe to call from several threads at once**: it writes nothing it shares. Each window copies its checkpoint;
+        /// the schema, its flattening cache (filled in <see cref="Walk"/>) and the end facts are only read.
+        /// </remarks>
+        public DemoTimeline Window(int tick, int through) => Window(tick, through, out _);
+
+        /// <inheritdoc cref="Window(int, int)"/>
+        /// <param name="tick">The first tick the window must answer.</param>
+        /// <param name="through">The last tick it must answer.</param>
+        /// <param name="spent">Where it spent its time, in milliseconds: copying the checkpoint, decoding forward, finishing.</param>
+        public DemoTimeline Window(int tick, int through, out (double Copy, double Decode, double Finish) spent)
         {
             int at = _checkpoints.FindLastIndex(checkpoint => checkpoint.Tick <= tick);
             (int command, _, Builder state) = _checkpoints[Math.Max(0, at)];
@@ -2780,16 +2794,13 @@ public sealed class DemoTimeline
 
             resumed.Run(_commands.Skip(command).Take(end - command));
             long ran = Stopwatch.GetTimestamp();
-            DemoTimeline window = resumed.Finish(_whole);
-            LastWindow = (
+            DemoTimeline window = resumed.Finish(_end);
+            spent = (
                 Stopwatch.GetElapsedTime(from, copied).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(copied, ran).TotalMilliseconds,
                 Stopwatch.GetElapsedTime(ran).TotalMilliseconds);
             return window;
         }
-
-        /// <summary>Where the last <see cref="Window"/> spent its time: copying the checkpoint, decoding forward, finishing.</summary>
-        public (double Copy, double Decode, double Finish) LastWindow { get; private set; }
 
         /// <summary>What the checkpoints allocate in all, measured by copying each once.</summary>
         /// <returns>Bytes, and the largest single checkpoint.</returns>
@@ -4670,6 +4681,27 @@ public sealed class DemoTimeline
             return StateCopy.Of(this, SharedInputs(), prior, out copies, created);
         }
 
+        /// <summary>The facts only the END of a demo knows, which every window of it reports (D217 step 3).</summary>
+        /// <param name="ServerConVars">The final server ConVars, which bound the interpolation.</param>
+        /// <param name="FirstStated">Each player's first stated team and class, the final frame observed.</param>
+        /// <param name="Everyone">Everyone who played, by user id.</param>
+        internal sealed record EndFacts(ServerConVars ServerConVars, FirstStatedRoster FirstStated, Dictionary<int, PlayerInfo> Everyone);
+
+        /// <summary>This pass's end facts, once its last command has run: its final frame is observed here, being final.</summary>
+        /// <returns>The facts, which nothing writes afterwards — the pass is finished — so every window shares them.</returns>
+        public EndFacts End()
+        {
+            if (frames.Count > 0)
+            {
+                firstStated.Observe(frames[^1]);
+            }
+
+            return new EndFacts(serverConVars, firstStated, everyone);
+        }
+
+        /// <summary>Fills the decoder's flattening cache for every class, so no resume of a checkpoint writes it.</summary>
+        public void FlattenEveryClass() => decoder.FlattenEveryClass();
+
         /// <summary>A builder resumed from a checkpoint, which stays untouched for the next resume.</summary>
         /// <param name="checkpoint">The checkpoint.</param>
         /// <returns>The builder, ready for the commands after it.</returns>
@@ -4741,20 +4773,13 @@ public sealed class DemoTimeline
         /// <summary>Runs the post-passes and hands over the timeline; the builder, its snapshots and their resumes are spent afterwards.</summary>
         /// <returns>The timeline.</returns>
         /// <param name="whole">
-        /// For a WINDOW (D217 step 3): the builder that walked the whole demo, whose end-of-demo facts — the final server
-        /// ConVars (which bound the interpolation), the first-stated roster and everyone who played — the window cannot
-        /// know from its own commands. Null for a straight build, where this builder is that one.
+        /// For a WINDOW (D217 step 3): the end-of-demo facts of the walk over the whole demo (<see cref="End"/>), which the
+        /// window cannot know from its own commands. Null for a straight build, where this builder's own are those.
         /// </param>
-        public DemoTimeline Finish(Builder? whole = null)
+        public DemoTimeline Finish(EndFacts? whole = null)
         {
         lease.HandOut();
-
-        if (frames.Count > 0)
-        {
-            firstStated.Observe(frames[^1]);
-        }
-
-        Builder end = whole ?? this;
+        EndFacts end = whole ?? End();
 
         // **The signon's sounds are the ambience already playing, and its clock is not the
         // recording's.** Measured on movement-test-pov-cp_process: six )ambient/machine_hum.wav
@@ -4802,7 +4827,7 @@ public sealed class DemoTimeline
         }
 
         // The viewer's own interp (`cl_interp` and friends from its config), under the server's final bounds.
-        double interpAmount = client.Amount(end.serverConVars);
+        double interpAmount = client.Amount(end.ServerConVars);
         int delayTicks = ScenePropTrack.DelayTicksFor(interval, interpAmount);
 
         foreach (ScenePropTrack track in props.Concat(playerTracks))
@@ -4812,14 +4837,14 @@ public sealed class DemoTimeline
 
         return new DemoTimeline(
             frames.HandOut(), props, playerTracks, viewCommands.HandOut(), viewmodels.HandOut(), fogSamples.HandOut(), heard,
-            soundscapes.HandOut(), director.HandOut(), end.firstStated)
+            soundscapes.HandOut(), director.HandOut(), end.FirstStated)
         {
             MaxClients = maxClients,
             ClientInterpAmount = interpAmount,
             FogControllersSeen = fogControllersSeen,
             FogControllerProperties = fogProperties,
             IntervalPerTick = interval,
-            Roster = end.everyone,
+            Roster = end.Everyone,
             GameEvents = gameEvents.HandOut(),
             UserMessages = userMessages.HandOut(),
             SpectatorGuiChanges = [.. spectatorGuiChanges],
@@ -4841,7 +4866,7 @@ public sealed class DemoTimeline
             TfParticleEffects = feeds.TfParticleEffects,
             Sparks = feeds.Sparks,
             Scenes = choreography,
-            ServerConVars = end.serverConVars,
+            ServerConVars = end.ServerConVars,
             ConVarChanges = conVarHistory.HandOut(),
             UserCommands = userCommands.HandOut(),
             PacketAcknowledgements = packetAcknowledgements.HandOut(),

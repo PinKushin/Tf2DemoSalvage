@@ -98,9 +98,9 @@ public sealed class TimelineWindowsProbe : IProbe
         foreach (double tick in order)
         {
             windows.Start();
-            DemoTimeline window = checkpoints.Window((int)tick, (int)tick + 1);
+            DemoTimeline window = checkpoints.Window((int)tick, (int)tick + 1, out (double Copy, double Decode, double Finish) spent);
             windows.Stop();
-            phases = (phases.Copy + checkpoints.LastWindow.Copy, phases.Decode + checkpoints.LastWindow.Decode, phases.Finish + checkpoints.LastWindow.Finish);
+            phases = (phases.Copy + spent.Copy, phases.Decode + spent.Decode, phases.Finish + spent.Finish);
             List<(string Question, object? Answer)> expected = TimelineAnswers.At(whole, tick);
             List<(string Question, object? Answer)> actual = TimelineAnswers.At(window, tick);
             bool differs = false;
