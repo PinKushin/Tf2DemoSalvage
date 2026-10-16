@@ -71,7 +71,25 @@ public sealed class SoundPresenterChangeConformanceTests
         sink.Silenced.ShouldBeEmpty();
     }
 
-    private static Recording Run(params SceneSound[] sounds)
+    /// <remarks>
+    /// A sink without voice handles says a key has gone by answering false; the change then matches nothing, so the
+    /// sound starts, as `S_AlterChannel` returning 0 leads to (FUN_18002aa20) — and the retry ends rather than
+    /// matching the same entry again.
+    /// </remarks>
+    [Test]
+    public void Update_AChangeForALoopWhoseKeyHasEnded_StartsTheSound()
+    {
+        Recording sink = Run(
+            ended => ended.EndAll(),
+            Sound(50, Loop, volume: 1f),
+            Sound(55, Loop, volume: 0.5f) with { ChangesVolume = true });
+
+        sink.Played.ShouldBe([Loop, Loop]);
+    }
+
+    private static Recording Run(params SceneSound[] sounds) => Run(static _ => { }, sounds);
+
+    private static Recording Run(Action<Recording> between, params SceneSound[] sounds)
     {
         Dictionary<string, SoundSample> samples = new(StringComparer.Ordinal)
         {
@@ -87,8 +105,10 @@ public sealed class SoundPresenterChangeConformanceTests
 
         Recording sink = new(sample => sample.Samples.Span[0] > 0.3f ? Loop : Other);
 
-        // The first call only positions the schedule; the second crosses every sound.
+        // The first call only positions the schedule; the second crosses the first start, the third the rest.
         presenter.Update(sink, 40, (0f, 0f, 0f), (0f, -1f, 0f), now: 0d);
+        presenter.Update(sink, 50, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.15d);
+        between(sink);
         presenter.Update(sink, 60, (0f, 0f, 0f), (0f, -1f, 0f), now: 0.3d);
 
         return sink;
@@ -134,6 +154,9 @@ public sealed class SoundPresenterChangeConformanceTests
         }
 
         public void SilenceAll() => _playing.Clear();
+
+        /// <summary>Every sound finishes on its own; the keys answer false from here on.</summary>
+        public void EndAll() => _playing.Clear();
 
         public int Reclaim() => 0;
 

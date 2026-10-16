@@ -621,22 +621,23 @@ public sealed partial class SoundPresenter(
     {
         float rate = SoundScript.Rate(sound.Pitch);
 
+        bool alive = true;
+
+        // Without a handle the key is what answers: false from the sink means nothing plays there any more.
         if (voice == 0)
         {
             if (sound.ChangesVolume && loops.GainAt(sound.EntityIndex, sound.Channel, listener, MusicVolume()) is { } keyed)
             {
-                output.SetGain(sound.EntityIndex, sound.Channel, keyed);
+                alive = output.SetGain(sound.EntityIndex, sound.Channel, keyed);
             }
 
-            if (sound.ChangesPitch)
+            if (alive && sound.ChangesPitch)
             {
-                output.SetPitch(sound.EntityIndex, sound.Channel, rate);
+                alive = output.SetPitch(sound.EntityIndex, sound.Channel, rate);
             }
 
-            return true;
+            return alive;
         }
-
-        bool alive = true;
 
         if (sound.ChangesVolume && loops.GainOfVoice(voice, listener, MusicVolume()) is { } altered)
         {
@@ -692,7 +693,16 @@ public sealed partial class SoundPresenter(
                 return;
             }
 
-            loops.ForgetVoice(loopVoice);
+            // The exact entry Alter matched: by handle, or — without one — the first on the key playing the sound, which
+            // is the same search Alter made. Either way one entry goes per turn, so the retry ends.
+            if (loopVoice != 0)
+            {
+                loops.ForgetVoice(loopVoice);
+            }
+            else
+            {
+                loops.Forget(sound.EntityIndex, sound.Channel, sound.Name);
+            }
         }
 
         // **A stop names its sound** (B416): `S_AlterChannel` stops the first channel playing THAT sound on the entity and
